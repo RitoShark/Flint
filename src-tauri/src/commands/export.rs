@@ -183,17 +183,26 @@ pub async fn export_fantome(
         "message": "Creating fantome package..."
     }));
 
-    // Create ModProject for ltk_fantome
-    let mod_project = ModProject {
-        name: slugify(&metadata.name),
-        display_name: metadata.name.clone(),
-        version: metadata.version.clone(),
-        description: metadata.description.clone(),
-        authors: vec![ModProjectAuthor::Name(metadata.author.clone())],
-        license: None,
-        transformers: vec![],
-        layers: ltk_mod_project::default_layers(),
-        thumbnail: None,
+    // Read ModProject from mod.config.json (contains author from project creation)
+    let mod_config_path = path.join("mod.config.json");
+    let mod_project = if mod_config_path.exists() {
+        let config_data = std::fs::read_to_string(&mod_config_path)
+            .map_err(|e| format!("Failed to read mod.config.json: {}", e))?;
+        serde_json::from_str::<ModProject>(&config_data)
+            .map_err(|e| format!("Failed to parse mod.config.json: {}", e))?
+    } else {
+        // Fallback: create from metadata if mod.config.json doesn't exist
+        ModProject {
+            name: slugify(&metadata.name),
+            display_name: metadata.name.clone(),
+            version: metadata.version.clone(),
+            description: metadata.description.clone(),
+            authors: vec![ModProjectAuthor::Name(metadata.author.clone())],
+            license: None,
+            transformers: vec![],
+            layers: ltk_mod_project::default_layers(),
+            thumbnail: None,
+        }
     };
 
     let export_path = path.clone();

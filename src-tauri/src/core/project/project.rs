@@ -75,6 +75,10 @@ pub struct Project {
     #[serde(default = "default_layers")]
     pub layers: Vec<ModProjectLayer>,
     
+    /// Authors of the mod (stored as strings for Clone compatibility)
+    #[serde(default)]
+    pub authors: Vec<String>,
+    
     // ===== Flint-specific fields (from flint.json, populated at runtime) =====
     
     /// Champion internal name (e.g., "Ahri") - Flint specific
@@ -110,6 +114,7 @@ impl Project {
         skin_id: u32,
         league_path: impl Into<PathBuf>,
         project_path: impl Into<PathBuf>,
+        author: Option<String>,
     ) -> Self {
         let now = Utc::now();
         let name_str = name.into();
@@ -122,12 +127,16 @@ impl Project {
             format!("{} Skin {}", champion_str, skin_id)
         };
         
+        // Store author as simple string
+        let authors = author.into_iter().collect::<Vec<_>>();
+        
         Self {
             name: slugify(&name_str),
             display_name: name_str,
             version: "0.1.0".to_string(),
             description: format!("Mod for {} skin {}", champion_str, skin_id),
             layers: default_layers(),
+            authors,
             champion: champion_str,
             skin_id,
             league_path: Some(league_path.into()),
@@ -144,7 +153,7 @@ impl Project {
             display_name: self.display_name.clone(),
             version: self.version.clone(),
             description: self.description.clone(),
-            authors: vec![],
+            authors: self.authors.iter().map(|a| ModProjectAuthor::Name(a.clone())).collect(),
             license: None,
             transformers: vec![],
             layers: self.layers.clone(),
@@ -203,12 +212,14 @@ impl Project {
 /// * `skin_id` - Skin ID
 /// * `league_path` - Path to League installation
 /// * `output_dir` - Directory where project folder will be created
+/// * `author` - Optional author/creator name
 pub fn create_project(
     name: &str,
     champion: &str,
     skin_id: u32,
     league_path: &Path,
     output_dir: &Path,
+    author: Option<String>,
 ) -> Result<Project> {
     tracing::info!("Creating project '{}' for {} skin {}", name, champion, skin_id);
 
@@ -252,6 +263,7 @@ pub fn create_project(
         skin_id,
         league_path,
         &project_path,
+        author,
     );
 
     // Create directories

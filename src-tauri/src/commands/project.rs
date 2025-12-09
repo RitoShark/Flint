@@ -85,9 +85,10 @@ pub async fn create_project(
     let champion_clone = champion.clone();
     let league_clone = league_path_buf.clone();
     let output_clone = output_path_buf.clone();
+    let creator_clone = creator_name.clone();
 
     let project = tokio::task::spawn_blocking(move || {
-        core_create_project(&name_clone, &champion_clone, skin_id, &league_clone, &output_clone)
+        core_create_project(&name_clone, &champion_clone, skin_id, &league_clone, &output_clone, creator_clone)
     })
     .await
     .map_err(|e| format!("Task failed: {}", e))?
