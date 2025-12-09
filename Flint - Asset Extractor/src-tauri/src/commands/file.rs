@@ -1,8 +1,5 @@
-//! Tauri commands for file operations
-//!
-//! These commands provide file reading and format conversion for the preview system.
-
 use base64::{engine::general_purpose::STANDARD, Engine};
+use ltk_file::LeagueFileKind;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -28,43 +25,58 @@ pub struct DecodedImage {
     pub format: String,
 }
 
-/// Detect file type from extension and magic bytes
+/// Detect file type from extension and magic bytes using league-toolkit's LeagueFileKind
 fn detect_file_type(path: &Path, data: &[u8]) -> (String, String) {
     let extension = path
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
 
-    // Check magic bytes for common formats
-    let file_type = if data.len() >= 4 {
-        match &data[0..4] {
-            // DDS magic: "DDS "
-            [0x44, 0x44, 0x53, 0x20] => "image/dds".to_string(),
-            // TEX magic: "TEX\0" (League's proprietary texture format)
-            [0x54, 0x45, 0x58, 0x00] => "image/tex".to_string(),
-            // PNG magic
-            [0x89, 0x50, 0x4E, 0x47] => "image/png".to_string(),
-            // BIN/Property file magic: "PROP" or "PTCH"
-            [0x50, 0x52, 0x4F, 0x50] | [0x50, 0x54, 0x43, 0x48] => "application/x-bin".to_string(),
-            _ => {
-                // Fallback to extension-based detection
-                match extension.as_str() {
-                    "dds" => "image/dds".to_string(),
-                    "tex" => "image/tex".to_string(),
-                    "png" => "image/png".to_string(),
-                    "jpg" | "jpeg" => "image/jpeg".to_string(),
-                    "bin" => "application/x-bin".to_string(),
-                    "py" => "text/x-python".to_string(),
-                    "json" => "application/json".to_string(),
-                    "txt" => "text/plain".to_string(),
-                    "wav" | "ogg" | "mp3" => "audio".to_string(),
-                    "skn" | "skl" | "anm" => "model".to_string(),
-                    _ => "application/octet-stream".to_string(),
-                }
+    // Use league-toolkit's file identification for known LoL formats
+    let ltk_kind = LeagueFileKind::identify_from_bytes(data);
+
+    // Map LeagueFileKind to MIME-like types
+    let file_type = match ltk_kind {
+        LeagueFileKind::PropertyBin | LeagueFileKind::PropertyBinOverride => {
+            "application/x-bin".to_string()
+        }
+        LeagueFileKind::Texture => "image/tex".to_string(),
+        LeagueFileKind::TextureDds => "image/dds".to_string(),
+        LeagueFileKind::SimpleSkin => "model/x-lol-skn".to_string(),
+        LeagueFileKind::Skeleton => "model/x-lol-skl".to_string(),
+        LeagueFileKind::Animation => "animation/x-lol-anm".to_string(),
+        LeagueFileKind::Png => "image/png".to_string(),
+        LeagueFileKind::Jpeg => "image/jpeg".to_string(),
+        LeagueFileKind::WwiseBank => "audio/x-wwise-bnk".to_string(),
+        LeagueFileKind::WwisePackage => "audio/x-wwise-wpk".to_string(),
+        LeagueFileKind::MapGeometry => "model/x-lol-mapgeo".to_string(),
+        LeagueFileKind::WorldGeometry => "model/x-lol-wgeo".to_string(),
+        LeagueFileKind::StaticMeshAscii => "model/x-lol-sco".to_string(),
+        LeagueFileKind::StaticMeshBinary => "model/x-lol-scb".to_string(),
+        LeagueFileKind::RiotStringTable => "text/x-stringtable".to_string(),
+        LeagueFileKind::LightGrid => "application/x-lightgrid".to_string(),
+        LeagueFileKind::Preload => "application/x-preload".to_string(),
+        LeagueFileKind::LuaObj => "application/x-luaobj".to_string(),
+        LeagueFileKind::Tga => "image/tga".to_string(),
+        LeagueFileKind::Svg => "image/svg+xml".to_string(),
+        LeagueFileKind::Unknown => {
+            // Fall back to extension-based detection for unknown formats
+            match extension.as_str() {
+                "dds" => "image/dds".to_string(),
+                "tex" => "image/tex".to_string(),
+                "png" => "image/png".to_string(),
+                "jpg" | "jpeg" => "image/jpeg".to_string(),
+                "bin" => "application/x-bin".to_string(),
+                "py" | "ritobin" => "text/x-python".to_string(),
+                "json" => "application/json".to_string(),
+                "txt" => "text/plain".to_string(),
+                "lua" => "text/x-lua".to_string(),
+                "xml" => "application/xml".to_string(),
+                "wav" | "ogg" | "mp3" => "audio".to_string(),
+                "skn" | "skl" | "anm" => "model".to_string(),
+                _ => "application/octet-stream".to_string(),
             }
         }
-    } else {
-        "application/octet-stream".to_string()
     };
 
     (file_type, extension)

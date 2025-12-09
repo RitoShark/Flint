@@ -10,6 +10,7 @@ pub use ltk_bridge::{
     tree_to_text,
     text_to_tree,
     HashMapProvider,
+    MAX_BIN_SIZE,
 };
 
 // Re-export ltk_meta types directly (allow unused for external usage)

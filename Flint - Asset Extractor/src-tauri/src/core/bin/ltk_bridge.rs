@@ -6,6 +6,9 @@
 use std::io::Cursor;
 use ltk_meta::{BinTree, BinTreeObject, BinProperty, BinPropertyKind, PropertyValueEnum};
 
+/// Maximum allowed BIN file size (50MB - no legitimate BIN should be larger)
+pub const MAX_BIN_SIZE: usize = 50 * 1024 * 1024;
+
 /// Error type for BIN operations
 #[derive(Debug)]
 pub struct BinError(pub String);
@@ -28,16 +31,95 @@ pub type Result<T> = std::result::Result<T, BinError>;
 ///
 /// # Returns
 /// A `BinTree` structure containing the parsed data
+///
+/// # Safety
+/// This function validates file size and magic bytes to prevent memory issues
+/// from corrupt files. Files larger than 50MB are rejected.
 pub fn read_bin(data: &[u8]) -> Result<BinTree> {
+    // DEFENSIVE: Log file info before parsing
+    tracing::debug!(
+        "read_bin: size={} bytes, magic={:02x?}",
+        data.len(),
+        &data[..std::cmp::min(8, data.len())]
+    );
+
+    // Reject obviously corrupt files (too large)
+    if data.len() > MAX_BIN_SIZE {
+        tracing::error!(
+            "BIN file rejected: {} bytes exceeds max size of {} bytes",
+            data.len(),
+            MAX_BIN_SIZE
+        );
+        return Err(BinError(format!(
+            "BIN file too large ({} bytes, max {} bytes) - likely corrupt",
+            data.len(),
+            MAX_BIN_SIZE
+        )));
+    }
+
+    // Validate BIN magic bytes (PROP or PTCH)
+    if data.len() >= 4 {
+        let magic = &data[0..4];
+        if magic != b"PROP" && magic != b"PTCH" {
+            tracing::error!(
+                "Invalid BIN magic bytes: {:02x?} (expected PROP or PTCH)",
+                magic
+            );
+            return Err(BinError(format!(
+                "Invalid BIN magic bytes: {:02x?} (expected PROP or PTCH)",
+                magic
+            )));
+        }
+    } else {
+        tracing::error!("BIN file too small: {} bytes (minimum 4 bytes for magic)", data.len());
+        return Err(BinError(format!(
+            "BIN file too small ({} bytes, minimum 4 bytes for magic)",
+            data.len()
+        )));
+    }
+
     // catch_unwind to handle OOM panics from ltk_meta
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // CRITICAL: Print right before the dangerous call - flush to ensure visibility before crash
+        use std::io::Write;
+        println!("[ltk_bridge] Calling BinTree::from_reader ({} bytes)...", data.len());
+        let _ = std::io::stdout().flush();
+        
         let mut cursor = Cursor::new(data);
         BinTree::from_reader(&mut cursor)
     }));
 
     match result {
-        Ok(res) => res.map_err(|e| BinError(format!("Failed to parse bin: {}", e))),
-        Err(_) => Err(BinError("Parser panicked (likely OOM or stack overflow)".to_string())),
+        Ok(Ok(tree)) => {
+            tracing::debug!(
+                "Successfully parsed BIN: {} objects, {} dependencies",
+                tree.objects.len(),
+                tree.dependencies.len()
+            );
+            Ok(tree)
+        }
+        Ok(Err(e)) => {
+            tracing::error!("BIN parse failed: {} (file was {} bytes)", e, data.len());
+            Err(BinError(format!("Failed to parse bin: {}", e)))
+        }
+        Err(panic_info) => {
+            let panic_msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "unknown panic".to_string()
+            };
+            tracing::error!(
+                "CRITICAL: Parser panicked on {} byte file: {}",
+                data.len(),
+                panic_msg
+            );
+            Err(BinError(format!(
+                "Parser panicked (likely OOM or stack overflow): {}",
+                panic_msg
+            )))
+        }
     }
 }
 

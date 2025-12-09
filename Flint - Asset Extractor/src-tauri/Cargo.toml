@@ -46,6 +46,9 @@ league-toolkit = { git = "https://github.com/LeagueToolkit/league-toolkit", feat
 ltk_meta = { git = "https://github.com/LeagueToolkit/league-toolkit", rev = "77bf94f0dbb7e396f61348f531989abda296a1ae", features = ["serde"] }
 ltk_ritobin = { git = "https://github.com/LeagueToolkit/league-toolkit", rev = "77bf94f0dbb7e396f61348f531989abda296a1ae" }
 
+# League Toolkit file type detection
+ltk_file = { git = "https://github.com/LeagueToolkit/league-toolkit", rev = "77bf94f0dbb7e396f61348f531989abda296a1ae" }
+
 # Standard directories
 directories = "5.0"
 

@@ -334,8 +334,23 @@ pub async fn preconvert_project_bins(
         .filter(|e| {
             if let Ok(rel_path) = e.path().strip_prefix(&path) {
                 let rel_str = rel_path.to_string_lossy();
-                if classify_bin(&rel_str) == BinCategory::Ignore {
+                let category = classify_bin(&rel_str);
+                
+                // Skip Ignore category (corrupt/recursive names)
+                if category == BinCategory::Ignore {
                     tracing::warn!("Skipping suspicious BIN file: {}", rel_str);
+                    return false;
+                }
+                
+                // Skip Animation BINs - they shouldn't be pre-converted and can have corrupt metadata
+                if category == BinCategory::Animation {
+                    tracing::debug!("Skipping animation BIN: {}", rel_str);
+                    return false;
+                }
+                
+                // Skip ChampionRoot BINs - these reference game data and shouldn't be converted
+                if category == BinCategory::ChampionRoot {
+                    tracing::debug!("Skipping champion root BIN: {}", rel_str);
                     return false;
                 }
             }
@@ -388,6 +403,9 @@ pub async fn preconvert_project_bins(
         
         // Convert the file
         let bin_path_str = bin_path.to_string_lossy().to_string();
+        
+        tracing::debug!("Starting conversion for: {}", bin_path.display());
+        
         match convert_bin_file(&bin_path_str).await {
             Ok(_) => {
                 converted += 1;
@@ -414,23 +432,68 @@ pub async fn preconvert_project_bins(
 /// Helper function to convert a single BIN file to ritobin
 async fn convert_bin_file(bin_path: &str) -> Result<(), String> {
     use std::fs;
-    use crate::core::bin::{read_bin_ltk, tree_to_text};
+    use std::io::Write;
+    use crate::core::bin::{read_bin_ltk, tree_to_text, MAX_BIN_SIZE};
+    
+    // CRITICAL: Use println + flush to GUARANTEE visibility before crash
+    println!("[BIN] Converting: {}", bin_path);
+    let _ = std::io::stdout().flush();
+    
+    // Check file size before reading to avoid loading huge corrupt files
+    let metadata = fs::metadata(bin_path)
+        .map_err(|e| format!("Failed to get file metadata for '{}': {}", bin_path, e))?;
+    
+    let file_size = metadata.len() as usize;
+    println!("[BIN] Size: {} bytes", file_size);
+    let _ = std::io::stdout().flush();
+    
+    // Reject suspiciously large files (using the same limit as ltk_bridge)
+    if file_size > MAX_BIN_SIZE {
+        println!("[BIN] REJECTED: File too large!");
+        return Err(format!(
+            "BIN file too large ({} bytes, max {} bytes) - likely corrupt, skipping: {}",
+            file_size, MAX_BIN_SIZE, bin_path
+        ));
+    }
     
     let data = fs::read(bin_path)
-        .map_err(|e| format!("Failed to read file: {}", e))?;
+        .map_err(|e| format!("Failed to read file '{}': {}", bin_path, e))?;
 
+    // Log magic bytes for debugging - ALWAYS visible
+    if data.len() >= 16 {
+        println!(
+            "[BIN] First 16 bytes: {:02x?}",
+            &data[..16]
+        );
+    } else {
+        println!("[BIN] File too small: only {} bytes", data.len());
+    }
+    let _ = std::io::stdout().flush();
+
+    println!("[BIN] Parsing...");
+    let _ = std::io::stdout().flush();
+    
     let bin = read_bin_ltk(&data)
-        .map_err(|e| format!("Failed to parse bin file: {}", e))?;
+        .map_err(|e| format!("Failed to parse bin file '{}': {}", bin_path, e))?;
+
+    println!(
+        "[BIN] Parsed OK: {} objects, {} deps",
+        bin.objects.len(),
+        bin.dependencies.len()
+    );
+    let _ = std::io::stdout().flush();
 
     // NOTE: Hash lookup for name resolution is not implemented yet
     // The ltk_ritobin will output hex hashes instead of resolved names
 
     let text = tree_to_text(&bin)
-        .map_err(|e| format!("Failed to convert to text: {}", e))?;
+        .map_err(|e| format!("Failed to convert to text for '{}': {}", bin_path, e))?;
 
     let ritobin_path = format!("{}.ritobin", bin_path);
     fs::write(&ritobin_path, &text)
-        .map_err(|e| format!("Failed to write ritobin: {}", e))?;
+        .map_err(|e| format!("Failed to write ritobin '{}': {}", ritobin_path, e))?;
+
+    println!("[BIN] Done: {}", ritobin_path);
 
     Ok(())
 }
