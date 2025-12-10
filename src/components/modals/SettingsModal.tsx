@@ -6,6 +6,7 @@ import React, { useState, useEffect } from 'react';
 import { useAppState } from '../../lib/state';
 import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
+import { getIcon } from '../../lib/fileIcons';
 
 export const SettingsModal: React.FC = () => {
     const { state, dispatch, closeModal, showToast } = useAppState();
@@ -96,7 +97,7 @@ export const SettingsModal: React.FC = () => {
                             <input
                                 type="text"
                                 className="form-input"
-                                placeholder="C:\Riot Games\League of Legends\Game"
+                                placeholder="C:\Riot Games\League of Legends"
                                 value={leaguePath}
                                 onChange={(e) => setLeaguePath(e.target.value)}
                             />
@@ -110,7 +111,8 @@ export const SettingsModal: React.FC = () => {
                             onClick={handleDetectLeague}
                             disabled={isValidating}
                         >
-                            🔍 Auto-detect
+                            <span dangerouslySetInnerHTML={{ __html: getIcon('search') }} />
+                            <span>Auto-detect</span>
                         </button>
                     </div>
 
@@ -127,10 +129,18 @@ export const SettingsModal: React.FC = () => {
 
                     <div className="form-group">
                         <label className="form-label">Hash Status</label>
-                        <div style={{ color: 'var(--text-secondary)' }}>
-                            {state.hashesLoaded
-                                ? `✓ ${state.hashCount.toLocaleString()} hashes loaded`
-                                : '⚠ Hashes not loaded'}
+                        <div style={{ color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {state.hashesLoaded ? (
+                                <>
+                                    <span dangerouslySetInnerHTML={{ __html: getIcon('success') }} />
+                                    <span>{state.hashCount.toLocaleString()} hashes loaded</span>
+                                </>
+                            ) : (
+                                <>
+                                    <span dangerouslySetInnerHTML={{ __html: getIcon('warning') }} />
+                                    <span>Hashes not loaded</span>
+                                </>
+                            )}
                         </div>
                     </div>
                 </div>

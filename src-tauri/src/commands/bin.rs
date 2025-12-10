@@ -66,7 +66,7 @@ pub async fn convert_bin_to_text(
 
     // Get hashtable for resolution
     let hashtable_lock = state.0.lock();
-    let hashtable = hashtable_lock.as_ref();
+    let hashtable = hashtable_lock.as_ref().map(|h| h.as_ref());
 
     // Convert to text format
     let text = bin_to_text(&bin, hashtable)
@@ -125,7 +125,7 @@ pub async fn convert_bin_to_json(
 
     // Get hashtable for resolution
     let hashtable_lock = state.0.lock();
-    let hashtable = hashtable_lock.as_ref();
+    let hashtable = hashtable_lock.as_ref().map(|h| h.as_ref());
 
     // Convert to JSON format
     let json = bin_to_json(&bin, hashtable)
@@ -182,7 +182,7 @@ pub async fn convert_text_to_bin(
 
     // Get hashtable for conversion
     let hashtable_lock = state.0.lock();
-    let hashtable = hashtable_lock.as_ref();
+    let hashtable = hashtable_lock.as_ref().map(|h| h.as_ref());
 
     // Parse text to bin
     let bin = text_to_bin(&text, hashtable)
@@ -246,7 +246,7 @@ pub async fn convert_json_to_bin(
 
     // Get hashtable for conversion
     let hashtable_lock = state.0.lock();
-    let hashtable = hashtable_lock.as_ref();
+    let hashtable = hashtable_lock.as_ref().map(|h| h.as_ref());
 
     // Parse JSON to bin
     let bin = json_to_bin(&json, hashtable)

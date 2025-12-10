@@ -40,7 +40,7 @@
   - Containers (List, Map, Optional)
 
 ### 🖼️ **Asset Preview**
-- **Textures**: DDS and TEX file decoding (BC1, BC3, ETC formats) via `texture2ddecoder`
+- **Textures**: DDS and TEX file decoding (BC1, BC3, ETC formats) via `ltk_texture`
 - **Hex Viewer**: Binary file inspection with offset display
 - **Text**: Syntax-highlighted text file viewing
 - **Images**: PNG/JPG preview with base64 encoding
@@ -170,7 +170,7 @@ Flint supports custom color themes! Create your own theme by copying `src/themes
 | **Backend** | Rust, Tauri 2.0 |
 | **BIN Parsing** | `ltk_ritobin`, `ltk_meta` (LeagueToolkit) |
 | **WAD Handling** | `league-toolkit` |
-| **Texture Decoding** | `texture2ddecoder`, `image-rs`, `ddsfile` |
+| **Texture Decoding** | `ltk_texture` (LeagueToolkit) |
 | **Mod Export** | `ltk_fantome`, `ltk_modpkg`, `ltk_mod_project` |
 | **Hash Resolution** | CommunityDragon hashtables, `xxhash-rust` |
 
@@ -183,7 +183,7 @@ Flint supports custom color themes! Create your own theme by copying `src/themes
 - `league-toolkit` - WAD archive operations
 - `ltk_ritobin` / `ltk_meta` - BIN file parsing
 - `ltk_fantome` / `ltk_modpkg` - Mod format export
-- `texture2ddecoder` - GPU texture decompression
+- `ltk_texture` - DDS/TEX texture decoding (LeagueToolkit)
 - `reqwest` - HTTP client for hash downloading
 - `tokio` - Async runtime
 

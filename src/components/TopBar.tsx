@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAppState } from '../lib/state';
+import { getIcon } from '../lib/fileIcons';
 
 /**
  * Flint flame logo SVG
@@ -78,7 +79,7 @@ export const TopBar: React.FC = () => {
 
             {/* Project name */}
             <div className="topbar__project">
-                <span className="topbar__project-icon">📁</span>
+                <span className="topbar__project-icon" dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
                 <span className="topbar__project-name">{projectName}</span>
             </div>
 
@@ -92,9 +93,8 @@ export const TopBar: React.FC = () => {
                     className="btn btn--ghost btn--icon"
                     title="Settings"
                     onClick={() => openModal('settings')}
-                >
-                    ⚙️
-                </button>
+                    dangerouslySetInnerHTML={{ __html: getIcon('settings') }}
+                />
 
                 {/* Export dropdown (only visible when project is open) */}
                 {state.currentProject && (
@@ -110,17 +110,20 @@ export const TopBar: React.FC = () => {
                                 className="dropdown__item"
                                 onClick={() => handleExportAs('fantome')}
                             >
-                                📦 Export as .fantome
+                                <span dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
+                                <span>Export as .fantome</span>
                             </button>
                             <button
                                 className="dropdown__item"
                                 onClick={() => handleExportAs('modpkg')}
                             >
-                                📦 Export as .modpkg
+                                <span dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
+                                <span>Export as .modpkg</span>
                             </button>
                             <div className="dropdown__divider" />
                             <button className="dropdown__item">
-                                ⚙️ Export Settings...
+                                <span dangerouslySetInnerHTML={{ __html: getIcon('settings') }} />
+                                <span>Export Settings...</span>
                             </button>
                         </div>
                     </div>

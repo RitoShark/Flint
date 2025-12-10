@@ -82,11 +82,11 @@ pub struct Project {
     // ===== Flint-specific fields (from flint.json, populated at runtime) =====
     
     /// Champion internal name (e.g., "Ahri") - Flint specific
-    #[serde(skip)]
+    #[serde(default)]
     pub champion: String,
     
     /// Skin ID (0 for base skin) - Flint specific
-    #[serde(skip)]
+    #[serde(default)]
     pub skin_id: u32,
     
     /// Path to League of Legends installation - Flint specific
@@ -94,7 +94,7 @@ pub struct Project {
     pub league_path: Option<PathBuf>,
     
     /// Path to the project directory
-    #[serde(skip)]
+    #[serde(default)]
     pub project_path: PathBuf,
     
     /// When the project was created

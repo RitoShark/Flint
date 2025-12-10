@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { AppProvider } from './lib/state';
 import { App } from './components/App';
 
@@ -19,6 +20,12 @@ if (!container) {
     throw new Error('[Flint] Could not find #app element');
 }
 
+// Remove loading screen
+const loadingScreen = document.getElementById('loading-screen');
+if (loadingScreen) {
+    loadingScreen.remove();
+}
+
 const root = createRoot(container);
 root.render(
     React.createElement(
@@ -27,3 +34,18 @@ root.render(
         React.createElement(AppProvider, null, React.createElement(App))
     )
 );
+
+// Show window after React has mounted and painted
+// Use requestAnimationFrame to ensure the DOM is ready
+requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+        getCurrentWindow()
+            .show()
+            .then(() => {
+                console.log('[Flint] Window shown successfully');
+            })
+            .catch((err) => {
+                console.error('[Flint] Failed to show window:', err);
+            });
+    });
+});

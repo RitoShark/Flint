@@ -68,7 +68,7 @@ pub async fn get_wad_chunks(
     
     // Get hashtable for path resolution
     let hashtable_lock = state.0.lock();
-    let hashtable = hashtable_lock.as_ref();
+    let hashtable = hashtable_lock.as_ref().map(|h| h.as_ref());
     
     let mut chunk_infos = Vec::new();
     
@@ -120,7 +120,7 @@ pub async fn extract_wad(
     
     // Get hashtable for path resolution
     let hashtable_lock = state.0.lock();
-    let hashtable = hashtable_lock.as_ref();
+    let hashtable = hashtable_lock.as_ref().map(|h| h.as_ref());
     
     let mut extracted_count = 0;
     let mut failed_count = 0;

@@ -4,15 +4,11 @@
 
 import React from 'react';
 import { useAppState } from '../lib/state';
+import { getToastIcon } from '../lib/fileIcons';
 
 const ToastIcon: React.FC<{ type: string }> = ({ type }) => {
-    const icons: Record<string, string> = {
-        info: 'ℹ️',
-        success: '✓',
-        warning: '⚠',
-        error: '✕',
-    };
-    return <span>{icons[type] || 'ℹ️'}</span>;
+    const iconHtml = getToastIcon(type as 'info' | 'success' | 'warning' | 'error');
+    return <span dangerouslySetInnerHTML={{ __html: iconHtml }} />;
 };
 
 export const ToastContainer: React.FC = () => {

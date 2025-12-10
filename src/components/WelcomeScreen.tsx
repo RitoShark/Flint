@@ -7,6 +7,7 @@ import { useAppState } from '../lib/state';
 import { formatRelativeTime } from '../lib/utils';
 import * as api from '../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
+import { getIcon } from '../lib/fileIcons';
 import type { RecentProject } from '../lib/types';
 
 /**
@@ -102,10 +103,12 @@ export const WelcomeScreen: React.FC = () => {
 
             <div className="welcome__actions">
                 <button className="btn btn--primary" onClick={() => openModal('newProject')}>
-                    ➕ Create New Project
+                    <span dangerouslySetInnerHTML={{ __html: getIcon('plus') }} />
+                    <span>Create New Project</span>
                 </button>
                 <button className="btn btn--secondary" onClick={handleOpenProject}>
-                    📂 Open Existing Project
+                    <span dangerouslySetInnerHTML={{ __html: getIcon('folderOpen2') }} />
+                    <span>Open Existing Project</span>
                 </button>
             </div>
 
@@ -118,7 +121,7 @@ export const WelcomeScreen: React.FC = () => {
                             className="welcome__recent-item"
                             onClick={() => openRecentProject(project.path)}
                         >
-                            <span>📁</span>
+                            <span dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
                             <span className="welcome__recent-name">
                                 {project.champion} - {project.name}
                             </span>

@@ -6,9 +6,10 @@ import React from 'react';
 import { useAppState } from '../lib/state';
 import { WelcomeScreen } from './WelcomeScreen';
 import { PreviewPanel } from './PreviewPanel';
+import { getIcon, icons } from '../lib/fileIcons';
 
 interface QuickActionCardProps {
-    icon: string;
+    icon: keyof typeof icons;
     title: string;
     description: string;
 }
@@ -31,7 +32,7 @@ const QuickActionCard: React.FC<QuickActionCardProps> = ({ icon, title, descript
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
         >
-            <div style={{ fontSize: '32px', marginBottom: '12px' }}>{icon}</div>
+            <div style={{ marginBottom: '12px' }} dangerouslySetInnerHTML={{ __html: getIcon(icon) }} />
             <div style={{ fontWeight: 600, marginBottom: '4px' }}>{title}</div>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{description}</div>
         </div>
@@ -57,10 +58,10 @@ const ProjectView: React.FC = () => {
                     gap: '16px',
                 }}
             >
-                <QuickActionCard icon="🖼️" title="Textures" description="View and replace textures" />
-                <QuickActionCard icon="📄" title="BIN Files" description="Edit particle and data files" />
-                <QuickActionCard icon="🔊" title="Audio" description="Preview and replace sounds" />
-                <QuickActionCard icon="📦" title="Export" description="Build your mod package" />
+                <QuickActionCard icon="picture" title="Textures" description="View and replace textures" />
+                <QuickActionCard icon="bin" title="BIN Files" description="Edit particle and data files" />
+                <QuickActionCard icon="file" title="Audio" description="Preview and replace sounds" />
+                <QuickActionCard icon="package" title="Export" description="Build your mod package" />
             </div>
         </div>
     );

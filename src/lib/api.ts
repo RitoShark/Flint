@@ -128,8 +128,19 @@ export async function detectLeague(): Promise<{ path: string; source: string }> 
     return invokeCommand('detect_league');
 }
 
-export async function validateLeague(path: string): Promise<{ valid: boolean; version: string | null }> {
-    return invokeCommand('validate_league', { path });
+interface LeagueInstallation {
+    path: string;
+    game_path: string;
+    auto_detected: boolean;
+}
+
+export async function validateLeague(path: string): Promise<{ valid: boolean; path: string | null }> {
+    try {
+        const result = await invokeCommand<LeagueInstallation>('validate_league', { path });
+        return { valid: true, path: result.path };
+    } catch {
+        return { valid: false, path: null };
+    }
 }
 
 // =============================================================================
@@ -167,7 +178,7 @@ interface CreateProjectParams {
     creatorName?: string;
 }
 
-export async function createProject(params: CreateProjectParams): Promise<{ path: string }> {
+export async function createProject(params: CreateProjectParams): Promise<Project> {
     return invokeCommand('create_project', {
         name: params.name,
         champion: params.champion,
@@ -186,8 +197,66 @@ export async function saveProject(project: Project): Promise<void> {
     return invokeCommand('save_project', { project });
 }
 
+// Backend file tree entry format
+interface BackendFileEntry {
+    path: string;
+    size?: number;
+    children?: Record<string, BackendFileEntry>;
+}
+
+/**
+ * Transform backend file tree format to frontend FileTreeNode format
+ * Backend: { "name": { path, children: {...} } }
+ * Frontend: { name, path, isDirectory, children: [...] }
+ */
+function transformFileTree(
+    backendTree: Record<string, BackendFileEntry>,
+    rootName = 'Project'
+): FileTreeNode {
+    const transformNode = (name: string, entry: BackendFileEntry): FileTreeNode => {
+        const isDirectory = entry.children !== undefined;
+        const node: FileTreeNode = {
+            name,
+            path: entry.path,
+            isDirectory,
+        };
+
+        if (isDirectory && entry.children) {
+            node.children = Object.entries(entry.children)
+                .map(([childName, childEntry]) => transformNode(childName, childEntry))
+                .sort((a, b) => {
+                    // Directories first, then alphabetically
+                    if (a.isDirectory !== b.isDirectory) {
+                        return a.isDirectory ? -1 : 1;
+                    }
+                    return a.name.localeCompare(b.name);
+                });
+        }
+
+        return node;
+    };
+
+    // Create root node with all entries as children
+    const children = Object.entries(backendTree)
+        .map(([name, entry]) => transformNode(name, entry))
+        .sort((a, b) => {
+            if (a.isDirectory !== b.isDirectory) {
+                return a.isDirectory ? -1 : 1;
+            }
+            return a.name.localeCompare(b.name);
+        });
+
+    return {
+        name: rootName,
+        path: '.',
+        isDirectory: true,
+        children,
+    };
+}
+
 export async function listProjectFiles(projectPath: string): Promise<FileTreeNode> {
-    return invokeCommand('list_project_files', { projectPath });
+    const rawTree = await invokeCommand<Record<string, BackendFileEntry>>('list_project_files', { projectPath });
+    return transformFileTree(rawTree, 'Project');
 }
 
 export async function preconvertProjectBins(projectPath: string): Promise<number> {
@@ -290,12 +359,12 @@ interface DecodedTexture {
     format: string;
 }
 
+/**
+ * Decode DDS or TEX texture file to PNG
+ * Despite the name, this handles both DDS and TEX formats
+ */
 export async function decodeDdsToPng(path: string): Promise<DecodedTexture> {
     return invokeCommand('decode_dds_to_png', { path });
-}
-
-export async function decodeTextureToPng(path: string): Promise<DecodedTexture> {
-    return invokeCommand('decode_texture_to_png', { path });
 }
 
 export async function readTextFile(path: string): Promise<string> {

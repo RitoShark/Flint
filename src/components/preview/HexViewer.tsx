@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect } from 'react';
 import * as api from '../../lib/api';
+import { getIcon } from '../../lib/fileIcons';
 
 interface HexViewerProps {
     filePath: string;
@@ -54,7 +55,7 @@ export const HexViewer: React.FC<HexViewerProps> = ({ filePath }) => {
     if (error) {
         return (
             <div className="hex-viewer__error">
-                <span>⚠️</span>
+                <span dangerouslySetInnerHTML={{ __html: getIcon('warning') }} />
                 <span>{error}</span>
             </div>
         );

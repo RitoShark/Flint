@@ -4,7 +4,7 @@
 
 import React, { useState, useMemo, useCallback, CSSProperties } from 'react';
 import { useAppState } from '../lib/state';
-import { getFileIcon } from '../lib/utils';
+import { getFileIcon, getExpanderIcon, getIcon } from '../lib/fileIcons';
 import * as api from '../lib/api';
 import type { FileTreeNode } from '../lib/types';
 
@@ -103,6 +103,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
     };
 
     const icon = getFileIcon(node.name, node.isDirectory, isExpanded);
+    const expanderIcon = getExpanderIcon(isExpanded);
     const childCount = node.children?.length || 0;
 
     return (
@@ -113,13 +114,17 @@ const TreeNode: React.FC<TreeNodeProps> = ({
                 onClick={handleClick}
             >
                 {node.isDirectory ? (
-                    <span className={`file-tree__expander ${isExpanded ? 'file-tree__expander--expanded' : ''}`}>
-                        ▸
-                    </span>
+                    <span
+                        className="file-tree__expander"
+                        dangerouslySetInnerHTML={{ __html: expanderIcon }}
+                    />
                 ) : (
-                    <span className="file-tree__expander" style={{ visibility: 'hidden' }}>▸</span>
+                    <span className="file-tree__expander" style={{ visibility: 'hidden' }} />
                 )}
-                <span className="file-tree__icon">{icon}</span>
+                <span
+                    className="file-tree__icon"
+                    dangerouslySetInnerHTML={{ __html: icon }}
+                />
                 <span className="file-tree__name">{node.name}</span>
                 {node.isDirectory && childCount > 0 && (
                     <span className="file-tree__count">{childCount}</span>
@@ -177,9 +182,8 @@ const ProjectsPanel: React.FC = () => {
                     className="btn btn--ghost btn--small"
                     title="New Project"
                     onClick={() => openModal('newProject')}
-                >
-                    ➕
-                </button>
+                    dangerouslySetInnerHTML={{ __html: getIcon('plus') }}
+                />
             </div>
             <div className="projects-panel__list">
                 {state.recentProjects.length === 0 ? (
@@ -196,7 +200,10 @@ const ProjectsPanel: React.FC = () => {
                             className="projects-panel__item"
                             onClick={() => handleOpenProject(project.path)}
                         >
-                            <span className="projects-panel__icon">📁</span>
+                            <span
+                                className="projects-panel__icon"
+                                dangerouslySetInnerHTML={{ __html: getIcon('folder') }}
+                            />
                             <div className="projects-panel__info">
                                 <div className="projects-panel__name">
                                     {project.champion} - {project.name}

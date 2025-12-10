@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAppState } from '../lib/state';
 import * as api from '../lib/api';
+import { getIcon } from '../lib/fileIcons';
 import { ImagePreview } from './preview/ImagePreview';
 import { HexViewer } from './preview/HexViewer';
 import { TextPreview } from './preview/TextPreview';
@@ -21,14 +22,20 @@ interface FileInfo {
 
 const EmptyState: React.FC = () => (
     <div className="preview-panel__empty">
-        <div className="preview-panel__empty-icon">📄</div>
+        <div
+            className="preview-panel__empty-icon"
+            dangerouslySetInnerHTML={{ __html: getIcon('document') }}
+        />
         <div className="preview-panel__empty-text">Select a file to preview</div>
     </div>
 );
 
 const ErrorState: React.FC<{ message: string }> = ({ message }) => (
     <div className="preview-panel__error">
-        <span className="error-icon">⚠️</span>
+        <span
+            className="error-icon"
+            dangerouslySetInnerHTML={{ __html: getIcon('warning') }}
+        />
         <span>{message}</span>
     </div>
 );

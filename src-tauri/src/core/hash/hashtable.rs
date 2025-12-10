@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use rayon::prelude::*;
 use crate::error::{Error, Result};
 
 #[derive(Clone)]
@@ -17,6 +18,10 @@ impl Hashtable {
     /// 
     /// # Returns
     /// * `Result<Self>` - A new Hashtable with all mappings loaded
+    /// 
+    /// # Performance
+    /// Uses parallel file loading with rayon for faster initialization.
+    /// Pre-allocates HashMap capacity for ~4 million entries (typical hash file size).
     pub fn from_directory(dir: impl AsRef<Path>) -> Result<Self> {
         let dir_path = dir.as_ref().to_path_buf();
         
@@ -35,31 +40,73 @@ impl Hashtable {
             )));
         }
         
-        let mut mappings = HashMap::new();
+        // Collect all .txt file paths first
+        let txt_files: Vec<PathBuf> = fs::read_dir(&dir_path)?
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.is_file() && p.extension().and_then(|s| s.to_str()) == Some("txt"))
+            .collect();
         
-        // Read all .txt files in the directory
-        let entries = fs::read_dir(&dir_path)?;
+        tracing::debug!("Loading {} hash files in parallel", txt_files.len());
         
-        for entry in entries {
-            let entry = entry?;
-            let path = entry.path();
-            
-            // Only process .txt files
-            if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("txt") {
-                Self::load_hash_file(&path, &mut mappings)?;
-            }
+        // Load files in parallel using rayon
+        let partial_maps: Vec<HashMap<u64, String>> = txt_files
+            .par_iter()
+            .filter_map(|path| {
+                match Self::load_hash_file_to_map(path) {
+                    Ok(map) => {
+                        tracing::trace!("Loaded {} hashes from {:?}", map.len(), path.file_name());
+                        Some(map)
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to load hash file {:?}: {}", path, e);
+                        None
+                    }
+                }
+            })
+            .collect();
+        
+        // Pre-allocate HashMap with estimated capacity (~4 million entries typical)
+        let total_estimate: usize = partial_maps.iter().map(|m| m.len()).sum();
+        let mut mappings = HashMap::with_capacity(total_estimate);
+        
+        // Merge all partial maps
+        for partial in partial_maps {
+            mappings.extend(partial);
         }
+        
+        tracing::info!("Hashtable loaded: {} total hashes", mappings.len());
         
         Ok(Self {
             mappings,
             source_dir: dir_path,
         })
     }
-
-    /// Loads a single hash file and adds its mappings to the provided HashMap
-    fn load_hash_file(path: &Path, mappings: &mut HashMap<u64, String>) -> Result<()> {
+    
+    /// Loads a single hash file and returns its mappings as a new HashMap
+    /// This variant is used for parallel loading.
+    fn load_hash_file_to_map(path: &Path) -> Result<HashMap<u64, String>> {
         let content = fs::read_to_string(path)?;
         
+        // Pre-allocate based on line count estimate (average ~50 chars per line)
+        let estimated_lines = content.len() / 50;
+        let mut mappings = HashMap::with_capacity(estimated_lines);
+        
+        Self::parse_hash_content(&content, path, &mut mappings)?;
+        
+        Ok(mappings)
+    }
+
+    /// Loads a single hash file and adds its mappings to the provided HashMap
+    /// Used for sequential reload operations.
+    fn load_hash_file(path: &Path, mappings: &mut HashMap<u64, String>) -> Result<()> {
+        let content = fs::read_to_string(path)?;
+        Self::parse_hash_content(&content, path, mappings)
+    }
+    
+    /// Parses hash file content and adds mappings to the provided HashMap
+    /// Shared parsing logic used by both parallel and sequential loading.
+    fn parse_hash_content(content: &str, path: &Path, mappings: &mut HashMap<u64, String>) -> Result<()> {
         for (line_num, line) in content.lines().enumerate() {
             let line = line.trim();
             

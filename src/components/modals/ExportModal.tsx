@@ -6,6 +6,7 @@ import React, { useState } from 'react';
 import { useAppState } from '../../lib/state';
 import * as api from '../../lib/api';
 import { save } from '@tauri-apps/plugin-dialog';
+import { getIcon } from '../../lib/fileIcons';
 
 export const ExportModal: React.FC = () => {
     const { state, closeModal, showToast } = useAppState();
@@ -93,7 +94,8 @@ export const ExportModal: React.FC = () => {
                                     checked={format === 'fantome'}
                                     onChange={() => setFormat('fantome')}
                                 />
-                                <span>📦 .fantome (Fantome Mod Manager)</span>
+                                <span dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
+                                <span>.fantome (Fantome Mod Manager)</span>
                             </label>
                             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
                                 <input
@@ -103,7 +105,8 @@ export const ExportModal: React.FC = () => {
                                     checked={format === 'modpkg'}
                                     onChange={() => setFormat('modpkg')}
                                 />
-                                <span>📦 .modpkg (League Mod Tools)</span>
+                                <span dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
+                                <span>.modpkg (League Mod Tools)</span>
                             </label>
                         </div>
                     </div>

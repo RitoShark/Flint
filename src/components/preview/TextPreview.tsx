@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect } from 'react';
 import * as api from '../../lib/api';
+import { getIcon } from '../../lib/fileIcons';
 
 interface TextPreviewProps {
     filePath: string;
@@ -59,7 +60,7 @@ export const TextPreview: React.FC<TextPreviewProps> = ({ filePath }) => {
     if (error) {
         return (
             <div className="text-preview__error">
-                <span>⚠️</span>
+                <span dangerouslySetInnerHTML={{ __html: getIcon('warning') }} />
                 <span>{error}</span>
             </div>
         );

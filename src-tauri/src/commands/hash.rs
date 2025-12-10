@@ -92,29 +92,16 @@ pub async fn get_hash_status(state: State<'_, HashtableState>) -> Result<HashSta
 /// * `Result<(), String>` - Ok if reload succeeded, error message otherwise
 #[tauri::command]
 pub async fn reload_hashes(state: State<'_, HashtableState>) -> Result<(), String> {
-    let mut hashtable_lock = state.0.lock();
+    // Since hashtable is now Arc<Hashtable>, we can't mutate it.
+    // Instead, we re-initialize it completely which creates a new Arc.
+    let hash_dir = get_ritoshark_hash_dir()
+        .map_err(|e| format!("Failed to get hash directory: {}", e))?;
     
-    match hashtable_lock.as_mut() {
-        Some(hashtable) => {
-            hashtable
-                .reload()
-                .map_err(|e| format!("Failed to reload hashtable: {}", e))?;
-            Ok(())
-        }
-        None => {
-            // If hashtable is not initialized, initialize it
-            drop(hashtable_lock); // Release the lock before calling init
-            
-            let hash_dir = get_ritoshark_hash_dir()
-                .map_err(|e| format!("Failed to get hash directory: {}", e))?;
-            
-            state
-                .init(hash_dir)
-                .map_err(|e| format!("Failed to initialize hashtable: {}", e))?;
-            
-            Ok(())
-        }
-    }
+    state
+        .init(hash_dir)
+        .map_err(|e| format!("Failed to reload hashtable: {}", e))?;
+    
+    Ok(())
 }
 
 #[cfg(test)]
@@ -130,7 +117,7 @@ mod tests {
 
     fn create_test_hashtable_state(dir: &std::path::Path) -> HashtableState {
         let hashtable = Hashtable::from_directory(dir).unwrap();
-        HashtableState(Arc::new(Mutex::new(Some(hashtable))))
+        HashtableState(Arc::new(Mutex::new(Some(Arc::new(hashtable)))))
     }
 
     #[tokio::test]
@@ -187,11 +174,8 @@ mod tests {
             .unwrap();
         writeln!(file, "0x5e6f7a8b test2.bin").unwrap();
 
-        // Reload directly
-        {
-            let mut lock = state.0.lock();
-            lock.as_mut().unwrap().reload().unwrap();
-        }
+        // Reload by re-initializing (since we now use Arc<Hashtable>)
+        state.init(dir_path.to_path_buf()).unwrap();
 
         // Verify reloaded state
         {

@@ -4,8 +4,10 @@ use std::sync::Arc;
 use crate::core::hash::Hashtable;
 use crate::error::Result;
 
+/// Thread-safe wrapper for the global hashtable state.
+/// Uses Arc<Hashtable> internally to avoid expensive clones when accessing the hashtable.
 #[derive(Clone)]
-pub struct HashtableState(pub Arc<Mutex<Option<Hashtable>>>);
+pub struct HashtableState(pub Arc<Mutex<Option<Arc<Hashtable>>>>);
 
 impl HashtableState {
     pub fn new() -> Self {
@@ -17,7 +19,7 @@ impl HashtableState {
         std::fs::create_dir_all(&hash_dir)?;
         
         let mut state = self.0.lock();
-        *state = Some(Hashtable::from_directory(hash_dir)?);
+        *state = Some(Arc::new(Hashtable::from_directory(hash_dir)?));
         Ok(())
     }
     
@@ -25,8 +27,10 @@ impl HashtableState {
         self.0.lock().as_ref().map(|h| h.len()).unwrap_or(0)
     }
     
-    /// Get a clone of the hashtable for use in extraction
-    pub fn get_hashtable(&self) -> Option<Hashtable> {
-        self.0.lock().clone()
+    /// Get a reference-counted handle to the hashtable for use in extraction.
+    /// This is cheap (just Arc::clone) compared to cloning the entire HashMap.
+    pub fn get_hashtable(&self) -> Option<Arc<Hashtable>> {
+        self.0.lock().as_ref().map(Arc::clone)
     }
 }
+

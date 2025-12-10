@@ -136,7 +136,7 @@ export const NewProjectModal: React.FC = () => {
 
         try {
             // Use champion alias (internal name) for WAD extraction
-            const result = await api.createProject({
+            const project = await api.createProject({
                 name: projectName,
                 champion: selectedChampion.alias,  // Use alias for WAD paths
                 skin: selectedSkin.num,  // Use skin num (last 3 digits of ID)
@@ -146,21 +146,23 @@ export const NewProjectModal: React.FC = () => {
             });
 
             setProgress('Opening project...');
-            const project = await api.openProject(result.path);
 
-            dispatch({ type: 'SET_PROJECT', payload: { project, path: result.path } });
+            // Use project_path from the returned project
+            const projectDir = project.project_path || projectPath;
 
-            const files = await api.listProjectFiles(result.path);
+            dispatch({ type: 'SET_PROJECT', payload: { project, path: projectDir } });
+
+            const files = await api.listProjectFiles(projectDir);
             dispatch({ type: 'SET_FILE_TREE', payload: files });
             dispatch({ type: 'SET_STATE', payload: { currentView: 'project' } });
 
             // Add to recent
-            const recent = state.recentProjects.filter(p => p.path !== result.path);
+            const recent = state.recentProjects.filter(p => p.path !== projectDir);
             recent.unshift({
                 name: project.display_name || project.name,
                 champion: selectedChampion.name,  // Display name for recent list
                 skin: selectedSkin.num,
-                path: result.path,
+                path: projectDir,
                 lastOpened: new Date().toISOString(),
             });
             dispatch({ type: 'SET_RECENT_PROJECTS', payload: recent.slice(0, 10) });

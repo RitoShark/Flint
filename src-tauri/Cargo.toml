@@ -31,13 +31,13 @@ sha1 = "0.10"
 chrono = { version = "0.4", features = ["serde"] }
 indexmap = { version = "2.1", features = ["serde"] }
 
-# DDS texture handling
-ddsfile = "0.5"
-image = "0.24"
-base64 = "0.21"
+# Parallel processing for hash loading
+rayon = "1.10"
 
-# TEX texture decoding (BC1/BC3/ETC formats)
-texture2ddecoder = "0.1"
+# Texture handling (DDS and TEX via league-toolkit)
+ltk_texture = "0.4"
+image = "0.25"
+base64 = "0.21"
 
 # League toolkit for WAD operations (from crates.io)
 league-toolkit = { version = "0.2", features = ["serde"] }

@@ -41,6 +41,7 @@ export interface Project {
     creator?: string;
     version?: string;
     description?: string;
+    project_path?: string;
 }
 
 export interface Champion {

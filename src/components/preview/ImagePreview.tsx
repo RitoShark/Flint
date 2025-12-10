@@ -5,6 +5,7 @@
 import React, { useState, useEffect } from 'react';
 import * as api from '../../lib/api';
 import { getCachedImage, cacheImage } from '../../lib/state';
+import { getIcon } from '../../lib/fileIcons';
 
 interface ImagePreviewProps {
     filePath: string;
@@ -33,7 +34,7 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({ filePath }) => {
                 let result;
 
                 if (ext === 'dds' || ext === 'tex') {
-                    result = await api.decodeTextureToPng(filePath);
+                    result = await api.decodeDdsToPng(filePath);
                     const dataUrl = `data:image/png;base64,${result.data}`;
                     cacheImage(filePath, dataUrl);
                     setImageData(dataUrl);
@@ -68,7 +69,7 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({ filePath }) => {
     if (error) {
         return (
             <div className="image-preview__error">
-                <span>⚠️</span>
+                <span dangerouslySetInnerHTML={{ __html: getIcon('warning') }} />
                 <span>{error}</span>
             </div>
         );

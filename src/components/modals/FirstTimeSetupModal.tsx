@@ -6,6 +6,7 @@ import React, { useState } from 'react';
 import { useAppState } from '../../lib/state';
 import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
+import { getIcon } from '../../lib/fileIcons';
 
 export const FirstTimeSetupModal: React.FC = () => {
     const { state, dispatch, closeModal, showToast } = useAppState();
@@ -107,7 +108,7 @@ export const FirstTimeSetupModal: React.FC = () => {
                             <input
                                 type="text"
                                 className="form-input"
-                                placeholder="C:\Riot Games\League of Legends\Game"
+                                placeholder="C:\Riot Games\League of Legends"
                                 value={leaguePath}
                                 onChange={(e) => setLeaguePath(e.target.value)}
                             />
@@ -121,7 +122,8 @@ export const FirstTimeSetupModal: React.FC = () => {
                             onClick={handleDetectLeague}
                             disabled={isDetecting}
                         >
-                            🔍 Auto-detect
+                            <span dangerouslySetInnerHTML={{ __html: getIcon('search') }} />
+                            <span>Auto-detect</span>
                         </button>
                     </div>
                 </div>

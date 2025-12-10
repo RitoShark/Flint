@@ -4,6 +4,45 @@
    ========================================================================== */
 
 /* --------------------------------------------------------------------------
+   Font Face Declarations (Non-blocking with font-display: swap)
+   -------------------------------------------------------------------------- */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfAZ9hjp-Ek-_EeA.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuI6fAZ9hjp-Ek-_EeA.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuGKYAZ9hjp-Ek-_EeA.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('https://fonts.gstatic.com/s/jetbrainsmono/v21/tDbY2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKxjPVmUsaaDhw.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* --------------------------------------------------------------------------
    CSS Custom Properties (Design Tokens)
    -------------------------------------------------------------------------- */
 :root {
@@ -375,20 +414,22 @@ textarea:focus {
   transition: background-color var(--transition-fast);
   height: 22px;
   line-height: 22px;
-  border-radius: 3px;
-  margin: 0 4px;
+  border-radius: 0;
+  margin: 0;
+  border-left: 2px solid transparent;
 }
 
 .file-tree__item:hover {
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: rgba(255, 255, 255, 0.04);
 }
 
 .file-tree__item--selected {
-  background-color: rgba(88, 166, 255, 0.2);
+  background-color: rgba(88, 166, 255, 0.15);
+  border-left-color: var(--accent-primary);
 }
 
 .file-tree__item--selected:hover {
-  background-color: rgba(88, 166, 255, 0.25);
+  background-color: rgba(88, 166, 255, 0.2);
 }
 
 .file-tree__expander {
@@ -397,15 +438,14 @@ textarea:focus {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 8px;
-  color: var(--text-muted);
-  transition: transform 0.1s ease;
   flex-shrink: 0;
-  margin-right: 0;
+  margin-right: 2px;
 }
 
-.file-tree__expander--expanded {
-  transform: rotate(90deg);
+.file-tree__expander svg {
+  display: block;
+  width: 16px;
+  height: 16px;
 }
 
 .file-tree__icon {
@@ -416,7 +456,6 @@ textarea:focus {
   justify-content: center;
   flex-shrink: 0;
   margin-right: 6px;
-  opacity: 0.9;
 }
 
 .file-tree__icon svg {

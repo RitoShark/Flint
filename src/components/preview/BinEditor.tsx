@@ -5,6 +5,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAppState } from '../../lib/state';
 import * as api from '../../lib/api';
+import { getIcon } from '../../lib/fileIcons';
 
 interface BinEditorProps {
     filePath: string;
@@ -73,7 +74,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
     if (error) {
         return (
             <div className="bin-editor__error">
-                <span>⚠️</span>
+                <span dangerouslySetInnerHTML={{ __html: getIcon('warning') }} />
                 <span>{error}</span>
             </div>
         );
