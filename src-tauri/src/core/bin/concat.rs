@@ -9,7 +9,7 @@
 
 use crate::core::bin::ltk_bridge::{read_bin, write_bin};
 use crate::error::{Error, Result};
-use ltk_meta::{BinTree, BinTreeObject};
+use ltk_meta::{BinTree, BinTreeBuilder, BinTreeObject};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -201,8 +201,10 @@ pub fn create_concat_bin(
         processed_paths.push(actual_path.clone());
     }
 
-    // 4. Create the concat BinTree
-    let concat_bin = BinTree::new(all_objects.into_values(), std::iter::empty::<String>());
+    // 4. Create the concat BinTree using BinTreeBuilder for cleaner construction
+    let concat_bin = BinTreeBuilder::new()
+        .objects(all_objects.into_values())
+        .build();
     let object_count = concat_bin.objects.len();
 
     // 5. Generate concat path

@@ -42,9 +42,9 @@ base64 = "0.21"
 # League toolkit for WAD operations (from crates.io)
 league-toolkit = { version = "0.2", features = ["serde"] }
 
-# League Toolkit for BIN file parsing (git revision for ltk_ritobin compatibility)
-ltk_meta = { git = "https://github.com/LeagueToolkit/league-toolkit", rev = "77bf94f0dbb7e396f61348f531989abda296a1ae", features = ["serde"] }
-ltk_ritobin = { git = "https://github.com/LeagueToolkit/league-toolkit", rev = "77bf94f0dbb7e396f61348f531989abda296a1ae" }
+# League Toolkit for BIN file parsing (git main branch for latest BinTreeBuilder API)
+ltk_meta = { git = "https://github.com/LeagueToolkit/league-toolkit", branch = "main", features = ["serde"] }
+ltk_ritobin = { git = "https://github.com/LeagueToolkit/league-toolkit", branch = "main" }
 
 # League Toolkit file type detection
 ltk_file = "0.2"

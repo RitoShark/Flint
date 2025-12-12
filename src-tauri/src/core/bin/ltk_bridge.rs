@@ -132,7 +132,7 @@ pub fn read_bin(data: &[u8]) -> Result<BinTree> {
 /// A Vec<u8> containing the binary data
 pub fn write_bin(tree: &BinTree) -> Result<Vec<u8>> {
     let mut buffer = Cursor::new(Vec::new());
-    tree.to_writer(&mut buffer, false)
+    tree.to_writer(&mut buffer)
         .map_err(|e| BinError(format!("Failed to write bin: {}", e)))?;
     Ok(buffer.into_inner())
 }
