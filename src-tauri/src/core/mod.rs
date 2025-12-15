@@ -8,3 +8,4 @@ pub mod champion;
 pub mod validation;
 pub mod repath;
 pub mod export;
+pub mod mesh;

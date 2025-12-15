@@ -2,10 +2,19 @@
 name = "lol-modding-suite"
 version = "0.1.0"
 edition = "2021"
+default-run = "lol-modding-suite"
 
 [lib]
 name = "lol_modding_suite"
 path = "src/lib.rs"
+
+[[bin]]
+name = "lol-modding-suite"
+path = "src/main.rs"
+
+[[bin]]
+name = "bin_roundtrip_test"
+path = "src/bin/bin_roundtrip_test.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -39,12 +48,16 @@ ltk_texture = "0.4"
 image = "0.25"
 base64 = "0.21"
 
-# League toolkit for WAD operations (from crates.io)
-league-toolkit = { version = "0.2", features = ["serde"] }
+# League toolkit for WAD operations and mesh parsing (from crates.io)
+league-toolkit = { version = "0.2", features = ["serde", "mesh"] }
+
+# glam for vector math (must match league-toolkit's version for Format trait compatibility)
+glam = "0.27"
 
 # League Toolkit for BIN file parsing (git main branch for latest BinTreeBuilder API)
 ltk_meta = { git = "https://github.com/LeagueToolkit/league-toolkit", branch = "main", features = ["serde"] }
 ltk_ritobin = { git = "https://github.com/LeagueToolkit/league-toolkit", branch = "main" }
+ltk_anim = { git = "https://github.com/LeagueToolkit/league-toolkit", branch = "main" }
 
 # League Toolkit file type detection
 ltk_file = "0.2"

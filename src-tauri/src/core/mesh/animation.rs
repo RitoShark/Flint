@@ -1,0 +1,323 @@
+//! Animation parsing from BIN files and ANM files
+//!
+//! Parses animation/skinX.bin for AtomicClipData entries containing animation paths,
+//! and loads ANM files using ltk_anim::AnimationAsset.
+
+use std::collections::HashMap;
+use std::fs::{self, File};
+use std::io::BufReader;
+use std::path::{Path, PathBuf};
+
+use crate::core::bin::ltk_bridge;
+use ltk_anim::AnimationAsset;
+use ltk_meta::PropertyValueEnum;
+use serde::Serialize;
+
+/// Information about a single animation clip
+#[derive(Debug, Clone, Serialize)]
+pub struct AnimationClipInfo {
+    /// Name/ID of the clip (from hash or derived from path)
+    pub name: String,
+    /// Track data name (e.g., "Default")
+    pub track_name: Option<String>,
+    /// Full path to the .anm file
+    pub animation_path: String,
+}
+
+/// List of animations extracted from animation BIN file
+#[derive(Debug, Clone, Serialize)]
+pub struct AnimationList {
+    /// All animation clips found
+    pub clips: Vec<AnimationClipInfo>,
+}
+
+/// Parsed animation data from an ANM file
+#[derive(Debug, Serialize)]
+pub struct AnimationData {
+    pub duration: f32,
+    pub fps: f32,
+    pub frame_count: usize,
+    // TODO: Add actual keyframe data once we implement playback
+}
+
+/// Find animation BIN file for a skin
+/// 
+/// Looks for animation/skinX.bin relative to the project
+pub fn find_animation_bin(skn_path: &Path) -> Option<PathBuf> {
+    tracing::debug!("Looking for animation BIN relative to: {}", skn_path.display());
+    
+    // Strategy 1: animation folder in same directory as SKN
+    if let Some(skin_dir) = skn_path.parent() {
+        let anim_dir = skin_dir.join("animation");
+        tracing::debug!("Checking for animation dir at: {}", anim_dir.display());
+        if anim_dir.exists() {
+            for i in 0..20 {
+                let bin_path = anim_dir.join(format!("skin{}.bin", i));
+                if bin_path.exists() {
+                    tracing::debug!("Found animation BIN: {}", bin_path.display());
+                    return Some(bin_path);
+                }
+            }
+            tracing::debug!("Animation dir exists but no skinX.bin found");
+        }
+        
+        // Strategy 2: Parent directory
+        if let Some(parent) = skin_dir.parent() {
+            let anim_dir = parent.join("animation");
+            tracing::debug!("Checking parent for animation dir at: {}", anim_dir.display());
+            if anim_dir.exists() {
+                for i in 0..20 {
+                    let bin_path = anim_dir.join(format!("skin{}.bin", i));
+                    if bin_path.exists() {
+                        tracing::debug!("Found animation BIN in parent: {}", bin_path.display());
+                        return Some(bin_path);
+                    }
+                }
+            }
+        }
+    }
+    
+    // Strategy 3: Look for data/characters/{champion}/animations/ structure
+    let path_str = skn_path.to_string_lossy().to_lowercase();
+    if path_str.contains("characters") {
+        // Extract champion name from path
+        if let Some(char_idx) = path_str.find("characters") {
+            let after_char = &path_str[char_idx + "characters/".len()..];
+            if let Some(slash_idx) = after_char.find(&['/', '\\'][..]) {
+                let champion = &after_char[..slash_idx];
+                
+                // Search up for content/wad folder
+                let mut current = skn_path.parent();
+                while let Some(dir) = current {
+                    let dir_name = dir.file_name().map(|n| n.to_string_lossy().to_lowercase());
+                    
+                    if dir_name.as_ref().map(|n| n.contains("content") || n.contains("wad")).unwrap_or(false) {
+                        // Look for data/characters/{champion}/animations/skin0.bin
+                        let data_path = dir
+                            .join("data")
+                            .join("characters")
+                            .join(champion)
+                            .join("animations")
+                            .join("skin0.bin");
+                        
+                        tracing::debug!("Checking data animations path: {}", data_path.display());
+                        if data_path.exists() {
+                            tracing::debug!("Found animation BIN in data folder!");
+                            return Some(data_path);
+                        }
+                        break;
+                    }
+                    current = dir.parent();
+                }
+            }
+        }
+    }
+    
+    // Strategy 4: Search up for data/ folder
+    let mut current = skn_path.parent();
+    while let Some(dir) = current {
+        let data_path = dir.join("data");
+        if data_path.exists() {
+            // Search for any animations/skin0.bin in data/characters/*/
+            if let Ok(entries) = std::fs::read_dir(data_path.join("characters")) {
+                for entry in entries.flatten() {
+                    let anim_path = entry.path().join("animations").join("skin0.bin");
+                    if anim_path.exists() {
+                        tracing::debug!("Found animation BIN via data search: {}", anim_path.display());
+                        return Some(anim_path);
+                    }
+                }
+            }
+            break; // Don't search further up once we found a data/ folder
+        }
+        current = dir.parent();
+    }
+    
+    tracing::debug!("Animation BIN not found");
+    None
+}
+
+/// Extract animation list from animation BIN file
+/// 
+/// Parses the BIN looking for AtomicClipData objects with mAnimationFilePath
+pub fn extract_animation_list(bin_path: &Path) -> anyhow::Result<AnimationList> {
+    let data = fs::read(bin_path)?;
+    let tree = ltk_bridge::read_bin(&data)
+        .map_err(|e| anyhow::anyhow!("Failed to parse animation BIN: {}", e))?;
+    
+    let mut clips = Vec::new();
+    
+    // Iterate through all objects to find AtomicClipData
+    for (_path_hash, object) in &tree.objects {
+        // Look through properties for embedded AnimationResourceData
+        for (_name_hash, prop) in &object.properties {
+            extract_animation_paths_from_value(&prop.value, &mut clips);
+        }
+    }
+    
+    Ok(AnimationList { clips })
+}
+
+/// Recursively extract animation paths from property values
+fn extract_animation_paths_from_value(value: &PropertyValueEnum, clips: &mut Vec<AnimationClipInfo>) {
+    match value {
+        PropertyValueEnum::String(string_val) => {
+            let s = &string_val.0;
+            // Check if this is an animation path
+            if s.to_lowercase().ends_with(".anm") {
+                // Extract name from path
+                let name = Path::new(s)
+                    .file_stem()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "Unknown".to_string());
+                
+                clips.push(AnimationClipInfo {
+                    name,
+                    track_name: None,
+                    animation_path: s.clone(),
+                });
+            }
+        }
+        
+        PropertyValueEnum::Embedded(embedded) => {
+            for (_hash, prop) in &embedded.0.properties {
+                extract_animation_paths_from_value(&prop.value, clips);
+            }
+        }
+        
+        PropertyValueEnum::Container(container) => {
+            for item in &container.items {
+                extract_animation_paths_from_value(item, clips);
+            }
+        }
+        
+        PropertyValueEnum::Struct(struct_val) => {
+            for (_hash, prop) in &struct_val.properties {
+                extract_animation_paths_from_value(&prop.value, clips);
+            }
+        }
+        
+        PropertyValueEnum::Optional(opt) => {
+            if let Some(inner) = &opt.value {
+                extract_animation_paths_from_value(inner, clips);
+            }
+        }
+        
+        PropertyValueEnum::Map(map) => {
+            for (_key, val) in &map.entries {
+                extract_animation_paths_from_value(&val, clips);
+            }
+        }
+        
+        _ => {}
+    }
+}
+
+/// Parse an ANM file and extract animation data
+pub fn parse_animation_file<P: AsRef<Path>>(path: P) -> anyhow::Result<AnimationData> {
+    let file = File::open(path.as_ref())?;
+    let mut reader = BufReader::new(file);
+    
+    // Use catch_unwind because ltk_anim panics on Uncompressed animations (not implemented)
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        AnimationAsset::from_reader(&mut reader)
+    }));
+    
+    let asset = match result {
+        Ok(Ok(asset)) => asset,
+        Ok(Err(e)) => return Err(anyhow::anyhow!("Failed to parse ANM file: {:?}", e)),
+        Err(_) => return Err(anyhow::anyhow!("Uncompressed animation format not supported by ltk_anim")),
+    };
+    
+    // Extract basic info based on animation type
+    let (duration, fps, frame_count) = match &asset {
+        AnimationAsset::Compressed(compressed) => {
+            // TODO: Access compressed animation fields once ltk_anim exposes them
+            // For now return placeholder values
+            (1.0, 30.0, 30)
+        }
+        AnimationAsset::Uncompressed(_) => {
+            // Uncompressed is WIP in ltk_anim
+            (1.0, 30.0, 30)
+        }
+    };
+    
+    Ok(AnimationData {
+        duration,
+        fps,
+        frame_count,
+    })
+}
+
+/// Resolve animation path relative to project directory
+/// 
+/// Animation paths from BIN are like: ASSETS/SirDexal/.../Animations/name.anm
+/// Need to find the wad.client folder and resolve relative to it
+pub fn resolve_animation_path(base_dir: &Path, anim_path: &str) -> Option<PathBuf> {
+    tracing::debug!("Resolving animation path: {} from base {}", anim_path, base_dir.display());
+    
+    // The path from BIN starts with ASSETS/ - convert to lowercase assets/
+    let normalized_path = anim_path
+        .replace("ASSETS/", "assets/")
+        .replace("ASSETS\\", "assets/")
+        .replace('\\', "/");
+    
+    // Search up from base_dir to find a folder that contains "assets" subfolder
+    let mut current = Some(base_dir);
+    while let Some(dir) = current {
+        // Check if this dir has an "assets" folder
+        let assets_path = dir.join("assets");
+        if assets_path.exists() {
+            // Found it! Now try to resolve the path
+            // The normalized_path is like "assets/SirDexal/..."
+            let candidate = dir.join(&normalized_path);
+            tracing::debug!("Checking candidate path: {}", candidate.display());
+            if candidate.exists() {
+                tracing::debug!("Found animation at: {}", candidate.display());
+                return Some(candidate);
+            }
+            
+            // Also try without the assets/ prefix since we already joined with assets folder
+            let without_prefix = normalized_path.strip_prefix("assets/").unwrap_or(&normalized_path);
+            let candidate2 = assets_path.join(without_prefix);
+            tracing::debug!("Checking alternate path: {}", candidate2.display());
+            if candidate2.exists() {
+                tracing::debug!("Found animation at: {}", candidate2.display());
+                return Some(candidate2);
+            }
+        }
+        
+        // Check if we're at a .wad folder (common project root)
+        if let Some(name) = dir.file_name() {
+            let name_str = name.to_string_lossy().to_lowercase();
+            if name_str.contains(".wad") || name_str.contains("wad.client") {
+                // This is the wad folder, assets should be directly under it
+                let candidate = dir.join(&normalized_path);
+                if candidate.exists() {
+                    return Some(candidate);
+                }
+            }
+        }
+        
+        current = dir.parent();
+    }
+    
+    // Strategy 2: Try the full path as-is
+    let full_path = PathBuf::from(anim_path);
+    if full_path.exists() {
+        return Some(full_path);
+    }
+    
+    tracing::debug!("Animation file not found: {}", anim_path);
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_find_animation_bin() {
+        // Test would require actual files
+    }
+}

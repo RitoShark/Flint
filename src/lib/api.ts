@@ -67,6 +67,7 @@ export class FlintError extends Error {
             'validate_assets': 'Asset validation failed.',
             'export_fantome': 'Failed to export Fantome package.',
             'export_modpkg': 'Failed to export modpkg package.',
+            'read_skn_mesh': 'Failed to read SKN mesh file.',
         };
         return messages[this.command] || this.message;
     }
@@ -420,4 +421,94 @@ export async function exportProject(params: ExportParams): Promise<{ path: strin
         projectPath: params.projectPath,
         outputPath: params.outputPath,
     });
+}
+
+// =============================================================================
+// Mesh Commands (3D Preview)
+// =============================================================================
+
+interface MaterialRange {
+    name: string;
+    start_index: number;
+    index_count: number;
+    start_vertex: number;
+    vertex_count: number;
+}
+
+interface SknMeshData {
+    materials: MaterialRange[];
+    positions: [number, number, number][];
+    normals: [number, number, number][];
+    uvs: [number, number][];
+    indices: number[];
+    bounding_box: [[number, number, number], [number, number, number]];
+    textures?: Record<string, string>;  // submesh name → base64 PNG texture data
+}
+
+/**
+ * Read and parse an SKN (skinned mesh) file for 3D preview
+ */
+export async function readSknMesh(path: string): Promise<SknMeshData> {
+    return invokeCommand('read_skn_mesh', { path });
+}
+
+// =============================================================================
+// Skeleton Commands (SKL)
+// =============================================================================
+
+interface BoneData {
+    name: string;
+    id: number;
+    parent_id: number;
+    local_translation: [number, number, number];
+    local_rotation: [number, number, number, number];  // quaternion [x, y, z, w]
+    local_scale: [number, number, number];
+    world_position: [number, number, number];
+}
+
+interface SklData {
+    name: string;
+    asset_name: string;
+    bones: BoneData[];
+}
+
+/**
+ * Read and parse an SKL (skeleton) file for 3D preview
+ */
+export async function readSklSkeleton(path: string): Promise<SklData> {
+    return invokeCommand('read_skl_skeleton', { path });
+}
+
+// =============================================================================
+// Animation Commands
+// =============================================================================
+
+interface AnimationClipInfo {
+    name: string;
+    track_name: string | null;
+    animation_path: string;
+}
+
+interface AnimationList {
+    clips: AnimationClipInfo[];
+}
+
+interface AnimationData {
+    duration: number;
+    fps: number;
+    frame_count: number;
+}
+
+/**
+ * Get list of available animations for a model
+ */
+export async function readAnimationList(sknPath: string): Promise<AnimationList> {
+    return invokeCommand('read_animation_list', { sknPath });
+}
+
+/**
+ * Read and parse an animation file
+ */
+export async function readAnimation(path: string, basePath?: string): Promise<AnimationData> {
+    return invokeCommand('read_animation', { path, basePath });
 }

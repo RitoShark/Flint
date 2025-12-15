@@ -81,7 +81,6 @@ These features are implemented in `src-tauri/src/core/repath/refather.rs` and `s
 | **SKN/SKL 3D Preview** | 🔜 Planned | In-app 3D model viewer for champion skin meshes and skeletons |
 | **Sound Bank Editing** | 🔜 Planned | BNK/WPK audio file preview and editing support |
 | **Animation Preview** | 🔜 Planned | ANM file playback on 3D models |
-| **Batch Export** | 🔜 Planned | Export multiple projects at once |
 
 ---
 

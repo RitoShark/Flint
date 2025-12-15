@@ -11,6 +11,7 @@ import { ImagePreview } from './preview/ImagePreview';
 import { HexViewer } from './preview/HexViewer';
 import { TextPreview } from './preview/TextPreview';
 import { BinEditor } from './preview/BinEditor';
+import { ModelPreview } from './preview/ModelPreview';
 
 interface FileInfo {
     path: string;
@@ -52,6 +53,8 @@ const getTypeLabel = (fileType: string): string => {
         'text/plain': 'Plain Text',
         'audio': 'Audio',
         'model': '3D Model',
+        'model/x-lol-skn': 'SKN Skinned Mesh',
+        'model/x-lol-skl': 'SKL Skeleton',
         'application/octet-stream': 'Binary File',
     };
     return labels[fileType] || fileType;
@@ -145,6 +148,16 @@ export const PreviewPanel: React.FC = () => {
         ) {
             return <TextPreview filePath={filePath} />;
         }
+
+        // 3D model preview for SKN files
+        if (fileInfo.extension === 'skn' || fileInfo.file_type === 'model/x-lol-skn') {
+            return <ModelPreview filePath={filePath} />;
+        }
+
+        // TODO: Add SKL skeleton preview once ltk_mesh supports it
+        // if (fileInfo.extension === 'skl' || fileInfo.file_type === 'model/x-lol-skl') {
+        //     return <SkeletonPreview filePath={filePath} />;
+        // }
 
         return <HexViewer filePath={filePath} />;
     };
