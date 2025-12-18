@@ -1,4 +1,4 @@
-//! Mesh commands for SKN/SKL file parsing
+//! Mesh commands for SKN/SKL/SCB file parsing
 //! 
 //! Provides Tauri commands for reading 3D mesh data from League files.
 
@@ -6,8 +6,24 @@ use std::path::Path;
 use std::collections::HashMap;
 
 use crate::core::mesh::skn::{parse_skn_file, SknMeshData};
+use crate::core::mesh::scb::{parse_scb_file, ScbMeshData};
 use crate::core::mesh::texture::{find_skin_bin, extract_texture_mapping};
 use crate::commands::file::decode_dds_to_png;
+
+/// Read and parse an SCB (Static Mesh Binary) file
+/// 
+/// Returns mesh data including vertices, normals, UVs, indices, and materials
+/// for 3D rendering in the frontend.
+#[tauri::command]
+pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
+    tracing::debug!("Reading SCB mesh: {}", path);
+    
+    parse_scb_file(&path)
+        .map_err(|e| {
+            tracing::error!("Failed to parse SCB file {}: {}", path, e);
+            format!("Failed to parse SCB file: {}", e)
+        })
+}
 
 /// Read and parse an SKN (Simple Skin) mesh file
 /// 

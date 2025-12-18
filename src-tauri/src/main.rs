@@ -111,6 +111,7 @@ fn main() {
             commands::export::get_export_preview,
             // Mesh commands (3D preview)
             commands::mesh::read_skn_mesh,
+            commands::mesh::read_scb_mesh,
             commands::mesh::read_skl_skeleton,
             commands::mesh::read_animation_list,
             commands::mesh::read_animation,

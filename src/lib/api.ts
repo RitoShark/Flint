@@ -68,6 +68,7 @@ export class FlintError extends Error {
             'export_fantome': 'Failed to export Fantome package.',
             'export_modpkg': 'Failed to export modpkg package.',
             'read_skn_mesh': 'Failed to read SKN mesh file.',
+            'read_scb_mesh': 'Failed to read SCB mesh file.',
         };
         return messages[this.command] || this.message;
     }
@@ -450,6 +451,25 @@ interface SknMeshData {
  */
 export async function readSknMesh(path: string): Promise<SknMeshData> {
     return invokeCommand('read_skn_mesh', { path });
+}
+
+// SCB/SCO Static Mesh types
+interface ScbMeshData {
+    name: string;
+    materials: string[];
+    positions: [number, number, number][];
+    normals: [number, number, number][];
+    uvs: [number, number][];
+    indices: number[];
+    bounding_box: [[number, number, number], [number, number, number]];
+    material_ranges: Record<string, [number, number]>;  // material name → [start_index, index_count]
+}
+
+/**
+ * Read and parse an SCB/SCO (static mesh) file for 3D preview
+ */
+export async function readScbMesh(path: string): Promise<ScbMeshData> {
+    return invokeCommand('read_scb_mesh', { path });
 }
 
 // =============================================================================

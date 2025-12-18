@@ -192,11 +192,6 @@ pub async fn decode_dds_to_png(path: String) -> Result<DecodedImage, String> {
         .into_rgba_image()
         .map_err(|e| format!("Failed to convert to RGBA: {:?}", e))?;
 
-    // Flip the image vertically to match OpenGL/WebGL texture coordinate system
-    // League textures have origin at top-left, but OpenGL expects origin at bottom-left
-    use image::imageops;
-    let flipped_image = imageops::flip_vertical(&rgba_image);
-
     // Determine format based on magic bytes
     let format = match &data[0..4] {
         [0x54, 0x45, 0x58, 0x00] => "TEX",
@@ -210,7 +205,7 @@ pub async fn decode_dds_to_png(path: String) -> Result<DecodedImage, String> {
         use image::ImageEncoder;
         let encoder = image::codecs::png::PngEncoder::new(&mut png_data);
         encoder
-            .write_image(flipped_image.as_raw(), width, height, image::ExtendedColorType::Rgba8)
+            .write_image(rgba_image.as_raw(), width, height, image::ExtendedColorType::Rgba8)
             .map_err(|e| format!("Failed to encode PNG: {}", e))?;
     }
 

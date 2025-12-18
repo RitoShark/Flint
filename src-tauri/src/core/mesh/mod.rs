@@ -8,4 +8,5 @@ pub mod skn;
 pub mod texture;
 pub mod skl;
 pub mod animation;
+pub mod scb;
 

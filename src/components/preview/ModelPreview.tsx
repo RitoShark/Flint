@@ -47,8 +47,24 @@ interface SklData {
     bones: BoneData[];
 }
 
+// Static mesh data from SCB/SCO files
+interface ScbMeshData {
+    name: string;
+    materials: string[];
+    positions: [number, number, number][];
+    normals: [number, number, number][];
+    uvs: [number, number][];
+    indices: number[];
+    bounding_box: [[number, number, number], [number, number, number]];
+    material_ranges: Record<string, [number, number]>;
+}
+
+// Union type for mesh data
+type MeshData = SknMeshData | ScbMeshData;
+
 interface ModelPreviewProps {
     filePath: string;
+    meshType?: 'skinned' | 'static';  // skinned = SKN, static = SCB/SCO
 }
 
 // ============================================================================
@@ -56,10 +72,18 @@ interface ModelPreviewProps {
 // ============================================================================
 
 interface MeshViewerProps {
-    meshData: SknMeshData;
+    meshData: MeshData;
     visibleMaterials: Set<string>;
     wireframe: boolean;
 }
+
+// Helper to check if mesh data is SKN type
+const isSknMeshDataType = (data: MeshData): data is SknMeshData => {
+    return Array.isArray(data.materials) &&
+        data.materials.length > 0 &&
+        typeof data.materials[0] === 'object';
+};
+
 
 const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wireframe }) => {
     const { camera } = useThree();
@@ -70,55 +94,88 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
     const materialGeometries = useMemo(() => {
         const geometries: Map<string, THREE.BufferGeometry> = new Map();
 
-        meshData.materials.forEach((mat) => {
+        if (isSknMeshDataType(meshData)) {
+            // SKN mesh - use material ranges
+            meshData.materials.forEach((mat) => {
+                const geo = new THREE.BufferGeometry();
+                const startIdx = mat.start_index;
+                const count = mat.index_count;
+
+                // Extract triangles for this material
+                const positions: number[] = [];
+                const normals: number[] = [];
+                const uvs: number[] = [];
+
+                for (let i = 0; i < count; i++) {
+                    const idx = meshData.indices[startIdx + i];
+
+                    // Position
+                    const pos = meshData.positions[idx];
+                    positions.push(pos[0], pos[1], pos[2]);
+
+                    // Normal
+                    const norm = meshData.normals[idx];
+                    normals.push(norm[0], norm[1], norm[2]);
+
+                    // UV
+                    const uv = meshData.uvs[idx];
+                    uvs.push(uv[0], uv[1]);
+                }
+
+                geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+                geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(normals), 3));
+                geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
+
+                geometries.set(mat.name, geo);
+            });
+        } else {
+            // SCB/SCO static mesh - single geometry with all data pre-expanded
+            const scbData = meshData as ScbMeshData;
             const geo = new THREE.BufferGeometry();
-            const startIdx = mat.start_index;
-            const count = mat.index_count;
 
-            // Extract triangles for this material
-            const positions: number[] = [];
-            const normals: number[] = [];
-            const uvs: number[] = [];
+            const positions = new Float32Array(scbData.positions.flat());
+            const normals = new Float32Array(scbData.normals.flat());
+            const uvs = new Float32Array(scbData.uvs.flat());
+            const indices = new Uint32Array(scbData.indices);
 
-            for (let i = 0; i < count; i++) {
-                const idx = meshData.indices[startIdx + i];
+            geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+            geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+            geo.setIndex(new THREE.BufferAttribute(indices, 1));
 
-                // Position
-                const pos = meshData.positions[idx];
-                positions.push(pos[0], pos[1], pos[2]);
-
-                // Normal
-                const norm = meshData.normals[idx];
-                normals.push(norm[0], norm[1], norm[2]);
-
-                // UV
-                const uv = meshData.uvs[idx];
-                uvs.push(uv[0], uv[1]);
-            }
-
-            geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
-            geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(normals), 3));
-            geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
-
-            geometries.set(mat.name, geo);
-        });
+            // Use first material name as key to match visibleMaterials
+            const matKey = scbData.materials[0] || 'default';
+            geometries.set(matKey, geo);
+        }
 
         return geometries;
     }, [meshData]);
 
     // Create material groups for visibility control
     const materialGroups = useMemo(() => {
-        return meshData.materials.map((mat, index) => ({
-            ...mat,
-            visible: visibleMaterials.has(mat.name),
-            color: new THREE.Color().setHSL((index * 0.618033988749895) % 1, 0.7, 0.5),
-        }));
-    }, [meshData.materials, visibleMaterials]);
+        if (isSknMeshDataType(meshData)) {
+            return meshData.materials.map((mat, index) => ({
+                name: mat.name,
+                visible: visibleMaterials.has(mat.name),
+                color: new THREE.Color().setHSL((index * 0.618033988749895) % 1, 0.7, 0.5),
+            }));
+        } else {
+            // For static meshes, use actual material names from the mesh data
+            const scbData = meshData as ScbMeshData;
+            // Use the first material (since we're treating the whole mesh as one geometry)
+            const matName = scbData.materials[0] || 'default';
+            return [{
+                name: matName,
+                visible: visibleMaterials.has(matName),
+                color: new THREE.Color().setHSL(0.5, 0.7, 0.5),
+            }];
+        }
+    }, [meshData, visibleMaterials]);
 
-    // Load textures from base64 data
+    // Load textures from base64 data (only for SKN meshes)
     const textureMap = useMemo(() => {
         const map: Record<string, THREE.Texture> = {};
-        if (meshData.textures) {
+        if (isSknMeshDataType(meshData) && meshData.textures) {
             const loader = new THREE.TextureLoader();
             Object.entries(meshData.textures).forEach(([name, base64]) => {
                 const dataUrl = `data:image/png;base64,${base64}`;
@@ -134,7 +191,7 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
             });
         }
         return map;
-    }, [meshData.textures]);
+    }, [meshData]);
 
     // Center camera on mesh
     useEffect(() => {
@@ -255,21 +312,27 @@ const SkeletonViewer: React.FC<SkeletonViewerProps> = ({ skeletonData }) => {
 // Main Component
 // ============================================================================
 
-export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath }) => {
-    const [meshData, setMeshData] = useState<SknMeshData | null>(null);
+export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType = 'skinned' }) => {
+    const [meshData, setMeshData] = useState<MeshData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [wireframe, setWireframe] = useState(false);
     const [visibleMaterials, setVisibleMaterials] = useState<Set<string>>(new Set());
 
-    // Animation state
+    // Animation state (only for skinned meshes)
     const [animations, setAnimations] = useState<{ name: string; animation_path: string }[]>([]);
     const [selectedAnimation, setSelectedAnimation] = useState<string>('');
     const [isPlaying, setIsPlaying] = useState(false);
 
-    // Skeleton state
+    // Skeleton state (only for skinned meshes)
     const [skeletonData, setSkeletonData] = useState<SklData | null>(null);
     const [showSkeleton, setShowSkeleton] = useState(true);
+
+    // Helper to check if mesh data is SKN type
+    const isSknMeshData = (data: MeshData): data is SknMeshData => {
+        return Array.isArray((data as SknMeshData).materials) &&
+            typeof (data as SknMeshData).materials[0] === 'object';
+    };
 
     // Load mesh data
     useEffect(() => {
@@ -278,41 +341,62 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath }) => {
         const loadMesh = async () => {
             setLoading(true);
             setError(null);
+            setAnimations([]);
+            setSkeletonData(null);
 
             try {
-                const data = await api.readSknMesh(filePath);
+                let data: MeshData;
+
+                if (meshType === 'static') {
+                    // Load SCB/SCO static mesh
+                    data = await api.readScbMesh(filePath);
+                    console.log('[ModelPreview] Loaded static mesh:', (data as ScbMeshData).name);
+                } else {
+                    // Load SKN skinned mesh
+                    data = await api.readSknMesh(filePath);
+
+                    // Debug: log texture loading
+                    const sknData = data as SknMeshData;
+                    if (sknData.textures && Object.keys(sknData.textures).length > 0) {
+                        console.log('[ModelPreview] Loaded textures:', Object.keys(sknData.textures));
+                    } else {
+                        console.log('[ModelPreview] No textures found in mesh data');
+                    }
+                }
+
                 if (cancelled) return;
 
-                // Debug: log texture loading
-                if (data.textures && Object.keys(data.textures).length > 0) {
-                    console.log('[ModelPreview] Loaded textures:', Object.keys(data.textures));
-                } else {
-                    console.log('[ModelPreview] No textures found in mesh data');
-                }
-
                 setMeshData(data);
-                // Initialize all materials as visible
-                setVisibleMaterials(new Set(data.materials.map((m: MaterialRange) => m.name)));
 
-                // Try to load animation list
-                try {
-                    const animList = await api.readAnimationList(filePath);
-                    if (animList.clips && animList.clips.length > 0) {
-                        console.log('[ModelPreview] Found animations:', animList.clips.length);
-                        setAnimations(animList.clips);
-                    }
-                } catch (animErr) {
-                    console.log('[ModelPreview] No animations found:', animErr);
+                // Initialize all materials as visible
+                if (isSknMeshData(data)) {
+                    setVisibleMaterials(new Set(data.materials.map((m: MaterialRange) => m.name)));
+                } else {
+                    setVisibleMaterials(new Set(data.materials));
                 }
 
-                // Try to load skeleton from same folder as SKN
-                const sklPath = filePath.replace(/\.skn$/i, '.skl');
-                try {
-                    const skeleton = await api.readSklSkeleton(sklPath);
-                    console.log('[ModelPreview] Loaded skeleton with', skeleton.bones.length, 'bones');
-                    setSkeletonData(skeleton);
-                } catch (sklErr) {
-                    console.log('[ModelPreview] No skeleton found:', sklErr);
+                // Only load skeleton/animations for skinned meshes
+                if (meshType === 'skinned') {
+                    // Try to load animation list
+                    try {
+                        const animList = await api.readAnimationList(filePath);
+                        if (animList.clips && animList.clips.length > 0) {
+                            console.log('[ModelPreview] Found animations:', animList.clips.length);
+                            setAnimations(animList.clips);
+                        }
+                    } catch (animErr) {
+                        console.log('[ModelPreview] No animations found:', animErr);
+                    }
+
+                    // Try to load skeleton from same folder as SKN
+                    const sklPath = filePath.replace(/\.skn$/i, '.skl');
+                    try {
+                        const skeleton = await api.readSklSkeleton(sklPath);
+                        console.log('[ModelPreview] Loaded skeleton with', skeleton.bones.length, 'bones');
+                        setSkeletonData(skeleton);
+                    } catch (sklErr) {
+                        console.log('[ModelPreview] No skeleton found:', sklErr);
+                    }
                 }
             } catch (err) {
                 if (cancelled) return;
@@ -327,7 +411,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath }) => {
 
         loadMesh();
         return () => { cancelled = true; };
-    }, [filePath]);
+    }, [filePath, meshType]);
 
     // Load animation when selection changes
     useEffect(() => {
@@ -363,7 +447,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath }) => {
     // Toggle all materials
     const toggleAllMaterials = (visible: boolean) => {
         if (visible && meshData) {
-            setVisibleMaterials(new Set(meshData.materials.map(m => m.name)));
+            if (isSknMeshData(meshData)) {
+                setVisibleMaterials(new Set(meshData.materials.map(m => m.name)));
+            } else {
+                setVisibleMaterials(new Set(meshData.materials));
+            }
         } else {
             setVisibleMaterials(new Set());
         }
@@ -451,24 +539,27 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath }) => {
                         </div>
                     </div>
                     <div className="model-preview__materials-list">
-                        {meshData.materials.map((mat, index) => (
-                            <label key={mat.name || index} className="material-toggle">
-                                <input
-                                    type="checkbox"
-                                    checked={visibleMaterials.has(mat.name)}
-                                    onChange={() => toggleMaterial(mat.name)}
-                                />
-                                <span
-                                    className="material-toggle__color"
-                                    style={{
-                                        backgroundColor: `hsl(${(index * 222.5) % 360}, 70%, 50%)`
-                                    }}
-                                />
-                                <span className="material-toggle__name" title={mat.name}>
-                                    {mat.name || `Material ${index}`}
-                                </span>
-                            </label>
-                        ))}
+                        {meshData.materials.map((mat, index) => {
+                            const matName = typeof mat === 'string' ? mat : mat.name;
+                            return (
+                                <label key={matName || index} className="material-toggle">
+                                    <input
+                                        type="checkbox"
+                                        checked={visibleMaterials.has(matName)}
+                                        onChange={() => toggleMaterial(matName)}
+                                    />
+                                    <span
+                                        className="material-toggle__color"
+                                        style={{
+                                            backgroundColor: `hsl(${(index * 222.5) % 360}, 70%, 50%)`
+                                        }}
+                                    />
+                                    <span className="material-toggle__name" title={matName}>
+                                        {matName || `Material ${index}`}
+                                    </span>
+                                </label>
+                            );
+                        })}
                     </div>
                 </div>
 
@@ -525,7 +616,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath }) => {
                 )}
 
                 {/* Texture Debug Info */}
-                {meshData.textures && Object.keys(meshData.textures).length > 0 && (
+                {isSknMeshData(meshData) && meshData.textures && Object.keys(meshData.textures).length > 0 && (
                     <div className="model-preview__debug">
                         <small>Textures loaded: {Object.keys(meshData.textures).length}</small>
                     </div>

@@ -48,8 +48,11 @@ ltk_texture = "0.4"
 image = "0.25"
 base64 = "0.21"
 
-# League toolkit for WAD operations and mesh parsing (from crates.io)
-league-toolkit = { version = "0.2", features = ["serde", "mesh"] }
+# League toolkit for WAD operations (from crates.io)
+league-toolkit = { version = "0.2", features = ["serde"] }
+
+# ltk_mesh from git with SCB v3.2 vertex color fix
+ltk_mesh = { git = "https://github.com/LeagueToolkit/league-toolkit", rev = "c0e6e0bcfadf01266b1c1764e108cabc181ffb44" }
 
 # glam for vector math (must match league-toolkit's version for Format trait compatibility)
 glam = "0.27"

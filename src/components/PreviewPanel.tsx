@@ -55,6 +55,8 @@ const getTypeLabel = (fileType: string): string => {
         'model': '3D Model',
         'model/x-lol-skn': 'SKN Skinned Mesh',
         'model/x-lol-skl': 'SKL Skeleton',
+        'model/x-lol-scb': 'SCB Static Mesh',
+        'model/x-lol-sco': 'SCO Static Mesh',
         'application/octet-stream': 'Binary File',
     };
     return labels[fileType] || fileType;
@@ -151,7 +153,15 @@ export const PreviewPanel: React.FC = () => {
 
         // 3D model preview for SKN files
         if (fileInfo.extension === 'skn' || fileInfo.file_type === 'model/x-lol-skn') {
-            return <ModelPreview filePath={filePath} />;
+            return <ModelPreview filePath={filePath} meshType="skinned" />;
+        }
+
+        // 3D model preview for SCB/SCO static mesh files
+        if (
+            fileInfo.extension === 'scb' || fileInfo.extension === 'sco' ||
+            fileInfo.file_type === 'model/x-lol-scb' || fileInfo.file_type === 'model/x-lol-sco'
+        ) {
+            return <ModelPreview filePath={filePath} meshType="static" />;
         }
 
         // TODO: Add SKL skeleton preview once ltk_mesh supports it

@@ -41,6 +41,11 @@
   - Containers (List, Map, Optional)
 
 ### 🖼️ **Asset Preview**
+- **3D Models**: Real-time WebGL preview for champion meshes and static models
+  - SKN (Skinned Mesh) with texture support
+  - SKL (Skeleton) bone visualization
+  - SCB/SCO (Static Mesh) for particle geometry and props
+  - Material visibility toggles and wireframe mode
 - **Textures**: DDS and TEX file decoding (BC1, BC3, ETC formats) via `ltk_texture`
 - **Hex Viewer**: Binary file inspection with offset display
 - **Text**: Syntax-highlighted text file viewing
@@ -78,7 +83,8 @@ These features are implemented in `src-tauri/src/core/repath/refather.rs` and `s
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| **SKN/SKL 3D Preview** | 🔜 Planned | In-app 3D model viewer for champion skin meshes and skeletons |
+| **SKN/SKL 3D Preview** | ✅ Working | In-app 3D model viewer for champion skin meshes and skeletons with texture mapping |
+| **SCB/SCO Preview** | ✅ Working | Static mesh viewer for particle geometry and props via `ltk_mesh` |
 | **Sound Bank Editing** | 🔜 Planned | BNK/WPK audio file preview and editing support |
 | **Animation Preview** | 🔜 Planned | ANM file playback on 3D models |
 
@@ -184,6 +190,7 @@ Flint supports custom color themes! Create your own theme by copying `src/themes
 | **BIN Parsing** | `ltk_ritobin`, `ltk_meta` (LeagueToolkit) |
 | **WAD Handling** | `league-toolkit` |
 | **Texture Decoding** | `ltk_texture` (LeagueToolkit) |
+| **Mesh Parsing** | `ltk_mesh` (LeagueToolkit) |
 | **Mod Export** | `ltk_fantome`, `ltk_modpkg`, `ltk_mod_project` |
 | **Hash Resolution** | CommunityDragon hashtables, `xxhash-rust` |
 
@@ -194,6 +201,7 @@ Flint supports custom color themes! Create your own theme by copying `src/themes
 ### Rust Backend
 - `tauri` 2.0 - Cross-platform desktop framework
 - `league-toolkit` - WAD archive operations
+- `ltk_mesh` - SKN/SKL/SCB/SCO mesh parsing (LeagueToolkit)
 - `ltk_ritobin` / `ltk_meta` - BIN file parsing
 - `ltk_fantome` / `ltk_modpkg` - Mod format export
 - `ltk_texture` - DDS/TEX texture decoding (LeagueToolkit)
