@@ -9,6 +9,7 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
     "@react-three/drei": "9.117",
     "@react-three/fiber": "^8.18.0",
     "@tauri-apps/api": "^2.0.0",
