@@ -4,6 +4,7 @@ pub mod converter;
 pub mod concat;
 
 // Re-export ltk-based functions from bridge
+#[allow(unused_imports)]
 pub use ltk_bridge::{
     read_bin as read_bin_ltk,
     write_bin as write_bin_ltk,

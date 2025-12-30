@@ -4,13 +4,11 @@
 //! allowing independent control over concat and repathing operations.
 
 use crate::core::bin::concat::{
-    concatenate_linked_bins, classify_bin, BinCategory, ConcatResult,
+    concatenate_linked_bins, ConcatResult,
 };
-use crate::core::bin::ltk_bridge::read_bin;
 use crate::core::repath::refather::{repath_project, RepathConfig, RepathResult};
 use crate::error::Result;
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -35,6 +33,7 @@ pub struct OrganizerConfig {
 
 impl OrganizerConfig {
     /// Create a new config with both concat and repath enabled
+    #[allow(dead_code)]
     pub fn new(
         creator_name: String,
         project_name: String,
@@ -53,6 +52,7 @@ impl OrganizerConfig {
     }
 
     /// Create a config with concat only (no repathing)
+    #[allow(dead_code)]
     pub fn concat_only(
         creator_name: String,
         project_name: String,
@@ -71,6 +71,7 @@ impl OrganizerConfig {
     }
 
     /// Create a config with repath only (no concatenation)
+    #[allow(dead_code)]
     pub fn repath_only(
         creator_name: String,
         project_name: String,
@@ -100,6 +101,7 @@ pub struct OrganizerResult {
 
 impl OrganizerResult {
     /// Get total number of BINs processed across all operations
+    #[allow(dead_code)]
     pub fn total_bins_processed(&self) -> usize {
         let concat_count = self.concat_result.as_ref().map(|r| r.source_count).unwrap_or(0);
         let repath_count = self.repath_result.as_ref().map(|r| r.bins_processed).unwrap_or(0);

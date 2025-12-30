@@ -444,6 +444,8 @@ interface SknMeshData {
     indices: number[];
     bounding_box: [[number, number, number], [number, number, number]];
     textures?: Record<string, string>;  // submesh name → base64 PNG texture data
+    bone_weights?: [number, number, number, number][];  // 4 bone weights per vertex
+    bone_indices?: [number, number, number, number][];  // 4 bone indices per vertex
 }
 
 /**
@@ -484,12 +486,14 @@ interface BoneData {
     local_rotation: [number, number, number, number];  // quaternion [x, y, z, w]
     local_scale: [number, number, number];
     world_position: [number, number, number];
+    inverse_bind_matrix: [[number, number, number, number], [number, number, number, number], [number, number, number, number], [number, number, number, number]];  // 4x4 column-major matrix
 }
 
 interface SklData {
     name: string;
     asset_name: string;
     bones: BoneData[];
+    influences: number[];  // Maps vertex bone indices to actual bone IDs
 }
 
 /**
@@ -516,7 +520,25 @@ interface AnimationList {
 interface AnimationData {
     duration: number;
     fps: number;
-    frame_count: number;
+    joint_count: number;
+    joint_hashes: number[];
+}
+
+/**
+ * Transform data for a single joint at a specific time
+ */
+interface JointTransform {
+    rotation: [number, number, number, number];  // Quaternion [x, y, z, w]
+    translation: [number, number, number];
+    scale: [number, number, number];
+}
+
+/**
+ * Animation pose containing all joint transforms at a specific time
+ */
+export interface AnimationPose {
+    time: number;
+    joints: Record<number, JointTransform>;  // joint_hash → transform
 }
 
 /**
@@ -531,4 +553,15 @@ export async function readAnimationList(sknPath: string): Promise<AnimationList>
  */
 export async function readAnimation(path: string, basePath?: string): Promise<AnimationData> {
     return invokeCommand('read_animation', { path, basePath });
+}
+
+/**
+ * Evaluate animation at a specific time to get joint poses
+ */
+export async function evaluateAnimation(
+    path: string,
+    basePath: string | undefined,
+    time: number
+): Promise<AnimationPose> {
+    return invokeCommand('evaluate_animation', { path, basePath, time });
 }

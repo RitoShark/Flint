@@ -6,7 +6,6 @@
 //! 3. Relocates the actual asset files to match the new paths
 //! 4. Optionally combines linked BINs into a single concat BIN
 
-use crate::core::bin::concat::{classify_bin, BinCategory};
 use crate::core::bin::ltk_bridge::{read_bin, write_bin};
 use crate::error::{Error, Result};
 use ltk_meta::PropertyValueEnum;

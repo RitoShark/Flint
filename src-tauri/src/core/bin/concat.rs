@@ -42,8 +42,10 @@ pub struct ConcatResult {
     /// Number of source BINs that were concatenated
     pub source_count: usize,
     /// Total number of entries in the concat BIN
+    #[allow(dead_code)] // Kept for diagnostic purposes
     pub entry_count: usize,
     /// Number of hash collisions encountered (last-write-wins)
+    #[allow(dead_code)] // Kept for diagnostic purposes
     pub collision_count: usize,
     /// Paths of source BINs that were concatenated (for deletion)
     pub source_paths: Vec<String>,

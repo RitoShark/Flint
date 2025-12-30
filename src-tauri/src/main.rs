@@ -115,6 +115,7 @@ fn main() {
             commands::mesh::read_skl_skeleton,
             commands::mesh::read_animation_list,
             commands::mesh::read_animation,
+            commands::mesh::evaluate_animation,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

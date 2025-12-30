@@ -6,7 +6,7 @@
 use std::io::Cursor;
 use std::sync::OnceLock;
 use parking_lot::RwLock;
-use ltk_meta::{BinTree, BinTreeObject, BinProperty, BinPropertyKind, PropertyValueEnum};
+use ltk_meta::{BinTree, BinTreeObject};
 
 /// Maximum allowed BIN file size (50MB - no legitimate BIN should be larger)
 pub const MAX_BIN_SIZE: usize = 50 * 1024 * 1024;
@@ -243,6 +243,7 @@ pub fn tree_to_text_cached(tree: &BinTree) -> Result<String> {
 ///
 /// **DEPRECATED**: Use `tree_to_text_cached()` instead for better performance.
 /// This function is kept for backwards compatibility but now uses the cache internally.
+#[allow(dead_code)]
 pub fn tree_to_text_with_resolved_names(tree: &BinTree) -> Result<String> {
     // Use cached version for performance
     tree_to_text_cached(tree)
@@ -261,34 +262,40 @@ pub fn text_to_tree(text: &str) -> Result<BinTree> {
 }
 
 /// Get the list of linked/dependency BIN files from a BinTree.
+#[allow(dead_code)]
 pub fn get_dependencies(tree: &BinTree) -> &[String] {
     &tree.dependencies
 }
 
 /// Set the list of linked/dependency BIN files for a BinTree.
+#[allow(dead_code)]
 pub fn set_dependencies(tree: &mut BinTree, deps: Vec<String>) {
     tree.dependencies = deps;
 }
 
 /// Get an object from the tree by path hash.
+#[allow(dead_code)]
 pub fn get_object(tree: &BinTree, path_hash: u32) -> Option<&BinTreeObject> {
     tree.objects.get(&path_hash)
 }
 
 /// Get a mutable object from the tree by path hash.
+#[allow(dead_code)]
 pub fn get_object_mut(tree: &mut BinTree, path_hash: u32) -> Option<&mut BinTreeObject> {
     tree.objects.get_mut(&path_hash)
 }
 
 /// Insert an object into the tree.
+#[allow(dead_code)]
 pub fn insert_object(tree: &mut BinTree, object: BinTreeObject) {
     tree.objects.insert(object.path_hash, object);
 }
 
 /// Remove an object from the tree by path hash.
+#[allow(dead_code)]
 pub fn remove_object(tree: &mut BinTree, path_hash: u32) -> Option<BinTreeObject> {
-    tree.objects.remove(&path_hash)
+    tree.objects.shift_remove(&path_hash)
 }
 
 // Re-export ltk_ritobin types for hash provider support
-pub use ltk_ritobin::{HashMapProvider, HashProvider, HexHashProvider};
+pub use ltk_ritobin::HashMapProvider;

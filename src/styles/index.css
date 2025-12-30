@@ -2485,7 +2485,7 @@ textarea:focus {
 .model-preview__canvas {
   flex: 1;
   position: relative;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16162a 50%, #0f0f1a 100%);
+  background: linear-gradient(135deg, #1e1e1e 0%, #181818 50%, #121212 100%);
   border-radius: var(--radius-sm);
   overflow: hidden;
 }

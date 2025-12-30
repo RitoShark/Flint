@@ -7,6 +7,7 @@ use crate::error::{Error, Result};
 #[derive(Clone)]
 pub struct Hashtable {
     mappings: HashMap<u64, String>,
+    #[allow(dead_code)] // Kept for future reload functionality
     source_dir: PathBuf,
 }
 
@@ -107,6 +108,7 @@ impl Hashtable {
 
     /// Loads a single hash file and adds its mappings to the provided HashMap
     /// Used for sequential reload operations.
+    #[allow(dead_code)] // Used by reload()
     fn load_hash_file(path: &Path, mappings: &mut HashMap<u64, String>) -> Result<()> {
         let content = fs::read_to_string(path)?;
         Self::parse_hash_content(&content, path, mappings)
@@ -185,6 +187,7 @@ impl Hashtable {
     /// 
     /// # Returns
     /// * `Result<()>` - Ok if reload succeeded, Err otherwise
+    #[allow(dead_code)] // Kept for future use
     pub fn reload(&mut self) -> Result<()> {
         // Clear existing mappings
         self.mappings.clear();
@@ -211,11 +214,13 @@ impl Hashtable {
     }
 
     /// Returns true if the hashtable contains no mappings
+    #[allow(dead_code)] // Kept for API completeness
     pub fn is_empty(&self) -> bool {
         self.mappings.is_empty()
     }
 
     /// Returns an iterator over all hash mappings
+    #[allow(dead_code)] // Kept for future use
     pub fn entries(&self) -> impl Iterator<Item = (u64, &String)> {
         self.mappings.iter().map(|(k, v)| (*k, v))
     }

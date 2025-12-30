@@ -1,15 +1,15 @@
 [package]
-name = "lol-modding-suite"
+name = "Flint"
 version = "0.1.0"
 edition = "2021"
-default-run = "lol-modding-suite"
+default-run = "Flint"
 
 [lib]
-name = "lol_modding_suite"
+name = "Flint"
 path = "src/lib.rs"
 
 [[bin]]
-name = "lol-modding-suite"
+name = "Flint"
 path = "src/main.rs"
 
 [[bin]]
@@ -42,6 +42,7 @@ indexmap = { version = "2.1", features = ["serde"] }
 
 # Parallel processing for hash loading
 rayon = "1.10"
+futures = "0.3"
 
 # Texture handling (DDS and TEX via league-toolkit)
 ltk_texture = "0.4"
@@ -51,16 +52,16 @@ base64 = "0.21"
 # League toolkit for WAD operations (from crates.io)
 league-toolkit = { version = "0.2", features = ["serde"] }
 
-# ltk_mesh from git with SCB v3.2 vertex color fix
-ltk_mesh = { git = "https://github.com/LeagueToolkit/league-toolkit", rev = "c0e6e0bcfadf01266b1c1764e108cabc181ffb44" }
+# ltk_mesh from crates.io (0.3.0 for ltk_primitives 0.3.x compatibility)
+ltk_mesh = "0.3.0"
 
 # glam for vector math (must match league-toolkit's version for Format trait compatibility)
 glam = "0.27"
 
-# League Toolkit for BIN file parsing (git main branch for latest BinTreeBuilder API)
-ltk_meta = { git = "https://github.com/LeagueToolkit/league-toolkit", branch = "main", features = ["serde"] }
-ltk_ritobin = { git = "https://github.com/LeagueToolkit/league-toolkit", branch = "main" }
-ltk_anim = { git = "https://github.com/LeagueToolkit/league-toolkit", branch = "main" }
+# League Toolkit for BIN file parsing (crates.io for compatible ltk_primitives version)
+ltk_meta = { version = "0.3.3", features = ["serde"] }
+ltk_ritobin = "0.1.4"
+ltk_anim = "0.3.0"
 
 # League Toolkit file type detection
 ltk_file = "0.2"

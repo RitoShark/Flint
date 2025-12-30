@@ -10,7 +10,7 @@ use crate::core::project::{
 };
 use crate::core::repath::{organize_project, OrganizerConfig};
 use crate::core::bin::{classify_bin, BinCategory};
-use crate::core::wad::extractor::{find_champion_wad, extract_skin_assets, ExtractionResult};
+use crate::core::wad::extractor::{find_champion_wad, extract_skin_assets};
 use crate::state::HashtableState;
 use league_toolkit::wad::Wad;
 use std::path::PathBuf;
@@ -379,7 +379,6 @@ pub async fn preconvert_project_bins(
     }));
     
     // Filter to only files that need conversion (not already up-to-date)
-    let mut cache_hits = 0usize;
     let files_to_convert: Vec<_> = bin_files.iter()
         .filter(|bin_path| {
             let ritobin_path = format!("{}.ritobin", bin_path.display());
@@ -404,7 +403,7 @@ pub async fn preconvert_project_bins(
         .cloned()
         .collect();
     
-    cache_hits = total - files_to_convert.len();
+    let cache_hits = total - files_to_convert.len();
     let to_convert_count = files_to_convert.len();
     tracing::info!("[PRECONVERT] {} files need conversion, {} CACHE HITS (already up-to-date)", 
         to_convert_count, cache_hits);
@@ -502,12 +501,5 @@ fn convert_bin_file_sync(bin_path: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to write ritobin '{}': {}", ritobin_path, e))?;
 
     Ok(())
-}
-
-/// Async helper function to convert a single BIN file to ritobin (legacy)
-/// Kept for backwards compatibility with single-file conversion commands
-async fn convert_bin_file(bin_path: &str) -> Result<(), String> {
-    // Delegate to sync version since it's now more efficient
-    convert_bin_file_sync(bin_path)
 }
 

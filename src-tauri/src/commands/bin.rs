@@ -1,7 +1,6 @@
 use crate::core::bin::{bin_to_json, bin_to_text, json_to_bin, read_bin, text_to_bin, write_bin};
 use crate::state::HashtableState;
 use serde::{Deserialize, Serialize};
-use serde_json;
 use tauri::State;
 use std::fs;
 use std::path::Path;

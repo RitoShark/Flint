@@ -5,7 +5,9 @@
 //! - `.modpkg` format (modern format) via ltk_modpkg
 
 // Re-export from ltk crates for convenience
+#[allow(unused_imports)]
 pub use ltk_fantome::{pack_to_fantome, FantomeInfo, create_file_name, FantomeExtractor};
+#[allow(unused_imports)]
 pub use ltk_modpkg::builder::ModpkgBuilder;
 
 /// Generate a default filename for the fantome package

@@ -14,7 +14,7 @@
 
 ---
 
-## ✨ Features
+## ✨ Features 
 
 ### 🎮 **Smart Game Detection**
 - Automatically detects League of Legends installation path

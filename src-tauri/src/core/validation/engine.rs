@@ -3,10 +3,8 @@
 //! This module provides functionality to validate that assets referenced in BIN files
 //! actually exist in WAD archives.
 
-use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 
 /// Validation report for asset references
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,11 +31,13 @@ impl ValidationReport {
     }
 
     /// Returns the number of missing references
+    #[allow(dead_code)]
     pub fn missing_count(&self) -> usize {
         self.missing_assets.len()
     }
 
     /// Returns true if all references are valid
+    #[allow(dead_code)]
     pub fn is_valid(&self) -> bool {
         self.missing_assets.is_empty()
     }
@@ -84,6 +84,7 @@ pub struct MissingAsset {
 
 impl MissingAsset {
     /// Creates a new MissingAsset
+    #[allow(dead_code)]
     pub fn new(path: impl Into<String>, source_file: impl Into<String>) -> Self {
         let path_str = path.into();
         let asset_type = infer_asset_type(&path_str);

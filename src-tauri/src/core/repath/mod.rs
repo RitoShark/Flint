@@ -10,5 +10,7 @@
 pub mod refather;
 pub mod organizer;
 
+#[allow(unused_imports)]
 pub use refather::{repath_project, RepathConfig, RepathResult};
+#[allow(unused_imports)]
 pub use organizer::{organize_project, OrganizerConfig, OrganizerResult};

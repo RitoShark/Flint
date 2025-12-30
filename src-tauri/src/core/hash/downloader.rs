@@ -16,6 +16,7 @@ pub struct DownloadStats {
 
 /// GitHub API response for file content
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // sha field is part of GitHub API response but not currently used
 struct GitHubFile {
     name: String,
     download_url: Option<String>,
@@ -226,6 +227,7 @@ async fn needs_update(path: &Path) -> Result<bool> {
 }
 
 /// Verifies SHA checksum of downloaded content
+#[allow(dead_code)] // Kept for future use when GitHub API returns correct SHA
 fn verify_checksum(content: &[u8], expected_sha: &str) -> Result<()> {
     use sha1::{Digest, Sha1};
     

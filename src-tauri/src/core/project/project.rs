@@ -39,6 +39,7 @@ pub struct FlintMetadata {
 
 impl FlintMetadata {
     /// Creates new FlintMetadata with current timestamp
+    #[allow(dead_code)] // Kept for API completeness
     pub fn new(champion: impl Into<String>, skin_id: u32, league_path: Option<PathBuf>) -> Self {
         let now = Utc::now();
         Self {
@@ -121,7 +122,7 @@ impl Project {
         let champion_str = champion.into();
         
         // Create display name from champion and skin
-        let display_name = if skin_id == 0 {
+        let _display_name = if skin_id == 0 {
             format!("{} Base Skin", champion_str)
         } else {
             format!("{} Skin {}", champion_str, skin_id)
@@ -199,6 +200,7 @@ impl Project {
     }
 
     /// Returns the layer names
+    #[allow(dead_code)] // Kept for API completeness
     pub fn layer_names(&self) -> Vec<String> {
         self.layers.iter().map(|l| l.name.clone()).collect()
     }
@@ -406,6 +408,7 @@ mod tests {
             0,
             "C:\\Riot Games\\League of Legends",
             "C:\\Projects\\test",
+            None,
         );
 
         assert_eq!(project.name, "test-project");
@@ -424,6 +427,7 @@ mod tests {
             0,
             "C:\\League",
             "C:\\Projects\\test",
+            None,
         );
 
         assert_eq!(project.config_path(), PathBuf::from("C:\\Projects\\test\\mod.config.json"));
@@ -434,7 +438,7 @@ mod tests {
 
     #[test]
     fn test_to_mod_project() {
-        let project = Project::new("Test", "Ahri", 0, "C:\\League", "C:\\test");
+        let project = Project::new("Test", "Ahri", 0, "C:\\League", "C:\\test", None);
         let mod_project = project.to_mod_project();
         
         assert_eq!(mod_project.name, project.name);
@@ -444,7 +448,7 @@ mod tests {
 
     #[test]
     fn test_flint_metadata() {
-        let project = Project::new("Test", "Ahri", 5, "C:\\League", "C:\\test");
+        let project = Project::new("Test", "Ahri", 5, "C:\\League", "C:\\test", None);
         let flint = project.to_flint_metadata();
         
         assert_eq!(flint.champion, "Ahri");
@@ -453,7 +457,7 @@ mod tests {
 
     #[test]
     fn test_project_content_path() {
-        let project = Project::new("Test", "Ahri", 0, "C:\\League", "C:\\test");
+        let project = Project::new("Test", "Ahri", 0, "C:\\League", "C:\\test", None);
         
         assert_eq!(project.content_path("base"), PathBuf::from("C:\\test\\content\\base"));
         assert_eq!(project.content_path("chroma1"), PathBuf::from("C:\\test\\content\\chroma1"));
@@ -475,7 +479,7 @@ mod tests {
 
     #[test]
     fn test_layer_names() {
-        let project = Project::new("Test", "Ahri", 0, "C:\\League", "C:\\test");
+        let project = Project::new("Test", "Ahri", 0, "C:\\League", "C:\\test", None);
         let layers = project.layer_names();
         
         assert_eq!(layers.len(), 1);
@@ -494,6 +498,7 @@ mod tests {
             0,
             &league_dir,
             temp_dir.path(),
+            None,
         ).unwrap();
 
         assert_eq!(project.display_name, "Test Project");
@@ -516,14 +521,14 @@ mod tests {
     #[test]
     fn test_create_project_empty_name() {
         let temp_dir = tempdir().unwrap();
-        let result = create_project("", "Ahri", 0, temp_dir.path(), temp_dir.path());
+        let result = create_project("", "Ahri", 0, temp_dir.path(), temp_dir.path(), None);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_create_project_empty_champion() {
         let temp_dir = tempdir().unwrap();
-        let result = create_project("Test", "", 0, temp_dir.path(), temp_dir.path());
+        let result = create_project("Test", "", 0, temp_dir.path(), temp_dir.path(), None);
         assert!(result.is_err());
     }
 }

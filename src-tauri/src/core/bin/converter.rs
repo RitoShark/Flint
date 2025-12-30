@@ -24,6 +24,7 @@ fn bin_error(message: impl Into<String>) -> Error {
 ///
 /// # Returns
 /// A string containing the Python-like representation
+#[allow(dead_code)] // Kept for legacy compatibility
 pub fn bin_to_text_from_data(data: &[u8], _hashtable: Option<&Hashtable>) -> Result<String> {
     let tree = read_bin(data)
         .map_err(|e| bin_error(format!("Failed to parse bin: {}", e)))?;
@@ -71,12 +72,14 @@ pub fn json_to_bin(json: &str, _hashtable: Option<&Hashtable>) -> Result<BinTree
 }
 
 /// Read binary data and convert to BinTree
+#[allow(dead_code)] // Kept for legacy compatibility
 pub fn read_and_parse(data: &[u8]) -> Result<BinTree> {
     read_bin(data)
         .map_err(|e| bin_error(format!("Failed to parse bin: {}", e)))
 }
 
 /// Write BinTree to binary format
+#[allow(dead_code)] // Kept for legacy compatibility
 pub fn write_to_binary(tree: &BinTree) -> Result<Vec<u8>> {
     write_bin(tree)
         .map_err(|e| bin_error(format!("Failed to write bin: {}", e)))

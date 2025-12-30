@@ -25,11 +25,13 @@ impl HashtableState {
     }
     
     /// Get the hash directory path (for downloading)
+    #[allow(dead_code)] // Kept for API completeness
     pub fn get_hash_dir(&self) -> Option<PathBuf> {
         self.0.lock().clone()
     }
     
     /// Legacy init method - now just sets the hash directory for lazy loading
+    #[allow(dead_code)] // Kept for API completeness
     pub fn init(&self, hash_dir: PathBuf) -> Result<()> {
         // Create hash directory if it doesn't exist
         std::fs::create_dir_all(&hash_dir)?;
@@ -71,6 +73,7 @@ impl HashtableState {
     }
     
     /// Check if the hashtable has been loaded yet
+    #[allow(dead_code)] // Kept for API completeness
     pub fn is_loaded(&self) -> bool {
         LAZY_HASHTABLE.get().is_some()
     }
