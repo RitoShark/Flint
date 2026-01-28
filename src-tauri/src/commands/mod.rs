@@ -9,3 +9,4 @@ pub mod validation;
 pub mod file;
 pub mod export;
 pub mod mesh;
+pub mod updater;

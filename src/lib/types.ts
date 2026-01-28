@@ -7,7 +7,7 @@
 // =============================================================================
 
 export type AppStatus = 'ready' | 'working' | 'error';
-export type ModalType = 'newProject' | 'settings' | 'export' | 'firstTimeSetup' | null;
+export type ModalType = 'newProject' | 'settings' | 'export' | 'firstTimeSetup' | 'updateAvailable' | null;
 export type ViewType = 'welcome' | 'preview' | 'editor' | 'project';
 
 export interface Toast {
@@ -16,6 +16,13 @@ export interface Toast {
     message: string;
     suggestion?: string | null;
     timestamp: number;
+}
+
+export interface LogEntry {
+    id: number;
+    timestamp: number;
+    level: 'info' | 'warning' | 'error';
+    message: string;
 }
 
 export interface RecentProject {
@@ -97,6 +104,10 @@ export interface AppState {
 
     // Toast notifications
     toasts: Toast[];
+
+    // Log panel
+    logs: LogEntry[];
+    logPanelExpanded: boolean;
 }
 
 // =============================================================================
@@ -115,4 +126,13 @@ export interface ExportProgress {
     stage: string;
     current: number;
     total: number;
+}
+
+export interface UpdateInfo {
+    available: boolean;
+    current_version: string;
+    latest_version: string;
+    release_notes: string;
+    download_url: string;
+    published_at: string;
 }

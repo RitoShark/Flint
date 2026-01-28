@@ -24,7 +24,9 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1.0", features = ["full"] }
+# Trimmed tokio: rt-multi-thread (async runtime), fs (file I/O), io-util (async write),
+# sync (channels), macros (async tests), time (for Tauri timeouts)
+tokio = { version = "1.0", features = ["rt-multi-thread", "fs", "io-util", "sync", "macros", "time"] }
 reqwest = { version = "0.11", features = ["json", "stream"] }
 thiserror = "1.0"
 anyhow = "1.0"
@@ -101,8 +103,42 @@ tempfile = "3.0"
 [features]
 custom-protocol = ["tauri/custom-protocol"]
 
+# =============================================================================
+# BUILD PROFILES - Optimized for fast incremental compilation
+# =============================================================================
+
+# Development profile - fastest incremental rebuilds
+[profile.dev]
+# Minimal optimization for your code (fastest compile)
+opt-level = 0
+# More codegen units = more parallelism during compilation
+codegen-units = 256
+# Enable incremental compilation
+incremental = true
+# No debug info by default (faster linking), set to 2 for debugging
+debug = 1
+
+# Optimize dependencies even in dev mode (they don't change often)
+# This makes your app run faster without slowing down your code changes
+[profile.dev.package."*"]
+opt-level = 2
+codegen-units = 16
+
+# Release-dev profile - for testing with optimizations (NO slow LTO)
+# Use: cargo build --profile release-dev
+[profile.release-dev]
+inherits = "release"
+opt-level = 2
+lto = "off"
+codegen-units = 16
+incremental = true
+debug = 1
+strip = false
+
+# Full release profile - slow build, maximum performance
 [profile.release]
 opt-level = 3
-lto = true
+lto = "fat"
 codegen-units = 1
 strip = true
+panic = "abort"

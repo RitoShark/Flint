@@ -109,7 +109,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
         <div className="file-tree__node">
             <div
                 className={`file-tree__item ${isSelected ? 'file-tree__item--selected' : ''}`}
-                style={{ paddingLeft: 8 + depth * 16 }}
+                style={{ paddingLeft: 4 + depth * 12 }}
                 onClick={handleClick}
             >
                 {node.isDirectory ? (

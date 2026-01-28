@@ -7,18 +7,20 @@ mod error;
 mod state;
 
 use core::hash::get_ritoshark_hash_dir;
+use core::frontend_log::{FrontendLogLayer, set_app_handle};
 use state::HashtableState;
 use tauri::Manager;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 fn main() {
-    // Initialize tracing/logging
+    // Initialize tracing/logging with frontend layer
     // Set RUST_LOG environment variable to control log level (e.g., RUST_LOG=debug)
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info"));
     
     tracing_subscriber::registry()
         .with(fmt::layer())
+        .with(FrontendLogLayer)
         .with(filter)
         .init();
 
@@ -28,6 +30,9 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(HashtableState::new())
         .setup(|app| {
+            // Set app handle for frontend logging
+            set_app_handle(app.handle().clone());
+            
             // Use RitoShark directory for hash files (shared with other RitoShark tools)
             let hash_dir = get_ritoshark_hash_dir().unwrap_or_else(|e| {
                 tracing::warn!("Failed to get RitoShark hash directory: {}", e);
@@ -117,6 +122,10 @@ fn main() {
             commands::mesh::read_animation,
             commands::mesh::evaluate_animation,
             commands::mesh::resolve_asset_path,
+            // Auto-update commands
+            commands::updater::get_current_version,
+            commands::updater::check_for_updates,
+            commands::updater::download_and_install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

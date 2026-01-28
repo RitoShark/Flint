@@ -576,3 +576,23 @@ export async function resolveAssetPath(
 ): Promise<string> {
     return invokeCommand('resolve_asset_path', { assetPath, binPath });
 }
+
+// =============================================================================
+// Auto-Update Commands
+// =============================================================================
+
+import type { UpdateInfo } from './types';
+
+export async function getCurrentVersion(): Promise<string> {
+    return invokeCommand('get_current_version');
+}
+
+export async function checkForUpdates(): Promise<UpdateInfo> {
+    return invokeCommand('check_for_updates');
+}
+
+export async function downloadAndInstallUpdate(downloadUrl: string): Promise<void> {
+    return invokeCommand('download_and_install_update', { downloadUrl });
+}
+
+

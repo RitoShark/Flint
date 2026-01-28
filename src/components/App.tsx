@@ -15,6 +15,7 @@ import { NewProjectModal } from './modals/NewProjectModal';
 import { SettingsModal } from './modals/SettingsModal';
 import { ExportModal } from './modals/ExportModal';
 import { FirstTimeSetupModal } from './modals/FirstTimeSetupModal';
+import { UpdateModal } from './modals/UpdateModal';
 import { ToastContainer } from './Toast';
 
 export const App: React.FC = () => {
@@ -86,6 +87,9 @@ export const App: React.FC = () => {
                     console.log('[Flint] League auto-detection failed');
                 }
             }
+
+            // Check for updates after a short delay (don't block startup)
+            setTimeout(checkForUpdates, 3000);
         } catch (error) {
             console.error('[Flint] Failed to load initial data:', error);
         }
@@ -117,6 +121,22 @@ export const App: React.FC = () => {
         };
 
         setTimeout(poll, 1000);
+    };
+
+    const checkForUpdates = async () => {
+        try {
+            console.log('[Flint] Checking for updates...');
+            const updateInfo = await api.checkForUpdates();
+            if (updateInfo.available) {
+                console.log(`[Flint] Update available: ${updateInfo.current_version} → ${updateInfo.latest_version}`);
+                openModal('updateAvailable', updateInfo as unknown as Record<string, unknown>);
+            } else {
+                console.log('[Flint] Application is up to date');
+            }
+        } catch (error) {
+            // Silently fail - don't bother user if update check fails
+            console.log('[Flint] Update check failed:', error);
+        }
     };
 
     const cleanStaleProjects = async () => {
@@ -211,6 +231,7 @@ export const App: React.FC = () => {
             <SettingsModal />
             <ExportModal />
             <FirstTimeSetupModal />
+            <UpdateModal />
 
             {/* Toast notifications */}
             <ToastContainer />

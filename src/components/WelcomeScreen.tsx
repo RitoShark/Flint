@@ -121,7 +121,7 @@ export const WelcomeScreen: React.FC = () => {
                             className="welcome__recent-item"
                             onClick={() => openRecentProject(project.path)}
                         >
-                            <span dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
+                            <span className="welcome__recent-icon" dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
                             <span className="welcome__recent-name">
                                 {project.champion} - {project.name}
                             </span>

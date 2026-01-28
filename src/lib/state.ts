@@ -4,7 +4,7 @@
  */
 
 import React, { createContext, useContext, useReducer, useCallback, useEffect, ReactNode } from 'react';
-import type { AppState, ModalType, Toast, RecentProject, Project, FileTreeNode, Champion } from './types';
+import type { AppState, ModalType, Toast, RecentProject, Project, FileTreeNode, Champion, LogEntry } from './types';
 
 // =============================================================================
 // Initial State
@@ -46,6 +46,10 @@ const initialState: AppState = {
 
     // Toast notifications
     toasts: [],
+
+    // Log panel
+    logs: [],
+    logPanelExpanded: false,
 };
 
 // =============================================================================
@@ -63,7 +67,10 @@ type Action =
     | { type: 'SET_FILE_TREE'; payload: FileTreeNode | null }
     | { type: 'TOGGLE_FOLDER'; payload: string }
     | { type: 'SET_RECENT_PROJECTS'; payload: RecentProject[] }
-    | { type: 'SET_CHAMPIONS'; payload: Champion[] };
+    | { type: 'SET_CHAMPIONS'; payload: Champion[] }
+    | { type: 'ADD_LOG'; payload: LogEntry }
+    | { type: 'CLEAR_LOGS' }
+    | { type: 'TOGGLE_LOG_PANEL' };
 
 // =============================================================================
 // Reducer
@@ -145,6 +152,24 @@ function appReducer(state: AppState, action: Action): AppState {
                 championsLoaded: true,
             };
 
+        case 'ADD_LOG':
+            return {
+                ...state,
+                logs: [...state.logs, action.payload].slice(-100), // Keep last 100 logs
+            };
+
+        case 'CLEAR_LOGS':
+            return {
+                ...state,
+                logs: [],
+            };
+
+        case 'TOGGLE_LOG_PANEL':
+            return {
+                ...state,
+                logPanelExpanded: !state.logPanelExpanded,
+            };
+
         default:
             return state;
     }
@@ -166,6 +191,9 @@ interface AppContextValue {
     closeModal: () => void;
     showToast: (type: Toast['type'], message: string, options?: { suggestion?: string; duration?: number }) => number;
     dismissToast: (id: number) => void;
+    addLog: (level: LogEntry['level'], message: string) => void;
+    clearLogs: () => void;
+    toggleLogPanel: () => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -270,6 +298,27 @@ export function AppProvider({ children }: AppProviderProps) {
         dispatch({ type: 'REMOVE_TOAST', payload: id });
     }, []);
 
+    // Log ID counter
+    const logIdRef = React.useRef(0);
+
+    const addLog = useCallback((level: LogEntry['level'], message: string) => {
+        const log: LogEntry = {
+            id: ++logIdRef.current,
+            timestamp: Date.now(),
+            level,
+            message,
+        };
+        dispatch({ type: 'ADD_LOG', payload: log });
+    }, []);
+
+    const clearLogs = useCallback(() => {
+        dispatch({ type: 'CLEAR_LOGS' });
+    }, []);
+
+    const toggleLogPanel = useCallback(() => {
+        dispatch({ type: 'TOGGLE_LOG_PANEL' });
+    }, []);
+
     const value: AppContextValue = {
         state,
         dispatch,
@@ -281,6 +330,9 @@ export function AppProvider({ children }: AppProviderProps) {
         closeModal,
         showToast,
         dismissToast,
+        addLog,
+        clearLogs,
+        toggleLogPanel,
     };
 
     return React.createElement(AppContext.Provider, { value }, children);

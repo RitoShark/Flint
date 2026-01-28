@@ -6,6 +6,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { initializeLogger, initBackendLogListener } from './lib/logger';
 import { AppProvider } from './lib/state';
 import { App } from './components/App';
 
@@ -13,6 +14,9 @@ import { App } from './components/App';
 import './styles/index.css';
 // Import default theme (can be swapped via custom theme import)
 import './themes/default.css';
+
+// Initialize logger BEFORE React mounts to capture early logs
+initializeLogger();
 
 // Initialize app
 const container = document.getElementById('app');
@@ -43,6 +47,8 @@ requestAnimationFrame(() => {
             .show()
             .then(() => {
                 console.log('[Flint] Window shown successfully');
+                // Initialize backend log listener after window is ready
+                initBackendLogListener();
             })
             .catch((err) => {
                 console.error('[Flint] Failed to show window:', err);
