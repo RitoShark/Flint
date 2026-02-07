@@ -72,7 +72,7 @@ impl CheckpointManager {
             .into_iter()
             .filter_map(|e| e.ok())
             .filter(|e| {
-                let path = e.path();
+                let _path = e.path();
                 // Ignore internal folders
                 if e.file_type().is_dir() {
                     let name = e.file_name().to_string_lossy();

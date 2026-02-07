@@ -81,6 +81,15 @@ export interface ContextMenuOption {
     danger?: boolean;
 }
 
+export interface ProjectTab {
+    id: string;
+    project: Project;
+    projectPath: string;
+    selectedFile: string | null;
+    fileTree: FileTreeNode | null;
+    expandedFolders: Set<string>;
+}
+
 export interface AppState {
     // App status
     status: AppStatus;
@@ -96,20 +105,15 @@ export interface AppState {
     // League installation
     leaguePath: string | null;
 
-    // Project state
-    currentProject: Project | null;
-    currentProjectPath: string | null;
+    // Project state (tab-based)
+    openTabs: ProjectTab[];
+    activeTabId: string | null;
     recentProjects: RecentProject[];
 
     // UI state
-    selectedFile: string | null;
     currentView: ViewType;
     activeModal: ModalType;
     modalOptions: Record<string, unknown> | null;
-
-    // File tree
-    fileTree: FileTreeNode | null;
-    expandedFolders: Set<string>;
 
     // Champions (cached)
     champions: Champion[];

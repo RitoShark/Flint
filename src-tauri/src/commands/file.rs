@@ -449,9 +449,8 @@ async fn recolor_single_file(
             let format = if let Some(fourcc) = dds.header.spf.fourcc {
                 if fourcc.0 == u32::from_le_bytes(*b"DXT1") {
                     image_dds::ImageFormat::BC1RgbaUnorm
-                } else if fourcc.0 == u32::from_le_bytes(*b"DXT5") {
-                    image_dds::ImageFormat::BC3RgbaUnorm
                 } else {
+                    // DXT5 and other formats default to BC3
                     image_dds::ImageFormat::BC3RgbaUnorm
                 }
             } else {
@@ -586,9 +585,8 @@ async fn colorize_single_file(
             let format = if let Some(fourcc) = dds.header.spf.fourcc {
                 if fourcc.0 == u32::from_le_bytes(*b"DXT1") {
                     image_dds::ImageFormat::BC1RgbaUnorm
-                } else if fourcc.0 == u32::from_le_bytes(*b"DXT5") {
-                    image_dds::ImageFormat::BC3RgbaUnorm
                 } else {
+                    // DXT5 and other formats default to BC3
                     image_dds::ImageFormat::BC3RgbaUnorm
                 }
             } else {

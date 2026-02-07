@@ -75,8 +75,12 @@ export const PreviewPanel: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [imageZoom, setImageZoom] = useState<'fit' | number>('fit');
 
-    const selectedFile = state.selectedFile;
-    const projectPath = state.currentProjectPath;
+    // Get selected file and project path from active tab
+    const activeTab = state.activeTabId
+        ? state.openTabs.find(t => t.id === state.activeTabId)
+        : null;
+    const selectedFile = activeTab?.selectedFile || null;
+    const projectPath = activeTab?.projectPath || null;
 
     useEffect(() => {
         if (!selectedFile || !projectPath) {

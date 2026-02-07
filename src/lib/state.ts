@@ -4,7 +4,7 @@
  */
 
 import React, { createContext, useContext, useReducer, useCallback, useEffect, ReactNode } from 'react';
-import type { AppState, ModalType, Toast, RecentProject, Project, FileTreeNode, Champion, LogEntry, ContextMenuState, ContextMenuOption } from './types';
+import type { AppState, ModalType, Toast, RecentProject, Project, FileTreeNode, Champion, LogEntry, ContextMenuState, ContextMenuOption, ProjectTab } from './types';
 
 // =============================================================================
 // Initial State
@@ -28,20 +28,15 @@ const initialState: AppState = {
     // League installation
     leaguePath: null,
 
-    // Project state
-    currentProject: null,
-    currentProjectPath: null,
+    // Project state (tab-based)
+    openTabs: [],
+    activeTabId: null,
     recentProjects: [],
 
     // UI state
-    selectedFile: null,
     currentView: 'welcome',
     activeModal: null,
     modalOptions: null,
-
-    // File tree
-    fileTree: null,
-    expandedFolders: new Set(),
 
     // Champions (cached)
     champions: [],
@@ -66,6 +61,15 @@ type Action =
     | { type: 'CLOSE_MODAL' }
     | { type: 'ADD_TOAST'; payload: Toast }
     | { type: 'REMOVE_TOAST'; payload: number }
+    // Tab actions
+    | { type: 'ADD_TAB'; payload: { project: Project; path: string } }
+    | { type: 'REMOVE_TAB'; payload: string }  // tab id
+    | { type: 'SWITCH_TAB'; payload: string }  // tab id
+    | { type: 'UPDATE_TAB'; payload: { tabId: string; updates: Partial<ProjectTab> } }
+    | { type: 'SET_TAB_FILE_TREE'; payload: { tabId: string; fileTree: FileTreeNode | null } }
+    | { type: 'TOGGLE_TAB_FOLDER'; payload: { tabId: string; folderPath: string } }
+    | { type: 'SET_TAB_SELECTED_FILE'; payload: { tabId: string; filePath: string | null } }
+    // Legacy compatibility (redirects to tab actions)
     | { type: 'SET_PROJECT'; payload: { project: Project | null; path: string | null } }
     | { type: 'SET_FILE_TREE'; payload: FileTreeNode | null }
     | { type: 'TOGGLE_FOLDER'; payload: string }
@@ -80,6 +84,18 @@ type Action =
 // =============================================================================
 // Reducer
 // =============================================================================
+
+// Helper to generate unique tab IDs
+let tabIdCounter = 0;
+function generateTabId(): string {
+    return `tab-${Date.now()}-${++tabIdCounter}`;
+}
+
+// Helper to get active tab
+function getActiveTab(state: AppState): ProjectTab | null {
+    if (!state.activeTabId) return null;
+    return state.openTabs.find(t => t.id === state.activeTabId) || null;
+}
 
 function appReducer(state: AppState, action: Action): AppState {
     switch (action.type) {
@@ -119,29 +135,157 @@ function appReducer(state: AppState, action: Action): AppState {
                 toasts: state.toasts.filter(t => t.id !== action.payload),
             };
 
-        case 'SET_PROJECT':
-            return {
-                ...state,
-                currentProject: action.payload.project,
-                currentProjectPath: action.payload.path,
-                currentView: action.payload.project ? 'preview' : 'welcome',
-                selectedFile: null,
-            };
+        // =====================================================================
+        // Tab Actions
+        // =====================================================================
 
-        case 'SET_FILE_TREE':
+        case 'ADD_TAB': {
+            const { project, path } = action.payload;
+            // Check if this project is already open
+            const existingTab = state.openTabs.find(t => t.projectPath === path);
+            if (existingTab) {
+                // Switch to existing tab
+                return {
+                    ...state,
+                    activeTabId: existingTab.id,
+                    currentView: 'preview',
+                };
+            }
+            // Create new tab
+            const newTab: ProjectTab = {
+                id: generateTabId(),
+                project,
+                projectPath: path,
+                selectedFile: null,
+                fileTree: null,
+                expandedFolders: new Set(),
+            };
             return {
                 ...state,
-                fileTree: action.payload,
+                openTabs: [...state.openTabs, newTab],
+                activeTabId: newTab.id,
+                currentView: 'preview',
             };
+        }
+
+        case 'REMOVE_TAB': {
+            const tabId = action.payload;
+            const newTabs = state.openTabs.filter(t => t.id !== tabId);
+            let newActiveId: string | null = state.activeTabId;
+
+            // If we closed the active tab, switch to another
+            if (state.activeTabId === tabId) {
+                const closedIndex = state.openTabs.findIndex(t => t.id === tabId);
+                if (newTabs.length > 0) {
+                    // Switch to previous tab, or first if we closed the first
+                    const newIndex = Math.max(0, closedIndex - 1);
+                    newActiveId = newTabs[newIndex]?.id || null;
+                } else {
+                    newActiveId = null;
+                }
+            }
+
+            return {
+                ...state,
+                openTabs: newTabs,
+                activeTabId: newActiveId,
+                currentView: newActiveId ? state.currentView : 'welcome',
+            };
+        }
+
+        case 'SWITCH_TAB': {
+            const tabId = action.payload;
+            const tab = state.openTabs.find(t => t.id === tabId);
+            if (!tab) return state;
+            return {
+                ...state,
+                activeTabId: tabId,
+                currentView: 'preview',
+            };
+        }
+
+        case 'UPDATE_TAB': {
+            const { tabId, updates } = action.payload;
+            return {
+                ...state,
+                openTabs: state.openTabs.map(t =>
+                    t.id === tabId ? { ...t, ...updates } : t
+                ),
+            };
+        }
+
+        case 'SET_TAB_FILE_TREE': {
+            const { tabId, fileTree } = action.payload;
+            return {
+                ...state,
+                openTabs: state.openTabs.map(t =>
+                    t.id === tabId ? { ...t, fileTree } : t
+                ),
+            };
+        }
+
+        case 'TOGGLE_TAB_FOLDER': {
+            const { tabId, folderPath } = action.payload;
+            return {
+                ...state,
+                openTabs: state.openTabs.map(t => {
+                    if (t.id !== tabId) return t;
+                    const newExpanded = new Set(t.expandedFolders);
+                    if (newExpanded.has(folderPath)) {
+                        newExpanded.delete(folderPath);
+                    } else {
+                        newExpanded.add(folderPath);
+                    }
+                    return { ...t, expandedFolders: newExpanded };
+                }),
+            };
+        }
+
+        case 'SET_TAB_SELECTED_FILE': {
+            const { tabId, filePath } = action.payload;
+            return {
+                ...state,
+                openTabs: state.openTabs.map(t =>
+                    t.id === tabId ? { ...t, selectedFile: filePath } : t
+                ),
+            };
+        }
+
+        // =====================================================================
+        // Legacy Actions (for backward compatibility - operate on active tab)
+        // =====================================================================
+
+        case 'SET_PROJECT': {
+            const { project, path } = action.payload;
+            if (!project || !path) {
+                // Close all tabs
+                return {
+                    ...state,
+                    openTabs: [],
+                    activeTabId: null,
+                    currentView: 'welcome',
+                };
+            }
+            // Redirect to ADD_TAB
+            return appReducer(state, { type: 'ADD_TAB', payload: { project, path } });
+        }
+
+        case 'SET_FILE_TREE': {
+            const activeTab = getActiveTab(state);
+            if (!activeTab) return state;
+            return appReducer(state, {
+                type: 'SET_TAB_FILE_TREE',
+                payload: { tabId: activeTab.id, fileTree: action.payload },
+            });
+        }
 
         case 'TOGGLE_FOLDER': {
-            const newExpanded = new Set(state.expandedFolders);
-            if (newExpanded.has(action.payload)) {
-                newExpanded.delete(action.payload);
-            } else {
-                newExpanded.add(action.payload);
-            }
-            return { ...state, expandedFolders: newExpanded };
+            const activeTab = getActiveTab(state);
+            if (!activeTab) return state;
+            return appReducer(state, {
+                type: 'TOGGLE_TAB_FOLDER',
+                payload: { tabId: activeTab.id, folderPath: action.payload },
+            });
         }
 
         case 'SET_RECENT_PROJECTS':

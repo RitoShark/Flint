@@ -42,7 +42,12 @@ const QuickActionCard: React.FC<QuickActionCardProps> = ({ icon, title, descript
 
 const ProjectView: React.FC = () => {
     const { state } = useAppState();
-    const project = state.currentProject;
+
+    // Get project from active tab
+    const activeTab = state.activeTabId
+        ? state.openTabs.find(t => t.id === state.activeTabId)
+        : null;
+    const project = activeTab?.project || null;
 
     return (
         <div className="project-view" style={{ padding: '24px' }}>

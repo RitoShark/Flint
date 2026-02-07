@@ -30,6 +30,13 @@ const COLOR_PRESETS = [
 export const RecolorModal: React.FC = () => {
     const { state, closeModal, showToast, setWorking, setReady } = useAppState();
 
+    // Get project data from active tab
+    const activeTab = state.activeTabId
+        ? state.openTabs.find(t => t.id === state.activeTabId)
+        : null;
+    const currentProjectPath = activeTab?.projectPath || null;
+    const fileTree = activeTab?.fileTree || null;
+
     // Mode selection
     const [mode, setMode] = useState<RecolorMode>('colorize');
 
@@ -81,7 +88,7 @@ export const RecolorModal: React.FC = () => {
     const [folderImagePaths, setFolderImagePaths] = useState<string[]>([]);
 
     const loadFolderPreviews = async () => {
-        if (!options?.filePath || !state.fileTree) {
+        if (!options?.filePath || !fileTree) {
             return;
         }
 
@@ -102,7 +109,7 @@ export const RecolorModal: React.FC = () => {
                 return null;
             };
 
-            const folderNode = findNode(state.fileTree);
+            const folderNode = findNode(fileTree);
 
             if (!folderNode || !folderNode.children) {
                 setLoading(false);
@@ -130,7 +137,7 @@ export const RecolorModal: React.FC = () => {
 
             if (textures.length > 0) {
                 const loadImageData = async (path: string) => {
-                    const absPath = state.currentProjectPath ? `${state.currentProjectPath}/${path}` : path;
+                    const absPath = currentProjectPath ? `${currentProjectPath}/${path}` : path;
                     const result = await api.decodeDdsToPng(absPath);
                     return `data:image/png;base64,${result.data}`;
                 };
@@ -154,7 +161,7 @@ export const RecolorModal: React.FC = () => {
         if (!options?.filePath) return;
         setLoading(true);
         try {
-            const absPath = state.currentProjectPath ? `${state.currentProjectPath}/${options.filePath}` : options.filePath;
+            const absPath = currentProjectPath ? `${currentProjectPath}/${options.filePath}` : options.filePath;
             const result = await api.decodeDdsToPng(absPath);
             setImageData(`data:image/png;base64,${result.data}`);
         } catch (err) {
@@ -168,14 +175,14 @@ export const RecolorModal: React.FC = () => {
         if (!options?.filePath) return;
 
         try {
-            const absPath = state.currentProjectPath ? `${state.currentProjectPath}/${options.filePath}` : options.filePath;
+            const absPath = currentProjectPath ? `${currentProjectPath}/${options.filePath}` : options.filePath;
 
             // Create checkpoint before destructive operation
-            if (createCheckpoint && state.currentProjectPath) {
+            if (createCheckpoint && currentProjectPath) {
                 setWorking('Creating checkpoint...');
                 try {
                     await api.createCheckpoint(
-                        state.currentProjectPath,
+                        currentProjectPath,
                         `Before recolor: ${options.filePath.split('/').pop()}`,
                         ['auto', 'recolor']
                     );

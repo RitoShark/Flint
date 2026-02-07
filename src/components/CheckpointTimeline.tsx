@@ -17,11 +17,17 @@ export const CheckpointTimeline: React.FC = () => {
     const [diff, setDiff] = useState<CheckpointDiff | null>(null);
     const [isComparing, setIsComparing] = useState(false);
 
+    // Get project path from active tab
+    const activeTab = state.activeTabId
+        ? state.openTabs.find(t => t.id === state.activeTabId)
+        : null;
+    const currentProjectPath = activeTab?.projectPath || null;
+
     const loadCheckpoints = useCallback(async () => {
-        if (!state.currentProjectPath) return;
+        if (!currentProjectPath) return;
         setIsLoading(true);
         try {
-            const list = await api.listCheckpoints(state.currentProjectPath);
+            const list = await api.listCheckpoints(currentProjectPath);
             setCheckpoints(list);
         } catch (err) {
             console.error('Failed to load checkpoints:', err);
@@ -29,7 +35,7 @@ export const CheckpointTimeline: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [state.currentProjectPath, showToast]);
+    }, [currentProjectPath, showToast]);
 
     useEffect(() => {
         loadCheckpoints();
@@ -37,11 +43,11 @@ export const CheckpointTimeline: React.FC = () => {
 
     const handleCreateCheckpoint = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!state.currentProjectPath || !message.trim()) return;
+        if (!currentProjectPath || !message.trim()) return;
 
         setWorking('Creating checkpoint...');
         try {
-            await api.createCheckpoint(state.currentProjectPath, message);
+            await api.createCheckpoint(currentProjectPath, message);
             setMessage('');
             showToast('success', 'Checkpoint created');
             await loadCheckpoints();
@@ -54,12 +60,12 @@ export const CheckpointTimeline: React.FC = () => {
     };
 
     const handleRestore = async (id: string) => {
-        if (!state.currentProjectPath) return;
+        if (!currentProjectPath) return;
         if (!window.confirm('Are you sure you want to restore this checkpoint? All current changes will be overwritten.')) return;
 
         setWorking('Restoring checkpoint...');
         try {
-            await api.restoreCheckpoint(state.currentProjectPath, id);
+            await api.restoreCheckpoint(currentProjectPath, id);
             showToast('success', 'Project restored successfully');
         } catch (err) {
             console.error('Failed to restore checkpoint:', err);
@@ -70,11 +76,11 @@ export const CheckpointTimeline: React.FC = () => {
     };
 
     const handleDelete = async (id: string) => {
-        if (!state.currentProjectPath) return;
+        if (!currentProjectPath) return;
         if (!window.confirm('Delete this checkpoint? This cannot be undone.')) return;
 
         try {
-            await api.deleteCheckpoint(state.currentProjectPath, id);
+            await api.deleteCheckpoint(currentProjectPath, id);
             showToast('success', 'Checkpoint deleted');
             await loadCheckpoints();
             if (selectedCheckpoint === id) setSelectedCheckpoint(null);
@@ -85,7 +91,7 @@ export const CheckpointTimeline: React.FC = () => {
     };
 
     const handleCompare = async (id: string) => {
-        if (!state.currentProjectPath || checkpoints.length < 2) return;
+        if (!currentProjectPath || checkpoints.length < 2) return;
 
         // Find the index of the current checkpoint
         const index = checkpoints.findIndex(c => c.id === id);
@@ -98,7 +104,7 @@ export const CheckpointTimeline: React.FC = () => {
 
         setIsComparing(true);
         try {
-            const diffResult = await api.compareCheckpoints(state.currentProjectPath, prevId, id);
+            const diffResult = await api.compareCheckpoints(currentProjectPath, prevId, id);
             setDiff(diffResult);
             setSelectedCheckpoint(id);
         } catch (err) {

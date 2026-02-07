@@ -1,4 +1,4 @@
-use lol_modding_suite::core::wad::reader::WadReader;
+use flint::core::wad::reader::WadReader;
 use std::path::PathBuf;
 
 #[test]

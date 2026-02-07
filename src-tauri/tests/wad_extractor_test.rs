@@ -1,4 +1,4 @@
-use lol_modding_suite::core::wad::extractor::{extract_chunk, extract_all};
+use flint::core::wad::extractor::{extract_chunk, extract_all};
 use std::path::PathBuf;
 
 #[test]
@@ -9,7 +9,7 @@ fn test_extractor_api_exists() {
     
     // The fact that this compiles means our API is correct
     fn _check_extract_chunk_api() {
-        use lol_modding_suite::core::wad::reader::WadReader;
+        use flint::core::wad::reader::WadReader;
         
         // This won't run, just checking the API compiles
         if false {
@@ -24,7 +24,7 @@ fn test_extractor_api_exists() {
     }
     
     fn _check_extract_all_api() {
-        use lol_modding_suite::core::wad::reader::WadReader;
+        use flint::core::wad::reader::WadReader;
         
         // This won't run, just checking the API compiles
         if false {
@@ -42,7 +42,7 @@ fn test_extract_chunk_nonexistent_file() {
     
     // This test just verifies error handling works
     let fake_path = PathBuf::from("nonexistent.wad");
-    let result = lol_modding_suite::core::wad::reader::WadReader::open(&fake_path);
+    let result = flint::core::wad::reader::WadReader::open(&fake_path);
     
     // Should fail because file doesn't exist
     assert!(result.is_err());
@@ -55,7 +55,7 @@ fn test_extract_all_nonexistent_file() {
     
     // This test just verifies error handling works
     let fake_path = PathBuf::from("nonexistent.wad");
-    let result = lol_modding_suite::core::wad::reader::WadReader::open(&fake_path);
+    let result = flint::core::wad::reader::WadReader::open(&fake_path);
     
     // Should fail because file doesn't exist
     assert!(result.is_err());

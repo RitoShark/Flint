@@ -147,12 +147,12 @@ pub async fn extract_wad(
                 
                 // Determine output path
                 let output_path = std::path::Path::new(&output_dir).join(&resolved_path);
-                
-                // Clone the chunk data we need before borrowing mutably
-                let chunk_clone = chunk.clone();
-                
+
+                // Copy the chunk data we need before borrowing mutably
+                let chunk_copy = *chunk;
+
                 // Extract the chunk
-                match extract_chunk(reader.wad_mut(), &chunk_clone, &output_path, hashtable_ref) {
+                match extract_chunk(reader.wad_mut(), &chunk_copy, &output_path, hashtable_ref) {
                     Ok(_) => extracted_count += 1,
                     Err(_) => failed_count += 1,
                 }

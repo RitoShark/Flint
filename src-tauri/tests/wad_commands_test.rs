@@ -1,4 +1,4 @@
-use lol_modding_suite::commands::wad::{read_wad, WadInfo, ChunkInfo, ExtractionResult};
+use flint::commands::wad::{read_wad, WadInfo, ChunkInfo, ExtractionResult};
 
 #[tokio::test]
 async fn test_read_wad_nonexistent_file() {

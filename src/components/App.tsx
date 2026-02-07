@@ -20,6 +20,12 @@ import { UpdateModal } from './modals/UpdateModal';
 import { RecolorModal } from './modals/RecolorModal';
 import { ToastContainer } from './Toast';
 
+// Helper to get active tab from state
+function getActiveTab(state: { activeTabId: string | null; openTabs: Array<{ id: string; project: any; projectPath: string }> }) {
+    if (!state.activeTabId) return null;
+    return state.openTabs.find(t => t.id === state.activeTabId) || null;
+}
+
 export const App: React.FC = () => {
     const { state, dispatch, openModal, closeModal, setWorking, setReady, showToast } = useAppState();
     const [leftPanelWidth, setLeftPanelWidth] = useState(280);
@@ -33,11 +39,11 @@ export const App: React.FC = () => {
         // Register shortcuts
         registerShortcut('ctrl+n', () => openModal('newProject'));
         registerShortcut('ctrl+s', async () => {
-            const project = state.currentProject;
-            if (project) {
+            const activeTab = getActiveTab(state);
+            if (activeTab) {
                 try {
                     setWorking('Saving...');
-                    await api.saveProject(project);
+                    await api.saveProject(activeTab.project);
                     setReady('Saved');
                 } catch (error) {
                     console.error('Failed to save:', error);
@@ -47,8 +53,15 @@ export const App: React.FC = () => {
         });
         registerShortcut('ctrl+,', () => openModal('settings'));
         registerShortcut('ctrl+e', () => {
-            if (state.currentProject) {
+            const activeTab = getActiveTab(state);
+            if (activeTab) {
                 openModal('export');
+            }
+        });
+        registerShortcut('ctrl+w', () => {
+            // Close current tab
+            if (state.activeTabId) {
+                dispatch({ type: 'REMOVE_TAB', payload: state.activeTabId });
             }
         });
         registerShortcut('escape', () => {
@@ -199,7 +212,8 @@ export const App: React.FC = () => {
         setLeftPanelWidth(prev => (prev === 48 ? 280 : 48));
     }, []);
 
-    const hasProject = !!state.currentProjectPath;
+    // Only show project panels if we have an active tab AND not on welcome screen
+    const hasProject = !!state.activeTabId && state.currentView !== 'welcome';
 
     // Check if first-time setup is needed
     useEffect(() => {

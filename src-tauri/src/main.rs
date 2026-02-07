@@ -24,7 +24,7 @@ fn main() {
         .with(filter)
         .init();
 
-    tracing::info!("Starting LoL Modding Suite");
+    tracing::info!("Starting Flint");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())

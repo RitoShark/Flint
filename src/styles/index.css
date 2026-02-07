@@ -322,6 +322,209 @@ textarea:focus {
   gap: var(--space-sm);
 }
 
+/* Inline Tabs in TopBar */
+.topbar__tabs-container {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.topbar__tabs-container::-webkit-scrollbar {
+  display: none;
+}
+
+.topbar__tabs-container .tabbar__tabs {
+  display: flex;
+  align-items: stretch;
+}
+
+.topbar__tabs-container .tabbar__tab {
+  min-width: auto;
+  max-width: 220px;
+}
+
+.topbar__tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 4px 8px;
+  padding-right: 4px;
+  border-radius: 4px;
+  background-color: var(--bg-tertiary);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.topbar__tab:hover {
+  background-color: var(--hover-bg);
+  color: var(--text-primary);
+}
+
+.topbar__tab--active {
+  background-color: var(--accent-primary);
+  color: var(--bg-primary);
+  border-color: var(--accent-primary);
+}
+
+.topbar__tab--active:hover {
+  background-color: var(--accent-secondary);
+}
+
+.topbar__tab-icon {
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+}
+
+.topbar__tab-name {
+  font-weight: 500;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar__tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.5;
+  cursor: pointer;
+  border-radius: 3px;
+  font-size: 14px;
+  line-height: 1;
+  margin-left: 2px;
+  transition: all var(--transition-fast);
+}
+
+.topbar__tab:hover .topbar__tab-close,
+.topbar__tab--active .topbar__tab-close {
+  opacity: 0.7;
+}
+
+.topbar__tab-close:hover {
+  opacity: 1;
+  background-color: rgba(0, 0, 0, 0.2);
+}
+
+.topbar__tab--active .topbar__tab-close:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+/* --------------------------------------------------------------------------
+   Component: Tab Bar
+   -------------------------------------------------------------------------- */
+.tabbar {
+  display: flex;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  height: 35px;
+  min-height: 35px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.tabbar::-webkit-scrollbar {
+  height: 3px;
+}
+
+.tabbar__tabs {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+}
+
+.tabbar__tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0 var(--space-md);
+  padding-right: var(--space-sm);
+  min-width: 120px;
+  max-width: 200px;
+  height: 100%;
+  background-color: var(--bg-tertiary);
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+  position: relative;
+}
+
+.tabbar__tab:hover {
+  background-color: var(--bg-hover);
+}
+
+.tabbar__tab--active {
+  background-color: var(--bg-primary);
+  border-bottom: 2px solid var(--accent-primary);
+}
+
+.tabbar__tab--active:hover {
+  background-color: var(--bg-primary);
+}
+
+.tabbar__tab-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.tabbar__tab-icon svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.tabbar__tab-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.tabbar__tab--active .tabbar__tab-name {
+  color: var(--text-primary);
+}
+
+.tabbar__tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: all var(--transition-fast);
+}
+
+.tabbar__tab:hover .tabbar__tab-close {
+  opacity: 1;
+}
+
+.tabbar__tab-close:hover {
+  background-color: rgba(248, 81, 73, 0.2);
+  color: var(--error);
+}
+
 /* --------------------------------------------------------------------------
    Component: Buttons
    -------------------------------------------------------------------------- */

@@ -15,6 +15,13 @@ export const ExportModal: React.FC = () => {
     const [isExporting, setIsExporting] = useState(false);
     const [progress, setProgress] = useState('');
 
+    // Get project from active tab
+    const activeTab = state.activeTabId
+        ? state.openTabs.find(t => t.id === state.activeTabId)
+        : null;
+    const currentProject = activeTab?.project || null;
+    const currentProjectPath = activeTab?.projectPath || null;
+
     const isVisible = state.activeModal === 'export';
     const modalOptions = state.modalOptions as { format?: 'fantome' | 'modpkg' } | null;
 
@@ -26,10 +33,10 @@ export const ExportModal: React.FC = () => {
     }, [modalOptions]);
 
     const handleExport = async () => {
-        if (!state.currentProjectPath || !state.currentProject) return;
+        if (!currentProjectPath || !currentProject) return;
 
         const ext = format === 'fantome' ? 'fantome' : 'modpkg';
-        const projectName = state.currentProject?.display_name || state.currentProject?.name || 'mod';
+        const projectName = currentProject?.display_name || currentProject?.name || 'mod';
 
         const outputPath = await save({
             title: `Export as .${ext}`,
@@ -44,15 +51,15 @@ export const ExportModal: React.FC = () => {
 
         try {
             const result = await api.exportProject({
-                projectPath: state.currentProjectPath,
+                projectPath: currentProjectPath,
                 outputPath,
                 format,
-                champion: state.currentProject.champion,
+                champion: currentProject.champion,
                 metadata: {
-                    name: state.currentProject.name,
-                    author: state.currentProject.creator || state.creatorName || 'Unknown',
-                    version: state.currentProject.version || '1.0.0',
-                    description: state.currentProject.description || '',
+                    name: currentProject.name,
+                    author: currentProject.creator || state.creatorName || 'Unknown',
+                    version: currentProject.version || '1.0.0',
+                    description: currentProject.description || '',
                 },
             });
 
@@ -121,7 +128,7 @@ export const ExportModal: React.FC = () => {
                     <div className="form-group">
                         <label className="form-label">Project</label>
                         <div style={{ color: 'var(--text-secondary)' }}>
-                            {state.currentProject?.champion} - {state.currentProject?.display_name || state.currentProject?.name}
+                            {currentProject?.champion} - {currentProject?.display_name || currentProject?.name}
                         </div>
                     </div>
                 </div>

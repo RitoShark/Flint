@@ -422,7 +422,7 @@ pub async fn preconvert_project_bins(
         let _ = app.emit("bin-convert-progress", serde_json::json!({
             "current": batch_start,
             "total": to_convert_count,
-            "file": format!("Batch {}/{}", batch_idx + 1, (to_convert_count + BATCH_SIZE - 1) / BATCH_SIZE),
+            "file": format!("Batch {}/{}", batch_idx + 1, to_convert_count.div_ceil(BATCH_SIZE)),
             "status": "converting"
         }));
         

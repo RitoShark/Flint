@@ -419,8 +419,6 @@ pub fn resolve_animation_path(base_dir: &Path, anim_path: &str) -> Option<PathBu
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_find_animation_bin() {
         // Test would require actual files

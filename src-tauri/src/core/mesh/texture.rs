@@ -363,7 +363,7 @@ pub fn lookup_material_texture_by_name(ritobin_content: &str, material_name: &st
     
     // Strategy 1: Exact path match
     // Pattern: "ExactMaterialName" = StaticMaterialDef
-    let exact_pattern = format!(r#""{}"\\s*=\\s*StaticMaterialDef\\s*"#, regex::escape(material_name));
+    let exact_pattern = format!(r#""{}"\s*=\s*StaticMaterialDef\s*"#, regex::escape(material_name));
     if let Ok(regex) = Regex::new(&exact_pattern) {
         if let Some(mat) = regex.find(ritobin_content) {
             tracing::debug!("Found exact StaticMaterialDef match at position {}", mat.start());
@@ -378,7 +378,7 @@ pub fn lookup_material_texture_by_name(ritobin_content: &str, material_name: &st
     
     // Strategy 2: Path ends with material name
     // Pattern: ".../{material_name}" = StaticMaterialDef
-    let ends_with_pattern = format!(r#""[^"]*/{}\"[^=]*=\\s*StaticMaterialDef\\s*"#, regex::escape(material_name));
+    let ends_with_pattern = format!(r#""[^"]*/{}"[^=]*=\s*StaticMaterialDef\s*"#, regex::escape(material_name));
     if let Ok(regex) = Regex::new(&ends_with_pattern) {
         if let Some(mat) = regex.find(ritobin_content) {
             tracing::debug!("Found path-ending StaticMaterialDef match at position {}", mat.start());
@@ -393,7 +393,7 @@ pub fn lookup_material_texture_by_name(ritobin_content: &str, material_name: &st
     
     // Strategy 3: Contains material name anywhere in path (partial match)
     // Pattern: "...{material_name}..." = StaticMaterialDef
-    let contains_pattern = format!(r#""[^"]*{}[^"]*"\\s*=\\s*StaticMaterialDef\\s*"#, regex::escape(material_name));
+    let contains_pattern = format!(r#""[^"]*{}[^"]*"\s*=\s*StaticMaterialDef\s*"#, regex::escape(material_name));
     if let Ok(regex) = Regex::new(&contains_pattern) {
         if let Some(mat) = regex.find(ritobin_content) {
             tracing::debug!("Found partial StaticMaterialDef match at position {}", mat.start());
@@ -408,7 +408,7 @@ pub fn lookup_material_texture_by_name(ritobin_content: &str, material_name: &st
     
     // Strategy 4: Case-insensitive search
     let lower_name = material_name.to_lowercase();
-    let case_insensitive_pattern = format!(r#"(?i)"[^"]*{}[^"]*"\\s*=\\s*StaticMaterialDef\\s*"#, regex::escape(&lower_name));
+    let case_insensitive_pattern = format!(r#"(?i)"[^"]*{}[^"]*"\s*=\s*StaticMaterialDef\s*"#, regex::escape(&lower_name));
     if let Ok(regex) = Regex::new(&case_insensitive_pattern) {
         if let Some(mat) = regex.find(ritobin_content) {
             tracing::debug!("Found case-insensitive StaticMaterialDef match at position {}", mat.start());

@@ -2,7 +2,7 @@
  * Flint - Top Bar Component
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAppState } from '../lib/state';
 import { getIcon } from '../lib/fileIcons';
 import { save } from '@tauri-apps/plugin-dialog';
@@ -33,13 +33,23 @@ export const TopBar: React.FC = () => {
     const [dropdownOpen, setDropdownOpen] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
 
-    const handleCloseProject = useCallback(() => {
-        if (!state.currentProject) return;
-        dispatch({
-            type: 'SET_PROJECT',
-            payload: { project: null, path: null },
-        });
-    }, [state.currentProject, dispatch]);
+    // Get active tab
+    const activeTab = useMemo(() => {
+        if (!state.activeTabId) return null;
+        return state.openTabs.find(t => t.id === state.activeTabId) || null;
+    }, [state.activeTabId, state.openTabs]);
+
+    const currentProject = activeTab?.project || null;
+    const currentProjectPath = activeTab?.projectPath || null;
+
+    const handleSwitchTab = useCallback((tabId: string) => {
+        dispatch({ type: 'SWITCH_TAB', payload: tabId });
+    }, [dispatch]);
+
+    const handleCloseTab = useCallback((e: React.MouseEvent, tabId: string) => {
+        e.stopPropagation();
+        dispatch({ type: 'REMOVE_TAB', payload: tabId });
+    }, [dispatch]);
 
     const toggleDropdown = useCallback((e: React.MouseEvent) => {
         e.stopPropagation();
@@ -50,10 +60,10 @@ export const TopBar: React.FC = () => {
     const handleExportAs = useCallback(async (format: 'fantome' | 'modpkg') => {
         setDropdownOpen(false);
 
-        if (!state.currentProjectPath || !state.currentProject) return;
+        if (!currentProjectPath || !currentProject) return;
 
         const ext = format;
-        const projectName = state.currentProject?.display_name || state.currentProject?.name || 'mod';
+        const projectName = currentProject?.display_name || currentProject?.name || 'mod';
 
         const outputPath = await save({
             title: `Export as .${ext}`,
@@ -67,22 +77,22 @@ export const TopBar: React.FC = () => {
 
         try {
             const result = await api.exportProject({
-                projectPath: state.currentProjectPath,
+                projectPath: currentProjectPath,
                 outputPath,
                 format,
-                champion: state.currentProject.champion,
+                champion: currentProject.champion,
                 metadata: {
-                    name: state.currentProject.name,
-                    author: state.currentProject.creator || state.creatorName || 'Unknown',
-                    version: state.currentProject.version || '1.0.0',
-                    description: state.currentProject.description || '',
+                    name: currentProject.name,
+                    author: currentProject.creator || state.creatorName || 'Unknown',
+                    version: currentProject.version || '1.0.0',
+                    description: currentProject.description || '',
                 },
             });
 
             showToast('success', `Exported to ${result.path}`);
 
             // Auto-checkpoint after export
-            api.createCheckpoint(state.currentProjectPath, `Auto-checkpoint: Exported to ${format}`).catch(e => {
+            api.createCheckpoint(currentProjectPath, `Auto-checkpoint: Exported to ${format}`).catch(e => {
                 console.warn('Auto-checkpoint failed:', e);
             });
 
@@ -93,7 +103,7 @@ export const TopBar: React.FC = () => {
         } finally {
             setIsExporting(false);
         }
-    }, [state.currentProject, state.currentProjectPath, state.creatorName, showToast]);
+    }, [currentProject, currentProjectPath, state.creatorName, showToast]);
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -104,18 +114,14 @@ export const TopBar: React.FC = () => {
         return () => document.removeEventListener('click', handleClickOutside);
     }, [dropdownOpen]);
 
-    const projectName = state.currentProject
-        ? `${state.currentProject.champion} - ${state.currentProject.display_name || state.currentProject.name}`
-        : 'No Project Open';
-
     return (
         <header className="topbar">
             {/* Brand section */}
             <div
                 className="topbar__brand"
                 style={{ cursor: 'pointer' }}
-                title="Close Project and Return to Home"
-                onClick={handleCloseProject}
+                title="Return to Home"
+                onClick={() => dispatch({ type: 'SET_STATE', payload: { currentView: 'welcome' } })}
             >
                 <FlintLogo />
                 <span className="topbar__title">Flint</span>
@@ -124,10 +130,49 @@ export const TopBar: React.FC = () => {
             {/* Divider */}
             <div className="topbar__divider" />
 
-            {/* Project name */}
-            <div className="topbar__project">
-                <span className="topbar__project-icon" dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
-                <span className="topbar__project-name">{projectName}</span>
+            {/* Inline Tabs using tabbar styling */}
+            <div className="topbar__tabs-container">
+                {state.openTabs.length === 0 ? (
+                    <div className="topbar__project">
+                        <span className="topbar__project-icon" dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
+                        <span className="topbar__project-name">No Project Open</span>
+                    </div>
+                ) : (
+                    <div className="tabbar__tabs" style={{ height: '100%' }}>
+                        {state.openTabs.map(tab => (
+                            <div
+                                key={tab.id}
+                                className={`tabbar__tab ${tab.id === state.activeTabId ? 'tabbar__tab--active' : ''}`}
+                                onClick={() => handleSwitchTab(tab.id)}
+                                onMouseDown={(e) => e.button === 1 && handleCloseTab(e, tab.id)}
+                                title={`${tab.project.champion} - ${tab.project.display_name || tab.project.name}\n${tab.projectPath}`}
+                            >
+                                <span
+                                    className="tabbar__tab-icon"
+                                    dangerouslySetInnerHTML={{ __html: getIcon('folder') }}
+                                />
+                                <span className="tabbar__tab-name">
+                                    {tab.project.champion} - {tab.project.display_name || tab.project.name}
+                                </span>
+                                <button
+                                    className="tabbar__tab-close"
+                                    onClick={(e) => handleCloseTab(e, tab.id)}
+                                    title="Close Tab"
+                                >
+                                    <svg viewBox="0 0 16 16" width="14" height="14">
+                                        <path
+                                            d="M4.5 4.5l7 7m0-7l-7 7"
+                                            stroke="currentColor"
+                                            strokeWidth="1.5"
+                                            strokeLinecap="round"
+                                            fill="none"
+                                        />
+                                    </svg>
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
 
             {/* Spacer */}
@@ -135,7 +180,7 @@ export const TopBar: React.FC = () => {
 
             {/* Actions */}
             <div className="topbar__actions">
-                {state.currentProjectPath && (
+                {currentProjectPath && (
                     <button
                         className={`btn btn--ghost ${state.currentView === 'checkpoints' ? 'btn--active' : ''}`}
                         title="Project Checkpoints"
@@ -147,7 +192,7 @@ export const TopBar: React.FC = () => {
                 )}
 
                 {/* Export dropdown (only visible when project is open) */}
-                {state.currentProject && (
+                {currentProject && (
                     <div className={`dropdown ${dropdownOpen ? 'dropdown--open' : ''}`}>
                         <button
                             className="btn btn--primary btn--dropdown"

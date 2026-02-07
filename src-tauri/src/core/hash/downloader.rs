@@ -76,7 +76,7 @@ pub async fn download_hashes(output_dir: impl AsRef<Path>, force: bool) -> Resul
         })?;
     
     let client = Client::builder()
-        .user_agent("lol-modding-suite")
+        .user_agent("flint")
         .build()
         .map_err(|e| Error::Network(e))?;
     

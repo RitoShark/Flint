@@ -6,7 +6,13 @@ import React, { useState, useMemo, useCallback, CSSProperties } from 'react';
 import { useAppState } from '../lib/state';
 import { getFileIcon, getExpanderIcon, getIcon } from '../lib/fileIcons';
 import * as api from '../lib/api';
-import type { FileTreeNode } from '../lib/types';
+import type { FileTreeNode, ProjectTab } from '../lib/types';
+
+// Helper to get active tab
+function getActiveTab(state: { activeTabId: string | null; openTabs: ProjectTab[] }): ProjectTab | null {
+    if (!state.activeTabId) return null;
+    return state.openTabs.find(t => t.id === state.activeTabId) || null;
+}
 
 interface LeftPanelProps {
     style?: CSSProperties;
@@ -16,7 +22,8 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({ style }) => {
     const { state } = useAppState();
     const [searchQuery, setSearchQuery] = useState('');
 
-    const hasProject = !!state.currentProjectPath;
+    const activeTab = getActiveTab(state);
+    const hasProject = !!activeTab;
 
     if (!hasProject) {
         return <ProjectsPanel />;
@@ -45,18 +52,31 @@ interface FileTreeProps {
 const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
     const { state, dispatch } = useAppState();
 
+    // Get active tab for file tree data
+    const activeTab = getActiveTab(state);
+    const fileTree = activeTab?.fileTree || null;
+    const selectedFile = activeTab?.selectedFile || null;
+    const expandedFolders = activeTab?.expandedFolders || new Set<string>();
+
     const handleItemClick = useCallback((path: string, isFolder: boolean) => {
         if (isFolder) {
             dispatch({ type: 'TOGGLE_FOLDER', payload: path });
         } else {
-            dispatch({ type: 'SET_STATE', payload: { selectedFile: path, currentView: 'preview' } });
+            // Update selected file on active tab
+            if (activeTab) {
+                dispatch({
+                    type: 'SET_TAB_SELECTED_FILE',
+                    payload: { tabId: activeTab.id, filePath: path }
+                });
+                dispatch({ type: 'SET_STATE', payload: { currentView: 'preview' } });
+            }
         }
-    }, [dispatch]);
+    }, [dispatch, activeTab]);
 
     const filteredTree = useMemo(() => {
-        if (!state.fileTree || !searchQuery) return state.fileTree;
-        return filterTreeByQuery(state.fileTree, searchQuery.toLowerCase());
-    }, [state.fileTree, searchQuery]);
+        if (!fileTree || !searchQuery) return fileTree;
+        return filterTreeByQuery(fileTree, searchQuery.toLowerCase());
+    }, [fileTree, searchQuery]);
 
     if (!filteredTree) {
         return (
@@ -71,8 +91,8 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
             <TreeNode
                 node={filteredTree}
                 depth={0}
-                selectedFile={state.selectedFile}
-                expandedFolders={state.expandedFolders}
+                selectedFile={selectedFile}
+                expandedFolders={expandedFolders}
                 onItemClick={handleItemClick}
             />
         </div>

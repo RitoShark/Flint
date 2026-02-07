@@ -1,5 +1,5 @@
-use lol_modding_suite::core::bin::converter::{bin_to_json, bin_to_text, json_to_bin, text_to_bin};
-use lol_modding_suite::core::bin::parser::{Bin, BinValue};
+use flint::core::bin::converter::{bin_to_json, bin_to_text, json_to_bin, text_to_bin};
+use flint::core::bin::parser::{Bin, BinValue};
 
 #[test]
 fn test_bin_to_text_to_bin_roundtrip() {

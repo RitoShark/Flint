@@ -1,4 +1,4 @@
-use lol_modding_suite::core::bin::{read_bin, write_bin, Bin, BinType, BinValue, Field};
+use flint::core::bin::{read_bin, write_bin, Bin, BinType, BinValue, Field};
 
 #[test]
 fn test_all_primitive_types() {
