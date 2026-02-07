@@ -1,4 +1,5 @@
 // Project management module exports
+#[allow(clippy::module_inception)]
 pub mod project;
 
 // Re-export from ltk_mod_project for league-mod compatibility

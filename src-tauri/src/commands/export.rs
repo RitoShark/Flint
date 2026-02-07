@@ -430,23 +430,23 @@ fn export_with_ltk_modpkg(
         .unwrap_or_else(|_| semver::Version::new(1, 0, 0));
 
     // Create metadata with correct field types
-    let mut metadata = ModpkgMetadata::default();
-    metadata.name = mod_project.name.clone();
-    metadata.display_name = mod_project.display_name.clone();
-    metadata.version = version;
-    metadata.description = if mod_project.description.is_empty() {
-        None
-    } else {
-        Some(mod_project.description.clone())
+    let metadata = ModpkgMetadata {
+        name: mod_project.name.clone(),
+        display_name: mod_project.display_name.clone(),
+        version,
+        description: if mod_project.description.is_empty() {
+            None
+        } else {
+            Some(mod_project.description.clone())
+        },
+        authors: mod_project.authors.iter().map(|author| {
+            match author {
+                ltk_mod_project::ModProjectAuthor::Name(name) => ModpkgAuthor::new(name.clone(), None),
+                ltk_mod_project::ModProjectAuthor::Role { name, role } => ModpkgAuthor::new(name.clone(), Some(role.clone())),
+            }
+        }).collect(),
+        ..Default::default()
     };
-    
-    // Convert authors
-    metadata.authors = mod_project.authors.iter().map(|author| {
-        match author {
-            ltk_mod_project::ModProjectAuthor::Name(name) => ModpkgAuthor::new(name.clone(), None),
-            ltk_mod_project::ModProjectAuthor::Role { name, role } => ModpkgAuthor::new(name.clone(), Some(role.clone())),
-        }
-    }).collect();
 
     // Build the modpkg - add base layer and chunks
     let mut builder = ModpkgBuilder::default()

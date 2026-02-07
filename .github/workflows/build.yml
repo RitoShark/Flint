@@ -31,7 +31,7 @@ jobs:
         run: npm ci
 
       - name: Lint Backend
-        run: cargo clippy --lib --bins -- -D warnings
+        run: cargo clippy --lib --bins -- -D warnings -A clippy::needless_return
         working-directory: src-tauri
 
       - name: Build Application

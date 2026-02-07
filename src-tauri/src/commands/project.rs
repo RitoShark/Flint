@@ -30,6 +30,7 @@ use tauri::Emitter;
 /// * `Ok(Project)` - The created project
 /// * `Err(String)` - Error message if creation failed
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn create_project(
     name: String,
     champion: String,

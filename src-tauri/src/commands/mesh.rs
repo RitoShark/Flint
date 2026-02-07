@@ -76,12 +76,8 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
                         .cloned()
                         // Strategy 2: Strip "mesh_" prefix from SKN material name
                         .or_else(|| {
-                            if material_name.starts_with("mesh_") {
-                                let stripped = &material_name[5..];
-                                texture_mapping.material_properties.get(stripped).cloned()
-                            } else {
-                                None
-                            }
+                            material_name.strip_prefix("mesh_")
+                                .and_then(|stripped| texture_mapping.material_properties.get(stripped).cloned())
                         })
                         // Strategy 3: Add "mesh_" prefix to SKN material name
                         .or_else(|| {
@@ -97,11 +93,7 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
                         // Strategy 5: Case-insensitive with "mesh_" prefix stripping
                         .or_else(|| {
                             let lower_name = material_name.to_lowercase();
-                            let stripped = if lower_name.starts_with("mesh_") {
-                                &lower_name[5..]
-                            } else {
-                                &lower_name
-                            };
+                            let stripped = lower_name.strip_prefix("mesh_").unwrap_or(&lower_name);
                             texture_mapping.material_properties.iter()
                                 .find(|(k, _)| k.to_lowercase() == stripped)
                                 .map(|(_, v)| v.clone())
@@ -113,13 +105,10 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
                         })
                         // Strategy 7: Try StaticMaterialDef lookup with stripped name
                         .or_else(|| {
-                            if material_name.starts_with("mesh_") {
-                                let stripped = &material_name[5..];
+                            material_name.strip_prefix("mesh_").and_then(|stripped| {
                                 tracing::debug!("Trying StaticMaterialDef lookup for stripped name: {}", stripped);
                                 lookup_material_texture_by_name(&texture_mapping.ritobin_content, stripped)
-                            } else {
-                                None
-                            }
+                            })
                         })
                         // Strategy 8: Fallback to default texture (no UV transforms)
                         .or_else(|| {

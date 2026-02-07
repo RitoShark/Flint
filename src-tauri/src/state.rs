@@ -12,6 +12,12 @@ static LAZY_HASHTABLE: OnceLock<Arc<Hashtable>> = OnceLock::new();
 #[derive(Clone)]
 pub struct HashtableState(pub Arc<Mutex<Option<PathBuf>>>);
 
+impl Default for HashtableState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HashtableState {
     pub fn new() -> Self {
         // Store the hash directory path, not the loaded hashtable
@@ -70,6 +76,11 @@ impl HashtableState {
     
     pub fn len(&self) -> usize {
         LAZY_HASHTABLE.get().map(|h| h.len()).unwrap_or(0)
+    }
+
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
     
     /// Check if the hashtable has been loaded yet

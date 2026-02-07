@@ -300,7 +300,7 @@ fn extract_animation_paths_from_value(value: &PropertyValueEnum, clips: &mut Vec
         
         PropertyValueEnum::Map(map) => {
             for (_key, val) in &map.entries {
-                extract_animation_paths_from_value(&val, clips);
+                extract_animation_paths_from_value(val, clips);
             }
         }
         

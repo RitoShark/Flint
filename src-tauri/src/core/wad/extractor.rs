@@ -54,7 +54,7 @@ pub fn extract_chunk(
         })?;
     
     // Verify decompressed size matches metadata
-    if chunk_data.len() != chunk.uncompressed_size() as usize {
+    if chunk_data.len() != chunk.uncompressed_size() {
         tracing::error!(
             "Decompressed size mismatch for '{}': expected {}, got {}",
             output_path.display(),
@@ -149,7 +149,7 @@ pub fn extract_all(
             })?;
         
         // Verify decompressed size matches metadata
-        if chunk_data.len() != chunk.uncompressed_size() as usize {
+        if chunk_data.len() != chunk.uncompressed_size() {
             tracing::error!(
                 "Decompressed size mismatch for '{}': expected {}, got {}",
                 resolved_path,

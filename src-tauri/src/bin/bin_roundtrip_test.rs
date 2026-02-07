@@ -15,8 +15,6 @@ use std::io::Cursor;
 use std::path::Path;
 
 use ltk_meta::BinTree;
-use ltk_ritobin;
-
 fn main() {
     let args: Vec<String> = env::args().collect();
     

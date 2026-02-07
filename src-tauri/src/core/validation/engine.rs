@@ -214,9 +214,9 @@ fn extract_paths_from_line(line: &str) -> Vec<String> {
     // Look for quoted strings that look like paths
     let mut in_quote = false;
     let mut current_path = String::new();
-    let mut chars = line.chars().peekable();
+    let chars = line.chars().peekable();
 
-    while let Some(c) = chars.next() {
+    for c in chars {
         if c == '"' {
             if in_quote {
                 // End of quoted string

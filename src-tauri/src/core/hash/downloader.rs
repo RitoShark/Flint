@@ -78,7 +78,7 @@ pub async fn download_hashes(output_dir: impl AsRef<Path>, force: bool) -> Resul
     let client = Client::builder()
         .user_agent("flint")
         .build()
-        .map_err(|e| Error::Network(e))?;
+        .map_err(Error::Network)?;
     
     let mut stats = DownloadStats {
         downloaded: 0,
@@ -136,7 +136,7 @@ async fn fetch_file_list(client: &Client) -> Result<Vec<GitHubFile>> {
         .get(GITHUB_API_BASE)
         .send()
         .await
-        .map_err(|e| Error::Network(e))?;
+        .map_err(Error::Network)?;
     
     if !response.status().is_success() {
         return Err(Error::Hash(format!(
@@ -148,7 +148,7 @@ async fn fetch_file_list(client: &Client) -> Result<Vec<GitHubFile>> {
     let files: Vec<GitHubFile> = response
         .json()
         .await
-        .map_err(|e| Error::Network(e))?;
+        .map_err(Error::Network)?;
     
     Ok(files)
 }
@@ -186,7 +186,7 @@ async fn download_file(
         .get(download_url)
         .send()
         .await
-        .map_err(|e| Error::Network(e))?;
+        .map_err(Error::Network)?;
     
     if !response.status().is_success() {
         return Err(Error::Hash(format!(
@@ -196,7 +196,7 @@ async fn download_file(
         )));
     }
     
-    let content = response.bytes().await.map_err(|e| Error::Network(e))?;
+    let content = response.bytes().await.map_err(Error::Network)?;
     
     // Note: GitHub API returns git blob SHA (includes header), not raw file SHA1
     // So checksum verification would fail. We skip it since HTTPS ensures integrity.

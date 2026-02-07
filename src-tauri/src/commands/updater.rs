@@ -132,7 +132,7 @@ pub async fn download_and_install_update(
     
     let filename = download_url
         .split('/')
-        .last()
+        .next_back()
         .unwrap_or("flint-update.exe")
         .to_string();
     

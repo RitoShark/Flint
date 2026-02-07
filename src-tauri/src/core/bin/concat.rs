@@ -57,7 +57,7 @@ pub fn classify_bin(path: &str) -> BinCategory {
     let lower = normalized.to_lowercase();
 
     // Extract just the filename for pattern matching
-    let filename = lower.split('/').last().unwrap_or("");
+    let filename = lower.split('/').next_back().unwrap_or("");
 
     // Type 1: Champion Root BIN - detect by path pattern
     // e.g., data/characters/kayn/kayn.bin

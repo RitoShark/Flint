@@ -232,11 +232,12 @@ pub fn extract_texture_mapping(bin_path: &Path) -> anyhow::Result<TextureMapping
 /// 1. valid skinMeshProperties block (with default texture)
 /// 2. materialOverride blocks (with submesh -> texture/material mappings)
 /// 3. StaticMaterialDef blocks (to resolve material links)
+#[allow(clippy::regex_creation_in_loops)]
 fn extract_texture_mapping_from_text(content: &str) -> anyhow::Result<TextureMapping> {
-    let mut mapping = TextureMapping::default();
-    
-    // Store the ritobin content for late lookups (e.g., StaticMaterialDef by name)
-    mapping.ritobin_content = content.to_string();
+    let mut mapping = TextureMapping {
+        ritobin_content: content.to_string(),
+        ..Default::default()
+    };
     
     // 1. Find skinMeshProperties block header
     // We look for: skinMeshProperties: embed = SkinMeshDataProperties { ... }
@@ -430,6 +431,7 @@ pub fn lookup_material_texture_by_name(ritobin_content: &str, material_name: &st
 /// - UVScaleAndOffset: vec4 = { scaleU, scaleV, offsetU, offsetV }
 /// - FlipbookSize: vec4 = { cols, rows, 0, 0 }
 /// - FrameIndex: vec4 = { index, 0, 0, 0 }
+#[allow(clippy::type_complexity, clippy::regex_creation_in_loops)]
 fn extract_param_values(material_block: &str) -> (Option<[f32; 2]>, Option<[f32; 2]>, Option<[u32; 2]>, Option<f32>) {
     let mut uv_scale: Option<[f32; 2]> = None;
     let mut uv_offset: Option<[f32; 2]> = None;
@@ -632,6 +634,7 @@ fn extract_braced_block(content: &str, start_after: usize) -> Option<String> {
 /// Extract Diffuse/Color texture path from a StaticMaterialDef block
 /// 
 /// Looks for common diffuse texture names in samplerValues, with fallback to first sampler
+#[allow(clippy::regex_creation_in_loops)]
 fn extract_diffuse_texture_from_block(block: &str) -> Option<String> {
     // Find samplerValues list inside the block
     // Can be list[embed] or list2[embed]
