@@ -688,27 +688,27 @@ FLINT-001 (Setup)
 - [x] FLINT-003: WAD reading
 - [x] FLINT-004: BIN parsing
 
-### Milestone 2: UI Framework
+### Milestone 2: UI Framework ✅
 **Target**: Basic UI visible
-- [ ] FLINT-101: Frontend setup
-- [ ] FLINT-102: Tauri bridge
-- [ ] FLINT-103-108: Core components
+- [x] FLINT-101: Frontend setup
+- [x] FLINT-102: Tauri bridge
+- [x] FLINT-103-108: Core components
 
-### Milestone 3: Preview Working
+### Milestone 3: Preview Working ✅
 **Target**: View extracted assets
-- [ ] FLINT-201-204: Preview system complete
+- [x] FLINT-201-204: Preview system complete
 
-### Milestone 4: Fantome Export
+### Milestone 4: Fantome Export ✅
 **Target**: First mod export
-- [ ] FLINT-301: Repathing engine
-- [ ] FLINT-302: Fantome builder
-- [ ] FLINT-304: Export UI
+- [x] FLINT-301: Repathing engine
+- [x] FLINT-302: Fantome builder
+- [x] FLINT-304: Export UI
 
-### Milestone 5: Full Feature Set
+### Milestone 5: Full Feature Set 🔵
 **Target**: All planned features
 - [ ] FLINT-303: Modpkg export
 - [ ] FLINT-401-403: BIN editor
 
-### Milestone 6: Production Ready
+### Milestone 6: Production Ready ✅
 **Target**: Release candidate
-- [ ] FLINT-501-503: Polish and documentation
+- [x] FLINT-501-503: Polish and documentation

@@ -12,10 +12,10 @@
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                         FRONTEND (Web)                               │   │
+│  │                   FRONTEND (React + TypeScript)                      │   │
 │  │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐        │   │
-│  │  │ Components│  │  Stores   │  │ Services  │  │  Utils    │        │   │
-│  │  │  (UI)     │  │  (State)  │  │  (IPC)    │  │ (Helpers) │        │   │
+│  │  │ Components│  │  State    │  │  API      │  │  Utils    │        │   │
+│  │  │  (.tsx)   │  │ (lib/ts)  │  │ (lib/ts)  │  │ (lib/ts)  │        │   │
 │  │  └─────┬─────┘  └─────┬─────┘  └─────┬─────┘  └───────────┘        │   │
 │  │        │              │              │                              │   │
 │  └────────┼──────────────┼──────────────┼──────────────────────────────┘   │
@@ -67,13 +67,14 @@
 | Language | Rust (backend) | Node.js |
 | Security | Sandboxed by default | Open by default |
 
-### 2.3 Why JavaScript (vs TypeScript)?
+### 2.3 Why React + TypeScript?
 
 | Factor | Decision |
 |--------|----------|
-| **Simplicity** | Faster iteration for UI prototyping |
-| **Team familiarity** | Lower barrier to entry |
-| **Future path** | Can migrate to TypeScript incrementally |
+| **Type Safety** | TypeScript catches errors at compile time, critical for complex IPC types |
+| **Component Model** | React's component architecture maps well to the IDE layout |
+| **Ecosystem** | Rich library support (Monaco editor, Three.js/R3F for 3D preview) |
+| **Developer Experience** | Strong IDE support with TypeScript for Tauri command types |
 
 ---
 
@@ -92,35 +93,51 @@ src-tauri/src/
 │   ├── mod.rs           # Module exports
 │   ├── hash.rs          # Hash management commands
 │   ├── wad.rs           # WAD file operations
-│   └── bin.rs           # BIN file operations
+│   ├── bin.rs           # BIN file operations
+│   ├── project.rs       # Project CRUD operations
+│   ├── export.rs        # Mod export commands
+│   ├── file.rs          # File I/O & preview
+│   ├── champion.rs      # Champion & skin commands
+│   ├── checkpoint.rs    # Checkpoint commands
+│   ├── mesh.rs          # 3D mesh commands
+│   ├── league.rs        # League detection commands
+│   ├── updater.rs       # App update commands
+│   └── validation.rs    # Asset validation commands
 │
 └── core/                # Core business logic
     ├── mod.rs           # Module exports
     │
     ├── hash/            # Hash table management
-    │   ├── mod.rs
-    │   ├── downloader.rs   # CommunityDragon fetcher
-    │   └── hashtable.rs    # Hash lookup logic
-    │
     ├── wad/             # WAD archive handling
-    │   ├── mod.rs
-    │   ├── reader.rs       # WAD parsing (via league-toolkit)
-    │   └── extractor.rs    # Asset extraction
-    │
-    └── bin/             # BIN file handling
-        ├── mod.rs
-        ├── parser.rs       # Binary to structure
-        └── converter.rs    # Format conversions
+    ├── bin/             # BIN file parsing & conversion
+    ├── repath/          # Asset repathing & refathering
+    │   ├── organizer.rs # Path organization
+    │   └── refather.rs  # Intelligent path rewriting
+    ├── export/          # Fantome/Modpkg export
+    ├── mesh/            # SKN/SKL/SCB mesh parsing
+    ├── league/          # Game installation detection
+    ├── project/         # Project management
+    ├── champion/        # Champion & skin discovery
+    ├── validation/      # Asset validation
+    ├── checkpoint.rs    # Checkpoint/snapshot system
+    └── frontend_log.rs  # Frontend log forwarding
 ```
 
 #### Module Responsibilities
 
 | Module | Responsibility | Public API |
 |--------|----------------|------------|
-| `commands` | Bridge between frontend and core | Tauri commands |
+| `commands` | Bridge between frontend and core | Tauri commands (12 modules) |
 | `core::hash` | Hash table download and lookup | `init()`, `lookup()`, `download()` |
 | `core::wad` | WAD file operations | `read()`, `extract()`, `list_chunks()` |
 | `core::bin` | BIN parsing and conversion | `parse()`, `to_text()`, `to_json()` |
+| `core::repath` | Asset path rewriting | `refather()`, `organize()` |
+| `core::export` | Mod format packaging | `export_fantome()`, `export_modpkg()` |
+| `core::mesh` | 3D mesh operations | `read_skn()`, `read_skl()`, `read_scb()` |
+| `core::league` | League installation detection | `find_league_path()` |
+| `core::project` | Project management | `create()`, `open()`, `save()` |
+| `core::champion` | Champion/skin discovery | `list_champions()`, `list_skins()` |
+| `core::checkpoint` | Project snapshots | `create()`, `restore()`, `compare()` |
 | `state` | Managed application state | `HashtableState` |
 | `error` | Error types | `FlintError` enum |
 
@@ -128,30 +145,35 @@ src-tauri/src/
 
 ```
 src/
-├── main.js              # Application entry
-├── App.js               # Root component
+├── main.tsx             # Application entry point
 │
-├── components/          # UI components
-│   ├── TopBar/
-│   ├── FileTree/
-│   ├── Preview/
-│   ├── BinEditor/
-│   └── common/          # Shared components
+├── components/          # React TSX components
+│   ├── App.tsx          # Root component
+│   ├── TopBar.tsx       # Navigation & project info
+│   ├── FileTree.tsx     # Asset file browser
+│   ├── CenterPanel.tsx  # Dynamic content area
+│   ├── PreviewPanel.tsx # Asset preview container
+│   ├── TabBar.tsx       # Preview tab management
+│   ├── StatusBar.tsx    # Status & hash info
+│   ├── WelcomeScreen.tsx # Landing page
+│   ├── ContextMenu.tsx  # Right-click menus
+│   ├── CheckpointTimeline.tsx
+│   ├── Toast.tsx        # Notification toasts
+│   ├── modals/          # Modal dialogs
+│   └── preview/         # Asset preview panels
 │
-├── stores/              # State management
-│   ├── projectStore.js
-│   ├── settingsStore.js
-│   └── selectionStore.js
+├── lib/                 # Utilities & API bridge
+│   ├── api.ts           # Tauri command wrappers (invoke calls)
+│   ├── state.ts         # Application state management
+│   ├── types.ts         # TypeScript type definitions
+│   ├── utils.ts         # Helper functions
+│   ├── logger.ts        # Frontend logging
+│   ├── fileIcons.tsx    # File type icon mapping
+│   ├── ritobinLanguage.ts # Monaco BIN syntax definition
+│   └── datadragon.ts    # Champion data integration
 │
-├── services/            # Tauri command wrappers
-│   ├── hashService.js
-│   ├── wadService.js
-│   └── binService.js
-│
-└── utils/               # Helper functions
-    ├── paths.js
-    ├── formatting.js
-    └── icons.js
+├── styles/              # Global CSS styles
+└── themes/              # Customizable CSS themes (default.css)
 ```
 
 ---
@@ -208,27 +230,27 @@ pub struct RepathRule {
 
 ### 4.2 Frontend Types
 
-```javascript
-/**
- * @typedef {Object} FileTreeNode
- * @property {string} id - Unique identifier
- * @property {string} name - Display name
- * @property {string} path - Full path
- * @property {'folder'|'file'} type - Node type
- * @property {FileTreeNode[]} [children] - Child nodes (folders only)
- * @property {boolean} [expanded] - Folder expansion state
- * @property {string} [fileType] - File category
- */
+```typescript
+// lib/types.ts
 
-/**
- * @typedef {Object} ExportConfig
- * @property {'fantome'|'modpkg'} format - Export format
- * @property {string} name - Mod name
- * @property {string} author - Mod author
- * @property {string} description - Mod description
- * @property {string} version - Mod version
- * @property {string} outputPath - Destination path
- */
+interface FileTreeNode {
+    id: string;
+    name: string;
+    path: string;
+    type: 'folder' | 'file';
+    children?: FileTreeNode[];
+    expanded?: boolean;
+    fileType?: string;
+}
+
+interface ExportConfig {
+    format: 'fantome' | 'modpkg';
+    name: string;
+    author: string;
+    description: string;
+    version: string;
+    outputPath: string;
+}
 ```
 
 ---
@@ -261,41 +283,18 @@ pub fn lookup_hash(
 
 ### 5.2 Frontend State
 
-```javascript
-// Simple reactive store pattern
-class Store {
-    #state;
-    #subscribers = new Set();
-    
-    constructor(initialState) {
-        this.#state = initialState;
-    }
-    
-    get() {
-        return this.#state;
-    }
-    
-    set(updater) {
-        this.#state = typeof updater === 'function' 
-            ? updater(this.#state) 
-            : updater;
-        this.#subscribers.forEach(fn => fn(this.#state));
-    }
-    
-    subscribe(fn) {
-        this.#subscribers.add(fn);
-        return () => this.#subscribers.delete(fn);
-    }
-}
+```typescript
+// State management via React hooks and lib/state.ts
+// Components use useState/useReducer for local state
+// Shared state is passed via props or React context
 
-// Project store
-export const projectStore = new Store({
-    project: null,
-    files: [],
-    selectedFile: null,
-    loading: false,
-    error: null,
-});
+// lib/state.ts exports state management utilities
+// lib/api.ts provides typed wrappers around Tauri invoke calls
+
+// Example usage in a component:
+const [project, setProject] = useState<ProjectInfo | null>(null);
+const [files, setFiles] = useState<FileTreeNode[]>([]);
+const [loading, setLoading] = useState(false);
 ```
 
 ### 5.3 State Synchronization
@@ -476,17 +475,19 @@ pub async fn extract_assets(paths: Vec<String>) -> Result<Vec<Asset>, String> {
 
 ### 8.2 Lazy Loading
 
-```javascript
+```typescript
+// Lazy-loaded preview components for code splitting
+const LazyModelPreview = React.lazy(() => import('./preview/ModelPreview'));
+const LazyBinEditor = React.lazy(() => import('./preview/BinEditor'));
+
 // Load file tree on demand
-async function loadChildren(node) {
+async function loadChildren(node: FileTreeNode): Promise<void> {
     if (node.type !== 'folder' || node.children) {
         return; // Already loaded or not a folder
     }
-    
-    node.loading = true;
-    const children = await invoke('get_folder_contents', { path: node.path });
+
+    const children = await invoke<FileTreeNode[]>('get_folder_contents', { path: node.path });
     node.children = children;
-    node.loading = false;
 }
 ```
 

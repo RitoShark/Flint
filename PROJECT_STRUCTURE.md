@@ -1,94 +1,168 @@
-# Project Structure Created
+# Project Structure
 
-## Task 1: Set up project structure and dependencies ✓
+## Overview
+
+Flint is a League of Legends modding IDE built with Rust (Tauri 2.x) backend and React + TypeScript frontend.
 
 ### Root Files
 - `package.json` - Node.js dependencies and scripts
-- `vite.config.js` - Vite configuration for frontend
+- `vite.config.ts` - Vite configuration for frontend
+- `tsconfig.json` - TypeScript configuration
 - `index.html` - Frontend entry HTML
 - `.gitignore` - Git ignore rules
 - `README.md` - Project documentation
 
-### Frontend Structure
+### Frontend Structure (React + TypeScript)
 ```
 src/
-└── main.js - Frontend entry point (placeholder)
+├── main.tsx                    # Application entry point
+├── components/                 # React components
+│   ├── App.tsx                 # Root component
+│   ├── TopBar.tsx              # Navigation bar with project info
+│   ├── FileTree.tsx            # Asset file browser (left panel)
+│   ├── CenterPanel.tsx         # Dynamic content area
+│   ├── PreviewPanel.tsx        # Asset preview container
+│   ├── TabBar.tsx              # Preview tab management
+│   ├── StatusBar.tsx           # Status bar with hash info
+│   ├── WelcomeScreen.tsx       # Landing page (no project open)
+│   ├── ContextMenu.tsx         # Right-click context menus
+│   ├── CheckpointTimeline.tsx  # Checkpoint management UI
+│   ├── Toast.tsx               # Notification toasts
+│   ├── modals/                 # Modal dialogs
+│   │   ├── NewProjectModal.tsx
+│   │   ├── ExportModal.tsx
+│   │   ├── SettingsModal.tsx
+│   │   ├── FirstTimeSetupModal.tsx
+│   │   ├── RecolorModal.tsx
+│   │   └── UpdateModal.tsx
+│   └── preview/                # Asset preview panels
+│       ├── BinEditor.tsx       # BIN file editor (Monaco)
+│       ├── LazyBinEditor.tsx   # Lazy-loaded BIN editor wrapper
+│       ├── BinPropertyTree.tsx # BIN property tree view
+│       ├── ModelPreview.tsx    # 3D model viewer (Three.js/R3F)
+│       ├── LazyModelPreview.tsx # Lazy-loaded model viewer wrapper
+│       ├── ImagePreview.tsx    # DDS/PNG/JPG image preview
+│       ├── TextPreview.tsx     # Text file preview
+│       ├── HexViewer.tsx       # Binary hex viewer
+│       └── AssetPreviewTooltip.tsx # Preview hover tooltips
+├── lib/                        # Utilities and API bridge
+│   ├── api.ts                  # Tauri command wrappers (invoke calls)
+│   ├── state.ts                # Application state management
+│   ├── types.ts                # TypeScript type definitions
+│   ├── utils.ts                # Helper functions
+│   ├── logger.ts               # Frontend logging
+│   ├── fileIcons.tsx           # File type icon mapping
+│   ├── ritobinLanguage.ts      # Monaco editor BIN syntax definition
+│   └── datadragon.ts           # Champion data integration (Data Dragon API)
+├── styles/                     # Global CSS styles
+│   └── index.css               # Design tokens and global styles
+├── themes/                     # Customizable CSS themes
+│   └── default.css             # Default gray-red theme
+└── assets/                     # Static assets (icons, images)
 ```
 
-### Backend Structure (src-tauri/)
+### Backend Structure (Rust + Tauri 2.x)
 ```
 src-tauri/
-├── Cargo.toml - Rust dependencies (all required deps configured)
-├── tauri.conf.json - Tauri app configuration
-├── build.rs - Build script
+├── Cargo.toml                  # Rust dependencies
+├── tauri.conf.json             # Tauri app configuration
+├── build.rs                    # Build script
 └── src/
-    ├── main.rs - Application entry point with Tauri setup
-    ├── error.rs - Error types and handling
-    ├── state.rs - Application state management (HashtableState)
-    ├── commands/
-    │   ├── mod.rs - Command module exports
-    │   ├── hash.rs - Hash commands (placeholder)
-    │   ├── wad.rs - WAD commands (placeholder)
-    │   └── bin.rs - Bin commands (placeholder)
-    └── core/
-        ├── mod.rs - Core module exports
-        ├── hash/
-        │   ├── mod.rs - Hash module exports
-        │   ├── downloader.rs - Hash downloader (placeholder)
-        │   └── hashtable.rs - Hashtable implementation (skeleton)
-        ├── wad/
-        │   ├── mod.rs - WAD module exports
-        │   ├── reader.rs - WAD reader (placeholder)
-        │   └── extractor.rs - WAD extractor (placeholder)
-        └── bin/
-            ├── mod.rs - Bin module exports
-            ├── parser.rs - Bin parser (placeholder)
-            └── converter.rs - Bin converter (placeholder)
+    ├── main.rs                 # Application entry point with Tauri setup
+    ├── lib.rs                  # Library exports
+    ├── error.rs                # Error types and handling (FlintError)
+    ├── state.rs                # Application state (HashtableState)
+    │
+    ├── commands/               # Tauri IPC command handlers
+    │   ├── mod.rs              # Command module exports
+    │   ├── hash.rs             # Hash management commands
+    │   ├── wad.rs              # WAD file operations
+    │   ├── bin.rs              # BIN file operations
+    │   ├── project.rs          # Project CRUD operations
+    │   ├── export.rs           # Mod export commands
+    │   ├── file.rs             # File I/O & preview
+    │   ├── champion.rs         # Champion & skin commands
+    │   ├── checkpoint.rs       # Checkpoint commands
+    │   ├── mesh.rs             # 3D mesh commands
+    │   ├── league.rs           # League detection commands
+    │   ├── updater.rs          # App update commands
+    │   └── validation.rs       # Asset validation commands
+    │
+    ├── core/                   # Core business logic
+    │   ├── mod.rs              # Core module exports
+    │   ├── checkpoint.rs       # Checkpoint/snapshot system
+    │   ├── frontend_log.rs     # Frontend log forwarding
+    │   │
+    │   ├── hash/               # Hash table management
+    │   ├── wad/                # WAD archive handling
+    │   ├── bin/                # BIN file parsing & conversion
+    │   ├── repath/             # Asset repathing & refathering
+    │   │   ├── organizer.rs    # Path organization
+    │   │   └── refather.rs     # Intelligent path rewriting
+    │   ├── export/             # Fantome/Modpkg export
+    │   ├── mesh/               # SKN/SKL/SCB mesh parsing
+    │   ├── league/             # Game installation detection
+    │   ├── project/            # Project management
+    │   ├── champion/           # Champion & skin discovery
+    │   └── validation/         # Asset validation
+    │
+    └── bin/                    # Additional binary targets
+        └── bin_roundtrip_test.rs # BIN format roundtrip test
 ```
 
-## Dependencies Configured
+### CI/CD
+```
+.github/workflows/
+├── build.yml                   # Build + auto-release on push to main
+└── release.yml                 # Tag-based release (v* tags)
+```
 
-### Cargo.toml Dependencies
-✓ tauri (v2) - Tauri framework
-✓ serde (v1.0) - Serialization
-✓ serde_json (v1.0) - JSON support
-✓ tokio (v1.0) - Async runtime
-✓ reqwest (v0.11) - HTTP client
-✓ thiserror (v1.0) - Error handling
-✓ anyhow (v1.0) - Error context
-✓ byteorder (v1.4) - Binary parsing
-✓ flate2 (v1.0) - Compression
-✓ zstd (v0.12) - Zstandard compression
-✓ xxhash-rust (v0.8) - Hashing
-✓ camino (v1.1) - Path handling
-✓ parking_lot (v0.12) - Synchronization
-✓ tracing (v0.1) - Logging
-✓ tracing-subscriber (v0.3) - Logging
-✓ league-toolkit (git) - WAD operations
+### Documentation
+```
+docs/
+├── OVERVIEW.md                 # High-level project vision
+├── REQUIREMENTS.md             # Feature requirements
+├── DESIGN.md                   # UI/UX specifications
+├── ARCHITECTURE.md             # Technical architecture
+├── TASKS.md                    # Implementation task breakdown
+├── BUILD.md                    # Build instructions & CI/CD
+├── AI-STEERING.md              # AI development guidelines
+└── user/                       # End-user documentation
+    ├── FAQ.md                  # Frequently asked questions
+    └── TROUBLESHOOTING.md      # Common issues & solutions
+```
 
-### Dev Dependencies
-✓ proptest (v1.0) - Property-based testing
-✓ tempfile (v3.0) - Temporary files for tests
+## Key Dependencies
 
-### Package.json Dependencies
-✓ @tauri-apps/api (v2.0.0) - Tauri frontend API
-✓ @tauri-apps/cli (v2.0.0) - Tauri CLI
-✓ vite (v5.0.0) - Frontend build tool
+### Cargo.toml (Rust)
+- `tauri` 2.x - Desktop framework
+- `league-toolkit` 0.2 - WAD archive operations
+- `ltk_mesh` 0.3 - SKN/SKL/SCB mesh parsing
+- `ltk_anim` 0.3 - ANM animation parsing
+- `ltk_ritobin` 0.1 / `ltk_meta` 0.3 - BIN file parsing
+- `ltk_texture` 0.4 - DDS/TEX texture decoding
+- `ltk_fantome` 0.1 / `ltk_modpkg` 0.1 - Mod format export
+- `ltk_mod_project` 0.1 / `ltk_mod_core` 0.1 - Project system
+- `reqwest` 0.11 - HTTP client (rustls-tls)
+- `tokio` 1.x - Async runtime
+- `rayon` 1.x - Parallel processing
+- `glam` 0.27 - Vector math
+- `image` 0.25 / `image_dds` 0.6 - Image processing
+
+### package.json (Frontend)
+- `react` 18.x - UI framework
+- `react-dom` 18.x - React DOM renderer
+- `@tauri-apps/api` 2.x - Tauri JavaScript bindings
+- `@tauri-apps/plugin-dialog` 2.x - Native file dialogs
+- `@monaco-editor/react` 4.x - Code editor (BIN editing)
+- `@react-three/fiber` 8.x - Three.js React renderer (3D preview)
+- `@react-three/drei` 9.x - Three.js helpers
+- `three` 0.182 - 3D graphics
+- `react-window` 2.x - Virtualized lists
+- `typescript` 5.x - Type safety
+- `vite` 5.x - Build tool
 
 ## Status
-✅ Project structure created
-✅ All required dependencies configured
-✅ Directory structure matches design document
-✅ Error handling system skeleton in place
-✅ Application state management configured
-✅ Module structure ready for implementation
-✅ No syntax errors in any files
-
-## Next Steps
-The project is ready for implementation of the remaining tasks:
-- Task 2: Implement error handling system
-- Task 3: Implement hash downloader module
-- Task 4: Implement hashtable module
-- And so on...
-
-All placeholders are marked with comments indicating which task will implement them.
+- Phases 1-4 and 6: Complete (core engine, UI, preview, export, polish)
+- Phase 5: In progress (BIN editor)
+- CI/CD: Auto-release on push to main

@@ -15,9 +15,13 @@ Flint is a League of Legends modding IDE built with Rust + Tauri that automates 
 |-------|------------|---------|
 | Backend | Rust | 2021 Edition |
 | Framework | Tauri | 2.x |
-| Frontend | JavaScript + Vite | ES2022 |
-| WAD Operations | league-toolkit | Git |
-| Testing | Rust built-in + Vitest | - |
+| Frontend | React + TypeScript + Vite | React 18, TS 5.6, Vite 5 |
+| WAD Operations | league-toolkit | crates.io 0.2 |
+| BIN Parsing | ltk_ritobin, ltk_meta | crates.io |
+| Mesh/Anim | ltk_mesh, ltk_anim | crates.io |
+| Mod Export | ltk_fantome, ltk_modpkg | crates.io |
+| Texture | ltk_texture | crates.io |
+| Testing | Rust built-in | - |
 
 ### Key Files to Reference
 
@@ -120,65 +124,79 @@ pub fn extract_champion_assets(
 }
 ```
 
-### 2.2 Frontend (JavaScript)
+### 2.2 Frontend (React + TypeScript)
 
 #### File Organization
 
 ```
 src/
-├── components/          # Reusable UI components
-│   ├── FileTree/
-│   │   ├── FileTree.js
-│   │   ├── FileTree.css
-│   │   └── FileTreeItem.js
-│   └── Preview/
-├── stores/              # State management
-│   ├── projectStore.js
-│   └── settingsStore.js
-├── services/            # Tauri command wrappers
-│   ├── wadService.js
-│   └── hashService.js
-├── utils/               # Helper functions
-└── types/               # TypeScript definitions (if using TS)
+├── main.tsx             # Application entry point
+├── components/          # React components
+│   ├── App.tsx          # Root component
+│   ├── TopBar.tsx       # Navigation bar
+│   ├── FileTree.tsx     # Asset file browser
+│   ├── CenterPanel.tsx  # Dynamic content area
+│   ├── PreviewPanel.tsx # Asset preview container
+│   ├── TabBar.tsx       # Preview tab management
+│   ├── StatusBar.tsx    # Status & hash info
+│   ├── WelcomeScreen.tsx # Landing page
+│   ├── ContextMenu.tsx  # Right-click menus
+│   ├── CheckpointTimeline.tsx
+│   ├── Toast.tsx        # Notification toasts
+│   ├── modals/          # Modal dialogs (NewProject, Export, Settings, etc.)
+│   └── preview/         # Asset preview panels (BinEditor, ModelPreview, etc.)
+├── lib/                 # Utilities & API bridge
+│   ├── api.ts           # Tauri command wrappers (invoke calls)
+│   ├── state.ts         # Application state management
+│   ├── types.ts         # TypeScript type definitions
+│   ├── utils.ts         # Helper functions
+│   ├── logger.ts        # Frontend logging
+│   ├── fileIcons.tsx    # File type icon mapping
+│   ├── ritobinLanguage.ts # Monaco BIN syntax definition
+│   └── datadragon.ts    # Champion data integration
+├── styles/              # Global CSS styles
+└── themes/              # Customizable CSS themes
 ```
 
 #### Component Pattern
 
-```javascript
-// components/FileTree/FileTree.js
+```tsx
+// components/FileTree.tsx
 
-/**
- * File tree component for displaying project assets.
- * @param {Object} props
- * @param {Array} props.items - Tree items to display
- * @param {Function} props.onSelect - Callback when item is selected
- */
-export function FileTree({ items, onSelect }) {
-    // Component logic
+interface FileTreeProps {
+    items: FileTreeNode[];
+    onSelect: (node: FileTreeNode) => void;
 }
 
-// CSS in separate file: FileTree.css
-// Keep components focused - one responsibility per component
+export function FileTree({ items, onSelect }: FileTreeProps) {
+    // Component logic using React hooks
+    const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+    return (
+        <div className="file-tree">
+            {items.map(item => (
+                <FileTreeItem key={item.id} node={item} onSelect={onSelect} />
+            ))}
+        </div>
+    );
+}
 ```
 
 #### Tauri Command Wrappers
 
-```javascript
-// services/wadService.js
+```typescript
+// lib/api.ts
 import { invoke } from '@tauri-apps/api/core';
 
-/**
- * Read WAD file information.
- * @param {string} path - Absolute path to WAD file
- * @returns {Promise<WadInfo>} WAD file metadata
- */
-export async function readWad(path) {
-    try {
-        return await invoke('read_wad', { path });
-    } catch (error) {
-        console.error('Failed to read WAD:', error);
-        throw new Error(`Could not read WAD file: ${error}`);
-    }
+export async function readWad(path: string): Promise<WadInfo> {
+    return await invoke('read_wad', { path });
+}
+
+export async function extractAssets(
+    champion: string,
+    skinId: number
+): Promise<ExtractedFile[]> {
+    return await invoke('extract_assets', { champion, skinId });
 }
 ```
 
@@ -190,16 +208,18 @@ export async function readWad(path) {
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        FRONTEND                                 │
+│                    FRONTEND (React + TypeScript)                 │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │  Components  │──│   Stores     │──│  Services    │          │
+│  │  Components  │──│  State (lib) │──│  API (lib)   │          │
+│  │  (.tsx)      │  │  state.ts    │  │  api.ts      │          │
 │  └──────────────┘  └──────────────┘  └──────┬───────┘          │
 └─────────────────────────────────────────────┼───────────────────┘
-                                              │ Tauri IPC
+                                              │ Tauri IPC (invoke)
 ┌─────────────────────────────────────────────┼───────────────────┐
-│                        BACKEND              │                   │
+│                    BACKEND (Rust)            │                   │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────▼───────┐          │
 │  │   Commands   │──│    Core      │──│    State     │          │
+│  │  commands/   │  │  core/       │  │  state.rs    │          │
 │  └──────────────┘  └──────────────┘  └──────────────┘          │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -238,35 +258,20 @@ pub fn get_hash_status(state: State<HashtableState>) -> HashStatus {
 }
 ```
 
-```javascript
-// Frontend state via simple store pattern
-// stores/projectStore.js
+```typescript
+// Frontend state via lib/state.ts
+// Uses React state management patterns
 
-let state = {
-    project: null,
-    files: [],
-    selectedFile: null,
-};
-
-const listeners = new Set();
-
-export function getState() {
-    return state;
+interface AppState {
+    project: ProjectInfo | null;
+    files: FileTreeNode[];
+    selectedFile: string | null;
+    loading: boolean;
+    error: string | null;
 }
 
-export function setProject(project) {
-    state = { ...state, project };
-    notify();
-}
-
-export function subscribe(listener) {
-    listeners.add(listener);
-    return () => listeners.delete(listener);
-}
-
-function notify() {
-    listeners.forEach(fn => fn(state));
-}
+// State is managed via React hooks (useState, useReducer)
+// and passed through component props or context
 ```
 
 ---
@@ -352,19 +357,22 @@ fn validate_path(path: &str) -> Result<PathBuf, FlintError> {
 
 ### 5.2 Loading States
 
-```javascript
+```typescript
 // Always handle loading states in UI
-async function loadProject(path) {
-    state.loading = true;
-    state.error = null;
-    
+const [loading, setLoading] = useState(false);
+const [error, setError] = useState<string | null>(null);
+
+async function loadProject(path: string) {
+    setLoading(true);
+    setError(null);
+
     try {
-        const project = await invoke('open_project', { path });
-        state.project = project;
-    } catch (error) {
-        state.error = error.message;
+        const project = await invoke<ProjectInfo>('open_project', { path });
+        setProject(project);
+    } catch (err) {
+        setError(String(err));
     } finally {
-        state.loading = false;
+        setLoading(false);
     }
 }
 ```
@@ -546,16 +554,17 @@ Create a Tauri command called `extract_champion_assets` that:
 
 ```markdown
 ## Context
-I'm working on Flint. Reference: docs/DESIGN.md for visual specs.
+I'm working on Flint (React + TypeScript). Reference: docs/DESIGN.md for visual specs.
 
 ## Task
-Create a FileTreeItem component that:
+Create a FileTreeItem component (TSX) that:
 - Displays file name with appropriate icon
 - Shows expand/collapse arrow for folders
 - Highlights on selection (blue background)
 - Triggers onSelect callback on click
 
 ## Requirements
+- Use TypeScript interfaces for props
 - CSS classes should match DESIGN.md specifications
 - Handle hover and focus states
 - Support keyboard navigation

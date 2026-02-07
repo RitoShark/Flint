@@ -115,41 +115,83 @@ These features are implemented in `src-tauri/src/core/repath/refather.rs` and `s
 ```
 flint/
 ├── src/                        # React TypeScript Frontend
+│   ├── main.tsx                # Application entry point
 │   ├── components/             # UI Components
+│   │   ├── App.tsx             # Root component
+│   │   ├── TopBar.tsx          # Navigation & project info
+│   │   ├── FileTree.tsx        # Asset file browser
+│   │   ├── CenterPanel.tsx     # Dynamic content area
+│   │   ├── PreviewPanel.tsx    # Asset preview container
+│   │   ├── TabBar.tsx          # Preview tab management
+│   │   ├── StatusBar.tsx       # Status & hash info
+│   │   ├── WelcomeScreen.tsx   # Landing page
+│   │   ├── ContextMenu.tsx     # Right-click menus
+│   │   ├── CheckpointTimeline.tsx # Checkpoint UI
+│   │   ├── Toast.tsx           # Notification toasts
 │   │   ├── modals/             # Modal dialogs
 │   │   │   ├── NewProjectModal.tsx
 │   │   │   ├── ExportModal.tsx
 │   │   │   ├── SettingsModal.tsx
-│   │   │   └── FirstTimeSetupModal.tsx
+│   │   │   ├── FirstTimeSetupModal.tsx
+│   │   │   ├── RecolorModal.tsx
+│   │   │   └── UpdateModal.tsx
 │   │   └── preview/            # Asset preview panels
-│   │       ├── BinEditor.tsx
+│   │       ├── BinEditor.tsx / LazyBinEditor.tsx
+│   │       ├── BinPropertyTree.tsx
+│   │       ├── ModelPreview.tsx / LazyModelPreview.tsx
 │   │       ├── ImagePreview.tsx
 │   │       ├── TextPreview.tsx
-│   │       └── HexViewer.tsx
+│   │       ├── HexViewer.tsx
+│   │       └── AssetPreviewTooltip.tsx
 │   ├── lib/                    # Utilities & API bridge
+│   │   ├── api.ts              # Tauri command wrappers
+│   │   ├── state.ts            # Application state management
+│   │   ├── types.ts            # TypeScript type definitions
+│   │   ├── utils.ts            # Helper functions
+│   │   ├── logger.ts           # Frontend logging
+│   │   ├── fileIcons.tsx       # File type icon mapping
+│   │   ├── ritobinLanguage.ts  # Monaco BIN syntax definition
+│   │   └── datadragon.ts       # Champion data integration
+│   ├── styles/                 # Global CSS styles
 │   └── themes/                 # Customizable CSS themes
 │
 ├── src-tauri/                  # Rust Backend
 │   ├── src/
+│   │   ├── main.rs             # Application entry point
+│   │   ├── lib.rs              # Library exports
+│   │   ├── error.rs            # Error types & handling
+│   │   ├── state.rs            # Managed application state
 │   │   ├── commands/           # Tauri IPC handlers
 │   │   │   ├── project.rs      # Project CRUD operations
 │   │   │   ├── export.rs       # Mod export commands
 │   │   │   ├── bin.rs          # BIN file operations
 │   │   │   ├── file.rs         # File I/O & preview
 │   │   │   ├── wad.rs          # WAD archive commands
-│   │   │   └── hash.rs         # Hash resolution
-│   │   ├── core/               # Core functionality
-│   │   │   ├── bin/            # BIN parsing & operations
-│   │   │   ├── wad/            # WAD extraction
-│   │   │   ├── hash/           # CommunityDragon hashtables
-│   │   │   ├── repath/         # Asset repathing (disabled)
-│   │   │   ├── export/         # Fantome/Modpkg export
-│   │   │   ├── league/         # Game detection
-│   │   │   ├── project/        # Project management
-│   │   │   ├── champion/       # Champion & skin discovery
-│   │   │   └── validation/     # Asset validation
-│   │   └── utils/              # Shared utilities
+│   │   │   ├── hash.rs         # Hash resolution
+│   │   │   ├── champion.rs     # Champion & skin commands
+│   │   │   ├── checkpoint.rs   # Checkpoint commands
+│   │   │   ├── mesh.rs         # 3D mesh commands
+│   │   │   ├── league.rs       # League detection commands
+│   │   │   ├── updater.rs      # App update commands
+│   │   │   └── validation.rs   # Asset validation commands
+│   │   └── core/               # Core functionality
+│   │       ├── bin/            # BIN parsing & conversion
+│   │       ├── wad/            # WAD extraction
+│   │       ├── hash/           # CommunityDragon hashtables
+│   │       ├── repath/         # Asset repathing & refathering
+│   │       ├── export/         # Fantome/Modpkg export
+│   │       ├── mesh/           # SKN/SKL/SCB mesh parsing
+│   │       ├── league/         # Game detection
+│   │       ├── project/        # Project management
+│   │       ├── champion/       # Champion & skin discovery
+│   │       ├── validation/     # Asset validation
+│   │       ├── checkpoint.rs   # Checkpoint system
+│   │       └── frontend_log.rs # Frontend log forwarding
 │   └── Cargo.toml              # Rust dependencies
+│
+├── .github/workflows/          # CI/CD
+│   ├── build.yml               # Build + auto-release on push to main
+│   └── release.yml             # Tag-based release
 │
 └── docs/                       # Documentation
 ```
@@ -160,9 +202,10 @@ flint/
 
 ### Prerequisites
 
-- **Rust** (1.70+ stable)
-- **Node.js** (v18+)
-- **npm** or **pnpm**
+- **Rust** (1.75+ stable)
+- **Node.js** (v20+)
+- **npm**
+- **Windows 10+** (for NSIS installer)
 
 ### Installation
 
@@ -181,9 +224,15 @@ npm run tauri dev
 ### Building
 
 ```bash
-# Build optimized production binary
+# Build optimized production binary with installer
 npm run tauri build
 ```
+
+The installer is generated at `src-tauri/target/release/bundle/nsis/Flint_{version}_x64-setup.exe`.
+
+### Releases
+
+Pushing to `main` automatically builds and creates a GitHub Release with the installer attached. See [BUILD.md](docs/BUILD.md) for details.
 
 ---
 
@@ -211,6 +260,7 @@ Flint supports custom color themes! Create your own theme by copying `src/themes
 | **WAD Handling** | `league-toolkit` |
 | **Texture Decoding** | `ltk_texture` (LeagueToolkit) |
 | **Mesh Parsing** | `ltk_mesh` (LeagueToolkit) |
+| **Animation** | `ltk_anim` (LeagueToolkit) |
 | **Mod Export** | `ltk_fantome`, `ltk_modpkg`, `ltk_mod_project` |
 | **Hash Resolution** | CommunityDragon hashtables, `xxhash-rust` |
 
@@ -222,6 +272,7 @@ Flint supports custom color themes! Create your own theme by copying `src/themes
 - `tauri` 2.0 - Cross-platform desktop framework
 - `league-toolkit` - WAD archive operations
 - `ltk_mesh` - SKN/SKL/SCB/SCO mesh parsing (LeagueToolkit)
+- `ltk_anim` - ANM animation parsing (LeagueToolkit)
 - `ltk_ritobin` / `ltk_meta` - BIN file parsing
 - `ltk_fantome` / `ltk_modpkg` - Mod format export
 - `ltk_texture` - DDS/TEX texture decoding (LeagueToolkit)

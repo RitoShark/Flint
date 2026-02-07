@@ -162,27 +162,39 @@ npm install
 ### GitHub Actions
 Automated builds are configured in `.github/workflows/`:
 
-- **build.yml**: Runs on every push to main/develop
-- **release.yml**: Runs on version tags (`v*`)
+- **build.yml**: Runs on every push to `main`/`develop` and on pull requests to `main`. On pushes to `main`, it automatically creates a GitHub Release with the installer attached.
+- **release.yml**: Runs on version tags (`v*`) as a manual release path.
 
-### Triggering a Release Build
+### Automatic Release (Recommended)
+
+Simply push to `main` and a release is created automatically:
+
 ```bash
 # 1. Update version in src-tauri/tauri.conf.json and package.json
 # 2. Commit changes
-git commit -am "Release v0.2.0"
+git add -A && git commit -m "Release v0.2.0"
 
-# 3. Create version tag
-git tag v0.2.0
-
-# 4. Push tag to trigger release
-git push && git push --tags
+# 3. Push to main - release is created automatically
+git push origin main
 ```
 
 GitHub Actions will automatically:
-1. Build the installer
-2. Run tests
-3. Create a GitHub Release
-4. Upload the installer as a release asset
+1. Lint the Rust backend
+2. Build the full application and NSIS installer
+3. Upload the installer as a build artifact
+4. Create a GitHub Release tagged with the version from `tauri.conf.json`
+5. Attach the installer `.exe` to the release
+
+### Manual Tag Release (Alternative)
+
+You can also trigger a release by pushing a version tag:
+
+```bash
+git tag v0.2.0
+git push --tags
+```
+
+This triggers the `release.yml` workflow which builds and creates a release for that tag.
 
 ---
 
@@ -193,10 +205,7 @@ Update version in both:
 - `package.json` (line 3)
 - `src-tauri/tauri.conf.json` (line 17)
 
-### 2. Changelog
-Update `CHANGELOG.md` with new version notes.
-
-### 3. Build and Test
+### 2. Build and Test Locally (Optional)
 ```bash
 # Clean build
 npm run build
@@ -208,22 +217,19 @@ npm run tauri build
 # - Check About dialog shows correct version
 ```
 
-### 4. Create Release
+### 3. Push to Main
 ```bash
 # Commit version changes
-git commit -am "Release v0.2.0"
+git add -A && git commit -m "Release v0.2.0"
 
-# Create annotated tag
-git tag -a v0.2.0 -m "Release version 0.2.0"
-
-# Push to GitHub
-git push origin main --tags
+# Push to main - GitHub Actions creates the release automatically
+git push origin main
 ```
 
-### 5. Verify Release
+### 4. Verify Release
 - Check GitHub Actions workflow completes successfully
 - Verify release appears on GitHub Releases page
-- Download and test the installer
+- Download and test the installer from the release
 
 ---
 
@@ -260,7 +266,7 @@ cargo clean
 
 #### CI/CD
 GitHub Actions uses:
-- `actions/cache@v3` for npm
+- `actions/setup-node@v4` with built-in npm caching
 - `Swatinem/rust-cache@v2` for Cargo
 
 Cache is automatically managed and restored between builds.
