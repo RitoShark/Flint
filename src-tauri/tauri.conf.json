@@ -27,7 +27,7 @@
     "createUpdaterArtifacts": "v1Compatible"
   },
   "productName": "Flint",
-  "version": "1.9.4",
+  "version": "1.9.0",
   "identifier": "com.sirdexal.flint",
   "plugins": {
     "updater": {
@@ -35,7 +35,10 @@
         "https://github.com/RitoShark/Flint/releases/latest/download/latest.json",
         "https://github.com/SirDexal/Flint/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVGMUU1NjcwOEREQkNBRTgKUldUb3l0dU5jRlllNzZXL2RxK2orU1RzOXVZdnZ3YlF3cTBQczZaS0pMWlpGM0RNR2pING1Cd2UK"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVGMUU1NjcwOEREQkNBRTgKUldUb3l0dU5jRlllNzZXL2RxK2orU1RzOXVZdnZ3YlF3cTBQczZaS0pMWlpGM0RNR2pING1Cd2UK",
+      "windows": {
+        "installMode": "quiet"
+      }
     }
   },
   "app": {
