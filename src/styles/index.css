@@ -176,6 +176,66 @@ body {
   overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
+  position: relative;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Subtle ambient backdrop — a fixed hexagon-mesh overlay + a slow drifting
+   accent-tinted radial gradient. GPU-only (transform + opacity), fixed
+   positioning so scroll never repaints, pointer-events:none so it never
+   intercepts clicks, very low opacity so it reads as texture not noise.
+
+   Layered ABOVE app content with opacity ≤4% so it's perceptible only as
+   ambience and never obscures readability. Single composite layer per
+   pseudo, no filters/blur — runs entirely on the compositor thread.
+   ────────────────────────────────────────────────────────────────────── */
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  inset: -8vmax;
+  pointer-events: none;
+  /* Above app content (z=auto) but below modals (.modal-overlay z=1000) and
+     dropdowns/tooltips (z=1100+), so it never paints over a focused dialog. */
+  z-index: 1;
+  will-change: transform;
+}
+
+/* Layer 1 — tiled hexagon mesh, etched texture */
+body::before {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='56' height='64' viewBox='0 0 56 64'><path d='M28 1 L54 16 L54 48 L28 63 L2 48 L2 16 Z' fill='none' stroke='%23ffffff' stroke-width='0.6'/></svg>");
+  background-size: 56px 64px;
+  opacity: 0.025;
+  animation: bgHexDrift 90s linear infinite;
+}
+
+/* Layer 2 — slow-drifting accent bloom */
+body::after {
+  background:
+    radial-gradient(ellipse 55vmax 40vmax at 18% 22%,
+      color-mix(in oklab, var(--accent-primary) 18%, transparent) 0%,
+      transparent 55%),
+    radial-gradient(ellipse 60vmax 45vmax at 82% 90%,
+      color-mix(in oklab, var(--accent-secondary) 14%, transparent) 0%,
+      transparent 60%);
+  opacity: 0.18;
+  mix-blend-mode: screen;
+  animation: bgGradDrift 36s ease-in-out infinite alternate;
+}
+
+@keyframes bgHexDrift {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(56px, 64px, 0); }
+}
+@keyframes bgGradDrift {
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  100% { transform: translate3d(2vw, -1.5vh, 0) scale(1.05); }
+}
+
+/* Honor users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  body::before,
+  body::after { animation: none; }
 }
 
 /* Allow text selection only in inputs and textareas */
@@ -280,7 +340,10 @@ textarea:focus {
   flex: 1;
   display: flex;
   overflow: hidden;
-  background-color: var(--bg-secondary);
+  /* Transparent so the body's animated backdrop layers show through in the
+     gaps between panels (left panel, center panel, etc. each paint their
+     own background, so this doesn't bleed into actual content). */
+  background-color: transparent;
 }
 
 .left-panel {
