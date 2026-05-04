@@ -35,6 +35,20 @@ where
     S: Subscriber,
 {
     fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+        let metadata = event.metadata();
+        let target_str = metadata.target();
+
+        // Don't mirror IPC-trace events (`[rs-ipc#N ▶/✓]`) to the frontend.
+        // Each one would force a `handle.emit` here, which itself rides the
+        // WebView IPC channel back across the bridge — that's two extra
+        // round-trips per Tauri command, dominating wall time on small
+        // commands (`scan_game_wads` was 5ms work + ~20ms emit ceremony).
+        // The trace still lands in the file log + the JS-side `[ipc#N]`
+        // counterpart, so nothing is lost.
+        if target_str == "flint::core::ipc_trace" {
+            return;
+        }
+
         // Get app handle if available
         let handle_guard = APP_HANDLE.read();
         let handle = match handle_guard.as_ref() {
@@ -43,10 +57,8 @@ where
         };
         drop(handle_guard);
 
-        // Extract event data
-        let metadata = event.metadata();
         let level = metadata.level().as_str().to_string();
-        let target = metadata.target().to_string();
+        let target = target_str.to_string();
         
         // Build message from fields
         let mut message = String::new();

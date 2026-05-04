@@ -77,6 +77,13 @@ function formatArgs(args: unknown[]): string {
  * Check if a log message should be filtered out (noisy logs)
  */
 function shouldFilter(message: string): boolean {
+    // IPC trace lines (`[ipc#N ▶/✓]` from this side, `[rust] [rs-ipc#N ▶/✓]`
+    // mirrored from the backend) fire on every command. Sending them through
+    // the buffered store dump triggers a re-render cascade across every
+    // log-panel subscriber per IPC, even with the 250ms flush. They're still
+    // visible in devtools — keep them out of the in-app log.
+    if (message.startsWith('[ipc#')) return true;
+    if (message.startsWith('[rust] [rs-ipc#')) return true;
     const filters = [
         '[HMR]',
         '[vite]',
