@@ -26,11 +26,33 @@ export interface LogEntry {
 }
 
 export interface RecentProject {
+    /** Stable project id (UUID v4). May be empty for legacy entries. */
+    pid?: string;
     name: string;
     champion: string;
     skin: number;
     path: string;
     lastOpened: string;
+}
+
+/** Result of `discover_projects` — every project the backend can locate
+ *  (on-disk walk ∪ projects.json index entries). */
+export interface ProjectListing {
+    pid: string;
+    path: string;
+    name: string;
+    display_name: string;
+    champion: string;
+    skin_id: number;
+    created_at: string;
+    modified_at: string;
+    last_seen_at: string;
+    /** True if path currently contains a readable mod.config.json. */
+    exists: boolean;
+    /** True if this row was found by the disk walk (vs. solely the index). */
+    on_disk: boolean;
+    /** True if the project was rediscovered at a new path this scan. */
+    relocated: boolean;
 }
 
 export interface SavedProject {
@@ -49,6 +71,8 @@ export interface FileTreeNode {
 }
 
 export interface Project {
+    /** Stable project id (UUID v4) — populated by the backend on create/open. */
+    pid?: string;
     name: string;
     display_name?: string;
     champion: string;

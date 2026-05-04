@@ -257,6 +257,38 @@ export const ProjectListModal: React.FC = () => {
         }
     }, [isVisible]);
 
+    // Discover-and-merge: each time the modal opens, walk the configured
+    // projects root and rebuild the saved-projects list from disk. This
+    // lets users recover their projects after a clean reinstall (the
+    // backend reads each project's flint.json/mod.config.json directly,
+    // and reconciles with projects.json so renamed/relocated folders still
+    // show under the right pid).
+    const projectsRoot = configStore.defaultProjectPath;
+    useEffect(() => {
+        if (!isVisible || !projectsRoot) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const listings = await api.discoverProjects(projectsRoot);
+                if (cancelled) return;
+                const mapped: SavedProject[] = listings
+                    // Prefer rows that exist on disk; missing entries still
+                    // render so users can re-locate or remove them.
+                    .map((l) => ({
+                        id: l.pid,
+                        name: l.display_name || l.name || 'Unnamed',
+                        champion: l.champion,
+                        path: l.path,
+                        lastOpened: l.last_seen_at || l.modified_at || l.created_at,
+                    }));
+                configStore.setSavedProjects(mapped);
+            } catch (err) {
+                console.error('[ProjectList] discover_projects failed:', err);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [isVisible, projectsRoot, configStore]);
+
     // Listen for import progress events
     useEffect(() => {
         const unlistenFantome = listen<{ status: string; message: string }>('fantome-import-progress', (event) => {

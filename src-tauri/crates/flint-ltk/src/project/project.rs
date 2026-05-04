@@ -20,6 +20,11 @@ const FLINT_FILE: &str = "flint.json";
 /// Flint-specific metadata (stored separately from mod.config.json)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlintMetadata {
+    /// Stable project id (UUID v4). Generated on creation; the projects
+    /// index uses this to track moves/renames across sessions.
+    #[serde(default)]
+    pub pid: String,
+
     /// Champion internal name (e.g., "Ahri")
     pub champion: String,
 
@@ -67,7 +72,12 @@ pub struct Project {
     pub authors: Vec<String>,
     
     // ===== Flint-specific fields (from flint.json, populated at runtime) =====
-    
+
+    /// Stable project id (UUID v4). Persists across moves so projects.json
+    /// can re-discover a project after the user relocates the folder.
+    #[serde(default)]
+    pub pid: String,
+
     /// Champion internal name (e.g., "Ahri") - Flint specific
     #[serde(default)]
     pub champion: String,
@@ -160,6 +170,7 @@ impl Project {
             description: format!("Mod for {} skin {}", champion_str, skin_id),
             layers: default_layers(),
             authors,
+            pid: uuid::Uuid::new_v4().to_string(),
             champion: champion_str,
             skin_id,
             league_path: Some(league_path.into()),
@@ -187,6 +198,7 @@ impl Project {
     /// Get FlintMetadata from this project
     pub fn to_flint_metadata(&self) -> FlintMetadata {
         FlintMetadata {
+            pid: self.pid.clone(),
             champion: self.champion.clone(),
             skin_id: self.skin_id,
             league_path: self.league_path.clone(),
@@ -298,8 +310,33 @@ pub fn create_project(
     // Save project files
     save_project(&project)?;
 
+    // Register in projects.json (best-effort; failure here doesn't fail
+    // project creation since the project itself is already persisted).
+    if let Err(e) = register_in_index(output_dir, &project) {
+        tracing::warn!("Failed to register {} in projects.json: {}", project.pid, e);
+    }
+
     tracing::info!("Project created at: {}", project_path.display());
     Ok(project)
+}
+
+/// Upsert a project into the index file at `projects_root`. Used by
+/// `create_project` and the open-project Tauri wrapper so projects.json
+/// always reflects the most recent path/name for a given pid.
+pub fn register_in_index(projects_root: &Path, project: &Project) -> Result<()> {
+    use crate::project::index::{upsert, ProjectIndexEntry};
+    let now = chrono::Utc::now();
+    upsert(projects_root, ProjectIndexEntry {
+        pid: project.pid.clone(),
+        path: project.project_path.clone(),
+        display_name: project.display_name.clone(),
+        name: project.name.clone(),
+        champion: project.champion.clone(),
+        skin_id: project.skin_id,
+        created_at: project.created_at,
+        last_seen_at: now,
+        exists: true,
+    })
 }
 
 /// Opens an existing project from a path
@@ -350,16 +387,31 @@ pub fn open_project(path: &Path) -> Result<Project> {
     
     // Load flint.json if it exists
     let flint_path = project_path.join(FLINT_FILE);
+    let mut needs_resave = false;
     if flint_path.exists() {
         if let Ok(file) = File::open(&flint_path) {
             let reader = BufReader::new(file);
             if let Ok(flint) = serde_json::from_reader::<_, FlintMetadata>(reader) {
+                project.pid = flint.pid;
                 project.champion = flint.champion;
                 project.skin_id = flint.skin_id;
                 project.league_path = flint.league_path;
                 project.created_at = flint.created_at;
                 project.modified_at = flint.modified_at;
             }
+        }
+    }
+
+    // Backfill pid for projects created before the index existed. Saved
+    // back so the next open re-uses the same UUID.
+    if project.pid.is_empty() {
+        project.pid = uuid::Uuid::new_v4().to_string();
+        needs_resave = true;
+    }
+    if needs_resave {
+        // Best-effort: don't fail open() if we couldn't write the backfilled pid.
+        if let Err(e) = save_project(&project) {
+            tracing::warn!("Failed to backfill pid for {}: {}", project.project_path.display(), e);
         }
     }
 

@@ -697,7 +697,47 @@ pub async fn open_project(path: String) -> Result<Project, String> {
 
     let path = PathBuf::from(path);
 
-    tokio::task::spawn_blocking(move || core_open_project(&path))
+    let project = tokio::task::spawn_blocking(move || core_open_project(&path))
+        .await
+        .map_err(|e| format!("Task failed: {}", e))?
+        .map_err(|e| e.to_string())?;
+
+    // Refresh the projects.json index entry so a project that was moved
+    // gets picked up under its new path on the next discover_projects scan.
+    if let Some(parent) = project.project_path.parent() {
+        let project_clone = project.clone();
+        let parent = parent.to_path_buf();
+        let _ = tokio::task::spawn_blocking(move || {
+            flint_ltk::project::register_in_index(&parent, &project_clone)
+        })
+        .await;
+    }
+
+    Ok(project)
+}
+
+/// Walk a projects root directory, return every Flint project found there
+/// merged with the on-disk `projects.json` index.
+#[tauri::command]
+pub async fn discover_projects(
+    projects_root: String,
+) -> Result<Vec<flint_ltk::project::ProjectListing>, String> {
+    let root = PathBuf::from(projects_root);
+    tokio::task::spawn_blocking(move || flint_ltk::project::discover_projects(&root))
+        .await
+        .map_err(|e| format!("Task failed: {}", e))?
+        .map_err(|e| e.to_string())
+}
+
+/// Drop a single project from the `projects.json` index. Does NOT touch the
+/// project folder itself.
+#[tauri::command]
+pub async fn forget_project(
+    projects_root: String,
+    pid: String,
+) -> Result<bool, String> {
+    let root = PathBuf::from(projects_root);
+    tokio::task::spawn_blocking(move || flint_ltk::project::remove_from_index(&root, &pid))
         .await
         .map_err(|e| format!("Task failed: {}", e))?
         .map_err(|e| e.to_string())

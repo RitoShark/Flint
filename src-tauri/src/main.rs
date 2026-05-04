@@ -164,6 +164,8 @@ fn main() {
             commands::project::create_project,
             commands::project::create_loading_screen_project,
             commands::project::open_project,
+            commands::project::discover_projects,
+            commands::project::forget_project,
             commands::project::save_project,
             commands::project::delete_project,
             commands::project::list_project_files,

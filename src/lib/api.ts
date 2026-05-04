@@ -360,6 +360,17 @@ export async function deleteProject(projectPath: string): Promise<void> {
     return invokeCommand('delete_project', { projectPath });
 }
 
+/** Walk the projects root one level deep and return every Flint project
+ *  found there, merged with the on-disk `projects.json` index. */
+export async function discoverProjects(projectsRoot: string): Promise<import('./types').ProjectListing[]> {
+    return invokeCommand('discover_projects', { projectsRoot });
+}
+
+/** Drop a project from `projects.json` (does not touch the project folder). */
+export async function forgetProject(projectsRoot: string, pid: string): Promise<boolean> {
+    return invokeCommand('forget_project', { projectsRoot, pid });
+}
+
 // Backend file tree entry format
 interface BackendFileEntry {
     path: string;
