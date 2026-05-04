@@ -51,6 +51,11 @@ export function useAppState() {
   // uses `useShallow` so the consumer only re-renders when one of the
   // listed fields actually changes (rather than on any field-or-method
   // change in the store, which is what bare `useXxxStore()` would do).
+  // NOTE: `logs` and `logPanelExpanded` are intentionally NOT in this subset.
+  // Backend tracing events flush to the logs array every 250ms; including
+  // them here would re-render every `useAppState()` consumer (TitleBar,
+  // StatusBar, modals, ~25 components) on every flush. LogPanel subscribes
+  // to those fields directly via `useAppMetadataStore((s) => s.logs)`.
   const appMetadataSubset = useAppMetadataStore(
     useShallow((s) => ({
       status: s.status,
@@ -58,8 +63,6 @@ export function useAppState() {
       hashesLoaded: s.hashesLoaded,
       hashCount: s.hashCount,
       verboseLogging: s.verboseLogging,
-      logs: s.logs,
-      logPanelExpanded: s.logPanelExpanded,
     })),
   );
   const configSubset = useConfigStore(
@@ -138,16 +141,25 @@ export function useAppState() {
 
   // Combined state object (for components that read state.xyz). Built from
   // the subscribed `*Subset` bundles so this object is stable when none of
-  // the picked fields changed.
-  const state: AppState = {
+  // the picked fields changed. Wrapped in useMemo so the outer reference
+  // is stable too — without this, every render returned a fresh literal
+  // and React.memo on consumers receiving `state` (or destructured pieces)
+  // saw "new" props every dispatch.
+  const state: AppState = React.useMemo(() => ({
     // App metadata
     status: appMetadataSubset.status,
     statusMessage: appMetadataSubset.statusMessage,
     hashesLoaded: appMetadataSubset.hashesLoaded,
     hashCount: appMetadataSubset.hashCount,
     verboseLogging: appMetadataSubset.verboseLogging,
-    logs: appMetadataSubset.logs,
-    logPanelExpanded: appMetadataSubset.logPanelExpanded,
+    // logs/logPanelExpanded read off the live store snapshot — they're not
+    // subscribed in `appMetadataSubset` (would cascade re-renders to every
+    // useAppState consumer on each 250ms log flush). The few callers that
+    // actually read these from `state` get a fresh value on the renders that
+    // are triggered by *other* fields they care about; live consumers should
+    // subscribe directly via useAppMetadataStore.
+    logs: appMetadata.logs,
+    logPanelExpanded: appMetadata.logPanelExpanded,
 
     // Config
     leaguePath: configSubset.leaguePath,
@@ -200,7 +212,19 @@ export function useAppState() {
 
     // Notifications
     toasts: notificationSubset.toasts,
-  };
+  }), [
+    appMetadataSubset,
+    configSubset,
+    projectTabSubset,
+    navigationSubset,
+    wadExtractSubset,
+    wadExplorerSubset,
+    championSubset,
+    modalSubset,
+    notificationSubset,
+    appMetadata.logs,
+    appMetadata.logPanelExpanded,
+  ]);
 
   // Legacy dispatch function for backward compatibility
   // Maps old action types to new store calls

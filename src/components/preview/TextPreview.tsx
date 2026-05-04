@@ -69,8 +69,11 @@ export const TextPreview: React.FC<TextPreviewProps> = ({ filePath }) => {
     const editorContainerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
-    // Subscribe to file version changes for hot reload
-    const fileVersion = useAppMetadataStore((state) => state.fileVersions[filePath.replaceAll('\\', '/')] || 0);
+    // Subscribe to file version changes for hot reload — see ImagePreview.
+    const fileVersion = useAppMetadataStore((state) => {
+        void state.fileVersionsRev;
+        return state.getFileVersion(filePath);
+    });
 
     const ext = filePath.split('.').pop()?.toLowerCase() || 'txt';
     const language = LANGUAGE_MAP[ext] || 'plaintext';

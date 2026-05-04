@@ -10,7 +10,7 @@ use commands::settings::{initialize_app_home, get_flint_home};
 use flint_ltk::hash::get_hash_dir;
 use core::frontend_log::{FrontendLogLayer, set_app_handle};
 use state::{LmdbCacheState, WadCacheState};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter};
 
 fn main() {
@@ -69,6 +69,11 @@ fn main() {
         .init();
 
     tracing::info!("Flint starting...");
+    tracing::info!(
+        "IPC tracing active — frontend logs `[ipc#N ▶/✓]`, Rust logs `[rs-ipc#N ▶/✓]`. \
+         In DevTools, call `__FLINT_IPC_STATS()` to see per-command totals. \
+         Toggle JS-side trace via `localStorage.flintIpcTrace = '0'` then reload."
+    );
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -99,8 +104,16 @@ fn main() {
 
             // Download pre-built LMDBs from LeagueToolkit/lmdb-hashes releases,
             // then open them. No local build step — the .mdb files are canonical.
+            //
+            // Performance: BIN hash caches (HashMapProvider) used to be pre-warmed
+            // here via spawn_blocking, iterating the entire BIN LMDB into memory.
+            // That was ~3s of work + ~hundreds of MB resident before the user did
+            // anything. Now they lazy-init on first use (first BIN open / project
+            // create). LMDB point lookups for WAD hashes are still primed here —
+            // those are mmap-backed and free (only touched pages page in).
             let hash_dir_str = hash_dir.to_string_lossy().into_owned();
             let lmdb_state = app.state::<LmdbCacheState>().inner().clone();
+            let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 tracing::info!("Checking for hash updates...");
                 match flint_ltk::hash::download_hashes(&hash_dir, false).await {
@@ -114,19 +127,21 @@ fn main() {
                         tracing::warn!("Failed to sync hashes (will use existing): {}", e);
                     }
                 }
-                match lmdb_state.prime(&hash_dir_str) {
-                    Some(_) => tracing::info!("Hash LMDBs ready — point lookups active"),
-                    None    => tracing::warn!("Hash LMDBs not available — hashes will fall back to hex"),
-                }
+                let ready = match lmdb_state.prime(&hash_dir_str) {
+                    Some(_) => {
+                        tracing::info!("Hash LMDBs ready — point lookups active");
+                        true
+                    }
+                    None => {
+                        tracing::warn!("Hash LMDBs not available — hashes will fall back to hex");
+                        false
+                    }
+                };
 
-                // Pre-warm BIN hash caches in a blocking thread so first project creation
-                // and first BIN open don't pay the cold-start cost (~3s total).
-                tokio::task::spawn_blocking(|| {
-                    tracing::info!("Pre-warming BIN hash caches...");
-                    let _ = flint_ltk::bin::ltk_bridge::get_cached_bin_hashes();
-                    let _ = flint_ltk::bin::jade::hash_manager::get_cached_hashes();
-                    tracing::info!("BIN hash caches ready");
-                }).await.ok();
+                // Notify frontend exactly once instead of having it poll
+                // get_hash_status every 1s for up to 30s (was 30 IPC round-trips
+                // per cold start).
+                let _ = app_handle.emit("hashes-ready", ready);
             });
             
             Ok(())

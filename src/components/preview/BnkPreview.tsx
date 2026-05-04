@@ -231,9 +231,10 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
     // -------------------------------------------------------------------
     // Store selectors
     // -------------------------------------------------------------------
-    const fileVersion = useAppMetadataStore(
-        (state) => state.fileVersions[filePath.replaceAll('\\', '/')] || 0,
-    );
+    const fileVersion = useAppMetadataStore((state) => {
+        void state.fileVersionsRev;
+        return state.getFileVersion(filePath);
+    });
     const fileTree = useProjectTabStore((s) => {
         const tab = s.openTabs.find((t) => t.id === s.activeTabId);
         return tab?.fileTree ?? null;

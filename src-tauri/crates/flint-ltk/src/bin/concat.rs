@@ -304,38 +304,32 @@ pub fn concatenate_linked_bins(
         main_bin_path.display()
     );
 
-    // 1. Load main BIN
+    // 1. Load + parse main BIN ONCE. The previous code parsed it twice —
+    // once here, then again before the linked-list update (step 4) — for
+    // no reason: create_concat_bin writes a NEW file, it doesn't mutate
+    // the main BIN. We just keep the parsed struct and update it in place.
     let data = fs::read(main_bin_path).map_err(|e| Error::io_with_path(e, main_bin_path))?;
-
-    let main_bin = read_bin(&data)
+    let mut main_bin = read_bin(&data)
         .map_err(|e| Error::InvalidInput(format!("Failed to parse main BIN: {}", e)))?;
+    drop(data); // free the raw bytes — we'll re-encode from the parsed struct
 
     tracing::debug!("Original dependencies:");
     for (i, path) in main_bin.dependencies.iter().enumerate() {
         tracing::debug!("  [{}] {} - {:?}", i, path, classify_bin(path));
     }
 
-    // 2. Create and save concat BIN (create_concat_bin now saves the file)
+    // 2. Create and save concat BIN (create_concat_bin only reads main_bin,
+    // doesn't mutate it).
     let result = create_concat_bin(&main_bin, project_name, creator_name, champion, content_base, path_mappings)?;
 
     tracing::info!("Created concat BIN: {}", result.concat_path);
 
-    // 4. Update main BIN's linked list
-    {
-        let main_bin_data = fs::read(main_bin_path).map_err(|e| Error::io_with_path(e, main_bin_path))?;
-        
-        let mut main_bin = read_bin(&main_bin_data)
-            .map_err(|e| Error::InvalidInput(format!("Failed to parse main BIN: {}", e)))?;
-        
-        update_main_bin_links(&mut main_bin, result.concat_path.clone())?;
-        
-        let updated_data = write_bin(&main_bin)
-            .map_err(|e| Error::InvalidInput(format!("Failed to write updated BIN: {}", e)))?;
-        
-        fs::write(main_bin_path, updated_data).map_err(|e| Error::io_with_path(e, main_bin_path))?;
-        
-        tracing::info!("Updated main BIN linked list: {}", main_bin_path.display());
-    }
+    // 3. Update main BIN's linked list and re-write — no second disk read.
+    update_main_bin_links(&mut main_bin, result.concat_path.clone())?;
+    let updated_data = write_bin(&main_bin)
+        .map_err(|e| Error::InvalidInput(format!("Failed to write updated BIN: {}", e)))?;
+    fs::write(main_bin_path, updated_data).map_err(|e| Error::io_with_path(e, main_bin_path))?;
+    tracing::info!("Updated main BIN linked list: {}", main_bin_path.display());
 
     // 5. Delete the original Type 3 BINs that were concatenated
     let mut deleted_count = 0;

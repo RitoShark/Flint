@@ -5,6 +5,7 @@
 use std::path::Path;
 use std::collections::HashMap;
 
+use crate::core::ipc_trace;
 use flint_ltk::mesh::skn::{parse_skn_file, SknMeshData};
 use flint_ltk::mesh::scb::{parse_scb_file, ScbMeshData};
 use flint_ltk::mesh::texture::{find_skin_bin, MaterialProperties};
@@ -18,6 +19,7 @@ use crate::commands::file::decode_dds_to_png;
 /// Uses .ritobin text parsing to discover textures for static meshes.
 #[tauri::command]
 pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
+    let _t = ipc_trace::enter("read_scb_mesh");
     tracing::debug!("🗿 Reading SCB/SCO mesh: {}", path);
 
     let scb_path = Path::new(&path);
@@ -369,6 +371,7 @@ fn find_ritobin_in_dir(dir: &Path) -> Option<String> {
 /// Uses .ritobin text parsing for robust texture discovery.
 #[tauri::command]
 pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
+    let _t = ipc_trace::enter("read_skn_mesh");
     tracing::debug!("🎨 Reading SKN mesh: {}", path);
 
     let skn_path = Path::new(&path);

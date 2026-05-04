@@ -2,6 +2,7 @@ use flint_ltk::bin::{bin_to_json, bin_to_text, json_to_bin, read_bin, text_to_bi
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use crate::core::ipc_trace;
 
 /// Metadata information about a bin file
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,6 +25,7 @@ pub async fn convert_bin_to_text(
     input_path: String,
     output_path: String,
 ) -> Result<(), String> {
+    let _t = ipc_trace::enter("convert_bin_to_text");
     tracing::info!("Converting bin to text: {} -> {}", input_path, output_path);
     
     // Validate input path
@@ -249,6 +251,7 @@ pub async fn convert_json_to_bin(
 /// * `Result<BinInfo, String>` - Metadata about the bin file
 #[tauri::command]
 pub async fn read_bin_info(input_path: String) -> Result<BinInfo, String> {
+    let _t = ipc_trace::enter("read_bin_info");
     // Validate input path
     if input_path.is_empty() {
         return Err("Input path cannot be empty".to_string());
@@ -405,6 +408,7 @@ pub async fn read_or_convert_bin(
     bin_path: String,
     use_jade: Option<bool>,
 ) -> Result<String, String> {
+    let _t = ipc_trace::enter("read_or_convert_bin");
     let use_jade = use_jade.unwrap_or(false); // Default to LTK for backward compatibility
     let engine_name = if use_jade { "Jade" } else { "LTK" };
 
@@ -530,6 +534,7 @@ pub async fn save_ritobin_to_bin(
     content: String,
     use_jade: Option<bool>,
 ) -> Result<(), String> {
+    let _t = ipc_trace::enter("save_ritobin_to_bin");
     let use_jade = use_jade.unwrap_or(false); // Default to LTK for backward compatibility
     let engine_name = if use_jade { "Jade" } else { "LTK" };
 

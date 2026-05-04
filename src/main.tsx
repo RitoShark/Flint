@@ -3,6 +3,16 @@
  * React Entry Point
  */
 
+// === Startup timing instrumentation ===
+// Logged BEFORE any imports do real work so we can attribute time spent
+// before this point to Vite/WebView (bundle parse, optimizeDeps, etc.)
+// rather than our own code. Compare against Rust's "Flint starting..."
+// timestamp — the gap is the cost of the JS bundle reaching this line.
+const __FLINT_JS_START = performance.now();
+const __FLINT_JS_START_WALL = new Date().toISOString();
+// eslint-disable-next-line no-console
+console.log(`[startup] JS entry hit at ${__FLINT_JS_START_WALL} (perf=${__FLINT_JS_START.toFixed(1)}ms since navigationStart)`);
+
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -43,6 +53,9 @@ const isDesignLab =
     typeof window !== 'undefined' &&
     (window.location.hash === '#design-lab' || window.location.search.includes('lab'));
 
+// eslint-disable-next-line no-console
+console.log(`[startup] imports resolved in ${(performance.now() - __FLINT_JS_START).toFixed(1)}ms`);
+
 // Initialize logger BEFORE React mounts to capture early logs
 initializeLogger();
 // Cursor-following glow on .btn — delegated, zero per-button overhead
@@ -61,6 +74,8 @@ if (loadingScreen) {
 }
 
 const root = createRoot(container);
+// eslint-disable-next-line no-console
+console.log(`[startup] root.render() at +${(performance.now() - __FLINT_JS_START).toFixed(1)}ms from JS entry`);
 root.render(
     isDesignLab
         ? React.createElement(React.StrictMode, null, React.createElement(DesignLab))

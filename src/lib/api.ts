@@ -131,14 +131,101 @@ export class FlintError extends Error {
  * optional file read) — the call still throws so the caller can handle it,
  * but nothing gets logged.
  */
+// IPC tracing — flip with `localStorage.flintIpcTrace = '1'` then reload, or
+// set window.__FLINT_IPC_TRACE = true at runtime. Default ON in dev.
+// Each call logs:
+//   [ipc#42 ▶] command_name           — at dispatch
+//   [ipc#42 ✓] command_name 12.3ms    — at resolve
+//   [ipc#42 ✗] command_name 12.3ms    — at reject
+// "queued" gap = time between dispatch and the previous call's resolve
+// (helps spot serialized IPC traffic — Tauri default is unbounded
+//  parallelism per window, but `tauri::async_runtime::spawn_blocking`
+//  pool is limited to ~4–8 threads, so blocking commands queue).
+declare global {
+    interface Window {
+        __FLINT_IPC_TRACE?: boolean;
+        __FLINT_IPC_STATS?: () => void;
+    }
+}
+
+let ipcCounter = 0;
+const inFlight = new Map<number, { command: string; start: number }>();
+let lastDispatchTime = 0;
+let lastSettleTime = 0;
+const stats = new Map<string, { count: number; totalMs: number; maxMs: number }>();
+
+function ipcTraceEnabled(): boolean {
+    if (typeof window === 'undefined') return false;
+    if (window.__FLINT_IPC_TRACE !== undefined) return window.__FLINT_IPC_TRACE;
+    try {
+        if (localStorage.getItem('flintIpcTrace') === '1') return true;
+        if (localStorage.getItem('flintIpcTrace') === '0') return false;
+    } catch { /* ignore */ }
+    return import.meta.env.DEV;
+}
+
+if (typeof window !== 'undefined') {
+    window.__FLINT_IPC_STATS = () => {
+        const rows = Array.from(stats.entries())
+            .map(([cmd, s]) => ({
+                command: cmd,
+                count: s.count,
+                avgMs: +(s.totalMs / s.count).toFixed(2),
+                maxMs: +s.maxMs.toFixed(2),
+                totalMs: +s.totalMs.toFixed(2),
+            }))
+            .sort((a, b) => b.totalMs - a.totalMs);
+        // eslint-disable-next-line no-console
+        console.table(rows);
+        // eslint-disable-next-line no-console
+        console.log(`[ipc] ${inFlight.size} call(s) currently in flight:`,
+            Array.from(inFlight.values()).map(c => `${c.command} (${(performance.now() - c.start).toFixed(0)}ms)`),
+        );
+    };
+}
+
 async function invokeCommand<T>(
     command: string,
     args: Record<string, unknown> = {},
     opts: { silent?: boolean } = {},
 ): Promise<T> {
+    const trace = ipcTraceEnabled();
+    const id = ++ipcCounter;
+    const start = performance.now();
+
+    if (trace) {
+        const sinceLastDispatch = lastDispatchTime ? (start - lastDispatchTime).toFixed(1) : '—';
+        const sinceLastSettle = lastSettleTime ? (start - lastSettleTime).toFixed(1) : '—';
+        const concurrent = inFlight.size;
+        // eslint-disable-next-line no-console
+        console.log(
+            `[ipc#${id} ▶] ${command}  (gap-since-dispatch=${sinceLastDispatch}ms, gap-since-settle=${sinceLastSettle}ms, in-flight=${concurrent})`,
+        );
+        inFlight.set(id, { command, start });
+        lastDispatchTime = start;
+    }
+
     try {
-        return await invoke<T>(command, args);
+        const result = await invoke<T>(command, args);
+        if (trace) {
+            const ms = performance.now() - start;
+            inFlight.delete(id);
+            lastSettleTime = performance.now();
+            const s = stats.get(command) ?? { count: 0, totalMs: 0, maxMs: 0 };
+            s.count++; s.totalMs += ms; if (ms > s.maxMs) s.maxMs = ms;
+            stats.set(command, s);
+            // eslint-disable-next-line no-console
+            console.log(`[ipc#${id} ✓] ${command} ${ms.toFixed(1)}ms`);
+        }
+        return result;
     } catch (error) {
+        if (trace) {
+            const ms = performance.now() - start;
+            inFlight.delete(id);
+            lastSettleTime = performance.now();
+            // eslint-disable-next-line no-console
+            console.warn(`[ipc#${id} ✗] ${command} ${ms.toFixed(1)}ms — ${String(error).slice(0, 200)}`);
+        }
         if (!opts.silent) {
             console.error(`[Flint] Command "${command}" failed:`, error);
         }
@@ -522,8 +609,103 @@ export interface WadChunkBatch {
     error: string | null;
 }
 
+/**
+ * Wire format for `load_all_wad_chunks` is raw bytes via `tauri::ipc::Response`,
+ * NOT JSON. JSON encode + transit + decode of an 820K-row payload was running
+ * at ~7 seconds in dev — the bulk of which was serde/JSON.parse CPU on both
+ * sides. The binary path goes:
+ *
+ *   Rust packs structs → ArrayBuffer → `new DataView()` walk in JS
+ *
+ * which is essentially free at this scale (~50 MB of memcpy + a tight
+ * decoder loop, no JSON tokenizer involved).
+ *
+ * Wire layout (little-endian):
+ *
+ *   [u32 wad_count]
+ *   per WAD:
+ *     [u32 path_len] [path_bytes utf-8]
+ *     [u32 error_len] [error_bytes utf-8]    // 0 when no error
+ *     [u32 chunk_count]
+ *     [chunk_count × u64 path_hash]          // raw — JS hex-formats on demand
+ *     [chunk_count × u32 size]
+ *     [chunk_count × u16 resolved_path_len]  // 0xFFFF = null/unresolved
+ *     [packed resolved-path utf-8 bytes ...]
+ */
+function decodeWadChunkPayload(bytes: Uint8Array): WadChunkBatch[] {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const utf8 = new TextDecoder('utf-8');
+    let off = 0;
+
+    const wadCount = view.getUint32(off, true); off += 4;
+    const out: WadChunkBatch[] = new Array(wadCount);
+
+    // Hex lookup table — building 820K hashes via toString(16) + padStart was
+    // measurable in profiles. A 256-entry "00".."ff" lookup is faster.
+    const HEX = new Array<string>(256);
+    for (let i = 0; i < 256; i++) HEX[i] = i.toString(16).padStart(2, '0');
+
+    for (let w = 0; w < wadCount; w++) {
+        const pathLen = view.getUint32(off, true); off += 4;
+        const path = utf8.decode(bytes.subarray(off, off + pathLen)); off += pathLen;
+
+        const errLen = view.getUint32(off, true); off += 4;
+        if (errLen > 0) {
+            const error = utf8.decode(bytes.subarray(off, off + errLen)); off += errLen;
+            // No chunk_count when errored — the encoder writes 0 here regardless.
+            const chunkCount = view.getUint32(off, true); off += 4;
+            // Skip any (defensive — should always be 0 on the error path)
+            off += chunkCount * (8 + 4 + 2);
+            out[w] = { path, chunks: [], error };
+            continue;
+        }
+
+        const chunkCount = view.getUint32(off, true); off += 4;
+        const hashesOff = off;          off += chunkCount * 8;
+        const sizesOff  = off;          off += chunkCount * 4;
+        const lensOff   = off;          off += chunkCount * 2;
+        // After the lens table comes the packed string bytes — we'll walk
+        // both in lockstep below.
+        let stringsOff = off;
+
+        const chunks = new Array(chunkCount);
+        for (let i = 0; i < chunkCount; i++) {
+            // Hash → 16-char lowercase hex via 8 byte-lookups (big-endian
+            // textual representation, but bytes themselves are LE in memory).
+            const hbase = hashesOff + i * 8;
+            const hash =
+                HEX[bytes[hbase + 7]] +
+                HEX[bytes[hbase + 6]] +
+                HEX[bytes[hbase + 5]] +
+                HEX[bytes[hbase + 4]] +
+                HEX[bytes[hbase + 3]] +
+                HEX[bytes[hbase + 2]] +
+                HEX[bytes[hbase + 1]] +
+                HEX[bytes[hbase + 0]];
+
+            const size = view.getUint32(sizesOff + i * 4, true);
+            const plen = view.getUint16(lensOff + i * 2, true);
+
+            let path: string | null;
+            if (plen === 0xFFFF) {
+                path = null;
+            } else {
+                path = utf8.decode(bytes.subarray(stringsOff, stringsOff + plen));
+                stringsOff += plen;
+            }
+            chunks[i] = { hash, path, size };
+        }
+        off = stringsOff;
+        out[w] = { path, chunks, error: null };
+    }
+    return out;
+}
+
 export async function loadAllWadChunks(paths: string[]): Promise<WadChunkBatch[]> {
-    return invokeCommand('load_all_wad_chunks', { paths });
+    // Tauri returns ArrayBuffer for byte responses (commands that return
+    // `tauri::ipc::Response::new(bytes)`). Skip the JSON path entirely.
+    const buf = await invokeCommand<ArrayBuffer>('load_all_wad_chunks', { paths });
+    return decodeWadChunkPayload(new Uint8Array(buf));
 }
 
 export interface ExtractHashesResult {

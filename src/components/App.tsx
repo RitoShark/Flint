@@ -48,6 +48,31 @@ function getActiveTab(state: { activeTabId: string | null; openTabs: Array<{ id:
 // ensures the one-shot startup sequence runs exactly once per process.
 let startupRan = false;
 
+// Single-mount modal dispatcher. Each modal still does its own `isVisible`
+// gate internally (so it gets to control its own enter/exit transitions),
+// but only the matching component is even mounted at any time — the other
+// 14 don't subscribe to stores or render anything when nothing is open.
+const ActiveModal: React.FC<{ activeModal: string | null }> = React.memo(({ activeModal }) => {
+    switch (activeModal) {
+        case 'newProject':       return <NewProjectModal />;
+        case 'settings':         return <SettingsModal />;
+        case 'export':           return <ExportModal />;
+        case 'firstTimeSetup':   return <FirstTimeSetupModal />;
+        case 'updateAvailable':  return <UpdateModal />;
+        case 'recolor':          return <RecolorModal />;
+        case 'fixer':            return <FixerModal />;
+        case 'projectList':      return <ProjectListModal />;
+        case 'modConfig':        return <ModConfigEditorModal />;
+        case 'thumbnail':        return <ThumbnailCropModal />;
+        case 'checkpoint':       return <CheckpointModal />;
+        case 'binSplit':         return <BinSplitModal />;
+        case 'fullResImage':     return <FullResImageModal />;
+        case 'browseWad':        return <BrowseWadModal />;
+        default:                 return null;
+    }
+});
+ActiveModal.displayName = 'ActiveModal';
+
 export const App: React.FC = () => {
     const { state, openModal, closeModal, setWorking, setReady, showToast } = useAppState();
     const [leftPanelWidth, setLeftPanelWidth] = useState(280);
@@ -108,7 +133,12 @@ export const App: React.FC = () => {
             startupRan = true;
             useConfigStore.getState().hydrate().then(() => {
                 loadInitialData();
-                cleanStaleProjects();
+                // Defer recent-project validation by 3s. It fires N parallel
+                // `list_project_files` calls (one per recent project) that
+                // saturate Tauri's spawn_blocking pool — running it during
+                // the cold-start window would block whatever the user
+                // actually wanted to do first.
+                setTimeout(cleanStaleProjects, 3000);
             });
         }
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -169,21 +199,55 @@ export const App: React.FC = () => {
         };
     }, [showToast]);
 
-    // Manage preview file watcher for hot reload
+    // Hash readiness — Rust emits this once after `LmdbCacheState::prime` runs.
+    // Replaces the old 30-attempt 1s polling loop. We re-query get_hash_status
+    // for the entry-count number (the event payload is just a bool).
+    useEffect(() => {
+        const unlistenReady = listen<boolean>('hashes-ready', async (event) => {
+            if (!event.payload) return;
+            try {
+                const status = await api.getHashStatus();
+                useAppMetadataStore.getState().setHashInfo(
+                    status.loaded_count > 0,
+                    status.loaded_count,
+                );
+                console.log(`[Flint] Hashes loaded: ${status.loaded_count.toLocaleString()}`);
+            } catch (err) {
+                console.error('[Flint] Failed to read hash status after ready event:', err);
+            }
+        });
+
+        return () => {
+            unlistenReady.then((unlisten) => unlisten());
+        };
+    }, []);
+
+    // Manage preview file watcher for hot reload.
+    //
+    // Track whether a watcher is actually running so we don't fire the IPC
+    // for nothing. Without this guard, app startup sends 3× redundant
+    // `stop_preview_watcher` calls (mount with no project, StrictMode remount,
+    // cleanup) — each ~180ms and contending for the spawn_blocking pool.
+    const previewWatcherRunningRef = React.useRef(false);
     useEffect(() => {
         if (currentProjectPath) {
             console.log('[Preview Hot Reload] Starting watcher for:', currentProjectPath);
+            previewWatcherRunningRef.current = true;
             api.startPreviewWatcher(currentProjectPath)
                 .catch(err => {
+                    previewWatcherRunningRef.current = false;
                     console.error('[Preview Hot Reload] Failed to start watcher:', err);
                 });
-        } else {
+        } else if (previewWatcherRunningRef.current) {
+            previewWatcherRunningRef.current = false;
             api.stopPreviewWatcher().catch(() => { });
         }
 
-        // Cleanup on unmount
         return () => {
-            api.stopPreviewWatcher().catch(() => { });
+            if (previewWatcherRunningRef.current) {
+                previewWatcherRunningRef.current = false;
+                api.stopPreviewWatcher().catch(() => { });
+            }
         };
     }, [currentProjectPath]);
 
@@ -203,40 +267,23 @@ export const App: React.FC = () => {
             // Invalidate image cache (no store update, pure cache op)
             invalidateCachedImage(changedPath);
 
-            // Batch all store updates into a single zustand set() call to avoid
-            // multiple re-render cascades per file change event.
-            const store = useAppMetadataStore.getState();
             const key = changedPath.replaceAll('\\', '/');
-
-            // Build the partial update object
-            const updates: Partial<{
-                fileTreeVersion: number;
-                fileVersions: Record<string, number>;
-                fileStatuses: Record<string, 'new' | 'modified'>;
-            }> = {};
-
-            // File tree version (create/remove)
-            if (kind === 'create' || kind === 'remove') {
-                updates.fileTreeVersion = store.fileTreeVersion + 1;
-            }
-
-            // File status (VFS indicators) — sidecar/derived files (e.g. .ritobin)
-            // are produced by Flint itself and shouldn't surface as user-facing
-            // "new" / "modified" badges. Hot reload + tree refresh still fire.
             const showStatus = !isSidecarFile(changedPath);
+            const store = useAppMetadataStore.getState();
+
+            const versionBumps = [key];
+            const statusSets: Array<{ key: string; status: 'new' | 'modified' }> = [];
+            const statusDeletes: string[] = [];
+
             if (kind === 'create' && showStatus) {
-                updates.fileStatuses = { ...store.fileStatuses, [key]: 'new' };
+                statusSets.push({ key, status: 'new' });
             } else if (kind === 'modify' && showStatus) {
-                if (store.fileStatuses[key] !== 'new') {
-                    updates.fileStatuses = { ...store.fileStatuses, [key]: 'modified' };
+                if (store.getFileStatus(key) !== 'new') {
+                    statusSets.push({ key, status: 'modified' });
                 }
             } else if (kind === 'remove') {
-                const { [key]: _, ...rest } = store.fileStatuses;
-                updates.fileStatuses = rest;
+                statusDeletes.push(key);
             }
-
-            // File version for preview hot reload
-            const newVersions = { ...store.fileVersions, [key]: (store.fileVersions[key] || 0) + 1 };
 
             // Cascading reload: if a texture changed, also bump the model version
             if (isTextureFile(changedPath)) {
@@ -244,14 +291,17 @@ export const App: React.FC = () => {
                 if (activeTab?.selectedFile) {
                     const selectedFilePath = `${activeTab.projectPath}/${activeTab.selectedFile}`.replaceAll('\\', '/');
                     if (MODEL_EXTS.some(ext => selectedFilePath.toLowerCase().endsWith(ext))) {
-                        newVersions[selectedFilePath] = (store.fileVersions[selectedFilePath] || 0) + 1;
+                        versionBumps.push(selectedFilePath);
                     }
                 }
             }
-            updates.fileVersions = newVersions;
 
-            // Single store update → single re-render cycle
-            useAppMetadataStore.setState(updates);
+            store.applyFileEvent({
+                versionBumps,
+                statusSets,
+                statusDeletes,
+                bumpFileTree: kind === 'create' || kind === 'remove',
+            });
         });
 
         return () => {
@@ -270,9 +320,10 @@ export const App: React.FC = () => {
                 hashStatus.loaded_count
             );
 
-            if (hashStatus.loaded_count === 0) {
-                pollHashStatus();
-            }
+            // No fallback poll: backend emits a `hashes-ready` event once the
+            // LMDBs are primed (see the listener in the dedicated effect below).
+            // Polling get_hash_status every 1s for up to 30s was burning ~30 IPC
+            // round-trips per cold start.
 
             // Read from the store's live state — the React `state` closure was
             // captured at render time (before `hydrate()` populated leaguePath),
@@ -296,30 +347,6 @@ export const App: React.FC = () => {
         }
     };
 
-    const pollHashStatus = async () => {
-        const maxAttempts = 30;
-        let attempts = 0;
-
-        const poll = async () => {
-            try {
-                const status = await api.getHashStatus();
-                if (status.loaded_count > 0) {
-                    useAppMetadataStore.getState().setHashInfo(true, status.loaded_count);
-                    console.log(`[Flint] Hashes loaded: ${status.loaded_count.toLocaleString()}`);
-                    return;
-                }
-
-                attempts++;
-                if (attempts < maxAttempts) {
-                    setTimeout(poll, 1000);
-                }
-            } catch (error) {
-                console.error('[Flint] Error polling hash status:', error);
-            }
-        };
-
-        setTimeout(poll, 1000);
-    };
 
     const checkForUpdates = async () => {
         // Check if auto-updates are enabled
@@ -474,21 +501,10 @@ export const App: React.FC = () => {
             </div>
             <StatusBar />
 
-            {/* Modals */}
-            <NewProjectModal />
-            <SettingsModal />
-            <ExportModal />
-            <FirstTimeSetupModal />
-            <UpdateModal />
-            <RecolorModal />
-            <FixerModal />
-            <ProjectListModal />
-            <ModConfigEditorModal />
-            <ThumbnailCropModal />
-            <CheckpointModal />
-            <BinSplitModal />
-            <FullResImageModal />
-            <BrowseWadModal />
+            {/* Modals — only the active one is mounted. Mounting all 15
+                meant every modal called useAppState() (9-store fan-out)
+                and re-ran on every dispatch, even with nothing open. */}
+            <ActiveModal activeModal={state.activeModal} />
 
             {/* Toast notifications */}
             <ToastContainer />

@@ -387,6 +387,9 @@ pub fn extract_skin_assets(
                 Ok(w)  => w,
                 Err(_) => return (0, slice.len(), Duration::ZERO, Duration::ZERO, Duration::ZERO),
             };
+            // Per-thread cache so we only `create_dir_all` once per parent
+            // even when the extension-correction path goes there many times.
+            let mut dirs_seen: HashSet<PathBuf> = HashSet::new();
             for (chunk, out_path) in slice {
                 let t0 = Instant::now();
                 let decompressed = local_wad.load_chunk_decompressed(chunk);
@@ -395,15 +398,27 @@ pub fn extract_skin_assets(
                     Err(_) => { skipped += 1; },
                     Ok(data) => {
                         let t1 = Instant::now();
-                        // Apply extension detection now that we have actual bytes
-                        let final_path = resolve_chunk_path(&out_path.to_string_lossy(), &data);
-                        let actual_path = output_dir.join(&wad_folder_name).join(&final_path);
-                        let write_path = if actual_path.exists() || actual_path == *out_path {
-                            out_path.clone()
+                        // Hot-path fast skip: if the planned output path already
+                        // has an extension (true for >99% of resolved chunks),
+                        // there's no extension correction work to do — just
+                        // write to `out_path`. Saves resolve_chunk_path + an
+                        // exists() syscall + a create_dir_all per chunk.
+                        let needs_resolve = out_path.extension().is_none();
+                        let write_path = if needs_resolve {
+                            let final_path = resolve_chunk_path(&out_path.to_string_lossy(), &data);
+                            let actual_path = output_dir.join(&wad_folder_name).join(&final_path);
+                            if actual_path == *out_path {
+                                out_path.clone()
+                            } else {
+                                if let Some(p) = actual_path.parent() {
+                                    if dirs_seen.insert(p.to_path_buf()) {
+                                        let _ = fs::create_dir_all(p);
+                                    }
+                                }
+                                actual_path
+                            }
                         } else {
-                            // Ensure parent exists for extension-corrected path
-                            if let Some(p) = actual_path.parent() { let _ = fs::create_dir_all(p); }
-                            actual_path
+                            out_path.clone()
                         };
                         t_path_resolve += t1.elapsed();
 

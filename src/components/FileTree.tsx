@@ -76,6 +76,26 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         }).catch(() => {});
     }, [fileTreeVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
+    // ONE subscription to the file-status revision counter. When it bumps,
+    // we read the current Map snapshot and pass paths-with-status as plain
+    // props down the tree. Previously every TreeNode had its own selector
+    // subscription on this store — with hundreds of nodes, every status
+    // update triggered hundreds of selector re-evaluations.
+    const fileStatusesRev = useAppMetadataStore((s) => s.fileStatusesRev);
+    const projectPathForStatus = activeTab?.projectPath || '';
+    const statusByRelPath = useMemo(() => {
+        const map = new Map<string, 'new' | 'modified'>();
+        if (!projectPathForStatus) return map;
+        const prefix = `${projectPathForStatus.replaceAll('\\', '/')}/`;
+        const store = useAppMetadataStore.getState();
+        for (const fullKey of store.getFileStatusKeys()) {
+            if (!fullKey.startsWith(prefix)) continue;
+            const status = store.getFileStatus(fullKey);
+            if (status) map.set(fullKey.slice(prefix.length), status);
+        }
+        return map;
+    }, [fileStatusesRev, projectPathForStatus]);
+
     // Rename state — shared across all tree nodes
     const [renamingPath, setRenamingPath] = useState<string | null>(null);
 
@@ -225,6 +245,7 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
                 setRenamingPath={setRenamingPath}
                 projectPath={activeTab?.projectPath || ''}
                 dragProps={dragProps}
+                statusByRelPath={statusByRelPath}
             />
         </div>
     );
@@ -246,6 +267,7 @@ interface TreeNodeProps {
     setRenamingPath: (path: string | null) => void;
     projectPath: string;
     dragProps: DragProps;
+    statusByRelPath: Map<string, 'new' | 'modified'>;
 }
 
 // Compact folders: merge single-child directory chains into one label
@@ -291,6 +313,7 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
     setRenamingPath,
     projectPath,
     dragProps,
+    statusByRelPath,
 }) => {
     const openModal = useModalStore((s) => s.openModal);
     const openContextMenu = useModalStore((s) => s.openContextMenu);
@@ -307,9 +330,8 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
     // Drop-target highlight when external files are dragged over this folder
     const isDropTarget = dragProps.dropTargetPath === effectiveNode.path;
 
-    // Subscribe to file status for THIS node only (not all statuses)
-    const fullPath = projectPath ? `${projectPath}/${effectiveNode.path}`.replaceAll('\\', '/') : '';
-    const fileStatus = useAppMetadataStore((s) => s.fileStatuses[fullPath]);
+    // File status comes from the parent — no per-node store subscription.
+    const fileStatus = statusByRelPath.get(effectiveNode.path);
 
     // Focus rename input when it appears
     useEffect(() => {
@@ -478,6 +500,7 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
                             setRenamingPath={setRenamingPath}
                             projectPath={projectPath}
                             dragProps={dragProps}
+                            statusByRelPath={statusByRelPath}
                         />
                     ))}
                 </div>

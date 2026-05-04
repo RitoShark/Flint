@@ -8,6 +8,7 @@ use image::{RgbaImage, Rgba};
 use flint_ltk::ltk_types::Texture;
 use std::io::Cursor;
 use std::process::Command;
+use crate::core::ipc_trace;
 
 /// Bundled floor texture from MindCorpViewer (PNG)
 static FLOOR_PNG: &[u8] = include_bytes!("../../resources/floor.png");
@@ -237,6 +238,7 @@ fn detect_file_type(path: &Path, data: &[u8]) -> (String, String) {
 /// * `Err(String)` - Error message
 #[tauri::command]
 pub async fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
+    let _t = ipc_trace::enter("read_file_bytes");
     let path = Path::new(&path);
 
     if !path.exists() {
@@ -256,6 +258,7 @@ pub async fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
 /// * `Err(String)` - Error message
 #[tauri::command]
 pub async fn read_file_info(path: String) -> Result<FileInfo, String> {
+    let _t = ipc_trace::enter("read_file_info");
     let path_buf = std::path::PathBuf::from(&path);
 
     if !path_buf.exists() {
@@ -353,6 +356,7 @@ fn decode_texture_bytes_impl(data: &[u8]) -> Result<DecodedImage, String> {
 /// * `Err(String)` - Error message
 #[tauri::command]
 pub async fn decode_dds_to_png(path: String) -> Result<DecodedImage, String> {
+    let _t = ipc_trace::enter("decode_dds_to_png");
     let data = fs::read(&path).map_err(|e| format!("Failed to read texture file: {}", e))?;
     decode_texture_bytes_impl(&data)
 }
@@ -384,6 +388,7 @@ pub async fn decode_bytes_to_png(data: Vec<u8>) -> Result<DecodedImage, String> 
 /// * `Err(String)` - Error message
 #[tauri::command]
 pub async fn read_text_file(path: String) -> Result<String, String> {
+    let _t = ipc_trace::enter("read_text_file");
     let path = Path::new(&path);
 
     if !path.exists() {
@@ -1073,6 +1078,7 @@ pub struct FolderEntry {
 /// route a selection to the folder grid view or the file preview pipeline.
 #[tauri::command]
 pub async fn is_directory(path: String) -> bool {
+    let _t = ipc_trace::enter("is_directory");
     std::path::Path::new(&path).is_dir()
 }
 
@@ -1086,6 +1092,7 @@ pub async fn list_folder_contents(
     project_path: String,
     folder_path: String,
 ) -> Result<Vec<FolderEntry>, String> {
+    let _t = ipc_trace::enter("list_folder_contents");
     let folder = PathBuf::from(&folder_path);
     if !folder.is_dir() {
         return Err(format!("Not a folder: {}", folder_path));

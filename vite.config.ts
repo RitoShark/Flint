@@ -72,8 +72,52 @@ export default defineConfig({
         },
     },
 
-    // Optimize dependency pre-bundling
+    // Optimize dependency pre-bundling.
+    //
+    // CRITICAL for cold-start speed: anything NOT listed here is bundled
+    // on-demand when the WebView first imports it. That's what was causing
+    // the ~1m29s gap between "Vite ready in 543ms" and `main.tsx` actually
+    // executing — Vite was discovering and bundling `three`, `@react-three/*`,
+    // each `@tauri-apps/*` entry point, zustand, etc. one-by-one AS the
+    // WebView fetched them, and each round-trip blocks the next request.
+    //
+    // Listing them here pre-bundles everything at server start (one-time,
+    // cached in `node_modules/.vite/deps/`). Subsequent starts read from
+    // cache. When adding a new heavy dep to package.json, add it here too.
+    //
+    // If startup is still slow after editing this list, blow the cache:
+    //   `rm -rf node_modules/.vite` (then re-run `npm run tauri dev`).
     optimizeDeps: {
-        include: ['react', 'react-dom', 'monaco-editor'],
+        include: [
+            // React core
+            'react',
+            'react-dom',
+            'react-dom/client',
+            'react/jsx-runtime',
+
+            // Editor
+            'monaco-editor',
+
+            // 3D — biggest unlisted offenders
+            'three',
+            '@react-three/fiber',
+            '@react-three/drei',
+
+            // Tauri API surface — each entry point was discovered separately
+            // and triggered its own optimization round.
+            '@tauri-apps/api/core',
+            '@tauri-apps/api/event',
+            '@tauri-apps/api/window',
+            '@tauri-apps/api/path',
+            '@tauri-apps/plugin-dialog',
+            '@tauri-apps/plugin-opener',
+            '@tauri-apps/plugin-process',
+            '@tauri-apps/plugin-updater',
+
+            // State + virtualization
+            'zustand',
+            'zustand/react/shallow',
+            'react-window',
+        ],
     },
 });

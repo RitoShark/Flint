@@ -13,6 +13,7 @@ use flint_ltk::bin::{classify_bin, BinCategory};
 use flint_ltk::wad::extractor::{find_champion_wad, extract_skin_assets, wad_contains_skin_bin};
 use flint_ltk::hash::resolve_hashes_lmdb_bulk;
 use crate::state::LmdbCacheState;
+use crate::core::ipc_trace;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -693,6 +694,7 @@ fn inject_animation_block(
 /// * `Err(String)` - Error message if loading failed
 #[tauri::command]
 pub async fn open_project(path: String) -> Result<Project, String> {
+    let _t = ipc_trace::enter("open_project");
     tracing::info!("Frontend requested opening project: {}", path);
 
     let path = PathBuf::from(path);
@@ -753,6 +755,7 @@ pub async fn forget_project(
 /// * `Err(String)` - Error message if save failed
 #[tauri::command]
 pub async fn save_project(project: Project) -> Result<(), String> {
+    let _t = ipc_trace::enter("save_project");
     tracing::info!("Frontend requested saving project: {}", project.name);
 
     tokio::task::spawn_blocking(move || core_save_project(&project))
@@ -771,9 +774,10 @@ pub async fn save_project(project: Project) -> Result<(), String> {
 /// * `Err(String)` - Error message if listing failed
 #[tauri::command]
 pub async fn list_project_files(project_path: String) -> Result<serde_json::Value, String> {
+    let _t = ipc_trace::enter("list_project_files");
     use std::fs;
     use serde_json::json;
-    
+
     let path = PathBuf::from(&project_path);
     
     if !path.exists() {

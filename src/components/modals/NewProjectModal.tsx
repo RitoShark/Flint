@@ -6,6 +6,8 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { listen } from '@tauri-apps/api/event';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppState, useConfigStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import * as datadragon from '../../lib/datadragon';
@@ -66,7 +68,16 @@ const FPS_OPTIONS = [15, 24, 30, 60];
 
 export const NewProjectModal: React.FC = () => {
     const { state, dispatch, closeModal, showToast, setWorking, setReady } = useAppState();
-    const configStore = useConfigStore();
+    // Subscribe to only the three config fields actually read in this file.
+    // `useConfigStore()` (no selector) re-rendered the modal on every config
+    // change anywhere — including unrelated fields like recentProjects that
+    // fire automatically after project creation completes.
+    const configStore = useConfigStore(
+        useShallow((s) => ({
+            leaguePathPbe: s.leaguePathPbe,
+            binConverterEngine: s.binConverterEngine,
+        })),
+    );
 
     // ─── Shared state ────────────────────────────────────────────────────
     const [projectType, setProjectType] = useState<ProjectType>('skin');
@@ -74,6 +85,24 @@ export const NewProjectModal: React.FC = () => {
     const [projectPath, setProjectPath] = useState('');
     const [isCreating, setIsCreating] = useState(false);
     const [progress, setProgress] = useState('');
+
+    // Subscribe to Rust-side `project-create-progress` events. Without this
+    // listener the modal sat on a single static "Creating project..." string
+    // for the full 36+ seconds of work, which made the whole flow feel like
+    // a frozen frontend even though Rust was busy. Now phase transitions
+    // (init → create → extract → repath → complete) update the modal text
+    // in real time.
+    useEffect(() => {
+        if (!isCreating) return;
+        const unlistenP = listen<{ phase: string; message: string }>(
+            'project-create-progress',
+            (event) => {
+                const m = event.payload?.message;
+                if (typeof m === 'string' && m.length > 0) setProgress(m);
+            },
+        );
+        return () => { unlistenP.then((fn) => fn()).catch(() => {}); };
+    }, [isCreating]);
 
     // ─── Skin project state ─────────────────────────────────────────────
     const [selectedChampion, setSelectedChampion] = useState<DDragonChampion | null>(null);
@@ -648,7 +677,11 @@ export const NewProjectModal: React.FC = () => {
         closeModal();
         showToast('success', 'Project created successfully!');
 
-        api.createCheckpoint(projectDir, 'Initial Project State').catch(() => {});
+        // No auto-checkpoint on project creation. The "initial state" of a
+        // brand-new project IS the on-disk state — there's nothing to roll
+        // back to that's different from the file tree the user sees. This
+        // was costing ~2.8s of wall time after every create_project for a
+        // checkpoint nobody asked for.
     };
 
     // ─── Computed values ─────────────────────────────────────────────────

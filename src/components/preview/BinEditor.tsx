@@ -330,8 +330,13 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
     const bracketCheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const decorationsRef = useRef<string[]>([]);
 
-    // Subscribe to file version changes for hot reload
-    const fileVersion = useAppMetadataStore((state) => state.fileVersions[filePath.replaceAll('\\', '/')] || 0);
+    // Subscribe to file version changes for hot reload — re-render only
+    // when this file's version actually bumps (selector returns the value,
+    // touching fileVersionsRev keeps the selector re-evaluating).
+    const fileVersion = useAppMetadataStore((state) => {
+        void state.fileVersionsRev;
+        return state.getFileVersion(filePath);
+    });
 
     const useJade = binConverterEngine === 'jade';
 
@@ -550,14 +555,23 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
         };
     }, []);
 
-    const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-        if (!editorRef.current) return;
+    // Throttle to one inspection per animation frame. Monaco's
+    // getTargetAtClientPoint walks line-widget DOM and is not free; firing it
+    // every mousemove (~120Hz) for a feature that only matters when the user
+    // *pauses* on an asset path was burning frame time.
+    const moveRafRef = useRef<number | null>(null);
+    const lastMoveRef = useRef<{ x: number; y: number; target: HTMLElement } | null>(null);
+
+    const inspectHover = useCallback(() => {
+        moveRafRef.current = null;
+        const move = lastMoveRef.current;
+        if (!move) return;
         const editorInst = editorRef.current;
-        const target = e.target as HTMLElement;
-        if (!target.closest('.monaco-editor')) return;
+        if (!editorInst) return;
+        if (!move.target.closest('.monaco-editor')) return;
         if (!editorInst.getDomNode()) return;
 
-        const pos = editorInst.getTargetAtClientPoint(e.clientX, e.clientY);
+        const pos = editorInst.getTargetAtClientPoint(move.x, move.y);
         if (!pos?.position) {
             if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null; }
             return;
@@ -569,7 +583,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
         const lineContent = model.getLineContent(pos.position.lineNumber);
         const stringValue = extractStringAtPosition(lineContent, pos.position.column);
 
-        setPreviewPosition({ x: e.clientX, y: e.clientY });
+        setPreviewPosition({ x: move.x, y: move.y });
 
         if (stringValue && isPreviewableAssetPath(stringValue)) {
             if (stringValue !== lastHoveredAssetRef.current) {
@@ -586,6 +600,26 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
             lastHoveredAssetRef.current = null;
             setShowPreview(false);
         }
+    }, []);
+
+    const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        lastMoveRef.current = {
+            x: e.clientX,
+            y: e.clientY,
+            target: e.target as HTMLElement,
+        };
+        if (moveRafRef.current === null) {
+            moveRafRef.current = requestAnimationFrame(inspectHover);
+        }
+    }, [inspectHover]);
+
+    useEffect(() => {
+        return () => {
+            if (moveRafRef.current !== null) {
+                cancelAnimationFrame(moveRafRef.current);
+                moveRafRef.current = null;
+            }
+        };
     }, []);
 
     const handleMouseLeave = useCallback(() => {

@@ -6,6 +6,14 @@
 import { create } from 'zustand';
 import type { LogEntry } from '../types';
 
+// File version / status maps live OUTSIDE zustand state so we can mutate in
+// place. Subscribers read via the version-counter selectors below — comparing
+// an integer is O(1), versus the old approach of spreading the entire Record
+// on every file watcher event (which forced every subscriber on this store
+// to re-run its selector).
+const fileVersionsMap = new Map<string, number>();
+const fileStatusesMap = new Map<string, 'new' | 'modified'>();
+
 interface AppMetadataState {
   status: 'ready' | 'working' | 'error';
   statusMessage: string;
@@ -14,9 +22,13 @@ interface AppMetadataState {
   verboseLogging: boolean;
   logs: LogEntry[];
   logPanelExpanded: boolean;
-  fileVersions: Record<string, number>; // Track file modification versions for hot reload
-  fileTreeVersion: number; // Incremented when file tree structure changes (create/remove)
-  fileStatuses: Record<string, 'new' | 'modified'>; // Track file modification status for VFS indicators
+  // Bumped whenever a per-file version changes. Components that care about
+  // a specific file watch this counter + read getFileVersion(path) at use.
+  fileVersionsRev: number;
+  // Bumped whenever the file tree structure changes (create/remove).
+  fileTreeVersion: number;
+  // Bumped whenever a file's VFS status (new/modified) changes.
+  fileStatusesRev: number;
 
   // Actions
   setStatus: (status: AppMetadataState['status'], message: string) => void;
@@ -29,16 +41,33 @@ interface AppMetadataState {
   addLogsBatch: (entries: Array<{ level: LogEntry['level']; message: string }>) => void;
   clearLogs: () => void;
   toggleLogPanel: () => void;
+  // File version helpers (mutate underlying Map, bump rev counter)
   incrementFileVersion: (filePath: string) => void;
   getFileVersion: (filePath: string) => number;
   incrementFileTreeVersion: () => void;
+  // File status helpers (mutate underlying Map, bump rev counter)
   setFileStatus: (filePath: string, status: 'new' | 'modified' | null) => void;
+  getFileStatus: (filePath: string) => 'new' | 'modified' | undefined;
+  // Snapshot helper for consumers that want to scan all current status keys.
+  // Cheap to call — just iterates the underlying Map.
+  getFileStatusKeys: () => string[];
   clearFileStatuses: () => void;
+  // Bulk helper for the file watcher in App.tsx — applies all updates and
+  // bumps each rev counter at most once, so a single watcher event triggers
+  // exactly one re-render cycle per affected store slice.
+  applyFileEvent: (input: {
+    versionBumps?: string[];
+    statusSets?: Array<{ key: string; status: 'new' | 'modified' }>;
+    statusDeletes?: string[];
+    bumpFileTree?: boolean;
+  }) => void;
 }
 
 let logIdCounter = 0;
 
-export const useAppMetadataStore = create<AppMetadataState>((set, get) => ({
+const normPath = (p: string) => p.replaceAll('\\', '/');
+
+export const useAppMetadataStore = create<AppMetadataState>((set) => ({
   status: 'ready',
   statusMessage: 'Ready',
   hashesLoaded: false,
@@ -46,9 +75,9 @@ export const useAppMetadataStore = create<AppMetadataState>((set, get) => ({
   verboseLogging: false,
   logs: [],
   logPanelExpanded: false,
-  fileVersions: {},
+  fileVersionsRev: 0,
   fileTreeVersion: 0,
-  fileStatuses: {},
+  fileStatusesRev: 0,
 
   setStatus: (status, message) => set({ status, statusMessage: message }),
   setWorking: (message = 'Working...') => set({ status: 'working', statusMessage: message }),
@@ -62,7 +91,7 @@ export const useAppMetadataStore = create<AppMetadataState>((set, get) => ({
       timestamp: Date.now(),
       level,
       message,
-    }].slice(-100), // Keep last 100
+    }].slice(-100),
   })),
   addLogsBatch: (entries) => set((state) => {
     const now = Date.now();
@@ -76,31 +105,71 @@ export const useAppMetadataStore = create<AppMetadataState>((set, get) => ({
   }),
   clearLogs: () => set({ logs: [] }),
   toggleLogPanel: () => set((state) => ({ logPanelExpanded: !state.logPanelExpanded })),
+
   incrementFileVersion: (filePath) => {
-    const key = filePath.replaceAll('\\', '/');
-    set((state) => ({
-      fileVersions: {
-        ...state.fileVersions,
-        [key]: (state.fileVersions[key] || 0) + 1,
-      },
-    }));
+    const key = normPath(filePath);
+    fileVersionsMap.set(key, (fileVersionsMap.get(key) || 0) + 1);
+    set((state) => ({ fileVersionsRev: state.fileVersionsRev + 1 }));
   },
-  getFileVersion: (filePath) => get().fileVersions[filePath.replaceAll('\\', '/')] || 0,
+  getFileVersion: (filePath) => fileVersionsMap.get(normPath(filePath)) || 0,
   incrementFileTreeVersion: () => set((state) => ({ fileTreeVersion: state.fileTreeVersion + 1 })),
+
   setFileStatus: (filePath, status) => {
-    const key = filePath.replaceAll('\\', '/');
-    set((state) => {
-      if (status === null) {
-        const { [key]: _, ...rest } = state.fileStatuses;
-        return { fileStatuses: rest };
+    const key = normPath(filePath);
+    if (status === null) {
+      if (!fileStatusesMap.has(key)) return;
+      fileStatusesMap.delete(key);
+    } else {
+      if (fileStatusesMap.get(key) === status) return;
+      fileStatusesMap.set(key, status);
+    }
+    set((state) => ({ fileStatusesRev: state.fileStatusesRev + 1 }));
+  },
+  getFileStatus: (filePath) => fileStatusesMap.get(normPath(filePath)),
+  getFileStatusKeys: () => Array.from(fileStatusesMap.keys()),
+  clearFileStatuses: () => {
+    if (fileStatusesMap.size === 0) return;
+    fileStatusesMap.clear();
+    set((state) => ({ fileStatusesRev: state.fileStatusesRev + 1 }));
+  },
+
+  applyFileEvent: ({ versionBumps, statusSets, statusDeletes, bumpFileTree }) => {
+    let changedVersions = false;
+    let changedStatuses = false;
+
+    if (versionBumps && versionBumps.length > 0) {
+      for (const raw of versionBumps) {
+        const key = normPath(raw);
+        fileVersionsMap.set(key, (fileVersionsMap.get(key) || 0) + 1);
       }
-      return {
-        fileStatuses: {
-          ...state.fileStatuses,
-          [key]: status,
-        },
-      };
+      changedVersions = true;
+    }
+
+    if (statusSets && statusSets.length > 0) {
+      for (const { key, status } of statusSets) {
+        const k = normPath(key);
+        if (fileStatusesMap.get(k) !== status) {
+          fileStatusesMap.set(k, status);
+          changedStatuses = true;
+        }
+      }
+    }
+
+    if (statusDeletes && statusDeletes.length > 0) {
+      for (const raw of statusDeletes) {
+        const k = normPath(raw);
+        if (fileStatusesMap.delete(k)) changedStatuses = true;
+      }
+    }
+
+    if (!changedVersions && !changedStatuses && !bumpFileTree) return;
+
+    set((state) => {
+      const patch: Partial<AppMetadataState> = {};
+      if (changedVersions) patch.fileVersionsRev = state.fileVersionsRev + 1;
+      if (changedStatuses) patch.fileStatusesRev = state.fileStatusesRev + 1;
+      if (bumpFileTree) patch.fileTreeVersion = state.fileTreeVersion + 1;
+      return patch;
     });
   },
-  clearFileStatuses: () => set({ fileStatuses: {} }),
 }));

@@ -23,8 +23,13 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({ filePath, zoom, onZo
     const containerRef = useRef<HTMLDivElement>(null);
     const imageRef = useRef<HTMLImageElement>(null);
 
-    // Subscribe to file version changes for hot reload
-    const fileVersion = useAppMetadataStore((state) => state.fileVersions[filePath.replaceAll('\\', '/')] || 0);
+    // Touch fileVersionsRev so this selector re-runs when ANY file version
+    // bumps, but return THIS file's version — zustand's Object.is equality
+    // means the component only re-renders when our specific file changed.
+    const fileVersion = useAppMetadataStore((state) => {
+        void state.fileVersionsRev;
+        return state.getFileVersion(filePath);
+    });
 
     useEffect(() => {
         const loadImage = async () => {

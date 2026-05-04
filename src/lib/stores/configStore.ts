@@ -50,12 +50,42 @@ interface ConfigState {
   hydrate: () => Promise<void>;
 }
 
-/** Persist current state to disk (fire-and-forget) */
-function persistToDisk() {
-  const s = useConfigStore.getState();
-  if (!s._hydrated) return; // don't write until initial load is done
+// localStorage cache key for the settings snapshot. Lets us hydrate the store
+// SYNCHRONOUSLY at module-eval time so the UI gets real values on first render
+// instead of waiting for the migrate→getSettings IPC chain. Disk is still the
+// source of truth (settings.json on %APPDATA%) — this is just a hot cache.
+const SETTINGS_CACHE_KEY = 'flint_settings_cache_v1';
+const MIGRATIONS_DONE_KEY = 'flint_migrations_done_v1';
 
-  const settings: FlintSettings = {
+function readCache(): Partial<FlintSettings> | null {
+  try {
+    const raw = localStorage.getItem(SETTINGS_CACHE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as Partial<FlintSettings>;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(settings: FlintSettings) {
+  try {
+    localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(settings));
+  } catch {
+    // localStorage full or disabled — disk write below is still authoritative
+  }
+}
+
+// Debounce settings writes. Multiple synchronous mutations (e.g. project
+// creation: addSavedProject → setRecentProjects fires within milliseconds)
+// previously emitted one full save_settings IPC each. With ~16 fields per
+// payload and a 25-70ms IPC tail, that adds up. The debounce coalesces a
+// burst into one write while still hitting disk inside the same UI frame.
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+const PERSIST_DEBOUNCE_MS = 50;
+
+function snapshotSettings(): FlintSettings {
+  const s = useConfigStore.getState();
+  return {
     schemaVersion: 1,
     leaguePath: s.leaguePath,
     leaguePathPbe: s.leaguePathPbe,
@@ -72,10 +102,23 @@ function persistToDisk() {
     quartzPath: s.quartzPath,
     selectedTheme: s.selectedTheme,
   };
+}
 
-  saveSettings(settings).catch((err) => {
-    console.error('[Config] Failed to persist settings:', err);
-  });
+/** Persist current state to disk (debounced, fire-and-forget) */
+function persistToDisk() {
+  if (!useConfigStore.getState()._hydrated) return;
+
+  // Update the localStorage cache immediately so a reload picks up the
+  // latest values even if the debounce hasn't fired yet. This is cheap.
+  writeCache(snapshotSettings());
+
+  if (persistTimer !== null) clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    saveSettings(snapshotSettings()).catch((err) => {
+      console.error('[Config] Failed to persist settings:', err);
+    });
+  }, PERSIST_DEBOUNCE_MS);
 }
 
 /** Apply a theme's CSS variables to :root */
@@ -113,22 +156,33 @@ export async function applyThemeById(themeId: string | null): Promise<boolean> {
   return false;
 }
 
+// Read the cached settings synchronously at module-eval time so the store
+// starts with real values, not blank defaults. This is what makes startup
+// feel instant: the UI renders with the user's last-known config instead of
+// waiting for the migrate→getSettings IPC chain to finish (~500ms+ before).
+// On first run with no cache, falls back to the same defaults as before.
+const __cached = readCache();
+
 export const useConfigStore = create<ConfigState>()((set) => ({
-  leaguePath: null,
-  leaguePathPbe: null,
-  defaultProjectPath: null,
-  creatorName: null,
-  autoUpdateEnabled: true,
-  skippedUpdateVersion: null,
-  recentProjects: [],
-  ltkManagerModPath: null,
-  autoSyncToLauncher: false,
-  savedProjects: [],
-  binConverterEngine: 'ltk',
-  jadePath: null,
-  quartzPath: null,
-  selectedTheme: null,
-  _hydrated: false,
+  leaguePath: __cached?.leaguePath ?? null,
+  leaguePathPbe: __cached?.leaguePathPbe ?? null,
+  defaultProjectPath: __cached?.defaultProjectPath ?? null,
+  creatorName: __cached?.creatorName ?? null,
+  autoUpdateEnabled: __cached?.autoUpdateEnabled ?? true,
+  skippedUpdateVersion: __cached?.skippedUpdateVersion ?? null,
+  recentProjects: (__cached?.recentProjects as RecentProject[] | undefined) ?? [],
+  ltkManagerModPath: __cached?.ltkManagerModPath ?? null,
+  autoSyncToLauncher: __cached?.autoSyncToLauncher ?? false,
+  savedProjects: (__cached?.savedProjects as SavedProject[] | undefined) ?? [],
+  binConverterEngine: (__cached?.binConverterEngine === 'jade' ? 'jade' : 'ltk') as 'ltk' | 'jade',
+  jadePath: __cached?.jadePath ?? null,
+  quartzPath: __cached?.quartzPath ?? null,
+  selectedTheme: __cached?.selectedTheme ?? null,
+  // If we had a cache, treat the store as already hydrated for first-paint
+  // purposes (matches 1.7.1's localStorage-first behavior). The disk-load
+  // below still runs to pick up any settings written by another window/tool,
+  // but the user sees real values immediately.
+  _hydrated: __cached !== null,
 
   setLeaguePath: (path) => { set({ leaguePath: path }); persistToDisk(); },
   setLeaguePathPbe: (path) => { set({ leaguePathPbe: path }); persistToDisk(); },
@@ -163,28 +217,41 @@ export const useConfigStore = create<ConfigState>()((set) => ({
   },
 
   hydrate: async () => {
-    // 1. Check if there's old localStorage data to migrate
-    const legacyRaw = localStorage.getItem('flint_settings');
-    if (legacyRaw) {
+    // Migrations run AT MOST ONCE per install. The flag in localStorage means
+    // we skip the two migration IPCs on every subsequent launch — they were
+    // running unconditionally before, costing ~150ms each at every startup
+    // even when there was nothing to migrate.
+    const migrationsDone = localStorage.getItem(MIGRATIONS_DONE_KEY) === '1';
+
+    if (!migrationsDone) {
+      // 1. Check if there's old localStorage data to migrate
+      const legacyRaw = localStorage.getItem('flint_settings');
+      if (legacyRaw) {
+        try {
+          await migrateFromLocalStorage(legacyRaw);
+          localStorage.removeItem('flint_settings');
+        } catch (err) {
+          console.warn('[Config] localStorage migration failed:', err);
+        }
+      }
+
+      // 2. Migrate projects from old RitoShark/Flint/Projects to Flint/projects/
       try {
-        await migrateFromLocalStorage(legacyRaw);
-        localStorage.removeItem('flint_settings');
+        const result = await migrateProjects();
+        if (result.moved > 0) {
+          console.log(`[Config] Migrated ${result.moved} projects to Flint home`);
+        }
       } catch (err) {
-        console.warn('[Config] localStorage migration failed:', err);
+        console.warn('[Config] Project migration failed:', err);
       }
+
+      try { localStorage.setItem(MIGRATIONS_DONE_KEY, '1'); } catch { /* ignore */ }
     }
 
-    // 2. Migrate projects from old RitoShark/Flint/Projects to Flint/projects/
-    try {
-      const result = await migrateProjects();
-      if (result.moved > 0) {
-        console.log(`[Config] Migrated ${result.moved} projects to Flint home`);
-      }
-    } catch (err) {
-      console.warn('[Config] Project migration failed:', err);
-    }
-
-    // 3. Load settings from disk (after migration so paths are up-to-date)
+    // 3. Load settings from disk. If we already populated the store from the
+    // localStorage cache, this just refreshes from disk in the background —
+    // the UI is already rendered with real values, so this isn't on the
+    // first-paint critical path anymore.
     try {
       const s = await getSettings();
       set({
@@ -203,6 +270,25 @@ export const useConfigStore = create<ConfigState>()((set) => ({
         quartzPath: s.quartzPath,
         selectedTheme: s.selectedTheme ?? null,
         _hydrated: true,
+      });
+
+      // Refresh the cache so next startup gets latest disk state synchronously.
+      writeCache({
+        schemaVersion: 1,
+        leaguePath: s.leaguePath,
+        leaguePathPbe: s.leaguePathPbe,
+        defaultProjectPath: s.defaultProjectPath,
+        creatorName: s.creatorName,
+        autoUpdateEnabled: s.autoUpdateEnabled,
+        skippedUpdateVersion: s.skippedUpdateVersion,
+        recentProjects: s.recentProjects ?? [],
+        savedProjects: s.savedProjects ?? [],
+        ltkManagerModPath: s.ltkManagerModPath,
+        autoSyncToLauncher: s.autoSyncToLauncher,
+        binConverterEngine: s.binConverterEngine,
+        jadePath: s.jadePath,
+        quartzPath: s.quartzPath,
+        selectedTheme: s.selectedTheme ?? null,
       });
 
       // 4. Apply saved theme

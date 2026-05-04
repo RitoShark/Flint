@@ -867,8 +867,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     // Popup states for controls
     const [activePopup, setActivePopup] = useState<'display' | 'environment' | 'materials' | 'animations' | null>(null);
 
-    // Subscribe to file version changes for hot reload
-    const fileVersion = useAppMetadataStore((state) => state.fileVersions[filePath.replaceAll('\\', '/')] || 0);
+    // Subscribe to file version changes for hot reload — see ImagePreview.
+    const fileVersion = useAppMetadataStore((state) => {
+        void state.fileVersionsRev;
+        return state.getFileVersion(filePath);
+    });
 
     // Animation state (only for skinned meshes)
     const [animations, setAnimations] = useState<{ name: string; animation_path: string }[]>([]);

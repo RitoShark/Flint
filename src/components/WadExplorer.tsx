@@ -1277,55 +1277,60 @@ export const WadExplorer: React.FC = () => {
     // ── Background bulk indexing for whole-game search ─────────────────────────
     // Loads all WADs so search works across the entire game.
     //
-    // Previously used `requestIdleCallback` here, which on WebView2 routinely
-    // gave us 8+ seconds of dead air between the WAD list rendering and the
-    // chunk-loading IPC firing. We don't actually need to wait for "idle" —
-    // the WAD list is already painted by the time this effect runs, and the
-    // IPC itself is async. Kick it off immediately on the next microtask so
-    // the user doesn't experience an unexplained pause.
+    // Single-IPC approach (matches 1.7.1, which is ~10x faster than the
+    // batched version that was here before).
+    //
+    // Why one call beats parallel batches:
+    //   - Rust does ALL work in one shot — one rayon parallel pass over
+    //     WAD headers, ONE LMDB read txn for the deduped union of every
+    //     unique hash across every WAD. Splitting into batches forced
+    //     N separate LMDB txns and lost cross-WAD hash deduplication
+    //     (the same texture hash referenced by 50 WADs got resolved 50
+    //     times instead of once).
+    //   - Only one IPC payload to (de)serialize.
+    //   - No per-batch React re-render churn. The single dispatch at the
+    //     end means one state update, one tree render — eliminating the
+    //     ~150ms inter-batch gaps the IPC trace was showing.
     useEffect(() => {
         if (wadExplorer.scanStatus !== 'ready') return;
         const idlePaths = wadExplorer.wads.filter(w => w.status === 'idle').map(w => w.path);
         if (idlePaths.length === 0) return;
 
-        // Split the load into batches so each IPC roundtrip's JSON payload
-        // stays small. A single 450-WAD call returns ~65MB of serialized
-        // chunk metadata; the Tauri IPC serialize/transfer/deserialize round
-        // trip on that one blob freezes the UI for several seconds, even
-        // after the Rust side has finished. Splitting also lets the UI
-        // update incrementally — WADs become "loaded" in the tree as
-        // their batch returns instead of all-at-once at the end.
-        const BATCH_SIZE = 40;
+        // Mark all as loading in one dispatch so the UI shows progress immediately.
+        dispatch({
+            type: 'BATCH_SET_WAD_STATUSES',
+            payload: idlePaths.map(p => ({ wadPath: p, status: 'loading' as const })),
+        });
+
         let cancelled = false;
-        const handle = window.setTimeout(async () => {
-            for (let i = 0; i < idlePaths.length; i += BATCH_SIZE) {
+        (async () => {
+            try {
+                const batches = await api.loadAllWadChunks(idlePaths);
                 if (cancelled) return;
-                const slice = idlePaths.slice(i, i + BATCH_SIZE);
-                try {
-                    const batches = await api.loadAllWadChunks(slice);
-                    if (cancelled) return;
-                    dispatch({
-                        type: 'BATCH_SET_WAD_STATUSES',
-                        payload: batches.map(b => ({
-                            wadPath: b.path,
-                            status: (b.error ? 'error' : 'loaded') as WadExplorerWad['status'],
-                            chunks: b.chunks,
-                            error: b.error ?? undefined,
-                        })),
-                    });
-                    // Yield to the event loop between batches so the UI can
-                    // paint the newly-loaded WADs instead of staying frozen
-                    // through the entire bulk.
-                    await new Promise(r => setTimeout(r, 0));
-                } catch (e) {
-                    console.warn('Background WAD indexing batch failed:', e);
-                }
+                dispatch({
+                    type: 'BATCH_SET_WAD_STATUSES',
+                    payload: batches.map(b => ({
+                        wadPath: b.path,
+                        status: (b.error ? 'error' : 'loaded') as WadExplorerWad['status'],
+                        chunks: b.chunks,
+                        error: b.error ?? undefined,
+                    })),
+                });
+            } catch (e) {
+                if (cancelled) return;
+                dispatch({
+                    type: 'BATCH_SET_WAD_STATUSES',
+                    payload: idlePaths.map(p => ({
+                        wadPath: p,
+                        status: 'error' as const,
+                        error: (e as Error).message,
+                    })),
+                });
             }
-        }, 0);
+        })();
 
         return () => {
             cancelled = true;
-            window.clearTimeout(handle);
         };
     }, [wadExplorer.scanStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
