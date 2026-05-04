@@ -10,7 +10,9 @@ use flint_ltk::project::{
 };
 use flint_ltk::repath::{organize_project, OrganizerConfig};
 use flint_ltk::bin::{classify_bin, BinCategory};
-use flint_ltk::wad::extractor::{find_champion_wad, extract_skin_assets, wad_contains_skin_bin};
+use flint_ltk::wad::extractor::{
+    find_champion_wad, extract_skin_assets, extract_skin_assets_selective, wad_contains_skin_bin,
+};
 use flint_ltk::hash::{resolve_hashes_lmdb_bulk, ResolvedHashes};
 use crate::state::LmdbCacheState;
 use crate::core::ipc_trace;
@@ -172,13 +174,38 @@ pub async fn create_project(
             resolve_hashes_lmdb_bulk(hashes, &env)
         };
 
-        extract_skin_assets(
+        // Try selective extraction first — walks the seed BIN's reference
+        // graph in memory and pulls only the ~400 chunks the skin actually
+        // needs, instead of all ~3700 under `assets/`+`data/`. Cuts the
+        // Defender-tax (~12s on Windows) out of project creation.
+        //
+        // Falls back to whole-WAD extraction if the seed BIN can't be
+        // located or the BIN graph fails to parse. Old path stays as a
+        // safety net; if a project comes out broken, point the bug at this
+        // function and use the fallback as the comparison baseline.
+        match extract_skin_assets_selective(
             &wad_path,
             &assets_path,
             &champion_for_extract,
             skin_id,
-            resolve,
-        ).map_err(|e| e.to_string())
+            &resolve,
+        ) {
+            Ok(r) => Ok(r),
+            Err(e) => {
+                tracing::warn!(
+                    "Selective extraction failed ({}), falling back to whole-WAD",
+                    e
+                );
+                extract_skin_assets(
+                    &wad_path,
+                    &assets_path,
+                    &champion_for_extract,
+                    skin_id,
+                    resolve,
+                )
+                .map_err(|e| e.to_string())
+            }
+        }
     })
     .await;
     let extract_elapsed = t.elapsed();

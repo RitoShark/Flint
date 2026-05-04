@@ -1,10 +1,11 @@
 use crate::error::{Error, Result};
 use crate::hash::ResolvedHashes;
+use ltk_meta::PropertyValueEnum;
 use league_toolkit::file::LeagueFileKind;
 use league_toolkit::wad::{Wad, WadChunk};
 use memmap2::Mmap;
 use rayon::prelude::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::Cursor;
@@ -417,9 +418,18 @@ pub fn find_champion_wad(league_path: impl AsRef<Path>, champion: &str) -> Optio
 /// * `champion` - Champion internal name (e.g., "kayn")
 /// * `skin_id` - Skin ID to extract (e.g., 1 for first skin)
 /// * `hashtable` - Hashtable for path resolution
-/// 
+///
 /// # Returns
 /// * `Result<ExtractionResult>` - Extraction result with count and path mappings, or an error
+///
+/// ─────────────────────────────────────────────────────────────────────────
+///
+/// **Selective extraction (`extract_skin_assets_selective`)** is the same flow
+/// scoped down to only the chunks the seed BIN's reference graph actually
+/// touches — typically ~400 of the 3700+ chunks in a champion WAD. The old
+/// path extracted everything under `assets/` or `data/` then deleted ~85% of
+/// it during repath; on a Defender-watched filesystem that was 12-13 s of
+/// avoidable I/O.
 pub fn extract_skin_assets(
     wad_path: impl AsRef<Path>,
     output_dir: impl AsRef<Path>,
@@ -704,6 +714,218 @@ fn resolve_chunk_path(path: &str, chunk_data: &[u8]) -> PathBuf {
     }
     
     chunk_path
+}
+
+/// Recursively collect every asset path embedded in a parsed BIN, mirroring
+/// the post-extraction scan in `repath::refather::scan_bin_for_paths`. Used
+/// by the selective skin extractor so we can compute the chunk allow-list
+/// without writing anything to disk first.
+fn collect_paths_from_value_into(value: &PropertyValueEnum, out: &mut Vec<String>) {
+    match value {
+        PropertyValueEnum::String(s) => {
+            let v = &s.value;
+            if v.len() >= 5
+                && (v.len() >= 7 && v[..7].eq_ignore_ascii_case("assets/")
+                    || v.len() >= 5 && v[..5].eq_ignore_ascii_case("data/"))
+            {
+                out.push(v.to_lowercase().replace('\\', "/"));
+            }
+        }
+        PropertyValueEnum::Container(c) => {
+            for item in c.clone().into_items() { collect_paths_from_value_into(&item, out); }
+        }
+        PropertyValueEnum::UnorderedContainer(uc) => {
+            for item in uc.0.clone().into_items() { collect_paths_from_value_into(&item, out); }
+        }
+        PropertyValueEnum::Struct(s) => {
+            for prop in s.properties.values() { collect_paths_from_value_into(&prop.value, out); }
+        }
+        PropertyValueEnum::Embedded(e) => {
+            for prop in e.0.properties.values() { collect_paths_from_value_into(&prop.value, out); }
+        }
+        PropertyValueEnum::Optional(o) => {
+            if let Some(inner) = o.clone().into_inner() { collect_paths_from_value_into(&inner, out); }
+        }
+        PropertyValueEnum::Map(m) => {
+            for (k, v) in m.entries() {
+                collect_paths_from_value_into(k, out);
+                collect_paths_from_value_into(v, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Selective skin extraction — Quartz-style.
+///
+/// Walks the seed BIN's reference graph in **memory** (decompressing chunks
+/// straight off the mmap'd WAD, never writing them to disk), collects every
+/// referenced asset + linked-BIN path via BFS, hashes them, and hands the
+/// resulting `HashSet<u64>` to the existing parallel extractor as a chunk
+/// filter. On a typical champion WAD this drops the write count from ~3700
+/// → ~400 — which is the entire 12 s "Defender-tax" component of project
+/// creation.
+///
+/// Returns the same shape as [`extract_skin_assets`] so callers stay
+/// signature-compatible. `path_mappings` is empty under selective mode
+/// (long-name truncation is rare for an already-narrow file set, and the
+/// repath stage falls back to direct path lookup when the table doesn't
+/// match — same fallback the existing flow already uses).
+///
+/// If the seed BIN can't be located in the WAD (unusual install layout, mod
+/// uses non-standard path, etc.), returns `Err` so the caller can fall back
+/// to [`extract_skin_assets`] without losing the project.
+pub fn extract_skin_assets_selective(
+    wad_path: impl AsRef<Path>,
+    output_dir: impl AsRef<Path>,
+    champion: &str,
+    skin_id: u32,
+    resolve_paths: impl Fn(&[u64]) -> ResolvedHashes,
+) -> Result<ExtractionResult> {
+    let wad_path = wad_path.as_ref();
+    let output_dir = output_dir.as_ref();
+
+    let champion_lower = champion.to_lowercase();
+    let wad_folder_name = format!("{}.wad.client", champion_lower);
+    let wad_output_dir = output_dir.join(&wad_folder_name);
+
+    // ── Mount WAD via mmap ─────────────────────────────────────────────────
+    let file = File::open(wad_path).map_err(|e| Error::io_with_path(e, wad_path))?;
+    let mmap = unsafe { Mmap::map(&file) }.map_err(|e| Error::Wad {
+        message: format!("Failed to mmap WAD: {}", e),
+        path: Some(wad_path.to_path_buf()),
+    })?;
+    let mut wad_toc = Wad::mount(Cursor::new(&mmap[..])).map_err(|e| Error::Wad {
+        message: format!("Failed to mount WAD: {}", e),
+        path: Some(wad_path.to_path_buf()),
+    })?;
+
+    let by_hash: HashMap<u64, WadChunk> = wad_toc
+        .chunks()
+        .iter()
+        .map(|c| (c.path_hash(), *c))
+        .collect();
+
+    let xx = |s: &str| xxhash_rust::xxh64::xxh64(s.as_bytes(), 0);
+
+    // Seed = canonical `data/characters/{champ}/skins/skin{N}.bin`. Riot uses
+    // mixed case in some places, but WAD path hashing normalizes lowercase.
+    let seed = format!("data/characters/{}/skins/skin{}.bin", champion_lower, skin_id);
+    if !by_hash.contains_key(&xx(&seed)) {
+        return Err(Error::InvalidInput(format!(
+            "Seed BIN not found in WAD ({}) — falling back to full extraction",
+            seed
+        )));
+    }
+
+    // ── Phase A: BFS the BIN graph, collect referenced asset paths ─────────
+    let t_walk = Instant::now();
+    let mut want_paths: HashSet<String> = HashSet::new();
+    let mut bin_seen: HashSet<String> = HashSet::new();
+    let mut queue: VecDeque<String> = VecDeque::new();
+
+    queue.push_back(seed.clone());
+    bin_seen.insert(seed.clone());
+
+    let mut bins_walked: usize = 0;
+    let mut bins_failed: usize = 0;
+
+    while let Some(bin_path) = queue.pop_front() {
+        let h = xx(&bin_path);
+        let chunk = match by_hash.get(&h) {
+            Some(c) => *c,
+            // Linked BIN listed in deps but not in this WAD (shared assets
+            // live in Common.wad.client etc.) — silently skip.
+            None => continue,
+        };
+        let bytes = match wad_toc.load_chunk_decompressed(&chunk) {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!("[selective] failed to decompress {}: {}", bin_path, e);
+                bins_failed += 1;
+                continue;
+            }
+        };
+        // The BIN itself is needed.
+        want_paths.insert(bin_path.clone());
+
+        let bin = match crate::bin::ltk_bridge::read_bin(&bytes) {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!("[selective] failed to parse {}: {}", bin_path, e);
+                bins_failed += 1;
+                continue;
+            }
+        };
+        bins_walked += 1;
+
+        // Linked BINs declared in the BIN header dependencies list.
+        for dep in &bin.dependencies {
+            let dep_norm = dep.to_lowercase().replace('\\', "/");
+            if bin_seen.insert(dep_norm.clone()) {
+                queue.push_back(dep_norm);
+            }
+        }
+
+        // Asset paths embedded in property values. `.bin` references go on
+        // the BFS queue so we recurse into them; everything else (textures,
+        // anims, sounds, particles) goes straight in the want set.
+        let mut paths_found: Vec<String> = Vec::new();
+        for object in bin.objects.values() {
+            for prop in object.properties.values() {
+                collect_paths_from_value_into(&prop.value, &mut paths_found);
+            }
+        }
+        for p in paths_found {
+            if p.ends_with(".bin") {
+                if bin_seen.insert(p.clone()) {
+                    queue.push_back(p);
+                }
+            } else {
+                want_paths.insert(p);
+            }
+        }
+    }
+    let d_walk = t_walk.elapsed();
+
+    tracing::info!(
+        "[selective] BFS walked {} BINs ({} failed) — {} unique asset paths in {:?}",
+        bins_walked,
+        bins_failed,
+        want_paths.len(),
+        d_walk
+    );
+
+    // ── Phase B: hash → filter set, delegate to extract_chunks_parallel ────
+    let want_hashes: HashSet<u64> = want_paths.iter().map(|p| xx(p)).collect();
+
+    // Drop the mmap before extract_chunks_parallel re-mmaps the same file.
+    // This Wad cursor borrows from `mmap`, so it must go first.
+    drop(wad_toc);
+    drop(mmap);
+    drop(file);
+
+    let (extracted, failed) = extract_chunks_parallel(
+        wad_path,
+        &wad_output_dir,
+        Some(&want_hashes),
+        resolve_paths,
+    )?;
+
+    if failed > 0 {
+        tracing::warn!("[selective] {} chunks failed to write", failed);
+    }
+    tracing::info!(
+        "[selective] extracted {}/{} requested chunks (filtered from {} total)",
+        extracted,
+        want_hashes.len(),
+        by_hash.len()
+    );
+
+    Ok(ExtractionResult {
+        extracted_count: extracted,
+        path_mappings: HashMap::new(),
+    })
 }
 
 /// Extract every chunk from a WAD into `output_dir`, preserving the resolved
