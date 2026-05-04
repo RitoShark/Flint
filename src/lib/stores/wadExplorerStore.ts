@@ -39,6 +39,14 @@ interface WadExplorerState {
   expandedFolders: Set<string>;
   searchQuery: string;
   checkedFiles: Set<string>;
+  /**
+   * Live tally of how many of each WAD's files are currently in `checkedFiles`.
+   * Maintained incrementally on every `toggleCheck` so the WAD-row checkbox
+   * tri-state can be derived in O(1) per WAD instead of walking 80k chunks
+   * per render. Each row's `'all' | 'some' | 'none'` is just
+   * `count === 0 ? 'none' : count === wad.chunks.length ? 'all' : 'some'`.
+   */
+  checkedCountPerWad: Map<string, number>;
   /** Most-recently-opened WAD paths (front = newest). Persisted in localStorage. */
   recentWads: string[];
 
@@ -68,6 +76,7 @@ export const useWadExplorerStore = create<WadExplorerState>((set) => ({
   expandedFolders: new Set<string>(),
   searchQuery: '',
   checkedFiles: new Set<string>(),
+  checkedCountPerWad: new Map<string, number>(),
   recentWads: loadRecentWads(),
 
   open: () => set({ isOpen: true }),
@@ -82,6 +91,7 @@ export const useWadExplorerStore = create<WadExplorerState>((set) => ({
       scanError: error ?? null,
       wads: wads ? newWads : state.wads,
       checkedFiles: new Set<string>(),
+      checkedCountPerWad: new Map<string, number>(),
     }));
   },
 
@@ -151,15 +161,42 @@ export const useWadExplorerStore = create<WadExplorerState>((set) => ({
   toggleCheck: (keys, checked) => {
     set((state) => {
       const next = new Set(state.checkedFiles);
+      const counts = new Map(state.checkedCountPerWad);
+      // Per-WAD delta tally — only the WADs whose keys actually changed get
+      // their count touched, so the WAD-row tri-state stays O(1) per render.
+      const deltas = new Map<string, number>();
       for (const k of keys) {
-        if (checked) next.add(k);
-        else next.delete(k);
+        if (checked) {
+          if (next.has(k)) continue;
+          next.add(k);
+          const sep = k.indexOf('::');
+          if (sep > 0) {
+            const wadPath = k.slice(0, sep);
+            deltas.set(wadPath, (deltas.get(wadPath) ?? 0) + 1);
+          }
+        } else {
+          if (!next.has(k)) continue;
+          next.delete(k);
+          const sep = k.indexOf('::');
+          if (sep > 0) {
+            const wadPath = k.slice(0, sep);
+            deltas.set(wadPath, (deltas.get(wadPath) ?? 0) - 1);
+          }
+        }
       }
-      return { checkedFiles: next };
+      for (const [wadPath, delta] of deltas) {
+        const newCount = (counts.get(wadPath) ?? 0) + delta;
+        if (newCount <= 0) counts.delete(wadPath);
+        else counts.set(wadPath, newCount);
+      }
+      return { checkedFiles: next, checkedCountPerWad: counts };
     });
   },
 
-  clearChecks: () => set({ checkedFiles: new Set<string>() }),
+  clearChecks: () => set({
+    checkedFiles: new Set<string>(),
+    checkedCountPerWad: new Map<string, number>(),
+  }),
 
   pushRecentWad: (wadPath) => {
     set((state) => {

@@ -105,6 +105,7 @@ export function useAppState() {
       expandedFolders: s.expandedFolders,
       searchQuery: s.searchQuery,
       checkedFiles: s.checkedFiles,
+      checkedCountPerWad: s.checkedCountPerWad,
     })),
   );
   const championSubset = useChampionStore(
@@ -198,6 +199,7 @@ export function useAppState() {
       expandedFolders: wadExplorerSubset.expandedFolders,
       searchQuery: wadExplorerSubset.searchQuery,
       checkedFiles: wadExplorerSubset.checkedFiles,
+      checkedCountPerWad: wadExplorerSubset.checkedCountPerWad,
     },
 
     // Champions
