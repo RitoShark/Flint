@@ -130,8 +130,8 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
         (async () => {
             try {
                 const wemBytes = bankBytes
-                    ? new Uint8Array(await api.readAudioEntryBytes(Array.from(bankBytes), entry.id))
-                    : new Uint8Array(await api.readAudioEntry(filePath, entry.id));
+                    ? await api.readAudioEntryBytes(bankBytes, entry.id)
+                    : await api.readAudioEntry(filePath, entry.id);
                 const buf = await decodeWemToBuffer(wemBytes);
                 if (cancelled) return;
                 setBuffer(buf);

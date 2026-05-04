@@ -461,12 +461,9 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
             const cached = cacheRef.current.get(id);
             if (cached) return cached;
 
-            let wemBytes: number[];
-            if (bankBytes) {
-                wemBytes = await api.readAudioEntryBytes(Array.from(bankBytes), id);
-            } else {
-                wemBytes = await api.readAudioEntry(filePath, id);
-            }
+            const wemBytes: Uint8Array = bankBytes
+                ? await api.readAudioEntryBytes(bankBytes, id)
+                : await api.readAudioEntry(filePath, id);
             const decoded = await api.decodeWem(wemBytes);
             const bytes = new Uint8Array(decoded.data);
             const mime = decoded.format === 'ogg' ? 'audio/ogg' : 'audio/wav';
@@ -527,10 +524,9 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                 let bytes: Uint8Array;
                 let ext: string;
                 if (mode === 'wem') {
-                    const raw = bankBytes
-                        ? await api.readAudioEntryBytes(Array.from(bankBytes), entry.id)
+                    bytes = bankBytes
+                        ? await api.readAudioEntryBytes(bankBytes, entry.id)
                         : await api.readAudioEntry(filePath, entry.id);
-                    bytes = new Uint8Array(raw);
                     ext = 'wem';
                 } else {
                     const decoded = await ensureDecoded(entry.id);
@@ -579,7 +575,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                 invalidateCache(id);
 
                 // Refresh entry list (sizes may have changed)
-                const refreshed = await api.parseAudioBankBytes(Array.from(newBytes));
+                const refreshed = await api.parseAudioBankBytes(newBytes);
                 setInfo(refreshed);
             } catch (err) {
                 setError(`Edit failed: ${(err as Error).message || err}`);
@@ -637,7 +633,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         setIsDirty(undoStackRef.current.length > 0);
         invalidateCache();
         try {
-            const refreshed = await api.parseAudioBankBytes(Array.from(prev));
+            const refreshed = await api.parseAudioBankBytes(prev);
             setInfo(refreshed);
         } catch (err) {
             setError(`Undo reparse failed: ${(err as Error).message || err}`);
@@ -648,7 +644,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         if (!bankBytes || !isDirty) return;
         try {
             setSaving(true);
-            await api.saveAudioFile(filePath, Array.from(bankBytes));
+            await api.saveAudioFile(filePath, bankBytes);
             setIsDirty(false);
             undoStackRef.current = [];
             setUndoDepth(0);
@@ -686,8 +682,8 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         try {
             // Get current WEM bytes
             const wemBytes = bankBytes
-                ? new Uint8Array(await api.readAudioEntryBytes(Array.from(bankBytes), entry.id))
-                : new Uint8Array(await api.readAudioEntry(filePath, entry.id));
+                ? await api.readAudioEntryBytes(bankBytes, entry.id)
+                : await api.readAudioEntry(filePath, entry.id);
             const newWav = await applyGainToWem(wemBytes, gainDb);
             await applyEdit(entry.id, async (curr) =>
                 api.replaceAudioEntry(curr, entry.id, Array.from(newWav)),

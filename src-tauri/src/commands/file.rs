@@ -228,16 +228,13 @@ fn detect_file_type(path: &Path, data: &[u8]) -> (String, String) {
     (file_type, extension)
 }
 
-/// Read raw file bytes from disk
+/// Read raw file bytes from disk.
 ///
-/// # Arguments
-/// * `path` - Path to the file
-///
-/// # Returns
-/// * `Ok(Vec<u8>)` - File contents as bytes
-/// * `Err(String)` - Error message
+/// Returns a `tauri::ipc::Response` so the bytes travel over IPC as raw
+/// ArrayBuffer instead of a JSON `[1,2,3,…]` array — the JSON path was costing
+/// us ~3-4× the wire size and a full encode/decode round-trip on both sides.
 #[tauri::command]
-pub async fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
+pub async fn read_file_bytes(path: String) -> Result<tauri::ipc::Response, String> {
     let _t = ipc_trace::enter("read_file_bytes");
     let path = Path::new(&path);
 
@@ -245,7 +242,8 @@ pub async fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
         return Err(format!("File not found: {}", path.display()));
     }
 
-    fs::read(path).map_err(|e| format!("Failed to read file: {}", e))
+    let bytes = fs::read(path).map_err(|e| format!("Failed to read file: {}", e))?;
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 /// Get file metadata and type information
@@ -298,6 +296,14 @@ fn parse_texture_dimensions(data: &[u8]) -> Result<(u32, u32), String> {
         .map_err(|e| format!("Failed to parse texture: {:?}", e))?;
 
     Ok((texture.width(), texture.height()))
+}
+
+/// Synchronous DDS/TEX → base64 PNG, callable from rayon workers / other
+/// commands that need to decode many textures in parallel without going back
+/// through the async tauri::command path.
+pub fn decode_texture_file_sync(path: &Path) -> Result<String, String> {
+    let data = fs::read(path).map_err(|e| format!("Failed to read texture file: {}", e))?;
+    Ok(decode_texture_bytes_impl(&data)?.data)
 }
 
 /// Shared decode logic: take raw DDS/TEX bytes and produce a base64-encoded PNG.
@@ -372,8 +378,14 @@ pub async fn decode_dds_to_png(path: String) -> Result<DecodedImage, String> {
 /// * `Ok(DecodedImage)` - Base64 PNG data with width/height
 /// * `Err(String)` - Error message
 #[tauri::command]
-pub async fn decode_bytes_to_png(data: Vec<u8>) -> Result<DecodedImage, String> {
-    decode_texture_bytes_impl(&data)
+pub async fn decode_bytes_to_png(request: tauri::ipc::Request<'_>) -> Result<DecodedImage, String> {
+    let data = match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => bytes.as_slice(),
+        tauri::ipc::InvokeBody::Json(_) => {
+            return Err("decode_bytes_to_png expects raw bytes; got JSON body".into())
+        }
+    };
+    decode_texture_bytes_impl(data)
 }
 
 
@@ -387,7 +399,7 @@ pub async fn decode_bytes_to_png(data: Vec<u8>) -> Result<DecodedImage, String> 
 /// * `Ok(String)` - File content as string
 /// * `Err(String)` - Error message
 #[tauri::command]
-pub async fn read_text_file(path: String) -> Result<String, String> {
+pub async fn read_text_file(path: String) -> Result<tauri::ipc::Response, String> {
     let _t = ipc_trace::enter("read_text_file");
     let path = Path::new(&path);
 
@@ -395,7 +407,10 @@ pub async fn read_text_file(path: String) -> Result<String, String> {
         return Err(format!("File not found: {}", path.display()));
     }
 
-    fs::read_to_string(path).map_err(|e| format!("Failed to read file: {}", e))
+    // Send the file as raw UTF-8 bytes — JSON-encoding a multi-MB string just
+    // to transport it costs O(n) in escape-sequence handling on both sides.
+    let bytes = fs::read(path).map_err(|e| format!("Failed to read file: {}", e))?;
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 /// Write text content to a file
@@ -412,11 +427,27 @@ pub async fn write_text_file(path: String, content: String) -> Result<(), String
     fs::write(path, content).map_err(|e| format!("Failed to write file: {}", e))
 }
 
-/// Save raw bytes to a file (used for binary data like thumbnails)
+/// Save raw bytes to a file (used for binary data like thumbnails).
+///
+/// The file path is passed via the `path` request header so the body itself
+/// can be a raw byte payload (instead of being JSON-encoded as a number array).
 #[tauri::command]
-pub async fn save_file_bytes(path: String, data: Vec<u8>) -> Result<(), String> {
-    let path = Path::new(&path);
+pub async fn save_file_bytes(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let path = request
+        .headers()
+        .get("path")
+        .ok_or("Missing 'path' header on save_file_bytes")?
+        .to_str()
+        .map_err(|e| format!("Invalid 'path' header: {}", e))?
+        .to_string();
+    let data: &[u8] = match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => bytes.as_slice(),
+        tauri::ipc::InvokeBody::Json(_) => {
+            return Err("save_file_bytes expects raw bytes; got JSON body".into())
+        }
+    };
 
+    let path = Path::new(&path);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create parent directories: {}", e))?;
@@ -1264,16 +1295,17 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> std::io::Result<()> {
 
 /// Get floor texture as PNG bytes.
 /// Checks `%APPDATA%/Flint/themes/floor.png` first for user customization,
-/// falls back to the bundled default.
+/// falls back to the bundled default. Returned as a raw byte response so the
+/// PNG doesn't get JSON-encoded.
 #[tauri::command]
-pub fn get_bundled_floor_png() -> Vec<u8> {
+pub fn get_bundled_floor_png() -> tauri::ipc::Response {
     if let Ok(home) = super::settings::get_flint_home() {
         let custom = home.join("themes").join("floor.png");
         if custom.exists() {
             if let Ok(bytes) = std::fs::read(&custom) {
-                return bytes;
+                return tauri::ipc::Response::new(bytes);
             }
         }
     }
-    FLOOR_PNG.to_vec()
+    tauri::ipc::Response::new(FLOOR_PNG.to_vec())
 }

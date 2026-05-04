@@ -49,7 +49,7 @@ export function audioBufferToWav(buf: AudioBuffer): Uint8Array {
 
 /** Decode WEM bytes to an AudioBuffer. */
 export async function decodeWemToBuffer(wemBytes: Uint8Array): Promise<AudioBuffer> {
-    const decoded = await api.decodeWem(Array.from(wemBytes));
+    const decoded = await api.decodeWem(wemBytes);
     const audioBytes = new Uint8Array(decoded.data);
     const ctx = new AudioContext();
     try {

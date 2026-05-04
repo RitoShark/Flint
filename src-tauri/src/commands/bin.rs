@@ -287,12 +287,18 @@ pub async fn read_bin_info(input_path: String) -> Result<BinInfo, String> {
 /// * `Result<String, String>` - Python-like text format or error message
 #[tauri::command]
 pub async fn convert_bin_bytes_to_text(
-    bin_data: Vec<u8>,
+    request: tauri::ipc::Request<'_>,
 ) -> Result<String, String> {
+    let bin_data: &[u8] = match request.body() {
+        tauri::ipc::InvokeBody::Raw(b) => b.as_slice(),
+        tauri::ipc::InvokeBody::Json(_) => {
+            return Err("convert_bin_bytes_to_text expects raw bytes; got JSON body".into());
+        }
+    };
     tracing::debug!("Converting {} bytes of BIN data to text", bin_data.len());
 
     // Parse the bin file
-    let bin = read_bin(&bin_data)
+    let bin = read_bin(bin_data)
         .map_err(|e| {
             tracing::error!("Failed to parse bin data: {}", e);
             format!("Failed to parse bin data: {}", e)
@@ -322,12 +328,18 @@ pub async fn convert_bin_bytes_to_text(
 /// * `Result<String, String>` - JSON string representation or error message
 #[tauri::command]
 pub async fn convert_bin_bytes_to_json(
-    bin_data: Vec<u8>,
+    request: tauri::ipc::Request<'_>,
 ) -> Result<String, String> {
+    let bin_data: &[u8] = match request.body() {
+        tauri::ipc::InvokeBody::Raw(b) => b.as_slice(),
+        tauri::ipc::InvokeBody::Json(_) => {
+            return Err("convert_bin_bytes_to_json expects raw bytes; got JSON body".into());
+        }
+    };
     tracing::debug!("Converting {} bytes of BIN data to JSON", bin_data.len());
 
     // Parse the bin file
-    let bin = read_bin(&bin_data)
+    let bin = read_bin(bin_data)
         .map_err(|e| {
             tracing::error!("Failed to parse bin data: {}", e);
             format!("Failed to parse bin data: {}", e)
@@ -358,10 +370,9 @@ pub async fn convert_bin_bytes_to_json(
 #[tauri::command]
 pub async fn parse_bin_file_to_text(
     path: String,
-) -> Result<String, String> {
+) -> Result<tauri::ipc::Response, String> {
     tracing::info!("Parsing BIN file for editor: {}", path);
-    
-    // Validate path
+
     if path.is_empty() {
         return Err("Path cannot be empty".to_string());
     }
@@ -371,25 +382,24 @@ pub async fn parse_bin_file_to_text(
         return Err(format!("File does not exist: {}", path));
     }
 
-    // Read the binary file
     let data = fs::read(input)
         .map_err(|e| format!("Failed to read file: {}", e))?;
 
     tracing::debug!("Read {} bytes from {}", data.len(), path);
 
-    // Parse with ritobin_rust
     let bin = flint_ltk::bin::read_bin_ltk(&data)
         .map_err(|e| format!("Failed to parse bin file: {}", e))?;
 
     tracing::debug!("Parsed bin file with {} objects", bin.objects.len());
 
-    // Convert to text format using cached hash resolution (faster)
     let text = flint_ltk::bin::tree_to_text_cached(&bin)
         .map_err(|e| format!("Failed to convert to text: {}", e))?;
 
     tracing::info!("Successfully parsed BIN file to text ({} chars)", text.len());
 
-    Ok(text)
+    // Skip the JSON `"..."` round-trip — multi-MB ritobin text moves over IPC
+    // as raw UTF-8 bytes, decoded with `TextDecoder` on the JS side.
+    Ok(tauri::ipc::Response::new(text.into_bytes()))
 }
 
 /// Reads a BIN file, using cached .ritobin if available and up-to-date
@@ -405,6 +415,17 @@ pub async fn parse_bin_file_to_text(
 /// * `Result<String, String>` - The text content (either from cache or freshly converted)
 #[tauri::command]
 pub async fn read_or_convert_bin(
+    bin_path: String,
+    use_jade: Option<bool>,
+) -> Result<tauri::ipc::Response, String> {
+    let text = read_or_convert_bin_inner(bin_path, use_jade).await?;
+    // Multi-MB ritobin text used to JSON-encode as `"..."` with backslash-
+    // escapes — both serde and JSON.parse spent O(n) over the whole string.
+    // Raw UTF-8 over the binary IPC path skips that entirely.
+    Ok(tauri::ipc::Response::new(text.into_bytes()))
+}
+
+async fn read_or_convert_bin_inner(
     bin_path: String,
     use_jade: Option<bool>,
 ) -> Result<String, String> {

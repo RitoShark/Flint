@@ -68,9 +68,24 @@ pub async fn parse_audio_bank(path: String) -> Result<AudioBankInfo, String> {
 }
 
 /// Parse BNK/WPK from raw bytes (for WAD Explorer in-memory chunks).
+///
+/// Frontend sends the bank as a raw `Uint8Array` body so we skip the JSON
+/// number-array round-trip — multi-MB banks were spending most of their IPC
+/// time in `JSON.stringify` / `serde_json` otherwise.
 #[tauri::command]
-pub async fn parse_audio_bank_bytes(data: Vec<u8>) -> Result<AudioBankInfo, String> {
-    parse_audio_bank_inner(&data)
+pub async fn parse_audio_bank_bytes(request: tauri::ipc::Request<'_>) -> Result<AudioBankInfo, String> {
+    let data = raw_body(&request, "parse_audio_bank_bytes")?;
+    parse_audio_bank_inner(data)
+}
+
+/// Extract the raw byte slice from a raw-body IPC request.
+fn raw_body<'a>(request: &'a tauri::ipc::Request<'_>, cmd: &str) -> Result<&'a [u8], String> {
+    match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => Ok(bytes.as_slice()),
+        tauri::ipc::InvokeBody::Json(_) => {
+            Err(format!("{cmd} expects raw bytes; got JSON body"))
+        }
+    }
 }
 
 fn parse_audio_bank_inner(data: &[u8]) -> Result<AudioBankInfo, String> {
@@ -81,19 +96,43 @@ fn parse_audio_bank_inner(data: &[u8]) -> Result<AudioBankInfo, String> {
     }
 }
 
-/// Read a single WEM entry from a BNK/WPK file on disk.
+/// Read a single WEM entry from a BNK/WPK file on disk. Returns raw bytes.
 #[tauri::command]
-pub async fn read_audio_entry(path: String, file_id: u32) -> Result<Vec<u8>, String> {
+pub async fn read_audio_entry(
+    path: String,
+    file_id: u32,
+) -> Result<tauri::ipc::Response, String> {
     let data = tokio::fs::read(&path)
         .await
         .map_err(|e| format!("Failed to read file '{}': {}", path, e))?;
-    read_audio_entry_inner(&data, file_id)
+    let bytes = read_audio_entry_inner(&data, file_id)?;
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 /// Read a single WEM entry from in-memory BNK/WPK bytes.
+///
+/// Bank is sent as the raw request body; `file_id` rides in a header so the
+/// command still has a single binary payload. Avoids JSON encoding the bank
+/// twice (request) plus the WEM (response).
 #[tauri::command]
-pub async fn read_audio_entry_bytes(data: Vec<u8>, file_id: u32) -> Result<Vec<u8>, String> {
-    read_audio_entry_inner(&data, file_id)
+pub async fn read_audio_entry_bytes(
+    request: tauri::ipc::Request<'_>,
+) -> Result<tauri::ipc::Response, String> {
+    let data = raw_body(&request, "read_audio_entry_bytes")?;
+    let file_id = header_u32(&request, "file-id")?;
+    let bytes = read_audio_entry_inner(data, file_id)?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+fn header_u32(request: &tauri::ipc::Request<'_>, name: &str) -> Result<u32, String> {
+    let raw = request
+        .headers()
+        .get(name)
+        .ok_or_else(|| format!("Missing '{name}' header"))?
+        .to_str()
+        .map_err(|e| format!("Invalid '{name}' header: {e}"))?;
+    raw.parse::<u32>()
+        .map_err(|e| format!("Invalid u32 in '{name}': {e}"))
 }
 
 fn read_audio_entry_inner(data: &[u8], file_id: u32) -> Result<Vec<u8>, String> {
@@ -106,8 +145,8 @@ fn read_audio_entry_inner(data: &[u8], file_id: u32) -> Result<Vec<u8>, String> 
 
 /// Decode WEM bytes to playable audio (OGG or WAV).
 #[tauri::command]
-pub async fn decode_wem(wem_data: Vec<u8>) -> Result<DecodedAudio, String> {
-    // Run the CPU-intensive decoding in a blocking task
+pub async fn decode_wem(request: tauri::ipc::Request<'_>) -> Result<DecodedAudio, String> {
+    let wem_data = raw_body(&request, "decode_wem")?.to_vec();
     tokio::task::spawn_blocking(move || wem::decode_wem(&wem_data))
         .await
         .map_err(|e| format!("WEM decode task failed: {e}"))?
@@ -124,14 +163,20 @@ pub async fn parse_bnk_hirc(path: String) -> Result<Option<HircData>, String> {
 
 /// Parse HIRC section from in-memory BNK bytes.
 #[tauri::command]
-pub async fn parse_bnk_hirc_bytes(data: Vec<u8>) -> Result<Option<HircData>, String> {
-    hirc::parse_hirc_from_bnk(&data)
+pub async fn parse_bnk_hirc_bytes(
+    request: tauri::ipc::Request<'_>,
+) -> Result<Option<HircData>, String> {
+    let data = raw_body(&request, "parse_bnk_hirc_bytes")?;
+    hirc::parse_hirc_from_bnk(data)
 }
 
 /// Extract event names from a BIN file (raw bytes).
 #[tauri::command]
-pub async fn extract_bin_audio_events(data: Vec<u8>) -> Result<Vec<BinEventString>, String> {
-    Ok(event_mapper::extract_bin_events(&data))
+pub async fn extract_bin_audio_events(
+    request: tauri::ipc::Request<'_>,
+) -> Result<Vec<BinEventString>, String> {
+    let data = raw_body(&request, "extract_bin_audio_events")?;
+    Ok(event_mapper::extract_bin_events(data))
 }
 
 /// Map BIN events to WEM IDs via HIRC hierarchy.
@@ -243,10 +288,18 @@ pub async fn write_wpk(entries: Vec<AudioEntryData>) -> Result<Vec<u8>, String> 
     Ok(wpk::write_wpk(&audio_entries))
 }
 
-/// Save audio bytes to disk.
+/// Save audio bytes to disk. Path rides in a header so the body can stay raw.
 #[tauri::command]
-pub async fn save_audio_file(path: String, data: Vec<u8>) -> Result<(), String> {
-    tokio::fs::write(&path, &data)
+pub async fn save_audio_file(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let path = request
+        .headers()
+        .get("path")
+        .ok_or("Missing 'path' header on save_audio_file")?
+        .to_str()
+        .map_err(|e| format!("Invalid 'path' header: {}", e))?
+        .to_string();
+    let data = raw_body(&request, "save_audio_file")?;
+    tokio::fs::write(&path, data)
         .await
         .map_err(|e| format!("Failed to write '{}': {}", path, e))
 }
