@@ -6,7 +6,7 @@ use tauri::{AppHandle, Emitter};
 use walkdir::WalkDir;
 
 use flint_ltk::bin::ltk_bridge::{get_cached_bin_hashes, read_bin, MAX_BIN_SIZE};
-use flint_ltk::hash::{get_hash_dir, resolve_hashes_lmdb_bulk};
+use flint_ltk::hash::{get_hash_dir, resolve_hashes_lmdb_bulk, ResolvedHashes};
 use flint_ltk::wad::reader::WadReader;
 use crate::state::LmdbCacheState;
 
@@ -506,10 +506,10 @@ pub async fn aggregate_bin_schema(
         let chunks: Vec<_> = reader.chunks().iter().cloned().collect();
         let hash_u64s: Vec<u64> = chunks.iter().map(|c| c.path_hash()).collect();
 
-        let resolved_map: HashMap<u64, String> = if let Some(ref env) = env_opt {
+        let resolved_map: ResolvedHashes = if let Some(ref env) = env_opt {
             resolve_hashes_lmdb_bulk(&hash_u64s, env)
         } else {
-            HashMap::new()
+            ResolvedHashes::default()
         };
 
         // Process each chunk

@@ -11,10 +11,9 @@ use flint_ltk::project::{
 use flint_ltk::repath::{organize_project, OrganizerConfig};
 use flint_ltk::bin::{classify_bin, BinCategory};
 use flint_ltk::wad::extractor::{find_champion_wad, extract_skin_assets, wad_contains_skin_bin};
-use flint_ltk::hash::resolve_hashes_lmdb_bulk;
+use flint_ltk::hash::{resolve_hashes_lmdb_bulk, ResolvedHashes};
 use crate::state::LmdbCacheState;
 use crate::core::ipc_trace;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Instant;
 use tauri::Emitter;
@@ -169,7 +168,7 @@ pub async fn create_project(
     let extraction_result = tokio::task::spawn_blocking(move || {
         // Build LMDB resolver closure — point lookups only, no full table load
         let env = env_arc;
-        let resolve = move |hashes: &[u64]| -> HashMap<u64, String> {
+        let resolve = move |hashes: &[u64]| -> ResolvedHashes {
             resolve_hashes_lmdb_bulk(hashes, &env)
         };
 
@@ -764,6 +763,24 @@ pub async fn save_project(project: Project) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Lightweight existence check for a project directory.
+///
+/// `cleanStaleProjects` was firing `list_project_files` once per recent project
+/// at startup just to find dead entries — each call walks the entire project
+/// tree (250+ ms × N projects). This avoids the walk entirely.
+#[tauri::command]
+pub async fn project_path_valid(project_path: String) -> bool {
+    let path = PathBuf::from(&project_path);
+    if !path.is_dir() {
+        return false;
+    }
+    // A project directory must have one of the recognized config files —
+    // matches what `core_load_project` accepts as a project root.
+    path.join("mod.config.json").is_file()
+        || path.join("flint.json").is_file()
+        || path.join("project.json").is_file()
+}
+
 /// List files in a project directory
 ///
 /// # Arguments
@@ -784,42 +801,53 @@ pub async fn list_project_files(project_path: String) -> Result<serde_json::Valu
         return Err(format!("Project path does not exist: {}", project_path));
     }
     
+    // Walks each directory's children in parallel via rayon. The recursion
+    // itself is still per-directory, but every level fans out across the
+    // thread pool, so a wide project tree (champion content/ folders run
+    // 3-5 levels deep with 100s of children at each level) finishes in roughly
+    // 1/N the wall time of the old serial walk.
     fn build_tree(dir: &std::path::Path, base: &std::path::Path) -> serde_json::Value {
-        let mut tree = serde_json::Map::new();
-        
-        if let Ok(entries) = fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let entry_path = entry.path();
+        use rayon::prelude::*;
+
+        let entries: Vec<_> = match fs::read_dir(dir) {
+            Ok(e) => e.flatten().collect(),
+            Err(_) => return serde_json::Value::Object(serde_json::Map::new()),
+        };
+
+        let pairs: Vec<(String, serde_json::Value)> = entries
+            .into_par_iter()
+            .filter_map(|entry| {
                 let name = entry.file_name().to_string_lossy().to_string();
-                
-                // Skip .ritobin cache files - users should only see .bin files
+                // Skip .ritobin cache files — users should only see .bin files.
                 if name.ends_with(".ritobin") {
-                    continue;
+                    return None;
                 }
-                
+                let entry_path = entry.path();
                 let relative_path = entry_path.strip_prefix(base)
                     .unwrap_or(&entry_path)
                     .to_string_lossy()
                     .replace('\\', "/");
-                
-                if entry_path.is_dir() {
+
+                let value = if entry_path.is_dir() {
                     let children = build_tree(&entry_path, base);
-                    tree.insert(name, json!({
-                        "path": relative_path,
-                        "children": children
-                    }));
+                    json!({ "path": relative_path, "children": children })
                 } else {
-                    tree.insert(name, json!({
+                    json!({
                         "path": relative_path,
-                        "size": entry.metadata().map(|m| m.len()).unwrap_or(0)
-                    }));
-                }
-            }
+                        "size": entry.metadata().map(|m| m.len()).unwrap_or(0),
+                    })
+                };
+                Some((name, value))
+            })
+            .collect();
+
+        let mut tree = serde_json::Map::with_capacity(pairs.len());
+        for (k, v) in pairs {
+            tree.insert(k, v);
         }
-        
         serde_json::Value::Object(tree)
     }
-    
+
     let tree = tokio::task::spawn_blocking(move || build_tree(&path, &path))
         .await
         .map_err(|e| format!("Task failed: {}", e))?;

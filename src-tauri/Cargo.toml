@@ -50,6 +50,11 @@ anyhow = "1.0"
 parking_lot = "0.12"
 rayon = "1.10"
 
+# Fast hashing for u64-keyed maps (avoid SipHash on already-hashed xxh64 keys).
+# Keys in `load_all_wad_chunks` Phase 2 dedup + the resolver's per-thread maps
+# are xxh64 outputs; SipHash-1-3 on top of them is 5-10× slower than FxHash.
+rustc-hash = "2"
+
 # Hashing (matches flint-ltk's version — used by extract_hashes)
 xxhash-rust = { version = "0.8", features = ["xxh64"] }
 

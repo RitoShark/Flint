@@ -7,6 +7,7 @@
 //! the WAD into the project.
 
 use crate::error::{Error, Result};
+use crate::hash::ResolvedHashes;
 use crate::project::{create_project as core_create_project, Project};
 use crate::wad::extractor::{extract_full_wad_filtered, resolve_wad_paths, ExtractionResult};
 use league_toolkit::wad::{Wad, WadChunk};
@@ -188,7 +189,7 @@ pub fn list_available_maps(league_path: &Path) -> Result<Vec<MapEntry>> {
 pub fn list_map_variants(
     league_path: &Path,
     map_id: &str,
-    resolve_paths: impl Fn(&[u64]) -> HashMap<u64, String>,
+    resolve_paths: impl Fn(&[u64]) -> ResolvedHashes,
 ) -> Result<Vec<MapVariant>> {
     let maps = list_available_maps(league_path)?;
     let entry = maps.into_iter().find(|m| m.id.eq_ignore_ascii_case(map_id))
@@ -202,7 +203,7 @@ pub fn list_map_variants(
     let prefix = format!("data/maps/mapgeometry/{}/", map_id.to_lowercase());
     let mut variants: HashMap<String, MapVariant> = HashMap::new();
 
-    for (_hash, path) in resolved {
+    for (_hash, path) in resolved.iter() {
         let lower = path.to_lowercase();
         if !lower.starts_with(&prefix) { continue; }
         let rel = &lower[prefix.len()..];
@@ -212,19 +213,19 @@ pub fn list_map_variants(
 
         if let Some(base) = rel.strip_suffix(".mapgeo") {
             variants.entry(base.to_string())
-                .and_modify(|v| v.mapgeo = path.clone())
+                .and_modify(|v| v.mapgeo = path.to_string())
                 .or_insert_with(|| MapVariant {
                     name: base.to_string(),
-                    mapgeo: path.clone(),
+                    mapgeo: path.to_string(),
                     materials: String::new(),
                 });
         } else if let Some(base) = rel.strip_suffix(".materials.bin") {
             variants.entry(base.to_string())
-                .and_modify(|v| v.materials = path.clone())
+                .and_modify(|v| v.materials = path.to_string())
                 .or_insert_with(|| MapVariant {
                     name: base.to_string(),
                     mapgeo: String::new(),
-                    materials: path.clone(),
+                    materials: path.to_string(),
                 });
         }
     }
@@ -280,7 +281,7 @@ pub fn create_map_project(
     author: Option<String>,
     mode: MapExtractMode,
     variant_name: Option<&str>,
-    resolve_paths: impl Fn(&[u64]) -> HashMap<u64, String> + Send + Sync,
+    resolve_paths: impl Fn(&[u64]) -> ResolvedHashes + Send + Sync,
     progress: impl Fn(&str, &str),
 ) -> Result<MapProjectResult> {
     progress("init", "Locating map WADs...");

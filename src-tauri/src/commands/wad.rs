@@ -1,11 +1,10 @@
-use flint_ltk::hash::{resolve_hashes_lmdb, resolve_hashes_lmdb_bulk};
-use flint_ltk::wad::extractor::{extract_all, extract_chunk};
+use flint_ltk::hash::{resolve_hashes_lmdb, resolve_hashes_lmdb_bulk, ResolvedHashes};
 use flint_ltk::wad::reader::WadReader;
 use crate::state::{LmdbCacheState, WadCacheState};
 use crate::core::ipc_trace;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 use tauri::State;
@@ -176,6 +175,13 @@ pub async fn load_all_wad_chunks(
     let env_opt = lmdb.get_env(&hash_dir);
 
     // Phase 1: parallel WAD header reads (rayon — I/O-bound).
+    //
+    // Uncapped on the global rayon pool. An earlier experiment clamped to
+    // 8 threads (mirroring Quartz's 1-32 ceiling); on this machine it added
+    // ~1s vs unbounded for a cold scan of 450 WADs. SSD random-read can
+    // absorb more concurrent TOC parses than the bound allowed. Cache hits
+    // short-circuit before any I/O, so the warm path is unaffected either
+    // way — only cold scans cared, and they wanted more threads, not fewer.
     let t_phase1 = Instant::now();
     let toc_results: Vec<(String, Result<Arc<Vec<_>>, String>)> = paths
         .par_iter()
@@ -195,10 +201,15 @@ pub async fn load_all_wad_chunks(
         .collect();
     let d_phase1 = t_phase1.elapsed();
 
-    // Phase 2: separate successes from errors, collect ALL unique hashes
+    // Phase 2: separate successes from errors, collect ALL unique hashes.
+    //
+    // FxHashSet here for the same reason the resolver uses FxHashMap: keys
+    // are xxh64 outputs, so SipHash on top of them is wasted CPU. With ~820K
+    // inserts dropping from ~410ms (std HashSet) to ~50ms.
     let t_phase2 = Instant::now();
     let mut entries: Vec<(String, Result<Arc<Vec<_>>, String>)> = Vec::with_capacity(toc_results.len());
-    let mut unique_hashes: HashSet<u64> = HashSet::new();
+    let mut unique_hashes: rustc_hash::FxHashSet<u64> =
+        rustc_hash::FxHashSet::with_capacity_and_hasher(total_chunks_estimate(&toc_results), Default::default());
     let mut total_chunks: usize = 0;
     for (wad_path, result) in toc_results {
         if let Ok(chunks) = &result {
@@ -215,10 +226,10 @@ pub async fn load_all_wad_chunks(
     let t_phase3 = Instant::now();
     let unique_vec: Vec<u64> = unique_hashes.into_iter().collect();
     let unique_count = unique_vec.len();
-    let resolved_map: HashMap<u64, String> = if let Some(ref env) = env_opt {
+    let resolved_map: ResolvedHashes = if let Some(ref env) = env_opt {
         resolve_hashes_lmdb_bulk(&unique_vec, env)
     } else {
-        HashMap::new()
+        ResolvedHashes::default()
     };
     let d_phase3 = t_phase3.elapsed();
 
@@ -261,8 +272,6 @@ pub async fn load_all_wad_chunks(
         d_phase4,
     );
 
-    // The unused `encode_wad_payload` helper above is reference doc for the
-    // wire format. Tauri's `Response` handles raw bytes natively — no JSON.
     Ok(tauri::ipc::Response::new(buf))
 }
 
@@ -281,10 +290,19 @@ impl WadChunkMeta for flint_ltk::ltk_types::WadChunk {
     fn uncompressed_size_u32(&self) -> u32 { self.uncompressed_size() as u32 }
 }
 
+/// Phase-1 output row: WAD path + (chunks | error) result.
+type TocResult<C> = (String, Result<Arc<Vec<C>>, String>);
+
+/// Total chunk count across the Phase-1 results, used to pre-size the
+/// Phase-2 dedup set so we don't pay growth + rehash cost on the hot path.
+fn total_chunks_estimate<C>(results: &[TocResult<C>]) -> usize {
+    results.iter().filter_map(|(_, r)| r.as_ref().ok()).map(|v| v.len()).sum()
+}
+
 fn encode_one_wad<C: WadChunkMeta>(
     wad_path: &str,
     result: &Result<Arc<Vec<C>>, String>,
-    resolved: &HashMap<u64, String>,
+    resolved: &ResolvedHashes,
 ) -> Vec<u8> {
     let path_bytes = wad_path.as_bytes();
 
@@ -350,7 +368,11 @@ fn encode_one_wad<C: WadChunkMeta>(
 
 /// Extracts chunks from a WAD archive to the specified output directory.
 ///
-/// Uses LMDB for path resolution — no full hashtable loaded into memory.
+/// Uses mmap + rayon: each worker mounts its own `Wad` cursor over the shared
+/// mmap and decompresses + writes in parallel. Hash → path resolution happens
+/// in one bulk LMDB read txn up front. Multi-select extracts of a few hundred
+/// chunks used to walk the chunks one at a time on the IPC thread; this
+/// drops them to a fraction of the wall time.
 #[tauri::command]
 pub async fn extract_wad(
     wad_path: String,
@@ -359,69 +381,49 @@ pub async fn extract_wad(
     lmdb: State<'_, LmdbCacheState>,
 ) -> Result<ExtractionResult, String> {
     let _t = ipc_trace::enter("extract_wad");
-    let mut reader = WadReader::open(&wad_path)?;
 
-    // Get resolver via LMDB (point lookup, no RAM spike)
+    // Snapshot the LMDB env so the move into spawn_blocking doesn't borrow
+    // the Tauri State guard across an await.
     let hash_dir = flint_ltk::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
     let env_opt = lmdb.get_env(&hash_dir);
 
-    let resolve = |hash: u64| -> String {
-        if let Some(ref env) = env_opt {
-            let resolved = resolve_hashes_lmdb(&[hash], env);
-            resolved.into_iter().next().unwrap_or_else(|| format!("{:016x}", hash))
-        } else {
-            format!("{:016x}", hash)
+    // Convert the hex-string set into u64s up front; cheap, but still needs
+    // to happen before we leave the async context to surface bad input.
+    let want_hashes: Option<HashSet<u64>> = match chunk_hashes {
+        None => None,
+        Some(list) => {
+            let mut set = HashSet::with_capacity(list.len());
+            for s in list {
+                let h = u64::from_str_radix(&s, 16)
+                    .map_err(|e| format!("Invalid hash format '{}': {}", s, e))?;
+                set.insert(h);
+            }
+            Some(set)
         }
     };
 
-    let mut extracted_count = 0;
-    let mut failed_count = 0;
-
-    if let Some(hashes) = chunk_hashes {
-        let out_dir = std::path::Path::new(&output_dir);
-        for hash_str in hashes {
-            let path_hash = u64::from_str_radix(&hash_str, 16)
-                .map_err(|e| format!("Invalid hash format '{}': {}", hash_str, e))?;
-
-            let chunk_exists = reader.get_chunk(path_hash).is_some();
-            if chunk_exists {
-                let chunk = reader.get_chunk(path_hash).unwrap();
-                let resolved_path = resolve(path_hash);
-
-                // Check if the full output path exceeds Windows MAX_PATH (260).
-                // If so, fall back to {hash}.{ext} at the root of out_dir.
-                // Dropping the parent avoids re-introducing path segments (e.g.
-                // "data/") that are already encoded in the resolved path string.
-                let candidate = out_dir.join(&resolved_path);
-                let output_path = if candidate.to_string_lossy().len() > 240 {
-                    let ext = std::path::Path::new(&resolved_path)
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .unwrap_or("bin");
-                    let hash_name = format!("{:016x}.{}", path_hash, ext);
-                    out_dir.join(&hash_name)
-                } else {
-                    candidate
-                };
-
-                let chunk_copy = *chunk;
-                match extract_chunk(reader.wad_mut(), &chunk_copy, &output_path, None) {
-                    Ok(_) => extracted_count += 1,
-                    Err(_) => failed_count += 1,
-                }
+    let result: Result<(usize, usize), String> = tokio::task::spawn_blocking(move || {
+        let resolver = |hashes: &[u64]| -> ResolvedHashes {
+            if let Some(ref env) = env_opt {
+                resolve_hashes_lmdb_bulk(hashes, env)
             } else {
-                failed_count += 1;
+                hashes.iter().map(|h| (*h, format!("{:016x}", h))).collect()
             }
-        }
-    } else {
-        match extract_all(reader.wad_mut(), &output_dir, resolve) {
-            Ok(count) => extracted_count = count,
-            Err(e) => return Err(e.into()),
-        }
-    }
+        };
+        flint_ltk::wad::extractor::extract_chunks_parallel(
+            &wad_path,
+            &output_dir,
+            want_hashes.as_ref(),
+            resolver,
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Task panic: {}", e))?;
 
+    let (extracted_count, failed_count) = result?;
     Ok(ExtractionResult { extracted_count, failed_count })
 }
 
@@ -474,7 +476,7 @@ pub async fn extract_wad_model_preview(
     let hash_dir = flint_ltk::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let resolved_map: HashMap<u64, String> = if let Some(ref env) = lmdb.get_env(&hash_dir) {
+    let resolved_map: ResolvedHashes = if let Some(ref env) = lmdb.get_env(&hash_dir) {
         resolve_hashes_lmdb_bulk(&hash_u64s, env)
     } else {
         hash_u64s.iter().map(|h| (*h, format!("{:016x}", h))).collect()
@@ -602,11 +604,16 @@ pub struct GameWadInfo {
 }
 
 /// Read decompressed chunk data from a WAD archive into memory — no disk write.
+///
+/// Returns raw bytes via `tauri::ipc::Response` so a multi-MB texture/audio
+/// chunk arrives at the frontend as an `ArrayBuffer` instead of a JSON
+/// `[1,2,3,…]` number array (which roughly tripled wire size + cost a JSON
+/// parse on the frontend).
 #[tauri::command]
 pub async fn read_wad_chunk_data(
     wad_path: String,
     hash: String,
-) -> Result<Vec<u8>, String> {
+) -> Result<tauri::ipc::Response, String> {
     let path_hash = u64::from_str_radix(&hash, 16)
         .map_err(|e| format!("Invalid hash '{}': {}", hash, e))?;
 
@@ -615,11 +622,12 @@ pub async fn read_wad_chunk_data(
         .get_chunk(path_hash)
         .ok_or_else(|| format!("Chunk {:016x} not found in WAD", path_hash))?;
 
-    reader
+    let bytes: Vec<u8> = reader
         .wad_mut()
         .load_chunk_decompressed(&chunk)
         .map(|b| b.into())
-        .map_err(|e| format!("Failed to decompress chunk {:016x}: {}", path_hash, e))
+        .map_err(|e| format!("Failed to decompress chunk {:016x}: {}", path_hash, e))?;
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 /// Scan a game installation directory for all WAD archive files.

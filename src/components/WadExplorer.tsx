@@ -140,7 +140,10 @@ type SearchMode = 'contains' | 'starts' | 'regex';
 
 function matchChunk(chunk: WadChunk, re: RegExp | null, plain: string, mode: SearchMode): boolean {
     if (mode === 'regex') return re ? re.test(chunk.path ?? chunk.hash) : false;
-    const haystack = chunk.path?.toLowerCase() ?? chunk.hash;
+    // `haystack` is precomputed (lowercased path, or hash if unresolved) at
+    // decode time — see decodeWadChunkPayload in api.ts. Falling back to the
+    // old re-lowercase path keeps callers that build chunks by hand working.
+    const haystack = chunk.haystack ?? (chunk.path?.toLowerCase() ?? chunk.hash);
     if (mode === 'starts') {
         // Match either the file basename or the full path starting with the query
         const slash = haystack.lastIndexOf('/');
@@ -581,6 +584,14 @@ interface VirtualizedListProps {
     rowHeight: number;
     overscan: number;
     renderRow: (index: number) => React.ReactNode;
+    /**
+     * Bumps whenever any state that affects row visuals changes (selection,
+     * checkboxes, expanded sets, highlights, …). The memo'd `VirtualizedList`
+     * uses it as a cache-buster so visible rows re-render in place — without
+     * this, `renderRow` is held in a ref and props look identical, so React
+     * skips the update until a scroll mutates the list's own state.
+     */
+    renderEpoch: number;
 }
 
 interface VirtualizedListHandle {
@@ -588,7 +599,7 @@ interface VirtualizedListHandle {
 }
 
 const VirtualizedListInner = React.forwardRef<VirtualizedListHandle, VirtualizedListProps>(
-    ({ totalRows, rowHeight, overscan, renderRow }, ref) => {
+    ({ totalRows, rowHeight, overscan, renderRow /* , renderEpoch — only here as a memo cache-buster */ }, ref) => {
     const [scrollTop, setScrollTop] = React.useState(0);
     const [containerHeight, setContainerHeight] = React.useState(600);
     const containerRef = React.useRef<HTMLDivElement>(null);
@@ -1713,14 +1724,24 @@ export const WadExplorer: React.FC = () => {
         return m;
     }, [wadExplorer.wads, wadExplorer.expandedWads]);
 
-    // ── Pre-computed check states (avoid re-computing per row) ─────────────
-    const wadCheckStates = useMemo(() => {
-        const m = new Map<string, 'none' | 'some' | 'all'>();
-        for (const w of wadExplorer.wads) {
-            m.set(w.path, getWadCheckState(w, wadExplorer.checkedFiles));
-        }
-        return m;
-    }, [wadExplorer.wads, wadExplorer.checkedFiles]);
+    // ── O(1) WAD check state (no full chunk walk) ─────────────────────────
+    // Was: rebuild Map<wadPath, 'all'|'some'|'none'> on every toggle by
+    // iterating every chunk of every loaded WAD — for a champion WAD with
+    // 80k chunks and 450 WADs in scope, a single checkbox click was doing
+    // millions of `Set.has + string-build` lookups before paint.
+    // Now: store maintains a `checkedCountPerWad` tally incrementally; the
+    // tri-state is just `count` vs `wad.chunks.length`.
+    const checkedCountPerWad = wadExplorer.checkedCountPerWad;
+    const getWadCheckStateFast = useCallback(
+        (wad: WadExplorerWad): 'none' | 'some' | 'all' => {
+            if (wad.status !== 'loaded' || wad.chunks.length === 0) return 'none';
+            const count = checkedCountPerWad.get(wad.path) ?? 0;
+            if (count === 0) return 'none';
+            if (count >= wad.chunks.length) return 'all';
+            return 'some';
+        },
+        [checkedCountPerWad],
+    );
 
     const toolbarCheckState = useMemo((): 'none' | 'some' | 'all' => {
         if (wadExplorer.checkedFiles.size === 0) return 'none';
@@ -1733,6 +1754,45 @@ export const WadExplorer: React.FC = () => {
         if (wadExplorer.checkedFiles.size >= total) return 'all';
         return 'some';
     }, [wadExplorer.wads, wadExplorer.checkedFiles]);
+
+    // ── Lazy folder/search check-state caches ─────────────────────────────
+    // Old precompute walked every expanded folder subtree on every toggle —
+    // for a champion WAD that's potentially the entire tree. With virtualized
+    // rendering we only need check states for currently-visible rows (~30),
+    // so we compute on demand and cache by node identity. Cache is rebuilt
+    // whenever `checkedFiles` changes (its identity flips on every toggle).
+    const folderCheckStateCacheRef = useRef<WeakMap<VFSFolder, 'none' | 'some' | 'all'>>(
+        new WeakMap(),
+    );
+    const searchCheckStateCacheRef = useRef<Map<string, 'none' | 'some' | 'all'>>(new Map());
+    useMemo(() => {
+        folderCheckStateCacheRef.current = new WeakMap();
+        searchCheckStateCacheRef.current = new Map();
+    }, [wadExplorer.checkedFiles]);
+
+    const getFolderCheckStateLazy = useCallback(
+        (node: VFSFolder, wadPath: string): 'none' | 'some' | 'all' => {
+            const cache = folderCheckStateCacheRef.current;
+            const cached = cache.get(node);
+            if (cached !== undefined) return cached;
+            const state = getFolderCheckState(node, wadPath, wadExplorer.checkedFiles);
+            cache.set(node, state);
+            return state;
+        },
+        [wadExplorer.checkedFiles],
+    );
+
+    const getSearchCheckStateLazy = useCallback(
+        (cacheKey: string, getKeys: () => string[]): 'none' | 'some' | 'all' => {
+            const cache = searchCheckStateCacheRef.current;
+            const cached = cache.get(cacheKey);
+            if (cached !== undefined) return cached;
+            const state = getCheckStateForKeys(getKeys(), wadExplorer.checkedFiles);
+            cache.set(cacheKey, state);
+            return state;
+        },
+        [wadExplorer.checkedFiles],
+    );
 
     // ── Memoized flat rows (tree mode) ───────────────────────────────────────
     // NOT dependent on `selected` or `checkedFiles` — selection/check clicks
@@ -1762,46 +1822,35 @@ export const WadExplorer: React.FC = () => {
 
     const totalRows = isSearching ? (flatSearchRows?.length ?? 0) : (flatRows?.length ?? 0);
 
-    // ── Pre-computed folder check states (O(1) lookup instead of subtree walk per row) ──
-    const folderCheckStates = useMemo(() => {
-        const m = new Map<string, 'none' | 'some' | 'all'>();
-        if (wadExplorer.checkedFiles.size === 0) return m;
-        for (const [wadPath, subtree] of wadSubtrees) {
-            const walkFolders = (nodes: VFSNode[]) => {
-                for (const node of nodes) {
-                    if (node.type === 'folder') {
-                        const { effectiveNode } = compactVFSNode(node);
-                        m.set(effectiveNode.key, getFolderCheckState(effectiveNode, wadPath, wadExplorer.checkedFiles));
-                        if (wadExplorer.expandedFolders.has(effectiveNode.key)) {
-                            walkFolders(effectiveNode.children);
-                        }
-                    }
-                }
-            };
-            walkFolders(subtree);
-        }
-        return m;
-    }, [wadSubtrees, wadExplorer.checkedFiles, wadExplorer.expandedFolders]);
-
-    // ── Pre-computed search check states ──────────────────────────────────────
-    const searchCheckStates = useMemo(() => {
-        if (!groupedSearchResults) return new Map<string, 'none' | 'some' | 'all'>();
-        const m = new Map<string, 'none' | 'some' | 'all'>();
-        for (const group of groupedSearchResults) {
-            const wadMatchKeys = group.folders.flatMap(f => f.files.map(file => makeFileKey(group.wadPath, file.chunk.hash)));
-            m.set(group.wadPath, getCheckStateForKeys(wadMatchKeys, wadExplorer.checkedFiles));
-            for (const folder of group.folders) {
-                const folderKey = `${group.wadPath}::s::${folder.folderPath}`;
-                const fKeys = folder.files.map(f => makeFileKey(group.wadPath, f.chunk.hash));
-                m.set(folderKey, getCheckStateForKeys(fKeys, wadExplorer.checkedFiles));
-            }
-        }
-        return m;
-    }, [groupedSearchResults, wadExplorer.checkedFiles]);
+    // Folder + search check states are computed lazily inside `renderRow` via
+    // `getFolderCheckStateLazy` / `getSearchCheckStateLazy` — only the ~30
+    // visible rows pay the subtree-walk cost on a checkbox toggle, instead
+    // of every expanded folder in the entire tree.
 
     // ── Stable renderRow ref (prevents VirtualizedList re-renders) ───────────
+    // The memo'd `VirtualizedList` only sees this stable function reference,
+    // so its props are stable too. To still let visible rows refresh when
+    // something they read from closure changes (checks, selection, expanded
+    // sets, highlight), we pass a `renderEpoch` cache-buster prop derived
+    // from those state slices — when any of them changes, the epoch bumps,
+    // the memo compare misses, and the visible rows re-render in place.
+    // Without this, you had to scroll (which mutates the list's internal
+    // `scrollTop`) before the UI caught up.
     const renderRowRef = useRef<(index: number) => React.ReactNode>(() => null);
     const stableRenderRow = useCallback((index: number) => renderRowRef.current(index), []);
+    const renderEpoch = useMemo(() => Date.now(), [
+        wadExplorer.checkedFiles,
+        wadExplorer.selected,
+        wadExplorer.expandedWads,
+        wadExplorer.expandedFolders,
+        highlightedKey,
+        collapsedCategories,
+        collapsedSearchWads,
+        collapsedSearchFolders,
+        groupedSearchResults,
+        flatRows,
+        flatSearchRows,
+    ]);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Row renderers (assigned to ref so VirtualizedList never sees prop change)
@@ -1814,7 +1863,9 @@ export const WadExplorer: React.FC = () => {
             switch (row.kind) {
                 case 'search-wad': {
                     const isWadCollapsed = collapsedSearchWads.has(row.wadPath);
-                    const checkState = searchCheckStates.get(row.wadPath) ?? 'none';
+                    const checkState = getSearchCheckStateLazy(row.wadPath, () =>
+                        row.folders.flatMap(f => f.files.map(m => makeFileKey(row.wadPath, m.chunk.hash))),
+                    );
                     return (
                         <div
                             className="file-tree__item"
@@ -1852,7 +1903,11 @@ export const WadExplorer: React.FC = () => {
                 case 'search-folder': {
                     const folderKey = `${row.wadPath}::s::${row.folderPath}`;
                     const isFolderCollapsed = collapsedSearchFolders.has(folderKey);
-                    const checkState = searchCheckStates.get(folderKey) ?? 'none';
+                    const checkState = getSearchCheckStateLazy(folderKey, () => {
+                        const group = groupedSearchResults?.find(g => g.wadPath === row.wadPath);
+                        const folder = group?.folders.find(f => f.folderPath === row.folderPath);
+                        return folder?.files.map(f => makeFileKey(row.wadPath, f.chunk.hash)) ?? [];
+                    });
                     return (
                         <div
                             className="file-tree__item"
@@ -1869,7 +1924,7 @@ export const WadExplorer: React.FC = () => {
                                 if (!folder) return;
                                 const fileKeys = folder.files.map(f => makeFileKey(row.wadPath, f.chunk.hash));
                                 const hashes = folder.files.map(f => f.chunk.hash);
-                                const fcs = searchCheckStates.get(folderKey) ?? 'none';
+                                const fcs = getSearchCheckStateLazy(folderKey, () => fileKeys);
                                 const options: Array<{ label: string; icon?: string; onClick: () => void; separator?: boolean }> = [
                                     {
                                         label: fcs === 'all' ? 'Uncheck All in Folder' : 'Check All in Folder',
@@ -1989,12 +2044,12 @@ export const WadExplorer: React.FC = () => {
                             <span
                                 className="file-tree__checkbox"
                                 style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0 }}
-                                dangerouslySetInnerHTML={{ __html: checkboxSvg(wadCheckStates.get(wad.path) ?? 'none') }}
+                                dangerouslySetInnerHTML={{ __html: checkboxSvg(getWadCheckStateFast(wad)) }}
                                 onClick={e => {
                                     e.stopPropagation();
                                     if (wad.status === 'loaded') {
                                         const keys = wad.chunks.map(c => makeFileKey(wad.path, c.hash));
-                                        handleToggleCheck(keys, (wadCheckStates.get(wad.path) ?? 'none') !== 'all');
+                                        handleToggleCheck(keys, getWadCheckStateFast(wad) !== 'all');
                                     }
                                 }}
                             />
@@ -2022,7 +2077,9 @@ export const WadExplorer: React.FC = () => {
                 case 'folder': {
                     const indent = row.depth * 14;
                     const isExp = wadExplorer.expandedFolders.has(row.effectiveNode.key);
-                    const folderCheckState = folderCheckStates.get(row.effectiveNode.key) ?? 'none';
+                    const folderCheckState = row.wadPath
+                        ? getFolderCheckStateLazy(row.effectiveNode, row.wadPath)
+                        : 'none';
                     return (
                         <div
                             className="file-tree__item"
@@ -2272,6 +2329,7 @@ export const WadExplorer: React.FC = () => {
                             rowHeight={ROW_HEIGHT}
                             overscan={OVERSCAN}
                             renderRow={stableRenderRow}
+                            renderEpoch={renderEpoch}
                         />
                     )}
                 </div>

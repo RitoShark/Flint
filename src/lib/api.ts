@@ -3,7 +3,7 @@
  * Async wrappers for all Tauri commands with error handling
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, type InvokeArgs, type InvokeOptions } from '@tauri-apps/api/core';
 import type { HashStatus, Project, FileTreeNode, Champion, GameWadInfo, AudioBankInfo, DecodedAudio, HircData, BinEventString, EventMapping, RecentProject, SavedProject } from './types';
 
 // =============================================================================
@@ -207,6 +207,73 @@ async function invokeCommand<T>(
 
     try {
         const result = await invoke<T>(command, args);
+        if (trace) {
+            const ms = performance.now() - start;
+            inFlight.delete(id);
+            lastSettleTime = performance.now();
+            const s = stats.get(command) ?? { count: 0, totalMs: 0, maxMs: 0 };
+            s.count++; s.totalMs += ms; if (ms > s.maxMs) s.maxMs = ms;
+            stats.set(command, s);
+            // eslint-disable-next-line no-console
+            console.log(`[ipc#${id} ✓] ${command} ${ms.toFixed(1)}ms`);
+        }
+        return result;
+    } catch (error) {
+        if (trace) {
+            const ms = performance.now() - start;
+            inFlight.delete(id);
+            lastSettleTime = performance.now();
+            // eslint-disable-next-line no-console
+            console.warn(`[ipc#${id} ✗] ${command} ${ms.toFixed(1)}ms — ${String(error).slice(0, 200)}`);
+        }
+        if (!opts.silent) {
+            console.error(`[Flint] Command "${command}" failed:`, error);
+        }
+        throw new FlintError(command, error);
+    }
+}
+
+/**
+ * Variant of `invokeCommand` for the raw-bytes IPC path.
+ *
+ * Pass an ArrayBuffer / Uint8Array as `body` to send a raw request body
+ * (Tauri's `tauri::ipc::Request<'_>` on the Rust side) instead of the default
+ * JSON encoding. Scalar args ride along in `headers` — `String` values only,
+ * since this is HTTP-style transport. Use `expectRawResponse: true` when the
+ * command returns `tauri::ipc::Response::new(bytes)` and you want the
+ * ArrayBuffer back without going through JSON.
+ *
+ * Why this exists: `Array.from(uint8)` on the way out + `[1,2,3,…]` JSON on
+ * the way back was the dominant cost for multi-MB payloads (textures, audio
+ * banks, WAD chunks). The raw path is a `memcpy` on each side.
+ */
+async function invokeRaw<T>(
+    command: string,
+    body: ArrayBuffer | ArrayBufferView | Uint8Array | undefined,
+    headers: Record<string, string> = {},
+    opts: { silent?: boolean } = {},
+): Promise<T> {
+    const trace = ipcTraceEnabled();
+    const id = ++ipcCounter;
+    const start = performance.now();
+
+    if (trace) {
+        const sinceLastDispatch = lastDispatchTime ? (start - lastDispatchTime).toFixed(1) : '—';
+        const sinceLastSettle = lastSettleTime ? (start - lastSettleTime).toFixed(1) : '—';
+        const concurrent = inFlight.size;
+        // eslint-disable-next-line no-console
+        console.log(
+            `[ipc#${id} ▶] ${command} (raw)  (gap-since-dispatch=${sinceLastDispatch}ms, gap-since-settle=${sinceLastSettle}ms, in-flight=${concurrent})`,
+        );
+        inFlight.set(id, { command, start });
+        lastDispatchTime = start;
+    }
+
+    const args: InvokeArgs = (body ?? new Uint8Array()) as InvokeArgs;
+    const options: InvokeOptions = { headers };
+
+    try {
+        const result = await invoke<T>(command, args, options);
         if (trace) {
             const ms = performance.now() - start;
             inFlight.delete(id);
@@ -529,6 +596,15 @@ export async function listProjectFiles(projectPath: string): Promise<FileTreeNod
     return transformFileTree(rawTree, 'Project');
 }
 
+/**
+ * Lightweight existence + manifest check for a project directory. Use this
+ * when you only need to know "is this project still valid?" — far cheaper than
+ * `listProjectFiles`, which recursively walks the entire content/ tree.
+ */
+export async function projectPathValid(projectPath: string): Promise<boolean> {
+    return invokeCommand('project_path_valid', { projectPath });
+}
+
 export async function preconvertProjectBins(projectPath: string): Promise<number> {
     return invokeCommand('preconvert_project_bins', { projectPath });
 }
@@ -598,14 +674,22 @@ export async function readWad(wadPath: string): Promise<{ version: string; chunk
 }
 
 export async function getWadChunks(
-    wadPath: string
+    wadPath: string,
 ): Promise<Array<{ hash: string; path: string | null; size: number }>> {
-    return invokeCommand('get_wad_chunks', { path: wadPath });
+    // Route through the binary-wire `load_all_wad_chunks` so a typical
+    // 1500-chunk WAD doesn't pay the JSON encode/decode cost. Same shape as
+    // before — only the transport changes.
+    const batches = await loadAllWadChunks([wadPath]);
+    const batch = batches[0];
+    if (batch?.error) {
+        throw new FlintError('get_wad_chunks', batch.error);
+    }
+    return batch?.chunks ?? [];
 }
 
 export interface WadChunkBatch {
     path: string;
-    chunks: Array<{ hash: string; path: string | null; size: number }>;
+    chunks: Array<{ hash: string; path: string | null; size: number; haystack: string }>;
     error: string | null;
 }
 
@@ -687,13 +771,20 @@ function decodeWadChunkPayload(bytes: Uint8Array): WadChunkBatch[] {
             const plen = view.getUint16(lensOff + i * 2, true);
 
             let path: string | null;
+            let haystack: string;
             if (plen === 0xFFFF) {
                 path = null;
+                haystack = hash;
             } else {
                 path = utf8.decode(bytes.subarray(stringsOff, stringsOff + plen));
                 stringsOff += plen;
+                // Pre-lowercase once. The WAD-explorer search runs `includes`
+                // / `startsWith` against this on every debounced keystroke,
+                // and re-lowercasing 36M chunks per query was the dominant
+                // cost for "all-WADs-loaded" workflows.
+                haystack = path.toLowerCase();
             }
-            chunks[i] = { hash, path, size };
+            chunks[i] = { hash, path, size, haystack };
         }
         off = stringsOff;
         out[w] = { path, chunks, error: null };
@@ -740,8 +831,8 @@ export async function extractWad(
  * Returns the decompressed raw bytes of the chunk.
  */
 export async function readWadChunkData(wadPath: string, hash: string): Promise<Uint8Array> {
-    const result = await invokeCommand<number[]>('read_wad_chunk_data', { wadPath, hash });
-    return new Uint8Array(result);
+    const buf = await invokeCommand<ArrayBuffer>('read_wad_chunk_data', { wadPath, hash });
+    return new Uint8Array(buf);
 }
 
 /**
@@ -808,11 +899,11 @@ export async function cleanupWadModelPreview(tempDir: string): Promise<void> {
 // =============================================================================
 
 export async function convertBinToText(binData: Uint8Array): Promise<string> {
-    return invokeCommand('convert_bin_bytes_to_text', { binData: Array.from(binData) });
+    return invokeRaw('convert_bin_bytes_to_text', binData);
 }
 
 export async function convertBinToJson(binData: Uint8Array): Promise<unknown> {
-    return invokeCommand('convert_bin_bytes_to_json', { binData: Array.from(binData) });
+    return invokeRaw('convert_bin_bytes_to_json', binData);
 }
 
 export async function convertTextToBin(textContent: string): Promise<Uint8Array> {
@@ -829,12 +920,19 @@ export async function readBinInfo(binData: Uint8Array): Promise<{ version: strin
     return invokeCommand('read_bin_info', { binData: Array.from(binData) });
 }
 
+// Multi-MB ritobin text comes back as raw UTF-8 bytes — `TextDecoder` is
+// faster than `JSON.parse('"..."')` for huge strings and avoids the
+// backslash-escape round-trip on the Rust side.
+const utf8Decoder = new TextDecoder('utf-8');
+
 export async function parseBinFileToText(path: string): Promise<string> {
-    return invokeCommand('parse_bin_file_to_text', { path });
+    const buf = await invokeCommand<ArrayBuffer>('parse_bin_file_to_text', { path });
+    return utf8Decoder.decode(buf);
 }
 
 export async function readOrConvertBin(binPath: string, useJade?: boolean): Promise<string> {
-    return invokeCommand('read_or_convert_bin', { binPath, useJade });
+    const buf = await invokeCommand<ArrayBuffer>('read_or_convert_bin', { binPath, useJade });
+    return utf8Decoder.decode(buf);
 }
 
 export async function saveRitobinToBin(binPath: string, content: string, useJade?: boolean): Promise<void> {
@@ -854,8 +952,10 @@ export async function getBinPaths(binPath: string): Promise<unknown[]> {
 // =============================================================================
 
 export async function readFileBytes(path: string, opts: { silent?: boolean } = {}): Promise<Uint8Array> {
-    const result = await invokeCommand<number[]>('read_file_bytes', { path }, opts);
-    return new Uint8Array(result);
+    // Backend returns `tauri::ipc::Response::new(bytes)` — Tauri delivers it as
+    // an ArrayBuffer (no JSON encode/decode of the byte array).
+    const buf = await invokeCommand<ArrayBuffer>('read_file_bytes', { path }, opts);
+    return new Uint8Array(buf);
 }
 
 interface FileInfo {
@@ -890,27 +990,33 @@ export async function decodeDdsToPng(path: string): Promise<DecodedTexture> {
  * Used by the WAD browser for in-memory preview — no disk file needed.
  */
 export async function decodeBytesToPng(data: Uint8Array): Promise<DecodedTexture> {
-    return invokeCommand('decode_bytes_to_png', { data: Array.from(data) });
+    // Send the texture as a raw request body — `Array.from(uint8)` was costing
+    // ~3× the wire size and a JSON encode/decode on multi-MB textures.
+    return invokeRaw('decode_bytes_to_png', data);
 }
 
 /**
  * Get bundled floor texture as PNG bytes (MindCorpViewer floor.dds pre-converted)
  */
 export async function getBundledFloorPng(): Promise<Uint8Array> {
-    const bytes: number[] = await invokeCommand('get_bundled_floor_png', {});
-    return new Uint8Array(bytes);
+    const buf = await invokeCommand<ArrayBuffer>('get_bundled_floor_png', {});
+    return new Uint8Array(buf);
 }
 
 export async function readTextFile(path: string): Promise<string> {
-    return invokeCommand('read_text_file', { path });
+    const buf = await invokeCommand<ArrayBuffer>('read_text_file', { path });
+    return utf8Decoder.decode(buf);
 }
 
 export async function writeTextFile(path: string, content: string): Promise<void> {
     return invokeCommand('write_text_file', { path, content });
 }
 
-export async function saveFileBytes(path: string, data: number[]): Promise<void> {
-    return invokeCommand('save_file_bytes', { path, data });
+export async function saveFileBytes(path: string, data: Uint8Array | number[]): Promise<void> {
+    // Path travels in a header, bytes go in the request body — no JSON encoding
+    // for what's typically a thumbnail or other multi-KB binary.
+    const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+    return invokeRaw('save_file_bytes', bytes, { path });
 }
 
 export async function recolorImage(
@@ -1012,43 +1118,171 @@ interface MaterialRange {
     vertex_count: number;
 }
 
-interface SknMeshData {
-    materials: MaterialRange[];
-    positions: [number, number, number][];
-    normals: [number, number, number][];
-    uvs: [number, number][];
-    indices: number[];
-    bounding_box: [[number, number, number], [number, number, number]];
-    textures?: Record<string, string>;  // submesh name → base64 PNG texture data
-    bone_weights?: [number, number, number, number][];  // 4 bone weights per vertex
-    bone_indices?: [number, number, number, number][];  // 4 bone indices per vertex
-}
+type MaterialDataInfo = {
+    texture: string;
+    uv_scale?: [number, number];
+    uv_offset?: [number, number];
+    flipbook_size?: [number, number];
+    flipbook_frame?: number;
+};
 
 /**
- * Read and parse an SKN (skinned mesh) file for 3D preview
+ * Mesh data uses typed arrays for vertex buffers — these come straight off
+ * the IPC `ArrayBuffer` and are handed directly to `THREE.BufferAttribute`,
+ * so the renderer skips the per-vertex JSON round-trip entirely.
  */
-export async function readSknMesh(path: string): Promise<SknMeshData> {
-    return invokeCommand('read_skn_mesh', { path });
+export interface SknMeshData {
+    kind: 'skn';
+    materials: MaterialRange[];
+    bounding_box: [[number, number, number], [number, number, number]];
+    textures?: Record<string, string>;
+    material_data?: Record<string, MaterialDataInfo>;
+    texture_warning?: string;
+    /** Vertex count derived from `positions.length / 3`. */
+    vertex_count: number;
+    /** Index count derived from `indices.length`. */
+    index_count: number;
+    positions: Float32Array; // vertex_count × 3
+    normals: Float32Array;   // vertex_count × 3
+    uvs: Float32Array;       // vertex_count × 2
+    indices: Uint16Array;
+    /** Present when the mesh is rigged (always 4 weights per vertex). */
+    bone_weights?: Float32Array; // vertex_count × 4
+    bone_indices?: Uint8Array;   // vertex_count × 4
 }
 
-// SCB/SCO Static Mesh types
-interface ScbMeshData {
+export interface ScbMeshData {
+    kind: 'scb';
     name: string;
     materials: string[];
-    positions: [number, number, number][];
-    normals: [number, number, number][];
-    uvs: [number, number][];
-    indices: number[];
     bounding_box: [[number, number, number], [number, number, number]];
-    material_ranges: Record<string, [number, number]>;  // material name → [start_index, index_count]
-    material_data?: Record<string, { texture: string; uv_scale?: [number, number]; uv_offset?: [number, number]; flipbook_size?: [number, number]; flipbook_frame?: number }>;
+    material_ranges: Record<string, [number, number]>;
+    material_data?: Record<string, MaterialDataInfo>;
+    texture_warning?: string;
+    vertex_count: number;
+    index_count: number;
+    positions: Float32Array;
+    normals: Float32Array;
+    uvs: Float32Array;
+    indices: Uint32Array;
 }
 
 /**
- * Read and parse an SCB/SCO (static mesh) file for 3D preview
+ * Wire format for `read_skn_mesh` / `read_scb_mesh` (see `mesh::wire` on the
+ * Rust side). The big vertex/index buffers travel as raw bytes; the small
+ * structural metadata sits in a length-prefixed JSON header up front.
+ *
+ * Shape:
+ * ```text
+ * [u32 meta_len] [meta_json utf-8] [pad to 4-byte boundary]
+ * [vertex_count × 3 × f32] positions
+ * [vertex_count × 3 × f32] normals
+ * [vertex_count × 2 × f32] uvs
+ * [index_count × idx_bytes] indices  (idx_bytes = 2 for SKN, 4 for SCB)
+ * (SKN only when has_bones)
+ *   [vertex_count × 4 × f32] bone_weights
+ *   [vertex_count × 4 × u8]  bone_indices
+ * ```
+ *
+ * We `slice()` each typed array into a fresh buffer rather than wrapping the
+ * source `ArrayBuffer` in place — copying ~MB of bytes is microseconds, and
+ * Three.js can keep its `BufferAttribute`s alive without us tracking the
+ * lifetime of the original IPC buffer.
+ */
+function decodeMeshPayload(buf: ArrayBuffer): SknMeshData | ScbMeshData {
+    const view = new DataView(buf);
+    const metaLen = view.getUint32(0, true);
+    const metaBytes = new Uint8Array(buf, 4, metaLen);
+    const meta = JSON.parse(new TextDecoder('utf-8').decode(metaBytes));
+
+    // Step past the JSON header to the first 4-byte-aligned offset.
+    let off = 4 + metaLen;
+    if (off % 4 !== 0) off += 4 - (off % 4);
+
+    const vertexCount: number = meta.vertex_count;
+    const indexCount: number = meta.index_count;
+    const indexBits: number = meta.index_bits;
+
+    const posLen = vertexCount * 3;
+    const positions = new Float32Array(buf.slice(off, off + posLen * 4));
+    off += posLen * 4;
+
+    const normals = new Float32Array(buf.slice(off, off + posLen * 4));
+    off += posLen * 4;
+
+    const uvLen = vertexCount * 2;
+    const uvs = new Float32Array(buf.slice(off, off + uvLen * 4));
+    off += uvLen * 4;
+
+    let indices: Uint16Array | Uint32Array;
+    if (indexBits === 16) {
+        indices = new Uint16Array(buf.slice(off, off + indexCount * 2));
+        off += indexCount * 2;
+    } else {
+        indices = new Uint32Array(buf.slice(off, off + indexCount * 4));
+        off += indexCount * 4;
+    }
+
+    if (meta.kind === 'skn') {
+        const skn: SknMeshData = {
+            kind: 'skn',
+            materials: meta.materials,
+            bounding_box: meta.bounding_box,
+            textures: meta.textures,
+            material_data: meta.material_data,
+            texture_warning: meta.texture_warning,
+            vertex_count: vertexCount,
+            index_count: indexCount,
+            positions,
+            normals,
+            uvs,
+            indices: indices as Uint16Array,
+        };
+        if (meta.has_bones) {
+            const bwLen = vertexCount * 4;
+            skn.bone_weights = new Float32Array(buf.slice(off, off + bwLen * 4));
+            off += bwLen * 4;
+            skn.bone_indices = new Uint8Array(buf.slice(off, off + bwLen));
+        }
+        return skn;
+    }
+
+    const scb: ScbMeshData = {
+        kind: 'scb',
+        name: meta.name,
+        materials: meta.materials,
+        bounding_box: meta.bounding_box,
+        material_ranges: meta.material_ranges,
+        material_data: meta.material_data,
+        texture_warning: meta.texture_warning,
+        vertex_count: vertexCount,
+        index_count: indexCount,
+        positions,
+        normals,
+        uvs,
+        indices: indices as Uint32Array,
+    };
+    return scb;
+}
+
+/**
+ * Read and parse an SKN (skinned mesh) file for 3D preview.
+ */
+export async function readSknMesh(path: string): Promise<SknMeshData> {
+    const buf = await invokeCommand<ArrayBuffer>('read_skn_mesh', { path });
+    const mesh = decodeMeshPayload(buf);
+    if (mesh.kind !== 'skn') throw new Error('Expected SKN payload, got SCB');
+    return mesh;
+}
+
+/**
+ * Read and parse an SCB/SCO (static mesh) file for 3D preview.
  */
 export async function readScbMesh(path: string): Promise<ScbMeshData> {
-    return invokeCommand('read_scb_mesh', { path });
+    const buf = await invokeCommand<ArrayBuffer>('read_scb_mesh', { path });
+    const mesh = decodeMeshPayload(buf);
+    if (mesh.kind !== 'scb') throw new Error('Expected SCB payload, got SKN');
+    return mesh;
 }
 
 // =============================================================================
@@ -1226,32 +1460,49 @@ export async function parseAudioBank(path: string): Promise<AudioBankInfo> {
     return invokeCommand('parse_audio_bank', { path });
 }
 
-export async function parseAudioBankBytes(data: number[]): Promise<AudioBankInfo> {
-    return invokeCommand('parse_audio_bank_bytes', { data });
+// All `*_bytes` audio commands send the bank/wem buffer as a raw request body
+// (`tauri::ipc::Request<'_>` on Rust side) — `Array.from(uint8)` was dominating
+// IPC time on multi-MB banks. Callers can pass either a `number[]` or
+// `Uint8Array`; we coerce to bytes once at the boundary.
+function toBytes(data: ArrayLike<number> | Uint8Array): Uint8Array {
+    return data instanceof Uint8Array ? data : new Uint8Array(data);
 }
 
-export async function readAudioEntry(path: string, fileId: number): Promise<number[]> {
-    return invokeCommand('read_audio_entry', { path, fileId });
+export async function parseAudioBankBytes(data: ArrayLike<number> | Uint8Array): Promise<AudioBankInfo> {
+    return invokeRaw('parse_audio_bank_bytes', toBytes(data));
 }
 
-export async function readAudioEntryBytes(data: number[], fileId: number): Promise<number[]> {
-    return invokeCommand('read_audio_entry_bytes', { data, fileId });
+export async function readAudioEntry(path: string, fileId: number): Promise<Uint8Array> {
+    const buf = await invokeCommand<ArrayBuffer>('read_audio_entry', { path, fileId });
+    return new Uint8Array(buf);
 }
 
-export async function decodeWem(wemData: number[]): Promise<DecodedAudio> {
-    return invokeCommand('decode_wem', { wemData });
+export async function readAudioEntryBytes(
+    data: ArrayLike<number> | Uint8Array,
+    fileId: number,
+): Promise<Uint8Array> {
+    const buf = await invokeRaw<ArrayBuffer>(
+        'read_audio_entry_bytes',
+        toBytes(data),
+        { 'file-id': String(fileId) },
+    );
+    return new Uint8Array(buf);
+}
+
+export async function decodeWem(wemData: ArrayLike<number> | Uint8Array): Promise<DecodedAudio> {
+    return invokeRaw('decode_wem', toBytes(wemData));
 }
 
 export async function parseBnkHirc(path: string): Promise<HircData | null> {
     return invokeCommand('parse_bnk_hirc', { path });
 }
 
-export async function parseBnkHircBytes(data: number[]): Promise<HircData | null> {
-    return invokeCommand('parse_bnk_hirc_bytes', { data });
+export async function parseBnkHircBytes(data: ArrayLike<number> | Uint8Array): Promise<HircData | null> {
+    return invokeRaw('parse_bnk_hirc_bytes', toBytes(data));
 }
 
-export async function extractBinAudioEvents(data: number[]): Promise<BinEventString[]> {
-    return invokeCommand('extract_bin_audio_events', { data });
+export async function extractBinAudioEvents(data: ArrayLike<number> | Uint8Array): Promise<BinEventString[]> {
+    return invokeRaw('extract_bin_audio_events', toBytes(data));
 }
 
 export async function mapAudioEvents(
@@ -1302,8 +1553,9 @@ export async function writeWpk(
     return invokeCommand('write_wpk', { entries });
 }
 
-export async function saveAudioFile(path: string, data: number[]): Promise<void> {
-    return invokeCommand('save_audio_file', { path, data });
+export async function saveAudioFile(path: string, data: Uint8Array | number[]): Promise<void> {
+    const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+    return invokeRaw('save_audio_file', bytes, { path });
 }
 
 // =============================================================================

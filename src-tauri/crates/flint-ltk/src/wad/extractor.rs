@@ -1,4 +1,5 @@
 use crate::error::{Error, Result};
+use crate::hash::ResolvedHashes;
 use league_toolkit::file::LeagueFileKind;
 use league_toolkit::wad::{Wad, WadChunk};
 use memmap2::Mmap;
@@ -173,6 +174,158 @@ pub fn extract_all(
     Ok(extracted_count)
 }
 
+/// Parallel extraction of arbitrary chunks from a WAD archive.
+///
+/// Used by the WAD-explorer "extract selected" / "extract all" buttons.
+/// Mirrors the `extract_skin_assets` pattern: mmap the WAD once, mount a
+/// per-rayon-worker `Wad` cursor over the shared mmap, then decompress +
+/// write in parallel. The previous implementation walked chunks serially on
+/// the IPC thread, so multi-select extracts (a few hundred chunks) blocked
+/// the runtime for several seconds.
+///
+/// `chunk_hashes = None` extracts every chunk in the WAD. Otherwise only
+/// chunks whose path-hash appears in the input set are extracted.
+///
+/// `resolve_paths` is the same bulk-LMDB resolver used elsewhere — one read
+/// txn per call, not N.
+pub fn extract_chunks_parallel(
+    wad_path: impl AsRef<Path>,
+    output_dir: impl AsRef<Path>,
+    chunk_hashes: Option<&HashSet<u64>>,
+    resolve_paths: impl Fn(&[u64]) -> ResolvedHashes,
+) -> Result<(usize, usize)> {
+    let wad_path = wad_path.as_ref();
+    let output_dir = output_dir.as_ref();
+
+    // mmap + parse TOC.
+    let file = File::open(wad_path).map_err(|e| Error::io_with_path(e, wad_path))?;
+    let mmap = unsafe { Mmap::map(&file) }.map_err(|e| Error::Wad {
+        message: format!("Failed to mmap WAD: {}", e),
+        path: Some(wad_path.to_path_buf()),
+    })?;
+    let toc = Wad::mount(Cursor::new(&mmap[..])).map_err(|e| Error::Wad {
+        message: format!("Failed to mount WAD: {}", e),
+        path: Some(wad_path.to_path_buf()),
+    })?;
+
+    // Filter the TOC to the requested chunks.
+    let target_chunks: Vec<WadChunk> = match chunk_hashes {
+        Some(want) => toc
+            .chunks()
+            .iter()
+            .filter(|c| want.contains(&c.path_hash()))
+            .copied()
+            .collect(),
+        None => toc.chunks().iter().copied().collect(),
+    };
+    let total = target_chunks.len();
+    if total == 0 {
+        return Ok((0, 0));
+    }
+
+    // Bulk-resolve every hash in one LMDB txn.
+    let all_hashes: Vec<u64> = target_chunks.iter().map(|c| c.path_hash()).collect();
+    let resolved_map = resolve_paths(&all_hashes);
+
+    // Build extraction plan in parallel. Reads `resolved_map` via shared `&`
+    // so we don't `String::clone` per chunk (was ~80k clones for a full
+    // champion WAD). Parents are gathered through a per-thread `HashSet`
+    // that we union at the end.
+    let plan: Vec<(WadChunk, PathBuf)> = target_chunks
+        .par_iter()
+        .map(|chunk| {
+            let path_hash = chunk.path_hash();
+            let fallback;
+            let resolved: &str = match resolved_map.get(&path_hash) {
+                Some(s) => s,
+                None => {
+                    fallback = format!("{:016x}", path_hash);
+                    fallback.as_str()
+                }
+            };
+            let candidate = output_dir.join(resolved);
+
+            // Windows MAX_PATH safety net.
+            let out_path = if candidate.to_string_lossy().len() > 240 {
+                let ext = Path::new(resolved)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("bin");
+                output_dir.join(format!("{:016x}.{}", path_hash, ext))
+            } else {
+                candidate
+            };
+            (*chunk, out_path)
+        })
+        .collect();
+
+    // Collect unique parents in parallel via fold + reduce, then create them
+    // concurrently. With ~5000 unique folders on a champion WAD, the serial
+    // `create_dir_all` loop was costing seconds before the writes could even
+    // start — Windows directory-create syscalls aren't free.
+    let parents: HashSet<PathBuf> = plan
+        .par_iter()
+        .fold(HashSet::new, |mut acc, (_, out_path)| {
+            if let Some(p) = out_path.parent() {
+                acc.insert(p.to_path_buf());
+            }
+            acc
+        })
+        .reduce(HashSet::new, |mut a, b| {
+            a.extend(b);
+            a
+        });
+
+    parents.par_iter().for_each(|parent| {
+        let _ = fs::create_dir_all(parent);
+    });
+
+    // Parallel decompress + write. Each worker mounts its own Wad cursor over
+    // the shared mmap — no contention on the underlying file handle.
+    let mmap_ref = &mmap;
+    let chunk_size = (plan.len() / rayon::current_num_threads().max(1)).max(1);
+    let results: Vec<(usize, usize)> = plan
+        .par_chunks(chunk_size)
+        .map(|slice| {
+            let mut local_wad = match Wad::mount(Cursor::new(&mmap_ref[..])) {
+                Ok(w) => w,
+                Err(_) => return (0, slice.len()),
+            };
+            let mut extracted = 0usize;
+            let mut failed = 0usize;
+            for (chunk, out_path) in slice {
+                match local_wad.load_chunk_decompressed(chunk) {
+                    Ok(data) => {
+                        // Path-already-has-extension fast path: skip the
+                        // resolve_chunk_path syscall + create_dir_all dance.
+                        let write_path = if out_path.extension().is_some() {
+                            out_path.clone()
+                        } else {
+                            let final_path = resolve_chunk_path(&out_path.to_string_lossy(), &data);
+                            let actual = output_dir.join(&final_path);
+                            if let Some(p) = actual.parent() {
+                                let _ = fs::create_dir_all(p);
+                            }
+                            actual
+                        };
+                        if fs::write(&write_path, &data).is_ok() {
+                            extracted += 1;
+                        } else {
+                            failed += 1;
+                        }
+                    }
+                    Err(_) => failed += 1,
+                }
+            }
+            (extracted, failed)
+        })
+        .collect();
+
+    Ok(results
+        .into_iter()
+        .fold((0usize, 0usize), |(e, f), (re, rf)| (e + re, f + rf)))
+}
+
 /// Check whether a champion WAD contains the main skin BIN for the given skin ID.
 ///
 /// Riot stores the skin definition at `data/characters/{champion_lower}/skins/skin{ID}.bin`
@@ -272,7 +425,7 @@ pub fn extract_skin_assets(
     output_dir: impl AsRef<Path>,
     champion: &str,
     _skin_id: u32,
-    resolve_paths: impl Fn(&[u64]) -> HashMap<u64, String>,
+    resolve_paths: impl Fn(&[u64]) -> ResolvedHashes,
 ) -> Result<ExtractionResult> {
     let wad_path   = wad_path.as_ref();
     let output_dir = output_dir.as_ref();
@@ -319,7 +472,7 @@ pub fn extract_skin_assets(
     for chunk in &chunks {
         let path_hash    = chunk.path_hash();
         let resolved     = resolved_map.get(&path_hash)
-            .cloned()
+            .map(String::from)
             .unwrap_or_else(|| format!("{:016x}", path_hash));
         let path_lower   = resolved.to_lowercase();
         let is_unresolved = resolved.chars().all(|c| c.is_ascii_hexdigit());
@@ -564,7 +717,7 @@ fn resolve_chunk_path(path: &str, chunk_data: &[u8]) -> PathBuf {
 pub fn extract_full_wad(
     wad_path: impl AsRef<Path>,
     output_dir: impl AsRef<Path>,
-    resolve_paths: impl Fn(&[u64]) -> HashMap<u64, String>,
+    resolve_paths: impl Fn(&[u64]) -> ResolvedHashes,
 ) -> Result<ExtractionResult> {
     extract_full_wad_filtered(wad_path, output_dir, resolve_paths, |_| false)
 }
@@ -575,7 +728,7 @@ pub fn extract_full_wad(
 pub fn extract_full_wad_filtered(
     wad_path: impl AsRef<Path>,
     output_dir: impl AsRef<Path>,
-    resolve_paths: impl Fn(&[u64]) -> HashMap<u64, String>,
+    resolve_paths: impl Fn(&[u64]) -> ResolvedHashes,
     skip_path: impl Fn(&str) -> bool,
 ) -> Result<ExtractionResult> {
     let wad_path   = wad_path.as_ref();
@@ -615,7 +768,7 @@ pub fn extract_full_wad_filtered(
     for chunk in &chunks {
         let path_hash = chunk.path_hash();
         let resolved = resolved_map.get(&path_hash)
-            .cloned()
+            .map(String::from)
             .unwrap_or_else(|| format!("{:016x}", path_hash));
         let path_lower = resolved.to_lowercase();
         let is_unresolved = resolved.chars().all(|c| c.is_ascii_hexdigit());
@@ -719,8 +872,8 @@ pub fn extract_full_wad_filtered(
 /// anything to disk. Used by map variant discovery.
 pub fn resolve_wad_paths(
     wad_path: impl AsRef<Path>,
-    resolve_paths: impl Fn(&[u64]) -> HashMap<u64, String>,
-) -> Result<HashMap<u64, String>> {
+    resolve_paths: impl Fn(&[u64]) -> ResolvedHashes,
+) -> Result<ResolvedHashes> {
     let wad_path = wad_path.as_ref();
     let file = File::open(wad_path)
         .map_err(|e| Error::io_with_path(e, wad_path))?;

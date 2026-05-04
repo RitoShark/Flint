@@ -24,6 +24,10 @@ rayon = "1.10"
 dashmap = "6.0"
 parking_lot = "0.12"
 
+# Fast hashing for u64-keyed maps in resolve_hashes_lmdb_bulk. Keys are already
+# xxh64 hashes — SipHash on top of them is wasted CPU.
+rustc-hash = "2"
+
 # LTK crates (git main @ 6137083 — fixes struct write, tex decode, meta reorg)
 ltk_texture = { git = "https://github.com/LeagueToolkit/league-toolkit", rev = "6137083", features = ["intel-tex"] }
 league-toolkit = { git = "https://github.com/LeagueToolkit/league-toolkit", rev = "6137083", features = ["serde"] }

@@ -137,6 +137,14 @@ export interface WadChunk {
     hash: string;        // hex string e.g. "0x1a2b3c4d5e6f7a8b"
     path: string | null; // resolved path, null if hash is unknown
     size: number;
+    /**
+     * Pre-lowercased `path ?? hash`. Built once at decode time so the WAD-explorer
+     * search doesn't burn ~O(N×L) on `.toLowerCase()` per debounced keystroke
+     * (with all WADs loaded that's tens of millions of allocations per query).
+     * Optional: only the WAD-explorer load path populates it; older callers stay
+     * source-compatible.
+     */
+    haystack?: string;
 }
 
 export interface ExtractSession {
@@ -190,6 +198,12 @@ export interface WadExplorerState {
     searchQuery: string;
     /** Set of `${wadPath}::${hash}` keys for checked files (multi-select for extraction) */
     checkedFiles: Set<string>;
+    /**
+     * Live tally of checked files per WAD path. Lets the WAD-row tri-state
+     * checkbox derive its value in O(1) instead of walking ~80k chunks per
+     * WAD on every toggle. Maintained incrementally by `toggleCheck`.
+     */
+    checkedCountPerWad: Map<string, number>;
 }
 
 export interface AppState {
