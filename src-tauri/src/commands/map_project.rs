@@ -87,12 +87,18 @@ pub async fn create_map_project(
     league_path: String,
     output_path: String,
     creator_name: Option<String>,
+    // extract_mode: "variant" (default) only pulls the chosen variant + its
+    // referenced kit-piece textures + the matching LEVELS lightmaps. "full"
+    // mirrors the legacy whole-WAD dump.
+    extract_mode: Option<String>,
+    // variant_name: required when extract_mode == "variant".
+    variant_name: Option<String>,
     lmdb: tauri::State<'_, LmdbCacheState>,
     app: tauri::AppHandle,
 ) -> Result<Project, String> {
     tracing::info!(
-        "Frontend requested map project creation: name='{}' map='{}' levels={}",
-        name, map_id, include_levels
+        "Frontend requested map project creation: name='{}' map='{}' levels={} mode={:?} variant={:?}",
+        name, map_id, include_levels, extract_mode, variant_name
     );
 
     let league_path_buf = PathBuf::from(&league_path);
@@ -113,6 +119,16 @@ pub async fn create_map_project(
         "Hash databases not found. Run hash download first.".to_string()
     )?;
 
+    let mode = match extract_mode.as_deref().unwrap_or("variant") {
+        "full" => map::MapExtractMode::Full,
+        "variant" => map::MapExtractMode::Variant,
+        other => return Err(format!("Unknown extract_mode '{}': expected 'variant' or 'full'", other)),
+    };
+    if matches!(mode, map::MapExtractMode::Variant) && variant_name.as_deref().unwrap_or("").is_empty() {
+        return Err("variant_name is required when extract_mode is 'variant'".into());
+    }
+    let variant_for_extract = variant_name.clone();
+
     let app_for_progress = app.clone();
     let result: Result<MapProjectResult, String> = tokio::task::spawn_blocking(move || {
         let env = env_arc;
@@ -130,6 +146,8 @@ pub async fn create_map_project(
             &league_path_buf,
             &output_path_buf,
             creator_name,
+            mode,
+            variant_for_extract.as_deref(),
             resolve,
             progress,
         ).map_err(|e| e.to_string())

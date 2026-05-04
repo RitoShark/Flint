@@ -94,6 +94,12 @@ export const NewProjectModal: React.FC = () => {
     const [selectedMapId, setSelectedMapId] = useState<string>('');
     const [includeLevels, setIncludeLevels] = useState<boolean>(true);
     const [mapsLoading, setMapsLoading] = useState<boolean>(false);
+    const [mapVariants, setMapVariants] = useState<api.MapVariant[]>([]);
+    const [selectedVariant, setSelectedVariant] = useState<string>('');
+    const [variantsLoading, setVariantsLoading] = useState<boolean>(false);
+    /** 'variant' = only the chosen variant + referenced kit-pieces (default,
+     *  matches what MapgeoAddon ships). 'full' = legacy whole-WAD dump. */
+    const [mapExtractMode, setMapExtractMode] = useState<'variant' | 'full'>('variant');
 
     // ─── Loading screen state ────────────────────────────────────────────
     const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -172,6 +178,38 @@ export const NewProjectModal: React.FC = () => {
         return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isVisible, projectType, effectiveLeaguePath, usePbe]);
+
+    // Fetch the variant list whenever the selected map changes. Variants
+    // come from the WAD's resolved-paths scan (mapgeo + materials.bin pairs
+    // grouped by base name), so this requires a hash db + ~1s WAD scan.
+    useEffect(() => {
+        if (!isVisible || projectType !== 'map' || !effectiveLeaguePath || !selectedMapId) {
+            setMapVariants([]);
+            setSelectedVariant('');
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            setVariantsLoading(true);
+            try {
+                const variants = await api.listMapVariants(effectiveLeaguePath, selectedMapId);
+                if (cancelled) return;
+                setMapVariants(variants);
+                // Pick the first variant by default — "room" on Summoner's Rift,
+                // sorted alphabetically across all maps.
+                setSelectedVariant(variants[0]?.name ?? '');
+            } catch (err) {
+                console.error('[NewProject] listMapVariants failed:', err);
+                if (!cancelled) {
+                    setMapVariants([]);
+                    setSelectedVariant('');
+                }
+            } finally {
+                if (!cancelled) setVariantsLoading(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [isVisible, projectType, effectiveLeaguePath, selectedMapId]);
 
     // Recalculate budget whenever video params change
     useEffect(() => {
@@ -554,6 +592,11 @@ export const NewProjectModal: React.FC = () => {
             `[NewProject] Creating map project: map=${selectedMapId}, levels=${includeLevels}, leaguePath=${effectiveLeaguePath}`
         );
 
+        if (mapExtractMode === 'variant' && !selectedVariant) {
+            showToast('error', 'No variant selected — pick one or switch to "Full WAD" mode.');
+            return;
+        }
+
         try {
             const project = await api.createMapProject({
                 name: projectName,
@@ -562,6 +605,8 @@ export const NewProjectModal: React.FC = () => {
                 projectPath,
                 leaguePath: effectiveLeaguePath,
                 creatorName: state.creatorName || undefined,
+                extractMode: mapExtractMode,
+                variantName: mapExtractMode === 'variant' ? selectedVariant : undefined,
             });
             const mapEntry = availableMaps.find(m => m.id === selectedMapId);
             await finishProjectCreation(project, mapEntry?.displayName || selectedMapId, 0);
@@ -623,7 +668,8 @@ export const NewProjectModal: React.FC = () => {
         && !!projectName && !!projectPath && !!videoFile && !!budget?.fits && !isCreating;
 
     const canCreateMap = projectType === 'map'
-        && !!projectName && !!projectPath && !!selectedMapId && !!effectiveLeaguePath && !isCreating;
+        && !!projectName && !!projectPath && !!selectedMapId && !!effectiveLeaguePath && !isCreating
+        && (mapExtractMode === 'full' || !!selectedVariant);
 
     const canCreate = canCreateSkin || canCreateLoadingScreen || canCreateMap;
 
@@ -1001,6 +1047,55 @@ export const NewProjectModal: React.FC = () => {
                                     }))}
                                 />
                             </div>
+                            <div className="np-field np-field--grow">
+                                <label className="np-label">Variant</label>
+                                <Picker
+                                    fullWidth
+                                    menuMaxHeight={210}
+                                    value={selectedVariant}
+                                    onChange={setSelectedVariant}
+                                    disabled={
+                                        mapExtractMode === 'full' ||
+                                        variantsLoading ||
+                                        mapVariants.length === 0
+                                    }
+                                    placeholder={
+                                        variantsLoading ? 'Scanning variants…'
+                                        : mapVariants.length === 0 ? 'No variants found'
+                                        : 'Select a variant…'
+                                    }
+                                    options={mapVariants.map(v => ({
+                                        value: v.name,
+                                        label: v.name,
+                                    }))}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Extract mode picker — variant (default) vs full WAD */}
+                        <div className="np-fields-row" style={{ gap: 8 }}>
+                            <button
+                                type="button"
+                                onClick={() => setMapExtractMode('variant')}
+                                className={`np-type-card${mapExtractMode === 'variant' ? ' np-type-card--active' : ''}`}
+                                style={{ flex: 1, padding: '12px 14px' }}
+                            >
+                                <div style={{ fontWeight: 600, fontSize: 13 }}>Variant only</div>
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                                    Just the chosen mapgeo + materials + referenced textures
+                                </div>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setMapExtractMode('full')}
+                                className={`np-type-card${mapExtractMode === 'full' ? ' np-type-card--active' : ''}`}
+                                style={{ flex: 1, padding: '12px 14px' }}
+                            >
+                                <div style={{ fontWeight: 600, fontSize: 13 }}>Full WAD</div>
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                                    Every chunk in the map WAD (heavy — gigabytes)
+                                </div>
+                            </button>
                         </div>
 
                         <label className="np-checkbox-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1017,7 +1112,9 @@ export const NewProjectModal: React.FC = () => {
                                 <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" fill="none"/>
                                 <path d="M8 5v3M8 10v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                             </svg>
-                            Extracts the map's WAD directly into your project so you can edit mapgeo, materials, textures and lightmaps in Flint. No skin repathing is applied.
+                            {mapExtractMode === 'variant'
+                                ? 'Pulls only the variant’s mapgeo + materials.bin and the asset paths it references (kit-pieces, textures, lightmaps). Matches MapgeoAddon’s scoped flow.'
+                                : 'Dumps the entire map WAD into your project. Use this if you need every chunk — most users want “Variant only”.'}
                         </div>
                     </div>
                     )}
