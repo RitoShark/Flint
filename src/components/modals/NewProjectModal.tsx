@@ -1026,86 +1026,149 @@ export const NewProjectModal: React.FC = () => {
                             onBrowse={handleBrowsePath}
                         />
 
-                        <div className="np-fields-row">
-                            <div className="np-field np-field--grow">
-                                <label className="np-label">Map</label>
-                                <Picker
-                                    fullWidth
-                                    menuMaxHeight={210}
-                                    value={selectedMapId}
-                                    onChange={setSelectedMapId}
-                                    disabled={mapsLoading || availableMaps.length === 0}
-                                    placeholder={
-                                        mapsLoading ? 'Scanning maps…'
-                                        : availableMaps.length === 0 ? 'No maps found in League folder'
-                                        : 'Select a map…'
-                                    }
-                                    options={availableMaps.map(m => ({
-                                        value: m.id,
-                                        label: m.displayName,
-                                        hint: `${m.id}${m.hasLevels ? ' · +LEVELS' : ''}`,
-                                    }))}
-                                />
-                            </div>
-                            <div className="np-field np-field--grow">
-                                <label className="np-label">Variant</label>
-                                <Picker
-                                    fullWidth
-                                    menuMaxHeight={210}
-                                    value={selectedVariant}
-                                    onChange={setSelectedVariant}
-                                    disabled={
-                                        mapExtractMode === 'full' ||
-                                        variantsLoading ||
-                                        mapVariants.length === 0
-                                    }
-                                    placeholder={
-                                        variantsLoading ? 'Scanning variants…'
-                                        : mapVariants.length === 0 ? 'No variants found'
-                                        : 'Select a variant…'
-                                    }
-                                    options={mapVariants.map(v => ({
-                                        value: v.name,
-                                        label: v.name,
-                                    }))}
-                                />
-                            </div>
-                        </div>
-
-                        {/* Extract mode picker — variant (default) vs full WAD */}
-                        <div className="np-fields-row" style={{ gap: 8 }}>
-                            <button
-                                type="button"
-                                onClick={() => setMapExtractMode('variant')}
-                                className={`np-type-card${mapExtractMode === 'variant' ? ' np-type-card--active' : ''}`}
-                                style={{ flex: 1, padding: '12px 14px' }}
-                            >
-                                <div style={{ fontWeight: 600, fontSize: 13 }}>Variant only</div>
-                                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                                    Just the chosen mapgeo + materials + referenced textures
+                        {/* Source — map + variant grouped in a card */}
+                        <section className="np-map-section">
+                            <header className="np-map-section__head">
+                                <span className="np-map-section__step">1</span>
+                                <div>
+                                    <div className="np-map-section__title">Source map</div>
+                                    <div className="np-map-section__sub">
+                                        Pick a Riot map from <code>Game/DATA/FINAL/Maps/Shipping</code>
+                                    </div>
                                 </div>
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setMapExtractMode('full')}
-                                className={`np-type-card${mapExtractMode === 'full' ? ' np-type-card--active' : ''}`}
-                                style={{ flex: 1, padding: '12px 14px' }}
-                            >
-                                <div style={{ fontWeight: 600, fontSize: 13 }}>Full WAD</div>
-                                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                                    Every chunk in the map WAD (heavy — gigabytes)
-                                </div>
-                            </button>
-                        </div>
+                            </header>
 
-                        <label className="np-checkbox-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <input
-                                type="checkbox"
-                                checked={includeLevels}
-                                onChange={(e) => setIncludeLevels(e.target.checked)}
-                            />
-                            <span>Include LEVELS WAD (lightmaps, grass tints)</span>
-                        </label>
+                            <div className="np-map-row">
+                                <div className="np-map-field">
+                                    <label className="np-label">Map</label>
+                                    <Picker
+                                        fullWidth
+                                        menuMaxHeight={210}
+                                        value={selectedMapId}
+                                        onChange={setSelectedMapId}
+                                        disabled={mapsLoading || availableMaps.length === 0}
+                                        placeholder={
+                                            mapsLoading ? 'Scanning maps…'
+                                            : availableMaps.length === 0 ? 'No maps found in League folder'
+                                            : 'Select a map…'
+                                        }
+                                        options={availableMaps.map(m => ({
+                                            value: m.id,
+                                            label: m.displayName,
+                                            hint: `${m.id}${m.hasLevels ? ' · +LEVELS' : ''}`,
+                                        }))}
+                                    />
+                                </div>
+                                <div className="np-map-field">
+                                    <label className="np-label">
+                                        Variant
+                                        {mapVariants.length > 0 && (
+                                            <span className="np-map-count">{mapVariants.length}</span>
+                                        )}
+                                    </label>
+                                    <Picker
+                                        fullWidth
+                                        menuMaxHeight={210}
+                                        value={selectedVariant}
+                                        onChange={setSelectedVariant}
+                                        disabled={
+                                            mapExtractMode === 'full' ||
+                                            variantsLoading ||
+                                            mapVariants.length === 0
+                                        }
+                                        placeholder={
+                                            mapExtractMode === 'full' ? 'Not used in Full WAD mode'
+                                            : variantsLoading ? 'Scanning variants…'
+                                            : mapVariants.length === 0 ? 'No variants found'
+                                            : 'Select a variant…'
+                                        }
+                                        options={mapVariants.map(v => ({
+                                            value: v.name,
+                                            label: v.name,
+                                        }))}
+                                    />
+                                </div>
+                            </div>
+                        </section>
+
+                        {/* Extraction strategy — two big cards */}
+                        <section className="np-map-section">
+                            <header className="np-map-section__head">
+                                <span className="np-map-section__step">2</span>
+                                <div>
+                                    <div className="np-map-section__title">Extraction strategy</div>
+                                    <div className="np-map-section__sub">
+                                        Variant only is fastest; Full WAD pulls every chunk
+                                    </div>
+                                </div>
+                            </header>
+
+                            <div className="np-map-mode-grid">
+                                <button
+                                    type="button"
+                                    onClick={() => setMapExtractMode('variant')}
+                                    className={`np-map-mode${mapExtractMode === 'variant' ? ' np-map-mode--active' : ''}`}
+                                >
+                                    <span className="np-map-mode__check">
+                                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                            <path d="M3 8l4 4 6-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                        </svg>
+                                    </span>
+                                    <span className="np-map-mode__icon" aria-hidden>
+                                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M21 16V8l-9-5-9 5v8l9 5 9-5z"/>
+                                            <path d="M3.3 7.5L12 12.5l8.7-5"/>
+                                            <path d="M12 12.5V21"/>
+                                        </svg>
+                                    </span>
+                                    <span className="np-map-mode__body">
+                                        <span className="np-map-mode__title">Variant only</span>
+                                        <span className="np-map-mode__desc">
+                                            mapgeo + materials.bin + the assets it references
+                                        </span>
+                                        <span className="np-map-mode__tag">Recommended · fast</span>
+                                    </span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setMapExtractMode('full')}
+                                    className={`np-map-mode${mapExtractMode === 'full' ? ' np-map-mode--active' : ''}`}
+                                >
+                                    <span className="np-map-mode__check">
+                                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                            <path d="M3 8l4 4 6-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                        </svg>
+                                    </span>
+                                    <span className="np-map-mode__icon" aria-hidden>
+                                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                                            <rect x="3" y="5" width="18" height="14" rx="2"/>
+                                            <path d="M3 9h18M8 5V3m8 2V3"/>
+                                        </svg>
+                                    </span>
+                                    <span className="np-map-mode__body">
+                                        <span className="np-map-mode__title">Full WAD</span>
+                                        <span className="np-map-mode__desc">
+                                            Every chunk — heavy, gigabytes
+                                        </span>
+                                        <span className="np-map-mode__tag np-map-mode__tag--warn">Power users</span>
+                                    </span>
+                                </button>
+                            </div>
+
+                            <label className="np-map-toggle">
+                                <input
+                                    type="checkbox"
+                                    checked={includeLevels}
+                                    onChange={(e) => setIncludeLevels(e.target.checked)}
+                                />
+                                <span className="np-map-toggle__body">
+                                    <span className="np-map-toggle__title">Include LEVELS WAD</span>
+                                    <span className="np-map-toggle__desc">
+                                        Pull lightmaps, lightgrid and grass-tint textures
+                                    </span>
+                                </span>
+                            </label>
+                        </section>
 
                         <div className="np-hint">
                             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{marginRight: '8px', flexShrink: 0}}>

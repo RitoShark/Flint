@@ -316,3 +316,255 @@ input.np-search:focus {
     border-top-color: color-mix(in oklab, var(--border) 70%, transparent) !important;
 }
 
+
+/* ============================================================================
+   Map project — sectioned source / strategy layout
+   ============================================================================ */
+
+.np-form .np-map-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px 18px;
+    background: color-mix(in oklab, var(--bg-tertiary) 50%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+    border-radius: 12px;
+}
+.np-form .np-map-section + .np-map-section { margin-top: 4px; }
+
+.np-form .np-map-section__head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.np-form .np-map-section__step {
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    background: color-mix(in oklab, var(--accent-primary) 22%, var(--bg-tertiary));
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 35%, var(--border));
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent-primary);
+    font-family: var(--font-mono);
+    flex: none;
+}
+.np-form .np-map-section__title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.2;
+}
+.np-form .np-map-section__sub {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    line-height: 1.4;
+}
+.np-form .np-map-section__sub code {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: color-mix(in oklab, var(--accent-primary) 25%, var(--text-secondary));
+}
+
+.np-form .np-map-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+.np-form .np-map-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+.np-form .np-map-field .np-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+}
+.np-form .np-map-count {
+    display: inline-flex;
+    align-items: center;
+    height: 16px;
+    padding: 0 6px;
+    background: color-mix(in oklab, var(--accent-primary) 16%, transparent);
+    color: var(--accent-primary);
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 30%, transparent);
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    line-height: 1;
+}
+
+/* ─── Extraction-mode cards ─── */
+.np-form .np-map-mode-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+.np-form .np-map-mode {
+    box-sizing: border-box;
+    appearance: none;
+    -webkit-appearance: none;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    position: relative;
+    display: grid;
+    grid-template-columns: 38px 1fr;
+    grid-template-rows: auto auto;
+    column-gap: 12px;
+    row-gap: 4px;
+    padding: 14px 14px 14px 14px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    color: var(--text-secondary);
+    transition:
+        background var(--motion-fast),
+        border-color var(--motion-fast),
+        color var(--motion-fast),
+        transform var(--motion-fast),
+        box-shadow var(--motion-fast);
+}
+.np-form .np-map-mode:hover {
+    background: color-mix(in oklab, var(--accent-primary) 6%, var(--bg-tertiary));
+    border-color: color-mix(in oklab, var(--accent-primary) 30%, var(--border));
+    color: var(--text-primary);
+}
+.np-form .np-map-mode:active { transform: scale(0.997); }
+.np-form .np-map-mode--active {
+    background:
+        radial-gradient(circle at top right,
+            color-mix(in oklab, var(--accent-primary) 14%, transparent) 0%,
+            transparent 60%),
+        color-mix(in oklab, var(--accent-primary) 8%, var(--bg-tertiary));
+    border-color: color-mix(in oklab, var(--accent-primary) 55%, var(--border));
+    color: var(--text-primary);
+    box-shadow: 0 8px 22px -14px color-mix(in oklab, var(--accent-primary) 60%, transparent);
+}
+.np-form .np-map-mode__check {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 18px;
+    height: 18px;
+    display: grid;
+    place-items: center;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    color: transparent;
+    transition: all var(--motion-fast);
+}
+.np-form .np-map-mode--active .np-map-mode__check {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: white;
+}
+.np-form .np-map-mode__icon {
+    grid-row: 1 / span 2;
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    background: color-mix(in oklab, var(--bg-primary) 80%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-secondary);
+    transition: color var(--motion-fast), border-color var(--motion-fast);
+}
+.np-form .np-map-mode--active .np-map-mode__icon {
+    color: var(--accent-primary);
+    border-color: color-mix(in oklab, var(--accent-primary) 45%, var(--border));
+}
+.np-form .np-map-mode__body { display: contents; }
+.np-form .np-map-mode__title {
+    grid-column: 2;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+}
+.np-form .np-map-mode__desc {
+    grid-column: 2;
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.45;
+}
+.np-form .np-map-mode__tag {
+    grid-column: 2;
+    margin-top: 6px;
+    align-self: start;
+    display: inline-flex;
+    align-items: center;
+    height: 18px;
+    padding: 0 8px;
+    background: color-mix(in oklab, var(--color-success) 14%, transparent);
+    border: 1px solid color-mix(in oklab, var(--color-success) 30%, transparent);
+    color: var(--color-success);
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    width: fit-content;
+}
+.np-form .np-map-mode__tag--warn {
+    background: color-mix(in oklab, var(--color-warning) 14%, transparent);
+    border-color: color-mix(in oklab, var(--color-warning) 30%, transparent);
+    color: var(--color-warning);
+}
+
+/* ─── LEVELS toggle (rich row) ─── */
+.np-form .np-map-toggle {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 14px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: border-color var(--motion-fast), background var(--motion-fast);
+}
+.np-form .np-map-toggle:hover {
+    border-color: color-mix(in oklab, var(--accent-primary) 30%, var(--border));
+}
+.np-form .np-map-toggle input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent-primary);
+    cursor: pointer;
+}
+.np-form .np-map-toggle__body { display: flex; flex-direction: column; gap: 2px; }
+.np-form .np-map-toggle__title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.2;
+}
+.np-form .np-map-toggle__desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+/* Stack the two-column grids on narrow modals */
+@media (max-width: 720px) {
+    .np-form .np-map-row,
+    .np-form .np-map-mode-grid {
+        grid-template-columns: 1fr;
+    }
+}
