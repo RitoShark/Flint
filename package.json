@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:clean": "node -e \"require('fs').rmSync('node_modules/.vite', { recursive: true, force: true }); console.log('cleared node_modules/.vite');\"",
     "build": "tsc && vite build",
     "tauri": "tauri",
     "sync-version": "node scripts/sync-version.js",

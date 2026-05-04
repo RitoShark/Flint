@@ -50,8 +50,9 @@
         "height": 720,
         "resizable": true,
         "fullscreen": false,
-        "visible": false,
-        "decorations": false
+        "visible": true,
+        "decorations": false,
+        "additionalBrowserArgs": "--disable-features=msSmartScreenProtection --disable-background-networking --disable-translate"
       }
     ],
     "security": {

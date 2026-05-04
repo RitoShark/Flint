@@ -393,14 +393,17 @@ export const App: React.FC = () => {
             const recent = stateRef.current.recentProjects;
             if (recent.length === 0) return;
 
-            // Validate all projects in parallel instead of sequentially
-            const results = await Promise.allSettled(
-                recent.map(project => api.listProjectFiles(project.path).then(() => project))
+            // Cheap existence check — `list_project_files` was running an entire
+            // recursive tree walk per recent project (~250-300ms each) just to
+            // detect deleted projects. The lightweight check is microseconds.
+            const results = await Promise.all(
+                recent.map(async (project) => ({
+                    project,
+                    valid: await api.projectPathValid(project.path),
+                })),
             );
 
-            const validProjects = results
-                .filter((r): r is PromiseFulfilledResult<typeof recent[number]> => r.status === 'fulfilled')
-                .map(r => r.value);
+            const validProjects = results.filter((r) => r.valid).map((r) => r.project);
 
             if (validProjects.length !== recent.length) {
                 useConfigStore.getState().setRecentProjects(validProjects);

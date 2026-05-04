@@ -75,6 +75,13 @@ fn main() {
          Toggle JS-side trace via `localStorage.flintIpcTrace = '0'` then reload."
     );
 
+    // Reference timestamp for startup diagnostics — relative ms since this
+    // point makes the cold-start log easy to read. The previous "Rust ready"
+    // → "Log level changed" gap was 79s with no visibility into what Tauri
+    // was doing in between; these marks call it out.
+    let t_start = std::time::Instant::now();
+    tracing::info!("[startup] tauri::Builder constructed +{}ms", t_start.elapsed().as_millis());
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -83,7 +90,19 @@ fn main() {
         .manage(WadCacheState::new())
         .manage(LmdbCacheState::new())
         .manage(WatcherState::new())
-        .setup(|app| {
+        .on_page_load(move |_webview, payload| {
+            // Fires once per webview page navigation — first hit is the cold
+            // start and tells us when the bundle finished loading. The gap
+            // between this and "set_log_level" is React mount + first IPC.
+            tracing::info!(
+                "[startup] webview page_load (event={:?}, url={}) +{}ms",
+                payload.event(),
+                payload.url(),
+                t_start.elapsed().as_millis(),
+            );
+        })
+        .setup(move |app| {
+            tracing::info!("[startup] setup() running +{}ms", t_start.elapsed().as_millis());
             // Set app handle for frontend logging
             set_app_handle(app.handle().clone());
 
@@ -184,6 +203,7 @@ fn main() {
             commands::project::save_project,
             commands::project::delete_project,
             commands::project::list_project_files,
+            commands::project::project_path_valid,
             commands::project::preconvert_project_bins,
             // Map project commands
             commands::map_project::list_available_maps,

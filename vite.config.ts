@@ -28,6 +28,11 @@ export default defineConfig({
     server: {
         port: 1420,
         strictPort: true,
+        // NOTE: tried `server.warmup.clientFiles` to pre-transform the entry
+        // tree during the WebView2 cold boot — it actually made things
+        // worse (+33 s on the page_load Started→Finished phase). Vite's
+        // warmup runs the warmup transforms in parallel and the WebView's
+        // first real request gets queued behind them. Removed.
     },
     envPrefix: ['VITE_', 'TAURI_'],
     build: {
@@ -108,7 +113,9 @@ export default defineConfig({
             '@tauri-apps/api/core',
             '@tauri-apps/api/event',
             '@tauri-apps/api/window',
+            '@tauri-apps/api/webview',
             '@tauri-apps/api/path',
+            '@tauri-apps/api/app',
             '@tauri-apps/plugin-dialog',
             '@tauri-apps/plugin-opener',
             '@tauri-apps/plugin-process',
@@ -117,7 +124,9 @@ export default defineConfig({
             // State + virtualization
             'zustand',
             'zustand/react/shallow',
-            'react-window',
+            // (react-window was listed here but is not actually imported by
+            //  the app — Flint uses its own `VirtualizedList` in WadExplorer.
+            //  Pre-bundling unused deps just slows cold start.)
         ],
     },
 });

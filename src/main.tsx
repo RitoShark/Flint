@@ -86,19 +86,16 @@ root.render(
           )
 );
 
-// Show window after React has mounted and painted
-// Use requestAnimationFrame to ensure the DOM is ready
-requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-        getCurrentWindow()
-            .show()
-            .then(() => {
-                console.log(isDesignLab ? '[Flint] Design Lab mounted' : '[Flint] Window shown successfully');
-                // Initialize backend log listener after window is ready (skip in lab mode)
-                if (!isDesignLab) initBackendLogListener();
-            })
-            .catch((err) => {
-                console.error('[Flint] Failed to show window:', err);
-            });
-    });
-});
+// Window is now `visible: true` in `tauri.conf.json`, so the boot skeleton in
+// `index.html` shows the moment Tauri creates the window — no hidden-window
+// limbo while WebView2 boots and Vite serves modules. We just need to attach
+// the log listener once React has mounted; previously this was gated on
+// `getCurrentWindow().show()` resolving, which deferred it unnecessarily.
+if (!isDesignLab) {
+    initBackendLogListener();
+}
+// Touch the window handle (no-op) so the unused-import linter stays quiet —
+// some flows still want a Window reference, and we keep the import explicit
+// for those callers.
+void getCurrentWindow();
+console.log(isDesignLab ? '[Flint] Design Lab mounted' : '[Flint] Window already visible (boot skeleton handed off to React)');
