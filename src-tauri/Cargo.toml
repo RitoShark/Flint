@@ -59,7 +59,13 @@ rustc-hash = "2"
 xxhash-rust = { version = "0.8", features = ["xxh64"] }
 
 # Logging
-tracing = "0.1"
+#
+# `release_max_level_info` strips `tracing::debug!` and `tracing::trace!`
+# calls at compile time in release builds — they become true no-ops with no
+# runtime cost. Dev builds keep them. Combined with the runtime clamp in
+# `commands::logging::set_log_level` (which refuses `debug` in release), the
+# verbose toggle is dev-only.
+tracing = { version = "0.1", features = ["release_max_level_info"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 

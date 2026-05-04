@@ -33,8 +33,21 @@ pub fn set_reload_fn(f: ReloadFn) {
 ///   - Cache operations
 #[tauri::command]
 pub async fn set_log_level(verbose: bool) -> Result<(), String> {
-    let filter_str = if verbose { "debug" } else { "info" };
-    let mode_name = if verbose { "verbose (debug)" } else { "normal (info)" };
+    // In release builds, `tracing::debug!` is compile-time stripped via the
+    // `release_max_level_info` feature on the tracing crate (see
+    // src-tauri/Cargo.toml). Lifting the EnvFilter to "debug" wouldn't
+    // produce any output anyway, so we clamp the toggle to `info` and tell
+    // the frontend we did. Dev builds honor the toggle as before.
+    let verbose_effective = if cfg!(debug_assertions) { verbose } else { false };
+
+    let filter_str = if verbose_effective { "debug" } else { "info" };
+    let mode_name = if verbose_effective {
+        "verbose (debug)"
+    } else if verbose && !cfg!(debug_assertions) {
+        "normal (info) — debug logs are dev-only in release"
+    } else {
+        "normal (info)"
+    };
 
     let guard = RELOAD_FN.lock();
     let reload = guard.as_ref().ok_or("Reload handle not initialized")?;
@@ -43,14 +56,14 @@ pub async fn set_log_level(verbose: bool) -> Result<(), String> {
     tracing::info!("Log level changed to: {}", mode_name);
 
     // Emit a test log at each level to verify the filter is working
-    if verbose {
+    if verbose_effective {
         tracing::debug!("Verbose logging enabled - you will see detailed debug information");
         tracing::info!("Info logs visible");
         tracing::warn!("Warning logs visible");
     } else {
         tracing::info!("Normal logging enabled - only important events will be shown");
         tracing::warn!("Warning logs visible");
-        // Debug log won't be shown in normal mode
+        // Debug log won't be shown in normal mode (and won't compile in release)
         tracing::debug!("This debug message should NOT appear in normal mode");
     }
 
