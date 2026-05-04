@@ -14,6 +14,25 @@
 .log-panel--collapsed:hover {
     background: var(--bg-tertiary);
 }
+
+/* Vertical-centering fix for the collapsed bar.
+   The indicator dot is a true 8x8 square, so flex `align-items: center`
+   places its geometric center on the row centerline. The message text,
+   however, was rendering as a plain block span with the inherited
+   line-height (~1.4×) — its glyph baseline sat ~1-2px below the row's
+   visual center, making the dot look "high" relative to the text. The
+   `[ipc#…]` hint on the right looked correct because it's already an
+   inline-flex with `align-items: center`. We give the left side and the
+   message text the same treatment so glyphs sit on the same line as the
+   dot. */
+.log-panel--collapsed .log-panel__left {
+    line-height: 1;
+}
+.log-panel--collapsed .log-panel__text {
+    display: inline-flex;
+    align-items: center;
+    line-height: 1;
+}
 .log-panel__indicator--ready {
     background-color: var(--color-success);
     box-shadow: 0 0 6px color-mix(in oklab, var(--color-success) 60%, transparent);

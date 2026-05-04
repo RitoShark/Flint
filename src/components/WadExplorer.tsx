@@ -157,6 +157,33 @@ function formatBytes(n: number): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Skeleton placeholder shown while load_all_wad_chunks is in flight. Mirrors
+// the np-skel/shimmer treatment used by the New Project modal so the empty
+// list area doesn't read as broken during the ~5s load. Pure CSS shimmer —
+// no per-row state, no React re-render churn.
+// ─────────────────────────────────────────────────────────────────────────────
+const WadListSkeleton: React.FC<{ count: number }> = ({ count }) => {
+    return (
+        <div className="wad-skel" role="presentation" aria-hidden="true">
+            <div className="wad-skel__header">
+                <span className="wad-skel__shimmer" style={{ width: 120, height: 14 }} />
+                <span className="wad-skel__shimmer wad-skel__shimmer--soft" style={{ width: 60, height: 12 }} />
+            </div>
+            <div className="wad-skel__rows">
+                {Array.from({ length: count }).map((_, i) => (
+                    <div key={i} className="wad-skel__row" style={{ animationDelay: `${i * 60}ms` }}>
+                        <span className="wad-skel__caret" />
+                        <span className="wad-skel__icon" />
+                        <span className="wad-skel__shimmer wad-skel__shimmer--name" style={{ width: `${42 + ((i * 17) % 38)}%` }} />
+                        <span className="wad-skel__shimmer wad-skel__shimmer--meta" style={{ width: 48 }} />
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Checkbox state helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2236,7 +2263,10 @@ export const WadExplorer: React.FC = () => {
 
                     {/* ── Virtualized tree / search view ─────────────────────── */}
                     {wadExplorer.scanStatus === 'ready' && (
-                        <VirtualizedList
+                        wadExplorer.wads.length > 0
+                            && wadExplorer.wads.every(w => w.status === 'idle' || w.status === 'loading')
+                        ? <WadListSkeleton count={Math.min(wadExplorer.wads.length, 14)} />
+                        : <VirtualizedList
                             ref={listRef}
                             totalRows={totalRows}
                             rowHeight={ROW_HEIGHT}

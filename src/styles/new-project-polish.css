@@ -60,10 +60,12 @@
     to   { opacity: 0.55; }
 }
 
-/* The rounded splash itself stays clipped */
+/* The rounded splash itself stays clipped. No border — the glow behind it
+   already separates it from the background, and `--accent-primary` is red
+   in the default theme which made the splash look outlined in red. */
 .np-hero-splash {
     margin-bottom: 0 !important;
-    border: 1px solid color-mix(in oklab, var(--accent-primary) 25%, var(--border));
+    border: none;
 }
 
 /* "Change skin" button — modern pill-style overlay */

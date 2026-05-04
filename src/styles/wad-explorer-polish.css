@@ -297,3 +297,83 @@
 .panel-resizer:hover {
     background: color-mix(in oklab, var(--accent-primary) 50%, transparent);
 }
+
+/* ============================================================================
+   WAD list skeleton — shown while `load_all_wad_chunks` is in flight.
+   Mirrors the np-skel shimmer language from the New Project modal so the
+   empty area reads as "loading data", not "broken".
+   ============================================================================ */
+.wad-skel {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 12px;
+    height: 100%;
+    overflow: hidden;
+    animation: wadSkelFadeIn 220ms ease;
+}
+@keyframes wadSkelFadeIn {
+    from { opacity: 0; transform: translateY(2px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.wad-skel__header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 4px 8px;
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+}
+
+.wad-skel__rows {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.wad-skel__row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 24px;
+    padding: 0 6px;
+    border-radius: 6px;
+    animation: wadSkelRowIn 320ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+@keyframes wadSkelRowIn {
+    from { opacity: 0; transform: translateX(-6px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+.wad-skel__caret {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    background: color-mix(in oklab, var(--text-muted) 14%, transparent);
+}
+.wad-skel__icon {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    background: color-mix(in oklab, var(--accent-secondary) 18%, transparent);
+}
+
+.wad-skel__shimmer {
+    display: block;
+    height: 12px;
+    border-radius: 6px;
+    background: linear-gradient(
+        90deg,
+        color-mix(in oklab, var(--text-muted) 10%, transparent) 0%,
+        color-mix(in oklab, var(--text-muted) 22%, transparent) 50%,
+        color-mix(in oklab, var(--text-muted) 10%, transparent) 100%);
+    background-size: 200% 100%;
+    animation: wadSkelShimmer 1.6s ease-in-out infinite;
+}
+.wad-skel__shimmer--soft { opacity: 0.6; }
+.wad-skel__shimmer--name { height: 10px; }
+.wad-skel__shimmer--meta { height: 8px; opacity: 0.55; flex-shrink: 0; margin-left: auto; }
+@keyframes wadSkelShimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}

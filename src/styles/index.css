@@ -2544,7 +2544,7 @@ input.np-search:focus {
 .np-champ-card__icon {
   width: 42px;
   height: 42px;
-  border-radius: 50%;
+  border-radius: 10px;
   object-fit: cover;
   border: 2px solid #222;
   transition: border-color 0.15s ease;
@@ -5690,6 +5690,15 @@ input.np-search:focus {
   justify-content: center;
   font-size: 14px;
   border-radius: 50%;
+  /* SVG children default to `vertical-align: baseline`, leaving a 4-5px
+     descender gap below them inside this 20×20 colored circle. That made
+     the icon glyph appear ~3px above the disc's geometric center. Setting
+     line-height: 0 collapses the inline box so the SVG aligns to the flex
+     centerline. */
+  line-height: 0;
+}
+.toast-icon svg {
+  display: block;
 }
 
 .toast-info .toast-icon {
