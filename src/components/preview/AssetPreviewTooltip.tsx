@@ -22,10 +22,11 @@ interface AssetPreviewTooltipProps {
     onClose?: () => void;
 }
 
-/** Mesh data format from API */
+/** Mesh data format for the mini preview — typed arrays come straight from
+ *  the IPC binary buffer, no conversion needed. */
 interface MeshData {
-    positions: number[];
-    indices: number[];
+    positions: Float32Array;
+    indices: Uint16Array | Uint32Array;
     materials: string[] | { name: string }[];
 }
 
@@ -85,13 +86,10 @@ const MiniMeshPreview: React.FC<{ meshData: MeshData }> = ({ meshData }) => {
         // Create geometry from mesh data
         const geometry = new THREE.BufferGeometry();
 
-        // Add positions
-        const posArray = new Float32Array(meshData.positions);
-        geometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
-
-        // Add indices
-        const indexArray = new Uint32Array(meshData.indices);
-        geometry.setIndex(new THREE.BufferAttribute(indexArray, 1));
+        // Positions / indices are already typed arrays from the IPC binary
+        // payload — feed them straight into Three.js, no copy.
+        geometry.setAttribute('position', new THREE.BufferAttribute(meshData.positions, 3));
+        geometry.setIndex(new THREE.BufferAttribute(meshData.indices, 1));
 
         // Compute normals for lighting
         geometry.computeVertexNormals();
@@ -214,21 +212,17 @@ export const AssetPreviewTooltip: React.FC<AssetPreviewTooltipProps> = ({
 
                     if (ext === 'skn') {
                         const mesh = await api.readSknMesh(fullPath);
-                        // Flatten positions from [x,y,z][] to number[]
-                        const flatPositions = mesh.positions.flat();
                         meshData = {
-                            positions: flatPositions,
+                            positions: mesh.positions,
                             indices: mesh.indices,
-                            materials: mesh.materials
+                            materials: mesh.materials,
                         };
                     } else {
                         const mesh = await api.readScbMesh(fullPath);
-                        // Flatten positions from [x,y,z][] to number[]
-                        const flatPositions = mesh.positions.flat();
                         meshData = {
-                            positions: flatPositions,
+                            positions: mesh.positions,
                             indices: mesh.indices,
-                            materials: mesh.materials
+                            materials: mesh.materials,
                         };
                     }
 

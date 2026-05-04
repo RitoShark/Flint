@@ -9,16 +9,28 @@ use crate::core::ipc_trace;
 use flint_ltk::mesh::skn::{parse_skn_file, SknMeshData};
 use flint_ltk::mesh::scb::{parse_scb_file, ScbMeshData};
 use flint_ltk::mesh::texture::{find_skin_bin, MaterialProperties};
-use crate::commands::file::decode_dds_to_png;
+use crate::commands::file::decode_texture_file_sync;
 
-/// Read and parse an SCB (Static Mesh Binary) file
+/// Synchronous decode wrapper for use inside rayon `par_iter` blocks.
+fn decode_texture_blocking(path: &Path) -> Result<String, String> {
+    decode_texture_file_sync(path)
+}
+
+/// Read and parse an SCB (Static Mesh Binary) file.
 ///
-/// Returns mesh data including vertices, normals, UVs, indices, materials,
-/// and decoded textures for 3D rendering in the frontend.
-///
-/// Uses .ritobin text parsing to discover textures for static meshes.
+/// Returns the mesh in a packed binary wire format (see
+/// `flint_ltk::mesh::wire`). Vertex/index buffers travel as raw bytes so the
+/// frontend can hand them straight to `THREE.BufferAttribute` without paying
+/// the JSON-array round trip — a 30K-vertex mesh used to push ~3-5 MB of
+/// `[[x,y,z], …]` JSON; now it's the underlying ~600 KB of f32 bytes.
 #[tauri::command]
-pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
+pub async fn read_scb_mesh(path: String) -> Result<tauri::ipc::Response, String> {
+    let mesh = read_scb_mesh_inner(path).await?;
+    let buf = flint_ltk::mesh::wire::encode_scb_binary(&mesh)?;
+    Ok(tauri::ipc::Response::new(buf))
+}
+
+async fn read_scb_mesh_inner(path: String) -> Result<ScbMeshData, String> {
     let _t = ipc_trace::enter("read_scb_mesh");
     tracing::debug!("🗿 Reading SCB/SCO mesh: {}", path);
 
@@ -119,19 +131,27 @@ pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
                 tracing::debug!("⬇ Loading {} unique textures for SCB...", texture_tasks.len());
                 let start_time = std::time::Instant::now();
 
-                let load_futures: Vec<_> = texture_tasks.into_iter()
-                    .map(|(path_key, resolved_path)| async move {
-                        match decode_dds_to_png(resolved_path.to_string_lossy().to_string()).await {
-                            Ok(decoded) => Some((path_key, decoded.data)),
-                            Err(e) => {
-                                tracing::warn!("Failed to decode {}: {}", resolved_path.display(), e);
-                                None
+                // `decode_dds_to_png` is an `async` Tauri command but its body is
+                // fully blocking CPU work — `join_all` on a single tokio task ran
+                // them serially (4× 150ms ≈ 600ms in the SKN preview log). Push
+                // them onto rayon so they actually run in parallel across cores.
+                let results = tokio::task::spawn_blocking(move || {
+                    use rayon::prelude::*;
+                    texture_tasks
+                        .into_par_iter()
+                        .map(|(path_key, resolved_path)| {
+                            match decode_texture_blocking(&resolved_path) {
+                                Ok(data) => Some((path_key, data)),
+                                Err(e) => {
+                                    tracing::warn!("Failed to decode {}: {}", resolved_path.display(), e);
+                                    None
+                                }
                             }
-                        }
-                    })
-                    .collect();
-
-                let results = futures::future::join_all(load_futures).await;
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .await
+                .unwrap_or_default();
 
                 let mut decoded_textures: HashMap<String, String> = HashMap::new();
                 for result in results.into_iter().flatten() {
@@ -363,14 +383,20 @@ fn find_ritobin_in_dir(dir: &Path) -> Option<String> {
     None
 }
 
-/// Read and parse an SKN (Simple Skin) mesh file
+/// Read and parse an SKN (Simple Skin) mesh file.
 ///
-/// Returns mesh data including vertices, normals, UVs, indices, materials,
-/// and decoded textures for 3D rendering in the frontend.
-///
-/// Uses .ritobin text parsing for robust texture discovery.
+/// Returns the mesh in a packed binary wire format (see
+/// `flint_ltk::mesh::wire`). Vertex/index buffers travel as raw bytes so the
+/// frontend can hand them straight to `THREE.BufferAttribute` without paying
+/// the JSON-array round trip.
 #[tauri::command]
-pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
+pub async fn read_skn_mesh(path: String) -> Result<tauri::ipc::Response, String> {
+    let mesh = read_skn_mesh_inner(path).await?;
+    let buf = flint_ltk::mesh::wire::encode_skn_binary(&mesh)?;
+    Ok(tauri::ipc::Response::new(buf))
+}
+
+async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {
     let _t = ipc_trace::enter("read_skn_mesh");
     tracing::debug!("🎨 Reading SKN mesh: {}", path);
 
@@ -485,19 +511,27 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
                 tracing::debug!("⬇ Loading {} unique textures...", texture_tasks.len());
                 let start_time = std::time::Instant::now();
 
-                let load_futures: Vec<_> = texture_tasks.into_iter()
-                    .map(|(path_key, resolved_path)| async move {
-                        match decode_dds_to_png(resolved_path.to_string_lossy().to_string()).await {
-                            Ok(decoded) => Some((path_key, decoded.data)),
-                            Err(e) => {
-                                tracing::warn!("Failed to decode {}: {}", resolved_path.display(), e);
-                                None
+                // `decode_dds_to_png` is an `async` Tauri command but its body is
+                // fully blocking CPU work — `join_all` on a single tokio task ran
+                // them serially (4× 150ms ≈ 600ms in the SKN preview log). Push
+                // them onto rayon so they actually run in parallel across cores.
+                let results = tokio::task::spawn_blocking(move || {
+                    use rayon::prelude::*;
+                    texture_tasks
+                        .into_par_iter()
+                        .map(|(path_key, resolved_path)| {
+                            match decode_texture_blocking(&resolved_path) {
+                                Ok(data) => Some((path_key, data)),
+                                Err(e) => {
+                                    tracing::warn!("Failed to decode {}: {}", resolved_path.display(), e);
+                                    None
+                                }
                             }
-                        }
-                    })
-                    .collect();
-
-                let results = futures::future::join_all(load_futures).await;
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .await
+                .unwrap_or_default();
 
                 let mut decoded_textures: HashMap<String, String> = HashMap::new();
                 for result in results.into_iter().flatten() {

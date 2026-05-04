@@ -9,4 +9,5 @@ pub mod texture;
 pub mod skl;
 pub mod animation;
 pub mod scb;
+pub mod wire;
 

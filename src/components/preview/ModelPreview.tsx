@@ -24,19 +24,9 @@ interface MaterialRange {
     vertex_count: number;
 }
 
-interface SknMeshData {
-    materials: MaterialRange[];
-    positions: [number, number, number][];
-    normals: [number, number, number][];
-    uvs: [number, number][];
-    indices: number[];
-    bounding_box: [[number, number, number], [number, number, number]];
-    textures?: Record<string, string>;  // DEPRECATED - use material_data
-    material_data?: Record<string, MaterialData>;  // NEW: textures with UV params
-    bone_weights?: [number, number, number, number][];  // 4 bone weights per vertex
-    bone_indices?: [number, number, number, number][];  // 4 bone indices per vertex
-    texture_warning?: string;  // Warning message if texture discovery failed
-}
+// Shape now lives in `lib/api.ts` — vertex/index buffers are typed arrays
+// straight off the IPC `ArrayBuffer`, no per-vertex JSON.
+type SknMeshData = api.SknMeshData;
 
 // Material data with texture and UV transform parameters
 interface MaterialData {
@@ -65,19 +55,7 @@ interface SklData {
     influences: number[];  // Maps vertex bone indices to actual bone IDs
 }
 
-// Static mesh data from SCB/SCO files
-interface ScbMeshData {
-    name: string;
-    materials: string[];
-    positions: [number, number, number][];
-    normals: [number, number, number][];
-    uvs: [number, number][];
-    indices: number[];
-    bounding_box: [[number, number, number], [number, number, number]];
-    material_ranges: Record<string, [number, number]>;
-    material_data?: Record<string, MaterialData>;
-    texture_warning?: string;  // Warning message if texture discovery failed
-}
+type ScbMeshData = api.ScbMeshData;
 
 // Union type for mesh data
 type MeshData = SknMeshData | ScbMeshData;
@@ -100,11 +78,7 @@ interface MeshViewerProps {
 }
 
 // Helper to check if mesh data is SKN type
-const isSknMeshDataType = (data: MeshData): data is SknMeshData => {
-    return Array.isArray(data.materials) &&
-        data.materials.length > 0 &&
-        typeof data.materials[0] === 'object';
-};
+const isSknMeshDataType = (data: MeshData): data is SknMeshData => data.kind === 'skn';
 
 
 const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wireframe, skeletonData, animationPose }) => {
@@ -244,17 +218,22 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
         return matrices;
     }, [skeletonData, animationPose]);
 
-    // Apply skinning to vertex positions
+    // Apply skinning to vertex positions. Operates directly on the
+    // `Float32Array` / `Uint16Array` buffers that came off IPC — no per-vertex
+    // tuple allocations, no `[number, number, number]` indirection. Reuses a
+    // single `THREE.Vector3` per loop iteration to keep GC pressure flat.
     const applySkinnedPositions = (
-        originalPositions: [number, number, number][],
-        indices: number[],
+        positions: Float32Array,
+        indices: Uint16Array,
         startIdx: number,
-        count: number
-    ): number[] => {
-        const skinnedPositions: number[] = [];
+        count: number,
+    ): Float32Array => {
+        const out = new Float32Array(count * 3);
         const sknData = meshData as SknMeshData;
+        const weights = sknData.bone_weights;
+        const boneIdxArr = sknData.bone_indices;
+        const influences = skeletonData?.influences;
 
-        // Build mapping from bone ID to array index (for looking up boneMatrices)
         const boneIdToArrayIndex = new Map<number, number>();
         if (skeletonData) {
             skeletonData.bones.forEach((bone, index) => {
@@ -262,52 +241,50 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
             });
         }
 
+        const original = new THREE.Vector3();
+        const skinned = new THREE.Vector3();
+        const transformed = new THREE.Vector3();
+
         for (let i = 0; i < count; i++) {
             const vertexIdx = indices[startIdx + i];
-            const pos = originalPositions[vertexIdx];
-            const originalPos = new THREE.Vector3(pos[0], pos[1], pos[2]);
+            const px = positions[vertexIdx * 3];
+            const py = positions[vertexIdx * 3 + 1];
+            const pz = positions[vertexIdx * 3 + 2];
 
-            // Check if we have skinning data
-            if (boneMatrices && sknData.bone_weights && sknData.bone_indices && skeletonData?.influences) {
-                const weights = sknData.bone_weights[vertexIdx];
-                const boneIdx = sknData.bone_indices[vertexIdx];
-
-                // Apply weighted bone transforms
-                const skinnedPos = new THREE.Vector3(0, 0, 0);
+            if (boneMatrices && weights && boneIdxArr && influences) {
+                skinned.set(0, 0, 0);
                 let totalWeight = 0;
+                const wBase = vertexIdx * 4;
 
                 for (let j = 0; j < 4; j++) {
-                    const weight = weights[j];
-                    // Remap: vertex bone index -> influences array -> bone ID -> bone array index
-                    const influenceIdx = boneIdx[j];
-                    const boneId = skeletonData.influences[influenceIdx];
+                    const weight = weights[wBase + j];
+                    if (weight <= 0.0001) continue;
+                    const influenceIdx = boneIdxArr[wBase + j];
+                    const boneId = influences[influenceIdx];
                     const boneArrayIndex = boneIdToArrayIndex.get(boneId) ?? influenceIdx;
-
-                    if (weight > 0.0001 && boneMatrices[boneArrayIndex]) {
-                        const transformedPos = originalPos.clone().applyMatrix4(boneMatrices[boneArrayIndex]);
-                        skinnedPos.addScaledVector(transformedPos, weight);
-                        totalWeight += weight;
-                    }
+                    const matrix = boneMatrices[boneArrayIndex];
+                    if (!matrix) continue;
+                    original.set(px, py, pz);
+                    transformed.copy(original).applyMatrix4(matrix);
+                    skinned.addScaledVector(transformed, weight);
+                    totalWeight += weight;
                 }
 
-                // If we have valid skinning, use it; otherwise fall back to original position
                 if (totalWeight > 0.0001) {
-                    // Normalize if weights don't sum to 1 (edge case)
-                    if (Math.abs(totalWeight - 1.0) > 0.01) {
-                        skinnedPos.divideScalar(totalWeight);
-                    }
-                    skinnedPositions.push(skinnedPos.x, skinnedPos.y, skinnedPos.z);
-                } else {
-                    // No valid bone transforms - use original position
-                    skinnedPositions.push(pos[0], pos[1], pos[2]);
+                    if (Math.abs(totalWeight - 1.0) > 0.01) skinned.divideScalar(totalWeight);
+                    out[i * 3] = skinned.x;
+                    out[i * 3 + 1] = skinned.y;
+                    out[i * 3 + 2] = skinned.z;
+                    continue;
                 }
-            } else {
-                // No skinning data - use original position
-                skinnedPositions.push(pos[0], pos[1], pos[2]);
             }
+
+            out[i * 3] = px;
+            out[i * 3 + 1] = py;
+            out[i * 3 + 2] = pz;
         }
 
-        return skinnedPositions;
+        return out;
     };
 
     // Create base geometries with skinning data (non-indexed for proper UV mapping)
@@ -315,27 +292,43 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
         const geometries: Map<string, { geo: THREE.BufferGeometry; startIdx: number; count: number }> = new Map();
 
         if (isSknMeshDataType(meshData)) {
+            const positions = meshData.positions;
+            const normals = meshData.normals;
+            const uvs = meshData.uvs;
+            const indices = meshData.indices;
+
             meshData.materials.forEach((mat) => {
                 const geo = new THREE.BufferGeometry();
                 const startIdx = mat.start_index;
                 const count = mat.index_count;
 
-                // Extract triangle data
-                const positions: number[] = [];
-                const normals: number[] = [];
-                const uvs: number[] = [];
+                // Build per-material non-indexed buffers. Each output triangle
+                // pulls its vertex straight from the SKN's typed array — no
+                // tuple objects, no nested `.flat()`, just memcpy + indexed
+                // reads off the source buffer.
+                const outPos = new Float32Array(count * 3);
+                const outNrm = new Float32Array(count * 3);
+                const outUv = new Float32Array(count * 2);
 
                 for (let i = 0; i < count; i++) {
-                    const idx = meshData.indices[startIdx + i];
-
-                    positions.push(meshData.positions[idx][0], meshData.positions[idx][1], meshData.positions[idx][2]);
-                    normals.push(meshData.normals[idx][0], meshData.normals[idx][1], meshData.normals[idx][2]);
-                    uvs.push(meshData.uvs[idx][0], meshData.uvs[idx][1]);
+                    const idx = indices[startIdx + i];
+                    const p = idx * 3;
+                    const u = idx * 2;
+                    const o3 = i * 3;
+                    const o2 = i * 2;
+                    outPos[o3] = positions[p];
+                    outPos[o3 + 1] = positions[p + 1];
+                    outPos[o3 + 2] = positions[p + 2];
+                    outNrm[o3] = normals[p];
+                    outNrm[o3 + 1] = normals[p + 1];
+                    outNrm[o3 + 2] = normals[p + 2];
+                    outUv[o2] = uvs[u];
+                    outUv[o2 + 1] = uvs[u + 1];
                 }
 
-                geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
-                geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(normals), 3));
-                geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
+                geo.setAttribute('position', new THREE.BufferAttribute(outPos, 3));
+                geo.setAttribute('normal', new THREE.BufferAttribute(outNrm, 3));
+                geo.setAttribute('uv', new THREE.BufferAttribute(outUv, 2));
 
                 geometries.set(mat.name, { geo, startIdx, count });
             });
@@ -343,10 +336,11 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
             const scbData = meshData as ScbMeshData;
             const geo = new THREE.BufferGeometry();
 
-            geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(scbData.positions.flat()), 3));
-            geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(scbData.normals.flat()), 3));
-            geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(scbData.uvs.flat()), 2));
-            geo.setIndex(new THREE.BufferAttribute(new Uint32Array(scbData.indices), 1));
+            // Three.js consumes the typed arrays straight off IPC — no copy.
+            geo.setAttribute('position', new THREE.BufferAttribute(scbData.positions, 3));
+            geo.setAttribute('normal', new THREE.BufferAttribute(scbData.normals, 3));
+            geo.setAttribute('uv', new THREE.BufferAttribute(scbData.uvs, 2));
+            geo.setIndex(new THREE.BufferAttribute(scbData.indices, 1));
 
             const matKey = scbData.materials[0] || 'default';
             geometries.set(matKey, { geo, startIdx: 0, count: scbData.indices.length });
