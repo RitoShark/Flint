@@ -338,6 +338,12 @@ fn main() {
             commands::settings::list_themes,
             commands::settings::load_theme,
             commands::settings::create_default_theme,
+            // Compare-with-original / per-file backup commands
+            commands::compare::find_original_file,
+            commands::compare::has_file_backup,
+            commands::compare::create_file_backup,
+            commands::compare::read_file_backup,
+            commands::compare::delete_file_backup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

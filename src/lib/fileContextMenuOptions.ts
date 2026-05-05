@@ -32,6 +32,9 @@ interface BuildOptionsArgs {
     /** Optional rename trigger — when present, the menu shows "Rename".
      *  FileTree passes its inline-rename setter; grid views can omit it. */
     onRename?: (path: string) => void;
+    /** League installation path — needed by "Restore from Original".
+     *  When omitted, the action toasts a "set League path" hint instead. */
+    leaguePath?: string | null;
 }
 
 function isContentFolder(path: string): boolean {
@@ -40,7 +43,7 @@ function isContentFolder(path: string): boolean {
 }
 
 export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenuOption[] {
-    const { node, projectPath, depth, refreshFileTree, openModal, openConfirmDialog, showToast, onRename } = args;
+    const { node, projectPath, depth, refreshFileTree, openModal, openConfirmDialog, showToast, onRename, leaguePath } = args;
     const options: ContextMenuOption[] = [];
 
     const fullPath = projectPath
@@ -282,6 +285,195 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             icon: getIcon('texture'),
             separator: true,
             onClick: () => openModal('recolor', { filePath: node.path, isFolder: false }),
+        });
+    }
+
+    // ── Compare / Backup ──────────────────────────────────────────────
+    // Only meaningful for files that came from a WAD — i.e. live under
+    // `content/<name>.wad.client/...`. The Rust side will return a clean
+    // "not in a WAD folder" error otherwise, but we hide the items entirely
+    // to keep the menu short for things like mod.config.json or thumbnails.
+    const normalizedRel = node.path.replace(/\\/g, '/');
+    // Project layouts: `content/<wad>.wad.client/...` (legacy) or
+    // `content/<layer>/<wad>.wad.client/...` (current — `base` is the default
+    // layer). Accept any segment after `content/` ending in `.wad.client`.
+    const isWadAsset =
+        normalizedRel.startsWith('content/') &&
+        normalizedRel.split('/').some(seg => seg.toLowerCase().endsWith('.wad.client'));
+
+    if (isWadAsset) {
+        options.push({
+            label: 'Compare with Original',
+            icon: getIcon('code'),
+            separator: true,
+            onClick: () => openModal('fileCompare', {
+                mode: 'original',
+                filePath: node.path,
+                fileName,
+            }),
+        });
+        options.push({
+            label: 'Restore from Original',
+            icon: getIcon('file'),
+            onClick: async () => {
+                // Resolve the original lookup before showing the confirm so we
+                // can put a useful message in front of the user (and bail
+                // early when nothing was found, instead of confirming and
+                // then failing).
+                if (!leaguePath) {
+                    showToast('error', 'League path is not set. Configure it in Settings (Ctrl+,) first.');
+                    return;
+                }
+                let meta: api.OriginalFileMeta;
+                try {
+                    meta = await api.findOriginalFile(leaguePath, projectPath, node.path);
+                } catch (err) {
+                    const flintError = err as api.FlintError;
+                    showToast('error', flintError.getUserMessage?.() || 'Failed to look up original');
+                    return;
+                }
+                if (!meta.found || !meta.wad_path || !meta.matched_hash) {
+                    const reason = !meta.wad_found
+                        ? `Couldn't locate ${meta.queried_wad_name} in your League install.`
+                        : `No matching chunk for "${fileName}" (or any close variant) in ${meta.queried_wad_name}.`;
+                    showToast('warning', `Original file not found — ${reason}`);
+                    return;
+                }
+
+                const matchNote = meta.exact
+                    ? ''
+                    : ` (matched "${meta.matched_internal_path}" — your file's path differs from the WAD path; this is normal for repathed projects)`;
+                const message =
+                    `Overwrite "${fileName}" with the original from ${meta.queried_wad_name}?${matchNote}\n\n` +
+                    `A backup of the current file will be saved automatically before replacing.`;
+
+                openConfirmDialog({
+                    title: 'Restore from Original',
+                    message,
+                    confirmLabel: 'Restore',
+                    onConfirm: async () => {
+                        try {
+                            // Auto-backup first — this is destructive otherwise.
+                            try {
+                                await api.createFileBackup(projectPath, node.path);
+                            } catch (e) {
+                                // If backup fails, abort the restore — better
+                                // to leave the user's edit intact than to
+                                // overwrite with no recovery path.
+                                const m = (e as { message?: string })?.message ?? String(e);
+                                showToast('error', `Aborting restore — couldn't create backup first: ${m}`);
+                                return;
+                            }
+                            const bytes = await api.readWadChunkData(meta.wad_path!, meta.matched_hash!);
+                            const absPath = `${projectPath.replace(/\\/g, '/')}/${node.path}`.replace(/\//g, '\\');
+                            await api.saveFileBytes(absPath, bytes);
+                            await refreshFileTree();
+                            showToast('success', `Restored ${fileName} from original (previous version backed up)`);
+                        } catch (err) {
+                            const flintError = err as api.FlintError;
+                            showToast('error', flintError.getUserMessage?.() || 'Failed to restore from original');
+                        }
+                    },
+                });
+            },
+        });
+        options.push({
+            label: 'Create / Update Backup',
+            icon: getIcon('file'),
+            onClick: async () => {
+                try {
+                    await api.createFileBackup(projectPath, node.path);
+                    showToast('success', `Backed up ${fileName}`);
+                } catch (err) {
+                    const flintError = err as api.FlintError;
+                    showToast('error', flintError.getUserMessage?.() || 'Failed to create backup');
+                }
+            },
+        });
+        options.push({
+            label: 'Restore from Backup',
+            icon: getIcon('file'),
+            onClick: async () => {
+                try {
+                    const exists = await api.hasFileBackup(projectPath, node.path);
+                    if (!exists) {
+                        showToast('warning', `No backup exists for ${fileName} — use "Create / Update Backup" first`);
+                        return;
+                    }
+                    openConfirmDialog({
+                        title: 'Restore from Backup',
+                        message: `Overwrite "${fileName}" with its backup? The current file's contents will be lost.`,
+                        confirmLabel: 'Restore',
+                        onConfirm: async () => {
+                            try {
+                                const bytes = await api.readFileBackup(projectPath, node.path);
+                                const absPath = `${projectPath.replace(/\\/g, '/')}/${node.path}`.replace(/\//g, '\\');
+                                await api.saveFileBytes(absPath, bytes);
+                                await refreshFileTree();
+                                showToast('success', `Restored ${fileName} from backup`);
+                            } catch (err) {
+                                const flintError = err as api.FlintError;
+                                showToast('error', flintError.getUserMessage?.() || 'Failed to restore from backup');
+                            }
+                        },
+                    });
+                } catch (err) {
+                    const flintError = err as api.FlintError;
+                    showToast('error', flintError.getUserMessage?.() || 'Failed to check backup');
+                }
+            },
+        });
+        options.push({
+            label: 'Compare with Backup',
+            icon: getIcon('code'),
+            onClick: async () => {
+                try {
+                    const exists = await api.hasFileBackup(projectPath, node.path);
+                    if (!exists) {
+                        showToast('warning', `No backup exists for ${fileName} — use "Create / Update Backup" first`);
+                        return;
+                    }
+                    openModal('fileCompare', {
+                        mode: 'backup',
+                        filePath: node.path,
+                        fileName,
+                    });
+                } catch (err) {
+                    const flintError = err as api.FlintError;
+                    showToast('error', flintError.getUserMessage?.() || 'Failed to check backup');
+                }
+            },
+        });
+        options.push({
+            label: 'Delete Backup',
+            danger: true,
+            onClick: async () => {
+                try {
+                    const exists = await api.hasFileBackup(projectPath, node.path);
+                    if (!exists) {
+                        showToast('info', `No backup to delete for ${fileName}`);
+                        return;
+                    }
+                    openConfirmDialog({
+                        title: 'Delete Backup',
+                        message: `Delete the backup for "${fileName}"? The current file isn't touched.`,
+                        confirmLabel: 'Delete Backup',
+                        danger: true,
+                        onConfirm: async () => {
+                            try {
+                                await api.deleteFileBackup(projectPath, node.path);
+                                showToast('success', 'Backup deleted');
+                            } catch (err) {
+                                const flintError = err as api.FlintError;
+                                showToast('error', flintError.getUserMessage?.() || 'Failed to delete backup');
+                            }
+                        },
+                    });
+                } catch (err) {
+                    const flintError = err as api.FlintError;
+                    showToast('error', flintError.getUserMessage?.() || 'Failed to check backup');
+                }
+            },
         });
     }
 

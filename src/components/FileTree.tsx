@@ -319,6 +319,7 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
     const openContextMenu = useModalStore((s) => s.openContextMenu);
     const openConfirmDialog = useModalStore((s) => s.openConfirmDialog);
     const showToast = useNotificationStore((s) => s.showToast);
+    const leaguePath = useConfigStore((s) => s.leaguePath);
     const renameInputRef = useRef<HTMLInputElement>(null);
 
     // Apply compact-folder merging
@@ -412,6 +413,7 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
             openConfirmDialog,
             showToast,
             onRename: (path) => setRenamingPath(path),
+            leaguePath,
         });
         openContextMenu(e.clientX, e.clientY, options);
     };

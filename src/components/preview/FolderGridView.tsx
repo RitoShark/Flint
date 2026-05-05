@@ -15,7 +15,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useProjectTabStore, useAppMetadataStore, useModalStore, useNotificationStore } from '../../lib/stores';
+import { useProjectTabStore, useAppMetadataStore, useModalStore, useNotificationStore, useConfigStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { getFileIcon } from '../../lib/fileIcons';
 import { getCachedImage, cacheImage } from '../../lib/imageCache';
@@ -67,6 +67,7 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
     const openContextMenu = useModalStore((s) => s.openContextMenu);
     const openConfirmDialog = useModalStore((s) => s.openConfirmDialog);
     const showToast = useNotificationStore((s) => s.showToast);
+    const leaguePath = useConfigStore((s) => s.leaguePath);
 
     const refreshFileTree = async () => {
         if (!projectPath) return;
@@ -92,6 +93,7 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
             openModal,
             openConfirmDialog,
             showToast,
+            leaguePath,
             // Inline rename isn't wired up in the grid yet; omit so the
             // option doesn't show up as a no-op.
         });

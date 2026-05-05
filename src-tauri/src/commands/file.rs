@@ -316,8 +316,18 @@ fn decode_texture_bytes_impl(data: &[u8]) -> Result<DecodedImage, String> {
     let texture = Texture::from_reader(&mut cursor)
         .map_err(|e| format!("Failed to parse texture: {:?}", e))?;
 
-    let surface = texture
-        .decode_mipmap(0)
+    // ltk_texture's mipmap slicing can panic on TEX files where the declared
+    // mip-table size exceeds the actual byte buffer (a known issue with
+    // mipmaps produced by `encode_rgba_with_mipmaps` at sub-block sizes).
+    // catch_unwind keeps the worker thread alive and surfaces a clean error
+    // to the UI instead of bringing down the IPC.
+    let surface = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        texture.decode_mipmap(0)
+    }))
+        .map_err(|_| {
+            "Failed to decode texture: malformed mip table (file may have been \
+             produced by an older recolor — re-recolor the source to fix)".to_string()
+        })?
         .map_err(|e| format!("Failed to decode texture: {:?}", e))?;
 
     let rgba_image = surface
@@ -510,10 +520,18 @@ async fn recolor_single_file(
     match texture {
         Texture::Tex(tex) => {
             use flint_ltk::ltk_types::EncodeOptions;
-            let options = EncodeOptions::new(tex.format).with_mipmaps();
+            // Mipmaps are intentionally OFF here. Upstream
+            // `encode_rgba_with_mipmaps` walks down to sub-block sizes
+            // (e.g. 16×1 for BC3) and intel-tex's `compress_blocks`
+            // under-encodes those — the resulting TEX has a declared
+            // mip-table size larger than the byte buffer and any later
+            // decode panics with `range end index N out of range`.
+            // Single-mip TEX renders correctly in-game and lets the
+            // preview path round-trip cleanly.
+            let options = EncodeOptions::new(tex.format);
             let new_tex = flint_ltk::ltk_types::Tex::encode_rgba_image(&rgba_img, options)
                 .map_err(|e| format!("Failed to encode TEX: {:?}", e))?;
-            
+
             let mut output = fs::File::create(&path_buf).map_err(|e| format!("Failed to create output file: {}", e))?;
             new_tex.write(&mut output).map_err(|e| format!("Failed to write TEX: {}", e))?;
         }
@@ -521,7 +539,7 @@ async fn recolor_single_file(
             // Re-parse with ddsfile to get header info and encode with image_dds
             let mut cursor = Cursor::new(&data);
             let dds = ddsfile::Dds::read(&mut cursor).map_err(|e| format!("Failed to parse DDS: {}", e))?;
-            
+
             // Try to match format
             let format = if let Some(fourcc) = dds.header.spf.fourcc {
                 if fourcc.0 == u32::from_le_bytes(*b"DXT1") {
@@ -646,10 +664,12 @@ async fn colorize_single_file(
     match texture {
         Texture::Tex(tex) => {
             use flint_ltk::ltk_types::EncodeOptions;
-            let options = EncodeOptions::new(tex.format).with_mipmaps();
+            // See note in recolor_single_file — mipmaps disabled to avoid
+            // upstream sub-block-size encode bug.
+            let options = EncodeOptions::new(tex.format);
             let new_tex = flint_ltk::ltk_types::Tex::encode_rgba_image(&rgba_img, options)
                 .map_err(|e| format!("Failed to encode TEX: {:?}", e))?;
-            
+
             let mut output = fs::File::create(&path_buf).map_err(|e| format!("Failed to create output file: {}", e))?;
             new_tex.write(&mut output).map_err(|e| format!("Failed to write TEX: {}", e))?;
         }

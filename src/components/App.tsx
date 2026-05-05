@@ -34,6 +34,7 @@ import { CheckpointModal } from './modals/CheckpointModal';
 import { BinSplitModal } from './modals/BinSplitModal';
 import { FullResImageModal } from './modals/FullResImageModal';
 import { BrowseWadModal } from './modals/BrowseWadModal';
+import { FileCompareModal } from './modals/FileCompareModal';
 import { ToastContainer } from './Toast';
 import { TutorialOverlay, isOnboardingDone } from './TutorialOverlay';
 
@@ -68,6 +69,7 @@ const ActiveModal: React.FC<{ activeModal: string | null }> = React.memo(({ acti
         case 'binSplit':         return <BinSplitModal />;
         case 'fullResImage':     return <FullResImageModal />;
         case 'browseWad':        return <BrowseWadModal />;
+        case 'fileCompare':      return <FileCompareModal />;
         default:                 return null;
     }
 });
