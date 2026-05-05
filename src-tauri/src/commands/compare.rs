@@ -89,14 +89,40 @@ fn find_wad_in_league(league_path: &Path, wad_folder_name: &str) -> Option<PathB
     None
 }
 
-/// Score how well `candidate` matches `target` once we've confirmed they live
-/// in the same directory. Higher is better; `None` means "no match at all".
+/// True if two extensions name the same on-disk asset family. Today this just
+/// covers `.dds` ↔ `.tex` — old mods often stored textures as `.dds` while
+/// the in-game asset is `.tex` (or vice versa), and the engine treats them
+/// interchangeably.
+fn ext_equivalent(a: &str, b: &str) -> bool {
+    if a == b {
+        return true;
+    }
+    matches!((a, b), ("dds", "tex") | ("tex", "dds"))
+}
+
+/// Swap a path's texture extension between `.dds` and `.tex`. Returns `None`
+/// for any other extension.
+fn swap_texture_ext(path_lower: &str) -> Option<String> {
+    if let Some(stem) = path_lower.strip_suffix(".dds") {
+        return Some(format!("{}.tex", stem));
+    }
+    if let Some(stem) = path_lower.strip_suffix(".tex") {
+        return Some(format!("{}.dds", stem));
+    }
+    None
+}
+
+/// Score how well `candidate` matches `target`. Higher is better; `None`
+/// means "no match at all". Cross-format texture matches (dds ↔ tex) are
+/// allowed because old mods often ship the wrong container for what the
+/// engine actually serves.
 ///
 /// The scoring rule: split filename by `.`, compare leading tokens, return
 /// how many shared tokens line up before the first divergence.
 /// `crazygood.ambessa.tex` vs `crazygood.boba.tex` → 1 shared (`crazygood`).
-/// `crazygood.tex` vs `crazygood.tex` → 1 shared, but the exact-match check
-/// up the call stack wins first.
+/// `crazygood.tex` vs `crazygood.tex` → handled as `Some(usize::MAX)` here
+/// for the cross-format case; the same-ext exact-match early return up the
+/// call stack handles the byte-identical-path case before we get here.
 fn fuzzy_filename_score(target: &str, candidate: &str) -> Option<usize> {
     let t = target.to_lowercase();
     let c = candidate.to_lowercase();
@@ -107,11 +133,15 @@ fn fuzzy_filename_score(target: &str, candidate: &str) -> Option<usize> {
     let c_path = Path::new(&c);
     let t_ext = t_path.extension()?.to_str()?;
     let c_ext = c_path.extension()?.to_str()?;
-    if t_ext != c_ext {
+    if !ext_equivalent(t_ext, c_ext) {
         return None;
     }
     let t_stem = t_path.file_stem()?.to_str()?;
     let c_stem = c_path.file_stem()?.to_str()?;
+    // Cross-format full-stem equality is as good as a full-path match.
+    if t_stem == c_stem {
+        return Some(usize::MAX);
+    }
     let t_tokens: Vec<&str> = t_stem.split('.').collect();
     let c_tokens: Vec<&str> = c_stem.split('.').collect();
     if t_tokens.first() != c_tokens.first() {
@@ -206,6 +236,7 @@ pub async fn find_original_file(
     };
 
     let target_lower = internal_path.to_lowercase().replace('\\', "/");
+    let target_swapped_ext = swap_texture_ext(&target_lower);
     let target_dir = dir_of(&target_lower);
     let target_file = file_of(&target_lower).to_string();
     let target_last_segment = target_dir.rsplit('/').next().unwrap_or("").to_string();
@@ -222,7 +253,9 @@ pub async fn find_original_file(
         let Some(resolved_path) = resolved.get(&h) else { continue };
         let cand_lower = resolved_path.to_lowercase().replace('\\', "/");
 
-        if cand_lower == target_lower {
+        if cand_lower == target_lower
+            || target_swapped_ext.as_deref() == Some(cand_lower.as_str())
+        {
             meta.found = true;
             meta.exact = true;
             meta.matched_hash = Some(format!("{:016x}", h));
@@ -377,6 +410,35 @@ mod tests {
     fn fuzzy_score_unrelated() {
         assert!(fuzzy_filename_score("foo.tex", "bar.tex").is_none());
         assert!(fuzzy_filename_score("crazygood.tex", "crazygood.skn").is_none());
+    }
+
+    #[test]
+    fn fuzzy_score_cross_format_dds_tex() {
+        // Same name, different container — old-mod vs current-game pairing.
+        assert_eq!(
+            fuzzy_filename_score("crazygood.dds", "crazygood.tex"),
+            Some(usize::MAX)
+        );
+        // Same name + suffix tokens, different container.
+        assert_eq!(
+            fuzzy_filename_score("crazygood.ambessa.dds", "crazygood.boba.tex"),
+            Some(1)
+        );
+        // Cross-format never matches across unrelated extensions.
+        assert!(fuzzy_filename_score("crazygood.dds", "crazygood.skn").is_none());
+    }
+
+    #[test]
+    fn swap_texture_ext_round_trip() {
+        assert_eq!(
+            swap_texture_ext("foo/bar.dds").as_deref(),
+            Some("foo/bar.tex")
+        );
+        assert_eq!(
+            swap_texture_ext("foo/bar.tex").as_deref(),
+            Some("foo/bar.dds")
+        );
+        assert_eq!(swap_texture_ext("foo/bar.skn"), None);
     }
 
     #[test]

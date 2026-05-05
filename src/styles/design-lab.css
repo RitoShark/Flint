@@ -8,6 +8,32 @@
    ========================================================================== */
 
 /* --------------------------------------------------------------------------
+   Global dl tokens — hoisted to :root so portal-rendered .dl-* surfaces
+   (e.g. the modal backdrop, which is appended to <body> outside .dl-root)
+   can still resolve animation timings, radii, and shadows. The local
+   `.dl-root` block below redeclares them so non-portal lab content stays
+   self-contained.
+   -------------------------------------------------------------------------- */
+:root {
+    --dl-radius:       10px;
+    --dl-radius-sm:    7px;
+    --dl-radius-lg:    14px;
+    --dl-border:       1px solid color-mix(in oklab, var(--border) 100%, transparent);
+    --dl-border-soft:  1px solid color-mix(in oklab, var(--border) 50%, transparent);
+    --dl-shadow-sm:    0 1px 2px rgba(0,0,0,.35), 0 0 0 1px color-mix(in oklab, var(--border) 60%, transparent);
+    --dl-shadow-md:    0 8px 24px -8px rgba(0,0,0,.5), 0 2px 4px rgba(0,0,0,.25);
+    --dl-shadow-lg:    0 24px 48px -16px rgba(0,0,0,.6), 0 4px 12px rgba(0,0,0,.3);
+    --dl-glow:         0 0 0 4px color-mix(in oklab, var(--accent-primary) 18%, transparent);
+    --dl-ring:         0 0 0 2px color-mix(in oklab, var(--accent-primary) 60%, transparent);
+
+    --dl-ease-out:     cubic-bezier(.22,1,.36,1);
+    --dl-ease-spring:  cubic-bezier(.34,1.56,.64,1);
+    --dl-fast:         140ms var(--dl-ease-out);
+    --dl-base:         220ms var(--dl-ease-out);
+    --dl-slow:         360ms var(--dl-ease-out);
+}
+
+/* --------------------------------------------------------------------------
    Local lab tokens (built on top of the global ones)
    -------------------------------------------------------------------------- */
 .dl-root {

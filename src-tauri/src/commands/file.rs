@@ -316,18 +316,8 @@ fn decode_texture_bytes_impl(data: &[u8]) -> Result<DecodedImage, String> {
     let texture = Texture::from_reader(&mut cursor)
         .map_err(|e| format!("Failed to parse texture: {:?}", e))?;
 
-    // ltk_texture's mipmap slicing can panic on TEX files where the declared
-    // mip-table size exceeds the actual byte buffer (a known issue with
-    // mipmaps produced by `encode_rgba_with_mipmaps` at sub-block sizes).
-    // catch_unwind keeps the worker thread alive and surfaces a clean error
-    // to the UI instead of bringing down the IPC.
-    let surface = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        texture.decode_mipmap(0)
-    }))
-        .map_err(|_| {
-            "Failed to decode texture: malformed mip table (file may have been \
-             produced by an older recolor — re-recolor the source to fix)".to_string()
-        })?
+    let surface = texture
+        .decode_mipmap(0)
         .map_err(|e| format!("Failed to decode texture: {:?}", e))?;
 
     let rgba_image = surface
