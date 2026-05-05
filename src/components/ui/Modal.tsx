@@ -1,6 +1,10 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Spinner } from './Spinner';
 import { Icon } from './Icon';
+
+/** Match the longest of the two animations in flint-2.css (modal pop = 280ms,
+ *  overlay fade = 220ms). 280 keeps the DOM alive long enough for both to play. */
+const MODAL_EXIT_MS = 280;
 
 export type ModalSize = 'default' | 'wide' | 'large';
 
@@ -30,6 +34,28 @@ export const Modal: React.FC<ModalProps> = ({
     closeOnEscape = true,
     children,
 }) => {
+    // Two-phase mount: keep the DOM alive for MODAL_EXIT_MS after `open` flips
+    // to false so the exit animation can play. `mounted` controls whether the
+    // overlay is in the DOM, `closing` flips the modifier class that triggers
+    // the reverse animation.
+    const [mounted, setMounted] = useState(open);
+    const [closing, setClosing] = useState(false);
+
+    useEffect(() => {
+        if (open) {
+            setMounted(true);
+            setClosing(false);
+            return;
+        }
+        if (!mounted) return;
+        setClosing(true);
+        const t = setTimeout(() => {
+            setMounted(false);
+            setClosing(false);
+        }, MODAL_EXIT_MS);
+        return () => clearTimeout(t);
+    }, [open, mounted]);
+
     useEffect(() => {
         if (!open || !closeOnEscape || !onClose) return;
         const handler = (e: KeyboardEvent) => {
@@ -39,17 +65,18 @@ export const Modal: React.FC<ModalProps> = ({
         return () => document.removeEventListener('keydown', handler);
     }, [open, closeOnEscape, onClose]);
 
-    if (!open) return null;
+    if (!mounted) return null;
 
     const handleOverlayClick = (e: React.MouseEvent) => {
         if (!closeOnOverlay || !onClose) return;
         if (e.target === e.currentTarget) onClose();
     };
 
-    const modalClass = ['modal', sizeClass[size], modifier].filter(Boolean).join(' ');
+    const overlayClass = `modal-overlay modal-overlay--visible ${closing ? 'modal-overlay--closing' : ''}`.trim();
+    const modalClass = ['modal', sizeClass[size], modifier, closing ? 'modal--closing' : ''].filter(Boolean).join(' ');
 
     return (
-        <div className="modal-overlay modal-overlay--visible" onClick={handleOverlayClick}>
+        <div className={overlayClass} onClick={handleOverlayClick}>
             <div className={modalClass}>{children}</div>
         </div>
     );

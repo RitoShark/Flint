@@ -7,6 +7,7 @@ import React from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppMetadataStore } from './appMetadataStore';
 import { useConfigStore } from './configStore';
+import { useUxStore } from './uxStore';
 import { useProjectTabStore } from './projectTabStore';
 import { useNavigationStore } from './navigationStore';
 import { useWadExtractStore } from './wadExtractStore';
@@ -21,6 +22,7 @@ import type { AppState } from '../types';
 export {
   useAppMetadataStore,
   useConfigStore,
+  useUxStore,
   useProjectTabStore,
   useNavigationStore,
   useWadExtractStore,

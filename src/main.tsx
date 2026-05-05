@@ -19,6 +19,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { initializeLogger, initBackendLogListener } from './lib/logger';
 import { installButtonGlow } from './lib/buttonGlow';
 import { AppProvider } from './lib/stores';
+import { bootUxPrefs } from './lib/stores/uxStore';
 import { App } from './components/App';
 import { DesignLab } from './components/ui/DesignLab';
 
@@ -44,6 +45,9 @@ import './styles/cheat-sheet-polish.css';
 import './styles/browse-wad-polish.css';
 // Design lab primitives — usable in the main app via .dl-root scope
 import './styles/design-lab.css';
+// Flint 2.0 polish — animated transitions, glassmorphism, FPS-mode kill switch,
+// fullscreen setup wizard, theme tab. Loaded LAST so its rules win cleanly.
+import './styles/flint-2.css';
 // Import default theme (can be swapped via custom theme import)
 import './themes/default.css';
 
@@ -58,6 +62,9 @@ console.log(`[startup] imports resolved in ${(performance.now() - __FLINT_JS_STA
 
 // Initialize logger BEFORE React mounts to capture early logs
 initializeLogger();
+// Apply user UX prefs (glass / fps / accent) BEFORE first paint so the
+// animated background + glow on the setup wizard reads the right tokens.
+bootUxPrefs();
 // Cursor-following glow on .btn — delegated, zero per-button overhead
 installButtonGlow();
 

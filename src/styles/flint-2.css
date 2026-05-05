@@ -1,0 +1,1251 @@
+/* ==========================================================================
+   Flint 2.0 — UX polish layer
+   --------------------------------------------------------------------------
+   Loaded LAST so its rules win cleanly. Owns:
+     1. Global motion tokens + reduce-motion / FPS-mode kill switch
+     2. Glassmorphism (gated by [data-glass="on"])
+     3. Page / panel / modal transition animations
+     4. Settings modal — enlarged shell + theme tab styles
+     5. First-time setup wizard (.fwiz) — animated bg, glowing mark, stepper
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Motion tokens
+   -------------------------------------------------------------------------- */
+:root {
+    --ux-glass-blur: 14px;
+    --ux-glass-opacity: 0.65;
+
+    --ux-ease:        cubic-bezier(.22, 1, .36, 1);
+    --ux-ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+    --ux-fast:   140ms var(--ux-ease);
+    --ux-base:   220ms var(--ux-ease);
+    --ux-slow:   360ms var(--ux-ease);
+    --ux-slower: 540ms var(--ux-ease);
+}
+
+/* --------------------------------------------------------------------------
+   2. FPS-mode kill switch — OFF means full motion, ON strips everything
+   --------------------------------------------------------------------------
+   When the user enables "FPS Mode" in Settings → Theme, every CSS transition,
+   animation, and backdrop-filter is forcibly disabled. The selector wins
+   because of !important + a long cascade. Same for prefers-reduced-motion.
+   -------------------------------------------------------------------------- */
+html[data-fps="on"] *,
+html[data-fps="on"] *::before,
+html[data-fps="on"] *::after {
+    transition: none !important;
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    html *,
+    html *::before,
+    html *::after {
+        transition: none !important;
+        animation-duration: 0.001ms !important;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   3. Glassmorphism — applied to modal surfaces, panels, dropdowns
+   --------------------------------------------------------------------------
+   Default is ON. Off means we strip the blur and bump opacity so surfaces
+   read as solid. The user controls this from Settings → Theme.
+   -------------------------------------------------------------------------- */
+html[data-glass="on"] .modal,
+html[data-glass="on"] .dl-modal,
+html[data-glass="on"] .modal--settings,
+html[data-glass="on"] .ctx-menu,
+html[data-glass="on"] .dropdown-menu,
+html[data-glass="on"] .dl-dd-portal {
+    backdrop-filter: blur(var(--ux-glass-blur)) saturate(160%);
+    -webkit-backdrop-filter: blur(var(--ux-glass-blur)) saturate(160%);
+    background: color-mix(in oklab, var(--bg-secondary) calc(var(--ux-glass-opacity) * 100%), transparent);
+}
+html[data-glass="on"] .modal-overlay {
+    backdrop-filter: blur(calc(var(--ux-glass-blur) * 0.4));
+    -webkit-backdrop-filter: blur(calc(var(--ux-glass-blur) * 0.4));
+}
+html[data-glass="off"] .modal,
+html[data-glass="off"] .dl-modal,
+html[data-glass="off"] .modal--settings {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: var(--bg-secondary);
+}
+
+/* --------------------------------------------------------------------------
+   4. Page / panel transitions
+   --------------------------------------------------------------------------
+   `.main-content > *` covers WadExplorer wrapper, LeftPanel, CenterPanel,
+   etc. They mount/unmount as the view switches — animating in on mount
+   gives the view-swap a soft wipe instead of a hard cut.
+   -------------------------------------------------------------------------- */
+.main-content > * {
+    animation: ux-view-in 320ms var(--ux-ease) backwards;
+}
+@keyframes ux-view-in {
+    from { opacity: 0; transform: translateY(6px); filter: blur(2px); }
+    to   { opacity: 1; transform: translateY(0);   filter: blur(0); }
+}
+/* Don't animate the resizer — it's a slim divider, would look jittery */
+.main-content > .panel-resizer { animation: none; }
+
+/* Modal overlay — symmetric in / out. Same easing both directions so the
+   close motion mirrors the open. The Modal component holds the DOM alive
+   for ~280ms after `open` flips to false so this animation can play. */
+.modal-overlay--visible .modal {
+    animation: ux-modal-pop 280ms var(--ux-ease-spring);
+}
+@keyframes ux-modal-pop {
+    0%   { opacity: 0; transform: scale(0.94) translateY(8px); }
+    60%  { opacity: 1; }
+    100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+.modal-overlay--closing {
+    animation: ux-modal-overlay-out 220ms var(--ux-ease) forwards;
+    pointer-events: none;
+}
+.modal-overlay--closing .modal,
+.modal--closing {
+    animation: ux-modal-pop-out 240ms var(--ux-ease) forwards !important;
+}
+@keyframes ux-modal-overlay-out {
+    from { opacity: 1; }
+    to   { opacity: 0; }
+}
+@keyframes ux-modal-pop-out {
+    0%   { opacity: 1; transform: scale(1)    translateY(0); }
+    100% { opacity: 0; transform: scale(0.96) translateY(6px); }
+}
+
+/* Tab content (inside settings) — animated swap */
+.settings-panel {
+    animation: ux-panel-in 260ms var(--ux-ease) both;
+}
+@keyframes ux-panel-in {
+    from { opacity: 0; transform: translateX(8px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Toast slide-in is already defined elsewhere — we just sharpen it */
+.toast {
+    transition: transform var(--ux-base), opacity var(--ux-base) !important;
+}
+
+/* --------------------------------------------------------------------------
+   5. Settings modal — bigger, deeper, with smoother sidebar
+   -------------------------------------------------------------------------- */
+.modal--settings {
+    /* override the 756x518 default — we have more to show now */
+    max-width: 960px !important;
+    width: 86% !important;
+    height: 640px !important;
+    max-height: calc(100vh - 64px) !important;
+    border-radius: 20px !important;
+}
+.modal--settings .settings-sidebar {
+    width: 200px !important;
+    padding: 18px 12px !important;
+}
+.modal--settings .settings-content {
+    padding: 28px 32px !important;
+}
+
+/* Theme tab specifics */
+.settings-panel--theme { gap: 22px !important; }
+
+.theme-swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    padding: 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+}
+.theme-swatch {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    padding: 0;
+    position: relative;
+    transition:
+        transform var(--ux-fast),
+        border-color var(--ux-fast),
+        box-shadow var(--ux-base);
+}
+.theme-swatch:hover { transform: scale(1.12); }
+.theme-swatch--active {
+    border-color: var(--text-primary);
+    box-shadow:
+        0 0 0 2px var(--bg-secondary),
+        0 0 0 4px currentColor,
+        0 0 18px color-mix(in oklab, var(--accent-primary) 60%, transparent);
+}
+.theme-swatch--custom {
+    background: linear-gradient(135deg, #f43f5e, #fbbf24, #22c55e, #3b82f6, #a855f7);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 700;
+    overflow: hidden;
+}
+.theme-swatch--custom input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.theme-range {
+    width: 100%;
+    appearance: none;
+    -webkit-appearance: none;
+    height: 6px;
+    border-radius: 999px;
+    background: linear-gradient(90deg,
+        color-mix(in oklab, var(--accent-primary) 80%, transparent),
+        color-mix(in oklab, var(--accent-primary) 30%, transparent));
+    outline: none;
+}
+.theme-range::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: white;
+    border: 2px solid var(--accent-primary);
+    cursor: pointer;
+    transition: transform var(--ux-fast), box-shadow var(--ux-fast);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, .35);
+}
+.theme-range::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, .35),
+                0 0 0 6px color-mix(in oklab, var(--accent-primary) 25%, transparent);
+}
+.theme-range::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: white;
+    border: 2px solid var(--accent-primary);
+    cursor: pointer;
+}
+
+.theme-preview {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    padding: 16px;
+    background:
+        radial-gradient(circle at top left,
+            color-mix(in oklab, var(--accent-primary) 12%, transparent),
+            transparent 60%),
+        var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+}
+.theme-preview__chip {
+    margin-left: auto;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    background: color-mix(in oklab, var(--accent-primary) 18%, transparent);
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 40%, transparent);
+    color: color-mix(in oklab, var(--accent-primary) 30%, var(--text-primary));
+}
+
+/* ==========================================================================
+   6. First-time setup wizard — full-screen onboarding
+   ========================================================================== */
+.fwiz {
+    position: fixed;
+    inset: 0;
+    z-index: 9000;
+    display: grid;
+    grid-template-rows: auto 1fr;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    background: var(--bg-primary);
+    animation: ux-fwiz-enter 480ms var(--ux-ease) both;
+    /* Clipping is handled by .fwiz__bg below; the shell stays visible so
+       drop-shadows / glows on the brand mark and CTA can extend freely. */
+}
+@keyframes ux-fwiz-enter {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+/* ── animated background ────────────────────────────────────────────────── */
+.fwiz__bg {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    --mx: 50%;
+    --my: 50%;
+    background:
+        radial-gradient(circle at 50% 0%, color-mix(in oklab, var(--accent-primary) 8%, transparent), transparent 60%),
+        var(--bg-primary);
+}
+.fwiz__bg-grid {
+    position: absolute;
+    inset: -1px;
+    background-image:
+        linear-gradient(color-mix(in oklab, var(--text-primary) 5%, transparent) 1px, transparent 1px),
+        linear-gradient(90deg, color-mix(in oklab, var(--text-primary) 5%, transparent) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(ellipse at center,
+        rgba(0, 0, 0, 0.85) 0%,
+        rgba(0, 0, 0, 0.4) 50%,
+        transparent 80%);
+    opacity: 0.45;
+}
+.fwiz__bg-spot {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+        420px circle at var(--mx) var(--my),
+        color-mix(in oklab, var(--accent-primary) 14%, transparent) 0%,
+        transparent 60%);
+    transition: background 320ms var(--ux-ease);
+    pointer-events: none;
+}
+.fwiz__bg-vignette {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at center,
+        transparent 30%,
+        rgba(0, 0, 0, 0.55) 100%);
+    pointer-events: none;
+}
+.fwiz__bg-orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(110px);
+    opacity: 0.32;
+    will-change: transform;
+}
+.fwiz__bg-orb--a {
+    width: 520px; height: 520px;
+    top: -180px; left: -180px;
+    background: var(--accent-primary);
+    animation: ux-orb-a 22s ease-in-out infinite;
+}
+.fwiz__bg-orb--b {
+    width: 600px; height: 600px;
+    bottom: -240px; right: -180px;
+    background: color-mix(in oklab, var(--accent-primary) 50%, #6366f1);
+    opacity: 0.28;
+    animation: ux-orb-b 28s ease-in-out infinite;
+}
+.fwiz__bg-orb--c {
+    width: 360px; height: 360px;
+    top: 55%; left: 60%;
+    background: color-mix(in oklab, var(--accent-primary) 35%, #06b6d4);
+    opacity: 0.18;
+    animation: ux-orb-c 32s ease-in-out infinite;
+}
+@keyframes ux-orb-a {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50%      { transform: translate(80px, 60px) scale(1.1); }
+}
+@keyframes ux-orb-b {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50%      { transform: translate(-120px, -80px) scale(1.15); }
+}
+@keyframes ux-orb-c {
+    0%, 100% { transform: translate(0, 0); }
+    33%      { transform: translate(60px, -40px); }
+    66%      { transform: translate(-40px, 80px); }
+}
+
+/* ── titlebar (mirrors the app's main TitleBar with a glow on the mark) ── */
+.fwiz__titlebar {
+    position: relative;
+    z-index: 5;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0;
+    color: var(--text-primary);
+    user-select: none;
+    background: color-mix(in oklab, var(--bg-primary) 60%, transparent);
+    border-bottom: 1px solid color-mix(in oklab, var(--accent-primary) 18%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+.fwiz__titlebar-left {
+    display: flex;
+    align-items: center;
+    height: 100%;
+}
+.fwiz__titlebar-logo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 14px;
+    height: 100%;
+    cursor: default;
+}
+.fwiz__titlebar-logo .titlebar__app-name {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text-primary);
+    text-shadow: 0 0 10px color-mix(in oklab, var(--accent-primary) 50%, transparent);
+}
+.fwiz__titlebar-mode {
+    margin-left: 4px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: color-mix(in oklab, var(--accent-primary) 35%, var(--text-muted));
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 30%, transparent);
+    background: color-mix(in oklab, var(--accent-primary) 10%, transparent);
+}
+.fwiz__titlebar-controls {
+    display: flex;
+    align-items: stretch;
+}
+.fwiz__win-btn {
+    width: 46px;
+    height: 36px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background var(--ux-fast), color var(--ux-fast);
+}
+.fwiz__win-btn:hover {
+    background: color-mix(in oklab, var(--text-primary) 8%, transparent);
+    color: var(--text-primary);
+}
+.fwiz__win-btn--close:hover {
+    background: #e81123;
+    color: #fff;
+}
+
+/* ── shell layout ───────────────────────────────────────────────────────── */
+.fwiz__shell {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    width: min(1080px, 94vw);
+    margin: 0 auto;
+    padding: 24px 32px 28px;
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
+    align-self: stretch;
+    /* The brand moved into the titlebar — shell is now stepper / stage /
+       footer. The stage child handles its own overflow:auto; the shell
+       stays fixed so the Continue footer is always visible. */
+}
+/* (.fwiz__brand removed — the flame mark + name moved into the titlebar) */
+
+/* Glowing flame mark — sits inside the titlebar, lit by the accent */
+.fwiz-mark {
+    position: relative;
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent-primary);
+    filter: drop-shadow(0 0 6px color-mix(in oklab, var(--accent-primary) 65%, transparent));
+}
+.fwiz-mark svg { position: relative; z-index: 2; }
+.fwiz-mark__halo {
+    position: absolute;
+    inset: -8px;
+    background: radial-gradient(circle,
+        color-mix(in oklab, var(--accent-primary) 60%, transparent) 0%,
+        transparent 70%);
+    filter: blur(8px);
+    animation: ux-halo 3.4s ease-in-out infinite;
+    z-index: 1;
+}
+@keyframes ux-halo {
+    0%, 100% { opacity: 0.5;  transform: scale(1); }
+    50%      { opacity: 0.95; transform: scale(1.25); }
+}
+
+/* Stepper */
+.fwiz-step {
+    list-style: none;
+    margin: 0;
+    padding: 0 0 24px;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    counter-reset: step;
+    animation: ux-fwiz-slide 600ms 140ms var(--ux-ease) backwards;
+}
+.fwiz-step > li { display: flex; }
+.fwiz-step__item {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: color-mix(in oklab, var(--bg-secondary) 70%, transparent);
+    color: var(--text-muted);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+    transition:
+        background var(--ux-base),
+        color var(--ux-base),
+        border-color var(--ux-base),
+        transform var(--ux-fast);
+}
+.fwiz-step__item:not(:disabled):hover {
+    transform: translateY(-1px);
+    background: color-mix(in oklab, var(--accent-primary) 8%, var(--bg-secondary));
+    border-color: color-mix(in oklab, var(--accent-primary) 30%, var(--border));
+}
+.fwiz-step__item.is-locked,
+.fwiz-step__item:disabled {
+    cursor: default;
+    opacity: 0.55;
+}
+.fwiz-step__item.is-locked:hover {
+    transform: none;
+    background: color-mix(in oklab, var(--bg-secondary) 70%, transparent);
+    border-color: var(--border);
+}
+.fwiz-step__item.is-active {
+    color: var(--text-primary);
+    border-color: color-mix(in oklab, var(--accent-primary) 50%, var(--border));
+    background: color-mix(in oklab, var(--accent-primary) 12%, var(--bg-secondary));
+    box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent-primary) 18%, transparent);
+}
+.fwiz-step__item.is-done { color: color-mix(in oklab, var(--accent-primary) 30%, var(--text-secondary)); }
+.fwiz-step__dot {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    flex: none;
+}
+.fwiz-step__item.is-active .fwiz-step__dot {
+    background: var(--accent-primary);
+    color: #fff;
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 12px color-mix(in oklab, var(--accent-primary) 60%, transparent);
+}
+.fwiz-step__item.is-done .fwiz-step__dot {
+    background: color-mix(in oklab, var(--accent-primary) 25%, var(--bg-tertiary));
+    color: var(--text-primary);
+    border-color: color-mix(in oklab, var(--accent-primary) 40%, var(--border));
+}
+.fwiz-step__label {
+    font-size: 12px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: inherit;
+}
+.fwiz-step__item.is-active .fwiz-step__label { color: var(--text-primary); font-weight: 600; }
+.fwiz-step__dot svg { width: 11px; height: 11px; stroke: currentColor; }
+
+/* Stage / step content */
+.fwiz__stage {
+    padding: 12px 8px 24px;
+    overflow: auto;
+    animation: ux-fwiz-stage 420ms var(--ux-ease) both;
+}
+.fwiz__stage--back { animation-name: ux-fwiz-stage-back; }
+@keyframes ux-fwiz-stage {
+    from { opacity: 0; transform: translateX(24px) scale(0.985); }
+    to   { opacity: 1; transform: translateX(0)    scale(1); }
+}
+@keyframes ux-fwiz-stage-back {
+    from { opacity: 0; transform: translateX(-24px) scale(0.985); }
+    to   { opacity: 1; transform: translateX(0)     scale(1); }
+}
+
+.fwiz__heading h1 {
+    font-size: clamp(24px, 3.4vw, 36px);
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.025em;
+    margin: 0 0 10px;
+    color: #fff;
+    text-shadow: 0 0 24px color-mix(in oklab, var(--accent-primary) 30%, transparent);
+}
+.fwiz__heading p {
+    margin: 0 0 28px;
+    color: color-mix(in oklab, var(--text-primary) 70%, var(--text-secondary));
+    font-size: clamp(12px, 1.3vw, 14px);
+    line-height: 1.55;
+}
+
+/* Below ~720px the 5-column stepper labels are unreadable; collapse to a
+   compact dot rail and stack welcome pills into one column. */
+@media (max-width: 760px) {
+    .fwiz__shell { padding: 16px 16px 24px; }
+    .fwiz__titlebar-mode { display: none; }
+    .fwiz-step__label { display: none; }
+    .fwiz-step__item { justify-content: center; padding: 10px; gap: 0; }
+    .fwiz-welcome { grid-template-columns: 1fr; }
+    .fwiz-toggle-cards { grid-template-columns: 1fr; }
+    .fwiz-prow { grid-template-columns: 44px 1fr; gap: 12px; padding: 12px 14px; }
+    .fwiz-prow__icon { width: 44px; height: 44px; border-radius: 10px; }
+    .fwiz-prow__icon svg { width: 18px; height: 18px; }
+    .fwiz-prow__hint { width: 100%; text-align: left; }
+    .fwiz__nav-counter { display: none; }
+}
+
+.fwiz__body { display: grid; gap: 16px; }
+
+/* Welcome step pills */
+.fwiz-welcome {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+.fwiz-pill {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 16px;
+    background: color-mix(in oklab, var(--bg-secondary) 75%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+    border-radius: 12px;
+    transition: transform var(--ux-base), border-color var(--ux-base), background var(--ux-base);
+    animation: ux-fwiz-slide 480ms calc(80ms * var(--i, 1)) var(--ux-ease) backwards;
+}
+.fwiz-pill:nth-child(1) { --i: 1; }
+.fwiz-pill:nth-child(2) { --i: 2; }
+.fwiz-pill:nth-child(3) { --i: 3; }
+.fwiz-pill:nth-child(4) { --i: 4; }
+.fwiz-pill:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in oklab, var(--accent-primary) 45%, var(--border));
+    background: color-mix(in oklab, var(--accent-primary) 5%, var(--bg-secondary));
+}
+.fwiz-pill__ic {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    background: color-mix(in oklab, var(--accent-primary) 16%, var(--bg-tertiary));
+    color: var(--accent-primary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+}
+.fwiz-pill__ic svg { width: 18px; height: 18px; }
+.fwiz-pill__txt { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fwiz-pill__txt strong { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.fwiz-pill__txt span { font-size: 12px; color: var(--text-muted); line-height: 1.45; }
+@keyframes ux-fwiz-slide {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Paths step — custom layout, NOT the settings-modal copy */
+.fwiz-paths {
+    display: grid;
+    gap: 12px;
+}
+
+/* Global "Auto-detect everything" bar — sits at the top of the paths list */
+.fwiz-paths__bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 20px;
+    background:
+        linear-gradient(135deg,
+            color-mix(in oklab, var(--accent-primary) 14%, transparent),
+            color-mix(in oklab, var(--accent-primary) 4%, transparent)),
+        color-mix(in oklab, var(--bg-secondary) 70%, transparent);
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 35%, var(--border));
+    border-radius: 14px;
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent-primary) 12%, transparent);
+}
+.fwiz-paths__bar-text {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+}
+.fwiz-paths__bar-text strong {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.fwiz-paths__bar-text span {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+.fwiz-paths__bar-text code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: color-mix(in oklab, #000 50%, var(--bg-primary));
+    color: color-mix(in oklab, var(--accent-primary) 30%, var(--text-primary));
+    word-break: break-all;
+}
+
+/* Larger icon-button — used for the global auto-detect CTA */
+.fwiz-iconbtn--lg {
+    height: 44px;
+    padding: 0 20px;
+    font-size: 13.5px;
+    font-weight: 600;
+    border-radius: 12px;
+}
+.fwiz-iconbtn--lg svg { width: 18px; height: 18px; }
+.fwiz-prow {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 16px;
+    padding: 16px 18px;
+    background: color-mix(in oklab, var(--bg-secondary) 65%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+    border-radius: 14px;
+    align-items: center;
+    transition: border-color var(--ux-fast), background var(--ux-fast);
+}
+.fwiz-prow:hover {
+    border-color: color-mix(in oklab, var(--accent-primary) 35%, var(--border));
+}
+.fwiz-prow__icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    background:
+        radial-gradient(circle at 30% 20%, color-mix(in oklab, var(--accent-primary) 35%, transparent), transparent 60%),
+        color-mix(in oklab, var(--accent-primary) 14%, var(--bg-tertiary));
+    color: var(--accent-primary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 30%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in oklab, white 12%, transparent);
+}
+.fwiz-prow__icon svg { width: 24px; height: 24px; }
+.fwiz-prow__body { display: grid; gap: 10px; min-width: 0; }
+.fwiz-prow__head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.fwiz-prow__label {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.fwiz-prow__badge {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--accent-primary) 18%, transparent);
+    color: color-mix(in oklab, var(--accent-primary) 35%, var(--text-primary));
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 30%, transparent);
+}
+.fwiz-prow__hint {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+    text-align: right;
+}
+
+/* Field row: input + browse + auto-detect, all inline. The input gets a
+   notably darker background so it stands out from the card surface.
+   Wraps on narrow widths so the buttons drop below the input instead of
+   overflowing the card. */
+.fwiz-prow__field {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+    flex-wrap: wrap;
+}
+.fwiz-prow__field > .fwiz-input { flex: 1 1 220px; }
+.fwiz-input {
+    flex: 1;
+    min-width: 0;
+    height: 38px;
+    padding: 0 14px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in oklab, var(--border) 90%, transparent);
+    background: color-mix(in oklab, #000 55%, var(--bg-primary));
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    transition:
+        border-color var(--ux-fast),
+        background var(--ux-fast),
+        box-shadow var(--ux-fast);
+}
+.fwiz-input::placeholder { color: var(--text-muted); }
+.fwiz-input:hover { border-color: color-mix(in oklab, var(--accent-primary) 25%, var(--border)); }
+.fwiz-input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+    background: #000;
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-primary) 22%, transparent);
+}
+
+/* Inline icon-button — shown next to the input. Bigger, brighter icons. */
+.fwiz-iconbtn {
+    height: 38px;
+    padding: 0 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in oklab, var(--border) 90%, transparent);
+    background: color-mix(in oklab, var(--bg-tertiary) 80%, transparent);
+    color: var(--text-primary);
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+        background var(--ux-fast),
+        border-color var(--ux-fast),
+        transform var(--ux-fast),
+        color var(--ux-fast);
+    flex: none;
+}
+.fwiz-iconbtn:hover:not(:disabled) {
+    background: color-mix(in oklab, var(--accent-primary) 12%, var(--bg-tertiary));
+    border-color: color-mix(in oklab, var(--accent-primary) 50%, var(--border));
+    color: #fff;
+}
+.fwiz-iconbtn:active:not(:disabled) { transform: translateY(0.5px) scale(0.985); }
+.fwiz-iconbtn:disabled { opacity: 0.55; cursor: not-allowed; }
+.fwiz-iconbtn svg {
+    width: 16px;
+    height: 16px;
+    color: var(--accent-primary);
+    transition: color var(--ux-fast);
+}
+.fwiz-iconbtn:hover:not(:disabled) svg { color: #fff; }
+
+/* Accent variant — Auto-detect, more emphasis */
+.fwiz-iconbtn--accent {
+    background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+    border-color: color-mix(in oklab, var(--accent-primary) 40%, var(--border));
+    color: color-mix(in oklab, var(--accent-primary) 30%, var(--text-primary));
+}
+.fwiz-iconbtn--accent svg { color: var(--accent-primary); }
+
+/* Field rows */
+.fwiz-field { display: grid; gap: 10px; }
+.fwiz-field__label {
+    font-size: 12px;
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+}
+.fwiz-field__hint {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.fwiz-field__row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+/* Theme step layout */
+.fwiz-theme { display: grid; gap: 24px; }
+.fwiz-theme__row { display: grid; gap: 10px; justify-items: center; }
+.fwiz-theme__row > .fwiz-field__label { justify-self: start; align-self: flex-start; }
+.fwiz-swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    padding: 18px 22px;
+    background: color-mix(in oklab, var(--bg-secondary) 70%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+}
+.fwiz-swatch {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    padding: 0;
+    transition: transform var(--ux-fast), box-shadow var(--ux-base), border-color var(--ux-fast);
+    position: relative;
+}
+.fwiz-swatch:hover { transform: scale(1.12); }
+.fwiz-swatch.is-active {
+    border-color: var(--text-primary);
+    box-shadow:
+        0 0 0 2px var(--bg-primary),
+        0 0 0 4px currentColor,
+        0 0 22px color-mix(in oklab, currentColor 50%, transparent);
+}
+.fwiz-swatch--custom {
+    background: conic-gradient(from 0deg, #f87171, #fbbf24, #34d399, #60a5fa, #a78bfa, #f472b6, #f87171);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 700;
+    overflow: hidden;
+}
+.fwiz-swatch--custom input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.fwiz-toggle-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+.fwiz-tcard {
+    padding: 14px;
+    text-align: left;
+    background: color-mix(in oklab, var(--bg-secondary) 70%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    cursor: pointer;
+    color: var(--text-primary);
+    display: grid;
+    gap: 8px;
+    transition:
+        background var(--ux-base),
+        border-color var(--ux-base),
+        transform var(--ux-fast);
+}
+.fwiz-tcard:hover { transform: translateY(-2px); }
+.fwiz-tcard.is-active {
+    background: color-mix(in oklab, var(--accent-primary) 12%, var(--bg-secondary));
+    border-color: color-mix(in oklab, var(--accent-primary) 55%, var(--border));
+    box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent-primary) 18%, transparent);
+}
+.fwiz-tcard__title { font-weight: 600; font-size: 14px; color: var(--text-primary); }
+.fwiz-tcard__desc  { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+
+/* Sample previews — actually demonstrate the difference */
+.fwiz-tcard__sample {
+    height: 64px;
+    border-radius: 10px;
+    position: relative;
+    overflow: hidden;
+    background:
+        linear-gradient(135deg,
+            color-mix(in oklab, var(--accent-primary) 30%, transparent),
+            color-mix(in oklab, var(--accent-primary) 5%, transparent) 60%),
+        repeating-linear-gradient(45deg,
+            rgba(255,255,255,0.04) 0 6px,
+            transparent 6px 12px),
+        var(--bg-tertiary);
+    border: 1px solid var(--border);
+}
+.fwiz-tcard__sample::after {
+    content: '';
+    position: absolute;
+    inset: 8px;
+    border-radius: 6px;
+    border: 1px solid color-mix(in oklab, var(--text-primary) 18%, transparent);
+}
+.fwiz-tcard__sample--glass::after {
+    background: color-mix(in oklab, var(--bg-secondary) 55%, transparent);
+    backdrop-filter: blur(10px) saturate(160%);
+    -webkit-backdrop-filter: blur(10px) saturate(160%);
+}
+.fwiz-tcard__sample--solid::after {
+    background: var(--bg-secondary);
+}
+
+/* Finish step */
+.fwiz-finish {
+    display: grid;
+    gap: 20px;
+    justify-items: center;
+    text-align: center;
+    padding: 12px 0;
+}
+.fwiz-finish__check {
+    width: 76px; height: 76px;
+    border-radius: 50%;
+    background:
+        radial-gradient(circle, var(--accent-primary), color-mix(in oklab, var(--accent-primary) 60%, #000));
+    color: #fff;
+    font-size: 38px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow:
+        0 0 0 4px color-mix(in oklab, var(--accent-primary) 22%, transparent),
+        0 0 60px color-mix(in oklab, var(--accent-primary) 50%, transparent);
+    animation: ux-finish-pop 600ms var(--ux-ease-spring);
+}
+@keyframes ux-finish-pop {
+    from { opacity: 0; transform: scale(0.4) rotate(-30deg); }
+    to   { opacity: 1; transform: scale(1)   rotate(0); }
+}
+.fwiz-finish__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    max-width: 480px;
+    display: grid;
+    gap: 8px;
+}
+.fwiz-finish__list li {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 16px;
+    background: color-mix(in oklab, var(--bg-secondary) 70%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    text-align: left;
+}
+.fwiz-finish__list span { color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.fwiz-finish__list strong { color: var(--text-primary); font-weight: 500; word-break: break-all; text-align: right; }
+.fwiz-finish__cta {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+.fwiz-finish__cta kbd {
+    display: inline-block;
+    padding: 2px 6px;
+    margin: 0 2px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-tertiary);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-primary);
+    box-shadow: inset 0 -1px 0 var(--border);
+}
+
+/* Footer nav */
+.fwiz__nav {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 24px 8px 8px;
+    border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+    margin-top: 8px;
+    animation: ux-fwiz-slide 480ms 200ms var(--ux-ease) backwards;
+}
+.fwiz__nav-spacer { flex: 1; }
+.fwiz__nav-counter {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-right: 8px;
+    letter-spacing: 0.05em;
+}
+.fwiz__nav-counter span { opacity: 0.55; }
+
+/* CTA — same translucent overlay style as the welcome "Create New Project"
+   button: tinted accent surface, accent-coloured text and icon, ambient
+   glow ring. Lights up brighter on hover but never goes pure red. */
+.fwiz__cta.btn,
+.fwiz__cta.btn--primary,
+.fwiz__cta.btn--success {
+    background-color: color-mix(in oklab, var(--accent-primary) 14%, transparent) !important;
+    color: color-mix(in oklab, var(--accent-primary) 35%, var(--text-primary)) !important;
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 50%, transparent) !important;
+    padding: 0 22px !important;
+    border-radius: 12px !important;
+    box-shadow:
+        0 0 0 1px color-mix(in oklab, var(--accent-primary) 25%, transparent),
+        0 6px 24px -8px color-mix(in oklab, var(--accent-primary) 55%, transparent),
+        inset 0 1px 0 color-mix(in oklab, white 6%, transparent) !important;
+    transition:
+        background-color var(--ux-fast),
+        border-color var(--ux-fast),
+        color var(--ux-fast),
+        transform var(--ux-fast),
+        box-shadow var(--ux-base) !important;
+}
+.fwiz__cta.btn:hover:not(:disabled) {
+    background-color: color-mix(in oklab, var(--accent-primary) 26%, transparent) !important;
+    border-color: color-mix(in oklab, var(--accent-primary) 75%, transparent) !important;
+    color: #fff !important;
+    transform: translateY(-1px);
+    box-shadow:
+        0 0 0 1px color-mix(in oklab, var(--accent-primary) 50%, transparent),
+        0 10px 32px -8px color-mix(in oklab, var(--accent-primary) 70%, transparent),
+        inset 0 1px 0 color-mix(in oklab, white 14%, transparent) !important;
+}
+.fwiz__cta.btn:disabled { opacity: 0.45; box-shadow: none !important; }
+
+/* Icon: starts accent-coloured (matches the welcome CTA), goes white on hover.
+   Force each nested SVG path because Icon's dangerouslySetInnerHTML SVGs
+   can carry their own hardcoded stroke/fill attrs (chevronRight ships gray). */
+.fwiz__cta.btn svg,
+.fwiz__cta.btn span[dangerouslySetInnerHTML] {
+    width: 18px !important;
+    height: 18px !important;
+}
+.fwiz__cta.btn svg *,
+.fwiz__cta.btn span svg * {
+    stroke: var(--accent-primary) !important;
+    fill: var(--accent-primary) !important;
+    color: var(--accent-primary) !important;
+    stroke-width: 2.2 !important;
+    transition: stroke var(--ux-fast), fill var(--ux-fast), color var(--ux-fast);
+}
+.fwiz__cta.btn:hover:not(:disabled) svg *,
+.fwiz__cta.btn:hover:not(:disabled) span svg * {
+    stroke: #fff !important;
+    fill: #fff !important;
+    color: #fff !important;
+}
+.fwiz__cta.btn span { font-weight: 600; letter-spacing: 0.01em; font-size: 14px; }
+
+/* --------------------------------------------------------------------------
+   Wizard glass / solid surface modes
+   --------------------------------------------------------------------------
+   When glassmorphism is on, the wizard cards (pills, path rows, toggle
+   cards, stepper items) frost over the animated background. When solid is
+   selected, they go fully opaque so the user sees the difference live.
+   -------------------------------------------------------------------------- */
+html[data-glass="on"] .fwiz-pill,
+html[data-glass="on"] .fwiz-prow,
+html[data-glass="on"] .fwiz-tcard,
+html[data-glass="on"] .fwiz-step__item,
+html[data-glass="on"] .fwiz-swatches,
+html[data-glass="on"] .fwiz-finish__list li {
+    background: color-mix(in oklab, var(--bg-secondary) 50%, transparent);
+    backdrop-filter: blur(var(--ux-glass-blur)) saturate(150%);
+    -webkit-backdrop-filter: blur(var(--ux-glass-blur)) saturate(150%);
+}
+html[data-glass="off"] .fwiz-pill,
+html[data-glass="off"] .fwiz-prow,
+html[data-glass="off"] .fwiz-tcard,
+html[data-glass="off"] .fwiz-step__item,
+html[data-glass="off"] .fwiz-swatches,
+html[data-glass="off"] .fwiz-finish__list li {
+    background: var(--bg-secondary);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+/* --------------------------------------------------------------------------
+   7. Sidebar tab transition for settings — sliding pill indicator on hover
+   -------------------------------------------------------------------------- */
+.modal--settings .settings-sidebar__item {
+    transition:
+        background var(--ux-fast),
+        color var(--ux-fast),
+        border-color var(--ux-fast),
+        transform var(--ux-fast),
+        box-shadow var(--ux-base);
+}
+.modal--settings .settings-sidebar__item:hover {
+    transform: translateX(2px);
+}
+
+/* --------------------------------------------------------------------------
+   8. Subtle global polish — focus ring uses accent
+   -------------------------------------------------------------------------- */
+:focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--accent-primary) 70%, transparent);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+/* Buttons get a soft press response everywhere */
+.btn:active:not(:disabled) {
+    transform: translateY(0.5px) scale(0.985);
+}
+
+/* --------------------------------------------------------------------------
+   9. Accent-driven button colors
+   --------------------------------------------------------------------------
+   index.css ships .btn--primary with hardcoded #ef4444 reds, which means
+   changing the accent in Settings → Theme had no visible effect on the
+   primary button. We re-declare the variants here using --accent-primary so
+   the picker actually drives the UI.
+   -------------------------------------------------------------------------- */
+.btn--primary {
+    background-color: color-mix(in oklab, var(--accent-primary) 12%, transparent) !important;
+    color: color-mix(in oklab, var(--accent-primary) 30%, var(--text-primary)) !important;
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 35%, transparent) !important;
+}
+.btn--primary:hover:not(:disabled) {
+    background-color: var(--accent-primary) !important;
+    color: #fff !important;
+    border-color: var(--accent-primary) !important;
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-primary) 24%, transparent);
+}
+.btn--primary svg,
+.btn--primary [dangerouslySetInnerHTML] svg {
+    color: var(--accent-primary);
+}
+.btn--primary:hover:not(:disabled) svg {
+    color: #fff;
+}
+
+/* Active tab underline / sidebar active row — used to hardcode rgba(239,68,68) */
+.tab--active,
+.tabbar__tab--active {
+    background-color: color-mix(in oklab, var(--accent-primary) 12%, transparent) !important;
+    border-bottom-color: var(--accent-primary) !important;
+}
+
+/* Topbar "active" buttons (extract / wad-explorer toggles, etc.) */
+.btn--active {
+    background-color: color-mix(in oklab, var(--accent-primary) 18%, var(--bg-tertiary)) !important;
+    border-color: color-mix(in oklab, var(--accent-primary) 50%, var(--border)) !important;
+    color: color-mix(in oklab, var(--accent-primary) 28%, var(--text-primary)) !important;
+}

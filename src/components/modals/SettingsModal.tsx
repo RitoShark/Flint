@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useAppState, useConfigStore } from '../../lib/stores';
+import { useAppState, useConfigStore, useUxStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import * as updater from '../../lib/updater';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -25,7 +25,18 @@ import {
     DesignLab,
 } from '../ui';
 
-type SettingsTab = 'paths' | 'general' | 'dev';
+type SettingsTab = 'paths' | 'general' | 'theme' | 'dev';
+
+const ACCENT_PRESETS: { name: string; hex: string }[] = [
+    { name: 'Flint Red',   hex: '#EF4444' },
+    { name: 'Sunset',      hex: '#F97316' },
+    { name: 'Honey',       hex: '#EAB308' },
+    { name: 'Forest',      hex: '#22C55E' },
+    { name: 'Lagoon',      hex: '#06B6D4' },
+    { name: 'Sapphire',    hex: '#3B82F6' },
+    { name: 'Iris',        hex: '#8B5CF6' },
+    { name: 'Magenta',     hex: '#EC4899' },
+];
 
 interface PathSetting {
     label: string;
@@ -147,6 +158,7 @@ const SchemaResultView: React.FC<{
 export const SettingsModal: React.FC = () => {
     const { state, dispatch, closeModal, showToast } = useAppState();
     const configStore = useConfigStore();
+    const ux = useUxStore();
 
     const [activeTab, setActiveTab] = useState<SettingsTab>('general');
 
@@ -451,6 +463,7 @@ export const SettingsModal: React.FC = () => {
 
     const tabs: { id: SettingsTab; label: string; icon: IconName }[] = [
         { id: 'general', label: 'General', icon: 'settings' },
+        { id: 'theme', label: 'Theme', icon: 'picture' },
         { id: 'paths', label: 'Paths', icon: 'folder' },
         { id: 'dev', label: 'Dev', icon: 'code' },
     ];
@@ -558,41 +571,6 @@ export const SettingsModal: React.FC = () => {
                                     value={creatorName}
                                     onChange={(e) => setCreatorName(e.target.value)}
                                 />
-                            </div>
-
-                            <div className="settings-item">
-                                <label className="settings-item__label">Theme</label>
-                                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                    <div style={{ flex: 1 }}>
-                                        <Picker
-                                            fullWidth
-                                            value={selectedTheme}
-                                            onChange={(v) => setSelectedTheme(v)}
-                                            options={[
-                                                { value: '', label: 'Default (Red)' },
-                                                ...availableThemes.map((t) => ({ value: t.id, label: t.name })),
-                                            ]}
-                                        />
-                                    </div>
-                                    <Button
-                                        size="sm"
-                                        onClick={async () => {
-                                            try {
-                                                const path = await api.createDefaultTheme();
-                                                await api.openInExplorer(path.replace(/[^/\\]*$/, ''));
-                                                showToast('success', 'Theme template created — edit custom.json and restart');
-                                                api.listThemes().then(setAvailableThemes).catch(() => {});
-                                            } catch {
-                                                showToast('error', 'Failed to create theme template');
-                                            }
-                                        }}
-                                    >
-                                        Create Custom
-                                    </Button>
-                                </div>
-                                <div className="settings-item__hint">
-                                    Drop .json theme files in the themes folder to add more options
-                                </div>
                             </div>
 
                             <div className="settings-item">
@@ -730,24 +708,207 @@ export const SettingsModal: React.FC = () => {
                         </div>
                     )}
 
+                    {activeTab === 'theme' && (
+                        <div className="settings-panel settings-panel--theme">
+                            <div className="settings-item">
+                                <label className="settings-item__label">Accent color</label>
+                                <div className="settings-item__hint" style={{ marginBottom: 8 }}>
+                                    Drives every focus ring, primary button, and highlight in the app.
+                                </div>
+                                <div className="theme-swatches">
+                                    {ACCENT_PRESETS.map((p) => {
+                                        const isActive = (ux.accentPrimary || '#EF4444').toUpperCase() === p.hex.toUpperCase();
+                                        return (
+                                            <button
+                                                key={p.hex}
+                                                type="button"
+                                                className={`theme-swatch ${isActive ? 'theme-swatch--active' : ''}`}
+                                                style={{ background: p.hex }}
+                                                onClick={() => ux.setAccentPrimary(p.hex)}
+                                                title={p.name}
+                                                aria-label={p.name}
+                                            />
+                                        );
+                                    })}
+                                    <label className="theme-swatch theme-swatch--custom" title="Pick custom">
+                                        <input
+                                            type="color"
+                                            value={ux.accentPrimary || '#EF4444'}
+                                            onChange={(e) => ux.setAccentPrimary(e.target.value.toUpperCase())}
+                                        />
+                                        <span>+</span>
+                                    </label>
+                                    <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        icon="refresh"
+                                        onClick={() => ux.setAccentPrimary(null)}
+                                    >
+                                        Reset
+                                    </Button>
+                                </div>
+                            </div>
+
+                            <div className="settings-item">
+                                <label className="settings-item__label">
+                                    Glassmorphism
+                                    <span className="settings-item__badge">Surfaces</span>
+                                </label>
+                                <Checkbox
+                                    toggle
+                                    checked={ux.glassmorphism}
+                                    onChange={(e) => ux.setGlassmorphism(e.target.checked)}
+                                    label="Frosted blur on panels and modals"
+                                    description="Beautiful but costs a few frames. Turn off for solid surfaces."
+                                />
+                            </div>
+
+                            {ux.glassmorphism && (
+                                <>
+                                    <div className="settings-item">
+                                        <label className="settings-item__label">Glass blur</label>
+                                        <input
+                                            type="range"
+                                            min={0}
+                                            max={32}
+                                            step={1}
+                                            value={ux.glassBlur}
+                                            onChange={(e) => ux.setGlassBlur(Number(e.target.value))}
+                                            className="theme-range"
+                                        />
+                                        <div className="settings-item__hint">{ux.glassBlur}px</div>
+                                    </div>
+                                    <div className="settings-item">
+                                        <label className="settings-item__label">Glass opacity</label>
+                                        <input
+                                            type="range"
+                                            min={0.2}
+                                            max={1}
+                                            step={0.05}
+                                            value={ux.glassOpacity}
+                                            onChange={(e) => ux.setGlassOpacity(Number(e.target.value))}
+                                            className="theme-range"
+                                        />
+                                        <div className="settings-item__hint">{Math.round(ux.glassOpacity * 100)}%</div>
+                                    </div>
+                                </>
+                            )}
+
+                            <div className="settings-item">
+                                <label className="settings-item__label">
+                                    FPS Mode
+                                    <span className="settings-item__badge">Performance</span>
+                                </label>
+                                <Checkbox
+                                    toggle
+                                    checked={ux.fpsMode}
+                                    onChange={(e) => ux.setFpsMode(e.target.checked)}
+                                    label="Strip animations and transitions"
+                                    description="Disables every CSS transition, animation and backdrop blur. Maximum responsiveness — perfect for older hardware or focused work sessions."
+                                />
+                            </div>
+
+                            <div className="settings-item">
+                                <label className="settings-item__label">Theme preset</label>
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                    <div style={{ flex: 1 }}>
+                                        <Picker
+                                            fullWidth
+                                            value={selectedTheme}
+                                            onChange={(v) => setSelectedTheme(v)}
+                                            options={[
+                                                { value: '', label: 'Default (Red)' },
+                                                ...availableThemes.map((t) => ({ value: t.id, label: t.name })),
+                                            ]}
+                                        />
+                                    </div>
+                                    <Button
+                                        size="sm"
+                                        onClick={async () => {
+                                            try {
+                                                const path = await api.createDefaultTheme();
+                                                await api.openInExplorer(path.replace(/[^/\\]*$/, ''));
+                                                showToast('success', 'Theme template created — edit custom.json and restart');
+                                                api.listThemes().then(setAvailableThemes).catch(() => {});
+                                            } catch {
+                                                showToast('error', 'Failed to create theme template');
+                                            }
+                                        }}
+                                    >
+                                        Create Custom
+                                    </Button>
+                                </div>
+                                <div className="settings-item__hint">
+                                    Drop .json theme files in the themes folder to add more options.
+                                </div>
+                            </div>
+
+                            <div className="settings-item">
+                                <label className="settings-item__label">Live preview</label>
+                                <div className="theme-preview">
+                                    <Button variant="primary" icon="success">Primary</Button>
+                                    <Button variant="secondary">Secondary</Button>
+                                    <Button variant="ghost" icon="search">Ghost</Button>
+                                    <Button variant="danger" icon="trash">Danger</Button>
+                                    <span className="theme-preview__chip">Accent chip</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {activeTab === 'dev' && (
                         <div className="settings-panel">
-                            <div className="settings-item">
-                                <label className="settings-item__label">UI Primitives Preview</label>
-                                <div className="settings-item__hint" style={{ marginBottom: 8 }}>
-                                    Opens a fullscreen showcase of every component in the design system —
-                                    Button, Checkbox, Toggle, Radio, Dropdown, Modal, Input, Range, Spinner,
-                                    ProgressBar — in every variant. Use it to audit visual consistency
-                                    after style or theme changes.
+                            {import.meta.env.DEV && (
+                                <div className="settings-item">
+                                    <label className="settings-item__label">
+                                        UI Primitives Preview
+                                        <span className="settings-item__badge">Dev only</span>
+                                    </label>
+                                    <div className="settings-item__hint" style={{ marginBottom: 8 }}>
+                                        Opens a fullscreen showcase of every component in the design system —
+                                        Button, Checkbox, Toggle, Radio, Dropdown, Modal, Input, Range, Spinner,
+                                        ProgressBar — in every variant. Use it to audit visual consistency
+                                        after style or theme changes.
+                                    </div>
+                                    <Button
+                                        variant="primary"
+                                        icon="info"
+                                        onClick={() => setShowUIPreview(true)}
+                                    >
+                                        Open UI Showcase
+                                    </Button>
                                 </div>
-                                <Button
-                                    variant="primary"
-                                    icon="info"
-                                    onClick={() => setShowUIPreview(true)}
-                                >
-                                    Open UI Showcase
-                                </Button>
-                            </div>
+                            )}
+
+                            {import.meta.env.DEV && (
+                                <div className="settings-item">
+                                    <label className="settings-item__label">
+                                        Replay First-Time Setup
+                                        <span className="settings-item__badge">Dev only</span>
+                                    </label>
+                                    <div className="settings-item__hint" style={{ marginBottom: 8 }}>
+                                        Reopens the full-screen welcome wizard so you can re-test the onboarding
+                                        flow without wiping your settings. Closes the Settings modal first.
+                                    </div>
+                                    <Button
+                                        variant="secondary"
+                                        icon="refresh"
+                                        onClick={() => {
+                                            closeModal();
+                                            // Wait for the close animation to finish before opening the
+                                            // wizard so the two transitions don't overlap visually.
+                                            setTimeout(() => {
+                                                dispatch({
+                                                    type: 'OPEN_MODAL',
+                                                    payload: { modal: 'firstTimeSetup' },
+                                                });
+                                            }, 300);
+                                        }}
+                                    >
+                                        Replay Setup Wizard
+                                    </Button>
+                                </div>
+                            )}
 
                             <div className="settings-item">
                                 <label className="settings-item__label">BIN Schema Aggregator</label>
