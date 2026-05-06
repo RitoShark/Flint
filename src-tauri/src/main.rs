@@ -304,6 +304,7 @@ fn main() {
             commands::logging::test_logging,
             // LTK Manager integration commands
             commands::ltk_manager::get_ltk_manager_mod_path,
+            commands::ltk_manager::get_celestial_mod_path,
             commands::ltk_manager::sync_project_to_launcher,
             // Project watcher commands (auto-sync + preview hot reload)
             commands::project_watcher::start_project_watcher,
@@ -338,6 +339,7 @@ fn main() {
             commands::settings::list_themes,
             commands::settings::load_theme,
             commands::settings::create_default_theme,
+            commands::settings::seed_builtin_themes,
             // Compare-with-original / per-file backup commands
             commands::compare::find_original_file,
             commands::compare::has_file_backup,

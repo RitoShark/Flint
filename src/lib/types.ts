@@ -213,6 +213,12 @@ export interface AppState {
 
     // Creator info (for repathing)
     creatorName: string | null;
+    /** Default description preset stamped into new mods. */
+    creatorDescription: string | null;
+    /** Optional creator home URL (portfolio / socials). */
+    creatorHome: string | null;
+    /** Optional creator tip / donation URL. */
+    creatorTip: string | null;
 
     // Hash status
     hashesLoaded: boolean;
@@ -226,6 +232,10 @@ export interface AppState {
     // LTK Manager integration
     ltkManagerModPath: string | null;
     autoSyncToLauncher: boolean;
+
+    // Celestial integration
+    celestialModPath: string | null;
+    preferredLauncher: 'ltk' | 'celestial' | null;
 
     // Project state (tab-based)
     openTabs: ProjectTab[];

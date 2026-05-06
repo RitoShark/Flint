@@ -77,12 +77,12 @@
     position: absolute;
     left: 12px; right: 12px; bottom: -1px;
     height: 2px;
-    background: var(--color-danger);
+    background: var(--accent-primary);
     border-radius: 2px;
     transform: scaleX(0);
     transform-origin: center;
     transition: transform 280ms cubic-bezier(.22,1,.36,1);
-    box-shadow: 0 0 8px color-mix(in oklab, var(--color-danger) 50%, transparent);
+    box-shadow: 0 0 8px color-mix(in oklab, var(--accent-primary) 50%, transparent);
 }
 .fx-tab:hover:not(:disabled) {
     color: var(--text-primary);
@@ -92,7 +92,7 @@
 .fx-tab--active {
     color: var(--text-primary);
 }
-.fx-tab--active svg { color: var(--color-danger); }
+.fx-tab--active svg { color: var(--accent-primary); }
 .fx-tab--active::after { transform: scaleX(1); }
 
 /* --------------------------------------------------------------------------

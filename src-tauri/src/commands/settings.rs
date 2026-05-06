@@ -19,6 +19,12 @@ pub struct FlintSettings {
 
     // User info
     pub creator_name: Option<String>,
+    #[serde(default)]
+    pub creator_description: Option<String>,
+    #[serde(default)]
+    pub creator_home: Option<String>,
+    #[serde(default)]
+    pub creator_tip: Option<String>,
 
     // Update preferences
     #[serde(default = "default_true")]
@@ -35,6 +41,14 @@ pub struct FlintSettings {
     pub ltk_manager_mod_path: Option<String>,
     #[serde(default)]
     pub auto_sync_to_launcher: bool,
+
+    // Celestial launcher
+    #[serde(default)]
+    pub celestial_mod_path: Option<String>,
+    /// Which launcher Flint should sync into when "Sync to Launcher" runs.
+    /// Values: "ltk" | "celestial". Falls back to whichever has a path set.
+    #[serde(default)]
+    pub preferred_launcher: Option<String>,
 
     // BIN converter
     #[serde(default = "default_bin_engine")]
@@ -61,12 +75,17 @@ impl Default for FlintSettings {
             league_path_pbe: None,
             default_project_path: default_projects,
             creator_name: None,
+            creator_description: None,
+            creator_home: None,
+            creator_tip: None,
             auto_update_enabled: true,
             skipped_update_version: None,
             recent_projects: vec![],
             saved_projects: vec![],
             ltk_manager_mod_path: None,
             auto_sync_to_launcher: false,
+            celestial_mod_path: None,
+            preferred_launcher: None,
             bin_converter_engine: "ltk".to_string(),
             jade_path: None,
             quartz_path: None,
@@ -342,6 +361,159 @@ pub fn load_theme(theme_id: String) -> Result<serde_json::Value, String> {
         .map_err(|e| format!("Failed to parse theme: {}", e))
 }
 
+/// Seed the 5 built-in preset themes into the themes directory if they don't
+/// already exist. Idempotent — won't overwrite a user's edits.
+///
+/// Called from the first-time setup wizard so the theme picker has real
+/// JSON files to bind to instead of synthetic in-memory presets.
+#[tauri::command]
+pub fn seed_builtin_themes() -> Result<(), String> {
+    let themes_dir = get_flint_home()?.join("themes");
+    std::fs::create_dir_all(&themes_dir).map_err(|e| e.to_string())?;
+
+    // Rename legacy presets that have since been re-branded.
+    let lily = themes_dir.join("lilypad.json");
+    let froggy = themes_dir.join("froggy.json");
+    if lily.exists() && !froggy.exists() {
+        let _ = std::fs::rename(&lily, &froggy);
+    }
+    // Flint is now the *default* (lives in index.css :root) — no JSON file
+    // needed. Nuke any legacy `flint.json` we seeded earlier so the picker's
+    // "Flint" card resolves to setSelectedTheme(null) → bare defaults.
+    let legacy_flint = themes_dir.join("flint.json");
+    if legacy_flint.exists() {
+        let _ = std::fs::remove_file(&legacy_flint);
+    }
+
+    let presets: [(&str, serde_json::Value); 4] = [
+        // Each theme keeps the bg scale near-neutral dark with only a faint
+        // tint, so the accent does the heavy lifting and the surface doesn't
+        // feel saturated. Hex values picked to sit visually next to the
+        // default Flint #111111 / #181818 / #1e1e1e / #252525 ladder.
+        ("celestial", serde_json::json!({
+            "name": "Celestial",
+            "colors": {
+                "--accent-primary": "#A05CF6",
+                "--accent-hover": "#884ED1",
+                "--accent-secondary": "#C084FC",
+                "--accent-muted": "#5B2C9C",
+                "--accent-gold": "#dcb67a",
+                "--button-primary": "#A05CF6",
+                "--button-secondary": "#1c1a22",
+                "--bg-primary": "#111014",
+                "--bg-secondary": "#15141a",
+                "--bg-tertiary": "#1c1a22",
+                "--bg-hover": "#22202a",
+                "--border": "#2a2832",
+                "--text-primary": "#dcdce6",
+                "--text-secondary": "#9d9aac",
+                "--text-muted": "#6c697a",
+                "--input-bg": "#15141a",
+                "--input-border": "#2a2832",
+                "--selection-bg": "#2a1f3c",
+                "--current-line": "#1a181f",
+                "--scrollbar-track": "#111014",
+                "--scrollbar-thumb": "#2c2a36",
+                "--scrollbar-thumb-hover": "#3a3848"
+            }
+        })),
+        ("jade", serde_json::json!({
+            "name": "Jade",
+            "colors": {
+                "--accent-primary": "#06B6D4",
+                "--accent-hover": "#0891B2",
+                "--accent-secondary": "#22D3EE",
+                "--accent-muted": "#155E75",
+                "--accent-gold": "#dcb67a",
+                "--button-primary": "#06B6D4",
+                "--button-secondary": "#181d20",
+                "--bg-primary": "#101316",
+                "--bg-secondary": "#13171b",
+                "--bg-tertiary": "#181d20",
+                "--bg-hover": "#1f2528",
+                "--border": "#262d31",
+                "--text-primary": "#d8e1e6",
+                "--text-secondary": "#9aa6ad",
+                "--text-muted": "#697279",
+                "--input-bg": "#13171b",
+                "--input-border": "#262d31",
+                "--selection-bg": "#1c2e35",
+                "--current-line": "#181c20",
+                "--scrollbar-track": "#101316",
+                "--scrollbar-thumb": "#283036",
+                "--scrollbar-thumb-hover": "#384248"
+            }
+        })),
+        ("froggy", serde_json::json!({
+            "name": "Froggy",
+            "colors": {
+                "--accent-primary": "#22C55E",
+                "--accent-hover": "#16A34A",
+                "--accent-secondary": "#4ADE80",
+                "--accent-muted": "#15803D",
+                "--accent-gold": "#dcb67a",
+                "--button-primary": "#22C55E",
+                "--button-secondary": "#181d18",
+                "--bg-primary": "#10130f",
+                "--bg-secondary": "#141813",
+                "--bg-tertiary": "#181d18",
+                "--bg-hover": "#1f261f",
+                "--border": "#262d26",
+                "--text-primary": "#d8e1d8",
+                "--text-secondary": "#9aa69a",
+                "--text-muted": "#697269",
+                "--input-bg": "#141813",
+                "--input-border": "#262d26",
+                "--selection-bg": "#1d3326",
+                "--current-line": "#171c17",
+                "--scrollbar-track": "#10130f",
+                "--scrollbar-thumb": "#283028",
+                "--scrollbar-thumb-hover": "#384238"
+            }
+        })),
+        ("quartz", serde_json::json!({
+            "name": "Quartz",
+            "colors": {
+                "--accent-primary": "#EC4899",
+                "--accent-hover": "#DB2777",
+                "--accent-secondary": "#F472B6",
+                "--accent-muted": "#9D174D",
+                "--accent-gold": "#dcb67a",
+                "--button-primary": "#EC4899",
+                "--button-secondary": "#1d1a1c",
+                "--bg-primary": "#131013",
+                "--bg-secondary": "#171417",
+                "--bg-tertiary": "#1d1a1c",
+                "--bg-hover": "#262226",
+                "--border": "#2d292c",
+                "--text-primary": "#e1d8de",
+                "--text-secondary": "#a69aa1",
+                "--text-muted": "#726972",
+                "--input-bg": "#171417",
+                "--input-border": "#2d292c",
+                "--selection-bg": "#321c2c",
+                "--current-line": "#1c181b",
+                "--scrollbar-track": "#131013",
+                "--scrollbar-thumb": "#302830",
+                "--scrollbar-thumb-hover": "#423842"
+            }
+        })),
+    ];
+
+    // Always overwrite the built-in presets — they're shipped, not user-
+    // authored. Users wanting customization should use `create_default_theme`
+    // which writes a separate `custom.json`.
+    for (id, json) in presets.iter() {
+        let path = themes_dir.join(format!("{}.json", id));
+        let pretty = serde_json::to_string_pretty(json)
+            .map_err(|e| format!("Failed to serialize {}: {}", id, e))?;
+        std::fs::write(&path, pretty)
+            .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
+        tracing::debug!("Wrote built-in theme: {}", id);
+    }
+    Ok(())
+}
+
 /// Write a default theme template to the themes directory for users to customize.
 #[tauri::command]
 pub fn create_default_theme() -> Result<String, String> {
@@ -406,12 +578,17 @@ pub fn migrate_from_localstorage(legacy_json: String) -> Result<(), String> {
         league_path_pbe: state.get("leaguePathPbe").and_then(|v| v.as_str()).map(String::from),
         default_project_path: state.get("defaultProjectPath").and_then(|v| v.as_str()).map(String::from),
         creator_name: state.get("creatorName").and_then(|v| v.as_str()).map(String::from),
+        creator_description: state.get("creatorDescription").and_then(|v| v.as_str()).map(String::from),
+        creator_home: state.get("creatorHome").and_then(|v| v.as_str()).map(String::from),
+        creator_tip: state.get("creatorTip").and_then(|v| v.as_str()).map(String::from),
         auto_update_enabled: state.get("autoUpdateEnabled").and_then(|v| v.as_bool()).unwrap_or(true),
         skipped_update_version: state.get("skippedUpdateVersion").and_then(|v| v.as_str()).map(String::from),
         recent_projects: state.get("recentProjects").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
         saved_projects: state.get("savedProjects").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
         ltk_manager_mod_path: state.get("ltkManagerModPath").and_then(|v| v.as_str()).map(String::from),
         auto_sync_to_launcher: state.get("autoSyncToLauncher").and_then(|v| v.as_bool()).unwrap_or(false),
+        celestial_mod_path: state.get("celestialModPath").and_then(|v| v.as_str()).map(String::from),
+        preferred_launcher: state.get("preferredLauncher").and_then(|v| v.as_str()).map(String::from),
         bin_converter_engine: state.get("binConverterEngine").and_then(|v| v.as_str()).unwrap_or("ltk").to_string(),
         jade_path: state.get("jadePath").and_then(|v| v.as_str()).map(String::from),
         quartz_path: state.get("quartzPath").and_then(|v| v.as_str()).map(String::from),

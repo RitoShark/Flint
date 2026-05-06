@@ -73,10 +73,15 @@ export function useAppState() {
       leaguePathPbe: s.leaguePathPbe,
       defaultProjectPath: s.defaultProjectPath,
       creatorName: s.creatorName,
+      creatorDescription: s.creatorDescription,
+      creatorHome: s.creatorHome,
+      creatorTip: s.creatorTip,
       autoUpdateEnabled: s.autoUpdateEnabled,
       skippedUpdateVersion: s.skippedUpdateVersion,
       ltkManagerModPath: s.ltkManagerModPath,
       autoSyncToLauncher: s.autoSyncToLauncher,
+      celestialModPath: s.celestialModPath,
+      preferredLauncher: s.preferredLauncher,
       recentProjects: s.recentProjects,
       savedProjects: s.savedProjects,
     })),
@@ -169,10 +174,15 @@ export function useAppState() {
     leaguePathPbe: configSubset.leaguePathPbe,
     defaultProjectPath: configSubset.defaultProjectPath,
     creatorName: configSubset.creatorName,
+    creatorDescription: configSubset.creatorDescription,
+    creatorHome: configSubset.creatorHome,
+    creatorTip: configSubset.creatorTip,
     autoUpdateEnabled: configSubset.autoUpdateEnabled,
     skippedUpdateVersion: configSubset.skippedUpdateVersion,
     ltkManagerModPath: configSubset.ltkManagerModPath,
     autoSyncToLauncher: configSubset.autoSyncToLauncher,
+    celestialModPath: configSubset.celestialModPath,
+    preferredLauncher: configSubset.preferredLauncher,
 
     // Project tabs
     openTabs: projectTabSubset.openTabs,
@@ -443,10 +453,15 @@ export function useAppState() {
         if (action.payload.leaguePathPbe !== undefined) config.setLeaguePathPbe(action.payload.leaguePathPbe);
         if (action.payload.defaultProjectPath !== undefined) config.setDefaultProjectPath(action.payload.defaultProjectPath);
         if (action.payload.creatorName !== undefined) config.setCreatorName(action.payload.creatorName);
+        if (action.payload.creatorDescription !== undefined) config.setCreatorDescription(action.payload.creatorDescription);
+        if (action.payload.creatorHome !== undefined) config.setCreatorHome(action.payload.creatorHome);
+        if (action.payload.creatorTip !== undefined) config.setCreatorTip(action.payload.creatorTip);
         if (action.payload.autoUpdateEnabled !== undefined) config.setAutoUpdateEnabled(action.payload.autoUpdateEnabled);
         if (action.payload.skippedUpdateVersion !== undefined) config.setSkippedUpdateVersion(action.payload.skippedUpdateVersion);
         if (action.payload.ltkManagerModPath !== undefined) config.setLtkManagerModPath(action.payload.ltkManagerModPath);
         if (action.payload.autoSyncToLauncher !== undefined) config.setAutoSyncToLauncher(action.payload.autoSyncToLauncher);
+        if (action.payload.celestialModPath !== undefined) config.setCelestialModPath(action.payload.celestialModPath);
+        if (action.payload.preferredLauncher !== undefined) config.setPreferredLauncher(action.payload.preferredLauncher);
         if (action.payload.currentView !== undefined) navigation.setView(action.payload.currentView);
         break;
 

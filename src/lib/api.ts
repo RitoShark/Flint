@@ -627,6 +627,14 @@ export async function getLtkManagerModPath(): Promise<string | null> {
 }
 
 /**
+ * Get the Celestial launcher's mod storage path. Returns null if Celestial
+ * isn't installed.
+ */
+export async function getCelestialModPath(): Promise<string | null> {
+    return invokeCommand('get_celestial_mod_path', {});
+}
+
+/**
  * Sync a Flint project to LTK Manager
  * Packages the project as .modpkg and installs it to the launcher
  *
@@ -1975,12 +1983,17 @@ export interface FlintSettings {
     leaguePathPbe: string | null;
     defaultProjectPath: string | null;
     creatorName: string | null;
+    creatorDescription: string | null;
+    creatorHome: string | null;
+    creatorTip: string | null;
     autoUpdateEnabled: boolean;
     skippedUpdateVersion: string | null;
     recentProjects: RecentProject[];
     savedProjects: SavedProject[];
     ltkManagerModPath: string | null;
     autoSyncToLauncher: boolean;
+    celestialModPath: string | null;
+    preferredLauncher: 'ltk' | 'celestial' | null;
     binConverterEngine: string;
     jadePath: string | null;
     quartzPath: string | null;
@@ -2029,6 +2042,11 @@ export async function loadTheme(themeId: string): Promise<Record<string, unknown
 
 export async function createDefaultTheme(): Promise<string> {
     return invokeCommand('create_default_theme');
+}
+
+/** Write the built-in preset themes to disk if missing (idempotent). */
+export async function seedBuiltinThemes(): Promise<void> {
+    return invokeCommand('seed_builtin_themes');
 }
 
 // =============================================================================

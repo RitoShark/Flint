@@ -80,6 +80,60 @@ pub async fn get_ltk_manager_mod_path(app: tauri::AppHandle) -> Result<Option<St
     Ok(None)
 }
 
+/// Detect the Celestial launcher's mod storage path.
+///
+/// Celestial stores mods at `%APPDATA%\com.divineskins.celestial\storage` by
+/// default. If the user moved storage we still surface the launcher's data
+/// directory so syncs go to a sensible place.
+#[tauri::command]
+pub async fn get_celestial_mod_path(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    tracing::info!("Looking for Celestial launcher install...");
+
+    let app_data = app.path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data directory: {}", e))?;
+    let roaming_dir = app_data
+        .parent()
+        .ok_or_else(|| "Failed to get parent directory".to_string())?;
+
+    // Celestial uses identifier `com.divineskins.celestial` (matches its tauri
+    // bundle id). Old installs lived under `Celestial Launcher`.
+    let celestial_root = roaming_dir.join("com.divineskins.celestial");
+    let legacy_root = roaming_dir.join("Celestial Launcher");
+
+    for root in [&celestial_root, &legacy_root] {
+        if !root.exists() { continue; }
+
+        // Try to read a `mod_storage_path` from settings.json first; fall back
+        // to the conventional `storage/` subfolder.
+        let settings_path = root.join("settings.json");
+        if settings_path.exists() {
+            if let Ok(contents) = fs::read_to_string(&settings_path) {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&contents) {
+                    if let Some(p) = value.get("modStoragePath").and_then(|v| v.as_str()) {
+                        if !p.is_empty() {
+                            tracing::info!("Found Celestial mod path from settings: {}", p);
+                            return Ok(Some(p.to_string()));
+                        }
+                    }
+                }
+            }
+        }
+
+        let storage = root.join("storage");
+        if storage.exists() {
+            return Ok(Some(storage.to_string_lossy().to_string()));
+        }
+
+        // Launcher exists but no `storage/` yet — return the launcher root so
+        // the sync target points at something sensible.
+        return Ok(Some(root.to_string_lossy().to_string()));
+    }
+
+    tracing::warn!("Celestial launcher not found in expected locations");
+    Ok(None)
+}
+
 /// Package a Flint project and install it to LTK Manager
 ///
 /// This command:

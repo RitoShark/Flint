@@ -56,29 +56,29 @@
     color: var(--text-primary) !important;
 }
 
-/* Active LIVE — solid Flint red (matches the app accent) */
+/* Active LIVE — soft accent tint (matches the app accent) */
 .wad-explorer__branch-btn--active[aria-selected="true"]:first-child {
     background:
         linear-gradient(180deg,
-            color-mix(in oklab, var(--color-danger) 18%, var(--bg-secondary)),
-            color-mix(in oklab, var(--color-danger) 8%, var(--bg-secondary))) !important;
-    color: color-mix(in oklab, var(--color-danger) 10%, var(--text-primary)) !important;
+            color-mix(in oklab, var(--accent-primary) 18%, var(--bg-secondary)),
+            color-mix(in oklab, var(--accent-primary) 8%, var(--bg-secondary))) !important;
+    color: color-mix(in oklab, var(--accent-primary) 10%, var(--text-primary)) !important;
     box-shadow:
         0 1px 2px rgba(0,0,0,.3),
-        0 0 0 1px color-mix(in oklab, var(--color-danger) 45%, transparent),
-        0 0 6px color-mix(in oklab, var(--color-danger) 25%, transparent) !important;
+        0 0 0 1px color-mix(in oklab, var(--accent-primary) 45%, transparent),
+        0 0 6px color-mix(in oklab, var(--accent-primary) 25%, transparent) !important;
 }
 
-/* Active PBE — same Flint red, but FILLED so the active branch is unmistakable */
+/* Active PBE — same accent, FILLED so the active branch is unmistakable */
 .wad-explorer__branch-btn--active[aria-selected="true"]:nth-child(2) {
     background: linear-gradient(180deg,
-        color-mix(in oklab, var(--color-danger) 100%, white 6%),
-        var(--color-danger)) !important;
+        color-mix(in oklab, var(--accent-primary) 100%, white 6%),
+        var(--accent-primary)) !important;
     color: #fff !important;
     box-shadow:
         0 1px 2px rgba(0,0,0,.4),
-        0 0 0 1px var(--color-danger),
-        0 0 8px color-mix(in oklab, var(--color-danger) 40%, transparent) !important;
+        0 0 0 1px var(--accent-primary),
+        0 0 8px color-mix(in oklab, var(--accent-primary) 40%, transparent) !important;
 }
 
 .wad-explorer__branch-btn--disabled {
