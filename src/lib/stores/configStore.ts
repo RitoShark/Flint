@@ -202,7 +202,8 @@ export const useConfigStore = create<ConfigState>()((set) => ({
   celestialModPath: __cached?.celestialModPath ?? null,
   preferredLauncher: (__cached?.preferredLauncher === 'celestial' ? 'celestial' : __cached?.preferredLauncher === 'ltk' ? 'ltk' : null) as 'ltk' | 'celestial' | null,
   savedProjects: (__cached?.savedProjects as SavedProject[] | undefined) ?? [],
-  binConverterEngine: (__cached?.binConverterEngine === 'jade' ? 'jade' : 'ltk') as 'ltk' | 'jade',
+  // Jade is now the only engine — old 'ltk' values silently upgrade.
+  binConverterEngine: 'jade' as 'ltk' | 'jade',
   jadePath: __cached?.jadePath ?? null,
   quartzPath: __cached?.quartzPath ?? null,
   selectedTheme: __cached?.selectedTheme ?? null,
@@ -303,7 +304,8 @@ export const useConfigStore = create<ConfigState>()((set) => ({
         autoSyncToLauncher: s.autoSyncToLauncher,
         celestialModPath: s.celestialModPath ?? null,
         preferredLauncher: (s.preferredLauncher === 'celestial' ? 'celestial' : s.preferredLauncher === 'ltk' ? 'ltk' : null) as 'ltk' | 'celestial' | null,
-        binConverterEngine: (s.binConverterEngine === 'jade' ? 'jade' : 'ltk') as 'ltk' | 'jade',
+        // Pinned to 'jade' regardless of disk value — see configStore default.
+        binConverterEngine: 'jade' as 'ltk' | 'jade',
         jadePath: s.jadePath,
         quartzPath: s.quartzPath,
         selectedTheme: s.selectedTheme ?? null,

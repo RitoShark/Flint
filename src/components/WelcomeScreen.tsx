@@ -24,9 +24,13 @@ const ClockIcon: React.FC = () => (
 // Welcome Screen
 // =============================================================================
 
+/** How many recent projects to show before "Show all" is clicked. */
+const RECENT_DEFAULT_LIMIT = 3;
+
 export const WelcomeScreen: React.FC = () => {
     const { state, dispatch, openModal, setWorking, setReady, setError } = useAppState();
     const [greeting, setGreeting] = useState('');
+    const [showAllRecent, setShowAllRecent] = useState(false);
 
     // Calculate time-based greeting
     useEffect(() => {
@@ -136,45 +140,68 @@ export const WelcomeScreen: React.FC = () => {
                         </button>
                     </div>
 
-                    {/* Recent Projects sub-section */}
-                    {state.recentProjects.length > 0 && (
-                        <div className="welcome__recent">
-                            <h3 className="welcome__recent-title">
-                                <ClockIcon />
-                                <span>Recent Projects</span>
-                            </h3>
-                            <div className="welcome__recent-list">
-                                {state.recentProjects.slice(0, 5).map((project: RecentProject) => (
-                                    <div
-                                        key={project.path}
-                                        className="welcome__recent-item"
-                                        onClick={() => openRecentProject(project.path)}
+                    {/* Recent Projects sub-section — capped to RECENT_DEFAULT_LIMIT
+                        unless the user expands. Avoids overwhelming the welcome
+                        screen when the list grows. */}
+                    {state.recentProjects.length > 0 && (() => {
+                        const total = state.recentProjects.length;
+                        const limit = showAllRecent ? total : RECENT_DEFAULT_LIMIT;
+                        const visible = state.recentProjects.slice(0, limit);
+                        const hidden = total - visible.length;
+                        return (
+                            <div className="welcome__recent">
+                                <h3 className="welcome__recent-title">
+                                    <ClockIcon />
+                                    <span>Recent Projects</span>
+                                    <span className="welcome__recent-count">{total}</span>
+                                </h3>
+                                <div className="welcome__recent-list">
+                                    {visible.map((project: RecentProject) => (
+                                        <div
+                                            key={project.path}
+                                            className="welcome__recent-item"
+                                            onClick={() => openRecentProject(project.path)}
+                                        >
+                                            <div className="welcome__recent-info">
+                                                <span className="welcome__recent-icon" dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
+                                                <span className="welcome__recent-name">
+                                                    {project.champion} - {project.name}
+                                                </span>
+                                            </div>
+                                            <div className="welcome__recent-actions">
+                                                <span className="welcome__recent-date">
+                                                    {formatRelativeTime(project.lastOpened)}
+                                                </span>
+                                                <button
+                                                    className="welcome__recent-delete"
+                                                    onClick={(e) => handleRemoveRecent(e, project.path)}
+                                                    title="Remove from recent"
+                                                >
+                                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                                        <path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                {(hidden > 0 || showAllRecent) && total > RECENT_DEFAULT_LIMIT && (
+                                    <button
+                                        type="button"
+                                        className="welcome__recent-toggle"
+                                        onClick={() => setShowAllRecent((v) => !v)}
                                     >
-                                        <div className="welcome__recent-info">
-                                            <span className="welcome__recent-icon" dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
-                                            <span className="welcome__recent-name">
-                                                {project.champion} - {project.name}
-                                            </span>
-                                        </div>
-                                        <div className="welcome__recent-actions">
-                                            <span className="welcome__recent-date">
-                                                {formatRelativeTime(project.lastOpened)}
-                                            </span>
-                                            <button
-                                                className="welcome__recent-delete"
-                                                onClick={(e) => handleRemoveRecent(e, project.path)}
-                                                title="Remove from recent"
-                                            >
-                                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                                    <path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                                                </svg>
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
+                                        {showAllRecent
+                                            ? `Show fewer`
+                                            : `Show all (${hidden} more)`}
+                                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ transform: showAllRecent ? 'rotate(180deg)' : 'none', transition: 'transform 220ms ease' }}>
+                                            <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                                        </svg>
+                                    </button>
+                                )}
                             </div>
-                        </div>
-                    )}
+                        );
+                    })()}
                 </div>
 
                 {/* Vertical Divider */}

@@ -21,7 +21,6 @@ import {
     ModalFooter,
     ModalHeader,
     ProgressBar,
-    Picker,
     DesignLab,
     Textarea,
 } from '../ui';
@@ -454,7 +453,7 @@ export const SettingsModal: React.FC = () => {
     const [autoSyncToLauncher, setAutoSyncToLauncher] = useState(state.autoSyncToLauncher);
     const [celestialPath, setCelestialPath] = useState(state.celestialModPath || '');
     const [preferredLauncher, setPreferredLauncher] = useState<'ltk' | 'celestial' | null>(state.preferredLauncher);
-    const [binConverterEngine, setBinConverterEngine] = useState<'ltk' | 'jade'>(configStore.binConverterEngine);
+    // BIN engine is pinned to Jade — no UI selector; configStore default handles it.
     const [jadePath, setJadePath] = useState(configStore.jadePath || '');
     const [quartzPath, setQuartzPath] = useState(configStore.quartzPath || '');
     const [isValidating, setIsValidating] = useState(false);
@@ -493,11 +492,11 @@ export const SettingsModal: React.FC = () => {
         setAutoSyncToLauncher(state.autoSyncToLauncher);
         setCelestialPath(state.celestialModPath || '');
         setPreferredLauncher(state.preferredLauncher);
-        setBinConverterEngine(configStore.binConverterEngine);
+        // binConverterEngine no longer user-controlled — pinned to 'jade'.
         setJadePath(configStore.jadePath || '');
         setQuartzPath(configStore.quartzPath || '');
         getVersion().then(setCurrentVersion).catch(() => setCurrentVersion('0.0.0'));
-    }, [isVisible, state.leaguePath, state.leaguePathPbe, state.defaultProjectPath, state.creatorName, state.creatorDescription, state.creatorHome, state.creatorTip, state.autoUpdateEnabled, state.verboseLogging, state.ltkManagerModPath, state.autoSyncToLauncher, configStore.binConverterEngine, configStore.jadePath, configStore.quartzPath, configStore.selectedTheme]);
+    }, [isVisible, state.leaguePath, state.leaguePathPbe, state.defaultProjectPath, state.creatorName, state.creatorDescription, state.creatorHome, state.creatorTip, state.autoUpdateEnabled, state.verboseLogging, state.ltkManagerModPath, state.autoSyncToLauncher, configStore.jadePath, configStore.quartzPath, configStore.selectedTheme]);
 
     useEffect(() => {
         const unlisten = listen<SchemaProgress>('schema-progress', (event) => {
@@ -757,7 +756,7 @@ export const SettingsModal: React.FC = () => {
             },
         });
 
-        configStore.setBinConverterEngine(binConverterEngine);
+        // BIN engine is pinned to 'jade' — no save needed.
         configStore.setJadePath(jadePath || null);
         configStore.setQuartzPath(quartzPath || null);
         // selectedTheme is committed live by the preset cards — no need to re-save here.
@@ -938,25 +937,6 @@ export const SettingsModal: React.FC = () => {
 
                     {activeTab === 'general' && (
                         <div className="settings-panel">
-                            <div className="settings-item">
-                                <label className="settings-item__label">
-                                    BIN Conversion Engine
-                                    <span className="settings-item__badge">Advanced</span>
-                                </label>
-                                <Picker
-                                    fullWidth
-                                    value={binConverterEngine}
-                                    onChange={(v) => setBinConverterEngine(v as 'ltk' | 'jade')}
-                                    options={[
-                                        { value: 'ltk',  label: 'LTK (Default)',  hint: 'Standard converter, ships with Flint' },
-                                        { value: 'jade', label: 'Jade Custom', hint: 'Alt converter, handles edge-case BINs better' },
-                                    ]}
-                                />
-                                <div className="settings-item__hint">
-                                    Jade Custom converter may handle certain BIN files better than LTK
-                                </div>
-                            </div>
-
                             <div className="settings-item">
                                 <Checkbox
                                     toggle

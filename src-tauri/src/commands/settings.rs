@@ -62,7 +62,7 @@ pub struct FlintSettings {
 
 fn default_schema_version() -> u32 { SCHEMA_VERSION }
 fn default_true() -> bool { true }
-fn default_bin_engine() -> String { "ltk".to_string() }
+fn default_bin_engine() -> String { "jade".to_string() }
 
 impl Default for FlintSettings {
     fn default() -> Self {
@@ -86,7 +86,7 @@ impl Default for FlintSettings {
             auto_sync_to_launcher: false,
             celestial_mod_path: None,
             preferred_launcher: None,
-            bin_converter_engine: "ltk".to_string(),
+            bin_converter_engine: "jade".to_string(),
             jade_path: None,
             quartz_path: None,
             selected_theme: None,
