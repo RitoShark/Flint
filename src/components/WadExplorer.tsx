@@ -1407,34 +1407,86 @@ export const WadExplorer: React.FC = () => {
         dispatch({ type: 'WAD_EXPLORER_CLEAR_CHECKS' });
     }, [dispatch]);
 
-    const [extractingSelected, setExtractingSelected] = useState(false);
+    /**
+     * Shared progress state for the extract overlay. Every extract path
+     * (selected files, single file, folder, full WAD, sniff-result row)
+     * routes through `runExtract` so the user always sees the same overlay
+     * with a spinner, progress bar, and current/total WAD counter.
+     */
+    type ExtractGroup = { wadPath: string; hashes: string[] | null; wadLabel?: string };
+    const [extractProgress, setExtractProgress] = useState<{
+        visible: boolean;
+        title: string;
+        currentLabel: string;
+        currentIndex: number;
+        totalGroups: number;
+        extractedCount: number;
+        plannedCount: number;
+    } | null>(null);
+    const extracting = !!extractProgress?.visible;
+
+    const runExtract = useCallback(async (
+        groups: ExtractGroup[],
+        dest: string,
+        title: string,
+    ): Promise<number> => {
+        const plannedCount = groups.reduce((n, g) => n + (g.hashes?.length ?? 0), 0);
+        setExtractProgress({
+            visible: true,
+            title,
+            currentLabel: groups[0]?.wadLabel ?? groups[0]?.wadPath ?? '',
+            currentIndex: 0,
+            totalGroups: groups.length,
+            extractedCount: 0,
+            plannedCount,
+        });
+        let total = 0;
+        for (let i = 0; i < groups.length; i++) {
+            const g = groups[i];
+            setExtractProgress((p) => p && {
+                ...p,
+                currentLabel: g.wadLabel ?? g.wadPath,
+                currentIndex: i,
+            });
+            const res = await api.extractWad(g.wadPath, dest, g.hashes);
+            total += res.extracted;
+            setExtractProgress((p) => p && { ...p, extractedCount: total, currentIndex: i + 1 });
+        }
+        // Brief hold so the bar visibly fills before the overlay disappears.
+        await new Promise((r) => setTimeout(r, 240));
+        setExtractProgress(null);
+        return total;
+    }, []);
+
     const handleExtractSelected = useCallback(async () => {
         const { checkedFiles } = wadExplorer;
         if (checkedFiles.size === 0) return;
         try {
             const dest = await open({ title: 'Choose Extraction Folder', directory: true });
             if (!dest) return;
-            setExtractingSelected(true);
             // Group by wadPath
-            const groups = new Map<string, string[]>();
+            const map = new Map<string, string[]>();
             for (const key of checkedFiles) {
                 const sep = key.indexOf('::');
                 const wadPath = key.slice(0, sep);
                 const hash = key.slice(sep + 2);
-                const list = groups.get(wadPath) ?? [];
+                const list = map.get(wadPath) ?? [];
                 list.push(hash);
-                groups.set(wadPath, list);
+                map.set(wadPath, list);
             }
-            let total = 0;
-            for (const [wadPath, hashes] of groups) {
-                const res = await api.extractWad(wadPath, dest as string, hashes);
-                total += res.extracted;
-            }
-            showToast('success', `Extracted ${total} files from ${groups.size} WAD${groups.size > 1 ? 's' : ''}`);
+            const groups: ExtractGroup[] = Array.from(map.entries()).map(([wadPath, hashes]) => ({
+                wadPath,
+                hashes,
+                wadLabel: wadPath.split(/[\\/]/).pop() ?? wadPath,
+            }));
+            const total = await runExtract(groups, dest as string, `Extracting ${checkedFiles.size} selected file${checkedFiles.size > 1 ? 's' : ''}`);
+            showToast('success', `Extracted ${total} files from ${groups.length} WAD${groups.length > 1 ? 's' : ''}`);
             dispatch({ type: 'WAD_EXPLORER_CLEAR_CHECKS' });
-        } catch { showToast('error', 'Extraction failed'); }
-        finally { setExtractingSelected(false); }
-    }, [wadExplorer, dispatch, showToast]);
+        } catch {
+            setExtractProgress(null);
+            showToast('error', 'Extraction failed');
+        }
+    }, [wadExplorer, dispatch, showToast, runExtract]);
 
     // ── Search ───────────────────────────────────────────────────────────────
     const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1487,9 +1539,14 @@ export const WadExplorer: React.FC = () => {
                 try {
                     const dest = await open({ title: 'Choose Extraction Folder', directory: true });
                     if (!dest) return;
-                    const res = await api.extractWad(wadPath, dest as string, [chunk.hash]);
-                    showToast('success', `Extracted ${res.extracted} file`);
-                } catch { showToast('error', 'Extraction failed'); }
+                    const wadName = wadPath.split(/[\\/]/).pop() ?? wadPath;
+                    const total = await runExtract(
+                        [{ wadPath, hashes: [chunk.hash], wadLabel: wadName }],
+                        dest as string,
+                        `Extracting ${chunk.path ?? chunk.hash}`,
+                    );
+                    showToast('success', `Extracted ${total} file`);
+                } catch { setExtractProgress(null); showToast('error', 'Extraction failed'); }
             },
         });
         if (checkedCount > 0) {
@@ -1499,7 +1556,7 @@ export const WadExplorer: React.FC = () => {
             });
         }
         dispatch({ type: 'OPEN_CONTEXT_MENU', payload: { x, y, options } });
-    }, [dispatch, showToast, wadExplorer.checkedFiles, handleExtractSelected]);
+    }, [dispatch, showToast, wadExplorer.checkedFiles, handleExtractSelected, runExtract]);
 
     const handleFolderContextMenu = useCallback((folder: VFSFolder, wadPath: string, x: number, y: number) => {
         const fileKeys = collectFolderFileKeys(folder, wadPath);
@@ -1519,9 +1576,14 @@ export const WadExplorer: React.FC = () => {
                 try {
                     const dest = await open({ title: 'Choose Extraction Folder', directory: true });
                     if (!dest) return;
-                    const res = await api.extractWad(wadPath, dest as string, hashes);
-                    showToast('success', `Extracted ${res.extracted} files`);
-                } catch { showToast('error', 'Extraction failed'); }
+                    const wadName = wadPath.split(/[\\/]/).pop() ?? wadPath;
+                    const total = await runExtract(
+                        [{ wadPath, hashes, wadLabel: wadName }],
+                        dest as string,
+                        `Extracting ${hashes.length} file${hashes.length > 1 ? 's' : ''} from folder`,
+                    );
+                    showToast('success', `Extracted ${total} files`);
+                } catch { setExtractProgress(null); showToast('error', 'Extraction failed'); }
             },
         });
         if (checkedCount > 0) {
@@ -1531,7 +1593,7 @@ export const WadExplorer: React.FC = () => {
             });
         }
         dispatch({ type: 'OPEN_CONTEXT_MENU', payload: { x, y, options } });
-    }, [dispatch, showToast, wadExplorer.checkedFiles, handleExtractSelected]);
+    }, [dispatch, showToast, wadExplorer.checkedFiles, handleExtractSelected, runExtract]);
 
     const handleWadContextMenu = useCallback((wad: WadExplorerWad, x: number, y: number) => {
         const wadCheckState = getWadCheckState(wad, wadExplorer.checkedFiles);
@@ -1551,9 +1613,14 @@ export const WadExplorer: React.FC = () => {
                 try {
                     const dest = await open({ title: 'Choose Extraction Folder', directory: true });
                     if (!dest) return;
-                    const res = await api.extractWad(wad.path, dest as string, null);
-                    showToast('success', `Extracted ${res.extracted} files`);
-                } catch { showToast('error', 'Extraction failed'); }
+                    const wadName = wad.path.split(/[\\/]/).pop() ?? wad.path;
+                    const total = await runExtract(
+                        [{ wadPath: wad.path, hashes: null, wadLabel: wadName }],
+                        dest as string,
+                        `Extracting full WAD: ${wadName}`,
+                    );
+                    showToast('success', `Extracted ${total} files`);
+                } catch { setExtractProgress(null); showToast('error', 'Extraction failed'); }
             },
             disabled: wad.status !== 'loaded',
         });
@@ -1587,7 +1654,7 @@ export const WadExplorer: React.FC = () => {
             },
         });
         dispatch({ type: 'OPEN_CONTEXT_MENU', payload: { x, y, options } });
-    }, [dispatch, showToast, wadExplorer.checkedFiles, handleExtractSelected]);
+    }, [dispatch, showToast, wadExplorer.checkedFiles, handleExtractSelected, runExtract]);
 
     // ── Resizer ───────────────────────────────────────────────────────────────
     useEffect(() => {
@@ -1938,9 +2005,14 @@ export const WadExplorer: React.FC = () => {
                                             try {
                                                 const dest = await open({ title: 'Choose Extraction Folder', directory: true });
                                                 if (!dest) return;
-                                                const res = await api.extractWad(row.wadPath, dest as string, hashes);
-                                                showToast('success', `Extracted ${res.extracted} files`);
-                                            } catch { showToast('error', 'Extraction failed'); }
+                                                const wadName = row.wadPath.split(/[\\/]/).pop() ?? row.wadPath;
+                                                const total = await runExtract(
+                                                    [{ wadPath: row.wadPath, hashes, wadLabel: wadName }],
+                                                    dest as string,
+                                                    `Extracting ${hashes.length} file${hashes.length > 1 ? 's' : ''} from folder`,
+                                                );
+                                                showToast('success', `Extracted ${total} files`);
+                                            } catch { setExtractProgress(null); showToast('error', 'Extraction failed'); }
                                         },
                                     },
                                 ];
@@ -2268,9 +2340,9 @@ export const WadExplorer: React.FC = () => {
                                 <button className="btn btn--sm" onClick={handleDeselectAll} style={{ fontSize: '10px', padding: '2px 6px' }}>
                                     Deselect All
                                 </button>
-                                <button className="btn btn--sm btn--primary" onClick={handleExtractSelected} disabled={extractingSelected} style={{ fontSize: '10px', padding: '2px 8px' }}>
+                                <button className="btn btn--sm btn--primary" onClick={handleExtractSelected} disabled={extracting} style={{ fontSize: '10px', padding: '2px 8px' }}>
                                     <span dangerouslySetInnerHTML={{ __html: getIcon('export') }} />
-                                    <span>{extractingSelected ? 'Extracting…' : 'Extract Selected'}</span>
+                                    <span>{extracting ? 'Extracting…' : 'Extract Selected'}</span>
                                 </button>
                             </>
                         ) : (
@@ -2399,6 +2471,70 @@ export const WadExplorer: React.FC = () => {
                 onFilterPath={handleCheatSheetFilter}
             />
         )}
+
+        {extractProgress?.visible && (
+            <ExtractOverlay progress={extractProgress} />
+        )}
         </>
+    );
+};
+
+/* ----------------------------------------------------------------------------
+   ExtractOverlay — full-bleed dimmer with a glassy card containing a spinner,
+   the user's selection summary, and a determinate progress bar that fills as
+   each WAD finishes (we don't have per-chunk progress events). When only one
+   WAD is in flight the bar uses an indeterminate animation instead so the
+   user still sees motion.
+---------------------------------------------------------------------------- */
+const ExtractOverlay: React.FC<{
+    progress: {
+        title: string;
+        currentLabel: string;
+        currentIndex: number;
+        totalGroups: number;
+        extractedCount: number;
+        plannedCount: number;
+    };
+}> = ({ progress }) => {
+    const pct = progress.totalGroups > 1
+        ? Math.min(100, Math.round((progress.currentIndex / progress.totalGroups) * 100))
+        : null; // null → indeterminate
+    const subtitle = progress.totalGroups > 1
+        ? `WAD ${Math.min(progress.currentIndex + 1, progress.totalGroups)} of ${progress.totalGroups}`
+        : `Decoding chunks…`;
+    return (
+        <div className="extract-overlay" role="dialog" aria-live="polite" aria-label={progress.title}>
+            <div className="extract-overlay__backdrop" />
+            <div className="extract-overlay__card">
+                <div className="extract-overlay__spinner" aria-hidden="true">
+                    <svg viewBox="0 0 50 50" width="40" height="40">
+                        <circle cx="25" cy="25" r="20" fill="none" strokeWidth="4"
+                            stroke="color-mix(in oklab, var(--accent-primary) 18%, transparent)" />
+                        <circle cx="25" cy="25" r="20" fill="none" strokeWidth="4"
+                            stroke="var(--accent-primary)"
+                            strokeLinecap="round"
+                            strokeDasharray="40 100"
+                            transform="rotate(-90 25 25)" />
+                    </svg>
+                </div>
+                <div className="extract-overlay__title">{progress.title}</div>
+                <div className="extract-overlay__subtitle">{subtitle}</div>
+                <div className="extract-overlay__current" title={progress.currentLabel}>
+                    {progress.currentLabel}
+                </div>
+                <div className={`extract-overlay__bar ${pct === null ? 'is-indeterminate' : ''}`}>
+                    <div
+                        className="extract-overlay__bar-fill"
+                        style={pct === null ? undefined : { width: `${pct}%` }}
+                    />
+                </div>
+                <div className="extract-overlay__stats">
+                    {progress.plannedCount > 0 && (
+                        <span><strong>{progress.extractedCount.toLocaleString()}</strong> / {progress.plannedCount.toLocaleString()} files</span>
+                    )}
+                    {progress.totalGroups > 1 && pct !== null && <span>{pct}%</span>}
+                </div>
+            </div>
+        </div>
     );
 };
