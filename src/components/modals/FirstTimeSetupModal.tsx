@@ -624,33 +624,48 @@ interface PathRowProps {
     icon: IconName;
     /** Optional image asset path; when set, renders instead of the named Icon. */
     logoSrc?: string;
+    /** Optional brand color for the logo frame glow + connected glow. */
+    logoColor?: string;
     badge?: string;
     label: string;
     placeholder: string;
     value: string;
     onChange: (v: string) => void;
     onBrowse: () => void;
+    onDetect?: () => void;
+    detecting?: boolean;
     hint?: string;
 }
 
 const PathRow: React.FC<PathRowProps> = ({
-    icon, logoSrc, badge, label, placeholder, value, onChange, onBrowse, hint,
+    icon, logoSrc, logoColor, badge, label, placeholder, value, onChange, onBrowse, onDetect, detecting, hint,
 }) => {
     const filled = value.trim().length > 0;
+    const style = logoColor ? ({ ['--logo' as never]: logoColor } as React.CSSProperties) : undefined;
     return (
-        <div className={`fwiz-prow ${filled ? 'is-filled' : ''} ${logoSrc ? 'has-logo' : ''}`}>
+        <div
+            className={`fwiz-prow ${filled ? 'is-filled' : ''} ${logoSrc ? 'has-logo' : ''}`}
+            style={style}
+        >
             <span className="fwiz-prow__icon" aria-hidden="true">
                 {logoSrc
                     ? <img src={logoSrc} alt="" className="fwiz-prow__logo-img" draggable={false} />
                     : <Icon name={icon} />}
-                <span className={`fwiz-prow__status ${filled ? 'is-on' : ''}`} title={filled ? 'Set' : 'Empty'} />
+                {logoSrc && <span className="fwiz-prow__logo-ring" aria-hidden="true" />}
             </span>
             <div className="fwiz-prow__body">
                 <div className="fwiz-prow__head">
-                    <span className="fwiz-prow__label">{label}</span>
+                    <strong className="fwiz-prow__name">{label}</strong>
                     {badge && <span className="fwiz-prow__badge">{badge}</span>}
+                    <span className={`fwiz-prow__pill ${filled ? 'is-on' : ''}`}>
+                        <span className="fwiz-prow__pill-dot" />
+                        {filled ? 'Connected' : 'Not set'}
+                    </span>
                 </div>
-                {hint && <span className="fwiz-prow__hint">{hint}</span>}
+                {hint && <p className="fwiz-prow__tagline">{hint}</p>}
+                {filled && (
+                    <p className="fwiz-prow__path" title={value}>{value}</p>
+                )}
                 <div className="fwiz-prow__field">
                     <input
                         type="text"
@@ -669,6 +684,19 @@ const PathRow: React.FC<PathRowProps> = ({
                         <Icon name="folder" />
                         <span>Browse</span>
                     </button>
+                    {onDetect && (
+                        <button
+                            type="button"
+                            className={`fwiz-iconbtn ${detecting ? 'is-busy' : ''}`}
+                            onClick={onDetect}
+                            disabled={detecting}
+                            title="Auto-detect"
+                            aria-label="Auto-detect"
+                        >
+                            <Icon name="search" />
+                            <span>{detecting ? 'Scanning…' : 'Detect'}</span>
+                        </button>
+                    )}
                 </div>
             </div>
         </div>
@@ -733,6 +761,7 @@ const PathsPane: React.FC<{
         <PathRow
             icon="folder"
             logoSrc="/lol-logo.png"
+            logoColor="#0AC8B9"
             label="League of Legends"
             badge="Live"
             placeholder="C:\Riot Games\League of Legends"
@@ -744,6 +773,7 @@ const PathsPane: React.FC<{
         <PathRow
             icon="folder"
             logoSrc="/lol-logo.png"
+            logoColor="#F0884F"
             label="League of Legends PBE"
             badge="Optional"
             placeholder="C:\Riot Games\League of Legends (PBE)"

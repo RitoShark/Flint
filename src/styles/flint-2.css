@@ -628,7 +628,8 @@ html[data-glass="off"] .modal--settings {
     .fwiz-prow { grid-template-columns: 44px 1fr; gap: 12px; padding: 12px 14px; }
     .fwiz-prow__icon { width: 44px; height: 44px; border-radius: 10px; }
     .fwiz-prow__icon svg { width: 18px; height: 18px; }
-    .fwiz-prow__hint { width: 100%; text-align: left; }
+    .fwiz-prow__logo-img { width: 28px; height: 28px; }
+    .fwiz-prow__path { font-size: 10.5px; padding: 4px 8px; }
     .fwiz__nav-counter { display: none; }
 }
 
@@ -735,44 +736,72 @@ html[data-glass="off"] .modal--settings {
     border-radius: 12px;
 }
 .fwiz-iconbtn--lg svg { width: 18px; height: 18px; }
+/* PathRow — same visual vocabulary as the Integrations tab cards.
+   `--logo` is set inline per row (League blue, PBE orange, etc.) and
+   drives both the conic ring around the logo + the connected glow
+   around the whole card. Falls back to --accent-primary when not set. */
 .fwiz-prow {
+    --logo: var(--accent-primary);
     display: grid;
     grid-template-columns: 56px 1fr;
     gap: 16px;
     padding: 16px 18px;
-    background: color-mix(in oklab, var(--bg-secondary) 65%, transparent);
-    border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
-    border-radius: 14px;
-    align-items: center;
-    transition: border-color var(--ux-fast), background var(--ux-fast);
+    background:
+        linear-gradient(180deg,
+            color-mix(in oklab, white 4%, transparent) 0%,
+            transparent 60%),
+        color-mix(in oklab, var(--bg-secondary) 70%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 90%, transparent);
+    border-radius: 16px;
+    align-items: start;
+    box-shadow:
+        inset 0 1px 0 color-mix(in oklab, white 6%, transparent),
+        0 4px 18px -10px rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(8px) saturate(140%);
+    -webkit-backdrop-filter: blur(8px) saturate(140%);
+    transition: border-color var(--ux-fast), transform var(--ux-fast), box-shadow var(--ux-base);
 }
 .fwiz-prow:hover {
-    border-color: color-mix(in oklab, var(--accent-primary) 35%, var(--border));
+    transform: translateY(-1px);
+    border-color: color-mix(in oklab, var(--logo) 35%, var(--border));
 }
+.fwiz-prow.is-filled {
+    border-color: color-mix(in oklab, var(--logo) 35%, var(--border));
+    box-shadow:
+        inset 0 1px 0 color-mix(in oklab, white 8%, transparent),
+        0 0 0 1px color-mix(in oklab, var(--logo) 14%, transparent),
+        0 8px 28px -14px color-mix(in oklab, var(--logo) 60%, transparent);
+}
+
+/* Logo / icon frame — gradient backdrop with conic ring glow when the
+   row is carrying a real brand image. Generic icon mode keeps the old
+   accent-tinted radial. */
 .fwiz-prow__icon {
+    position: relative;
     width: 56px;
     height: 56px;
-    border-radius: 14px;
-    background:
-        radial-gradient(circle at 30% 20%, color-mix(in oklab, var(--accent-primary) 35%, transparent), transparent 60%),
-        color-mix(in oklab, var(--accent-primary) 14%, var(--bg-tertiary));
-    color: var(--accent-primary);
+    border-radius: 16px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     flex: none;
-    border: 1px solid color-mix(in oklab, var(--accent-primary) 30%, transparent);
-    box-shadow: inset 0 1px 0 color-mix(in oklab, white 12%, transparent);
+    background:
+        radial-gradient(circle at 30% 20%, color-mix(in oklab, var(--logo) 35%, transparent), transparent 60%),
+        color-mix(in oklab, var(--logo) 14%, var(--bg-tertiary));
+    color: var(--logo);
+    border: 1px solid color-mix(in oklab, var(--logo) 30%, transparent);
+    box-shadow:
+        inset 0 1px 0 color-mix(in oklab, white 22%, transparent),
+        0 8px 18px -8px color-mix(in oklab, var(--logo) 60%, transparent);
 }
-.fwiz-prow__icon svg { width: 24px; height: 24px; }
-/* When the row carries a real brand logo (e.g. League of Legends), drop
-   the accent-tinted backdrop and let the image breathe — same treatment
-   as the integration cards. */
+.fwiz-prow__icon svg { width: 24px; height: 24px; position: relative; z-index: 2; }
+/* Image-bearing rows: drop the accent tint, let the artwork carry its
+   own colour against a near-black backdrop. */
 .fwiz-prow.has-logo .fwiz-prow__icon {
     background:
-        radial-gradient(circle at 30% 20%, color-mix(in oklab, white 12%, transparent), transparent 60%),
-        color-mix(in oklab, #000 45%, transparent);
-    border-color: color-mix(in oklab, white 12%, transparent);
+        radial-gradient(circle at 30% 20%, color-mix(in oklab, var(--logo) 25%, transparent), transparent 60%),
+        color-mix(in oklab, #000 50%, transparent);
+    border-color: color-mix(in oklab, var(--logo) 25%, transparent);
 }
 .fwiz-prow__logo-img {
     position: relative;
@@ -782,17 +811,32 @@ html[data-glass="off"] .modal--settings {
     object-fit: contain;
     filter: drop-shadow(0 1px 4px color-mix(in oklab, #000 60%, transparent));
 }
-.fwiz-prow__body { display: grid; gap: 10px; min-width: 0; }
+/* Conic ring glow behind the logo — same trick as integration cards. */
+.fwiz-prow__logo-ring {
+    position: absolute;
+    inset: -3px;
+    border-radius: 18px;
+    background: conic-gradient(from 90deg,
+        color-mix(in oklab, var(--logo) 60%, transparent),
+        transparent 60%,
+        color-mix(in oklab, var(--logo) 50%, transparent));
+    filter: blur(6px);
+    opacity: 0.45;
+    z-index: 1;
+}
+
+.fwiz-prow__body { display: grid; gap: 6px; min-width: 0; }
 .fwiz-prow__head {
     display: flex;
     align-items: center;
     gap: 10px;
     flex-wrap: wrap;
 }
-.fwiz-prow__label {
-    font-size: 14px;
-    font-weight: 600;
+.fwiz-prow__name {
+    font-size: 15px;
+    font-weight: 700;
     color: var(--text-primary);
+    letter-spacing: -0.005em;
 }
 .fwiz-prow__badge {
     font-size: 10px;
@@ -800,16 +844,64 @@ html[data-glass="off"] .modal--settings {
     letter-spacing: 0.05em;
     padding: 2px 8px;
     border-radius: 999px;
-    background: color-mix(in oklab, var(--accent-primary) 18%, transparent);
-    color: color-mix(in oklab, var(--accent-primary) 35%, var(--text-primary));
-    border: 1px solid color-mix(in oklab, var(--accent-primary) 30%, transparent);
+    background: color-mix(in oklab, var(--logo) 18%, transparent);
+    color: color-mix(in oklab, var(--logo) 35%, var(--text-primary));
+    border: 1px solid color-mix(in oklab, var(--logo) 30%, transparent);
 }
-.fwiz-prow__hint {
-    flex: 1;
-    min-width: 0;
-    font-size: 12px;
+
+/* Status pill mirrors `.integration-card__pill` */
+.fwiz-prow__pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 9px 2px 8px;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--text-muted) 18%, transparent);
+    border: 1px solid color-mix(in oklab, var(--text-muted) 25%, transparent);
     color: var(--text-muted);
-    text-align: right;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+.fwiz-prow__pill-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    opacity: 0.7;
+}
+.fwiz-prow__pill.is-on {
+    background: color-mix(in oklab, #34d399 18%, transparent);
+    border-color: color-mix(in oklab, #34d399 40%, transparent);
+    color: #6ee7b7;
+}
+.fwiz-prow__pill.is-on .fwiz-prow__pill-dot {
+    background: #34d399;
+    box-shadow: 0 0 8px #34d399;
+    opacity: 1;
+}
+
+.fwiz-prow__tagline {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 12.5px;
+    line-height: 1.5;
+}
+
+/* Path readout — only shown when the row is filled. Mono, brand-tinted
+   text, dark inset background. Same shape as `.integration-card__path`. */
+.fwiz-prow__path {
+    margin: 4px 0 2px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    padding: 5px 9px;
+    border-radius: 7px;
+    background: color-mix(in oklab, #000 55%, var(--bg-primary));
+    color: color-mix(in oklab, var(--logo) 25%, var(--text-secondary));
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border: 1px solid color-mix(in oklab, var(--logo) 18%, transparent);
 }
 
 /* Field row: input + browse + auto-detect, all inline. The input gets a
@@ -1477,29 +1569,10 @@ html[data-glass="off"] .fwiz-stamp__card {
     opacity: 0.65;
 }
 
-/* Path row — status dot + reorganised hint */
-.fwiz-prow__icon { position: relative; }
-.fwiz-prow__status {
-    position: absolute;
-    bottom: -3px; right: -3px;
-    width: 14px; height: 14px;
-    border-radius: 50%;
-    background: color-mix(in oklab, var(--text-muted) 40%, var(--bg-secondary));
-    border: 2px solid var(--bg-primary);
-    transition: background var(--ux-base), box-shadow var(--ux-base);
-}
-.fwiz-prow__status.is-on {
-    background: #34d399;
-    box-shadow: 0 0 10px color-mix(in oklab, #34d399 65%, transparent);
-}
-.fwiz-prow.is-filled {
-    border-color: color-mix(in oklab, #34d399 22%, var(--border));
-}
-.fwiz-prow__hint {
-    text-align: left;
-    flex: none;
-    width: auto;
-}
+/* Old PathRow status-dot + hint rules removed — the new design uses the
+   integration-card-style pill (`.fwiz-prow__pill`) and tagline copy
+   (`.fwiz-prow__tagline`) defined further up. The .is-filled glow is
+   handled in the main .fwiz-prow rule using `--logo`. */
 
 /* Paths — progress bar inside the auto-detect card */
 .fwiz-paths__progress {
