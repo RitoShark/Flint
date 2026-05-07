@@ -1,5 +1,5 @@
 use flint_ltk::hash::{resolve_hashes_lmdb, resolve_hashes_lmdb_bulk, ResolvedHashes};
-use flint_ltk::wad::reader::WadReader;
+use flint_ltk::wad_jade::adapter::WadHandle as WadReader;
 use crate::state::{LmdbCacheState, WadCacheState};
 use crate::core::ipc_trace;
 use rayon::prelude::*;
@@ -73,7 +73,7 @@ pub async fn get_wad_chunks(
 
     // Bulk-resolve all hashes in a single LMDB read txn (microseconds)
     let t_hashes = Instant::now();
-    let hash_u64s: Vec<u64> = chunks.iter().map(|c| c.path_hash()).collect();
+    let hash_u64s: Vec<u64> = chunks.iter().map(|c| c.path_hash).collect();
     let d_hash_collect = t_hashes.elapsed();
 
     let t_resolve = Instant::now();
@@ -94,7 +94,7 @@ pub async fn get_wad_chunks(
         .iter()
         .zip(resolved.into_iter())
         .map(|(chunk, resolved_path)| {
-            let path_hash = chunk.path_hash();
+            let path_hash = chunk.path_hash;
             // Hex-only 16-char strings are unresolved hashes — treat as None
             let path = if resolved_path.len() == 16
                 && resolved_path.bytes().all(|b| b.is_ascii_hexdigit())
@@ -106,7 +106,7 @@ pub async fn get_wad_chunks(
             ChunkInfo {
                 hash: format!("{:016x}", path_hash),
                 path,
-                size: chunk.uncompressed_size() as u32,
+                size: chunk.uncompressed_size as u32,
             }
         })
         .collect::<Vec<_>>();
@@ -215,7 +215,7 @@ pub async fn load_all_wad_chunks(
         if let Ok(chunks) = &result {
             total_chunks += chunks.len();
             for c in chunks.iter() {
-                unique_hashes.insert(c.path_hash());
+                unique_hashes.insert(c.path_hash);
             }
         }
         entries.push((wad_path, result));
@@ -285,9 +285,9 @@ trait WadChunkMeta {
     fn uncompressed_size_u32(&self) -> u32;
 }
 
-impl WadChunkMeta for flint_ltk::ltk_types::WadChunk {
-    fn path_hash_le(&self) -> u64 { self.path_hash() }
-    fn uncompressed_size_u32(&self) -> u32 { self.uncompressed_size() as u32 }
+impl WadChunkMeta for flint_ltk::wad_jade::format::WadChunk {
+    fn path_hash_le(&self) -> u64 { self.path_hash }
+    fn uncompressed_size_u32(&self) -> u32 { self.uncompressed_size as u32 }
 }
 
 /// Phase-1 output row: WAD path + (chunks | error) result.
@@ -412,7 +412,7 @@ pub async fn extract_wad(
                 hashes.iter().map(|h| (*h, format!("{:016x}", h))).collect()
             }
         };
-        flint_ltk::wad::extractor::extract_chunks_parallel(
+        flint_ltk::wad_jade::adapter::extract_chunks_parallel(
             &wad_path,
             &output_dir,
             want_hashes.as_ref(),
@@ -472,7 +472,7 @@ pub async fn extract_wad_model_preview(
     };
 
     // Resolve all hashes via LMDB
-    let hash_u64s: Vec<u64> = chunks.iter().map(|c| c.path_hash()).collect();
+    let hash_u64s: Vec<u64> = chunks.iter().map(|c| c.path_hash).collect();
     let hash_dir = flint_ltk::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
@@ -498,7 +498,7 @@ pub async fn extract_wad_model_preview(
     // Find all companion chunks in the same folder
     let mut to_extract: Vec<(u64, String)> = Vec::new();
     for chunk in chunks.iter() {
-        let h = chunk.path_hash();
+        let h = chunk.path_hash;
         if let Some(resolved) = resolved_map.get(&h) {
             let norm = resolved.replace('\\', "/");
             if !skn_folder.is_empty() && norm.starts_with(&skn_folder) {
@@ -534,8 +534,8 @@ pub async fn extract_wad_model_preview(
                 let _ = std::fs::create_dir_all(parent);
             }
             let chunk_copy = *chunk;
-            if let Err(e) = flint_ltk::wad::extractor::extract_chunk(
-                reader.wad_mut(), &chunk_copy, &output_path, None,
+            if let Err(e) = flint_ltk::wad_jade::adapter::extract_chunk(
+                &mut reader.wad_mut(), &chunk_copy, &output_path, None,
             ) {
                 tracing::warn!("Failed to extract {}: {}", rel_path, e);
                 continue;
@@ -625,7 +625,6 @@ pub async fn read_wad_chunk_data(
     let bytes: Vec<u8> = reader
         .wad_mut()
         .load_chunk_decompressed(&chunk)
-        .map(|b| b.into())
         .map_err(|e| format!("Failed to decompress chunk {:016x}: {}", path_hash, e))?;
     Ok(tauri::ipc::Response::new(bytes))
 }

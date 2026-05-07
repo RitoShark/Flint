@@ -21,7 +21,7 @@ use flint_ltk::bin::{classify_bin, BinCategory};
 use flint_ltk::hash::{get_hash_dir, resolve_hashes_lmdb_bulk, ResolvedHashes};
 use flint_ltk::ltk_types::HashProvider;
 use flint_ltk::ltk_types::{values, BinProperty, PropertyKind, PropertyValueEnum};
-use flint_ltk::wad::reader::WadReader;
+use flint_ltk::wad_jade::adapter::WadHandle as WadReader;
 
 const SAMPLE_LIMIT_COMPLEX: usize = 3;
 const SAMPLE_LIMIT_SCALAR: usize = 1;
@@ -799,7 +799,7 @@ pub async fn aggregate_champion_bin_schema(
         };
 
         let chunks: Vec<_> = reader.chunks().iter().cloned().collect();
-        let hash_u64s: Vec<u64> = chunks.iter().map(|c| c.path_hash()).collect();
+        let hash_u64s: Vec<u64> = chunks.iter().map(|c| c.path_hash).collect();
         let resolved_map: ResolvedHashes = if let Some(ref env) = env_opt {
             resolve_hashes_lmdb_bulk(&hash_u64s, env)
         } else {
@@ -807,7 +807,7 @@ pub async fn aggregate_champion_bin_schema(
         };
 
         for chunk in &chunks {
-            let path_hash = chunk.path_hash();
+            let path_hash = chunk.path_hash;
             let resolved = match resolved_map.get(&path_hash) {
                 Some(p) => p,
                 // Skip unresolved chunks — we need the path to classify_bin properly.

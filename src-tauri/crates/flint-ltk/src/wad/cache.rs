@@ -8,7 +8,9 @@
 /// - WAD Explorer indexing is near-instant for previously scanned WADs
 /// - Project extraction avoids repeated header parses
 use dashmap::DashMap;
-use league_toolkit::wad::WadChunk;
+// WAD chunks now flow through Flint as Jade's native type — the cache
+// stores those so `WadHandle::chunks()` and `cache.get()` line up.
+use crate::wad_jade::format::WadChunk;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;

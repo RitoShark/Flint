@@ -13,7 +13,7 @@ use tauri::{AppHandle, Emitter, State};
 use zip::ZipArchive;
 
 use flint_ltk::hash::lmdb_cache::{get_or_open_env, resolve_hashes_lmdb};
-use flint_ltk::wad::reader::WadReader;
+use flint_ltk::wad_jade::adapter::WadHandle as WadReader;
 use flint_ltk::project::Project;
 use crate::state::LmdbCacheState;
 
@@ -305,7 +305,7 @@ fn match_missing_files_from_league(
     champion: &str,
     existing_hashes: &HashSet<u64>,
 ) -> Result<(), String> {
-    use flint_ltk::wad::extractor::find_champion_wad;
+    use flint_ltk::wad_jade::adapter::find_champion_wad;
     use walkdir::WalkDir;
 
     tracing::info!("Matching missing files from League installation for {}", champion);

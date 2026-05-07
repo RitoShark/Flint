@@ -9,7 +9,7 @@
 //!      ranked by how many leading dot-separated tokens both filenames share.
 
 use flint_ltk::hash::{resolve_hashes_lmdb_bulk, ResolvedHashes};
-use flint_ltk::wad::reader::WadReader;
+use flint_ltk::wad_jade::adapter::WadHandle as WadReader;
 use crate::state::{LmdbCacheState, WadCacheState};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -228,7 +228,7 @@ pub async fn find_original_file(
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
     let env_opt = lmdb.get_env(&hash_dir);
-    let hashes: Vec<u64> = chunks.iter().map(|c| c.path_hash()).collect();
+    let hashes: Vec<u64> = chunks.iter().map(|c| c.path_hash).collect();
     let resolved: ResolvedHashes = if let Some(ref env) = env_opt {
         resolve_hashes_lmdb_bulk(&hashes, env)
     } else {
@@ -249,7 +249,7 @@ pub async fn find_original_file(
     // both have the same `skin8/` trailing segment.
     let mut best: Option<(usize, u32, u64, String)> = None;
     for chunk in chunks.iter() {
-        let h = chunk.path_hash();
+        let h = chunk.path_hash;
         let Some(resolved_path) = resolved.get(&h) else { continue };
         let cand_lower = resolved_path.to_lowercase().replace('\\', "/");
 

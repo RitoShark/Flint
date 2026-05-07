@@ -16,7 +16,7 @@
 //!   `hashes.binhashes.extracted.txt` (fnv1a hex → name, sorted)
 //! and the LMDB cache is invalidated so the next resolve picks them up.
 
-use flint_ltk::wad::reader::WadReader;
+use flint_ltk::wad_jade::adapter::WadHandle as WadReader;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;

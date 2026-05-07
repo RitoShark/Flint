@@ -3,6 +3,7 @@
 //! FrogTools hash directory; see `hash_downloader::detect_layout` for
 //! the two on-disk layouts we transparently support.
 
+pub mod adapter;
 pub mod extracted_overlay;
 pub mod extractor;
 pub mod format;
