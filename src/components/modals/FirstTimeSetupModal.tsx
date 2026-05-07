@@ -622,6 +622,8 @@ const IdentityPane: React.FC<{
 
 interface PathRowProps {
     icon: IconName;
+    /** Optional image asset path; when set, renders instead of the named Icon. */
+    logoSrc?: string;
     badge?: string;
     label: string;
     placeholder: string;
@@ -632,13 +634,15 @@ interface PathRowProps {
 }
 
 const PathRow: React.FC<PathRowProps> = ({
-    icon, badge, label, placeholder, value, onChange, onBrowse, hint,
+    icon, logoSrc, badge, label, placeholder, value, onChange, onBrowse, hint,
 }) => {
     const filled = value.trim().length > 0;
     return (
-        <div className={`fwiz-prow ${filled ? 'is-filled' : ''}`}>
+        <div className={`fwiz-prow ${filled ? 'is-filled' : ''} ${logoSrc ? 'has-logo' : ''}`}>
             <span className="fwiz-prow__icon" aria-hidden="true">
-                <Icon name={icon} />
+                {logoSrc
+                    ? <img src={logoSrc} alt="" className="fwiz-prow__logo-img" draggable={false} />
+                    : <Icon name={icon} />}
                 <span className={`fwiz-prow__status ${filled ? 'is-on' : ''}`} title={filled ? 'Set' : 'Empty'} />
             </span>
             <div className="fwiz-prow__body">

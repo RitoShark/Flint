@@ -765,6 +765,23 @@ html[data-glass="off"] .modal--settings {
     box-shadow: inset 0 1px 0 color-mix(in oklab, white 12%, transparent);
 }
 .fwiz-prow__icon svg { width: 24px; height: 24px; }
+/* When the row carries a real brand logo (e.g. League of Legends), drop
+   the accent-tinted backdrop and let the image breathe — same treatment
+   as the integration cards. */
+.fwiz-prow.has-logo .fwiz-prow__icon {
+    background:
+        radial-gradient(circle at 30% 20%, color-mix(in oklab, white 12%, transparent), transparent 60%),
+        color-mix(in oklab, #000 45%, transparent);
+    border-color: color-mix(in oklab, white 12%, transparent);
+}
+.fwiz-prow__logo-img {
+    position: relative;
+    z-index: 2;
+    width: 36px;
+    height: 36px;
+    object-fit: contain;
+    filter: drop-shadow(0 1px 4px color-mix(in oklab, #000 60%, transparent));
+}
 .fwiz-prow__body { display: grid; gap: 10px; min-width: 0; }
 .fwiz-prow__head {
     display: flex;
