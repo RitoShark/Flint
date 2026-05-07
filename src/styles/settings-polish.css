@@ -949,3 +949,173 @@
         justify-content: flex-end;
     }
 }
+
+/* ==========================================================================
+   Settings → Paths tab: compact PathRow that mirrors the Integrations card
+   vocabulary (logo frame + status pill + brand-tinted "filled" glow) but in
+   a tighter footprint suited to a long stack of settings rows.
+   ========================================================================== */
+.modal--settings .settings-prow {
+    --logo: var(--accent-primary);
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid color-mix(in oklab, var(--border) 90%, transparent);
+    background:
+        linear-gradient(180deg,
+            color-mix(in oklab, white 4%, transparent) 0%,
+            transparent 60%),
+        color-mix(in oklab, var(--bg-tertiary) 55%, transparent);
+    box-shadow:
+        inset 0 1px 0 color-mix(in oklab, white 6%, transparent),
+        0 2px 10px -6px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(6px) saturate(140%);
+    -webkit-backdrop-filter: blur(6px) saturate(140%);
+    transition:
+        border-color var(--motion-fast),
+        transform var(--motion-fast),
+        box-shadow var(--motion-base);
+}
+.modal--settings .settings-prow:hover {
+    transform: translateY(-1px);
+    border-color: color-mix(in oklab, var(--logo) 35%, var(--border));
+}
+.modal--settings .settings-prow.is-filled {
+    border-color: color-mix(in oklab, var(--logo) 35%, var(--border));
+    box-shadow:
+        inset 0 1px 0 color-mix(in oklab, white 8%, transparent),
+        0 0 0 1px color-mix(in oklab, var(--logo) 14%, transparent),
+        0 6px 22px -12px color-mix(in oklab, var(--logo) 55%, transparent);
+}
+
+/* Logo frame — same gradient/conic ring trick as integration cards, just
+   smaller (44px instead of 56px) so the row stays compact. */
+.modal--settings .settings-prow__icon {
+    position: relative;
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    background:
+        radial-gradient(circle at 30% 20%, color-mix(in oklab, var(--logo) 35%, transparent), transparent 60%),
+        color-mix(in oklab, var(--logo) 14%, var(--bg-tertiary));
+    color: var(--logo);
+    border: 1px solid color-mix(in oklab, var(--logo) 30%, transparent);
+    box-shadow:
+        inset 0 1px 0 color-mix(in oklab, white 22%, transparent),
+        0 6px 14px -6px color-mix(in oklab, var(--logo) 55%, transparent);
+}
+.modal--settings .settings-prow__icon svg {
+    width: 18px;
+    height: 18px;
+    position: relative;
+    z-index: 2;
+}
+.modal--settings .settings-prow.has-logo .settings-prow__icon {
+    background:
+        radial-gradient(circle at 30% 20%, color-mix(in oklab, var(--logo) 25%, transparent), transparent 60%),
+        color-mix(in oklab, #000 50%, transparent);
+    border-color: color-mix(in oklab, var(--logo) 25%, transparent);
+}
+.modal--settings .settings-prow__logo-img {
+    position: relative;
+    z-index: 2;
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+    filter: drop-shadow(0 1px 3px color-mix(in oklab, #000 60%, transparent));
+}
+.modal--settings .settings-prow__logo-ring {
+    position: absolute;
+    inset: -2px;
+    border-radius: 14px;
+    background: conic-gradient(from 90deg,
+        color-mix(in oklab, var(--logo) 60%, transparent),
+        transparent 60%,
+        color-mix(in oklab, var(--logo) 50%, transparent));
+    filter: blur(5px);
+    opacity: 0.4;
+    z-index: 1;
+}
+
+.modal--settings .settings-prow__body {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+}
+.modal--settings .settings-prow__head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.modal--settings .settings-prow__name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.005em;
+}
+.modal--settings .settings-prow__badge {
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--logo) 18%, transparent);
+    color: color-mix(in oklab, var(--logo) 35%, var(--text-primary));
+    border: 1px solid color-mix(in oklab, var(--logo) 30%, transparent);
+}
+.modal--settings .settings-prow__pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 1px 8px 1px 7px;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--text-muted) 18%, transparent);
+    border: 1px solid color-mix(in oklab, var(--text-muted) 25%, transparent);
+    color: var(--text-muted);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-left: auto;
+}
+.modal--settings .settings-prow__pill-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    opacity: 0.7;
+}
+.modal--settings .settings-prow__pill.is-on {
+    background: color-mix(in oklab, #34d399 18%, transparent);
+    border-color: color-mix(in oklab, #34d399 40%, transparent);
+    color: #6ee7b7;
+}
+.modal--settings .settings-prow__pill.is-on .settings-prow__pill-dot {
+    background: #34d399;
+    box-shadow: 0 0 6px #34d399;
+    opacity: 1;
+}
+.modal--settings .settings-prow__tagline {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 11.5px;
+    line-height: 1.5;
+}
+.modal--settings .settings-prow__field {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 2px;
+}
+.modal--settings .settings-prow__field > .form-input--with-button {
+    flex: 1 1 240px;
+    min-width: 0;
+}
