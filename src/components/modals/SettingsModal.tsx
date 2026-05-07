@@ -231,21 +231,8 @@ const CreatorTab: React.FC<{
     tip: string;
     onTip: (v: string) => void;
 }> = ({ name, onName, description, onDescription, home, onHome, tip, onTip }) => {
-    const trimmed = name.trim();
-    const initials = trimmed
-        ? trimmed.split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? '').join('') || trimmed[0]?.toUpperCase()
-        : '?';
     return (
         <div className="creator-tab">
-            <div className="creator-hero">
-                <div className="creator-hero__avatar">{initials}</div>
-                <div className="creator-hero__lines">
-                    <span className="creator-hero__eyebrow">Creator profile</span>
-                    <strong>{trimmed || 'Anonymous Modder'}</strong>
-                    <span className="creator-hero__sub">{description.trim() || 'Add a tagline below — it stamps onto every mod you ship.'}</span>
-                </div>
-            </div>
-
             <div className="settings-item">
                 <label className="settings-item__label">
                     <Icon name="user" /> Creator name
