@@ -61,6 +61,7 @@ byteorder = "1.4"
 flate2 = "1.0"
 zstd = "0.12"
 xxhash-rust = { version = "0.8", features = ["xxh64"] }
+twox-hash = "1.6"
 binrw = "0.14"
 
 # Filesystem/path
@@ -93,6 +94,11 @@ zip = { version = "2.4", features = ["deflate"] }
 
 # Logging (tracing macros only — no Tauri dependency)
 tracing = "0.1"
+
+# Tauri — wad_jade::extractor / hash_extractor / hash_downloader emit
+# progress events through tauri::Emitter. Same major as the binary crate.
+# `wry` enables the `tauri::Wry` runtime alias used in AppHandle generics.
+tauri = { version = "2", default-features = false, features = ["wry"] }
 
 # Windows registry access (Windows only)
 [target.'cfg(windows)'.dependencies]

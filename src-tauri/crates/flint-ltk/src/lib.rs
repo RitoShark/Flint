@@ -4,6 +4,7 @@ pub mod error;
 pub mod audio;
 pub mod bin;
 pub mod wad;
+pub mod wad_jade;
 pub mod hash;
 pub mod mesh;
 pub mod champion;
