@@ -732,6 +732,7 @@ const PathsPane: React.FC<{
         />
         <PathRow
             icon="folder"
+            logoSrc="/lol-logo.png"
             label="League of Legends"
             badge="Live"
             placeholder="C:\Riot Games\League of Legends"
@@ -742,6 +743,7 @@ const PathsPane: React.FC<{
         />
         <PathRow
             icon="folder"
+            logoSrc="/lol-logo.png"
             label="League of Legends PBE"
             badge="Optional"
             placeholder="C:\Riot Games\League of Legends (PBE)"
