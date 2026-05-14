@@ -662,84 +662,154 @@ input.np-search:focus {
 }
 
 /* ============================================================================
-   Chroma Port Modal — color-swatch selection grid
+   Chroma Port Modal — full-bleed gallery
    ============================================================================ */
+
+.chroma-port-loading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+.chroma-port-error {
+    color: var(--status-error, #e05252);
+    margin: 0;
+    font-size: 13px;
+}
+
+.chroma-port-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.chroma-port-count {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+}
+
+/* Scrollable gallery wrapper — gives the grid a contained scroll zone */
+.chroma-port-gallery {
+    overflow-y: auto;
+    max-height: 440px;
+    /* outset so border/shadow on edge cards isn't clipped */
+    margin: 0 -4px;
+    padding: 4px;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--border) 70%, transparent) transparent;
+}
 
 .chroma-port-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
     gap: 8px;
 }
 
+/* ── Card ── */
 .chroma-port-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 6px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    cursor: pointer;
     position: relative;
+    overflow: hidden;
+    aspect-ratio: 1;
+    border-radius: var(--dl-radius);
+    border: 2px solid transparent;
+    background: var(--bg-tertiary);
+    cursor: pointer;
+    box-shadow: var(--dl-shadow-sm);
     transition:
-        background var(--motion-fast),
-        border-color var(--motion-fast),
-        box-shadow var(--motion-fast);
+        transform var(--dl-fast),
+        border-color var(--dl-fast),
+        box-shadow 200ms var(--dl-ease-out);
 }
 
 .chroma-port-card:hover {
-    background: var(--bg-hover);
-    border-color: color-mix(in oklab, var(--accent-primary) 40%, var(--border));
+    transform: scale(1.05);
+    border-color: color-mix(in oklab, var(--accent-primary) 55%, transparent);
+    box-shadow: var(--dl-shadow-md);
+    z-index: 2;
+}
+
+.chroma-port-card:active {
+    transform: scale(0.97);
+    transition-duration: 60ms;
 }
 
 .chroma-port-card--selected {
-    background: color-mix(in oklab, var(--accent-primary) 10%, var(--bg-tertiary));
     border-color: var(--accent-primary);
-    box-shadow: 0 0 0 1px var(--accent-primary);
+    box-shadow: 0 0 0 1px var(--accent-primary), var(--dl-shadow-sm);
 }
 
+/* Full-bleed image / color swatch */
+.chroma-port-card__img,
 .chroma-port-card__swatch {
-    width: 38px;
-    height: 38px;
-    border-radius: 50%;
-    border: 2px solid color-mix(in oklab, white 18%, transparent);
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
-    flex: none;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top center;
 }
 
-.chroma-port-card--selected .chroma-port-card__swatch {
-    border-color: white;
-    box-shadow: 0 0 0 2px var(--accent-primary), 0 2px 6px rgba(0, 0, 0, 0.4);
+/* Placeholder swatch when image unavailable */
+.chroma-port-card__swatch--base {
+    background: linear-gradient(145deg,
+        color-mix(in oklab, var(--accent-primary) 25%, var(--bg-secondary)) 0%,
+        var(--bg-secondary) 100%);
+}
+
+/* Bottom label — gradient scrim + text */
+.chroma-port-card__label {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 22px 6px 6px;
+    background: linear-gradient(to top,
+        rgba(0, 0, 0, 0.78) 0%,
+        rgba(0, 0, 0, 0.38) 60%,
+        transparent 100%);
+    pointer-events: none;
 }
 
 .chroma-port-card__name {
+    display: block;
     font-size: 10px;
-    font-weight: 500;
-    color: var(--text-muted);
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.9);
     text-align: center;
-    line-height: 1.3;
-    max-width: 100%;
+    line-height: 1.2;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
 }
 
-.chroma-port-card--selected .chroma-port-card__name {
-    color: var(--text-primary);
+.chroma-port-card__name--base {
+    color: white;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-size: 9px;
 }
 
+/* Selected checkmark badge */
 .chroma-port-card__check {
     position: absolute;
-    top: 4px;
-    right: 4px;
-    width: 14px;
-    height: 14px;
+    top: 6px;
+    right: 6px;
+    width: 18px;
+    height: 18px;
     display: grid;
     place-items: center;
     background: var(--accent-primary);
     border-radius: 50%;
-    font-size: 9px;
+    font-size: 10px;
     color: white;
     line-height: 1;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+    z-index: 1;
 }

@@ -306,6 +306,15 @@ export function getChampionIconUrl(championId: number, branch: CDragonBranch = "
 }
 
 /**
+ * Get chroma portrait image URL from CommunityDragon.
+ * championId is the numeric champion ID (e.g. 103 for Ahri).
+ * chromaId is the full CDragon chroma ID (e.g. 103001001), NOT skinNum.
+ */
+export function getChromaImageUrl(championId: number, chromaId: number, branch: CDragonBranch = "latest"): string {
+    return `${cdragonBase(branch)}/champion-chroma-images/${championId}/${chromaId}.png`;
+}
+
+/**
  * Get skin splash URL from DataDragon (live only — DDragon has no PBE branch)
  */
 export function getSkinSplashUrl(alias: string, skinNum: number): string {
