@@ -614,6 +614,28 @@ export async function preconvertProjectBins(projectPath: string): Promise<number
     return invokeCommand('preconvert_project_bins', { projectPath });
 }
 
+export interface CreateLayerResult {
+    layer_name: string;
+    layer_path: string;
+    files_copied: number;
+    bytes_copied: number;
+}
+
+export async function createProjectLayer(args: {
+    projectPath: string;
+    layerName: string;
+    sourceLayer: string;
+    categories: string[];
+    description?: string;
+    priority?: number;
+}): Promise<CreateLayerResult> {
+    return invokeCommand('create_project_layer', args);
+}
+
+export async function listProjectLayers(projectPath: string): Promise<string[]> {
+    return invokeCommand('list_project_layers', { projectPath });
+}
+
 // =============================================================================
 // LTK Manager Integration Commands
 // =============================================================================
@@ -2103,4 +2125,60 @@ export async function readFileBackup(projectPath: string, fileRelPath: string): 
 
 export async function deleteFileBackup(projectPath: string, fileRelPath: string): Promise<void> {
     return invokeCommand('delete_file_backup', { projectPath, fileRelPath });
+}
+
+// ---------------------------------------------------------------------------
+// Chroma porting
+// ---------------------------------------------------------------------------
+
+export interface ChromaBinEntry {
+    path: string;
+    skin_num: number;
+}
+
+export interface ChromaLink {
+    base_bin: string;
+    base_skin_num: number;
+    chroma_bins: ChromaBinEntry[];
+}
+
+export interface ChromaLinks {
+    links: ChromaLink[];
+}
+
+/** Port every BIN under skin{baseSkinNum}/ to each requested chroma skin num.
+ *  Returns the number of BIN files written. */
+export async function portProjectToChromas(
+    projectPath: string,
+    champion: string,
+    baseSkinNum: number,
+    chromaSkinNums: number[],
+): Promise<number> {
+    return invokeCommand('port_project_to_chromas', {
+        projectPath,
+        champion,
+        baseSkinNum,
+        chromaSkinNums,
+    });
+}
+
+/** Re-derive all chroma BINs linked to `baseBinPath` from the current base content.
+ *  Returns project-relative paths of synced chroma BINs. */
+export async function syncChromaBins(
+    projectPath: string,
+    baseBinPath: string,
+    champion: string,
+    baseSkinNum: number,
+): Promise<string[]> {
+    return invokeCommand('sync_chroma_bins', {
+        projectPath,
+        baseBinPath,
+        champion,
+        baseSkinNum,
+    });
+}
+
+/** Return the chroma-links.json manifest for the given project. */
+export async function getChromaLinks(projectPath: string): Promise<ChromaLinks> {
+    return invokeCommand('get_chroma_links', { projectPath });
 }

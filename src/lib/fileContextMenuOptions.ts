@@ -55,6 +55,16 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
     if (node.isDirectory) {
         if (depth === 0 && projectPath) {
             options.push({
+                label: 'Add Layer…',
+                icon: getIcon('plus'),
+                onClick: () => openModal('addLayer'),
+            });
+            options.push({
+                label: 'Port to Chromas…',
+                icon: getIcon('texture'),
+                onClick: () => openModal('chromaPort'),
+            });
+            options.push({
                 label: 'Set Thumbnail',
                 icon: getIcon('document'),
                 onClick: () => openModal('thumbnail', { projectPath }),
@@ -72,10 +82,9 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
         if (isContentFolder(node.path)) {
             options.push({
-                label: 'Create New Layer',
+                label: 'Add Layer…',
                 icon: getIcon('plus'),
-                onClick: () => showToast('info', 'Layer creation coming soon!'),
-                disabled: true,
+                onClick: () => openModal('addLayer'),
             });
             options.push({
                 label: 'Batch Recolor',

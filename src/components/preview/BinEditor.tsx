@@ -17,6 +17,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
 import { useAppState, useAppMetadataStore, useConfigStore } from '../../lib/stores';
+import { useProjectTabStore } from '../../lib/stores/projectTabStore';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/fileIcons';
 import {
@@ -542,6 +543,32 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
             setOriginalContent(content);
             setReady('Saved');
             showToast('success', 'BIN file saved successfully');
+
+            // Sync linked chroma BINs in the background — fire-and-forget
+            const tabStore = useProjectTabStore.getState();
+            const tab = tabStore.activeTabId
+                ? tabStore.openTabs.find((t) => t.id === tabStore.activeTabId)
+                : null;
+            if (tab?.project && tab.projectPath) {
+                const projPath = tab.projectPath.replace(/\\/g, '/');
+                const normalizedFile = filePath.replace(/\\/g, '/');
+                if (normalizedFile.startsWith(projPath + '/')) {
+                    const relPath = normalizedFile.slice(projPath.length + 1);
+                    api.syncChromaBins(
+                        tab.projectPath,
+                        relPath,
+                        tab.project.champion,
+                        tab.project.skin_id,
+                    ).then((synced) => {
+                        if (synced.length > 0) {
+                            showToast(
+                                'info',
+                                `Synced ${synced.length} chroma BIN${synced.length === 1 ? '' : 's'}`,
+                            );
+                        }
+                    }).catch(() => {});
+                }
+            }
         } catch (err) {
             console.error('[BinEditor] Save error:', err);
             const flintError = err as api.FlintError;

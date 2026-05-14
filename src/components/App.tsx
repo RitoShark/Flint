@@ -35,6 +35,8 @@ import { BinSplitModal } from './modals/BinSplitModal';
 import { FullResImageModal } from './modals/FullResImageModal';
 import { BrowseWadModal } from './modals/BrowseWadModal';
 import { FileCompareModal } from './modals/FileCompareModal';
+import { AddLayerModal } from './modals/AddLayerModal';
+import { ChromaPortModal } from './modals/ChromaPortModal';
 import { ToastContainer } from './Toast';
 import { TutorialOverlay, isOnboardingDone } from './TutorialOverlay';
 
@@ -70,6 +72,8 @@ const ActiveModal: React.FC<{ activeModal: string | null }> = React.memo(({ acti
         case 'fullResImage':     return <FullResImageModal />;
         case 'browseWad':        return <BrowseWadModal />;
         case 'fileCompare':      return <FileCompareModal />;
+        case 'addLayer':         return <AddLayerModal />;
+        case 'chromaPort':       return <ChromaPortModal />;
         default:                 return null;
     }
 });

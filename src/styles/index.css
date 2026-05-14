@@ -2731,37 +2731,43 @@ input.np-search:focus {
   line-height: 1.5;
 }
 
-/* ─── Skin Picker Modal ─── */
+/* ─── Skin Picker Modal (DL redesign) ─── */
 .np-skin-picker-overlay {
   position: fixed;
   inset: 0;
   z-index: 1100;
-  background: rgba(0, 0, 0, 0.7);
+  background: color-mix(in oklab, black 65%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: npFadeIn 0.15s ease;
+  padding: 24px;
+  animation: npFadeIn 0.18s ease;
 }
 
 .np-skin-picker {
-  width: 90%;
-  max-width: 680px;
-  max-height: 75vh;
-  background: #0e0e0e;
-  border: 1px solid #1e1e1e;
-  border-radius: 14px;
+  width: 100%;
+  max-width: 860px;
+  max-height: 82vh;
+  background: var(--bg-secondary);
+  border: var(--dl-border);
+  border-radius: 18px;
+  box-shadow: var(--dl-shadow-lg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: npModalIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: npModalIn 0.32s var(--dl-ease-spring) forwards;
 }
 
 .np-skin-picker__header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 16px 20px;
-  border-bottom: 1px solid #1a1a1a;
+  gap: 14px;
+  padding: 18px 22px 14px;
+  border-bottom: var(--dl-border-soft);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--bg-tertiary) 55%, transparent), transparent);
+  flex: none;
 }
 
 .np-skin-picker__title {
@@ -2771,11 +2777,16 @@ input.np-search:focus {
   white-space: nowrap;
 }
 
+.np-skin-picker__search {
+  flex: 1;
+  min-width: 0;
+}
+
 .np-skin-picker__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(172px, 1fr));
   gap: 10px;
-  padding: 16px 20px;
+  padding: 16px 20px 20px;
   overflow-y: auto;
   flex: 1;
   min-height: 0;

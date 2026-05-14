@@ -19,6 +19,15 @@ export interface DDragonChampion {
     alias: string;
 }
 
+export interface DDragonChroma {
+    id: number;
+    name?: string;
+    colors: string[];      // hex color strings, e.g. ["#FF0000", "#00FF00"]
+    chromaPath?: string;   // CDragon asset path for the chroma image
+    /** BIN skin number: chroma.id % 1000 — last 3 digits of the CDragon 6-digit ID (e.g. 103005 → 5 → skin5.bin) */
+    skinNum: number;
+}
+
 export interface DDragonSkin {
     id: number;
     name: string;
@@ -30,6 +39,7 @@ export interface DDragonSkin {
     uncenteredSplashPath?: string;
     /** CDragon-relative path to the square tile. */
     tilePath?: string;
+    chromas?: DDragonChroma[];
 }
 
 // Cache for API responses (per CDragon branch)
@@ -186,6 +196,15 @@ async function fetchWithTimeout<T>(url: string, timeoutMs = 8000): Promise<T> {
     }
 }
 
+interface CDragonChromaData {
+    id: number;
+    name?: string;
+    chromaPath?: string;
+    colors?: string[];
+    descriptions?: unknown[];
+    rarities?: unknown[];
+}
+
 interface CDragonSkinData {
     id: number;
     name?: string;
@@ -193,18 +212,29 @@ interface CDragonSkinData {
     splashPath?: string;
     uncenteredSplashPath?: string;
     tilePath?: string;
+    chromas?: CDragonChromaData[];
 }
 
 function mapCDragonSkins(skins: CDragonSkinData[]): DDragonSkin[] {
-    return skins.map(skin => ({
-        id: skin.id,
-        name: skin.name || `Skin ${skin.id}`,
-        num: skin.id % 1000,
-        isBase: skin.isBase || skin.id % 1000 === 0,
-        splashPath: skin.splashPath,
-        uncenteredSplashPath: skin.uncenteredSplashPath,
-        tilePath: skin.tilePath
-    }));
+    return skins.map(skin => {
+        const skinNum = skin.id % 1000;
+        return {
+            id: skin.id,
+            name: skin.name || `Skin ${skin.id}`,
+            num: skinNum,
+            isBase: skin.isBase || skinNum === 0,
+            splashPath: skin.splashPath,
+            uncenteredSplashPath: skin.uncenteredSplashPath,
+            tilePath: skin.tilePath,
+            chromas: skin.chromas?.map(c => ({
+                id: c.id,
+                name: c.name,
+                chromaPath: c.chromaPath,
+                colors: c.colors?.filter(Boolean) ?? [],
+                skinNum: c.id % 1000,
+            })) ?? [],
+        };
+    });
 }
 
 /**

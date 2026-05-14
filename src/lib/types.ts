@@ -7,7 +7,7 @@
 // =============================================================================
 
 export type AppStatus = 'ready' | 'working' | 'error';
-export type ModalType = 'newProject' | 'settings' | 'export' | 'firstTimeSetup' | 'updateAvailable' | 'recolor' | 'checkpoint' | 'fixer' | 'projectList' | 'modConfig' | 'thumbnail' | 'binSplit' | 'fullResImage' | 'browseWad' | 'fileCompare' | null;
+export type ModalType = 'newProject' | 'settings' | 'export' | 'firstTimeSetup' | 'updateAvailable' | 'recolor' | 'checkpoint' | 'fixer' | 'projectList' | 'modConfig' | 'thumbnail' | 'binSplit' | 'fullResImage' | 'browseWad' | 'fileCompare' | 'addLayer' | 'chromaPort' | null;
 export type ViewType = 'welcome' | 'preview' | 'editor' | 'project' | 'checkpoints' | 'extract' | 'wad-explorer';
 
 export interface Toast {
@@ -131,6 +131,10 @@ export interface ProjectTab {
     selectedFile: string | null;
     fileTree: FileTreeNode | null;
     expandedFolders: Set<string>;
+    /** Set once we've expanded `content/<layer>/<wad>.wad.client` folders for the
+     *  user on first tree load. Prevents the file-watcher refresh path from
+     *  re-expanding folders the user has manually collapsed. */
+    hasAutoExpanded?: boolean;
 }
 
 export interface WadChunk {

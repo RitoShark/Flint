@@ -28,3 +28,4 @@ pub mod format_converters;
 pub mod settings;
 pub mod extract_hashes;
 pub mod compare;
+pub mod chroma;

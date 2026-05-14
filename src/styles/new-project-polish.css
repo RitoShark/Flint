@@ -210,30 +210,120 @@ input.np-search:focus {
     border-radius: 12px;
     padding: 10px;
 }
+
+/* DL-redesigned skin card (used inside np-skin-picker__grid) */
 .np-skin-card {
-    border-radius: 10px !important;
-    border: 1px solid var(--border) !important;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    border-radius: 12px !important;
+    border: 1px solid color-mix(in oklab, var(--border) 70%, transparent) !important;
     background: var(--bg-tertiary) !important;
+    overflow: hidden;
+    cursor: pointer;
     transition:
-        border-color var(--motion-fast),
-        transform var(--motion-fast),
-        box-shadow var(--motion-fast) !important;
+        border-color var(--dl-fast),
+        transform var(--dl-fast),
+        box-shadow var(--dl-fast) !important;
+    animation: npSkinIn 0.32s var(--dl-ease-spring) both;
 }
 .np-skin-card:hover {
-    border-color: color-mix(in oklab, var(--accent-primary) 50%, var(--border)) !important;
-    transform: translateY(-2px) !important;
-    box-shadow: 0 8px 18px -8px rgba(0,0,0,.45);
+    border-color: color-mix(in oklab, var(--accent-primary) 55%, var(--border)) !important;
+    transform: translateY(-3px) !important;
+    box-shadow: 0 10px 24px -10px rgba(0,0,0,.5), var(--dl-shadow-sm);
 }
 .np-skin-card--active {
     border-color: var(--accent-primary) !important;
     box-shadow:
-        0 0 0 2px color-mix(in oklab, var(--accent-primary) 35%, transparent),
-        0 0 16px color-mix(in oklab, var(--accent-primary) 30%, transparent) !important;
+        0 0 0 2px color-mix(in oklab, var(--accent-primary) 30%, transparent),
+        0 0 18px color-mix(in oklab, var(--accent-primary) 25%, transparent) !important;
 }
 .np-skin-card__check {
     background: var(--accent-primary) !important;
     color: white !important;
     border: 2px solid var(--bg-primary);
+    box-shadow: 0 2px 8px rgba(0,0,0,.4);
+}
+/* Taller image area in the picker */
+.np-skin-picker__grid .np-skin-card__img-wrap { height: 130px; }
+.np-skin-picker__grid .np-skin-card__name {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.02em;
+    padding: 7px 10px 4px;
+    background: color-mix(in oklab, var(--bg-secondary) 80%, transparent);
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.np-skin-picker__grid .np-skin-card--active .np-skin-card__name {
+    color: var(--text-primary);
+    background: color-mix(in oklab, var(--accent-primary) 10%, var(--bg-secondary));
+}
+
+/* --------------------------------------------------------------------------
+   Chroma dots — small color circles shown at the bottom of each skin card
+   -------------------------------------------------------------------------- */
+.np-skin-card__chromas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    padding: 5px 10px 8px;
+    background: color-mix(in oklab, var(--bg-primary) 60%, transparent);
+    border-top: 1px solid color-mix(in oklab, var(--border) 40%, transparent);
+}
+
+.np-chroma-dot {
+    --dot-color: #888;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--dot-color);
+    border: 1.5px solid color-mix(in oklab, var(--dot-color) 60%, black);
+    box-shadow: 0 1px 3px rgba(0,0,0,.45);
+    cursor: pointer;
+    padding: 0;
+    transition:
+        transform var(--dl-fast),
+        box-shadow var(--dl-fast),
+        border-color var(--dl-fast);
+    flex: none;
+}
+.np-chroma-dot:hover {
+    transform: scale(1.25);
+    box-shadow: 0 2px 6px rgba(0,0,0,.55);
+    border-color: white;
+}
+.np-chroma-dot--active {
+    transform: scale(1.18);
+    border-color: white !important;
+    box-shadow: 0 0 0 2px var(--dot-color), 0 2px 6px rgba(0,0,0,.5) !important;
+}
+
+/* Hero info badge when a chroma is selected */
+.np-hero-chroma-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--dot-color, var(--accent-primary)) 20%, transparent);
+    border: 1px solid color-mix(in oklab, var(--dot-color, var(--accent-primary)) 40%, transparent);
+    font-size: 10px;
+    font-weight: 600;
+    color: white;
+    letter-spacing: 0.04em;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+.np-hero-chroma-badge__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--dot-color, var(--accent-primary));
+    box-shadow: 0 0 4px var(--dot-color, var(--accent-primary));
+    flex: none;
 }
 
 /* --------------------------------------------------------------------------
@@ -569,4 +659,87 @@ input.np-search:focus {
     .np-form .np-map-mode-grid {
         grid-template-columns: 1fr;
     }
+}
+
+/* ============================================================================
+   Chroma Port Modal — color-swatch selection grid
+   ============================================================================ */
+
+.chroma-port-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+    gap: 8px;
+}
+
+.chroma-port-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 6px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+    position: relative;
+    transition:
+        background var(--motion-fast),
+        border-color var(--motion-fast),
+        box-shadow var(--motion-fast);
+}
+
+.chroma-port-card:hover {
+    background: var(--bg-hover);
+    border-color: color-mix(in oklab, var(--accent-primary) 40%, var(--border));
+}
+
+.chroma-port-card--selected {
+    background: color-mix(in oklab, var(--accent-primary) 10%, var(--bg-tertiary));
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 1px var(--accent-primary);
+}
+
+.chroma-port-card__swatch {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: 2px solid color-mix(in oklab, white 18%, transparent);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+    flex: none;
+}
+
+.chroma-port-card--selected .chroma-port-card__swatch {
+    border-color: white;
+    box-shadow: 0 0 0 2px var(--accent-primary), 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.chroma-port-card__name {
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-align: center;
+    line-height: 1.3;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chroma-port-card--selected .chroma-port-card__name {
+    color: var(--text-primary);
+}
+
+.chroma-port-card__check {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 14px;
+    height: 14px;
+    display: grid;
+    place-items: center;
+    background: var(--accent-primary);
+    border-radius: 50%;
+    font-size: 9px;
+    color: white;
+    line-height: 1;
 }

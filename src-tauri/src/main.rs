@@ -205,6 +205,8 @@ fn main() {
             commands::project::list_project_files,
             commands::project::project_path_valid,
             commands::project::preconvert_project_bins,
+            commands::project::create_project_layer,
+            commands::project::list_project_layers,
             // Map project commands
             commands::map_project::list_available_maps,
             commands::map_project::list_map_variants,
@@ -346,6 +348,9 @@ fn main() {
             commands::compare::create_file_backup,
             commands::compare::read_file_backup,
             commands::compare::delete_file_backup,
+            commands::chroma::port_project_to_chromas,
+            commands::chroma::sync_chroma_bins,
+            commands::chroma::get_chroma_links,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

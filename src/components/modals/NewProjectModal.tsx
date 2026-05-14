@@ -11,7 +11,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useAppState, useConfigStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import * as datadragon from '../../lib/datadragon';
-import type { DDragonChampion, DDragonSkin } from '../../lib/datadragon';
+import type { DDragonChampion, DDragonSkin, DDragonChroma } from '../../lib/datadragon';
 import type { Project } from '../../lib/types';
 import {
     calculateBudget,
@@ -107,6 +107,11 @@ export const NewProjectModal: React.FC = () => {
     // ─── Skin project state ─────────────────────────────────────────────
     const [selectedChampion, setSelectedChampion] = useState<DDragonChampion | null>(null);
     const [selectedSkin, setSelectedSkin] = useState<DDragonSkin | null>(null);
+    const [selectedChroma, setSelectedChroma] = useState<DDragonChroma | null>(null);
+    // When a chroma dot is clicked it calls setSelectedSkin + setSelectedChroma together.
+    // The effect below would reset selectedChroma on every skin change, so this ref
+    // tells it to skip the reset for that one render cycle.
+    const skipChromaResetRef = useRef(false);
     const [champions, setChampions] = useState<DDragonChampion[]>([]);
     const [skins, setSkins] = useState<DDragonSkin[]>([]);
     const [championSearch, setChampionSearch] = useState('');
@@ -180,6 +185,11 @@ export const NewProjectModal: React.FC = () => {
 
     useEffect(() => {
         setSplashLoaded(false);
+        if (skipChromaResetRef.current) {
+            skipChromaResetRef.current = false;
+        } else {
+            setSelectedChroma(null);
+        }
     }, [selectedSkin, selectedChampion]);
 
     useEffect(() => {
@@ -517,15 +527,17 @@ export const NewProjectModal: React.FC = () => {
 
         // Log context up-front so the panel reads top-down: context → error.
         // The error itself is logged automatically by invokeCommand in api.ts.
+        const effectiveSkinNum = selectedChroma?.skinNum ?? selectedSkin.num;
+
         console.info(
-            `[NewProject] Creating project: champion=${selectedChampion.alias}, skin=${selectedSkin.num}, pbe=${usePbe}, leaguePath=${effectiveLeaguePath}`
+            `[NewProject] Creating project: champion=${selectedChampion.alias}, skin=${effectiveSkinNum}${selectedChroma ? ` (chroma of base ${selectedSkin.num})` : ''}, pbe=${usePbe}, leaguePath=${effectiveLeaguePath}`
         );
 
         try {
             const project = await api.createProject({
                 name: projectName,
                 champion: selectedChampion.alias,
-                skin: selectedSkin.num,
+                skin: effectiveSkinNum,
                 projectPath,
                 leaguePath: effectiveLeaguePath,
                 creatorName: state.creatorName || undefined,
@@ -533,7 +545,7 @@ export const NewProjectModal: React.FC = () => {
                 isPbe: usePbe,
             });
 
-            await finishProjectCreation(project, selectedChampion.name, selectedSkin.num);
+            await finishProjectCreation(project, selectedChampion.name, effectiveSkinNum);
         } catch (err) {
             const flintError = err as api.FlintError;
             const userMsg = flintError.getUserMessage?.() || 'Failed to create project';
@@ -887,7 +899,18 @@ export const NewProjectModal: React.FC = () => {
                                     <div className="np-hero-splash__overlay" />
                                     <div className="np-hero-splash__info">
                                         <span className="np-hero-splash__champion">{selectedChampion.name}</span>
-                                        <span className="np-hero-splash__skin">{selectedSkin.name}</span>
+                                        <span className="np-hero-splash__skin">
+                                            {selectedSkin.name}
+                                            {selectedChroma && (
+                                                <span
+                                                    className="np-hero-chroma-badge"
+                                                    style={{ '--dot-color': selectedChroma.colors[0] ?? 'var(--accent-primary)' } as React.CSSProperties}
+                                                >
+                                                    <span className="np-hero-chroma-badge__dot" />
+                                                    Chroma
+                                                </span>
+                                            )}
+                                        </span>
                                     </div>
                                     <button
                                         className="np-hero-splash__edit"
@@ -1480,63 +1503,107 @@ export const NewProjectModal: React.FC = () => {
                 </div>
             )}
 
-            {/* ─── Skin Picker Modal ─── */}
+            {/* ─── Skin Picker Modal (DL redesign) ─── */}
             {skinPickerOpen && selectedChampion && (
                 <div className="np-skin-picker-overlay" onClick={() => setSkinPickerOpen(false)}>
                     <div className="np-skin-picker" onClick={(e) => e.stopPropagation()}>
+
+                        {/* Header */}
                         <div className="np-skin-picker__header">
                             <h3 className="np-skin-picker__title">Choose Skin</h3>
-                            <div className="np-search-wrap np-search-wrap--picker">
-                                <span className="np-search-icon"><Icon name="search" /></span>
+                            <div className="dl-search np-skin-picker__search">
+                                <span className="dl-icon">
+                                    <svg viewBox="0 0 16 16" fill="none">
+                                        <circle cx="6.5" cy="6.5" r="4" stroke="currentColor" strokeWidth="1.4"/>
+                                        <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                                    </svg>
+                                </span>
                                 <input
                                     type="text"
-                                    className="np-search"
+                                    className="dl-input"
                                     placeholder="Search skins…"
                                     value={skinSearch}
                                     onChange={(e) => setSkinSearch(e.target.value)}
                                     autoFocus
                                 />
                             </div>
-                            <button className="modal__close" onClick={() => setSkinPickerOpen(false)} aria-label="Close">
+                            <button
+                                className="dl-btn dl-btn--ghost dl-btn--icon dl-btn--sm"
+                                onClick={() => setSkinPickerOpen(false)}
+                                aria-label="Close"
+                                style={{ flexShrink: 0 }}
+                            >
                                 <Icon name="close" />
                             </button>
                         </div>
+
+                        {/* Skin grid */}
                         <div className="np-skin-picker__grid">
-                            {filteredSkins.map((skin, i) => (
-                                <button
-                                    key={skin.id}
-                                    className={`np-skin-card${selectedSkin?.id === skin.id ? ' np-skin-card--active' : ''}`}
-                                    onClick={() => { setSelectedSkin(skin); setSkinPickerOpen(false); }}
-                                    style={{ animationDelay: `${Math.min(i * 25, 300)}ms` }}
-                                >
-                                    <div className="np-skin-card__img-wrap">
-                                        <img
-                                            src={cachedUrl(
-                                                datadragon.getSkinCenteredSplashUrl(skin, cdragonBranch)
-                                                    ?? datadragon.getSkinSplashCDragonUrl(selectedChampion.id, skin.id, cdragonBranch)
+                            {filteredSkins.map((skin, i) => {
+                                const isActiveSkin = selectedSkin?.id === skin.id;
+                                const hasActiveChroma = isActiveSkin && selectedChroma !== null;
+                                return (
+                                    <div
+                                        key={skin.id}
+                                        role="button"
+                                        tabIndex={0}
+                                        className={`np-skin-card${isActiveSkin && !hasActiveChroma ? ' np-skin-card--active' : ''}`}
+                                        onClick={() => { setSelectedSkin(skin); setSelectedChroma(null); setSkinPickerOpen(false); }}
+                                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedSkin(skin); setSelectedChroma(null); setSkinPickerOpen(false); } }}
+                                        style={{ animationDelay: `${Math.min(i * 18, 280)}ms` }}
+                                    >
+                                        <div className="np-skin-card__img-wrap">
+                                            <img
+                                                src={cachedUrl(
+                                                    datadragon.getSkinCenteredSplashUrl(skin, cdragonBranch)
+                                                        ?? datadragon.getSkinSplashCDragonUrl(selectedChampion.id, skin.id, cdragonBranch)
+                                                )}
+                                                alt={skin.name}
+                                                className="np-skin-card__img"
+                                                loading="lazy"
+                                                onError={(e) => {
+                                                    const img = e.target as HTMLImageElement;
+                                                    const fb = cachedUrl(datadragon.getSkinSplashCDragonUrl(selectedChampion.id, skin.id, cdragonBranch));
+                                                    if (img.src !== fb) img.src = fb;
+                                                }}
+                                            />
+                                            {isActiveSkin && !hasActiveChroma && (
+                                                <div className="np-skin-card__check">
+                                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                                        <path d="M3.5 8.5L6.5 11.5L12.5 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                                    </svg>
+                                                </div>
                                             )}
-                                            alt={skin.name}
-                                            className="np-skin-card__img"
-                                            loading="lazy"
-                                            onError={(e) => {
-                                                const img = e.target as HTMLImageElement;
-                                                const fallback = cachedUrl(datadragon.getSkinSplashCDragonUrl(selectedChampion.id, skin.id, cdragonBranch));
-                                                if (img.src !== fallback) {
-                                                    img.src = fallback;
-                                                }
-                                            }}
-                                        />
-                                        {selectedSkin?.id === skin.id && (
-                                            <div className="np-skin-card__check">
-                                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                                    <path d="M3.5 8.5L6.5 11.5L12.5 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                                </svg>
+                                        </div>
+                                        <span className="np-skin-card__name">{skin.name}</span>
+
+                                        {/* Chroma dots */}
+                                        {skin.chromas && skin.chromas.length > 0 && (
+                                            <div className="np-skin-card__chromas" onClick={(e) => e.stopPropagation()}>
+                                                {skin.chromas.map(chroma => {
+                                                    const dotColor = chroma.colors[0] ?? '#888';
+                                                    const isActiveChroma = hasActiveChroma && selectedChroma?.id === chroma.id;
+                                                    return (
+                                                        <button
+                                                            key={chroma.id}
+                                                            className={`np-chroma-dot${isActiveChroma ? ' np-chroma-dot--active' : ''}`}
+                                                            style={{ '--dot-color': dotColor } as React.CSSProperties}
+                                                            title={chroma.name ?? `Chroma ${chroma.id % 1000}`}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                skipChromaResetRef.current = true;
+                                                                setSelectedSkin(skin);
+                                                                setSelectedChroma(isActiveChroma ? null : chroma);
+                                                                setSkinPickerOpen(false);
+                                                            }}
+                                                        />
+                                                    );
+                                                })}
                                             </div>
                                         )}
                                     </div>
-                                    <span className="np-skin-card__name">{skin.name}</span>
-                                </button>
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
                 </div>
