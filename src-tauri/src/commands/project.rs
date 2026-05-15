@@ -16,7 +16,8 @@ use flint_ltk::wad::extractor::{
 use flint_ltk::hash::{resolve_hashes_lmdb_bulk, ResolvedHashes};
 use crate::state::LmdbCacheState;
 use crate::core::ipc_trace;
-use std::path::PathBuf;
+use serde::Serialize;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tauri::Emitter;
 
@@ -819,66 +820,81 @@ pub async fn project_path_valid(project_path: String) -> bool {
 #[tauri::command]
 pub async fn list_project_files(project_path: String) -> Result<serde_json::Value, String> {
     let _t = ipc_trace::enter("list_project_files");
-    use std::fs;
-    use serde_json::json;
+    use serde_json::{json, Map, Value};
+    use std::collections::HashMap;
+    use std::path::PathBuf as StdPathBuf;
+    use walkdir::WalkDir;
 
     let path = PathBuf::from(&project_path);
-    
+
     if !path.exists() {
         return Err(format!("Project path does not exist: {}", project_path));
     }
-    
-    // Walks each directory's children in parallel via rayon. The recursion
-    // itself is still per-directory, but every level fans out across the
-    // thread pool, so a wide project tree (champion content/ folders run
-    // 3-5 levels deep with 100s of children at each level) finishes in roughly
-    // 1/N the wall time of the old serial walk.
-    fn build_tree(dir: &std::path::Path, base: &std::path::Path) -> serde_json::Value {
-        use rayon::prelude::*;
 
-        let entries: Vec<_> = match fs::read_dir(dir) {
-            Ok(e) => e.flatten().collect(),
-            Err(_) => return serde_json::Value::Object(serde_json::Map::new()),
-        };
-
-        let pairs: Vec<(String, serde_json::Value)> = entries
-            .into_par_iter()
-            .filter_map(|entry| {
-                let name = entry.file_name().to_string_lossy().to_string();
-                // Skip .ritobin cache files — users should only see .bin files.
-                if name.ends_with(".ritobin") {
-                    return None;
-                }
-                let entry_path = entry.path();
-                let relative_path = entry_path.strip_prefix(base)
-                    .unwrap_or(&entry_path)
-                    .to_string_lossy()
-                    .replace('\\', "/");
-
-                let value = if entry_path.is_dir() {
-                    let children = build_tree(&entry_path, base);
-                    json!({ "path": relative_path, "children": children })
-                } else {
-                    json!({
-                        "path": relative_path,
-                        "size": entry.metadata().map(|m| m.len()).unwrap_or(0),
-                    })
-                };
-                Some((name, value))
-            })
+    // Iterative tree builder — avoids the stack overflow that the old recursive
+    // rayon version caused on rayon worker threads (small stack + deep WAD dirs).
+    //
+    // Algorithm:
+    //   1. WalkDir collects all entries depth-first (dir before its children).
+    //   2. We pre-allocate a Map for every directory keyed by its absolute path.
+    //   3. We iterate in REVERSE order so every child is fully assembled before
+    //      we encounter its parent — then we pop the child's map out of the
+    //      HashMap and embed it as "children" in the parent's map.
+    fn build_tree(root: &std::path::Path, base: &std::path::Path) -> Value {
+        let entries: Vec<_> = WalkDir::new(root)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .skip(1) // skip the root itself
+            .filter(|e| !e.file_name().to_string_lossy().ends_with(".ritobin"))
             .collect();
 
-        let mut tree = serde_json::Map::with_capacity(pairs.len());
-        for (k, v) in pairs {
-            tree.insert(k, v);
+        // Pre-allocate children maps for every directory.
+        let mut dir_maps: HashMap<StdPathBuf, Map<String, Value>> = HashMap::new();
+        dir_maps.insert(root.to_path_buf(), Map::new());
+        for e in &entries {
+            if e.file_type().is_dir() {
+                dir_maps.insert(e.path().to_path_buf(), Map::new());
+            }
         }
-        serde_json::Value::Object(tree)
+
+        // Process in reverse depth-first order: leaves → root.
+        for entry in entries.into_iter().rev() {
+            let entry_path = entry.path().to_path_buf();
+            let parent = match entry_path.parent() {
+                Some(p) => p.to_path_buf(),
+                None => continue,
+            };
+            let name = entry_path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let rel = entry_path
+                .strip_prefix(base)
+                .unwrap_or(&entry_path)
+                .to_string_lossy()
+                .replace('\\', "/");
+
+            let node = if entry.file_type().is_dir() {
+                // Pop the pre-assembled children map for this dir.
+                let children = dir_maps.remove(&entry_path).unwrap_or_default();
+                json!({ "path": rel, "children": Value::Object(children) })
+            } else {
+                let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                json!({ "path": rel, "size": size })
+            };
+
+            if let Some(parent_map) = dir_maps.get_mut(&parent) {
+                parent_map.insert(name, node);
+            }
+        }
+
+        Value::Object(dir_maps.remove(root).unwrap_or_default())
     }
 
     let tree = tokio::task::spawn_blocking(move || build_tree(&path, &path))
         .await
         .map_err(|e| format!("Task failed: {}", e))?;
-    
+
     Ok(tree)
 }
 
@@ -1116,5 +1132,376 @@ pub async fn delete_project(project_path: String) -> Result<(), String> {
     })
     .await
     .map_err(|e| format!("Task failed: {}", e))?
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Layer creation
+//
+// "Add Layer" is the user-facing flow for cloning categorized assets out of an
+// existing layer (typically `base`) into a new sibling layer under `content/`.
+// It writes the new layer to `mod.config.json` so modpkg / fantome readers see
+// it, and copies only the files matching the requested categories.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// File categories the layer modal exposes. The frontend sends these as
+/// lower-case strings; unknown values are ignored.
+///
+/// `Model` is the only category that needs context from the file walk:
+/// when the user picks "Models", they expect the meshes to keep working,
+/// which means pulling in the textures sitting next to them. Standalone
+/// "all textures" copying isn't a useful primitive — the user has to know
+/// *which* textures they want — so it's been folded into Model. If a future
+/// power-user flow needs raw texture cloning, it can land as its own action.
+///
+/// `Particle` sweeps related `.bin` files in the same `particles/` folder,
+/// since VFX work is split between the texture/anim files and the BIN that
+/// binds them together.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LayerCategory {
+    Animation,
+    Model,
+    Particle,
+    Audio,
+}
+
+impl LayerCategory {
+    fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "animation" | "animations" | "anim" => Some(Self::Animation),
+            "model" | "models" | "mesh" => Some(Self::Model),
+            "particle" | "particles" | "vfx" => Some(Self::Particle),
+            "audio" | "sound" | "sounds" | "sfx" => Some(Self::Audio),
+            _ => None,
+        }
+    }
+}
+
+const MODEL_EXTS: &[&str] = &["skn", "scb", "sco", "skl"];
+const TEXTURE_EXTS: &[&str] = &["tex", "dds"];
+
+/// Returns true if `rel_path` (forward-slashed, layer-relative) belongs to any
+/// of the selected categories. `model_dirs` is a pre-computed set of layer-
+/// relative directories that contain at least one model file — when Model is
+/// selected, textures inside any of those dirs (or their subdirs) come along
+/// for the ride so the model isn't dead on arrival in the new layer.
+fn matches_categories(
+    rel_path: &str,
+    cats: &[LayerCategory],
+    model_dirs: &std::collections::HashSet<String>,
+) -> bool {
+    let lower = rel_path.to_ascii_lowercase();
+    let ext = Path::new(&lower)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+
+    for cat in cats {
+        let hit = match cat {
+            LayerCategory::Animation => {
+                ext == "anm" || lower.contains("/animations/")
+            }
+            LayerCategory::Model => {
+                if MODEL_EXTS.contains(&ext) {
+                    true
+                } else if TEXTURE_EXTS.contains(&ext) {
+                    // Texture only counts when it sits in (or under) a folder
+                    // that holds a mesh. League's per-skin layout is shallow
+                    // enough that this catches the relevant SkinXX/textures/
+                    // and same-folder lookups without dragging in unrelated
+                    // HUD/UI textures.
+                    is_under_any(&lower, model_dirs)
+                } else {
+                    false
+                }
+            }
+            LayerCategory::Particle => {
+                // VFX assets live under particles/, plus the BINs that wire
+                // them together. Match anything inside a particles/ folder
+                // (covers *.troybin, *.tex used for vfx, and the bin glue).
+                lower.contains("/particles/")
+                    || lower.contains("/vfx/")
+                    || (ext == "bin" && (lower.contains("vfx") || lower.contains("particle")))
+            }
+            LayerCategory::Audio => {
+                matches!(ext, "bnk" | "wpk" | "wem")
+                    || lower.contains("/sounds/")
+                    || lower.contains("/sfx/")
+                    || lower.contains("/vo/")
+            }
+        };
+        if hit {
+            return true;
+        }
+    }
+    false
+}
+
+/// True if `path_lower` lives inside any of the directories in `dirs`
+/// (which are themselves stored lower-cased and forward-slashed).
+fn is_under_any(path_lower: &str, dirs: &std::collections::HashSet<String>) -> bool {
+    for d in dirs {
+        if d.is_empty() {
+            // Model file at the layer root → all textures at the root match.
+            // Wouldn't happen in normal projects, but guard against it.
+            return true;
+        }
+        if path_lower.starts_with(d) {
+            // Make sure we matched a directory boundary, not a prefix like
+            // "skin1" matching "skin10".
+            let rest = &path_lower[d.len()..];
+            if rest.starts_with('/') {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateLayerResult {
+    pub layer_name: String,
+    pub layer_path: String,
+    pub files_copied: usize,
+    pub bytes_copied: u64,
+}
+
+/// Create a new mod-project layer under `content/<layer_name>/` by copying
+/// categorized files out of `source_layer` and registering the layer in
+/// `mod.config.json`.
+///
+/// # Arguments
+/// * `project_path` — absolute path to the project root.
+/// * `layer_name` — new layer slug (lower-case letters, digits, `_`/`-`).
+/// * `source_layer` — name of an existing layer to seed from (e.g. `"base"`).
+/// * `categories` — file categories to copy. Empty vec creates an empty layer.
+/// * `description` — optional description recorded in `mod.config.json`.
+/// * `priority` — optional explicit priority. When `None`, picks
+///   `max(existing) + 1` so the new layer overrides everything.
+#[tauri::command]
+pub async fn create_project_layer(
+    project_path: String,
+    layer_name: String,
+    source_layer: String,
+    categories: Vec<String>,
+    description: Option<String>,
+    priority: Option<i32>,
+) -> Result<CreateLayerResult, String> {
+    let _t = ipc_trace::enter("create_project_layer");
+
+    // Validate the slug up front — modpkg readers reject anything else.
+    let slug = layer_name.trim().to_string();
+    if slug.is_empty() {
+        return Err("Layer name cannot be empty".to_string());
+    }
+    if !slug.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        return Err(
+            "Layer name may only contain letters, digits, underscores, and hyphens"
+                .to_string(),
+        );
+    }
+
+    let project_root = PathBuf::from(&project_path);
+    if !project_root.exists() {
+        return Err(format!("Project path does not exist: {}", project_path));
+    }
+
+    let source_root = project_root.join("content").join(&source_layer);
+    if !source_root.is_dir() {
+        return Err(format!(
+            "Source layer not found: content/{}",
+            source_layer
+        ));
+    }
+
+    let dest_root = project_root.join("content").join(&slug);
+    if dest_root.exists() {
+        return Err(format!("Layer already exists: content/{}", slug));
+    }
+
+    let parsed_cats: Vec<LayerCategory> = categories
+        .iter()
+        .filter_map(|c| LayerCategory::parse(c))
+        .collect();
+
+    // Heavy work (filesystem walk + copy + JSON rewrite) goes onto the blocking
+    // pool so we don't park the tauri runtime for what may be 100s of MB.
+    let dest_root_for_task = dest_root.clone();
+    let result = tokio::task::spawn_blocking(move || -> Result<CreateLayerResult, String> {
+        std::fs::create_dir_all(&dest_root_for_task)
+            .map_err(|e| format!("Failed to create layer directory: {}", e))?;
+
+        // Pass 1 — collect directories that hold model files. Skipped when
+        // the user didn't tick the Model category, since the set isn't used.
+        let mut model_dirs: std::collections::HashSet<String> = std::collections::HashSet::new();
+        if parsed_cats.contains(&LayerCategory::Model) {
+            for entry in walkdir::WalkDir::new(&source_root).min_depth(1) {
+                let entry = match entry {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                if !entry.file_type().is_file() {
+                    continue;
+                }
+                let abs = entry.path();
+                let ext = abs
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|s| s.to_ascii_lowercase())
+                    .unwrap_or_default();
+                if !MODEL_EXTS.contains(&ext.as_str()) {
+                    continue;
+                }
+                let rel = match abs.strip_prefix(&source_root) {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                };
+                if let Some(parent) = rel.parent() {
+                    let dir = parent.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+                    model_dirs.insert(dir);
+                }
+            }
+        }
+
+        let mut files_copied = 0usize;
+        let mut bytes_copied = 0u64;
+
+        // Pass 2 — categorize and copy.
+        for entry in walkdir::WalkDir::new(&source_root).min_depth(1) {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let abs = entry.path();
+            let rel = match abs.strip_prefix(&source_root) {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            // .ritobin is a generated cache file — never duplicate it into a
+            // sibling layer; the user re-converts on demand.
+            if abs.extension().and_then(|e| e.to_str()) == Some("ritobin") {
+                continue;
+            }
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            if !parsed_cats.is_empty()
+                && !matches_categories(&rel_str, &parsed_cats, &model_dirs)
+            {
+                continue;
+            }
+            let target = dest_root_for_task.join(rel);
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("Failed to create directory: {}", e))?;
+            }
+            let copied = std::fs::copy(abs, &target)
+                .map_err(|e| format!("Failed to copy {}: {}", rel_str, e))?;
+            files_copied += 1;
+            bytes_copied += copied;
+        }
+
+        Ok(CreateLayerResult {
+            layer_name: String::new(), // filled in below
+            layer_path: String::new(),
+            files_copied,
+            bytes_copied,
+        })
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))??;
+
+    // Update mod.config.json — load → push layer → save. We avoid the full
+    // `Project` round-trip because that also rewrites flint.json, which has
+    // nothing to do with layers.
+    let config_path = project_root.join("mod.config.json");
+    if config_path.is_file() {
+        let raw = std::fs::read_to_string(&config_path)
+            .map_err(|e| format!("Failed to read mod.config.json: {}", e))?;
+        let mut config: serde_json::Value = serde_json::from_str(&raw)
+            .map_err(|e| format!("mod.config.json is not valid JSON: {}", e))?;
+
+        let layers = config
+            .as_object_mut()
+            .ok_or_else(|| "mod.config.json root must be an object".to_string())?
+            .entry("layers")
+            .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+        let layers_arr = layers
+            .as_array_mut()
+            .ok_or_else(|| "mod.config.json `layers` is not an array".to_string())?;
+
+        // Refuse to register a duplicate name — the on-disk check above
+        // catches the folder, but the JSON could have a stale entry.
+        if layers_arr.iter().any(|l| {
+            l.get("name").and_then(|n| n.as_str()) == Some(slug.as_str())
+        }) {
+            return Err(format!(
+                "Layer '{}' already exists in mod.config.json",
+                slug
+            ));
+        }
+
+        let resolved_priority = priority.unwrap_or_else(|| {
+            let max = layers_arr
+                .iter()
+                .filter_map(|l| l.get("priority").and_then(|p| p.as_i64()))
+                .max()
+                .unwrap_or(0);
+            (max as i32) + 1
+        });
+
+        let mut entry = serde_json::Map::new();
+        entry.insert("name".into(), serde_json::Value::String(slug.clone()));
+        entry.insert(
+            "priority".into(),
+            serde_json::Value::Number(resolved_priority.into()),
+        );
+        if let Some(desc) = description.as_ref().filter(|d| !d.trim().is_empty()) {
+            entry.insert("description".into(), serde_json::Value::String(desc.clone()));
+        }
+        layers_arr.push(serde_json::Value::Object(entry));
+
+        let pretty = serde_json::to_string_pretty(&config)
+            .map_err(|e| format!("Failed to serialize mod.config.json: {}", e))?;
+        std::fs::write(&config_path, pretty)
+            .map_err(|e| format!("Failed to write mod.config.json: {}", e))?;
+    }
+
+    Ok(CreateLayerResult {
+        layer_name: slug,
+        layer_path: format!("content/{}", layer_name),
+        files_copied: result.files_copied,
+        bytes_copied: result.bytes_copied,
+    })
+}
+
+/// List the layer names currently registered in `mod.config.json`. The
+/// frontend uses this to populate the "source layer" dropdown in the
+/// add-layer modal without round-tripping `list_project_files`.
+#[tauri::command]
+pub async fn list_project_layers(project_path: String) -> Result<Vec<String>, String> {
+    let _t = ipc_trace::enter("list_project_layers");
+    let config_path = PathBuf::from(&project_path).join("mod.config.json");
+    if !config_path.is_file() {
+        // Brand-new projects always have at least the base layer on disk.
+        return Ok(vec!["base".to_string()]);
+    }
+    let raw = std::fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read mod.config.json: {}", e))?;
+    let config: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| format!("mod.config.json is not valid JSON: {}", e))?;
+    let mut names: Vec<String> = config
+        .get("layers")
+        .and_then(|l| l.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|l| l.get("name").and_then(|n| n.as_str()).map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    if names.is_empty() {
+        names.push("base".to_string());
+    }
+    Ok(names)
 }
 
