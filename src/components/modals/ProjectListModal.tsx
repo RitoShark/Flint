@@ -25,22 +25,36 @@ const SORT_OPTIONS = [
     { value: 'champion', label: 'Champion (A–Z)' },
 ] as const;
 
-/** Two-letter monogram for the champion tile (e.g. "Aatrox" → "AA"). */
-function monogram(champion: string): string {
-    const c = (champion || '?').trim();
+/** What kind of label / tile we should render for a saved project. The list
+ *  modal mixes skin / map / loading-screen rows so each card needs a
+ *  type-specific subtitle and fallback artwork. */
+function projectSubtitle(p: SavedProject): string {
+    if (p.kind === 'map') return p.mapId ? `Map · ${p.mapId}` : 'Map';
+    if (p.kind === 'loading-screen') return 'Loading Screen';
+    return p.champion || 'Project';
+}
+
+/** Two-letter monogram for the tile. For maps and loading-screens we don't
+ *  have a champion name, so derive something readable from the project kind. */
+function monogram(p: SavedProject): string {
+    if (p.kind === 'map') return 'M';
+    if (p.kind === 'loading-screen') return 'LS';
+    const c = (p.champion || p.name || '?').trim();
     if (!c) return '?';
     if (c.length <= 2) return c.toUpperCase();
     return (c[0] + c[1]).toUpperCase();
 }
 
-/** Stable hue 0–360 derived from the champion name. */
-function hueFor(champion: string): number {
+/** Stable hue 0–360 derived from a string. */
+function hueFor(s: string): number {
     let h = 0;
-    for (let i = 0; i < champion.length; i++) h = (h * 31 + champion.charCodeAt(i)) >>> 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
     return h % 360;
 }
 
-/** DDragon centered loading splash for the base skin (skin 0). */
+/** DDragon centered loading splash for the base skin (skin 0). Only valid for
+ *  skin projects with a real champion alias; map / loading-screen projects
+ *  fall back to the monogram tile. */
 function championSplashUrl(alias: string): string {
     return `https://ddragon.leagueoflegends.com/cdn/img/champion/loading/${alias}_0.jpg`;
 }
@@ -105,20 +119,28 @@ function extractDominantColor(img: HTMLImageElement): [number, number, number] |
 
 /**
  * Resolve a project's tile artwork URL:
- *   1. Try `{project.path}/thumbnail.webp` via Tauri read.
- *   2. Fall back to the champion's centered splash from DDragon.
+ *   1. Try `{project.path}/thumbnail.webp` via Tauri read — only when the
+ *      caller has flagged the card as visible (lazy load via IntersectionObserver).
+ *   2. Fall back to the champion's centered splash from DDragon (skin only —
+ *      maps and loading-screens go straight to the monogram tile).
  *   3. null → caller should render the monogram fallback.
  *
  * Returns `{ url, isLoading, splashFailed }`. When `splashFailed` flips true
  * the consumer should render the monogram instead of trying another image.
+ *
+ * Skipping the read entirely until the card is visible is the perf win: a
+ * 50-project list used to fire 50 readFileBytes invokes the moment the modal
+ * opened, which is why the modal felt sluggish to launch. Now we only read
+ * for what the user is actually looking at.
  */
-function useProjectArtUrl(project: SavedProject) {
+function useProjectArtUrl(project: SavedProject, visible: boolean) {
     const [thumb, setThumb] = useState<string | null>(() => thumbnailCache.get(project.path) ?? null);
     const [thumbFailed, setThumbFailed] = useState(thumbnailCache.get(project.path) === null);
     const cancelled = useRef(false);
 
     useEffect(() => {
         cancelled.current = false;
+        if (!visible) return;
         if (thumbnailCache.has(project.path)) return;
         (async () => {
             try {
@@ -137,18 +159,25 @@ function useProjectArtUrl(project: SavedProject) {
             }
         })();
         return () => { cancelled.current = true; };
-    }, [project.path]);
+    }, [project.path, visible]);
 
+    // Only skin projects have a meaningful DDragon splash fallback. Maps and
+    // loading-screens go directly to the monogram tile when no thumbnail is
+    // on disk — there's no public champion-shaped art for them.
+    const hasSplashFallback = project.kind === 'skin' && !!project.champion;
     return {
-        url: thumb ?? (thumbFailed ? championSplashUrl(project.champion) : null),
-        isLoading: !thumb && !thumbFailed,
+        url: thumb ?? (thumbFailed && hasSplashFallback ? championSplashUrl(project.champion) : null),
+        isLoading: visible && !thumb && !thumbFailed,
         usingFallback: thumbFailed,
     };
 }
 
 /** Card row — owns the URL state and dominant-color extraction so the
- *  whole card (border, hover halo, champion text, monogram fallback) is
- *  tinted to match the tile artwork. */
+ *  whole card (border, hover halo, label text, monogram fallback) is
+ *  tinted to match the tile artwork.
+ *
+ *  Tile artwork is fetched lazily on first intersection via IntersectionObserver
+ *  so we only readFileBytes for thumbnails the user can actually see. */
 const ProjectCard: React.FC<{
     project: SavedProject;
     index: number;
@@ -156,7 +185,27 @@ const ProjectCard: React.FC<{
     onOpen: () => void;
     onRemove: (e: React.MouseEvent) => void;
 }> = ({ project, index, removing, onOpen, onRemove }) => {
-    const { url, isLoading } = useProjectArtUrl(project);
+    const cardRef = useRef<HTMLButtonElement>(null);
+    const [visible, setVisible] = useState(() => thumbnailCache.has(project.path));
+
+    useEffect(() => {
+        if (visible) return;
+        const el = cardRef.current;
+        if (!el) return;
+        const io = new IntersectionObserver((entries) => {
+            for (const e of entries) {
+                if (e.isIntersecting) {
+                    setVisible(true);
+                    io.disconnect();
+                    break;
+                }
+            }
+        }, { rootMargin: '120px' });
+        io.observe(el);
+        return () => io.disconnect();
+    }, [visible]);
+
+    const { url, isLoading } = useProjectArtUrl(project, visible);
     const [splashFailed, setSplashFailed] = useState(false);
     const [tint, setTint] = useState<[number, number, number] | null>(() =>
         url && colorCache.has(url) ? colorCache.get(url)! : null);
@@ -183,25 +232,27 @@ const ProjectCard: React.FC<{
 
     // CSS vars for the per-card tint
     const [r, g, b] = tint ?? [120, 130, 150];
+    const subtitle = projectSubtitle(project);
     const cssVars: React.CSSProperties = {
         animationDelay: `${Math.min(index, 12) * 28}ms`,
         ['--pl-r' as never]: r,
         ['--pl-g' as never]: g,
         ['--pl-b' as never]: b,
-        ['--pl-hue' as never]: hueFor(project.champion),
+        ['--pl-hue' as never]: hueFor(project.kind === 'map' ? (project.mapId || 'map') : project.champion || project.name),
     };
 
     return (
         <button
+            ref={cardRef}
             type="button"
             className={`pl-card ${removing ? 'pl-card--removing' : ''}`}
             onClick={onOpen}
             style={cssVars}
-            title={`Open ${project.champion} — ${project.name}`}
+            title={`Open ${subtitle} — ${project.name}`}
         >
             {showMonogram ? (
                 <span className="pl-card__tile">
-                    <span className="pl-card__monogram">{monogram(project.champion)}</span>
+                    <span className="pl-card__monogram">{monogram(project)}</span>
                 </span>
             ) : isLoading || !url ? (
                 <span className="pl-card__tile pl-card__tile--loading" />
@@ -220,7 +271,7 @@ const ProjectCard: React.FC<{
             )}
             <span className="pl-card__body">
                 <span className="pl-card__name">{project.name}</span>
-                <span className="pl-card__champ">{project.champion}</span>
+                <span className="pl-card__champ">{subtitle}</span>
                 <span className="pl-card__path" title={project.path}>{project.path}</span>
             </span>
             <span className="pl-card__meta">
@@ -277,7 +328,9 @@ export const ProjectListModal: React.FC = () => {
                     .map((l) => ({
                         id: l.pid,
                         name: l.display_name || l.name || 'Unnamed',
+                        kind: l.kind ?? 'skin',
                         champion: l.champion,
+                        mapId: l.map_id ?? null,
                         path: l.path,
                         lastOpened: l.last_seen_at || l.modified_at || l.created_at,
                     }));
@@ -500,9 +553,12 @@ export const ProjectListModal: React.FC = () => {
     // Filtered + sorted view
     const visibleProjects = useMemo(() => {
         const q = search.trim().toLowerCase();
+        // Build a per-project search haystack that includes the kind label
+        // (e.g. "map · map11") so typing "map" matches map projects.
+        const haystack = (p: SavedProject) =>
+            `${p.kind} ${p.champion} ${p.mapId ?? ''} ${p.name} ${p.path}`.toLowerCase();
         let list = q
-            ? savedProjects.filter((p) =>
-                `${p.champion} ${p.name} ${p.path}`.toLowerCase().includes(q))
+            ? savedProjects.filter((p) => haystack(p).includes(q))
             : savedProjects.slice();
 
         switch (sortMode) {
@@ -510,7 +566,14 @@ export const ProjectListModal: React.FC = () => {
                 list.sort((a, b) => a.name.localeCompare(b.name));
                 break;
             case 'champion':
-                list.sort((a, b) => (a.champion || '').localeCompare(b.champion || '') || a.name.localeCompare(b.name));
+                // Group by kind first (skin, map, loading-screen) then by champion / map id
+                // so the "Champion A–Z" sort isn't a meaningless mash of map/skin rows.
+                list.sort((a, b) => {
+                    if (a.kind !== b.kind) return a.kind.localeCompare(b.kind);
+                    const aKey = a.kind === 'map' ? (a.mapId || '') : (a.champion || '');
+                    const bKey = b.kind === 'map' ? (b.mapId || '') : (b.champion || '');
+                    return aKey.localeCompare(bKey) || a.name.localeCompare(b.name);
+                });
                 break;
             case 'recent':
             default:
@@ -546,7 +609,7 @@ export const ProjectListModal: React.FC = () => {
                         <Input
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            placeholder="Search by champion, name, or path…"
+                            placeholder="Search by kind, champion, name, or path…"
                         />
                     </div>
                     <Picker<SortMode>

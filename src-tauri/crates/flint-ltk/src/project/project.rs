@@ -17,7 +17,39 @@ const PROJECT_FILE: &str = "mod.config.json";
 /// Flint metadata file name
 const FLINT_FILE: &str = "flint.json";
 
-/// Flint-specific metadata (stored separately from mod.config.json)
+/// What kind of project this is. Drives which fields in `flint.json` are
+/// meaningful (e.g. `skin_id` only applies to Skin projects, `map_id` only
+/// applies to Map projects). Persisted as a kebab-case string so the JSON
+/// reads naturally: `"kind": "skin" | "map" | "loading-screen"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProjectKind {
+    #[default]
+    Skin,
+    Map,
+    LoadingScreen,
+}
+
+impl ProjectKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ProjectKind::Skin => "skin",
+            ProjectKind::Map => "map",
+            ProjectKind::LoadingScreen => "loading-screen",
+        }
+    }
+}
+
+fn is_zero_u32(v: &u32) -> bool { *v == 0 }
+fn is_empty_string(s: &str) -> bool { s.is_empty() }
+
+/// Flint-specific metadata (stored separately from mod.config.json).
+///
+/// Only the fields meaningful for the project's `kind` are written to disk —
+/// e.g. a Map project does NOT serialize `champion` / `skin_id`, and a Skin
+/// project does NOT serialize `map_id`. Backward-compat with older files
+/// that pre-date the `kind` field is handled in `open_project` via the
+/// legacy-tag heuristic on `champion`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlintMetadata {
     /// Stable project id (UUID v4). Generated on creation; the projects
@@ -25,11 +57,23 @@ pub struct FlintMetadata {
     #[serde(default)]
     pub pid: String,
 
-    /// Champion internal name (e.g., "Ahri")
+    /// What kind of project this is. Older files default to Skin.
+    #[serde(default)]
+    pub kind: ProjectKind,
+
+    /// Champion internal name (e.g., "Ahri"). Empty / omitted for non-skin
+    /// projects.
+    #[serde(default, skip_serializing_if = "is_empty_string")]
     pub champion: String,
 
-    /// Skin ID (0 for base skin)
+    /// Skin ID (0 for base skin). Only meaningful — and only written — for
+    /// Skin projects.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub skin_id: u32,
+
+    /// Map id (e.g., "map11"). Only present for Map projects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map_id: Option<String>,
 
     /// Path to League of Legends installation
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -78,18 +122,27 @@ pub struct Project {
     #[serde(default)]
     pub pid: String,
 
-    /// Champion internal name (e.g., "Ahri") - Flint specific
+    /// What kind of project this is — drives which of the type-specific
+    /// fields below are meaningful.
+    #[serde(default)]
+    pub kind: ProjectKind,
+
+    /// Champion internal name (e.g., "Ahri") - skin projects only
     #[serde(default)]
     pub champion: String,
-    
-    /// Skin ID (0 for base skin) - Flint specific
+
+    /// Skin ID (0 for base skin) - skin projects only
     #[serde(default)]
     pub skin_id: u32,
-    
+
+    /// Map id (e.g. "map11") - map projects only
+    #[serde(default)]
+    pub map_id: Option<String>,
+
     /// Path to League of Legends installation - Flint specific
     #[serde(skip)]
     pub league_path: Option<PathBuf>,
-    
+
     /// Path to the project directory
     #[serde(default)]
     pub project_path: PathBuf,
@@ -171,15 +224,38 @@ impl Project {
             layers: default_layers(),
             authors,
             pid: uuid::Uuid::new_v4().to_string(),
+            kind: ProjectKind::Skin,
             champion: champion_str,
             skin_id,
+            map_id: None,
             league_path: Some(league_path.into()),
             project_path: project_path.into(),
             created_at: now,
             modified_at: now,
         }
     }
-    
+
+    /// Mark this project as a map project. Clears the skin-specific fields so
+    /// flint.json doesn't end up with `champion: "map-..."` / `skin_id: 0`
+    /// noise — those belong to skin projects only.
+    pub fn into_map(mut self, map_id: impl Into<String>) -> Self {
+        self.kind = ProjectKind::Map;
+        self.map_id = Some(map_id.into());
+        self.champion.clear();
+        self.skin_id = 0;
+        self
+    }
+
+    /// Mark this project as a loading-screen project. Clears the
+    /// champion/skin fields for the same reason as `into_map`.
+    pub fn into_loading_screen(mut self) -> Self {
+        self.kind = ProjectKind::LoadingScreen;
+        self.map_id = None;
+        self.champion.clear();
+        self.skin_id = 0;
+        self
+    }
+
     /// Convert to ltk_mod_project::ModProject for export compatibility
     pub fn to_mod_project(&self) -> ModProject {
         ModProject {
@@ -194,13 +270,15 @@ impl Project {
             thumbnail: None,
         }
     }
-    
+
     /// Get FlintMetadata from this project
     pub fn to_flint_metadata(&self) -> FlintMetadata {
         FlintMetadata {
             pid: self.pid.clone(),
-            champion: self.champion.clone(),
-            skin_id: self.skin_id,
+            kind: self.kind,
+            champion: if matches!(self.kind, ProjectKind::Skin) { self.champion.clone() } else { String::new() },
+            skin_id: if matches!(self.kind, ProjectKind::Skin) { self.skin_id } else { 0 },
+            map_id: if matches!(self.kind, ProjectKind::Map) { self.map_id.clone() } else { None },
             league_path: self.league_path.clone(),
             created_at: self.created_at,
             modified_at: self.modified_at,
@@ -331,8 +409,10 @@ pub fn register_in_index(projects_root: &Path, project: &Project) -> Result<()> 
         path: project.project_path.clone(),
         display_name: project.display_name.clone(),
         name: project.name.clone(),
-        champion: project.champion.clone(),
-        skin_id: project.skin_id,
+        kind: project.kind,
+        champion: if matches!(project.kind, ProjectKind::Skin) { project.champion.clone() } else { String::new() },
+        skin_id: if matches!(project.kind, ProjectKind::Skin) { project.skin_id } else { 0 },
+        map_id: if matches!(project.kind, ProjectKind::Map) { project.map_id.clone() } else { None },
         created_at: project.created_at,
         last_seen_at: now,
         exists: true,
@@ -393,12 +473,36 @@ pub fn open_project(path: &Path) -> Result<Project> {
             let reader = BufReader::new(file);
             if let Ok(flint) = serde_json::from_reader::<_, FlintMetadata>(reader) {
                 project.pid = flint.pid;
+                project.kind = flint.kind;
                 project.champion = flint.champion;
                 project.skin_id = flint.skin_id;
+                project.map_id = flint.map_id;
                 project.league_path = flint.league_path;
                 project.created_at = flint.created_at;
                 project.modified_at = flint.modified_at;
             }
+        }
+    }
+
+    // ── Legacy-format migration ────────────────────────────────────────────
+    // Projects created before `kind`/`map_id` existed encoded the project
+    // type by overloading `champion` ("map-<id>" / "loading-screen"). When
+    // we see one of those legacy tags AND `kind` is still the default
+    // (Skin), convert it to the proper shape and rewrite flint.json so the
+    // next open is clean.
+    if matches!(project.kind, ProjectKind::Skin) {
+        if let Some(rest) = project.champion.strip_prefix("map-") {
+            let map_id = rest.to_string();
+            project.kind = ProjectKind::Map;
+            project.map_id = Some(map_id);
+            project.champion.clear();
+            project.skin_id = 0;
+            needs_resave = true;
+        } else if project.champion.eq_ignore_ascii_case("loading-screen") {
+            project.kind = ProjectKind::LoadingScreen;
+            project.champion.clear();
+            project.skin_id = 0;
+            needs_resave = true;
         }
     }
 

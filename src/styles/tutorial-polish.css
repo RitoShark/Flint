@@ -1,0 +1,430 @@
+/* ============================================================================
+   Flint — Tutorial overlay polish (design-lab language)
+   Frosted callout, gradient stripe, spring eased motion, layered spotlight.
+   Loads after index.css so its rules win on specificity ties.
+   ============================================================================ */
+
+/* --------------------------------------------------------------------------
+   Spotlight — softer hole, layered glow ring, slow rotating dashed accent
+   -------------------------------------------------------------------------- */
+.tutorial-overlay {
+    --tut-ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+    --tut-ease-out: cubic-bezier(.22, 1, .36, 1);
+    --tut-radius: 10px;
+}
+
+.tutorial-overlay__blocker {
+    /* Subtle gradient overlay so the dimmed area doesn't read as flat grey.
+       The spotlight's own box-shadow still does the heavy lifting; this just
+       gives the curtain a faint vignette. */
+    background:
+        radial-gradient(ellipse at center,
+            rgba(0, 0, 0, 0) 0%,
+            rgba(0, 0, 0, 0.18) 60%,
+            rgba(0, 0, 0, 0.35) 100%);
+}
+
+.tutorial-spotlight {
+    border-radius: var(--tut-radius);
+    /* Slightly darker curtain than the base for more contrast. */
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.82);
+    transition:
+        top 320ms var(--tut-ease-out),
+        left 320ms var(--tut-ease-out),
+        width 320ms var(--tut-ease-out),
+        height 320ms var(--tut-ease-out),
+        border-radius 320ms var(--tut-ease-out);
+}
+
+/* Solid inner glow ring */
+.tutorial-spotlight::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    border-radius: calc(var(--tut-radius) + 4px);
+    border: 2px solid color-mix(in oklab, var(--accent-primary) 80%, transparent);
+    box-shadow:
+        0 0 0 1px color-mix(in oklab, var(--accent-primary) 30%, transparent) inset,
+        0 0 24px 4px color-mix(in oklab, var(--accent-primary) 35%, transparent),
+        0 0 64px 8px color-mix(in oklab, var(--accent-primary) 18%, transparent);
+    animation: tut-ring-pulse 2.4s ease-in-out infinite;
+}
+
+.tutorial-spotlight--empty::after {
+    opacity: 0;
+}
+
+@keyframes tut-ring-pulse {
+    0%, 100% {
+        box-shadow:
+            0 0 0 1px color-mix(in oklab, var(--accent-primary) 30%, transparent) inset,
+            0 0 24px 4px color-mix(in oklab, var(--accent-primary) 35%, transparent),
+            0 0 64px 8px color-mix(in oklab, var(--accent-primary) 18%, transparent);
+    }
+    50% {
+        box-shadow:
+            0 0 0 2px color-mix(in oklab, var(--accent-primary) 45%, transparent) inset,
+            0 0 32px 6px color-mix(in oklab, var(--accent-primary) 55%, transparent),
+            0 0 88px 12px color-mix(in oklab, var(--accent-primary) 28%, transparent);
+    }
+}
+
+/* --------------------------------------------------------------------------
+   Callout — frosted card with gradient stripe + spring entrance
+   -------------------------------------------------------------------------- */
+.tutorial-callout {
+    background:
+        linear-gradient(180deg,
+            color-mix(in oklab, var(--bg-tertiary) 94%, transparent),
+            color-mix(in oklab, var(--bg-secondary) 96%, transparent));
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 22%, var(--border));
+    border-radius: 14px;
+    padding: 22px 22px 18px;
+    box-shadow:
+        0 32px 64px -20px rgba(0, 0, 0, 0.65),
+        0 8px 24px -10px rgba(0, 0, 0, 0.45),
+        0 0 0 1px color-mix(in oklab, #fff 4%, transparent) inset,
+        0 0 0 1px color-mix(in oklab, var(--accent-primary) 15%, transparent);
+    overflow: hidden;
+    isolation: isolate;
+    animation: tut-callout-in 360ms var(--tut-ease-spring) both;
+    transition:
+        top 320ms var(--tut-ease-out),
+        left 320ms var(--tut-ease-out);
+}
+
+@keyframes tut-callout-in {
+    from {
+        opacity: 0;
+        transform: translateY(-6px) scale(0.96);
+        filter: blur(2px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        filter: blur(0);
+    }
+}
+
+/* Accent gradient stripe along the top edge of the callout. */
+.tutorial-callout::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 2px;
+    background: linear-gradient(90deg,
+        transparent,
+        color-mix(in oklab, var(--accent-primary) 60%, transparent) 18%,
+        var(--accent-primary) 50%,
+        color-mix(in oklab, var(--accent-primary) 60%, transparent) 82%,
+        transparent);
+    pointer-events: none;
+}
+
+/* Soft radial accent in the background corner so the card doesn't read flat. */
+.tutorial-callout::after {
+    content: "";
+    position: absolute;
+    top: -40px;
+    right: -40px;
+    width: 220px;
+    height: 220px;
+    background: radial-gradient(circle,
+        color-mix(in oklab, var(--accent-primary) 28%, transparent) 0%,
+        transparent 70%);
+    filter: blur(20px);
+    pointer-events: none;
+    z-index: -1;
+    opacity: 0.7;
+}
+
+/* --------------------------------------------------------------------------
+   Header — step counter + sparkle icon
+   -------------------------------------------------------------------------- */
+.tutorial-callout__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.tutorial-callout__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px 3px 7px;
+    background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 35%, transparent);
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent-primary);
+}
+
+.tutorial-callout__badge svg {
+    width: 11px;
+    height: 11px;
+    display: block;
+    animation: tut-sparkle 3.2s ease-in-out infinite;
+}
+
+@keyframes tut-sparkle {
+    0%, 100% { transform: scale(1) rotate(0); opacity: 1; }
+    50%      { transform: scale(1.18) rotate(15deg); opacity: 0.7; }
+}
+
+.tutorial-callout__counter {
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 10.5px;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+}
+
+.tutorial-callout__counter strong {
+    color: var(--text-primary);
+    font-weight: 700;
+}
+
+/* --------------------------------------------------------------------------
+   Progress bar — slim track at the top of the body
+   -------------------------------------------------------------------------- */
+.tutorial-callout__progress {
+    height: 3px;
+    background: color-mix(in oklab, var(--border) 70%, transparent);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 14px;
+    position: relative;
+}
+
+.tutorial-callout__progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg,
+        color-mix(in oklab, var(--accent-primary) 70%, transparent),
+        var(--accent-primary));
+    border-radius: inherit;
+    transition: width 420ms var(--tut-ease-out);
+    position: relative;
+}
+
+/* Soft moving sheen on the fill so it feels active. */
+.tutorial-callout__progress-fill::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg,
+        transparent,
+        rgba(255, 255, 255, 0.4),
+        transparent);
+    animation: tut-progress-sheen 1.8s ease-in-out infinite;
+}
+
+@keyframes tut-progress-sheen {
+    0%, 100% { transform: translateX(-100%); }
+    50%      { transform: translateX(100%); }
+}
+
+/* --------------------------------------------------------------------------
+   Dots — kept as a secondary indicator (active = elongated pill)
+   -------------------------------------------------------------------------- */
+.tutorial-callout__dots {
+    display: flex;
+    gap: 5px;
+    margin-bottom: 12px;
+    align-items: center;
+}
+
+.tutorial-callout__dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--text-muted) 32%, transparent);
+    transition:
+        background 220ms var(--tut-ease-out),
+        width 320ms var(--tut-ease-spring),
+        transform 220ms var(--tut-ease-out);
+}
+
+.tutorial-callout__dot--active {
+    width: 22px;
+    background: var(--accent-primary);
+    box-shadow: 0 0 8px color-mix(in oklab, var(--accent-primary) 60%, transparent);
+    transform: none;
+}
+
+/* --------------------------------------------------------------------------
+   Content — title + body, animated swap between steps
+   -------------------------------------------------------------------------- */
+.tutorial-callout__content {
+    animation: tut-content-in 280ms var(--tut-ease-out) both;
+}
+
+@keyframes tut-content-in {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.tutorial-callout__title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0 0 8px;
+    letter-spacing: -0.005em;
+    background: linear-gradient(180deg,
+        var(--text-primary),
+        color-mix(in oklab, var(--text-primary) 80%, var(--accent-primary) 20%));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.tutorial-callout__body {
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    line-height: 1.65;
+    margin: 0 0 16px;
+}
+
+/* --------------------------------------------------------------------------
+   Actions — skip link + prev/next pills, matched to design-lab
+   -------------------------------------------------------------------------- */
+.tutorial-callout__actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 12px;
+    padding-top: 14px;
+    border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+}
+
+.tutorial-skip {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    padding: 6px 8px;
+    margin: -6px -8px;
+    border-radius: 6px;
+    transition:
+        color 160ms var(--tut-ease-out),
+        background 160ms var(--tut-ease-out);
+}
+
+.tutorial-skip:hover {
+    color: var(--text-primary);
+    background: color-mix(in oklab, var(--text-primary) 6%, transparent);
+}
+
+.tutorial-callout__nav {
+    margin-left: auto;
+    display: flex;
+    gap: 6px;
+}
+
+.tutorial-nav-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+    background: color-mix(in oklab, var(--bg-tertiary) 70%, transparent);
+    color: var(--text-secondary);
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition:
+        background 180ms var(--tut-ease-out),
+        border-color 180ms var(--tut-ease-out),
+        color 180ms var(--tut-ease-out),
+        transform 220ms var(--tut-ease-spring),
+        box-shadow 180ms var(--tut-ease-out);
+}
+
+.tutorial-nav-btn svg {
+    transition: transform 220ms var(--tut-ease-spring);
+}
+
+.tutorial-nav-btn:hover:not(:disabled) {
+    background: color-mix(in oklab, var(--accent-primary) 10%, var(--bg-tertiary));
+    border-color: color-mix(in oklab, var(--accent-primary) 50%, var(--border));
+    color: var(--accent-primary);
+    transform: translateY(-1px);
+}
+
+.tutorial-nav-btn:hover:not(:disabled) svg {
+    transform: scale(1.12);
+}
+
+.tutorial-nav-btn:active:not(:disabled) {
+    transform: scale(0.94);
+}
+
+.tutorial-nav-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+    border-color: color-mix(in oklab, var(--border) 50%, transparent);
+}
+
+/* Primary next button gets the accent fill. */
+.tutorial-nav-btn--next {
+    background: linear-gradient(180deg,
+        color-mix(in oklab, var(--accent-primary) 92%, white),
+        var(--accent-primary));
+    border-color: var(--accent-primary);
+    color: #fff;
+    box-shadow:
+        0 0 0 1px color-mix(in oklab, var(--accent-primary) 60%, transparent) inset,
+        0 4px 12px -4px color-mix(in oklab, var(--accent-primary) 60%, transparent);
+}
+
+.tutorial-nav-btn--next:hover:not(:disabled) {
+    background: linear-gradient(180deg,
+        color-mix(in oklab, var(--accent-primary) 88%, white),
+        color-mix(in oklab, var(--accent-primary) 92%, white));
+    color: #fff;
+    box-shadow:
+        0 0 0 1px color-mix(in oklab, var(--accent-primary) 80%, transparent) inset,
+        0 6px 18px -4px color-mix(in oklab, var(--accent-primary) 70%, transparent);
+}
+
+.tutorial-nav-btn--next:hover:not(:disabled) svg {
+    transform: translateX(2px) scale(1.12);
+}
+
+/* Done variant (last step) — green-ish tint so the check feels positive. */
+.tutorial-nav-btn--done {
+    background: linear-gradient(180deg,
+        color-mix(in oklab, #34c759 92%, white),
+        #34c759);
+    border-color: #34c759;
+    box-shadow:
+        0 0 0 1px color-mix(in oklab, #34c759 60%, transparent) inset,
+        0 4px 12px -4px color-mix(in oklab, #34c759 60%, transparent);
+}
+
+.tutorial-nav-btn--done:hover:not(:disabled) {
+    background: linear-gradient(180deg,
+        color-mix(in oklab, #34c759 86%, white),
+        color-mix(in oklab, #34c759 92%, white));
+    box-shadow:
+        0 0 0 1px color-mix(in oklab, #34c759 80%, transparent) inset,
+        0 6px 18px -4px color-mix(in oklab, #34c759 70%, transparent);
+}
+
+.tutorial-nav-btn--done:hover:not(:disabled) svg {
+    transform: scale(1.18);
+}

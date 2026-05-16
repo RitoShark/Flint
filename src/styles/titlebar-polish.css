@@ -1,0 +1,441 @@
+/* ============================================================================
+   Flint — Title Bar polish
+   Frosted shell, statically-glowing Flint logo, design-lab style tabs,
+   animated closes. Loads after index.css so it wins on specificity ties.
+   ============================================================================ */
+
+/* --------------------------------------------------------------------------
+   Shell — subtle gradient + hairline top edge. Everything inside stays
+   vertically centered with the bar; no top-biased padding tricks.
+   -------------------------------------------------------------------------- */
+.titlebar {
+    background:
+        linear-gradient(180deg,
+            color-mix(in oklab, var(--bg-secondary) 96%, var(--bg-primary) 4%),
+            var(--bg-secondary) 70%,
+            color-mix(in oklab, var(--bg-secondary) 92%, var(--bg-primary) 8%));
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+    position: relative;
+    z-index: 10;
+    align-items: center;
+}
+
+.titlebar__left,
+.titlebar__center,
+.titlebar__controls {
+    align-items: center;
+}
+
+/* Hairline highlight at the very top edge. */
+.titlebar::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    background: linear-gradient(90deg,
+        transparent,
+        color-mix(in oklab, #fff 10%, transparent) 30%,
+        color-mix(in oklab, #fff 10%, transparent) 70%,
+        transparent);
+    pointer-events: none;
+}
+
+/* --------------------------------------------------------------------------
+   Flint logo — static. No hover state, no animation, no scale. It's part
+   of the bar, not an interactive button. Just a subtle accent halo behind
+   the icon so it doesn't read as a flat sticker.
+   -------------------------------------------------------------------------- */
+.titlebar__logo {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0;
+    border-radius: 0;
+    isolation: isolate;
+    /* The .titlebar__logo handler still navigates home on click, but the
+       affordance should come from the cursor (set on the element), not
+       from visual hover states. */
+    background: transparent !important;
+    transform: none !important;
+}
+
+/* Static, soft accent halo behind the icon — sits flush with the row, no
+   pulse, no breathing. Just enough warmth that the icon doesn't look
+   pasted on top of the bar. */
+.titlebar__logo::before {
+    content: "";
+    position: absolute;
+    left: -2px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: radial-gradient(circle,
+        color-mix(in oklab, var(--accent-primary) 22%, transparent) 0%,
+        color-mix(in oklab, var(--accent-primary) 8%, transparent) 45%,
+        transparent 72%);
+    filter: blur(5px);
+    opacity: 0.7;
+    z-index: -1;
+    pointer-events: none;
+}
+
+.titlebar__logo svg {
+    display: block;
+    /* Mild static drop-shadow that ties the icon to the halo behind it. */
+    filter: drop-shadow(0 0 3px color-mix(in oklab, var(--accent-primary) 55%, transparent));
+}
+
+.titlebar__app-name {
+    line-height: 1;
+    /* Use the gradient text fill statically — no hover filter change. */
+    background: linear-gradient(180deg,
+        var(--text-primary),
+        color-mix(in oklab, var(--text-primary) 80%, var(--accent-primary) 20%));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* --------------------------------------------------------------------------
+   Tabs — design-lab redesign, vertically centered in the bar
+   -------------------------------------------------------------------------- */
+.titlebar__tabs {
+    gap: 4px;
+    padding: 0;
+    align-items: center;
+    height: 100%;
+}
+
+.titlebar__tab {
+    /* Reset the legacy "full-height with bottom underline" look — tabs are
+       now pills that sit centered in the bar. */
+    background: color-mix(in oklab, var(--bg-tertiary) 55%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+    border-radius: 8px;
+    padding: 0 6px 0 10px;
+    height: 28px;
+    min-height: 28px;
+    gap: 8px;
+    overflow: hidden;
+    isolation: isolate;
+    transform-origin: center;
+    animation: tbTabIn 220ms cubic-bezier(.34, 1.56, .64, 1) both;
+    transition:
+        background 180ms cubic-bezier(.22, 1, .36, 1),
+        border-color 180ms cubic-bezier(.22, 1, .36, 1),
+        color 180ms cubic-bezier(.22, 1, .36, 1);
+}
+
+@keyframes tbTabIn {
+    from {
+        opacity: 0;
+        transform: scale(0.94);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* Tab closing animation — applied via JS state so the exit visibly plays
+   before the DOM unmounts. */
+.titlebar__tab--closing {
+    animation: tbTabOut 180ms cubic-bezier(.22, 1, .36, 1) forwards !important;
+    pointer-events: none;
+}
+
+@keyframes tbTabOut {
+    from {
+        opacity: 1;
+        transform: scale(1);
+        max-width: 220px;
+        margin-right: 4px;
+    }
+    to {
+        opacity: 0;
+        transform: scale(0.85);
+        max-width: 0;
+        margin-right: 0;
+        padding-left: 0;
+        padding-right: 0;
+        border-color: transparent;
+    }
+}
+
+/* Accent stripe — short bar at the bottom of the active tab, centered. */
+.titlebar__tab::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: 3px;
+    width: 24px;
+    height: 2px;
+    background: linear-gradient(90deg,
+        transparent,
+        var(--accent-primary) 50%,
+        transparent);
+    transform: translateX(-50%) scaleX(0);
+    transform-origin: center;
+    transition:
+        transform 280ms cubic-bezier(.34, 1.56, .64, 1),
+        opacity 220ms cubic-bezier(.22, 1, .36, 1);
+    opacity: 0;
+    pointer-events: none;
+    border-radius: 2px;
+}
+
+.titlebar__tab:hover:not(.titlebar__tab--active) {
+    background: color-mix(in oklab, var(--bg-tertiary) 80%, transparent);
+    border-color: color-mix(in oklab, var(--accent-primary) 25%, var(--border));
+}
+
+.titlebar__tab--active {
+    background: linear-gradient(180deg,
+        color-mix(in oklab, var(--accent-primary) 14%, var(--bg-tertiary)),
+        color-mix(in oklab, var(--accent-primary) 6%, var(--bg-tertiary)));
+    border-color: color-mix(in oklab, var(--accent-primary) 40%, var(--border));
+}
+
+.titlebar__tab--active::before {
+    opacity: 1;
+    transform: translateX(-50%) scaleX(1);
+}
+
+.titlebar__tab--active:hover {
+    background: linear-gradient(180deg,
+        color-mix(in oklab, var(--accent-primary) 20%, var(--bg-tertiary)),
+        color-mix(in oklab, var(--accent-primary) 8%, var(--bg-tertiary)));
+}
+
+.titlebar__tab-icon {
+    color: var(--text-muted);
+    transition: color 180ms cubic-bezier(.22, 1, .36, 1);
+}
+
+.titlebar__tab--active .titlebar__tab-icon,
+.titlebar__tab:hover .titlebar__tab-icon {
+    color: var(--accent-primary);
+}
+
+.titlebar__tab--active .titlebar__tab-icon {
+    filter: drop-shadow(0 0 3px color-mix(in oklab, var(--accent-primary) 50%, transparent));
+}
+
+.titlebar__tab-name {
+    font-size: 11.5px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    line-height: 1;
+}
+
+/* --------------------------------------------------------------------------
+   Tab close button — rotates + scales on hover
+   -------------------------------------------------------------------------- */
+.titlebar__tab-close {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    align-self: center;
+    transition:
+        background 160ms cubic-bezier(.22, 1, .36, 1),
+        color 160ms cubic-bezier(.22, 1, .36, 1),
+        transform 200ms cubic-bezier(.34, 1.56, .64, 1),
+        opacity 160ms cubic-bezier(.22, 1, .36, 1);
+}
+
+.titlebar__tab-close svg {
+    display: block;
+    transition: transform 200ms cubic-bezier(.34, 1.56, .64, 1);
+}
+
+.titlebar__tab-close:hover {
+    background: color-mix(in oklab, var(--error) 28%, transparent);
+    color: var(--error);
+    transform: scale(1.12);
+    box-shadow: 0 0 0 2px color-mix(in oklab, var(--error) 18%, transparent);
+}
+
+.titlebar__tab-close:hover svg {
+    transform: rotate(90deg);
+}
+
+.titlebar__tab-close:active {
+    transform: scale(0.92);
+}
+
+.titlebar__tab-close:active svg {
+    transform: rotate(90deg) scale(0.88);
+}
+
+.titlebar__tab--active .titlebar__tab-close {
+    opacity: 0.7;
+}
+
+.titlebar__tab--active .titlebar__tab-close:hover {
+    opacity: 1;
+}
+
+/* --------------------------------------------------------------------------
+   Right-side action buttons — circular hover wash + icon scale, centered
+   -------------------------------------------------------------------------- */
+.titlebar__controls {
+    gap: 4px;
+}
+
+.titlebar__button {
+    width: 30px;
+    height: 28px;
+    border-radius: 7px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    align-self: center;
+    transition:
+        background 160ms cubic-bezier(.22, 1, .36, 1),
+        color 160ms cubic-bezier(.22, 1, .36, 1),
+        transform 200ms cubic-bezier(.34, 1.56, .64, 1);
+}
+
+.titlebar__button svg {
+    display: block;
+    transition:
+        transform 220ms cubic-bezier(.34, 1.56, .64, 1),
+        filter 200ms cubic-bezier(.22, 1, .36, 1);
+}
+
+.titlebar__button:hover {
+    background: color-mix(in oklab, var(--text-primary) 6%, transparent);
+    color: var(--text-primary);
+}
+
+.titlebar__button:hover svg {
+    transform: scale(1.1);
+    filter: drop-shadow(0 0 4px color-mix(in oklab, var(--accent-primary) 35%, transparent));
+}
+
+.titlebar__button:active {
+    transform: scale(0.94);
+}
+
+.titlebar__button--settings:hover svg {
+    transform: rotate(60deg) scale(1.08);
+}
+
+.titlebar__button--fix:hover svg {
+    animation: tbWrenchTilt 600ms cubic-bezier(.22, 1, .36, 1);
+}
+
+@keyframes tbWrenchTilt {
+    0%   { transform: rotate(0) scale(1); }
+    35%  { transform: rotate(-18deg) scale(1.1); }
+    70%  { transform: rotate(8deg) scale(1.08); }
+    100% { transform: rotate(0) scale(1.08); }
+}
+
+.titlebar__button--sync:hover svg {
+    animation: tbSyncSpin 1.4s linear infinite;
+}
+
+@keyframes tbSyncSpin {
+    from { transform: rotate(0); }
+    to   { transform: rotate(360deg); }
+}
+
+.titlebar__button--timeline:hover svg,
+.titlebar__button--export:hover svg {
+    transform: scale(1.1);
+}
+
+/* --------------------------------------------------------------------------
+   Window controls — close button gets the loud red treatment
+   -------------------------------------------------------------------------- */
+.titlebar__button--close {
+    color: var(--text-muted);
+    transition:
+        background 160ms cubic-bezier(.22, 1, .36, 1),
+        color 160ms cubic-bezier(.22, 1, .36, 1),
+        transform 200ms cubic-bezier(.34, 1.56, .64, 1),
+        box-shadow 200ms cubic-bezier(.22, 1, .36, 1);
+}
+
+.titlebar__button--close:hover {
+    background: linear-gradient(180deg,
+        color-mix(in oklab, var(--error) 80%, transparent),
+        color-mix(in oklab, var(--error) 60%, transparent));
+    color: #fff;
+    box-shadow:
+        0 0 0 1px color-mix(in oklab, var(--error) 40%, transparent),
+        0 4px 14px -4px color-mix(in oklab, var(--error) 55%, transparent);
+}
+
+.titlebar__button--close:hover svg {
+    transform: scale(1.15) rotate(90deg);
+    filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.5));
+}
+
+.titlebar__button--close:active {
+    transform: scale(0.92);
+}
+
+.titlebar__button--close.titlebar__button--closing {
+    animation: tbCloseFlash 180ms cubic-bezier(.22, 1, .36, 1) both;
+}
+
+@keyframes tbCloseFlash {
+    0% {
+        background: color-mix(in oklab, var(--error) 80%, transparent);
+        transform: scale(1.1);
+    }
+    100% {
+        background: color-mix(in oklab, var(--error) 95%, transparent);
+        transform: scale(0.6);
+        opacity: 0.2;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   Dropdown menu — match the new context menu language
+   -------------------------------------------------------------------------- */
+.titlebar__dropdown-menu {
+    background:
+        linear-gradient(180deg,
+            color-mix(in oklab, var(--bg-tertiary) 92%, transparent),
+            color-mix(in oklab, var(--bg-secondary) 96%, transparent)) !important;
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    border: 1px solid color-mix(in oklab, var(--border) 80%, transparent) !important;
+    border-radius: 10px !important;
+    box-shadow:
+        0 16px 40px -16px rgba(0, 0, 0, 0.55),
+        0 4px 12px rgba(0, 0, 0, 0.35) !important;
+    padding: 5px !important;
+    animation: tbDropdownIn 180ms cubic-bezier(.34, 1.56, .64, 1) both;
+    transform-origin: top right;
+}
+
+@keyframes tbDropdownIn {
+    from {
+        opacity: 0;
+        transform: translateY(-4px) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.titlebar__dropdown-menu > button {
+    border-radius: 6px !important;
+    transition:
+        background 160ms cubic-bezier(.22, 1, .36, 1),
+        color 160ms cubic-bezier(.22, 1, .36, 1) !important;
+}
+
+.titlebar__dropdown-menu > button:hover {
+    background: linear-gradient(90deg,
+        color-mix(in oklab, var(--accent-primary) 18%, transparent),
+        color-mix(in oklab, var(--accent-primary) 6%, transparent)) !important;
+}

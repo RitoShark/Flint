@@ -5,6 +5,7 @@
 use flint_ltk::project::{
     create_project as core_create_project,
     open_project as core_open_project,
+    register_in_index as core_register_in_index,
     save_project as core_save_project,
     Project,
 };
@@ -357,19 +358,30 @@ pub async fn create_loading_screen_project(
     let league_clone = league_path_buf.clone();
     let output_clone = output_path_buf.clone();
 
-    let project = tokio::task::spawn_blocking(move || {
-        core_create_project(
+    // Loading-screen projects don't have a champion. We still create the
+    // standard project layout, then convert the runtime struct to the
+    // LoadingScreen shape and re-save flint.json so it carries
+    // `kind: "loading-screen"` with no leftover champion/skin_id noise.
+    let output_dir_for_index = output_clone.clone();
+    let project = tokio::task::spawn_blocking(move || -> Result<Project, String> {
+        let project = core_create_project(
             &name_clone,
-            "loading-screen", // Use as champion field for identification
+            "",
             0,
             &league_clone,
             &output_clone,
             Some(creator_clone),
-        )
+        ).map_err(|e| e.to_string())?;
+        let project = project.into_loading_screen();
+        core_save_project(&project).map_err(|e| e.to_string())?;
+        if let Err(e) = core_register_in_index(&output_dir_for_index, &project) {
+            tracing::warn!("Failed to refresh projects.json for loading-screen project {}: {}", project.pid, e);
+        }
+        Ok(project)
     })
     .await
     .map_err(|e| format!("Task failed: {}", e))?
-    .map_err(|e| e.to_string())?;
+    ?;
 
     // ── Phase 2: Encode spritesheet PNG → TEX ────────────────────────────
     let _ = app.emit("project-create-progress", serde_json::json!({

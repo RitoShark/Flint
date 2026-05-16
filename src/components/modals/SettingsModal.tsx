@@ -24,6 +24,7 @@ import {
     DesignLab,
     Textarea,
 } from '../ui';
+import { triggerTutorialReplay } from '../TutorialOverlay';
 
 type SettingsTab = 'creator' | 'general' | 'theme' | 'paths' | 'integrations' | 'dev';
 
@@ -1177,6 +1178,31 @@ export const SettingsModal: React.FC = () => {
                                     </Button>
                                 </div>
                             )}
+
+                            <div className="settings-item">
+                                <label className="settings-item__label">
+                                    Replay Tutorial
+                                    <span className="settings-item__badge">Dev only</span>
+                                </label>
+                                <div className="settings-item__hint" style={{ marginBottom: 8 }}>
+                                    Restarts the first-run guided tour from the beginning. Clears the
+                                    "onboarding done" flag and triggers the overlay immediately — useful
+                                    when validating tooltips after UI changes.
+                                </div>
+                                <Button
+                                    variant="secondary"
+                                    icon="info"
+                                    onClick={() => {
+                                        closeModal();
+                                        // Let the Settings modal finish closing so the tutorial
+                                        // spotlight can target real elements, not the modal stack.
+                                        setTimeout(() => triggerTutorialReplay(), 320);
+                                    }}
+                                >
+                                    Restart Tutorial
+                                </Button>
+                            </div>
+
 
                             <div className="settings-item">
                                 <label className="settings-item__label">BIN Schema Aggregator</label>

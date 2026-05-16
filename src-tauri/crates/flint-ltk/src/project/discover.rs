@@ -12,7 +12,7 @@
 
 use crate::error::Result;
 use crate::project::index::{read_index, upsert, ProjectIndexEntry};
-use crate::project::project::{open_project, FlintMetadata, Project};
+use crate::project::project::{open_project, FlintMetadata, Project, ProjectKind};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
@@ -31,8 +31,15 @@ pub struct ProjectListing {
     pub path: PathBuf,
     pub name: String,
     pub display_name: String,
+    /// Project kind — drives which of the type-specific fields below are
+    /// meaningful. Older entries default to Skin.
+    #[serde(default)]
+    pub kind: ProjectKind,
     pub champion: String,
     pub skin_id: u32,
+    /// Map id (e.g. "map11"). Only present for Map projects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map_id: Option<String>,
     pub created_at: String,
     pub modified_at: String,
     pub last_seen_at: String,
@@ -104,8 +111,10 @@ pub fn discover_projects(projects_root: &Path) -> Result<Vec<ProjectListing>> {
             path: listing.path.clone(),
             display_name: listing.display_name.clone(),
             name: listing.name.clone(),
+            kind: listing.kind,
             champion: listing.champion.clone(),
             skin_id: listing.skin_id,
+            map_id: listing.map_id.clone(),
             created_at: prior.as_ref().map(|p| p.created_at).unwrap_or(now),
             last_seen_at: now,
             exists: true,
@@ -126,8 +135,10 @@ pub fn discover_projects(projects_root: &Path) -> Result<Vec<ProjectListing>> {
             path: listing.path,
             name: listing.name,
             display_name: listing.display_name,
+            kind: listing.kind,
             champion: listing.champion,
             skin_id: listing.skin_id,
+            map_id: listing.map_id,
             created_at: listing.created_at,
             modified_at: listing.modified_at,
             last_seen_at: now.to_rfc3339(),
@@ -146,8 +157,10 @@ pub fn discover_projects(projects_root: &Path) -> Result<Vec<ProjectListing>> {
             path: e.path.clone(),
             name: e.name.clone(),
             display_name: e.display_name.clone(),
+            kind: e.kind,
             champion: e.champion.clone(),
             skin_id: e.skin_id,
+            map_id: e.map_id.clone(),
             created_at: e.created_at.to_rfc3339(),
             modified_at: e.last_seen_at.to_rfc3339(),
             last_seen_at: e.last_seen_at.to_rfc3339(),
@@ -177,22 +190,41 @@ fn read_listing_lightweight(project_path: &Path) -> Option<ProjectListing> {
     // Flint metadata is optional — projects imported from another tool might
     // not have it. We still want to surface them.
     let flint_path = project_path.join(FLINT_FILE);
-    let (pid, champion, skin_id, created_at, modified_at) = if flint_path.exists() {
+    let (pid, kind, champion, skin_id, map_id, created_at, modified_at) = if flint_path.exists() {
         match File::open(&flint_path).and_then(|f| {
             serde_json::from_reader::<_, FlintMetadata>(BufReader::new(f))
                 .map_err(std::io::Error::other)
         }) {
-            Ok(meta) => (
-                if meta.pid.is_empty() { uuid::Uuid::new_v4().to_string() } else { meta.pid },
-                meta.champion,
-                meta.skin_id,
-                meta.created_at.to_rfc3339(),
-                meta.modified_at.to_rfc3339(),
-            ),
-            Err(_) => (uuid::Uuid::new_v4().to_string(), String::new(), 0, String::new(), String::new()),
+            Ok(meta) => {
+                // Migrate the legacy `champion: "map-<id>"` / `"loading-screen"`
+                // tags into the new kind+map_id shape so the listing the UI
+                // sees is always normalised, even before the project is
+                // opened (which would re-save flint.json).
+                let (kind, champion, skin_id, map_id) = if matches!(meta.kind, ProjectKind::Skin) {
+                    if let Some(rest) = meta.champion.strip_prefix("map-") {
+                        (ProjectKind::Map, String::new(), 0, Some(rest.to_string()))
+                    } else if meta.champion.eq_ignore_ascii_case("loading-screen") {
+                        (ProjectKind::LoadingScreen, String::new(), 0, None)
+                    } else {
+                        (meta.kind, meta.champion, meta.skin_id, meta.map_id)
+                    }
+                } else {
+                    (meta.kind, meta.champion, meta.skin_id, meta.map_id)
+                };
+                (
+                    if meta.pid.is_empty() { uuid::Uuid::new_v4().to_string() } else { meta.pid },
+                    kind,
+                    champion,
+                    skin_id,
+                    map_id,
+                    meta.created_at.to_rfc3339(),
+                    meta.modified_at.to_rfc3339(),
+                )
+            }
+            Err(_) => (uuid::Uuid::new_v4().to_string(), ProjectKind::Skin, String::new(), 0, None, String::new(), String::new()),
         }
     } else {
-        (uuid::Uuid::new_v4().to_string(), String::new(), 0, String::new(), String::new())
+        (uuid::Uuid::new_v4().to_string(), ProjectKind::Skin, String::new(), 0, None, String::new(), String::new())
     };
 
     Some(ProjectListing {
@@ -200,8 +232,10 @@ fn read_listing_lightweight(project_path: &Path) -> Option<ProjectListing> {
         path: project_path.to_path_buf(),
         name,
         display_name,
+        kind,
         champion,
         skin_id,
+        map_id,
         created_at,
         modified_at: modified_at.clone(),
         last_seen_at: modified_at,
@@ -217,8 +251,10 @@ fn listing_from_project(p: &Project) -> ProjectListing {
         path: p.project_path.clone(),
         name: p.name.clone(),
         display_name: p.display_name.clone(),
+        kind: p.kind,
         champion: p.champion.clone(),
         skin_id: p.skin_id,
+        map_id: p.map_id.clone(),
         created_at: p.created_at.to_rfc3339(),
         modified_at: p.modified_at.to_rfc3339(),
         last_seen_at: Utc::now().to_rfc3339(),

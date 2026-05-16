@@ -107,10 +107,10 @@
   /* ============================================================ */
 
   /* Status palette (with subtle bg / accent fg / soft border) */
-  --color-danger:  #F85149;
+  --color-danger: #F85149;
   --color-warning: #D29922;
   --color-success: #3FB950;
-  --color-info:    var(--accent-secondary);
+  --color-info: var(--accent-secondary);
 
   /* Surfaces (aliases of legacy --bg-*) */
   --surface-1: var(--bg-primary);
@@ -120,10 +120,10 @@
   --border-default: var(--border);
 
   /* Motion scale */
-  --motion-fast:  120ms cubic-bezier(0.4, 0, 0.2, 1);
-  --motion-base:  200ms cubic-bezier(0.4, 0, 0.2, 1);
-  --motion-slow:  320ms cubic-bezier(0.4, 0, 0.2, 1);
-  --ease-spring:  cubic-bezier(0.34, 1.56, 0.64, 1);
+  --motion-fast: 120ms cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-slow: 320ms cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
   /* Focus ring */
   --focus-ring-color: color-mix(in oklab, var(--accent-primary) 60%, transparent);
@@ -137,7 +137,7 @@
   --btn-px-sm: 14px;
   --btn-px-md: 20px;
   --btn-px-lg: 28px;
-  --btn-gap:   10px;
+  --btn-gap: 10px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -224,18 +224,32 @@ body::after {
 }
 
 @keyframes bgHexDrift {
-  from { transform: translate3d(0, 0, 0); }
-  to   { transform: translate3d(56px, 64px, 0); }
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+
+  to {
+    transform: translate3d(56px, 64px, 0);
+  }
 }
+
 @keyframes bgGradDrift {
-  0%   { transform: translate3d(0, 0, 0) scale(1); }
-  100% { transform: translate3d(2vw, -1.5vh, 0) scale(1.05); }
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  100% {
+    transform: translate3d(2vw, -1.5vh, 0) scale(1.05);
+  }
 }
 
 /* Honor users who prefer reduced motion */
 @media (prefers-reduced-motion: reduce) {
+
   body::before,
-  body::after { animation: none; }
+  body::after {
+    animation: none;
+  }
 }
 
 /* Allow text selection only in inputs and textareas */
@@ -998,17 +1012,28 @@ input.search-box__input {
 }
 
 @keyframes highlight-ring-pulse {
-  0%, 100% { box-shadow: inset 0 0 0 1.5px var(--accent-secondary); background-color: color-mix(in oklab, var(--accent-secondary) 18%, transparent); }
-  50%       { box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--accent-secondary) 30%, transparent); background-color: color-mix(in oklab, var(--accent-secondary) 6%, transparent); }
+
+  0%,
+  100% {
+    box-shadow: inset 0 0 0 1.5px var(--accent-secondary);
+    background-color: color-mix(in oklab, var(--accent-secondary) 18%, transparent);
+  }
+
+  50% {
+    box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--accent-secondary) 30%, transparent);
+    background-color: color-mix(in oklab, var(--accent-secondary) 6%, transparent);
+  }
 }
 
 /* File status indicators (VSCode-style) */
 .file-tree__item--new .file-tree__name {
-  color: #73C991; /* Green for new files */
+  color: #73C991;
+  /* Green for new files */
 }
 
 .file-tree__item--modified .file-tree__name {
-  color: #E5C07B; /* Orange/yellow for modified files */
+  color: #E5C07B;
+  /* Orange/yellow for modified files */
 }
 
 /* File status badges */
@@ -1157,7 +1182,7 @@ input.search-box__input {
 }
 
 /* Folder bounds: left-side bracket when the target folder is expanded */
-.file-tree__node--drop-target > .file-tree__children {
+.file-tree__node--drop-target>.file-tree__children {
   box-shadow: inset 1.5px 0 0 0 color-mix(in oklab, var(--accent-secondary) 45%, transparent);
 }
 
@@ -1774,20 +1799,24 @@ input.search-box__input {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
+
 .cs-modal__title {
   font-size: 13px;
   font-weight: 600;
   flex: 1;
 }
+
 .cs-search {
   width: 190px;
   font-size: 12px;
 }
+
 .cs-modal__body {
   flex: 1;
   overflow-y: auto;
   padding: 12px 20px 16px;
 }
+
 .cs-modal__footer {
   display: flex;
   align-items: center;
@@ -1798,27 +1827,32 @@ input.search-box__input {
   color: var(--text-muted);
   flex-shrink: 0;
 }
+
 .cs-modal__empty {
   color: var(--text-muted);
   font-size: 12px;
   text-align: center;
   padding: 40px 0;
 }
+
 .cs-section {
   margin-bottom: 4px;
 }
+
 .cs-h1 {
   font-size: 15px;
   font-weight: 700;
   margin: 10px 0 8px;
   color: var(--text-primary);
 }
+
 .cs-h2 {
   font-size: 13px;
   font-weight: 600;
   margin: 14px 0 6px;
   color: var(--text-primary);
 }
+
 .cs-h3 {
   font-size: 12px;
   font-weight: 600;
@@ -1827,11 +1861,13 @@ input.search-box__input {
   padding-bottom: 4px;
   border-bottom: 1px solid var(--border);
 }
+
 .cs-hr {
   border: none;
   border-top: 1px solid var(--border);
   margin: 8px 0;
 }
+
 .cs-blockquote {
   margin: 4px 0 4px 8px;
   padding: 5px 10px;
@@ -1841,6 +1877,7 @@ input.search-box__input {
   font-size: 11px;
   color: var(--text-secondary);
 }
+
 .cs-listitem {
   display: flex;
   align-items: baseline;
@@ -1849,51 +1886,59 @@ input.search-box__input {
   line-height: 1.7;
   color: var(--text-secondary);
 }
+
 .cs-listitem__bullet {
   flex-shrink: 0;
   opacity: 0.5;
   font-size: 10px;
 }
+
 .cs-paragraph {
   font-size: 12px;
   line-height: 1.6;
   color: var(--text-secondary);
   margin: 4px 0;
 }
+
 .cs-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 11px;
   margin: 6px 0;
 }
+
 .cs-table th {
   text-align: left;
   padding: 4px 8px;
-  background: var(--bg-tertiary, rgba(255,255,255,0.04));
+  background: var(--bg-tertiary, rgba(255, 255, 255, 0.04));
   border: 1px solid var(--border);
   font-weight: 600;
   color: var(--text-primary);
 }
+
 .cs-table td {
   padding: 3px 8px;
   border: 1px solid var(--border);
   color: var(--text-secondary);
 }
+
 .cs-code-group {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   flex-wrap: wrap;
 }
+
 .cs-code {
   font-family: var(--font-mono, monospace);
   font-size: 11px;
-  background: var(--bg-tertiary, rgba(255,255,255,0.08));
+  background: var(--bg-tertiary, rgba(255, 255, 255, 0.08));
   border: 1px solid var(--border);
   border-radius: 3px;
   padding: 1px 5px;
   color: var(--text-primary);
 }
+
 .cs-pill {
   font-size: 10px;
   padding: 1px 6px;
@@ -1904,23 +1949,28 @@ input.search-box__input {
   white-space: nowrap;
   transition: opacity 0.15s;
 }
+
 .cs-pill:hover {
   opacity: 0.75;
 }
+
 .cs-pill--wad {
   background: color-mix(in oklab, var(--accent-secondary) 12%, transparent);
   border-color: color-mix(in oklab, var(--accent-secondary) 40%, transparent);
   color: #4fc3f7;
 }
+
 .cs-pill--filter {
-  background: rgba(165,214,167,0.12);
-  border-color: rgba(165,214,167,0.4);
+  background: rgba(165, 214, 167, 0.12);
+  border-color: rgba(165, 214, 167, 0.4);
   color: #a5d6a7;
 }
+
 .cs-link {
   color: var(--accent, #4fc3f7);
   text-decoration: none;
 }
+
 .cs-link:hover {
   text-decoration: underline;
 }
@@ -1940,6 +1990,7 @@ input.search-box__input {
     opacity: 0;
     transform: scale(0.92) translateY(12px);
   }
+
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
@@ -1989,8 +2040,15 @@ input.search-box__input {
 }
 
 @keyframes projectListFadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Items list */
@@ -2018,6 +2076,7 @@ input.search-box__input {
     opacity: 0;
     transform: translateX(-12px);
   }
+
   to {
     opacity: 1;
     transform: translateX(0);
@@ -2184,8 +2243,15 @@ input.search-box__input {
 }
 
 @keyframes npModalIn {
-  from { opacity: 0; transform: scale(0.94) translateY(12px); }
-  to   { opacity: 1; transform: scale(1) translateY(0); }
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 /* Header */
@@ -2324,8 +2390,15 @@ input.search-box__input {
 }
 
 @keyframes npFormIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* ─── Hero Splash Preview ─── */
@@ -2575,8 +2648,15 @@ input.np-search:focus {
 }
 
 @keyframes npChampIn {
-  from { opacity: 0; transform: scale(0.9); }
-  to   { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .np-champ-card:hover {
@@ -2624,98 +2704,145 @@ input.np-search:focus {
 
 .np-skin-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 10px;
-  max-height: 260px;
+  grid-template-columns: repeat(auto-fill, 180px);
+  justify-content: start;
+  column-gap: 20px;
+  row-gap: 20px;
+  max-height: 360px;
   overflow-y: auto;
-  padding: 8px;
-  background: #131313;
-  border: 1px solid #1a1a1a;
-  border-radius: 10px;
+  padding: 6px 4px 16px;
 }
 
+/* Modern cinematic skin card — splash fills the whole tile,
+   the name floats over it on a gradient so the card no longer reads
+   as "image box + label box stacked". */
 .np-skin-card {
-  display: flex;
-  flex-direction: column;
-  border-radius: 8px;
+  position: relative;
+  display: block;
+  border-radius: 14px;
   overflow: hidden;
   cursor: pointer;
-  border: 2px solid transparent;
-  background: #161616;
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  border: 1px solid color-mix(in oklab, var(--text-primary) 6%, transparent);
+  background: #0d0d0d;
+  isolation: isolate;
+  transition:
+    transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.18s ease,
+    box-shadow 0.25s ease;
   animation: npSkinIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @keyframes npSkinIn {
-  from { opacity: 0; transform: translateY(8px) scale(0.96); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .np-skin-card:hover {
-  border-color: #333;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  border-color: color-mix(in oklab, var(--accent-primary) 35%, transparent);
+  transform: translateY(-3px);
+  box-shadow:
+    0 12px 28px -10px rgba(0, 0, 0, 0.6),
+    0 0 0 1px color-mix(in oklab, var(--accent-primary) 18%, transparent);
 }
 
 .np-skin-card--active {
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent-primary) 20%, transparent), 0 6px 20px rgba(0, 0, 0, 0.3);
+  box-shadow:
+    0 0 0 1px var(--accent-primary),
+    0 14px 36px -12px color-mix(in oklab, var(--accent-primary) 40%, transparent),
+    0 6px 18px -6px rgba(0, 0, 0, 0.5);
 }
 
 .np-skin-card__img-wrap {
   position: relative;
-  height: 85px;
+  width: 100%;
+  aspect-ratio: 3 / 4;
   overflow: hidden;
-  background: #0a0a0a;
 }
 
 .np-skin-card__img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform 0.3s ease;
+  display: block;
+  transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1), filter 0.2s ease;
 }
 
 .np-skin-card:hover .np-skin-card__img {
-  transform: scale(1.06);
+  transform: scale(1.05);
+  filter: saturate(1.05) brightness(1.04);
+}
+
+/* Top-to-bottom darkening so the name stays readable, with a
+   subtle highlight ring along the top edge */
+.np-skin-card__img-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0) 40%, rgba(0, 0, 0, 0.72) 92%, rgba(0, 0, 0, 0.88) 100%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0) 18%);
+  transition: opacity 0.2s ease;
 }
 
 .np-skin-card__check {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  top: 8px;
+  right: 8px;
   width: 22px;
   height: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--accent-primary);
-  border-radius: 50%;
+  border-radius: 999px;
   color: #fff;
+  box-shadow:
+    0 0 0 2px rgba(0, 0, 0, 0.45),
+    0 4px 12px color-mix(in oklab, var(--accent-primary) 45%, transparent);
+  z-index: 2;
   animation: npCheckIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes npCheckIn {
-  from { transform: scale(0); }
-  to   { transform: scale(1); }
+  from {
+    transform: scale(0);
+  }
+
+  to {
+    transform: scale(1);
+  }
 }
 
 .np-skin-card__name {
-  padding: 6px 8px;
-  font-size: 11px;
-  font-weight: 500;
-  text-align: center;
-  color: var(--text-secondary);
-  background: #141414;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  padding: 24px 12px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-primary);
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  transition: color 0.15s ease, background 0.15s ease;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+  transition: color 0.15s ease;
 }
 
 .np-skin-card--active .np-skin-card__name {
-  color: var(--text-primary);
-  background: color-mix(in oklab, var(--accent-primary) 12%, transparent);
+  color: #fff;
 }
 
 /* ─── Hint ─── */
@@ -2748,8 +2875,8 @@ input.np-search:focus {
 
 .np-skin-picker {
   width: 100%;
-  max-width: 860px;
-  max-height: 82vh;
+  max-width: 1180px;
+  max-height: 86vh;
   background: var(--bg-secondary);
   border: var(--dl-border);
   border-radius: 18px;
@@ -2784,9 +2911,11 @@ input.np-search:focus {
 
 .np-skin-picker__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(172px, 1fr));
-  gap: 10px;
-  padding: 16px 20px 20px;
+  grid-template-columns: repeat(auto-fill, 220px);
+  justify-content: center;
+  column-gap: 22px;
+  row-gap: 64px;
+  padding: 24px 28px 36px;
   overflow-y: auto;
   flex: 1;
   min-height: 0;
@@ -2983,8 +3112,104 @@ input.np-search:focus {
 }
 
 @keyframes npFadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+/* ─── Zoom-into-workspace outro ─────────────────────────────────────────
+   Played on the new-project modal after creation finishes, just before
+   the modal unmounts. The workspace is already rendered behind the modal
+   (SET_PROJECT fired earlier in finishProjectCreation), so this scale-up
+   + fade reads as "we're flying into the skeleton and it becomes the
+   real workspace". */
+.modal-overlay--zooming {
+  animation: npOverlayZoomOut 650ms cubic-bezier(.22, 1, .36, 1) forwards;
+  pointer-events: none;
+}
+
+@keyframes npOverlayZoomOut {
+  0% {
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  60% {
+    background: rgba(0, 0, 0, 0.25);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+  }
+
+  100% {
+    background: rgba(0, 0, 0, 0);
+    backdrop-filter: blur(0);
+    -webkit-backdrop-filter: blur(0);
+  }
+}
+
+.modal--new-project.modal--zooming {
+  animation: npModalZoom 650ms cubic-bezier(.34, 1.56, .64, 1) forwards;
+  transform-origin: center center;
+}
+
+@keyframes npModalZoom {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+    filter: blur(0);
+  }
+
+  35% {
+    transform: scale(1.05);
+    opacity: 1;
+    filter: blur(0);
+  }
+
+  100% {
+    transform: scale(1.45);
+    opacity: 0;
+    filter: blur(6px);
+  }
+}
+
+/* While zooming, the skeleton's own breathing animations would jitter the
+   composite — freeze them so the modal expands cleanly. */
+.modal--zooming .np-skel__tile,
+.modal--zooming .np-skel__shimmer,
+.modal--zooming .np-skel__pulse {
+  animation-play-state: paused !important;
+}
+
+/* The workspace behind the modal gets a matching intro so the hand-off
+   feels like one continuous motion. Applied via JS on the App container
+   for ~650ms right after SET_PROJECT — see `.app-content--project-intro`. */
+.app-content--project-intro {
+  animation: npWorkspaceIn 650ms cubic-bezier(.22, 1, .36, 1) both;
+  transform-origin: center center;
+}
+
+@keyframes npWorkspaceIn {
+  0% {
+    transform: scale(0.985);
+    opacity: 0.6;
+    filter: blur(2px);
+  }
+
+  60% {
+    opacity: 1;
+    filter: blur(0);
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 1;
+    filter: blur(0);
+  }
 }
 
 /* ------ Skeleton workspace preview ------ */
@@ -3005,7 +3230,11 @@ input.np-search:focus {
   height: 44px;
   flex: none;
 }
-.np-skel__spacer { flex: 1; }
+
+.np-skel__spacer {
+  flex: 1;
+}
+
 .np-skel__dot {
   width: 10px;
   height: 10px;
@@ -3019,6 +3248,7 @@ input.np-search:focus {
   grid-template-columns: 220px 1fr;
   min-height: 0;
 }
+
 .np-skel__side {
   background: var(--bg-secondary);
   border-right: 1px solid var(--border);
@@ -3027,6 +3257,7 @@ input.np-search:focus {
   flex-direction: column;
   gap: 10px;
 }
+
 .np-skel__main {
   padding: 22px 28px;
   display: flex;
@@ -3034,16 +3265,19 @@ input.np-search:focus {
   gap: 22px;
   overflow: hidden;
 }
+
 .np-skel__hero {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
+
 .np-skel__grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 14px;
 }
+
 .np-skel__tile {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
@@ -3054,9 +3288,17 @@ input.np-search:focus {
   gap: 10px;
   animation: npTileFloat 2.4s ease-in-out infinite;
 }
+
 @keyframes npTileFloat {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-2px); }
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-2px);
+  }
 }
 
 /* Shimmer block — base for any placeholder */
@@ -3064,23 +3306,36 @@ input.np-search:focus {
   display: block;
   height: 12px;
   border-radius: 6px;
-  background: linear-gradient(
-      90deg,
+  background: linear-gradient(90deg,
       color-mix(in oklab, var(--text-muted) 12%, transparent) 0%,
       color-mix(in oklab, var(--text-muted) 22%, transparent) 50%,
       color-mix(in oklab, var(--text-muted) 12%, transparent) 100%);
   background-size: 200% 100%;
   animation: npShimmer 1.6s ease-in-out infinite;
 }
-.np-skel__shimmer--soft { opacity: 0.55; }
-.np-skel__shimmer--row  { height: 10px; border-radius: 5px; }
+
+.np-skel__shimmer--soft {
+  opacity: 0.55;
+}
+
+.np-skel__shimmer--row {
+  height: 10px;
+  border-radius: 5px;
+}
+
 .np-skel__shimmer--block {
   height: 70px;
   border-radius: 8px;
 }
+
 @keyframes npShimmer {
-  0%   { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 /* Status footer */
@@ -3094,6 +3349,7 @@ input.np-search:focus {
   flex: none;
   font-size: 12px;
 }
+
 .np-skel__pulse {
   width: 8px;
   height: 8px;
@@ -3102,12 +3358,28 @@ input.np-search:focus {
   box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent-secondary) 60%, transparent);
   animation: npPulse 1.4s ease-out infinite;
 }
+
 @keyframes npPulse {
-  0%   { box-shadow: 0 0 0 0   color-mix(in oklab, var(--accent-secondary) 60%, transparent); }
-  100% { box-shadow: 0 0 0 10px color-mix(in oklab, var(--accent-secondary) 0%,  transparent); }
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent-secondary) 60%, transparent);
+  }
+
+  100% {
+    box-shadow: 0 0 0 10px color-mix(in oklab, var(--accent-secondary) 0%, transparent);
+  }
 }
-.np-skel__title    { color: var(--text-primary); font-weight: 600; }
-.np-skel__progress { color: var(--text-muted); margin-left: auto; font-family: var(--font-mono); font-size: 11px; }
+
+.np-skel__title {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.np-skel__progress {
+  color: var(--text-muted);
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    Loading Screen — Video Editing UI
@@ -3568,12 +3840,12 @@ input.np-search:focus {
 
 .np-ve-timeline__handle--start {
   background: var(--accent-primary);
-  border: 2px solid rgba(255,255,255,0.4);
+  border: 2px solid rgba(255, 255, 255, 0.4);
 }
 
 .np-ve-timeline__handle--end {
   background: var(--accent-primary);
-  border: 2px solid rgba(255,255,255,0.4);
+  border: 2px solid rgba(255, 255, 255, 0.4);
 }
 
 .np-ve-timeline__handle:hover {
@@ -4039,8 +4311,13 @@ input.np-search:focus {
 }
 
 @keyframes fixer-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .fixer-recent-projects {
@@ -4195,38 +4472,7 @@ input.np-search:focus {
   margin: var(--space-xs) 0;
 }
 
-/* --------------------------------------------------------------------------
-   Component: Context Menu
-   -------------------------------------------------------------------------- */
-.context-menu {
-  position: fixed;
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
-  min-width: 160px;
-  z-index: 1001;
-  padding: var(--space-xs) 0;
-}
-
-.context-menu__item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-md);
-  cursor: pointer;
-  transition: background-color var(--transition-fast);
-}
-
-.context-menu__item:hover {
-  background-color: var(--bg-hover);
-}
-
-.context-menu__divider {
-  height: 1px;
-  background-color: var(--border);
-  margin: var(--space-xs) 0;
-}
+/* (Context Menu styles consolidated below — see "design-lab visual language" block.) */
 
 /* --------------------------------------------------------------------------
    Component: Loading / Progress
@@ -5735,14 +5981,32 @@ input.np-search:focus {
   animation: toast-slide-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.toast-info { border-left: 3px solid var(--accent-secondary); }
-.toast-success { border-left: 3px solid var(--success); }
-.toast-warning { border-left: 3px solid var(--warning); }
-.toast-error { border-left: 3px solid var(--error); }
+.toast-info {
+  border-left: 3px solid var(--accent-secondary);
+}
+
+.toast-success {
+  border-left: 3px solid var(--success);
+}
+
+.toast-warning {
+  border-left: 3px solid var(--warning);
+}
+
+.toast-error {
+  border-left: 3px solid var(--error);
+}
 
 @keyframes toast-slide-in {
-  from { opacity: 0; transform: translateX(24px); }
-  to   { opacity: 1; transform: translateX(0); }
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .toast-icon {
@@ -5761,6 +6025,7 @@ input.np-search:focus {
      centerline. */
   line-height: 0;
 }
+
 .toast-icon svg {
   display: block;
 }
@@ -6940,47 +7205,153 @@ input.np-search:focus {
 }
 
 /* --------------------------------------------------------------------------
-   Component: Context Menu
+   Component: Context Menu — design-lab visual language
+   Frosted panel, spring-eased entrance, gradient hover stripe, hierarchical
+   submenus that fan out to the right.
    -------------------------------------------------------------------------- */
 .context-menu {
-  background-color: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-lg);
-  min-width: 160px;
-  padding: 4px 0;
+  --cm-radius: 12px;
+  --cm-pad-x: 6px;
+  --cm-pad-y: 6px;
+  --cm-ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+  --cm-ease-out: cubic-bezier(.22, 1, .36, 1);
+
+  background:
+    linear-gradient(180deg,
+      color-mix(in oklab, var(--bg-tertiary) 92%, transparent),
+      color-mix(in oklab, var(--bg-secondary) 96%, transparent));
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  border-radius: var(--cm-radius);
+  box-shadow:
+    0 24px 48px -16px rgba(0, 0, 0, 0.55),
+    0 6px 16px -6px rgba(0, 0, 0, 0.45),
+    0 0 0 1px color-mix(in oklab, #fff 4%, transparent) inset;
+  min-width: 196px;
+  padding: var(--cm-pad-y) var(--cm-pad-x);
   user-select: none;
-  animation: contextMenuFadeIn 0.1s ease-out;
+  transform-origin: top left;
+  animation: contextMenuIn 180ms var(--cm-ease-spring) both;
+  /* Stay above modals, drag overlays, but below toasts. */
+  z-index: 2000;
 }
 
-@keyframes contextMenuFadeIn {
+.context-menu--closing {
+  animation: contextMenuOut 140ms var(--cm-ease-out) forwards;
+}
+
+@keyframes contextMenuIn {
   from {
     opacity: 0;
-    transform: scale(0.95);
+    transform: translateY(-4px) scale(0.96);
+    filter: blur(2px);
   }
 
   to {
     opacity: 1;
-    transform: scale(1);
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes contextMenuOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.98);
   }
 }
 
 .context-menu__item {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
-  padding: 6px var(--space-lg);
+  gap: 10px;
+  padding: 7px 10px 7px 10px;
+  margin: 1px 0;
+  border-radius: 8px;
   cursor: pointer;
-  font-size: var(--text-sm);
-  color: var(--text-primary);
-  transition: background-color var(--transition-fast);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  transition:
+    background 140ms var(--cm-ease-out),
+    color 140ms var(--cm-ease-out),
+    transform 100ms var(--cm-ease-out);
+  isolation: isolate;
 }
 
-.context-menu__item:hover {
-  background-color: var(--bg-hover);
+/* Gradient hover stripe — accent-tinted bar that washes the row on hover.
+   Keeps colour energy in the panel without screaming. */
+.context-menu__item::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg,
+    color-mix(in oklab, var(--accent-primary) 22%, transparent),
+    color-mix(in oklab, var(--accent-primary) 8%, transparent) 60%,
+    transparent);
+  opacity: 0;
+  transition: opacity 140ms var(--cm-ease-out);
+  z-index: -1;
+}
+
+/* Accent dot on the left edge that slides in on hover. Subtle but signals
+   "this is the current row" without needing a heavy background. */
+.context-menu__item::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  width: 3px;
+  height: 0;
+  background: var(--accent-primary);
+  border-radius: 2px;
+  transform: translateY(-50%);
+  transition: height 160ms var(--cm-ease-spring);
+}
+
+.context-menu__item:hover:not(.context-menu__item--disabled),
+.context-menu__item--open {
+  color: var(--text-primary);
+  transform: translateX(1px);
+}
+
+.context-menu__item:hover:not(.context-menu__item--disabled)::before,
+.context-menu__item--open::before {
+  opacity: 1;
+}
+
+.context-menu__item:hover:not(.context-menu__item--disabled)::after,
+.context-menu__item--open::after {
+  height: 16px;
+}
+
+.context-menu__item:active:not(.context-menu__item--disabled) {
+  transform: translateX(1px) scale(0.985);
 }
 
 .context-menu__item--danger {
+  color: color-mix(in oklab, var(--error) 75%, var(--text-secondary));
+}
+
+.context-menu__item--danger::before {
+  background: linear-gradient(90deg,
+    color-mix(in oklab, var(--error) 28%, transparent),
+    color-mix(in oklab, var(--error) 10%, transparent) 60%,
+    transparent);
+}
+
+.context-menu__item--danger::after {
+  background: var(--error);
+}
+
+.context-menu__item--danger:hover:not(.context-menu__item--disabled) {
   color: var(--error);
 }
 
@@ -6991,30 +7362,76 @@ input.np-search:focus {
   width: 16px;
   height: 16px;
   flex-shrink: 0;
+  color: currentColor;
+  opacity: 0.78;
+  transition: opacity 140ms var(--cm-ease-out), transform 140ms var(--cm-ease-out);
+}
+
+.context-menu__icon--empty {
+  /* Reserve space so labels stay aligned when an item lacks an icon. */
+  visibility: hidden;
+}
+
+.context-menu__item:hover .context-menu__icon {
+  opacity: 1;
+  transform: scale(1.08);
 }
 
 .context-menu__icon svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
+  display: block;
 }
 
 .context-menu__label {
   flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.context-menu__shortcut {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  padding-left: 12px;
+  flex-shrink: 0;
+}
+
+.context-menu__chevron {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: color 140ms var(--cm-ease-out), transform 140ms var(--cm-ease-out);
+}
+
+.context-menu__item--parent:hover .context-menu__chevron,
+.context-menu__item--open .context-menu__chevron {
+  color: var(--accent-primary);
+  transform: translateX(2px);
 }
 
 .context-menu__separator {
   height: 1px;
-  background-color: var(--border);
-  margin: 4px 0;
+  background: linear-gradient(90deg,
+    transparent,
+    color-mix(in oklab, var(--border) 90%, transparent) 18%,
+    color-mix(in oklab, var(--border) 90%, transparent) 82%,
+    transparent);
+  margin: 5px 4px;
 }
 
 .context-menu__item--disabled {
-  opacity: 0.4;
+  opacity: 0.38;
   cursor: default;
 }
 
-.context-menu__item--disabled:hover {
-  background-color: transparent;
+.context-menu__item--disabled::before,
+.context-menu__item--disabled::after {
+  display: none;
 }
 
 /* --------------------------------------------------------------------------
@@ -7032,8 +7449,13 @@ input.np-search:focus {
 }
 
 @keyframes confirmOverlayIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 .confirm-dialog {
@@ -7056,6 +7478,7 @@ input.np-search:focus {
     opacity: 0;
     transform: scale(0.92) translateY(8px);
   }
+
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
@@ -7903,8 +8326,13 @@ input.np-search:focus {
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Utilities */
@@ -7932,13 +8360,27 @@ input.np-search:focus {
   padding-bottom: 2px;
   border-bottom: 1px solid var(--border-color);
 }
+
 .update-modal__release-notes h3:first-child,
 .update-modal__release-notes h4:first-child,
 .update-modal__release-notes h5:first-child,
-.update-modal__release-notes h6:first-child { margin-top: 0; }
-.update-modal__release-notes p { margin: 4px 0; }
-.update-modal__release-notes ul { margin: 4px 0; padding-left: 18px; }
-.update-modal__release-notes li { margin: 2px 0; }
+.update-modal__release-notes h6:first-child {
+  margin-top: 0;
+}
+
+.update-modal__release-notes p {
+  margin: 4px 0;
+}
+
+.update-modal__release-notes ul {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+
+.update-modal__release-notes li {
+  margin: 2px 0;
+}
+
 .update-modal__release-notes code {
   background: var(--bg-tertiary);
   padding: 1px 5px;
@@ -7946,12 +8388,19 @@ input.np-search:focus {
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
 }
+
 .update-modal__release-notes a {
   color: var(--accent-primary);
   text-decoration: none;
 }
-.update-modal__release-notes a:hover { text-decoration: underline; }
-.update-modal__release-notes strong { color: var(--text-primary); }
+
+.update-modal__release-notes a:hover {
+  text-decoration: underline;
+}
+
+.update-modal__release-notes strong {
+  color: var(--text-primary);
+}
 
 /* ==========================================================================
    Tutorial Overlay
@@ -7961,7 +8410,8 @@ input.np-search:focus {
   position: fixed;
   inset: 0;
   z-index: 10000;
-  pointer-events: none; /* children opt in individually */
+  pointer-events: none;
+  /* children opt in individually */
 }
 
 /* Blocks all pointer events so the user can't click the UI during the tour */
@@ -7969,7 +8419,8 @@ input.np-search:focus {
   position: fixed;
   inset: 0;
   pointer-events: all;
-  z-index: 0; /* within overlay stacking context — behind callout */
+  z-index: 0;
+  /* within overlay stacking context — behind callout */
 }
 
 /*
@@ -7983,11 +8434,12 @@ input.np-search:focus {
   border-radius: 6px;
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.76);
   pointer-events: none;
-  z-index: 1; /* within overlay stacking context */
-  transition: top    0.28s cubic-bezier(0.4, 0, 0.2, 1),
-              left   0.28s cubic-bezier(0.4, 0, 0.2, 1),
-              width  0.28s cubic-bezier(0.4, 0, 0.2, 1),
-              height 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 1;
+  /* within overlay stacking context */
+  transition: top 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    left 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    height 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Animated blue ring drawn around the spotlight via ::after */
@@ -8007,8 +8459,15 @@ input.np-search:focus {
 }
 
 @keyframes tut-ring-pulse {
-  0%, 100% { opacity: 0.9; }
-  50%       { opacity: 0.35; }
+
+  0%,
+  100% {
+    opacity: 0.9;
+  }
+
+  50% {
+    opacity: 0.35;
+  }
 }
 
 /* Callout slides to new position; content changes instantly */
@@ -8019,9 +8478,10 @@ input.np-search:focus {
   border-radius: var(--radius-lg);
   padding: 20px;
   box-shadow: var(--shadow-lg), 0 0 0 1px rgba(0, 122, 204, 0.2);
-  z-index: 2; /* within overlay stacking context — above blocker */
+  z-index: 2;
+  /* within overlay stacking context — above blocker */
   transition: top 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-              left 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    left 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .tutorial-callout__dots {
@@ -8074,7 +8534,9 @@ input.np-search:focus {
   flex-shrink: 0;
 }
 
-.tutorial-skip:hover { color: var(--text-secondary); }
+.tutorial-skip:hover {
+  color: var(--text-secondary);
+}
 
 .tutorial-callout__nav {
   margin-left: auto;
@@ -8102,7 +8564,10 @@ input.np-search:focus {
   color: var(--accent-secondary);
 }
 
-.tutorial-nav-btn:disabled { opacity: 0.25; cursor: default; }
+.tutorial-nav-btn:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
 
 .tutorial-nav-btn--next {
   background: var(--accent-primary);
@@ -8114,4 +8579,41 @@ input.np-search:focus {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
   color: #fff;
+}
+/* --------------------------------------------------------------------------
+   Custom tooltip — replaces the OS-native [title] tooltip everywhere.
+   Anchored via inline left/top + transform on the host span; we only
+   animate opacity here so the positioning math isn't disturbed.
+   -------------------------------------------------------------------------- */
+.flint-tooltip {
+  position: fixed;
+  z-index: 10001;
+  pointer-events: none;
+  background: color-mix(in oklab, var(--bg-tertiary) 92%, transparent);
+  color: var(--text-primary);
+  padding: 5px 10px;
+  border: 1px solid color-mix(in oklab, #fff 10%, var(--border));
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.4;
+  white-space: nowrap;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow:
+    0 8px 22px -8px rgba(0, 0, 0, 0.7),
+    0 2px 6px -2px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  opacity: 0;
+  animation: flint-tooltip-in 120ms cubic-bezier(.22, 1, .36, 1) forwards;
+}
+
+/* The opacity-only keyframe so the parent transform: translate() that
+   positions the tooltip is left untouched. */
+@keyframes flint-tooltip-in {
+  to { opacity: 1; }
 }

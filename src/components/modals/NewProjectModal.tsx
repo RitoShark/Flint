@@ -11,6 +11,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useAppState, useConfigStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import * as datadragon from '../../lib/datadragon';
+import { getChromaImageUrl } from '../../lib/datadragon';
 import type { DDragonChampion, DDragonSkin, DDragonChroma } from '../../lib/datadragon';
 import type { Project } from '../../lib/types';
 import {
@@ -85,6 +86,11 @@ export const NewProjectModal: React.FC = () => {
     const [projectPath, setProjectPath] = useState('');
     const [isCreating, setIsCreating] = useState(false);
     const [progress, setProgress] = useState('');
+    /** After project creation finishes, the modal plays a "zoom into the
+     *  skeleton" outro: the modal scales up + fades out while the workspace
+     *  behind it crossfades in. This state drives that handoff. See
+     *  `.np-zooming` styles in index.css. */
+    const [transitioning, setTransitioning] = useState(false);
 
     // Subscribe to Rust-side `project-create-progress` events. Without this
     // listener the modal sat on a single static "Creating project..." string
@@ -119,6 +125,43 @@ export const NewProjectModal: React.FC = () => {
     const [splashLoaded, setSplashLoaded] = useState(false);
     const [skinPickerOpen, setSkinPickerOpen] = useState(false);
     const [cacheReady, setCacheReady] = useState(0); // bumped when preload batches finish
+
+    // ─── Chroma hover preview (1.5s delay → big popup) ──────────────────
+    const [chromaPreview, setChromaPreview] = useState<{
+        chromaId: number;
+        url: string;
+        name: string;
+        c1: string;
+        c2?: string;
+        anchorX: number;
+        anchorY: number;
+    } | null>(null);
+    const chromaPreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const dismissChromaPreview = () => {
+        if (chromaPreviewTimerRef.current) {
+            clearTimeout(chromaPreviewTimerRef.current);
+            chromaPreviewTimerRef.current = null;
+        }
+        setChromaPreview(null);
+    };
+    const scheduleChromaPreview = (chroma: DDragonChroma, anchor: DOMRect) => {
+        if (!selectedChampion) return;
+        if (chromaPreviewTimerRef.current) clearTimeout(chromaPreviewTimerRef.current);
+        const championId = selectedChampion.id;
+        const branch = cdragonBranch;
+        chromaPreviewTimerRef.current = setTimeout(() => {
+            setChromaPreview({
+                chromaId: chroma.id,
+                url: getChromaImageUrl(championId, chroma.id, branch),
+                name: chroma.name ?? `Chroma ${chroma.id % 1000}`,
+                c1: chroma.colors[0] ?? '#888',
+                c2: chroma.colors[1],
+                anchorX: anchor.left + anchor.width / 2,
+                anchorY: anchor.top,
+            });
+        }, 1500);
+    };
+    useEffect(() => () => { if (chromaPreviewTimerRef.current) clearTimeout(chromaPreviewTimerRef.current); }, []);
     const [usePbe, setUsePbe] = useState(false);
     const cdragonBranch: 'pbe' | 'latest' = usePbe ? 'pbe' : 'latest';
     const effectiveLeaguePath = usePbe ? configStore.leaguePathPbe : state.leaguePath;
@@ -686,6 +729,18 @@ export const NewProjectModal: React.FC = () => {
         });
         dispatch({ type: 'SET_RECENT_PROJECTS', payload: recent.slice(0, 10) });
 
+        // Play the zoom-into-workspace outro before unmounting the modal.
+        // SET_PROJECT above already rendered the workspace behind us — we're
+        // just trading visual hand-off here so it doesn't snap. Matches the
+        // `npModalZoom` keyframe duration in index.css.
+        //
+        // The DOM event lets App.tsx apply a matching subtle scale-up + fade
+        // on `.main-content` so both halves of the hand-off feel like one
+        // continuous motion.
+        window.dispatchEvent(new CustomEvent('flint:project-intro'));
+        setTransitioning(true);
+        await new Promise((r) => setTimeout(r, 650));
+
         closeModal();
         showToast('success', 'Project created successfully!');
 
@@ -757,8 +812,8 @@ export const NewProjectModal: React.FC = () => {
         // Custom modal shell — has nested np-skin-picker-overlay / np-video-editor-overlay
         // siblings that depend on .modal-overlay being the nearest positioned ancestor.
         // Don't migrate to <Modal> — it would change the containing block.
-        <div className="modal-overlay modal-overlay--visible">
-            <div className="modal modal--new-project">
+        <div className={`modal-overlay modal-overlay--visible${transitioning ? ' modal-overlay--zooming' : ''}`}>
+            <div className={`modal modal--new-project${transitioning ? ' modal--zooming' : ''}`}>
                 {/* Loading overlay — skeleton workspace preview */}
                 {isCreating && (
                     <div className="np-loading-overlay">
@@ -1505,7 +1560,7 @@ export const NewProjectModal: React.FC = () => {
 
             {/* ─── Skin Picker Modal (DL redesign) ─── */}
             {skinPickerOpen && selectedChampion && (
-                <div className="np-skin-picker-overlay" onClick={() => setSkinPickerOpen(false)}>
+                <div className="np-skin-picker-overlay" onClick={() => { dismissChromaPreview(); setSkinPickerOpen(false); }}>
                     <div className="np-skin-picker" onClick={(e) => e.stopPropagation()}>
 
                         {/* Header */}
@@ -1577,20 +1632,27 @@ export const NewProjectModal: React.FC = () => {
                                         </div>
                                         <span className="np-skin-card__name">{skin.name}</span>
 
-                                        {/* Chroma dots */}
+                                        {/* Chroma swatches — plain color dots; hover 1.5s for a big preview */}
                                         {skin.chromas && skin.chromas.length > 0 && (
                                             <div className="np-skin-card__chromas" onClick={(e) => e.stopPropagation()}>
                                                 {skin.chromas.map(chroma => {
-                                                    const dotColor = chroma.colors[0] ?? '#888';
+                                                    const c1 = chroma.colors[0] ?? '#888';
+                                                    const c2 = chroma.colors[1];
+                                                    const swatch = c2
+                                                        ? `linear-gradient(135deg, ${c1} 50%, ${c2} 50%)`
+                                                        : c1;
                                                     const isActiveChroma = hasActiveChroma && selectedChroma?.id === chroma.id;
                                                     return (
                                                         <button
                                                             key={chroma.id}
                                                             className={`np-chroma-dot${isActiveChroma ? ' np-chroma-dot--active' : ''}`}
-                                                            style={{ '--dot-color': dotColor } as React.CSSProperties}
+                                                            style={{ '--dot-color': c1, background: swatch } as React.CSSProperties}
                                                             title={chroma.name ?? `Chroma ${chroma.id % 1000}`}
+                                                            onMouseEnter={(e) => scheduleChromaPreview(chroma, e.currentTarget.getBoundingClientRect())}
+                                                            onMouseLeave={dismissChromaPreview}
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
+                                                                dismissChromaPreview();
                                                                 skipChromaResetRef.current = true;
                                                                 setSelectedSkin(skin);
                                                                 setSelectedChroma(isActiveChroma ? null : chroma);
@@ -1608,6 +1670,50 @@ export const NewProjectModal: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            {/* ─── Chroma hover preview (positioned in viewport) ─── */}
+            {chromaPreview && (
+                <ChromaPreviewPopup data={chromaPreview} />
+            )}
+        </div>
+    );
+};
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Chroma preview popup — appears after hovering a chroma dot for 1.5s.
+ * Renders a 160px chroma image, name, and two colour chips. Positioned
+ * above the dot by default, flips below if there isn't room.
+ * ────────────────────────────────────────────────────────────────────────── */
+interface ChromaPreviewData {
+    url: string;
+    name: string;
+    c1: string;
+    c2?: string;
+    anchorX: number;
+    anchorY: number;
+}
+const ChromaPreviewPopup: React.FC<{ data: ChromaPreviewData }> = ({ data }) => {
+    const W = 200;
+    const H = 244;
+    const GAP = 12;
+    const vpW = window.innerWidth;
+    const vpH = window.innerHeight;
+    let left = Math.round(data.anchorX - W / 2);
+    left = Math.max(8, Math.min(vpW - W - 8, left));
+    const above = data.anchorY - GAP - H;
+    const top = above >= 8 ? above : Math.min(vpH - H - 8, data.anchorY + 36 + GAP);
+    return (
+        <div className="np-chroma-preview" style={{ left, top, width: W }}>
+            <div className="np-chroma-preview__img-wrap">
+                <img src={data.url} alt={data.name} draggable={false} />
+            </div>
+            <div className="np-chroma-preview__meta">
+                <div className="np-chroma-preview__name">{data.name}</div>
+                <div className="np-chroma-preview__swatches">
+                    <span className="np-chroma-preview__chip" style={{ background: data.c1 }} />
+                    {data.c2 && <span className="np-chroma-preview__chip" style={{ background: data.c2 }} />}
+                </div>
+            </div>
         </div>
     );
 };

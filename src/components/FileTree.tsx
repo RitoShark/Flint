@@ -537,7 +537,9 @@ const ProjectsPanel: React.FC = () => {
             useConfigStore.getState().addSavedProject({
                 id: `proj-${Date.now()}`,
                 name: project.display_name || project.name,
+                kind: project.kind ?? 'skin',
                 champion: project.champion,
+                mapId: project.map_id ?? null,
                 path: normalizedPath,
                 lastOpened: new Date().toISOString(),
             });

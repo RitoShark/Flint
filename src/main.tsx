@@ -43,6 +43,10 @@ import './styles/wad-explorer-polish.css';
 import './styles/cheat-sheet-polish.css';
 // Browse-WAD modal
 import './styles/browse-wad-polish.css';
+// Title bar polish (glowing logo, design-lab tabs, animated closes)
+import './styles/titlebar-polish.css';
+// Tutorial overlay polish (frosted callout, spring motion, progress bar)
+import './styles/tutorial-polish.css';
 // Design lab primitives — usable in the main app via .dl-root scope
 import './styles/design-lab.css';
 // Flint 2.0 polish — animated transitions, glassmorphism, FPS-mode kill switch,

@@ -17,7 +17,7 @@ import { useAppState, useConfigStore, useWadExplorerStore } from '../lib/stores'
 import * as api from '../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getIcon, getFileIcon } from '../lib/fileIcons';
-import type { WadChunk, WadExplorerWad } from '../lib/types';
+import type { ContextMenuOption, WadChunk, WadExplorerWad } from '../lib/types';
 import * as monaco from 'monaco-editor';
 import { RITOBIN_LANGUAGE_ID, RITOBIN_THEME_ID, registerRitobinLanguage, registerRitobinTheme } from '../lib/ritobinLanguage';
 import LazyModelPreview from './preview/LazyModelPreview';
@@ -1425,11 +1425,34 @@ export const WadExplorer: React.FC = () => {
     } | null>(null);
     const extracting = !!extractProgress?.visible;
 
+    // Persisted preference: when true, every extract destination is nested
+    // under a `<wadName>/` folder so multi-WAD dumps don't pile loose
+    // assets/data/ trees on top of each other. This mirrors how Obsidian /
+    // Quartz lay out their extractions. Stored in localStorage so the
+    // user's preference survives reloads — the in-menu submenu can override
+    // it per-extraction.
+    const [wrapInWadFolder, setWrapInWadFolder] = useState<boolean>(() => {
+        try { return localStorage.getItem('flint.wadExplorer.wrapInWadFolder') !== 'false'; }
+        catch { return true; }
+    });
+    const setWrapPref = useCallback((v: boolean) => {
+        setWrapInWadFolder(v);
+        try { localStorage.setItem('flint.wadExplorer.wrapInWadFolder', String(v)); } catch { /* ignore */ }
+    }, []);
+
+    /** Join a base dest with a wad filename so the extract lands in
+     *  `<dest>/<wadName>/...`. Forward-slashes are fine on Rust side; the
+     *  backend's WalkDir + create_dir_all handles either separator. */
+    const wadFolderFor = (wadPath: string) =>
+        wadPath.split(/[\\/]/).pop() ?? wadPath;
+
     const runExtract = useCallback(async (
         groups: ExtractGroup[],
         dest: string,
         title: string,
+        opts?: { wrap?: boolean },
     ): Promise<number> => {
+        const wrap = opts?.wrap ?? wrapInWadFolder;
         const plannedCount = groups.reduce((n, g) => n + (g.hashes?.length ?? 0), 0);
         setExtractProgress({
             visible: true,
@@ -1448,7 +1471,14 @@ export const WadExplorer: React.FC = () => {
                 currentLabel: g.wadLabel ?? g.wadPath,
                 currentIndex: i,
             });
-            const res = await api.extractWad(g.wadPath, dest, g.hashes);
+            // Per-group wrap: each WAD gets its own folder when wrapping is
+            // on. This is the only way to do a sensible multi-WAD dump —
+            // otherwise files from different WADs collide on identical
+            // internal paths (assets/, data/...).
+            const groupDest = wrap
+                ? `${dest.replace(/[\\/]+$/, '')}/${wadFolderFor(g.wadPath)}`
+                : dest;
+            const res = await api.extractWad(g.wadPath, groupDest, g.hashes);
             total += res.extracted;
             setExtractProgress((p) => p && { ...p, extractedCount: total, currentIndex: i + 1 });
         }
@@ -1456,7 +1486,7 @@ export const WadExplorer: React.FC = () => {
         await new Promise((r) => setTimeout(r, 240));
         setExtractProgress(null);
         return total;
-    }, []);
+    }, [wrapInWadFolder]);
 
     const handleExtractSelected = useCallback(async () => {
         const { checkedFiles } = wadExplorer;
@@ -1517,144 +1547,249 @@ export const WadExplorer: React.FC = () => {
     }, [dispatch, state.currentView]);
 
     // ── Context menus ────────────────────────────────────────────────────────
+    /** Build the "Extract ▸" submenu for any extraction action. Default item
+     *  uses the persisted preference; the two child items override it for
+     *  the current click and update the preference (so the user's "I want
+     *  wrapping today" choice sticks). */
+    const buildExtractSubmenu = useCallback((
+        run: (wrap: boolean) => Promise<void>,
+    ): ContextMenuOption[] => [
+        {
+            label: 'Wrap in WAD folder',
+            icon: getIcon('folder'),
+            shortcut: wrapInWadFolder ? '✓' : undefined,
+            onClick: () => { setWrapPref(true); void run(true); },
+        },
+        {
+            label: 'Flat (no wrapper)',
+            icon: getIcon('export'),
+            shortcut: !wrapInWadFolder ? '✓' : undefined,
+            onClick: () => { setWrapPref(false); void run(false); },
+        },
+    ], [wrapInWadFolder, setWrapPref]);
+
     const handleContextMenu = useCallback((chunk: WadChunk, wadPath: string, x: number, y: number) => {
         const key = makeFileKey(wadPath, chunk.hash);
         const isChecked = wadExplorer.checkedFiles.has(key);
         const checkedCount = wadExplorer.checkedFiles.size;
-        const options: Array<{ label: string; icon?: string; onClick: () => void; separator?: boolean; disabled?: boolean }> = [];
-        if (chunk.path) {
-            options.push({ label: 'Copy Path', icon: getIcon('copy'), onClick: () => navigator.clipboard.writeText(chunk.path!) });
-        }
-        options.push({ label: 'Copy Hash', icon: getIcon('copy'), onClick: () => navigator.clipboard.writeText(chunk.hash) });
-        options.push({ label: '', separator: true, onClick: () => { } });
+        const wadName = wadFolderFor(wadPath);
+
+        const runExtractFile = async (wrap: boolean) => {
+            try {
+                const dest = await open({ title: 'Choose Extraction Folder', directory: true });
+                if (!dest) return;
+                const total = await runExtract(
+                    [{ wadPath, hashes: [chunk.hash], wadLabel: wadName }],
+                    dest as string,
+                    `Extracting ${chunk.path ?? chunk.hash}`,
+                    { wrap },
+                );
+                showToast('success', `Extracted ${total} file${total === 1 ? '' : 's'}${wrap ? ` → ${wadName}/` : ''}`);
+            } catch { setExtractProgress(null); showToast('error', 'Extraction failed'); }
+        };
+
+        const options: ContextMenuOption[] = [];
+
+        // ── Selection ──
         options.push({
             label: isChecked ? 'Uncheck' : 'Check',
             icon: getIcon(isChecked ? 'close' : 'check'),
             onClick: () => dispatch({ type: 'WAD_EXPLORER_TOGGLE_CHECK', payload: { keys: [key], checked: !isChecked } }),
         });
-        options.push({ label: '', separator: true, onClick: () => { } });
+
+        // ── Extract ▸ ──
         options.push({
-            label: 'Extract File…', icon: getIcon('export'),
-            onClick: async () => {
-                try {
-                    const dest = await open({ title: 'Choose Extraction Folder', directory: true });
-                    if (!dest) return;
-                    const wadName = wadPath.split(/[\\/]/).pop() ?? wadPath;
-                    const total = await runExtract(
-                        [{ wadPath, hashes: [chunk.hash], wadLabel: wadName }],
-                        dest as string,
-                        `Extracting ${chunk.path ?? chunk.hash}`,
-                    );
-                    showToast('success', `Extracted ${total} file`);
-                } catch { setExtractProgress(null); showToast('error', 'Extraction failed'); }
-            },
+            label: 'Extract',
+            icon: getIcon('export'),
+            separator: true,
+            onClick: () => runExtractFile(wrapInWadFolder),
+            submenu: buildExtractSubmenu(runExtractFile),
         });
         if (checkedCount > 0) {
             options.push({
-                label: `Extract Selected (${checkedCount})…`, icon: getIcon('export'),
+                label: `Extract Selected (${checkedCount})…`,
+                icon: getIcon('export'),
                 onClick: handleExtractSelected,
             });
         }
+
+        // ── Copy ▸ ──
+        const copySubmenu: ContextMenuOption[] = [];
+        if (chunk.path) {
+            copySubmenu.push({ label: 'Path', icon: getIcon('copy'), onClick: () => navigator.clipboard.writeText(chunk.path!) });
+            copySubmenu.push({ label: 'File Name', icon: getIcon('file'), onClick: () => navigator.clipboard.writeText(chunk.path!.split('/').pop() ?? chunk.path!) });
+        }
+        copySubmenu.push({ label: 'Hash', icon: getIcon('copy'), onClick: () => navigator.clipboard.writeText(chunk.hash) });
+        copySubmenu.push({ label: 'WAD Name', icon: getIcon('wad'), onClick: () => navigator.clipboard.writeText(wadName) });
+        options.push({
+            label: 'Copy',
+            icon: getIcon('copy'),
+            separator: true,
+            submenu: copySubmenu,
+        });
+
         dispatch({ type: 'OPEN_CONTEXT_MENU', payload: { x, y, options } });
-    }, [dispatch, showToast, wadExplorer.checkedFiles, handleExtractSelected, runExtract]);
+    }, [dispatch, showToast, wadExplorer.checkedFiles, handleExtractSelected, runExtract, buildExtractSubmenu, wrapInWadFolder]);
 
     const handleFolderContextMenu = useCallback((folder: VFSFolder, wadPath: string, x: number, y: number) => {
         const fileKeys = collectFolderFileKeys(folder, wadPath);
         const folderCheckState = getFolderCheckState(folder, wadPath, wadExplorer.checkedFiles);
         const checkedCount = wadExplorer.checkedFiles.size;
         const hashes = collectFolderHashes(folder);
-        const options: Array<{ label: string; icon?: string; onClick: () => void; separator?: boolean }> = [];
+        const wadName = wadFolderFor(wadPath);
+
+        const runExtractFolder = async (wrap: boolean) => {
+            try {
+                const dest = await open({ title: 'Choose Extraction Folder', directory: true });
+                if (!dest) return;
+                const total = await runExtract(
+                    [{ wadPath, hashes, wadLabel: wadName }],
+                    dest as string,
+                    `Extracting ${hashes.length} file${hashes.length > 1 ? 's' : ''} from folder`,
+                    { wrap },
+                );
+                showToast('success', `Extracted ${total} files${wrap ? ` → ${wadName}/` : ''}`);
+            } catch { setExtractProgress(null); showToast('error', 'Extraction failed'); }
+        };
+
+        const options: ContextMenuOption[] = [];
         options.push({
             label: folderCheckState === 'all' ? 'Uncheck All in Folder' : 'Check All in Folder',
             icon: getIcon(folderCheckState === 'all' ? 'close' : 'check'),
             onClick: () => dispatch({ type: 'WAD_EXPLORER_TOGGLE_CHECK', payload: { keys: fileKeys, checked: folderCheckState !== 'all' } }),
         });
-        options.push({ label: '', separator: true, onClick: () => { } });
         options.push({
-            label: `Extract Folder (${hashes.length})…`, icon: getIcon('export'),
-            onClick: async () => {
-                try {
-                    const dest = await open({ title: 'Choose Extraction Folder', directory: true });
-                    if (!dest) return;
-                    const wadName = wadPath.split(/[\\/]/).pop() ?? wadPath;
-                    const total = await runExtract(
-                        [{ wadPath, hashes, wadLabel: wadName }],
-                        dest as string,
-                        `Extracting ${hashes.length} file${hashes.length > 1 ? 's' : ''} from folder`,
-                    );
-                    showToast('success', `Extracted ${total} files`);
-                } catch { setExtractProgress(null); showToast('error', 'Extraction failed'); }
-            },
+            label: `Extract Folder (${hashes.length})`,
+            icon: getIcon('export'),
+            separator: true,
+            onClick: () => runExtractFolder(wrapInWadFolder),
+            submenu: buildExtractSubmenu(runExtractFolder),
         });
         if (checkedCount > 0) {
             options.push({
-                label: `Extract Selected (${checkedCount})…`, icon: getIcon('export'),
+                label: `Extract Selected (${checkedCount})…`,
+                icon: getIcon('export'),
                 onClick: handleExtractSelected,
             });
         }
+        // Folder path lives in the VFS key: `${wadPath}::${folderPath}`
+        const folderPath = folder.key.split('::').slice(1).join('::') || folder.name;
+        options.push({
+            label: 'Copy',
+            icon: getIcon('copy'),
+            separator: true,
+            submenu: [
+                { label: 'Folder Path', icon: getIcon('code'), onClick: () => navigator.clipboard.writeText(folderPath) },
+                { label: 'Folder Name', icon: getIcon('folder'), onClick: () => navigator.clipboard.writeText(folder.name) },
+                { label: 'WAD Name', icon: getIcon('wad'), onClick: () => navigator.clipboard.writeText(wadName) },
+            ],
+        });
         dispatch({ type: 'OPEN_CONTEXT_MENU', payload: { x, y, options } });
-    }, [dispatch, showToast, wadExplorer.checkedFiles, handleExtractSelected, runExtract]);
+    }, [dispatch, showToast, wadExplorer.checkedFiles, handleExtractSelected, runExtract, buildExtractSubmenu, wrapInWadFolder]);
 
     const handleWadContextMenu = useCallback((wad: WadExplorerWad, x: number, y: number) => {
         const wadCheckState = getWadCheckState(wad, wadExplorer.checkedFiles);
         const checkedCount = wadExplorer.checkedFiles.size;
         const wadFileKeys = wad.status === 'loaded' ? wad.chunks.map(c => makeFileKey(wad.path, c.hash)) : [];
-        const options: Array<{ label: string; icon?: string; onClick: () => void; separator?: boolean; disabled?: boolean }> = [];
+        const wadName = wadFolderFor(wad.path);
+        const loaded = wad.status === 'loaded';
+
+        const runExtractWad = async (wrap: boolean) => {
+            try {
+                const dest = await open({ title: 'Choose Extraction Folder', directory: true });
+                if (!dest) return;
+                const total = await runExtract(
+                    [{ wadPath: wad.path, hashes: null, wadLabel: wadName }],
+                    dest as string,
+                    `Extracting full WAD: ${wadName}`,
+                    { wrap },
+                );
+                showToast('success', `Extracted ${total} files${wrap ? ` → ${wadName}/` : ''}`);
+            } catch { setExtractProgress(null); showToast('error', 'Extraction failed'); }
+        };
+
+        const options: ContextMenuOption[] = [];
+
+        // ── Selection ──
         options.push({
             label: wadCheckState === 'all' ? 'Uncheck All in WAD' : 'Check All in WAD',
             icon: getIcon(wadCheckState === 'all' ? 'close' : 'check'),
             onClick: () => dispatch({ type: 'WAD_EXPLORER_TOGGLE_CHECK', payload: { keys: wadFileKeys, checked: wadCheckState !== 'all' } }),
-            disabled: wad.status !== 'loaded',
+            disabled: !loaded,
         });
-        options.push({ label: '', separator: true, onClick: () => { } });
+
+        // ── Extract ▸ ──
         options.push({
-            label: 'Extract WAD…', icon: getIcon('export'),
-            onClick: async () => {
-                try {
-                    const dest = await open({ title: 'Choose Extraction Folder', directory: true });
-                    if (!dest) return;
-                    const wadName = wad.path.split(/[\\/]/).pop() ?? wad.path;
-                    const total = await runExtract(
-                        [{ wadPath: wad.path, hashes: null, wadLabel: wadName }],
-                        dest as string,
-                        `Extracting full WAD: ${wadName}`,
-                    );
-                    showToast('success', `Extracted ${total} files`);
-                } catch { setExtractProgress(null); showToast('error', 'Extraction failed'); }
-            },
-            disabled: wad.status !== 'loaded',
+            label: 'Extract WAD',
+            icon: getIcon('export'),
+            separator: true,
+            disabled: !loaded,
+            onClick: () => runExtractWad(wrapInWadFolder),
+            submenu: buildExtractSubmenu(runExtractWad),
         });
         if (checkedCount > 0) {
             options.push({
-                label: `Extract Selected (${checkedCount})…`, icon: getIcon('export'),
+                label: `Extract Selected (${checkedCount})…`,
+                icon: getIcon('export'),
                 onClick: handleExtractSelected,
             });
         }
-        options.push({ label: '', separator: true, onClick: () => { } });
+
+        // ── WAD lifecycle ▸ ──
         options.push({
-            label: 'Copy WAD Path', icon: getIcon('copy'),
-            onClick: () => {
-                navigator.clipboard.writeText(wad.path);
-                showToast('success', 'WAD path copied');
-            },
+            label: 'WAD',
+            icon: getIcon('wad'),
+            separator: true,
+            submenu: [
+                {
+                    label: 'Reload',
+                    icon: getIcon('refresh'),
+                    disabled: !loaded,
+                    onClick: async () => {
+                        try {
+                            await api.invalidateWadCache(wad.path);
+                            dispatch({ type: 'SET_WAD_EXPLORER_WAD_STATUS', payload: { wadPath: wad.path, status: 'loading' } });
+                            const chunks = await api.getWadChunks(wad.path);
+                            dispatch({ type: 'SET_WAD_EXPLORER_WAD_STATUS', payload: { wadPath: wad.path, status: 'loaded', chunks } });
+                            showToast('success', 'WAD reloaded');
+                        } catch (e) {
+                            dispatch({ type: 'SET_WAD_EXPLORER_WAD_STATUS', payload: { wadPath: wad.path, status: 'error', error: (e as Error).message } });
+                            showToast('error', 'Failed to reload WAD');
+                        }
+                    },
+                },
+                {
+                    label: 'Reveal in Explorer',
+                    icon: getIcon('folderOpen2'),
+                    onClick: () => api.openInExplorer(wad.path).catch(() => {}),
+                },
+            ],
         });
+
+        // ── Copy ▸ ──
         options.push({
-            label: 'Reload WAD', icon: getIcon('refresh'),
-            onClick: async () => {
-                try {
-                    await api.invalidateWadCache(wad.path);
-                    dispatch({ type: 'SET_WAD_EXPLORER_WAD_STATUS', payload: { wadPath: wad.path, status: 'loading' } });
-                    const chunks = await api.getWadChunks(wad.path);
-                    dispatch({ type: 'SET_WAD_EXPLORER_WAD_STATUS', payload: { wadPath: wad.path, status: 'loaded', chunks } });
-                    showToast('success', 'WAD reloaded');
-                } catch (e) {
-                    dispatch({ type: 'SET_WAD_EXPLORER_WAD_STATUS', payload: { wadPath: wad.path, status: 'error', error: (e as Error).message } });
-                    showToast('error', 'Failed to reload WAD');
-                }
-            },
+            label: 'Copy',
+            icon: getIcon('copy'),
+            separator: true,
+            submenu: [
+                {
+                    label: 'WAD Path',
+                    icon: getIcon('code'),
+                    onClick: () => {
+                        navigator.clipboard.writeText(wad.path);
+                        showToast('success', 'WAD path copied');
+                    },
+                },
+                {
+                    label: 'WAD Name',
+                    icon: getIcon('wad'),
+                    onClick: () => navigator.clipboard.writeText(wadName),
+                },
+            ],
         });
+
         dispatch({ type: 'OPEN_CONTEXT_MENU', payload: { x, y, options } });
-    }, [dispatch, showToast, wadExplorer.checkedFiles, handleExtractSelected, runExtract]);
+    }, [dispatch, showToast, wadExplorer.checkedFiles, handleExtractSelected, runExtract, buildExtractSubmenu, wrapInWadFolder]);
 
     // ── Resizer ───────────────────────────────────────────────────────────────
     useEffect(() => {
@@ -1992,33 +2127,38 @@ export const WadExplorer: React.FC = () => {
                                 const fileKeys = folder.files.map(f => makeFileKey(row.wadPath, f.chunk.hash));
                                 const hashes = folder.files.map(f => f.chunk.hash);
                                 const fcs = getSearchCheckStateLazy(folderKey, () => fileKeys);
-                                const options: Array<{ label: string; icon?: string; onClick: () => void; separator?: boolean }> = [
+                                const wadName = wadFolderFor(row.wadPath);
+                                const runExtractFolder = async (wrap: boolean) => {
+                                    try {
+                                        const dest = await open({ title: 'Choose Extraction Folder', directory: true });
+                                        if (!dest) return;
+                                        const total = await runExtract(
+                                            [{ wadPath: row.wadPath, hashes, wadLabel: wadName }],
+                                            dest as string,
+                                            `Extracting ${hashes.length} file${hashes.length > 1 ? 's' : ''} from folder`,
+                                            { wrap },
+                                        );
+                                        showToast('success', `Extracted ${total} files${wrap ? ` → ${wadName}/` : ''}`);
+                                    } catch { setExtractProgress(null); showToast('error', 'Extraction failed'); }
+                                };
+                                const options: ContextMenuOption[] = [
                                     {
                                         label: fcs === 'all' ? 'Uncheck All in Folder' : 'Check All in Folder',
                                         icon: getIcon(fcs === 'all' ? 'close' : 'check'),
                                         onClick: () => handleToggleCheck(fileKeys, fcs !== 'all'),
                                     },
-                                    { label: '', separator: true, onClick: () => { } },
                                     {
-                                        label: `Extract Folder (${hashes.length})…`, icon: getIcon('export'),
-                                        onClick: async () => {
-                                            try {
-                                                const dest = await open({ title: 'Choose Extraction Folder', directory: true });
-                                                if (!dest) return;
-                                                const wadName = row.wadPath.split(/[\\/]/).pop() ?? row.wadPath;
-                                                const total = await runExtract(
-                                                    [{ wadPath: row.wadPath, hashes, wadLabel: wadName }],
-                                                    dest as string,
-                                                    `Extracting ${hashes.length} file${hashes.length > 1 ? 's' : ''} from folder`,
-                                                );
-                                                showToast('success', `Extracted ${total} files`);
-                                            } catch { setExtractProgress(null); showToast('error', 'Extraction failed'); }
-                                        },
+                                        label: `Extract Folder (${hashes.length})`,
+                                        icon: getIcon('export'),
+                                        separator: true,
+                                        onClick: () => runExtractFolder(wrapInWadFolder),
+                                        submenu: buildExtractSubmenu(runExtractFolder),
                                     },
                                 ];
                                 if (wadExplorer.checkedFiles.size > 0) {
                                     options.push({
-                                        label: `Extract Selected (${wadExplorer.checkedFiles.size})…`, icon: getIcon('export'),
+                                        label: `Extract Selected (${wadExplorer.checkedFiles.size})…`,
+                                        icon: getIcon('export'),
                                         onClick: handleExtractSelected,
                                     });
                                 }

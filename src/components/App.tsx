@@ -38,7 +38,8 @@ import { FileCompareModal } from './modals/FileCompareModal';
 import { AddLayerModal } from './modals/AddLayerModal';
 import { ChromaPortModal } from './modals/ChromaPortModal';
 import { ToastContainer } from './Toast';
-import { TutorialOverlay, isOnboardingDone } from './TutorialOverlay';
+import { TutorialOverlay, isOnboardingDone, TUTORIAL_REPLAY_EVENT } from './TutorialOverlay';
+import { TooltipProvider } from './TooltipProvider';
 
 // Helper to get active tab from state
 function getActiveTab(state: { activeTabId: string | null; openTabs: Array<{ id: string; project: any; projectPath: string; selectedFile: string | null }> }) {
@@ -156,18 +157,51 @@ export const App: React.FC = () => {
         return activeTab?.projectPath || null;
     }, [state.activeTabId, state.openTabs]);
 
+    // Block the browser's native right-click menu globally. Flint's own
+    // hierarchical ContextMenu component handles right-click — the system
+    // menu (Print, Translate, Inspect Element, etc.) is just noise inside
+    // a packaged Tauri app. Still allowed: text inputs, textareas, and
+    // contenteditable surfaces (so users keep Cut/Paste in text fields)
+    // and anything marked `data-allow-native-context` on the closest
+    // ancestor.
+    useEffect(() => {
+        const onContextMenu = (e: MouseEvent) => {
+            const t = e.target as HTMLElement | null;
+            if (!t) return;
+            const tag = t.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+            if (t.closest('[contenteditable="true"]')) return;
+            if (t.closest('[data-allow-native-context]')) return;
+            e.preventDefault();
+        };
+        document.addEventListener('contextmenu', onContextMenu);
+        return () => document.removeEventListener('contextmenu', onContextMenu);
+    }, []);
+
     // Track whether the watcher is currently running to avoid redundant stop calls
     const isWatchingRef = React.useRef(false);
 
+    // Resolve which launcher auto-sync should target. Mirrors the same
+    // preference→fallback logic used by the manual Sync button in TitleBar.
+    const autoSyncTarget = React.useMemo<{ name: string; path: string } | null>(() => {
+        const ltk = state.ltkManagerModPath;
+        const celestial = state.celestialModPath;
+        if (state.preferredLauncher === 'celestial' && celestial) return { name: 'Celestial', path: celestial };
+        if (state.preferredLauncher === 'ltk' && ltk) return { name: 'LTK Manager', path: ltk };
+        if (celestial) return { name: 'Celestial', path: celestial };
+        if (ltk) return { name: 'LTK Manager', path: ltk };
+        return null;
+    }, [state.preferredLauncher, state.ltkManagerModPath, state.celestialModPath]);
+    const autoSyncNameRef = React.useRef<string>(autoSyncTarget?.name ?? 'launcher');
+    React.useEffect(() => { autoSyncNameRef.current = autoSyncTarget?.name ?? 'launcher'; }, [autoSyncTarget]);
+
     useEffect(() => {
-        const shouldWatch = !!(state.autoSyncToLauncher &&
-            state.ltkManagerModPath &&
-            currentProjectPath);
+        const shouldWatch = !!(state.autoSyncToLauncher && autoSyncTarget && currentProjectPath);
 
         if (shouldWatch) {
             isWatchingRef.current = true;
             console.log('[Auto-sync] Starting watcher for:', currentProjectPath);
-            api.startProjectWatcher(currentProjectPath, state.ltkManagerModPath!)
+            api.startProjectWatcher(currentProjectPath, autoSyncTarget!.path)
                 .catch(err => {
                     isWatchingRef.current = false;
                     console.error('[Auto-sync] Failed to start watcher:', err);
@@ -187,12 +221,12 @@ export const App: React.FC = () => {
                 api.stopProjectWatcher().catch(() => { });
             }
         };
-    }, [currentProjectPath, state.autoSyncToLauncher, state.ltkManagerModPath]);
+    }, [currentProjectPath, state.autoSyncToLauncher, autoSyncTarget]);
 
     // Listen for auto-sync events from Rust
     useEffect(() => {
         const unlistenComplete = listen('auto-sync-complete', (event) => {
-            showToast('success', `Auto-synced to LTK Manager! Mod ID: ${event.payload}`);
+            showToast('success', `Auto-synced to ${autoSyncNameRef.current}! Mod ID: ${event.payload}`);
         });
 
         const unlistenError = listen('auto-sync-error', (event) => {
@@ -460,6 +494,21 @@ export const App: React.FC = () => {
     // Show a left panel for any view that isn't the welcome screen or WAD Explorer
     const hasProject = !isWadExplorer && state.currentView !== 'welcome';
 
+    // Workspace intro animation: the NewProjectModal dispatches
+    // `flint:project-intro` right before it starts its zoom-out, and we
+    // apply a matching subtle scale-up + fade on `.main-content` so the
+    // hand-off reads as one continuous motion instead of two animations
+    // happening in parallel. Class is removed after the keyframe finishes.
+    const [projectIntro, setProjectIntro] = useState(false);
+    useEffect(() => {
+        const onIntro = () => {
+            setProjectIntro(true);
+            window.setTimeout(() => setProjectIntro(false), 700);
+        };
+        window.addEventListener('flint:project-intro', onIntro);
+        return () => window.removeEventListener('flint:project-intro', onIntro);
+    }, []);
+
     // Check if first-time setup is needed (wait for settings to load from disk first)
     const hydrated = useConfigStore((s) => s._hydrated);
     useEffect(() => {
@@ -477,10 +526,22 @@ export const App: React.FC = () => {
         }
     }, [hydrated, state.creatorName, state.activeModal, showTutorial]);
 
+    // External replay trigger — Settings → Dev → "Replay Tutorial" fires
+    // a window event so we can re-enter the overlay without round-tripping
+    // through localStorage hydration.
+    useEffect(() => {
+        const onReplay = () => setShowTutorial(true);
+        window.addEventListener(TUTORIAL_REPLAY_EVENT, onReplay);
+        return () => window.removeEventListener(TUTORIAL_REPLAY_EVENT, onReplay);
+    }, []);
+
     return (
         <>
             <TitleBar />
-            <div className="main-content" id="main-content">
+            <div
+                className={`main-content${projectIntro ? ' app-content--project-intro' : ''}`}
+                id="main-content"
+            >
                 {/* Keep WadExplorer mounted when open — toggling display avoids the ~10s rescan on every switch */}
                 {state.wadExplorer.isOpen && (
                     <div style={{ display: isWadExplorer ? 'contents' : 'none' }}>
@@ -526,6 +587,9 @@ export const App: React.FC = () => {
 
             {/* First-run tutorial */}
             {showTutorial && <TutorialOverlay onDone={() => setShowTutorial(false)} />}
+
+            {/* Global custom-styled tooltip (hijacks native [title] attrs) */}
+            <TooltipProvider />
         </>
     );
 };

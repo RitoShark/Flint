@@ -27,6 +27,29 @@ function generateTabId(): string {
   return `tab-${Date.now()}-${++tabIdCounter}`;
 }
 
+/**
+ * Walk the project file tree and return every folder path that should be
+ * expanded by default on first open: the project root, `content/`, every
+ * `content/<layer>/` folder, and every `content/<layer>/<name>.wad.client/`
+ * folder. The set is small (O(layers × wads)) — typically 3-4 entries.
+ */
+function collectAutoExpandPaths(root: FileTreeNode): string[] {
+  const paths: string[] = ['.'];
+  const content = root.children?.find(c => c.isDirectory && c.name === 'content');
+  if (!content) return paths;
+  paths.push(content.path);
+  for (const layer of content.children ?? []) {
+    if (!layer.isDirectory) continue;
+    paths.push(layer.path);
+    for (const wad of layer.children ?? []) {
+      if (wad.isDirectory && wad.name.toLowerCase().endsWith('.wad.client')) {
+        paths.push(wad.path);
+      }
+    }
+  }
+  return paths;
+}
+
 export const useProjectTabStore = create<ProjectTabState>((set, get) => ({
   openTabs: [],
   activeTabId: null,
@@ -48,6 +71,7 @@ export const useProjectTabStore = create<ProjectTabState>((set, get) => ({
       selectedFile: null,
       fileTree: null,
       expandedFolders: new Set(),
+      hasAutoExpanded: false,
     };
     set({
       openTabs: [...openTabs, newTab],
@@ -98,9 +122,20 @@ export const useProjectTabStore = create<ProjectTabState>((set, get) => ({
 
   setFileTree: (tabId, tree) => {
     set((state) => ({
-      openTabs: state.openTabs.map(t =>
-        t.id === tabId ? { ...t, fileTree: tree } : t
-      ),
+      openTabs: state.openTabs.map(t => {
+        if (t.id !== tabId) return t;
+        // First time we see a tree for this tab → auto-expand the path down
+        // to the wad.client folders so users land directly on their assets
+        // instead of clicking through `Project > content > base > foo.wad.client`.
+        // Subsequent calls (file-watcher refreshes, renames, imports) skip this.
+        if (tree && !t.hasAutoExpanded) {
+          const autoPaths = collectAutoExpandPaths(tree);
+          const newExpanded = new Set(t.expandedFolders);
+          for (const p of autoPaths) newExpanded.add(p);
+          return { ...t, fileTree: tree, expandedFolders: newExpanded, hasAutoExpanded: true };
+        }
+        return { ...t, fileTree: tree };
+      }),
     }));
   },
 

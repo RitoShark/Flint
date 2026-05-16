@@ -35,6 +35,10 @@ export interface RecentProject {
     lastOpened: string;
 }
 
+/** What flavour of project this is. Drives which of the type-specific
+ *  fields below are meaningful for display. Mirrors the Rust enum. */
+export type ProjectKind = 'skin' | 'map' | 'loading-screen';
+
 /** Result of `discover_projects` — every project the backend can locate
  *  (on-disk walk ∪ projects.json index entries). */
 export interface ProjectListing {
@@ -42,8 +46,13 @@ export interface ProjectListing {
     path: string;
     name: string;
     display_name: string;
+    kind: ProjectKind;
+    /** Only meaningful for skin projects; empty string for map / loading-screen. */
     champion: string;
+    /** Only meaningful for skin projects (0 = base). */
     skin_id: number;
+    /** Only set for map projects (e.g. "map11"). */
+    map_id?: string | null;
     created_at: string;
     modified_at: string;
     last_seen_at: string;
@@ -58,7 +67,10 @@ export interface ProjectListing {
 export interface SavedProject {
     id: string;
     name: string;
+    kind: ProjectKind;
     champion: string;
+    /** Map id (e.g. "map11") when kind === 'map'. */
+    mapId?: string | null;
     path: string;
     lastOpened: string;
 }
@@ -75,8 +87,12 @@ export interface Project {
     pid?: string;
     name: string;
     display_name?: string;
+    /** Project kind. Older projects without this field default to "skin". */
+    kind?: ProjectKind;
     champion: string;
     skin_id: number;
+    /** Map id (e.g. "map11") — only set for map projects. */
+    map_id?: string | null;
     creator?: string;
     version?: string;
     description?: string;
@@ -118,10 +134,18 @@ export interface ContextMenuState {
 export interface ContextMenuOption {
     label: string;
     icon?: string;
-    onClick: () => void;
+    /** Click handler. Optional when `submenu` is provided — parent items that
+     *  only exist to anchor a submenu shouldn't run an action themselves. */
+    onClick?: () => void;
     danger?: boolean;
     separator?: boolean;
     disabled?: boolean;
+    /** When set, hovering this item opens a side-panel with these options.
+     *  Submenus can nest arbitrarily deep. */
+    submenu?: ContextMenuOption[];
+    /** Optional right-aligned hint text (e.g. "Ctrl+C") rendered after the
+     *  label. Doesn't affect behaviour. */
+    shortcut?: string;
 }
 
 export interface ProjectTab {

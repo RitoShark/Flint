@@ -10,6 +10,16 @@ const ONBOARDING_KEY = 'flint_onboarding_done';
 export function isOnboardingDone(): boolean { return localStorage.getItem(ONBOARDING_KEY) === 'true'; }
 export function markOnboardingDone(): void { localStorage.setItem(ONBOARDING_KEY, 'true'); }
 
+/** Custom DOM event the Settings dev tab fires to replay the tutorial.
+ *  App.tsx listens and flips `showTutorial` on. We also wipe the
+ *  onboarding flag first so any re-entry triggers fire normally next
+ *  session if needed. */
+export const TUTORIAL_REPLAY_EVENT = 'flint:tutorial:replay';
+export function triggerTutorialReplay(): void {
+    try { localStorage.removeItem(ONBOARDING_KEY); } catch { /* ignore */ }
+    window.dispatchEvent(new CustomEvent(TUTORIAL_REPLAY_EVENT));
+}
+
 interface Step {
     title: string;
     body: string;
@@ -131,14 +141,30 @@ const STEPS: Step[] = [
     },
 ];
 
-const CALLOUT_W = 340;
-const CALLOUT_H_EST = 240;
-const GAP = 14;
-const EDGE = 12;
+const CALLOUT_W = 360;
+const CALLOUT_H_EST = 280;
+const GAP = 18;
+const EDGE = 14;
 
 interface Spot { x: number; y: number; w: number; h: number; }
 
-function querySpot(selector: string, waitForImage: boolean): Spot | null {
+/** Pad small elements gently so the highlight doesn't dwarf a 14px icon. */
+function paddingFor(w: number, h: number): number {
+    const min = Math.min(w, h);
+    if (min <= 24) return 3;   // titlebar icons, small chips
+    if (min <= 48) return 5;   // small buttons
+    return 8;                  // panels, grids, splash art
+}
+
+function clampToViewport(s: Spot, vpW: number, vpH: number): Spot {
+    const x = Math.max(0, s.x);
+    const y = Math.max(0, s.y);
+    const w = Math.min(s.w, vpW - x);
+    const h = Math.min(s.h, vpH - y);
+    return { x, y, w, h };
+}
+
+function queryRect(selector: string, waitForImage: boolean): Spot | null {
     const el = document.querySelector(selector);
     if (!el) return null;
     const r = el.getBoundingClientRect();
@@ -147,7 +173,16 @@ function querySpot(selector: string, waitForImage: boolean): Spot | null {
         const img = el.querySelector<HTMLImageElement>('img');
         if (img && !img.complete) return null;
     }
-    return { x: r.left - 8, y: r.top - 8, w: r.width + 16, h: r.height + 16 };
+    const p = paddingFor(r.width, r.height);
+    return { x: r.left - p, y: r.top - p, w: r.width + p * 2, h: r.height + p * 2 };
+}
+
+/** Two rects are equal enough that the element has finished moving/scaling. */
+function rectsMatch(a: Spot, b: Spot): boolean {
+    return Math.abs(a.x - b.x) < 0.5
+        && Math.abs(a.y - b.y) < 0.5
+        && Math.abs(a.w - b.w) < 0.5
+        && Math.abs(a.h - b.h) < 0.5;
 }
 
 /** Always returns pixel coords so CSS `transition: top, left` works across all steps. */
@@ -200,17 +235,30 @@ export const TutorialOverlay: React.FC<Props> = ({ onDone }) => {
         return () => window.removeEventListener('resize', onResize);
     }, []);
 
-    // Spotlight polling — starts after step.delay to let modals finish animating
+    // Spotlight polling — starts after step.delay, then waits for the element
+    // to stop moving/scaling (two consecutive samples must match) before
+    // committing the highlight. Fixes the "modal still scaling in" jitter where
+    // the spotlight would lock onto a 95%-scaled rect.
     useEffect(() => {
         clearTimeout(spotTimerRef.current);
         setSpot(null);
         if (!step.selector) return;
 
         let tries = 0;
+        let prev: Spot | null = null;
+        const waitImg = step.waitForImage ?? false;
         const tryFind = () => {
-            const r = querySpot(step.selector!, step.waitForImage ?? false);
-            if (r) { setSpot(r); return; }
-            if (++tries < 100) spotTimerRef.current = setTimeout(tryFind, 100);
+            const r = queryRect(step.selector!, waitImg);
+            if (r) {
+                if (prev && rectsMatch(prev, r)) {
+                    setSpot(clampToViewport(r, window.innerWidth, window.innerHeight));
+                    return;
+                }
+                prev = r;
+            } else {
+                prev = null;
+            }
+            if (++tries < 120) spotTimerRef.current = setTimeout(tryFind, 80);
         };
         spotTimerRef.current = setTimeout(tryFind, step.delay ?? 0);
         return () => clearTimeout(spotTimerRef.current);
@@ -280,40 +328,70 @@ export const TutorialOverlay: React.FC<Props> = ({ onDone }) => {
                 }}
             />
 
-            {/* Callout — slides to new position via CSS transition, content instant */}
+            {/* Callout — slides to new position via CSS transition.
+                Inner content has `key={idx}` so the fade/slide animation
+                replays when stepping forward/back. */}
             <div className="tutorial-callout" style={cs}>
-                <div className="tutorial-callout__dots">
+                <div className="tutorial-callout__header">
+                    <span className="tutorial-callout__badge">
+                        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                            <path d="M8 1.2l1.6 4.6 4.6.6-3.5 3 1.1 4.6L8 11.7l-3.8 2.3 1.1-4.6L1.8 6.4l4.6-.6L8 1.2z" />
+                        </svg>
+                        Tour
+                    </span>
+                    <span className="tutorial-callout__counter">
+                        <strong>{idx + 1}</strong> / {STEPS.length}
+                    </span>
+                </div>
+
+                {/* Progress bar — fills with each forward step */}
+                <div className="tutorial-callout__progress" aria-hidden="true">
+                    <div
+                        className="tutorial-callout__progress-fill"
+                        style={{ width: `${((idx + 1) / STEPS.length) * 100}%` }}
+                    />
+                </div>
+
+                {/* Step dots stay as a secondary navigator */}
+                <div className="tutorial-callout__dots" aria-hidden="true">
                     {STEPS.map((_, i) => (
                         <span key={i} className={`tutorial-callout__dot${i === idx ? ' tutorial-callout__dot--active' : ''}`} />
                     ))}
                 </div>
-                <h3 className="tutorial-callout__title">{step.title}</h3>
-                <p className="tutorial-callout__body">{step.body}</p>
+
+                {/* `key={idx}` forces a fresh fade-in on every step change */}
+                <div className="tutorial-callout__content" key={idx}>
+                    <h3 className="tutorial-callout__title">{step.title}</h3>
+                    <p className="tutorial-callout__body">{step.body}</p>
+                </div>
+
                 <div className="tutorial-callout__actions">
-                    <button className="tutorial-skip" onClick={finish}>Skip</button>
+                    <button className="tutorial-skip" onClick={finish}>Skip tour</button>
                     <div className="tutorial-callout__nav">
                         <button
                             className="tutorial-nav-btn"
                             onClick={prev}
                             disabled={idx === 0}
                             title="Previous"
+                            aria-label="Previous step"
                         >
-                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                                <path d="M7 1L3 5l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                            <svg width="11" height="11" viewBox="0 0 10 10" fill="none">
+                                <path d="M7 1L3 5l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
                             </svg>
                         </button>
                         <button
-                            className="tutorial-nav-btn tutorial-nav-btn--next"
+                            className={`tutorial-nav-btn ${isLast ? 'tutorial-nav-btn--done' : 'tutorial-nav-btn--next'}`}
                             onClick={next}
-                            title={isLast ? 'Done' : 'Next'}
+                            title={isLast ? 'Finish' : 'Next'}
+                            aria-label={isLast ? 'Finish tutorial' : 'Next step'}
                         >
                             {isLast ? (
-                                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                                    <path d="M2 6l3.5 3.5L10 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+                                    <path d="M2 6l3.5 3.5L10 2.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
                                 </svg>
                             ) : (
-                                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                                    <path d="M3 1l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                <svg width="11" height="11" viewBox="0 0 10 10" fill="none">
+                                    <path d="M3 1l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
                                 </svg>
                             )}
                         </button>

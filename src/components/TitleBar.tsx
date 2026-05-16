@@ -66,21 +66,35 @@ interface TabProps {
     onClose: (e: React.MouseEvent) => void;
 }
 
+/** Matches the CSS .titlebar__tab--closing keyframe duration so the close
+ *  animation has time to play before the tab unmounts. */
+const TAB_CLOSE_MS = 180;
+
 const Tab: React.FC<TabProps> = ({ tab, isActive, onSwitch, onClose }) => {
+    const [closing, setClosing] = useState(false);
+
+    const triggerClose = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (closing) return;
+        setClosing(true);
+        // Let the exit animation play before the parent removes us from state.
+        setTimeout(() => onClose(e), TAB_CLOSE_MS);
+    }, [onClose, closing]);
+
     const handleMiddleClick = useCallback((e: React.MouseEvent) => {
         if (e.button === 1) {
             e.preventDefault();
-            onClose(e);
+            triggerClose(e);
         }
-    }, [onClose]);
+    }, [triggerClose]);
 
     const projectName = tab.project.display_name || tab.project.name;
     const champion = tab.project.champion;
 
     return (
         <div
-            className={`titlebar__tab ${isActive ? 'titlebar__tab--active' : ''}`}
-            onClick={onSwitch}
+            className={`titlebar__tab ${isActive ? 'titlebar__tab--active' : ''}${closing ? ' titlebar__tab--closing' : ''}`}
+            onClick={closing ? undefined : onSwitch}
             onMouseDown={handleMiddleClick}
             title={`${champion} - ${projectName}\n${tab.projectPath}`}
             data-tauri-drag-region="false"
@@ -94,7 +108,7 @@ const Tab: React.FC<TabProps> = ({ tab, isActive, onSwitch, onClose }) => {
             </span>
             <button
                 className="titlebar__tab-close"
-                onClick={onClose}
+                onClick={triggerClose}
                 title="Close Tab"
             >
                 <svg viewBox="0 0 16 16" width="12" height="12">
@@ -120,17 +134,26 @@ interface ExtractTabProps {
 }
 
 const ExtractTab: React.FC<ExtractTabProps> = ({ session, isActive, onSwitch, onClose }) => {
+    const [closing, setClosing] = useState(false);
+
+    const triggerClose = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (closing) return;
+        setClosing(true);
+        setTimeout(() => onClose(e), TAB_CLOSE_MS);
+    }, [onClose, closing]);
+
     const handleMiddleClick = useCallback((e: React.MouseEvent) => {
         if (e.button === 1) {
             e.preventDefault();
-            onClose(e);
+            triggerClose(e);
         }
-    }, [onClose]);
+    }, [triggerClose]);
 
     return (
         <div
-            className={`titlebar__tab ${isActive ? 'titlebar__tab--active' : ''}`}
-            onClick={onSwitch}
+            className={`titlebar__tab ${isActive ? 'titlebar__tab--active' : ''}${closing ? ' titlebar__tab--closing' : ''}`}
+            onClick={closing ? undefined : onSwitch}
             onMouseDown={handleMiddleClick}
             title={session.wadPath}
             data-tauri-drag-region="false"
@@ -145,7 +168,7 @@ const ExtractTab: React.FC<ExtractTabProps> = ({ session, isActive, onSwitch, on
             )}
             <button
                 className="titlebar__tab-close"
-                onClick={onClose}
+                onClick={triggerClose}
                 title="Close Tab"
             >
                 <svg viewBox="0 0 16 16" width="12" height="12">
@@ -167,6 +190,8 @@ export const TitleBar: React.FC = () => {
     const [dropdownOpen, setDropdownOpen] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
+    const [closingWindow, setClosingWindow] = useState(false);
+    const [wadExplorerClosing, setWadExplorerClosing] = useState(false);
 
     // Get active tab
     const activeTab = useMemo(() => {
@@ -194,10 +219,15 @@ export const TitleBar: React.FC = () => {
     };
 
     const handleClose = async () => {
+        // Tiny red-flash animation before the window actually goes away —
+        // catches the eye so closing feels intentional instead of jarring.
+        setClosingWindow(true);
+        await new Promise((r) => setTimeout(r, 160));
         try {
             await getCurrentWindow().close();
         } catch (err) {
             console.error('Failed to close window:', err);
+            setClosingWindow(false);
         }
     };
 
@@ -214,34 +244,44 @@ export const TitleBar: React.FC = () => {
         setDropdownOpen(prev => !prev);
     }, []);
 
+    // Resolve which launcher to sync to based on the user's preference, with
+    // graceful fallback if the preferred one isn't configured.
+    const launcherTarget = useMemo<{ name: string; path: string } | null>(() => {
+        const ltk = state.ltkManagerModPath;
+        const celestial = state.celestialModPath;
+        if (state.preferredLauncher === 'celestial' && celestial) return { name: 'Celestial', path: celestial };
+        if (state.preferredLauncher === 'ltk' && ltk) return { name: 'LTK Manager', path: ltk };
+        if (celestial) return { name: 'Celestial', path: celestial };
+        if (ltk) return { name: 'LTK Manager', path: ltk };
+        return null;
+    }, [state.preferredLauncher, state.ltkManagerModPath, state.celestialModPath]);
+
     const handleSyncToLauncher = useCallback(async () => {
         if (!currentProjectPath || !currentProject) return;
-
-        // Check if LTK Manager path is configured
-        if (!state.ltkManagerModPath) {
-            showToast('error', 'LTK Manager path not configured. Please set it in Settings.');
+        if (!launcherTarget) {
+            showToast('error', 'No launcher configured. Set one in Settings.');
             return;
         }
 
         setIsSyncing(true);
 
         try {
-            const modId = await api.syncProjectToLauncher(currentProjectPath, state.ltkManagerModPath);
-            showToast('success', `Synced to LTK Manager! Mod ID: ${modId}`);
+            const modId = await api.syncProjectToLauncher(currentProjectPath, launcherTarget.path);
+            showToast('success', `Synced to ${launcherTarget.name}! Mod ID: ${modId}`);
 
             // Auto-checkpoint after sync
-            api.createCheckpoint(currentProjectPath, 'Auto-checkpoint: Synced to LTK Manager').catch(e => {
+            api.createCheckpoint(currentProjectPath, `Auto-checkpoint: Synced to ${launcherTarget.name}`).catch(e => {
                 console.warn('Auto-checkpoint failed:', e);
             });
 
         } catch (err) {
             console.error('Sync to launcher failed:', err);
             const flintError = err as api.FlintError;
-            showToast('error', flintError.getUserMessage?.() || 'Failed to sync to launcher');
+            showToast('error', flintError.getUserMessage?.() || `Failed to sync to ${launcherTarget.name}`);
         } finally {
             setIsSyncing(false);
         }
-    }, [currentProject, currentProjectPath, state.ltkManagerModPath, showToast]);
+    }, [currentProject, currentProjectPath, launcherTarget, showToast]);
 
     // Direct export without modal - just opens save dialog
     const handleExportAs = useCallback(async (format: 'fantome' | 'modpkg') => {
@@ -350,8 +390,8 @@ export const TitleBar: React.FC = () => {
                         {/* WAD Explorer singleton tab */}
                         {isWadExplorerOpen && (
                             <div
-                                className={`titlebar__tab ${isWadExplorerActive ? 'titlebar__tab--active' : ''}`}
-                                onClick={() => dispatch({ type: 'OPEN_WAD_EXPLORER' })}
+                                className={`titlebar__tab ${isWadExplorerActive ? 'titlebar__tab--active' : ''}${wadExplorerClosing ? ' titlebar__tab--closing' : ''}`}
+                                onClick={wadExplorerClosing ? undefined : () => dispatch({ type: 'OPEN_WAD_EXPLORER' })}
                                 title="WAD Explorer — unified game asset browser"
                                 data-tauri-drag-region="false"
                             >
@@ -362,7 +402,15 @@ export const TitleBar: React.FC = () => {
                                 <span className="titlebar__tab-name">WAD Explorer</span>
                                 <button
                                     className="titlebar__tab-close"
-                                    onClick={e => { e.stopPropagation(); dispatch({ type: 'CLOSE_WAD_EXPLORER' }); }}
+                                    onClick={e => {
+                                        e.stopPropagation();
+                                        if (wadExplorerClosing) return;
+                                        setWadExplorerClosing(true);
+                                        setTimeout(() => {
+                                            dispatch({ type: 'CLOSE_WAD_EXPLORER' });
+                                            setWadExplorerClosing(false);
+                                        }, 180);
+                                    }}
                                     title="Close WAD Explorer"
                                 >
                                     <svg viewBox="0 0 16 16" width="12" height="12">
@@ -395,13 +443,13 @@ export const TitleBar: React.FC = () => {
             </div>
 
             <div className="titlebar__controls" data-tauri-drag-region="false">
-                {/* Sync to Launcher button (only visible when a project is open and LTK Manager is configured) */}
-                {state.currentView === 'preview' && currentProject && state.ltkManagerModPath && (
+                {/* Sync to Launcher button — visible when a project is open and any launcher is configured */}
+                {state.currentView === 'preview' && currentProject && launcherTarget && (
                     <button
                         className="titlebar__button titlebar__button--sync"
                         onClick={handleSyncToLauncher}
                         disabled={isSyncing}
-                        title="Sync project to LTK Manager launcher"
+                        title={`Sync to ${launcherTarget.name}`}
                         data-tauri-drag-region="false"
                     >
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
@@ -526,10 +574,11 @@ export const TitleBar: React.FC = () => {
                     <MaximizeIcon />
                 </button>
                 <button
-                    className="titlebar__button titlebar__button--close"
+                    className={`titlebar__button titlebar__button--close${closingWindow ? ' titlebar__button--closing' : ''}`}
                     onClick={handleClose}
                     title="Close"
                     data-tauri-drag-region="false"
+                    disabled={closingWindow}
                 >
                     <CloseIcon />
                 </button>

@@ -11,6 +11,7 @@
 //! reconciles against on-disk state.
 
 use crate::error::{Error, Result};
+use crate::project::project::ProjectKind;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
@@ -36,13 +37,20 @@ pub struct ProjectIndexEntry {
     /// Project's `name` slug.
     #[serde(default)]
     pub name: String,
-    /// Champion internal name (e.g. "Ahri") — empty string for map projects
-    /// since they don't have a real champion.
+    /// What kind of project this is. Drives which of the type-specific
+    /// fields below are meaningful.
     #[serde(default)]
+    pub kind: ProjectKind,
+    /// Champion internal name (e.g. "Ahri") — empty string for non-skin
+    /// projects since they don't have a champion.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub champion: String,
-    /// Skin id (0 = base).
-    #[serde(default)]
+    /// Skin id (0 = base). Only meaningful for Skin projects.
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub skin_id: u32,
+    /// Map id (e.g. "map11"). Only meaningful for Map projects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map_id: Option<String>,
     /// First time the project was registered (or detected on disk).
     pub created_at: DateTime<Utc>,
     /// Last time the project was opened or scanned successfully.
@@ -66,6 +74,7 @@ pub struct ProjectIndex {
 }
 
 fn default_schema_version() -> u32 { 1 }
+fn is_zero(v: &u32) -> bool { *v == 0 }
 
 // ── Path helpers ────────────────────────────────────────────────────────────
 
@@ -118,8 +127,10 @@ pub fn upsert(projects_root: &Path, entry: ProjectIndexEntry) -> Result<()> {
         existing.path = entry.path;
         existing.display_name = entry.display_name;
         existing.name = entry.name;
+        existing.kind = entry.kind;
         existing.champion = entry.champion;
         existing.skin_id = entry.skin_id;
+        existing.map_id = entry.map_id;
         existing.last_seen_at = entry.last_seen_at;
         existing.exists = entry.exists;
     } else {

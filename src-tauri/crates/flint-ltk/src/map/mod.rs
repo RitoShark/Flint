@@ -8,7 +8,7 @@
 
 use crate::error::{Error, Result};
 use crate::hash::ResolvedHashes;
-use crate::project::{create_project as core_create_project, Project};
+use crate::project::{create_project as core_create_project, register_in_index, save_project, Project};
 use crate::wad::extractor::{extract_full_wad_filtered, resolve_wad_paths, ExtractionResult};
 use league_toolkit::wad::{Wad, WadChunk};
 use memmap2::Mmap;
@@ -268,9 +268,9 @@ pub enum MapExtractMode {
 /// either the chosen variant only (default) or the entire WAD into
 /// `<project>/content/base/<wad_filename>/`.
 ///
-/// The `champion` slot of the Project struct is set to `"map-<id>"` so the
-/// recent-projects list and existing UI code can identify it without a
-/// schema change. (See plan §6 for the longer-term cleanup.)
+/// The runtime `Project` is tagged with `kind = Map` and `map_id = <id>`;
+/// the `champion` / `skin_id` slots are left empty so flint.json doesn't
+/// carry unrelated skin metadata for a map project.
 #[allow(clippy::too_many_arguments)]
 pub fn create_map_project(
     name: &str,
@@ -292,8 +292,19 @@ pub fn create_map_project(
         )))?;
 
     progress("create", "Creating project structure...");
-    let champion_tag = format!("map-{}", entry.id);
-    let project = core_create_project(name, &champion_tag, 0, league_path, output_dir, author)?;
+    // Map projects don't have a champion — flint.json carries `kind: "map"`
+    // and `map_id: "<id>"` instead. We still go through core_create_project
+    // so the on-disk layout matches skin projects (mod.config.json + content/
+    // + output/), then convert the runtime struct to the Map shape and
+    // re-save flint.json so the legacy `champion: "map-<id>"` tag never
+    // touches disk for newly-created projects.
+    let project = core_create_project(name, "", 0, league_path, output_dir, author)?;
+    let project = project.into_map(entry.id.clone());
+    save_project(&project)?;
+    // Re-register so the index reflects the cleared champion / new fields.
+    if let Err(e) = register_in_index(output_dir, &project) {
+        tracing::warn!("Failed to refresh projects.json for map project {}: {}", project.pid, e);
+    }
 
     let assets_root = project.assets_path();
 

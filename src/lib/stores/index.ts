@@ -322,7 +322,9 @@ export function useAppState() {
           config.addSavedProject({
             id: `proj-${Date.now()}`,
             name: proj.display_name || proj.name,
+            kind: proj.kind ?? 'skin',
             champion: proj.champion,
+            mapId: proj.map_id ?? null,
             path: action.payload.path,
             lastOpened: new Date().toISOString(),
           });
