@@ -279,14 +279,43 @@ pub fn extract_texture_mapping_from_text(content: &str) -> anyhow::Result<Textur
         if let Some(properties_block) = extract_braced_block(content, header_match.end() - 1) {
             tracing::debug!("Found skinMeshProperties block ({} chars)", properties_block.len());
             
+            // Split out the core properties (everything before materialOverride)
+            // to avoid matching things inside the override list
+            let core_props = if let Some(idx) = properties_block.find("materialOverride:") {
+                &properties_block[..idx]
+            } else {
+                &properties_block
+            };
+
             // Extract default texture
             // texture: string = "ASSETS/..."
             let texture_regex = Regex::new(r#"texture:\s*string\s*=\s*"([^"]+)""#).unwrap();
-            if let Some(tex_captures) = texture_regex.captures(&properties_block) {
+            if let Some(tex_captures) = texture_regex.captures(core_props) {
                 let tex_path = tex_captures.get(1).unwrap().as_str().to_string();
                 if !tex_path.is_empty() {
                     tracing::debug!("Default texture: {}", tex_path);
                     mapping.default_texture = Some(tex_path);
+                }
+            } else {
+                // Check for global material link directly inside SkinMeshDataProperties
+                let mat_link_regex = Regex::new(r#"(?i)material:\s*link\s*=\s*"([^"]+)""#).unwrap();
+                if let Some(mat_captures) = mat_link_regex.captures(core_props) {
+                    let mat_path = mat_captures.get(1).unwrap().as_str().to_string();
+                    tracing::debug!("Found global material link: {}", mat_path);
+                    if let Some(props) = resolve_material_texture(content, &mat_path) {
+                        tracing::debug!("Resolved global material to: {}", props.texture_path);
+                        mapping.default_texture = Some(props.texture_path);
+                    }
+                } else {
+                    let mat_hash_regex = Regex::new(r#"(?i)material:\s*link\s*=\s*(0x[0-9a-fA-F]+)"#).unwrap();
+                    if let Some(hash_match) = mat_hash_regex.captures(core_props) {
+                        let mat_hash = hash_match.get(1).unwrap().as_str();
+                        tracing::debug!("Found global material hash: {}", mat_hash);
+                        if let Some(props) = resolve_material_texture_by_hash(content, mat_hash) {
+                            tracing::debug!("Resolved global material hash to: {}", props.texture_path);
+                            mapping.default_texture = Some(props.texture_path);
+                        }
+                    }
                 }
             }
             

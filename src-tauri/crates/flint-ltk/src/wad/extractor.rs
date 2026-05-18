@@ -194,7 +194,7 @@ pub fn extract_chunks_parallel(
     output_dir: impl AsRef<Path>,
     chunk_hashes: Option<&HashSet<u64>>,
     resolve_paths: impl Fn(&[u64]) -> ResolvedHashes,
-) -> Result<(usize, usize)> {
+) -> Result<(usize, usize, HashMap<String, String>)> {
     let wad_path = wad_path.as_ref();
     let output_dir = output_dir.as_ref();
 
@@ -221,7 +221,7 @@ pub fn extract_chunks_parallel(
     };
     let total = target_chunks.len();
     if total == 0 {
-        return Ok((0, 0));
+        return Ok((0, 0, HashMap::new()));
     }
 
     // Bulk-resolve every hash in one LMDB txn.
@@ -232,7 +232,7 @@ pub fn extract_chunks_parallel(
     // so we don't `String::clone` per chunk (was ~80k clones for a full
     // champion WAD). Parents are gathered through a per-thread `HashSet`
     // that we union at the end.
-    let plan: Vec<(WadChunk, PathBuf)> = target_chunks
+    let plan: Vec<(WadChunk, PathBuf, Option<(String, String)>)> = target_chunks
         .par_iter()
         .map(|chunk| {
             let path_hash = chunk.path_hash();
@@ -245,6 +245,7 @@ pub fn extract_chunks_parallel(
                 }
             };
             let candidate = output_dir.join(resolved);
+            let mut mapping = None;
 
             // Windows MAX_PATH safety net.
             let out_path = if candidate.to_string_lossy().len() > 240 {
@@ -252,13 +253,27 @@ pub fn extract_chunks_parallel(
                     .extension()
                     .and_then(|e| e.to_str())
                     .unwrap_or("bin");
-                output_dir.join(format!("{:016x}.{}", path_hash, ext))
+                let hash_name = format!("{:016x}.{}", path_hash, ext);
+                let fallback_path = output_dir.join(&hash_name);
+                
+                let orig = resolved.to_lowercase().replace('\\', "/");
+                let act = hash_name.to_lowercase().replace('\\', "/");
+                mapping = Some((orig, act));
+                
+                fallback_path
             } else {
                 candidate
             };
-            (*chunk, out_path)
+            (*chunk, out_path, mapping)
         })
         .collect();
+
+    let mut path_mappings = HashMap::new();
+    for (_, _, mapping) in &plan {
+        if let Some((k, v)) = mapping {
+            path_mappings.insert(k.clone(), v.clone());
+        }
+    }
 
     // Collect unique parents in parallel via fold + reduce, then create them
     // concurrently. With ~5000 unique folders on a champion WAD, the serial
@@ -266,7 +281,7 @@ pub fn extract_chunks_parallel(
     // start — Windows directory-create syscalls aren't free.
     let parents: HashSet<PathBuf> = plan
         .par_iter()
-        .fold(HashSet::new, |mut acc, (_, out_path)| {
+        .fold(HashSet::new, |mut acc, (_, out_path, _)| {
             if let Some(p) = out_path.parent() {
                 acc.insert(p.to_path_buf());
             }
@@ -294,7 +309,7 @@ pub fn extract_chunks_parallel(
             };
             let mut extracted = 0usize;
             let mut failed = 0usize;
-            for (chunk, out_path) in slice {
+            for (chunk, out_path, _) in slice {
                 match local_wad.load_chunk_decompressed(chunk) {
                     Ok(data) => {
                         // Path-already-has-extension fast path: skip the
@@ -322,9 +337,21 @@ pub fn extract_chunks_parallel(
         })
         .collect();
 
-    Ok(results
+    let (extracted_count, failed_count) = results
         .into_iter()
-        .fold((0usize, 0usize), |(e, f), (re, rf)| (e + re, f + rf)))
+        .fold((0usize, 0usize), |(e, f), (re, rf)| (e + re, f + rf));
+
+    Ok((extracted_count, failed_count, path_mappings))
+}
+
+fn write_hashed_names_file(output_dir: &Path, mappings: &HashMap<String, String>) {
+    if mappings.is_empty() {
+        return;
+    }
+    let map_file = output_dir.join("_flint_hashed_names.json");
+    if let Ok(json) = serde_json::to_string_pretty(mappings) {
+        let _ = fs::write(map_file, json);
+    }
 }
 
 /// Check whether a champion WAD contains the main skin BIN for the given skin ID.
@@ -622,6 +649,8 @@ pub fn extract_skin_assets(
         extracted_count, total_chunks, skipped_count, path_mappings.len()
     );
 
+    write_hashed_names_file(&wad_output_dir, &path_mappings);
+
     Ok(ExtractionResult { extracted_count, path_mappings })
 }
 
@@ -897,7 +926,25 @@ pub fn extract_skin_assets_selective(
     );
 
     // ── Phase B: hash → filter set, delegate to extract_chunks_parallel ────
-    let want_hashes: HashSet<u64> = want_paths.iter().map(|p| xx(p)).collect();
+    let mut want_hashes: HashSet<u64> = HashSet::with_capacity(want_paths.len());
+    let mut known_paths: HashMap<u64, String> = HashMap::with_capacity(want_paths.len());
+    for p in want_paths {
+        let h = xx(&p);
+        want_hashes.insert(h);
+        known_paths.insert(h, p);
+    }
+
+    let resolve_wrapper = |hashes: &[u64]| -> ResolvedHashes {
+        let mut resolved = resolve_paths(hashes);
+        for h in hashes {
+            if !resolved.contains_key(h) {
+                if let Some(p) = known_paths.get(h) {
+                    resolved.insert(*h, &p);
+                }
+            }
+        }
+        resolved
+    };
 
     // Drop the mmap before extract_chunks_parallel re-mmaps the same file.
     // This Wad cursor borrows from `mmap`, so it must go first.
@@ -905,11 +952,11 @@ pub fn extract_skin_assets_selective(
     drop(mmap);
     drop(file);
 
-    let (extracted, failed) = extract_chunks_parallel(
+    let (extracted, failed, path_mappings) = extract_chunks_parallel(
         wad_path,
         &wad_output_dir,
         Some(&want_hashes),
-        resolve_paths,
+        resolve_wrapper,
     )?;
 
     if failed > 0 {
@@ -922,9 +969,11 @@ pub fn extract_skin_assets_selective(
         by_hash.len()
     );
 
+    write_hashed_names_file(&wad_output_dir, &path_mappings);
+
     Ok(ExtractionResult {
         extracted_count: extracted,
-        path_mappings: HashMap::new(),
+        path_mappings,
     })
 }
 
@@ -1086,6 +1135,8 @@ pub fn extract_full_wad_filtered(
         "Full WAD extracted: {}/{} chunks ({} skipped, {} path mappings)",
         extracted_count, total_chunks, skipped_count, path_mappings.len()
     );
+
+    write_hashed_names_file(output_dir, &path_mappings);
 
     Ok(ExtractionResult { extracted_count, path_mappings })
 }

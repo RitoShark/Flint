@@ -404,7 +404,8 @@ pub async fn extract_wad(
         }
     };
 
-    let result: Result<(usize, usize), String> = tokio::task::spawn_blocking(move || {
+    let output_dir_clone = output_dir.clone();
+    let result: Result<(usize, usize, std::collections::HashMap<String, String>), String> = tokio::task::spawn_blocking(move || {
         let resolver = |hashes: &[u64]| -> ResolvedHashes {
             if let Some(ref env) = env_opt {
                 resolve_hashes_lmdb_bulk(hashes, env)
@@ -423,7 +424,15 @@ pub async fn extract_wad(
     .await
     .map_err(|e| format!("Task panic: {}", e))?;
 
-    let (extracted_count, failed_count) = result?;
+    let (extracted_count, failed_count, path_mappings) = result?;
+
+    if !path_mappings.is_empty() {
+        let out = std::path::PathBuf::from(&output_dir_clone);
+        if let Ok(json) = serde_json::to_string_pretty(&path_mappings) {
+            let _ = std::fs::write(out.join("_flint_hashed_names.json"), json);
+        }
+    }
+
     Ok(ExtractionResult { extracted_count, failed_count })
 }
 
