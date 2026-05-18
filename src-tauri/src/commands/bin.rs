@@ -1,8 +1,20 @@
-use flint_ltk::bin::{bin_to_json, bin_to_text, json_to_bin, read_bin, text_to_bin, write_bin};
+use flint_ltk::bin::{bin_to_json, json_to_bin, read_bin, text_to_bin, write_bin};
+use flint_ltk::bin::tree_to_text_cached;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 use crate::core::ipc_trace;
+
+// Per-path mutex so two concurrent read_or_convert_bin calls for the same file
+// don't both race past the cache check and convert the BIN twice.
+// The second caller waits for the first, then hits the freshly-written cache.
+static BIN_INFLIGHT: std::sync::OnceLock<dashmap::DashMap<String, Arc<tokio::sync::Mutex<()>>>> =
+    std::sync::OnceLock::new();
+
+fn bin_inflight() -> &'static dashmap::DashMap<String, Arc<tokio::sync::Mutex<()>>> {
+    BIN_INFLIGHT.get_or_init(dashmap::DashMap::new)
+}
 
 /// Metadata information about a bin file
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,8 +65,8 @@ pub async fn convert_bin_to_text(
 
     tracing::debug!("Read {} bytes from {}", data.len(), input_path);
 
-    // Parse the bin file
-    let bin = read_bin(&data)
+    // Parse the bin file using the LTK-native reader
+    let bin = flint_ltk::bin::read_bin_ltk(&data)
         .map_err(|e| {
             tracing::error!("Failed to parse bin file '{}': {}", input_path, e);
             format!("Failed to parse bin file '{}': {}", input_path, e)
@@ -62,8 +74,8 @@ pub async fn convert_bin_to_text(
 
     tracing::debug!("Parsed bin file with {} objects", bin.objects.len());
 
-    // Convert to text format
-    let text = bin_to_text(&bin)
+    // Convert to text with full hash resolution (same as the BIN editor path)
+    let text = tree_to_text_cached(&bin)
         .map_err(|e| {
             tracing::error!("Failed to convert to text: {}", e);
             format!("Failed to convert to text: {}", e)
@@ -297,8 +309,8 @@ pub async fn convert_bin_bytes_to_text(
     };
     tracing::debug!("Converting {} bytes of BIN data to text", bin_data.len());
 
-    // Parse the bin file
-    let bin = read_bin(bin_data)
+    // Parse using the LTK-native reader so hashes are resolved correctly
+    let bin = flint_ltk::bin::read_bin_ltk(bin_data)
         .map_err(|e| {
             tracing::error!("Failed to parse bin data: {}", e);
             format!("Failed to parse bin data: {}", e)
@@ -306,8 +318,8 @@ pub async fn convert_bin_bytes_to_text(
 
     tracing::debug!("Parsed bin data with {} objects", bin.objects.len());
 
-    // Convert to text format
-    let text = bin_to_text(&bin)
+    // Convert with full hash resolution (same path as the BIN editor)
+    let text = tree_to_text_cached(&bin)
         .map_err(|e| {
             tracing::error!("Failed to convert to text: {}", e);
             format!("Failed to convert to text: {}", e)
@@ -430,12 +442,12 @@ async fn read_or_convert_bin_inner(
     use_jade: Option<bool>,
 ) -> Result<String, String> {
     let _t = ipc_trace::enter("read_or_convert_bin");
-    let use_jade = use_jade.unwrap_or(false); // Default to LTK for backward compatibility
+    let use_jade = use_jade.unwrap_or(false);
     let engine_name = if use_jade { "Jade" } else { "LTK" };
 
     tracing::info!("[BIN_READ] === Starting read_or_convert_bin ({}) ===", engine_name);
     tracing::info!("[BIN_READ] Path: {}", bin_path);
-    
+
     if bin_path.is_empty() {
         return Err("Path cannot be empty".to_string());
     }
@@ -444,6 +456,13 @@ async fn read_or_convert_bin_inner(
     if !bin_file.exists() {
         return Err(format!("File does not exist: {}", bin_path));
     }
+
+    // Serialize concurrent calls for the same path so we don't convert twice.
+    let lock = {
+        let map = bin_inflight();
+        let entry = map.entry(bin_path.clone()).or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())));        Arc::clone(&*entry)
+    };
+    let _guard = lock.lock().await;
 
     // Early magic byte check: verify this is actually a BIN file (PROP or PTCH)
     // before attempting any conversion. Prevents wasted work if wrong file type

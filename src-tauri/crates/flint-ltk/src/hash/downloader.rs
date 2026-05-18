@@ -21,7 +21,7 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
 const RELEASE_API_URL: &str =
-    "https://api.github.com/repos/LeagueToolkit/lmdb-hashes/releases/latest";
+    "https://api.github.com/repos/RitoShark/lmdb-hashes/releases/latest";
 const META_FILE_NAME: &str = "hashes-meta.json";
 const USER_AGENT: &str = "flint-hash-manager";
 
@@ -116,6 +116,17 @@ pub async fn download_hashes(output_dir: impl AsRef<Path>, force: bool) -> Resul
         e
     })?;
 
+    // Clean up any leftover .tmp files from a previous interrupted download.
+    // On Windows the LMDB env holds a file lock on data.mdb, so the rename
+    // of data.mdb.tmp -> data.mdb can fail and leave a stale .tmp behind.
+    for asset in ASSETS {
+        let tmp = output_dir.join(asset.lmdb_dir).join("data.mdb.tmp");
+        if tmp.exists() {
+            tracing::info!("Removing stale {}", tmp.display());
+            let _ = fs::remove_file(&tmp).await;
+        }
+    }
+
     let mut stats = DownloadStats { downloaded: 0, skipped: 0, errors: 0 };
 
     // Fast path: LMDBs already on disk and caller didn't force a refresh.
@@ -177,6 +188,12 @@ pub async fn download_hashes(output_dir: impl AsRef<Path>, force: bool) -> Resul
     if !latest_tag.is_empty() && stats.errors == 0 {
         meta.release_tag = Some(latest_tag);
         meta.updated_at = Some(now_iso());
+
+        // Reload both in-process hash caches so new data is live immediately
+        // without requiring an app restart.
+        crate::bin::ltk_bridge::reload_bin_hash_cache();
+        crate::bin::jade::hash_manager::reload_jade_hashes();
+        tracing::info!("BIN hash caches reloaded after successful download");
     }
     meta.last_checked_at = Some(now_iso());
     write_meta(output_dir, &meta).await;
@@ -240,7 +257,12 @@ async fn download_and_extract(
     .map_err(|e| Error::Hash(format!("Zstd task join failed: {}", e)))?
     .map_err(|e| Error::Hash(format!("Zstd decode failed: {}", e)))?;
 
-    // Atomically replace data.mdb: write to .tmp, rename over.
+    // Atomically replace data.mdb: write to .tmp, then rename over.
+    //
+    // WINDOWS NOTE: LMDB memory-maps data.mdb, which holds an open file handle.
+    // fs::rename over a locked file fails with ERROR_ACCESS_DENIED (os error 5).
+    // We must drop the cached env *before* attempting the rename so Windows
+    // releases its handle on data.mdb.
     let data_mdb = lmdb_dir.join("data.mdb");
     let tmp_path = lmdb_dir.join("data.mdb.tmp");
 
@@ -249,12 +271,27 @@ async fn download_and_extract(
     f.flush().await?;
     drop(f);
 
+    // Drop the cached LMDB envs so Windows releases its handle on data.mdb.
+    crate::hash::lmdb_cache::drop_lmdb_cache();
+
     // Remove LMDB's lock file so a future open starts clean.
     let _ = fs::remove_file(lmdb_dir.join("lock.mdb")).await;
 
-    fs::rename(&tmp_path, &data_mdb).await?;
+    // Explicitly delete the old data.mdb first — Windows may refuse to
+    // rename over a file that recently had open handles even after drop.
+    if data_mdb.exists() {
+        if let Err(e) = fs::remove_file(&data_mdb).await {
+            tracing::warn!("Could not remove old data.mdb (will attempt rename anyway): {}", e);
+        }
+    }
+
+    fs::rename(&tmp_path, &data_mdb).await
+        .map_err(|e| Error::Hash(format!("Failed to rename data.mdb.tmp -> data.mdb: {}", e)))?;
+
+    tracing::info!("Successfully installed new data.mdb at {}", data_mdb.display());
     Ok(())
 }
+
 
 async fn read_meta(hash_dir: &Path) -> HashesMeta {
     let path = hash_dir.join(META_FILE_NAME);

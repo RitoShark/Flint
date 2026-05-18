@@ -49,6 +49,7 @@ anyhow = "1.0"
 # Concurrency
 parking_lot = "0.12"
 rayon = "1.10"
+dashmap = "6"
 
 # Fast hashing for u64-keyed maps (avoid SipHash on already-hashed xxh64 keys).
 # Keys in `load_all_wad_chunks` Phase 2 dedup + the resolver's per-thread maps

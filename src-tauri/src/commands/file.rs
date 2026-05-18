@@ -503,6 +503,16 @@ async fn recolor_single_file(
     let mut rgba_img = surface.into_rgba_image()
         .map_err(|e| format!("Failed to get RGBA image: {:?}", e))?;
 
+    // BC1/BC3 block compression requires dimensions that are multiples of 4.
+    // Clamp to the nearest lower multiple of 4 to avoid corrupt output or panics
+    // inside intel-tex's compress_blocks when the source texture is oddly sized.
+    let (orig_w, orig_h) = rgba_img.dimensions();
+    let clamped_w = (orig_w / 4) * 4;
+    let clamped_h = (orig_h / 4) * 4;
+    if clamped_w != orig_w || clamped_h != orig_h {
+        rgba_img = image::imageops::crop_imm(&rgba_img, 0, 0, clamped_w.max(4), clamped_h.max(4)).to_image();
+    }
+
     // Apply HSL transform
     apply_hsl_to_image(&mut rgba_img, hue, saturation, brightness);
 
@@ -512,8 +522,8 @@ async fn recolor_single_file(
             use flint_ltk::ltk_types::EncodeOptions;
             // Mipmaps are intentionally OFF here. Upstream
             // `encode_rgba_with_mipmaps` walks down to sub-block sizes
-            // (e.g. 16×1 for BC3) and intel-tex's `compress_blocks`
-            // under-encodes those — the resulting TEX has a declared
+            // (e.g. 16x1 for BC3) and intel-tex's `compress_blocks`
+            // under-encodes those -- the resulting TEX has a declared
             // mip-table size larger than the byte buffer and any later
             // decode panics with `range end index N out of range`.
             // Single-mip TEX renders correctly in-game and lets the
@@ -522,8 +532,16 @@ async fn recolor_single_file(
             let new_tex = flint_ltk::ltk_types::Tex::encode_rgba_image(&rgba_img, options)
                 .map_err(|e| format!("Failed to encode TEX: {:?}", e))?;
 
-            let mut output = fs::File::create(&path_buf).map_err(|e| format!("Failed to create output file: {}", e))?;
-            new_tex.write(&mut output).map_err(|e| format!("Failed to write TEX: {}", e))?;
+            // ltk_texture's write() hardcodes ext_format byte (header offset +8) to 0,
+            // but League's original TEX files use 0x01 for BC1/BC3 textures.
+            // Changing it from 0x01 to 0x00 can cause a crash. Preserve the
+            // original value by encoding to a buffer first, then patching byte 8.
+            let mut tex_bytes: Vec<u8> = Vec::new();
+            new_tex.write(&mut tex_bytes).map_err(|e| format!("Failed to encode TEX to buffer: {}", e))?;
+            if tex_bytes.len() >= 9 && data.len() >= 9 {
+                tex_bytes[8] = data[8]; // restore original ext_format byte
+            }
+            fs::write(&path_buf, &tex_bytes).map_err(|e| format!("Failed to write TEX: {}", e))?;
         }
         Texture::Dds(mut _dds) => {
             // Re-parse with ddsfile to get header info and encode with image_dds
@@ -542,11 +560,14 @@ async fn recolor_single_file(
                 image_dds::ImageFormat::Bgra8Unorm
             };
 
+            // Mipmaps are disabled — generating them for DDS causes League to crash
+            // (the client expects either 0 or a complete standard mip chain; partial
+            // chains from GeneratedAutomatic can disagree with the header counts).
             let new_dds = image_dds::dds_from_image(
                 &rgba_img,
                 format,
                 image_dds::Quality::Normal,
-                image_dds::Mipmaps::GeneratedAutomatic,
+                image_dds::Mipmaps::Disabled,
             ).map_err(|e| format!("Failed to encode DDS: {:?}", e))?;
 
             let mut output = fs::File::create(&path_buf).map_err(|e| format!("Failed to create output file: {}", e))?;
@@ -647,6 +668,15 @@ async fn colorize_single_file(
     let mut rgba_img = surface.into_rgba_image()
         .map_err(|e| format!("Failed to get RGBA image: {:?}", e))?;
 
+    // BC1/BC3 block compression requires dimensions that are multiples of 4.
+    // Clamp to the nearest lower multiple of 4 to avoid corrupt output or panics.
+    let (orig_w, orig_h) = rgba_img.dimensions();
+    let clamped_w = (orig_w / 4) * 4;
+    let clamped_h = (orig_h / 4) * 4;
+    if clamped_w != orig_w || clamped_h != orig_h {
+        rgba_img = image::imageops::crop_imm(&rgba_img, 0, 0, clamped_w.max(4), clamped_h.max(4)).to_image();
+    }
+
     // Apply colorize transform
     colorize_image_impl(&mut rgba_img, target_hue, preserve_saturation);
 
@@ -654,20 +684,25 @@ async fn colorize_single_file(
     match texture {
         Texture::Tex(tex) => {
             use flint_ltk::ltk_types::EncodeOptions;
-            // See note in recolor_single_file — mipmaps disabled to avoid
+            // See note in recolor_single_file -- mipmaps disabled to avoid
             // upstream sub-block-size encode bug.
             let options = EncodeOptions::new(tex.format);
             let new_tex = flint_ltk::ltk_types::Tex::encode_rgba_image(&rgba_img, options)
                 .map_err(|e| format!("Failed to encode TEX: {:?}", e))?;
 
-            let mut output = fs::File::create(&path_buf).map_err(|e| format!("Failed to create output file: {}", e))?;
-            new_tex.write(&mut output).map_err(|e| format!("Failed to write TEX: {}", e))?;
+            // Preserve original ext_format byte -- see note in recolor_single_file.
+            let mut tex_bytes: Vec<u8> = Vec::new();
+            new_tex.write(&mut tex_bytes).map_err(|e| format!("Failed to encode TEX to buffer: {}", e))?;
+            if tex_bytes.len() >= 9 && data.len() >= 9 {
+                tex_bytes[8] = data[8]; // restore original ext_format byte
+            }
+            fs::write(&path_buf, &tex_bytes).map_err(|e| format!("Failed to write TEX: {}", e))?;
         }
         Texture::Dds(mut _dds) => {
             // Re-parse with ddsfile to get header info and encode with image_dds
             let mut cursor = Cursor::new(&data);
             let dds = ddsfile::Dds::read(&mut cursor).map_err(|e| format!("Failed to parse DDS: {}", e))?;
-            
+
             // Try to match format
             let format = if let Some(fourcc) = dds.header.spf.fourcc {
                 if fourcc.0 == u32::from_le_bytes(*b"DXT1") {
@@ -680,11 +715,12 @@ async fn colorize_single_file(
                 image_dds::ImageFormat::Bgra8Unorm
             };
 
+            // Mipmaps are disabled — see note in recolor_single_file.
             let new_dds = image_dds::dds_from_image(
                 &rgba_img,
                 format,
                 image_dds::Quality::Normal,
-                image_dds::Mipmaps::GeneratedAutomatic,
+                image_dds::Mipmaps::Disabled,
             ).map_err(|e| format!("Failed to encode DDS: {:?}", e))?;
 
             let mut output = fs::File::create(&path_buf).map_err(|e| format!("Failed to create output file: {}", e))?;
