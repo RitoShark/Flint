@@ -143,11 +143,14 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             binTools.push({
                 label: 'Split BINs by Class…',
                 icon: getIcon('code'),
-                onClick: () => openModal('binSplit', {
-                    mode: 'folder',
-                    folderPath: fullPath.replace(/\//g, '\\'),
-                    defaultOutputName: 'VFX.bin',
-                }),
+                onClick: async () => {
+                    const defaultOutputName = await api.getVfxFilename(fullPath.replace(/\//g, '\\'));
+                    openModal('binSplit', {
+                        mode: 'folder',
+                        folderPath: fullPath.replace(/\//g, '\\'),
+                        defaultOutputName,
+                    });
+                },
             });
             binTools.push({
                 label: 'Organize VFX (auto-consolidate)…',
@@ -234,7 +237,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
         options.push({
             label: 'Reveal in Explorer',
             icon: getIcon('folderOpen2'),
-            onClick: () => api.openInExplorer(fullPath.replace(/\//g, '\\')).catch(() => {}),
+            onClick: () => api.openInExplorer(fullPath.replace(/\//g, '\\')).catch(() => { }),
         });
 
         options.push({
@@ -535,17 +538,18 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
         });
     }
 
-    if (ext === 'bin' && !fileName.toLowerCase().includes('__concat')) {
-        const stem = fileName.slice(0, -4);
-        const defaultOutputName = `${stem}_VFX.bin`;
+    if (ext === 'bin' && !fileName.toLowerCase().includes('_concat')) {
         options.push({
             label: 'Split BIN by Class…',
             icon: getIcon('code'),
             separator: true,
-            onClick: () => openModal('binSplit', {
-                binPath: fullPath.replace(/\//g, '\\'),
-                defaultOutputName,
-            }),
+            onClick: async () => {
+                const defaultOutputName = await api.getVfxFilename(fullPath.replace(/\//g, '\\'));
+                openModal('binSplit', {
+                    binPath: fullPath.replace(/\//g, '\\'),
+                    defaultOutputName,
+                });
+            },
         });
     }
 
@@ -581,7 +585,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             {
                 label: 'Reveal in Explorer',
                 icon: getIcon('folderOpen2'),
-                onClick: () => api.openInExplorer(fullPath.replace(/\//g, '\\')).catch(() => {}),
+                onClick: () => api.openInExplorer(fullPath.replace(/\//g, '\\')).catch(() => { }),
             },
             {
                 label: 'With Default App',

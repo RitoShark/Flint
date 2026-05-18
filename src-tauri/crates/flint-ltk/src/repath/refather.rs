@@ -844,7 +844,7 @@ fn relocate_assets(content_base: &Path, existing_paths: &HashSet<String>, prefix
     for path in existing_paths {
         // Skip BIN files EXCEPT concat.bin (which needs to move to match its
         // repathed reference)
-        if path.to_lowercase().ends_with(".bin") && !path.to_lowercase().contains("__concat") {
+        if path.to_lowercase().ends_with(".bin") && !path.to_lowercase().contains("_Concat") {
             continue;
         }
 
@@ -961,7 +961,7 @@ fn cleanup_unused_files(content_base: &Path, referenced_paths: &HashSet<String>,
 /// Remove all extracted BINs except:
 /// 1. Main skin BIN (skins/skin{ID}.bin)
 /// 2. Animation BIN (animations/skin{ID}.bin) 
-/// 3. Concat BIN (__Concat.bin)
+/// 3. Concat BIN (_Concat.bin)
 /// 
 /// This uses a whitelist approach - everything else is deleted.
 fn cleanup_irrelevant_bins(content_base: &Path, champion: &str, target_skin_id: u32) -> Result<usize> {
@@ -973,7 +973,7 @@ fn cleanup_irrelevant_bins(content_base: &Path, champion: &str, target_skin_id: 
     let target_skin_name_padded = format!("skin{:02}.bin", target_skin_id);
 
     tracing::info!(
-        "Cleaning up BINs (keeping only: {}, {}, and __Concat.bin)",
+        "Cleaning up BINs (keeping only: {}, {}, and _Concat.bin)",
         target_skin_name,
         target_skin_name_padded
     );
@@ -996,7 +996,7 @@ fn cleanup_irrelevant_bins(content_base: &Path, champion: &str, target_skin_id: 
             // === WHITELIST: BINs we KEEP ===
             
             // 1. Keep the concatenated BIN
-            if filename.contains("__concat") {
+            if filename.contains("_Concat") {
                 tracing::debug!("Keeping concat BIN: {}", rel_str);
                 continue;
             }

@@ -1803,6 +1803,10 @@ export interface BinOrganizeResult {
     vfx_link_added: string;
 }
 
+export async function getVfxFilename(folderPath: string): Promise<string> {
+    return invokeCommand('get_vfx_filename_command', { folderPath });
+}
+
 export async function previewOrganizeVfx(folderPath: string): Promise<BinOrganizePreview> {
     return invokeCommand('preview_organize_vfx', { folderPath });
 }

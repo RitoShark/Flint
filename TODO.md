@@ -32,7 +32,7 @@ mark and skips emitting `file-changed` for matched events.
 ---
 
 ## BIN split — DONE (initial)
-Right-click any `.bin` in the file tree (except `__Concat`) → "Split BIN
+Right-click any `.bin` in the file tree (except `_Concat`) → "Split BIN
 by Class…". Modal lists every class in the BIN with object counts and
 checkboxes; classes our classifier flagged as VFX are checked by default
 (`VfxSystemDefinitionData`, `Particle*`, `TrailDef`, `BeamDef`, etc).

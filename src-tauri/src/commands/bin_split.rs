@@ -413,8 +413,35 @@ pub async fn preview_organize_vfx(folder_path: String) -> Result<BinOrganizePrev
         vfx_objects_estimate: vfx_estimate,
         main_objects_estimate: main_estimate,
         suggested_owner: owner,
-        vfx_filename: "VFX.bin".to_string(),
+        vfx_filename: get_vfx_filename(&folder),
     })
+}
+
+fn get_vfx_filename(folder: &Path) -> String {
+    let mut current = folder.to_path_buf();
+    while let Some(parent) = current.parent() {
+        if parent.join("mod.config.json").exists() {
+            if let Ok(project) = flint_ltk::project::project::open_project(parent) {
+                let creator = project.authors.first().map(|a| a.to_string()).unwrap_or_else(|| "Unknown".to_string());
+                let proj = project.name;
+                let creator_sanitized = creator.replace(' ', "-");
+                let project_sanitized = proj.replace(' ', "-");
+                return format!("{}_{}_VFX.bin", creator_sanitized, project_sanitized);
+            }
+        }
+        current = parent.to_path_buf();
+    }
+    "VFX.bin".to_string()
+}
+
+#[tauri::command]
+pub async fn get_vfx_filename_command(folder_path: String) -> Result<String, String> {
+    let folder = PathBuf::from(&folder_path);
+    Ok(get_vfx_filename(if folder.is_file() {
+        folder.parent().unwrap_or(Path::new("."))
+    } else {
+        &folder
+    }))
 }
 
 /// Run the organize pass. Pulls every VFX-class object from every source
