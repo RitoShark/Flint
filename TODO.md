@@ -1,4 +1,5 @@
-# Flint TODO
+# Flint TODO 
+done
 
 Working backlog. Bullets under each item are concrete sub-tasks; question
 blocks are notes to me when I (Claude) need clarification before implementing.
@@ -251,3 +252,4 @@ implement.
    folder-selection path through PreviewPanel
 7. **Animated loadscreen preset** — blocked on user spec
 8. **Map project fetch** — blocked on user spec
+
