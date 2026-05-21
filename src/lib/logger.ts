@@ -53,6 +53,7 @@ function addLogEntry(level: LogEntry['level'], message: string) {
 // Store original console methods
 const originalConsole = {
     log: console.log.bind(console),
+    info: console.info.bind(console),
     warn: console.warn.bind(console),
     error: console.error.bind(console),
 };
@@ -62,6 +63,9 @@ const originalConsole = {
  */
 function formatArgs(args: unknown[]): string {
     return args.map(arg => {
+        if (arg instanceof Error) {
+            return `${arg.name}: ${arg.message}\n${arg.stack || ''}`;
+        }
         if (typeof arg === 'object' && arg !== null) {
             try {
                 return JSON.stringify(arg, null, 2);
@@ -106,6 +110,15 @@ export function initializeLogger() {
         }
     };
 
+    // Override console.info
+    console.info = (...args: unknown[]) => {
+        originalConsole.info(...args);
+        const message = formatArgs(args);
+        if (!shouldFilter(message)) {
+            addLogEntry('info', message);
+        }
+    };
+
     // Override console.warn
     console.warn = (...args: unknown[]) => {
         originalConsole.warn(...args);
@@ -129,6 +142,7 @@ export function initializeLogger() {
  */
 export function restoreConsole() {
     console.log = originalConsole.log;
+    console.info = originalConsole.info;
     console.warn = originalConsole.warn;
     console.error = originalConsole.error;
 }

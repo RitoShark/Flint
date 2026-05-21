@@ -3,7 +3,7 @@ members = [".", "crates/flint-ltk"]
 
 [package]
 name = "flint"
-version = "2.0.0"
+version = "2.0.1"
 edition = "2021"
 default-run = "flint"
 
@@ -25,9 +25,11 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 # Core library (all LTK deps live here)
 flint-ltk = { path = "crates/flint-ltk" }
+intel_tex_2 = "0.5"
+flate2 = "1.0"
 
 # Tauri framework
-tauri = { version = "2", features = ["devtools"] }
+tauri = { version = "2", features = ["protocol-asset", "devtools"] }
 tauri-plugin-dialog = "2.0"
 tauri-plugin-updater = "2.0"
 tauri-plugin-process = "2.0"

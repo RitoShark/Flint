@@ -4,7 +4,7 @@
  */
 
 import { invoke, type InvokeArgs, type InvokeOptions } from '@tauri-apps/api/core';
-import type { HashStatus, Project, FileTreeNode, Champion, GameWadInfo, AudioBankInfo, DecodedAudio, HircData, BinEventString, EventMapping, RecentProject, SavedProject } from './types';
+import type { HashStatus, Project, ProjectKind, FileTreeNode, Champion, GameWadInfo, AudioBankInfo, DecodedAudio, HircData, BinEventString, EventMapping, RecentProject, SavedProject } from './types';
 
 // =============================================================================
 // Error Handling
@@ -418,7 +418,7 @@ interface CreateLoadingScreenParams {
     projectPath: string;
     leaguePath: string;
     creatorName: string;
-    spritesheetPngData: number[];
+    spritesheetRgbaDeflated: Uint8Array;
     frameWidth: number;
     frameHeight: number;
     sheetWidth: number;
@@ -429,22 +429,93 @@ interface CreateLoadingScreenParams {
     rows: number;
 }
 
+function packPayload(params: CreateLoadingScreenParams): Uint8Array {
+    const encoder = new TextEncoder();
+    const nameBytes = encoder.encode(params.name);
+    const projectPathBytes = encoder.encode(params.projectPath);
+    const leaguePathBytes = encoder.encode(params.leaguePath);
+    const creatorNameBytes = encoder.encode(params.creatorName);
+
+    const totalSize = 
+        4 + nameBytes.length +
+        4 + projectPathBytes.length +
+        4 + leaguePathBytes.length +
+        4 + creatorNameBytes.length +
+        8 * 4 +
+        params.spritesheetRgbaDeflated.length;
+
+    const buffer = new ArrayBuffer(totalSize);
+    const view = new DataView(buffer);
+    let offset = 0;
+
+    const writeStringBytes = (bytes: Uint8Array) => {
+        view.setUint32(offset, bytes.length, true);
+        offset += 4;
+        new Uint8Array(buffer, offset, bytes.length).set(bytes);
+        offset += bytes.length;
+    };
+
+    writeStringBytes(nameBytes);
+    writeStringBytes(projectPathBytes);
+    writeStringBytes(leaguePathBytes);
+    writeStringBytes(creatorNameBytes);
+
+    view.setUint32(offset, params.frameWidth, true); offset += 4;
+    view.setUint32(offset, params.frameHeight, true); offset += 4;
+    view.setUint32(offset, params.sheetWidth, true); offset += 4;
+    view.setUint32(offset, params.sheetHeight, true); offset += 4;
+    view.setFloat32(offset, params.fps, true); offset += 4;
+    view.setFloat32(offset, params.totalFrames, true); offset += 4;
+    view.setFloat32(offset, params.cols, true); offset += 4;
+    view.setFloat32(offset, params.rows, true); offset += 4;
+
+    new Uint8Array(buffer, offset, params.spritesheetRgbaDeflated.length).set(params.spritesheetRgbaDeflated);
+    return new Uint8Array(buffer);
+}
+
+function decodeProjectPayload(bytes: Uint8Array): Project {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const utf8 = new TextDecoder('utf-8');
+    let off = 0;
+
+    const readString = (): string => {
+        const len = view.getUint32(off, true); off += 4;
+        const s = utf8.decode(bytes.subarray(off, off + len));
+        off += len;
+        return s;
+    };
+
+    const pid = readString();
+    const name = readString();
+    const displayName = readString();
+    const kind = readString() as ProjectKind;
+    const champion = readString();
+    const skinId = view.getUint32(off, true); off += 4;
+    const mapId = readString() || null;
+    const creator = readString();
+    const version = readString();
+    const description = readString();
+    const projectPath = readString();
+
+    return {
+        pid,
+        name,
+        display_name: displayName,
+        kind,
+        champion,
+        skin_id: skinId,
+        map_id: mapId,
+        creator,
+        version,
+        description,
+        project_path: projectPath,
+    };
+}
+
 export async function createLoadingScreenProject(params: CreateLoadingScreenParams): Promise<Project> {
-    return invokeCommand('create_loading_screen_project', {
-        name: params.name,
-        projectPath: params.projectPath,
-        leaguePath: params.leaguePath,
-        creatorName: params.creatorName,
-        spritesheetPngData: params.spritesheetPngData,
-        frameWidth: params.frameWidth,
-        frameHeight: params.frameHeight,
-        sheetWidth: params.sheetWidth,
-        sheetHeight: params.sheetHeight,
-        fps: params.fps,
-        totalFrames: params.totalFrames,
-        cols: params.cols,
-        rows: params.rows,
-    });
+    const payload = packPayload(params);
+    const buf = await invokeRaw<ArrayBuffer>('create_loading_screen_project', payload);
+    return decodeProjectPayload(new Uint8Array(buf));
 }
 
 export interface CreateHudProjectParams {

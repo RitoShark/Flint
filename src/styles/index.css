@@ -3401,7 +3401,8 @@ input.np-search:focus {
   color: var(--text-secondary);
 }
 
-.video-picker:hover {
+.video-picker:hover,
+.video-picker--over {
   border-color: var(--accent);
   background-color: var(--bg-secondary);
 }

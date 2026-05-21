@@ -150,11 +150,13 @@ export function calculateBudget(params: {
  */
 export function getVideoMetadata(file: File): Promise<VideoMeta> {
     return new Promise((resolve, reject) => {
+        console.info(`[getVideoMetadata] Extracting metadata for file: name="${file.name}", size=${file.size} bytes, type="${file.type}"`);
         const video = document.createElement('video');
         video.preload = 'metadata';
         video.muted = true;
 
         const url = URL.createObjectURL(file);
+        console.info(`[getVideoMetadata] Created object URL: "${url}"`);
 
         video.onloadedmetadata = () => {
             const meta: VideoMeta = {
@@ -163,38 +165,51 @@ export function getVideoMetadata(file: File): Promise<VideoMeta> {
                 duration: video.duration,
                 fps: 30, // default — browsers don't expose native fps reliably
             };
+            console.info(`[getVideoMetadata] Metadata loaded successfully: width=${meta.width}, height=${meta.height}, duration=${meta.duration}`);
             URL.revokeObjectURL(url);
             video.remove();
             resolve(meta);
         };
 
-        video.onerror = () => {
+        video.onerror = (e) => {
+            const errCode = video.error ? video.error.code : 'unknown';
+            const errMsg = video.error ? video.error.message : 'no message';
+            console.error(`[getVideoMetadata] video.onerror event triggered. Error code: ${errCode}, message: "${errMsg}"`, e);
             URL.revokeObjectURL(url);
             video.remove();
-            reject(new Error('Failed to load video file. Ensure it is a valid video format (MP4, WebM).'));
+            reject(new Error(`Failed to load video file (Error code: ${errCode}, message: ${errMsg}). Ensure it is a valid video format (MP4, WebM).`));
         };
 
         video.src = url;
     });
 }
 
-// ─── Frame Extraction & Spritesheet Assembly ─────────────────────────────────
-
 /**
  * Seek a video element to a specific time and wait for it to be ready.
  */
 function seekTo(video: HTMLVideoElement, time: number): Promise<void> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
+        let timeoutId: any;
         const onSeeked = () => {
+            clearTimeout(timeoutId);
             video.removeEventListener('seeked', onSeeked);
             video.removeEventListener('error', onError);
             resolve();
         };
-        const onError = () => {
+        const onError = (e: any) => {
+            clearTimeout(timeoutId);
             video.removeEventListener('seeked', onSeeked);
             video.removeEventListener('error', onError);
-            reject(new Error(`Failed to seek to ${time}s`));
+            console.error(`[seekTo] Seek error at time ${time}s`, e);
+            resolve();
         };
+
+        timeoutId = setTimeout(() => {
+            video.removeEventListener('seeked', onSeeked);
+            video.removeEventListener('error', onError);
+            console.warn(`[seekTo] Seek timed out at time ${time}s`);
+            resolve();
+        }, 1500);
 
         video.addEventListener('seeked', onSeeked);
         video.addEventListener('error', onError);
@@ -206,9 +221,9 @@ function seekTo(video: HTMLVideoElement, time: number): Promise<void> {
  * Generate a spritesheet from a video file by extracting frames
  * and compositing them onto a canvas.
  *
- * Returns a PNG Blob of the assembled spritesheet.
+ * Returns the assembled spritesheet HTMLCanvasElement directly.
  */
-export async function generateSpritesheet(params: SpritesheetParams): Promise<Blob> {
+export async function generateSpritesheet(params: SpritesheetParams): Promise<HTMLCanvasElement> {
     const { file, trimStart, fps, grid, frameW, frameH, onProgress } = params;
 
     const totalFrames = grid.cols * grid.rows;
@@ -217,60 +232,56 @@ export async function generateSpritesheet(params: SpritesheetParams): Promise<Bl
     const video = document.createElement('video');
     video.preload = 'auto';
     video.muted = true;
+
+    // Append the video element offscreen to prevent WebView2 from suspending the video decoder
+    video.style.position = 'fixed';
+    video.style.top = '-9999px';
+    video.style.left = '-9999px';
+    video.style.width = '100px';
+    video.style.height = '100px';
+    video.style.visibility = 'hidden';
+    video.style.pointerEvents = 'none';
+    document.body.appendChild(video);
+
     const url = URL.createObjectURL(file);
 
-    await new Promise<void>((resolve, reject) => {
-        video.oncanplaythrough = () => resolve();
-        video.onerror = () => reject(new Error('Failed to load video for frame extraction'));
-        video.src = url;
-    });
+    try {
+        await new Promise<void>((resolve, reject) => {
+            video.oncanplaythrough = () => resolve();
+            video.onerror = () => reject(new Error('Failed to load video for frame extraction'));
+            video.src = url;
+        });
 
-    // Create the spritesheet canvas
-    const sheetCanvas = document.createElement('canvas');
-    sheetCanvas.width = grid.sheetWidth;
-    sheetCanvas.height = grid.sheetHeight;
-    const sheetCtx = sheetCanvas.getContext('2d')!;
+        // Create the spritesheet canvas
+        const sheetCanvas = document.createElement('canvas');
+        sheetCanvas.width = grid.sheetWidth;
+        sheetCanvas.height = grid.sheetHeight;
+        const sheetCtx = sheetCanvas.getContext('2d')!;
 
-    // Create a small temporary canvas for downscaling each frame
-    const frameCanvas = document.createElement('canvas');
-    frameCanvas.width = frameW;
-    frameCanvas.height = frameH;
-    const frameCtx = frameCanvas.getContext('2d')!;
+        // Extract frames
+        for (let i = 0; i < totalFrames; i++) {
+            const time = trimStart + i / fps;
 
-    // Extract frames
-    for (let i = 0; i < totalFrames; i++) {
-        const time = trimStart + i / fps;
+            // Clamp to video duration to avoid seek errors
+            const clampedTime = Math.min(time, video.duration - 0.001);
+            await seekTo(video, clampedTime);
 
-        // Clamp to video duration to avoid seek errors
-        const clampedTime = Math.min(time, video.duration - 0.001);
-        await seekTo(video, clampedTime);
+            // Place the frame at the correct grid position on the spritesheet
+            const col = i % grid.cols;
+            const row = Math.floor(i / grid.cols);
+            const x = col * frameW;
+            const y = row * frameH;
 
-        // Draw current frame onto the small canvas (handles downscaling)
-        frameCtx.drawImage(video, 0, 0, frameW, frameH);
+            // Draw current frame onto the sheet canvas directly (handles downscaling)
+            sheetCtx.drawImage(video, x, y, frameW, frameH);
 
-        // Place the frame at the correct grid position on the spritesheet
-        const col = i % grid.cols;
-        const row = Math.floor(i / grid.cols);
-        const x = col * frameW;
-        const y = row * frameH;
+            onProgress?.(i + 1, totalFrames);
+        }
 
-        sheetCtx.drawImage(frameCanvas, x, y);
-
-        onProgress?.(i + 1, totalFrames);
+        return sheetCanvas;
+    } finally {
+        // Clean up
+        URL.revokeObjectURL(url);
+        video.remove();
     }
-
-    // Clean up
-    URL.revokeObjectURL(url);
-    video.remove();
-
-    // Export as PNG blob
-    return new Promise<Blob>((resolve, reject) => {
-        sheetCanvas.toBlob(
-            (blob) => {
-                if (blob) resolve(blob);
-                else reject(new Error('Failed to export spritesheet as PNG'));
-            },
-            'image/png',
-        );
-    });
 }

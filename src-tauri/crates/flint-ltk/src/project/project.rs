@@ -335,9 +335,10 @@ pub fn create_project(
     if name.is_empty() {
         return Err(Error::InvalidInput("Project name cannot be empty".to_string()));
     }
-    if champion.is_empty() {
-        return Err(Error::InvalidInput("Champion name cannot be empty".to_string()));
-    }
+    // NOTE: champion may legitimately be empty for non-skin project types
+    // (loading-screen, map). The skin Tauri command validates champion
+    // existence earlier via find_champion_wad, so we don't need to guard
+    // here.
     if !league_path.exists() {
         return Err(Error::InvalidInput(format!(
             "League path does not exist: {}",
@@ -711,9 +712,12 @@ mod tests {
     }
 
     #[test]
-    fn test_create_project_empty_champion() {
+    fn test_create_project_empty_champion_allowed() {
+        // Empty champion is allowed — loading-screen and map projects use it.
         let temp_dir = tempdir().unwrap();
-        let result = create_project("Test", "", 0, temp_dir.path(), temp_dir.path(), None);
-        assert!(result.is_err());
+        let league_dir = temp_dir.path().join("League");
+        std::fs::create_dir_all(&league_dir).unwrap();
+        let result = create_project("Test", "", 0, &league_dir, temp_dir.path(), None);
+        assert!(result.is_ok(), "empty champion should be allowed: {:?}", result);
     }
 }

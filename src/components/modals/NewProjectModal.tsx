@@ -7,6 +7,8 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppState, useConfigStore } from '../../lib/stores';
 import * as api from '../../lib/api';
@@ -22,6 +24,17 @@ import {
     type BudgetResult,
 } from '../../lib/spritesheet';
 import { Button, Icon, Input, Picker } from '../ui';
+
+// Deflate compression using browser-native CompressionStream.
+// IMPORTANT: use 'deflate-raw' (RFC 1951, no header/trailer), NOT 'deflate'
+// (which outputs zlib format / RFC 1950 with a 2-byte header + Adler-32).
+// Rust's flate2::read::DeflateDecoder expects raw deflate.
+async function compressDeflate(data: Uint8Array): Promise<Uint8Array> {
+    const stream = new Response(data as any).body!
+        .pipeThrough(new CompressionStream('deflate-raw'));
+    const compressedBuffer = await new Response(stream).arrayBuffer();
+    return new Uint8Array(compressedBuffer);
+}
 
 // ─── Local helpers ───────────────────────────────────────────────────────────
 
@@ -180,6 +193,9 @@ export const NewProjectModal: React.FC = () => {
 
     // ─── Loading screen state ────────────────────────────────────────────
     const [videoFile, setVideoFile] = useState<File | null>(null);
+    const [videoDragOver, setVideoDragOver] = useState(false);
+    const videoDropZoneRef = useRef<HTMLDivElement | null>(null);
+    const loadVideoFromPathRef = useRef<(path: string) => Promise<void>>(() => Promise.resolve());
     const [videoMeta, setVideoMeta] = useState<VideoMeta | null>(null);
     const [trimStart, setTrimStart] = useState(0);
     const [trimEnd, setTrimEnd] = useState(0);
@@ -309,6 +325,129 @@ export const NewProjectModal: React.FC = () => {
         });
         setBudget(result);
     }, [videoMeta, scaleFactor, customFps, trimStart, trimEnd]);
+
+    // Keep loadVideoFromPathRef updated with latest handlers and state
+    useEffect(() => {
+        loadVideoFromPathRef.current = async (path: string) => {
+            try {
+                console.info(`[NewProject] loadVideoFromPath: starting for path="${path}"`);
+                setWorking('Loading video file...');
+                const assetUrl = convertFileSrc(path);
+                console.info(`[NewProject] loadVideoFromPath: converted path to assetUrl="${assetUrl}"`);
+                
+                console.info(`[NewProject] loadVideoFromPath: fetching assetUrl...`);
+                const res = await fetch(assetUrl);
+                console.info(`[NewProject] loadVideoFromPath: fetch response status=${res.status}, ok=${res.ok}`);
+                if (!res.ok) throw new Error(`Failed to fetch local file via asset protocol (status: ${res.status})`);
+                
+                const blob = await res.blob();
+                console.info(`[NewProject] loadVideoFromPath: blob loaded successfully, size=${blob.size} bytes, type="${blob.type}"`);
+                
+                const filename = path.split(/[\\/]/).pop() || 'video.mp4';
+                const file = new File([blob], filename, { type: blob.type || 'video/mp4' });
+                console.info(`[NewProject] loadVideoFromPath: constructed File: name="${file.name}", size=${file.size}`);
+                await loadVideoFile(file);
+            } catch (err) {
+                console.error('[NewProject] loadVideoFromPath failed:', err);
+                showToast('error', `Failed to load video file: ${err instanceof Error ? err.message : String(err)}`);
+            } finally {
+                setReady();
+            }
+        };
+    });
+
+    // Tauri-level drag-drop listener for the video upload zone
+    useEffect(() => {
+        if (!isVisible || projectType !== 'loading-screen') return;
+        let unlisten: (() => void) | null = null;
+        let cancelled = false;
+
+        const checkInsideDropZone = (pos: { x: number; y: number }) => {
+            const el = videoDropZoneRef.current;
+            if (!el) {
+                console.warn('[NewProject] checkInsideDropZone: drop zone element reference is null');
+                return false;
+            }
+            const r = el.getBoundingClientRect();
+            
+            // Check logical coordinates (directly matching DOM API rect)
+            const insideLogical = pos.x >= r.left && pos.x <= r.right && pos.y >= r.top && pos.y <= r.bottom;
+            
+            // Check physical coordinates (dividing by devicePixelRatio)
+            const physicalX = pos.x / window.devicePixelRatio;
+            const physicalY = pos.y / window.devicePixelRatio;
+            const insidePhysical = physicalX >= r.left && physicalX <= r.right && physicalY >= r.top && physicalY <= r.bottom;
+            
+            console.info(
+                `[NewProject] Drag/Drop hit test: ` +
+                `rawPos=(${pos.x}, ${pos.y}), ` +
+                `r={left:${r.left.toFixed(1)}, right:${r.right.toFixed(1)}, top:${r.top.toFixed(1)}, bottom:${r.bottom.toFixed(1)}}, ` +
+                `devicePixelRatio=${window.devicePixelRatio}, ` +
+                `insideLogical=${insideLogical}, ` +
+                `insidePhysical=${insidePhysical}`
+            );
+            
+            return insideLogical || insidePhysical;
+        };
+
+        getCurrentWebview()
+            .onDragDropEvent((event) => {
+                if (cancelled) return;
+                const { type } = event.payload as { type: string };
+                console.info(`[NewProject] onDragDropEvent: type="${type}"`, event.payload);
+
+                if (type === 'over') {
+                    const pos = (event.payload as any).position;
+                    if (pos) {
+                        setVideoDragOver(checkInsideDropZone(pos));
+                    } else {
+                        setVideoDragOver(false);
+                    }
+                } else if (type === 'drop') {
+                    const payload = event.payload as { position?: { x: number; y: number }; paths?: string[] };
+                    setVideoDragOver(false);
+                    
+                    const pos = payload.position;
+                    if (!pos) {
+                        console.warn('[NewProject] Drop failed: event payload missing position');
+                        showToast('error', 'Drop failed: missing position data');
+                        return;
+                    }
+                    
+                    if (!checkInsideDropZone(pos)) {
+                        console.warn('[NewProject] Drop ignored: pointer is not inside the drop zone');
+                        return;
+                    }
+                    
+                    if (!payload.paths?.length) {
+                        console.warn('[NewProject] Drop ignored: empty paths list');
+                        showToast('error', 'No file path in the drop');
+                        return;
+                    }
+                    
+                    const videoPath = payload.paths.find((p) => /\.(mp4|webm|mov|avi|mkv)$/i.test(p));
+                    if (videoPath) {
+                        console.info(`[NewProject] Video dropped. Path: "${videoPath}"`);
+                        void loadVideoFromPathRef.current(videoPath);
+                    } else {
+                        console.warn('[NewProject] Drop ignored: no valid video file. Paths dropped:', payload.paths);
+                        showToast('error', 'Not a valid video file (supports MP4, WebM, MOV, AVI, MKV)');
+                    }
+                } else {
+                    setVideoDragOver(false);
+                }
+            })
+            .then((fn) => {
+                if (cancelled) fn();
+                else unlisten = fn;
+            })
+            .catch((err) => console.error('[NewProject] drag listener setup failed:', err));
+
+        return () => {
+            cancelled = true;
+            if (unlisten) unlisten();
+        };
+    }, [isVisible, projectType, showToast]);
 
     // ─── Video editor effects & handlers ─────────────────────────────────
 
@@ -452,20 +591,32 @@ export const NewProjectModal: React.FC = () => {
 
     const loadVideoFile = async (file: File) => {
         try {
+            console.info(`[NewProject] loadVideoFile: name="${file.name}", size=${file.size} bytes, type="${file.type}"`);
             const meta = await getVideoMetadata(file);
+            console.info(`[NewProject] loadVideoFile: metadata retrieved successfully:`, meta);
+            
             setVideoFile(file);
             setVideoMeta(meta);
             setTrimStart(0);
             setTrimEnd(meta.duration);
             setCustomFps(Math.min(30, Math.round(meta.fps)));
 
-            if (previewUrl) { URL.revokeObjectURL(previewUrl); setPreviewUrl(null); }
+            if (previewUrl) { 
+                console.info('[NewProject] loadVideoFile: revoking old preview URL');
+                URL.revokeObjectURL(previewUrl); 
+                setPreviewUrl(null); 
+            }
 
             if (videoPreviewRef.current) {
-                videoPreviewRef.current.src = URL.createObjectURL(file);
+                const objectUrl = URL.createObjectURL(file);
+                console.info(`[NewProject] loadVideoFile: setting video element src to objectUrl="${objectUrl}"`);
+                videoPreviewRef.current.src = objectUrl;
+            } else {
+                console.warn('[NewProject] loadVideoFile: videoPreviewRef.current is null, cannot set preview src');
             }
         } catch (err) {
-            showToast('error', 'Failed to read video metadata. Ensure it is a valid MP4 or WebM file.');
+            console.error('[NewProject] loadVideoFile metadata/preview load failed:', err);
+            showToast('error', `Failed to read video metadata: ${err instanceof Error ? err.message : String(err)}`);
         }
     };
 
@@ -618,7 +769,7 @@ export const NewProjectModal: React.FC = () => {
 
         try {
             setProgress('Extracting video frames...');
-            const blob = await generateSpritesheet({
+            const canvas = await generateSpritesheet({
                 file: videoFile,
                 trimStart,
                 trimEnd,
@@ -631,14 +782,17 @@ export const NewProjectModal: React.FC = () => {
             });
 
             setProgress('Encoding spritesheet & injecting config...');
-            const arrayBuf = await blob.arrayBuffer();
-            const pngBytes = Array.from(new Uint8Array(arrayBuf));
+            const ctx = canvas.getContext('2d')!;
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const rgbaBytes = new Uint8Array(imgData.data.buffer, imgData.data.byteOffset, imgData.data.byteLength);
+            const deflatedBytes = await compressDeflate(rgbaBytes);
+
             const project = await api.createLoadingScreenProject({
                 name: projectName,
                 projectPath,
                 leaguePath: effectiveLeaguePath,
                 creatorName: state.creatorName || 'SirDexal',
-                spritesheetPngData: pngBytes,
+                spritesheetRgbaDeflated: deflatedBytes,
                 frameWidth: budget.frameW,
                 frameHeight: budget.frameH,
                 sheetWidth: budget.grid.sheetWidth,
@@ -1051,7 +1205,8 @@ export const NewProjectModal: React.FC = () => {
                             <label className="np-label">Video File</label>
                             {!videoFile ? (
                                 <div
-                                    className="video-picker"
+                                    ref={videoDropZoneRef}
+                                    className={`video-picker ${videoDragOver ? 'video-picker--over' : ''}`}
                                     onClick={handleVideoSelect}
                                     onDragOver={(e) => e.preventDefault()}
                                     onDrop={handleVideoDrop}

@@ -322,23 +322,81 @@ pub async fn create_project(
 /// 4. Injecting the animation configuration block into the BIN
 /// 5. Writing all output files to the project
 #[tauri::command]
-#[allow(clippy::too_many_arguments)]
 pub async fn create_loading_screen_project(
-    name: String,
-    project_path: String,
-    league_path: String,
-    creator_name: String,
-    spritesheet_png_data: Vec<u8>,
-    frame_width: u32,
-    frame_height: u32,
-    sheet_width: u32,
-    sheet_height: u32,
-    fps: f32,
-    total_frames: f32,
-    cols: f32,
-    _rows: f32,
+    request: tauri::ipc::Request<'_>,
     app: tauri::AppHandle,
-) -> Result<Project, String> {
+) -> Result<tauri::ipc::Response, String> {
+    // 1. Extract raw binary body
+    let body_bytes: &[u8] = match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => bytes.as_slice(),
+        tauri::ipc::InvokeBody::Json(_) => {
+            return Err("create_loading_screen_project expects raw binary body; got JSON body".into())
+        }
+    };
+
+    struct BinaryReader<'a> {
+        data: &'a [u8],
+        cursor: usize,
+    }
+
+    impl<'a> BinaryReader<'a> {
+        fn new(data: &'a [u8]) -> Self {
+            Self { data, cursor: 0 }
+        }
+
+        fn read_string(&mut self) -> Result<String, String> {
+            if self.cursor + 4 > self.data.len() {
+                return Err("Unexpected end of buffer when reading string length".into());
+            }
+            let len = u32::from_le_bytes(self.data[self.cursor..self.cursor+4].try_into().unwrap()) as usize;
+            self.cursor += 4;
+            if self.cursor + len > self.data.len() {
+                return Err("Unexpected end of buffer when reading string bytes".into());
+            }
+            let s = std::str::from_utf8(&self.data[self.cursor..self.cursor+len])
+                .map_err(|e| format!("Invalid UTF-8 string: {}", e))?
+                .to_string();
+            self.cursor += len;
+            Ok(s)
+        }
+
+        fn read_u32(&mut self) -> Result<u32, String> {
+            if self.cursor + 4 > self.data.len() {
+                return Err("Unexpected end of buffer when reading u32".into());
+            }
+            let val = u32::from_le_bytes(self.data[self.cursor..self.cursor+4].try_into().unwrap());
+            self.cursor += 4;
+            Ok(val)
+        }
+
+        fn read_f32(&mut self) -> Result<f32, String> {
+            if self.cursor + 4 > self.data.len() {
+                return Err("Unexpected end of buffer when reading f32".into());
+            }
+            let val = f32::from_le_bytes(self.data[self.cursor..self.cursor+4].try_into().unwrap());
+            self.cursor += 4;
+            Ok(val)
+        }
+    }
+
+    let mut reader = BinaryReader::new(body_bytes);
+    let name = reader.read_string()?;
+    let project_path = reader.read_string()?;
+    let league_path = reader.read_string()?;
+    let creator_name = reader.read_string()?;
+
+    let frame_width = reader.read_u32()?;
+    let frame_height = reader.read_u32()?;
+    let sheet_width = reader.read_u32()?;
+    let sheet_height = reader.read_u32()?;
+    let fps = reader.read_f32()?;
+    let total_frames = reader.read_f32()?;
+    let cols = reader.read_f32()?;
+    let _rows = reader.read_f32()?;
+
+    // The remaining bytes are the deflated spritesheet bytes
+    let deflated_bytes_vec = body_bytes[reader.cursor..].to_vec();
+
     tracing::info!(
         "Creating loading screen project '{}' ({}x{} sheet, {} frames)",
         name, sheet_width, sheet_height, total_frames
@@ -390,9 +448,11 @@ pub async fn create_loading_screen_project(
     }));
 
     let assets_base = project.assets_path();
+    let sheet_w = sheet_width;
+    let sheet_h = sheet_height;
 
     let tex_result = tokio::task::spawn_blocking(move || {
-        encode_spritesheet_to_tex(spritesheet_png_data, &assets_base)
+        encode_spritesheet_to_tex(deflated_bytes_vec, sheet_w, sheet_h, &assets_base)
     })
     .await
     .map_err(|e| format!("Task failed: {}", e))?;
@@ -450,11 +510,10 @@ pub async fn create_loading_screen_project(
     })
     .await
     .map_err(|e| format!("Task failed: {}", e))?;
-
     if let Err(e) = inject_result {
         tracing::error!("BIN injection failed: {}", e);
         let _ = std::fs::remove_dir_all(&project.project_path);
-        return Err(format!("Animation config injection failed: {}", e));
+        return Err(format!("Configuration injection failed: {}", e));
     }
 
     // ── Phase 5: Finish ────────────────────────────────────────────────
@@ -464,52 +523,135 @@ pub async fn create_loading_screen_project(
     }));
 
     tracing::info!("Loading screen project created at: {}", project.project_path.display());
-    Ok(project)
+
+    let pid = &project.pid;
+    let name = &project.name;
+    let display_name = &project.display_name;
+    let kind = project.kind.as_str();
+    let champion = &project.champion;
+    let skin_id = project.skin_id;
+    let map_id = project.map_id.as_deref().unwrap_or("");
+    let creator = project.authors.first().map(|s| s.as_str()).unwrap_or("");
+    let version = &project.version;
+    let description = &project.description;
+    let project_path_str = project.project_path.to_string_lossy().into_owned();
+
+    let mut project_bytes = Vec::new();
+    
+    let write_string = |buf: &mut Vec<u8>, s: &str| {
+        let bytes = s.as_bytes();
+        buf.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        buf.extend_from_slice(bytes);
+    };
+
+    write_string(&mut project_bytes, pid);
+    write_string(&mut project_bytes, name);
+    write_string(&mut project_bytes, display_name);
+    write_string(&mut project_bytes, kind);
+    write_string(&mut project_bytes, champion);
+    project_bytes.extend_from_slice(&skin_id.to_le_bytes());
+    write_string(&mut project_bytes, map_id);
+    write_string(&mut project_bytes, creator);
+    write_string(&mut project_bytes, version);
+    write_string(&mut project_bytes, description);
+    write_string(&mut project_bytes, &project_path_str);
+
+    Ok(tauri::ipc::Response::new(project_bytes))
 }
 
-/// Encode a PNG spritesheet to League TEX format and write to project
+/// Encode a deflated RGBA spritesheet to League TEX format in parallel and write to project
 fn encode_spritesheet_to_tex(
-    png_data: Vec<u8>,
+    rgba_deflated: Vec<u8>,
+    width: u32,
+    height: u32,
     assets_base: &std::path::Path,
 ) -> Result<(), String> {
-    use flint_ltk::ltk_types::{Tex, EncodeOptions};
+    use std::io::Read;
+    use flate2::read::DeflateDecoder;
+    use rayon::prelude::*;
 
-    let png_len = png_data.len();
-    tracing::info!("Saving spritesheet PNG to temp file ({} bytes)", png_len);
-
-    // Write PNG to temp file so we can free the IPC buffer before decoding
-    let temp_path = std::env::temp_dir().join(format!(
-        "flint_spritesheet_{}.png",
-        std::process::id()
-    ));
-    std::fs::write(&temp_path, &png_data)
-        .map_err(|e| format!("Failed to write temp PNG: {}", e))?;
-    drop(png_data); // free ~115 MB before decoding
-
-    tracing::info!("Decoding spritesheet from: {}", temp_path.display());
-
-    // Read from disk with no memory limits (large spritesheets can exceed defaults)
-    let mut reader = image::ImageReader::open(&temp_path)
-        .map_err(|e| format!("Failed to open temp PNG: {}", e))?;
-    reader.no_limits();
-    let img = reader
-        .decode()
-        .map_err(|e| format!("Failed to decode PNG: {}", e))?
-        .into_rgba8();
-
-    // Temp file no longer needed
-    let _ = std::fs::remove_file(&temp_path);
+    let width = width as usize;
+    let height = height as usize;
+    let total_pixels = width * height;
+    let expected_uncompressed_bytes = total_pixels * 4;
 
     tracing::info!(
-        "Decoded spritesheet: {}x{} pixels",
-        img.width(),
-        img.height()
+        "Decompressing deflated spritesheet RGBA ({} bytes expected)",
+        expected_uncompressed_bytes
     );
 
-    // Encode to TEX (BC1/DXT1 — opaque, no alpha needed for video frames)
-    let options = EncodeOptions::new(flint_ltk::ltk_types::TexFormat::Bc1);
-    let tex = Tex::encode_rgba_image(&img, options)
-        .map_err(|e| format!("Failed to encode TEX: {:?}", e))?;
+    // Decompress the deflated RGBA byte stream
+    let mut decoder = DeflateDecoder::new(&rgba_deflated[..]);
+    let mut decompressed = Vec::with_capacity(expected_uncompressed_bytes);
+    decoder.read_to_end(&mut decompressed)
+        .map_err(|e| format!("Failed to decompress deflate stream: {}", e))?;
+
+    if decompressed.len() != expected_uncompressed_bytes {
+        return Err(format!(
+            "Decompressed data size mismatch: expected {} bytes, got {}",
+            expected_uncompressed_bytes,
+            decompressed.len()
+        ));
+    }
+
+    tracing::info!("Parallel encoding spritesheet BC1 blocks...");
+
+    let row_bytes = width * 4;
+    let block_row_bytes = row_bytes * 4;
+
+    // Process chunks of 64 block rows (256 pixel rows)
+    let block_rows_per_chunk = 64;
+    let chunk_bytes_size = block_row_bytes * block_rows_per_chunk;
+
+    let compressed_chunks: Result<Vec<Vec<u8>>, String> = decompressed
+        .par_chunks(chunk_bytes_size)
+        .enumerate()
+        .map(|(chunk_idx, chunk_data)| {
+            let chunk_height = if (chunk_idx + 1) * block_rows_per_chunk * 4 <= height {
+                block_rows_per_chunk * 4
+            } else {
+                height - chunk_idx * block_rows_per_chunk * 4
+            };
+
+            let expected_chunk_len = width * chunk_height * 4;
+            if chunk_data.len() != expected_chunk_len {
+                return Err(format!(
+                    "Invalid chunk size: expected {}, got {}",
+                    expected_chunk_len,
+                    chunk_data.len()
+                ));
+            }
+
+            let surface = intel_tex_2::Surface {
+                width: width as u32,
+                height: chunk_height as u32,
+                stride: row_bytes as u32,
+                data: chunk_data,
+            };
+
+            let comp = intel_tex_2::bc1::compress_blocks(&surface);
+            Ok(comp)
+        })
+        .collect();
+
+    let compressed_chunks = compressed_chunks?;
+    let total_compressed_size: usize = compressed_chunks.iter().map(|c| c.len()).sum();
+    let mut bc1_data = Vec::with_capacity(total_compressed_size);
+    for chunk in compressed_chunks {
+        bc1_data.extend_from_slice(&chunk);
+    }
+
+    tracing::info!("Writing TEX file to output directory...");
+
+    // Write TEX header manually
+    let mut header = Vec::with_capacity(12);
+    header.extend_from_slice(b"TEX\0");
+    header.extend_from_slice(&(width as u16).to_le_bytes());
+    header.extend_from_slice(&(height as u16).to_le_bytes());
+    header.push(0); // is_extended_format
+    header.push(10); // Format::Bc1 is 10
+    header.push(0); // resource_type (texture = 0)
+    header.push(0); // flags (no mipmaps = 0)
 
     // Write to project at UI.wad.client/assets/animatedloadscreen/spritesheet.tex
     let tex_dir = assets_base
@@ -522,10 +664,14 @@ fn encode_spritesheet_to_tex(
     let tex_path = tex_dir.join("spritesheet.tex");
     let mut output = std::fs::File::create(&tex_path)
         .map_err(|e| format!("Failed to create TEX file: {}", e))?;
-    tex.write(&mut output)
-        .map_err(|e| format!("Failed to write TEX: {}", e))?;
 
-    tracing::info!("Wrote spritesheet TEX: {}", tex_path.display());
+    use std::io::Write;
+    output.write_all(&header)
+        .map_err(|e| format!("Failed to write TEX header: {}", e))?;
+    output.write_all(&bc1_data)
+        .map_err(|e| format!("Failed to write TEX data: {}", e))?;
+
+    tracing::info!("Successfully wrote spritesheet TEX: {}", tex_path.display());
     Ok(())
 }
 
