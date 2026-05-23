@@ -4,7 +4,8 @@
  */
 
 import { create } from 'zustand';
-import type { ViewType } from '../types';
+import type { ViewType, FileEditorTarget } from '../types';
+import { useFileEditorStore } from './fileEditorStore';
 
 interface NavigationState {
   currentView: ViewType;
@@ -15,6 +16,8 @@ interface NavigationState {
   navigateToPreview: () => void;
   navigateToExtract: () => void;
   navigateToWadExplorer: () => void;
+  /** Open the dedicated file editor page with a target. */
+  navigateToFileEditor: (target: FileEditorTarget) => void;
 }
 
 export const useNavigationStore = create<NavigationState>((set) => ({
@@ -25,4 +28,8 @@ export const useNavigationStore = create<NavigationState>((set) => ({
   navigateToPreview: () => set({ currentView: 'preview' }),
   navigateToExtract: () => set({ currentView: 'extract' }),
   navigateToWadExplorer: () => set({ currentView: 'wad-explorer' }),
+  navigateToFileEditor: (target) => {
+    useFileEditorStore.getState().openTarget(target);
+    set({ currentView: 'file-editor' });
+  },
 }));

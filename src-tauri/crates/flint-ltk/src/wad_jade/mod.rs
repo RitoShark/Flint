@@ -14,6 +14,7 @@ pub mod lmdb_hashes;
 pub mod mount;
 pub mod reader;
 pub mod sniff;
+pub mod writer;
 
 pub use extractor::{cancel_extraction, extract_to_dir, ExtractResult};
 pub use extractor::chunk_io::read_chunk_decompressed_bytes;

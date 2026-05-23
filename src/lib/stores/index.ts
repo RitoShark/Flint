@@ -14,6 +14,7 @@ import { useWadExtractStore } from './wadExtractStore';
 import { useWadExplorerStore } from './wadExplorerStore';
 import { useChampionStore } from './championStore';
 import { useModalStore } from './modalStore';
+import { useFileEditorStore } from './fileEditorStore';
 import { useNotificationStore } from './notificationStore';
 import { navigationCoordinator } from './navigationCoordinator';
 import type { AppState } from '../types';
@@ -30,6 +31,7 @@ export {
   useChampionStore,
   useModalStore,
   useNotificationStore,
+  useFileEditorStore,
 };
 
 /**

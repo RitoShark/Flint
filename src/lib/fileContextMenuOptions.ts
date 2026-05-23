@@ -6,6 +6,7 @@
 
 import * as api from './api';
 import { getIcon } from './fileIcons';
+import { useNavigationStore } from './stores/navigationStore';
 import type { ContextMenuOption, ModalType } from './types';
 
 interface BuildOptionsArgs {
@@ -67,8 +68,16 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                         label: 'Edit Project Info',
                         icon: getIcon('code'),
                         onClick: () => {
+                            // Route to the dedicated File Editor page rather
+                            // than the old modConfig modal. The modal still
+                            // exists for keyboard-shortcut callsites; new UI
+                            // flows go through the page.
                             const configPath = `${projectPath.replace(/\\/g, '/')}/mod.config.json`;
-                            openModal('modConfig', { filePath: configPath });
+                            useNavigationStore.getState().navigateToFileEditor({
+                                filePath: configPath,
+                                kind: 'modConfig',
+                                projectPath,
+                            });
                         },
                     },
                     {
@@ -86,6 +95,28 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                         label: 'Port to Chromas…',
                         icon: getIcon('texture'),
                         onClick: () => openModal('chromaPort'),
+                    },
+                ],
+            });
+
+            // Export ▸ — direct shortcuts to package the current project as
+            // .fantome or .modpkg. Both items reuse the existing ExportModal
+            // by pre-selecting the format via `modalOptions.format`; the
+            // modal's save dialog still asks for the output path.
+            options.push({
+                label: 'Export',
+                icon: getIcon('package'),
+                separator: true,
+                submenu: [
+                    {
+                        label: 'Export as .fantome',
+                        icon: getIcon('package'),
+                        onClick: () => openModal('export', { format: 'fantome' }),
+                    },
+                    {
+                        label: 'Export as .modpkg',
+                        icon: getIcon('package'),
+                        onClick: () => openModal('export', { format: 'modpkg' }),
                     },
                 ],
             });
@@ -273,7 +304,13 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
         options.push({
             label: 'Edit Project Info',
             icon: getIcon('code'),
-            onClick: () => openModal('modConfig', { filePath: fullPath }),
+            onClick: () => {
+                useNavigationStore.getState().navigateToFileEditor({
+                    filePath: fullPath,
+                    kind: 'modConfig',
+                    projectPath,
+                });
+            },
         });
         options.push({
             label: 'Add Contributor',
@@ -328,6 +365,66 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             icon: getIcon('texture'),
             separator: true,
             onClick: () => openModal('recolor', { filePath: node.path, isFolder: false }),
+        });
+
+        // File Transformation ▸ — bidirectional .tex ↔ .dds, plus PNG export.
+        // The active extension's reverse target is the primary item; the
+        // other direction is omitted (would be a no-op). PNG is always
+        // available as a quick "give me something I can open in Photoshop".
+        const transformItems: ContextMenuOption[] = [];
+
+        if (ext === 'tex') {
+            transformItems.push({
+                label: 'Convert to .dds',
+                icon: getIcon('texture'),
+                onClick: async () => {
+                    try {
+                        const result = await api.convertTexToDds(fullPath.replace(/\//g, '\\'));
+                        showToast('success', `Wrote ${result.format} — ${result.width}×${result.height}`);
+                        await refreshFileTree();
+                    } catch (err) {
+                        const flintError = err as api.FlintError;
+                        showToast('error', flintError.getUserMessage?.() || 'Conversion failed');
+                    }
+                },
+            });
+        }
+        if (ext === 'dds') {
+            transformItems.push({
+                label: 'Convert to .tex',
+                icon: getIcon('texture'),
+                onClick: async () => {
+                    try {
+                        const result = await api.convertDdsToTex(fullPath.replace(/\//g, '\\'));
+                        showToast('success', `Wrote ${result.format} — ${result.width}×${result.height}`);
+                        await refreshFileTree();
+                    } catch (err) {
+                        const flintError = err as api.FlintError;
+                        showToast('error', flintError.getUserMessage?.() || 'Conversion failed');
+                    }
+                },
+            });
+        }
+
+        transformItems.push({
+            label: 'Export as .png',
+            icon: getIcon('picture'),
+            onClick: async () => {
+                try {
+                    const result = await api.convertTextureToPng(fullPath.replace(/\//g, '\\'));
+                    showToast('success', `Wrote PNG — ${result.width}×${result.height}`);
+                    await refreshFileTree();
+                } catch (err) {
+                    const flintError = err as api.FlintError;
+                    showToast('error', flintError.getUserMessage?.() || 'PNG export failed');
+                }
+            },
+        });
+
+        options.push({
+            label: 'File Transformation',
+            icon: getIcon('code'),
+            submenu: transformItems,
         });
     }
 

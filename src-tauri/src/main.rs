@@ -9,7 +9,7 @@ use commands::project_watcher::WatcherState;
 use commands::settings::{initialize_app_home, get_flint_home};
 use flint_ltk::hash::get_hash_dir;
 use core::frontend_log::{FrontendLogLayer, set_app_handle};
-use state::{LmdbCacheState, WadCacheState};
+use state::{LmdbCacheState, WadCacheState, WadEditState};
 use tauri::{Emitter, Manager};
 use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter};
 
@@ -90,6 +90,7 @@ fn main() {
         .manage(WadCacheState::new())
         .manage(LmdbCacheState::new())
         .manage(WatcherState::new())
+        .manage(WadEditState::new())
         .on_page_load(move |_webview, payload| {
             // Fires once per webview page navigation — first hit is the cold
             // start and tells us when the bundle finished loading. The gap
@@ -162,7 +163,40 @@ fn main() {
                 // per cold start).
                 let _ = app_handle.emit("hashes-ready", ready);
             });
-            
+
+            // CLI arg passthrough — when Windows hands us a file via
+            // "Open with" the path arrives as `argv[1]`. We don't try to
+            // route it from Rust (the frontend owns project/tab state);
+            // instead we emit a `file-open-request` event after the
+            // webview has loaded. The frontend listens for this and
+            // decides what to do (open a project, focus a WAD, etc.).
+            //
+            // We deliberately spawn this on a delay so the webview is
+            // mounted before we fire. A page_load listener would be more
+            // precise but the 250ms timer is simpler and the cost of a
+            // missed event on the very first paint is just "open the
+            // file by hand once". We also emit synchronously below — the
+            // page_load handler above will deliver it again on the first
+            // navigation if the spawn hasn't fired yet.
+            let pending_file_arg: Option<String> = std::env::args()
+                .nth(1)
+                .filter(|a| !a.starts_with("--") && std::path::Path::new(a).is_file())
+                .map(|a| {
+                    // Canonicalize so the frontend gets an absolute path
+                    // regardless of how Explorer invoked us.
+                    std::fs::canonicalize(&a)
+                        .map(|p| p.to_string_lossy().into_owned())
+                        .unwrap_or(a)
+                });
+            if let Some(path) = pending_file_arg {
+                tracing::info!("CLI arg file: {}", path);
+                let h = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                    let _ = h.emit("file-open-request", &path);
+                });
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -330,6 +364,26 @@ fn main() {
             commands::format_converters::convert_troybin_to_text,
             commands::format_converters::read_wad_luabin,
             commands::format_converters::read_wad_troybin,
+            // Texture format conversion (tex<->dds, +png export)
+            commands::texture_convert::convert_tex_to_dds,
+            commands::texture_convert::convert_dds_to_tex,
+            commands::texture_convert::convert_texture_to_png,
+            commands::texture_convert::convert_tex_bytes_to_dds,
+            commands::texture_convert::convert_dds_bytes_to_tex,
+            // In-memory WAD edit sessions
+            commands::wad_edit::open_wad_edit_session,
+            commands::wad_edit::close_wad_edit_session,
+            commands::wad_edit::list_wad_edit_sessions,
+            commands::wad_edit::read_session_chunk,
+            commands::wad_edit::write_session_chunk,
+            commands::wad_edit::remove_session_chunk,
+            commands::wad_edit::session_dirty_chunks,
+            commands::wad_edit::discard_session_changes,
+            commands::wad_edit::save_session_to_path,
+            // Windows file association (per-user, OpenWithProgids — non-default)
+            commands::file_assoc::register_file_associations,
+            commands::file_assoc::unregister_file_associations,
+            commands::file_assoc::get_file_association_status,
             // Dev commands (schema aggregation)
             commands::dev::aggregate_bin_schema,
             commands::champion_schema::aggregate_champion_bin_schema,

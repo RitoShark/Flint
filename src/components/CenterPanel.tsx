@@ -8,6 +8,7 @@ import { WelcomeScreen } from './WelcomeScreen';
 import { PreviewPanel } from './PreviewPanel';
 import { CheckpointTimeline } from './CheckpointTimeline';
 import { WadPreviewPanel } from './WadPreviewPanel';
+import { FileEditorPage } from './FileEditorPage';
 import { getIcon, icons } from '../lib/fileIcons';
 
 interface QuickActionCardProps {
@@ -89,6 +90,8 @@ export const CenterPanel: React.FC = () => {
                 return <CheckpointTimeline />;
             case 'extract':
                 return <WadPreviewPanel />;
+            case 'file-editor':
+                return <FileEditorPage />;
             default:
                 return <WelcomeScreen />;
         }

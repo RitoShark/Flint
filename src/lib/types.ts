@@ -8,7 +8,23 @@
 
 export type AppStatus = 'ready' | 'working' | 'error';
 export type ModalType = 'newProject' | 'settings' | 'export' | 'firstTimeSetup' | 'updateAvailable' | 'recolor' | 'checkpoint' | 'fixer' | 'projectList' | 'modConfig' | 'thumbnail' | 'binSplit' | 'fullResImage' | 'browseWad' | 'fileCompare' | 'addLayer' | 'chromaPort' | null;
-export type ViewType = 'welcome' | 'preview' | 'editor' | 'project' | 'checkpoints' | 'extract' | 'wad-explorer';
+export type ViewType = 'welcome' | 'preview' | 'editor' | 'project' | 'checkpoints' | 'extract' | 'wad-explorer' | 'file-editor';
+
+/**
+ * Kinds of files that have a structured editor surface (vs. being shown raw
+ * in the PreviewPanel). The page-based file editor switches its form
+ * layout off this kind.
+ */
+export type FileEditorKind = 'modConfig' | 'binText' | 'raw';
+
+export interface FileEditorTarget {
+    /** Absolute path to the file being edited. */
+    filePath: string;
+    /** Which structured editor to render. */
+    kind: FileEditorKind;
+    /** Optional project path for relative-path display + refresh hooks. */
+    projectPath?: string;
+}
 
 export interface Toast {
     id: number;
