@@ -528,6 +528,24 @@ export const WadPreviewPanel: React.FC = () => {
                 </div>
             </div>
 
+            {/* Warning Banner */}
+            {session.readOnly && (
+                <div style={{
+                    padding: '10px 16px',
+                    background: 'color-mix(in oklab, var(--error) 15%, var(--bg-secondary))',
+                    color: 'var(--text-primary)',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    borderBottom: '1px solid var(--border)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                }}>
+                    <span dangerouslySetInnerHTML={{ __html: getIcon('warning') }} style={{ color: 'var(--error)', display: 'inline-flex', width: '16px', height: '16px' }} />
+                    <span>This is a game WAD archive. It is read-only and cannot be modified.</span>
+                </div>
+            )}
+
             {/* Content */}
             <div className="preview-panel__content">{renderContent()}</div>
 

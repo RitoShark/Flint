@@ -3,7 +3,7 @@ members = [".", "crates/flint-ltk"]
 
 [package]
 name = "flint"
-version = "2.0.1"
+version = "2.0.2"
 edition = "2021"
 default-run = "flint"
 
@@ -34,6 +34,7 @@ tauri-plugin-dialog = "2.0"
 tauri-plugin-updater = "2.0"
 tauri-plugin-process = "2.0"
 tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -93,6 +94,10 @@ opener = "0.7"
 
 # ZIP (fantome export/import)
 zip = { version = "2.4", features = ["deflate"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+libloading = "0.8"
 
 [dev-dependencies]
 proptest = "1.0"

@@ -87,6 +87,30 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+                let _ = window.request_user_attention(Some(tauri::UserAttentionType::Informational));
+            }
+            let file_arg = args.iter().skip(1).find(|a| {
+                !a.starts_with("--") && std::path::Path::new(a.as_str()).is_file()
+            });
+            if let Some(path) = file_arg {
+                let clean_path = std::fs::canonicalize(path)
+                    .map(|p| {
+                        let s = p.to_string_lossy().into_owned();
+                        if s.starts_with(r"\\?\") {
+                            s[4..].to_string()
+                        } else {
+                            s
+                        }
+                    })
+                    .unwrap_or_else(|_| path.clone());
+                let _ = app.emit("file-open-request", clean_path);
+            }
+        }))
         .manage(WadCacheState::new())
         .manage(LmdbCacheState::new())
         .manage(WatcherState::new())
@@ -185,7 +209,14 @@ fn main() {
                     // Canonicalize so the frontend gets an absolute path
                     // regardless of how Explorer invoked us.
                     std::fs::canonicalize(&a)
-                        .map(|p| p.to_string_lossy().into_owned())
+                        .map(|p| {
+                            let s = p.to_string_lossy().into_owned();
+                            if s.starts_with(r"\\?\") {
+                                s[4..].to_string()
+                            } else {
+                                s
+                            }
+                        })
                         .unwrap_or(a)
                 });
             if let Some(path) = pending_file_arg {

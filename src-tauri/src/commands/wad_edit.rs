@@ -73,6 +73,22 @@ pub async fn open_wad_edit_session(
         return Err(format!("WAD not found: {}", wad_path));
     }
 
+    if let Ok(settings) = crate::commands::settings::get_settings() {
+        let normalized_wad = wad_path.to_lowercase().replace('\\', "/");
+        if let Some(ref lp) = settings.league_path {
+            let normalized_lp = lp.to_lowercase().replace('\\', "/");
+            if !normalized_lp.is_empty() && normalized_wad.starts_with(&normalized_lp) {
+                return Err("WAD files inside the League of Legends game directory are read-only.".to_string());
+            }
+        }
+        if let Some(ref lp_pbe) = settings.league_path_pbe {
+            let normalized_lp_pbe = lp_pbe.to_lowercase().replace('\\', "/");
+            if !normalized_lp_pbe.is_empty() && normalized_wad.starts_with(&normalized_lp_pbe) {
+                return Err("WAD files inside the League of Legends game directory are read-only.".to_string());
+            }
+        }
+    }
+
     let toc = read_wad_toc(&path).map_err(|e| format!("Failed to parse WAD: {}", e))?;
     let session = WadEditSession {
         session_id: Uuid::new_v4().to_string(),
@@ -266,6 +282,23 @@ pub async fn save_session_to_path(
     state: tauri::State<'_, WadEditState>,
 ) -> Result<SaveResult, String> {
     let _t = ipc_trace::enter("save_session_to_path");
+
+    if let Ok(settings) = crate::commands::settings::get_settings() {
+        let normalized_out = output_path.to_lowercase().replace('\\', "/");
+        if let Some(ref lp) = settings.league_path {
+            let normalized_lp = lp.to_lowercase().replace('\\', "/");
+            if !normalized_lp.is_empty() && normalized_out.starts_with(&normalized_lp) {
+                return Err("Cannot write or save WAD files inside the League of Legends game directory.".to_string());
+            }
+        }
+        if let Some(ref lp_pbe) = settings.league_path_pbe {
+            let normalized_lp_pbe = lp_pbe.to_lowercase().replace('\\', "/");
+            if !normalized_lp_pbe.is_empty() && normalized_out.starts_with(&normalized_lp_pbe) {
+                return Err("Cannot write or save WAD files inside the League of Legends game directory.".to_string());
+            }
+        }
+    }
+
     let session = state.get(&session_id)
         .ok_or_else(|| format!("No such session: {}", session_id))?;
 

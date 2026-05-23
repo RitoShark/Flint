@@ -5,6 +5,7 @@
 
 import { create } from 'zustand';
 import type { ExtractSession, WadChunk } from '../types';
+import { useConfigStore } from './configStore';
 
 interface WadExtractState {
   extractSessions: ExtractSession[];
@@ -28,6 +29,27 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
 
   openSession: (id, wadPath) => {
     const wadName = wadPath.split(/[\\/]/).pop() || wadPath;
+
+    // Check if the WAD path is within League's game directory
+    const config = useConfigStore.getState();
+    const leaguePath = config.leaguePath;
+    const leaguePathPbe = config.leaguePathPbe;
+
+    let readOnly = false;
+    const normalizedWad = wadPath.toLowerCase().replace(/\\/g, '/');
+    if (leaguePath) {
+      const normalizedLp = leaguePath.toLowerCase().replace(/\\/g, '/');
+      if (normalizedLp && normalizedWad.startsWith(normalizedLp)) {
+        readOnly = true;
+      }
+    }
+    if (leaguePathPbe) {
+      const normalizedLpPbe = leaguePathPbe.toLowerCase().replace(/\\/g, '/');
+      if (normalizedLpPbe && normalizedWad.startsWith(normalizedLpPbe)) {
+        readOnly = true;
+      }
+    }
+
     const newSession: ExtractSession = {
       id,
       wadPath,
@@ -38,6 +60,7 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
       expandedFolders: new Set(),
       searchQuery: '',
       loading: true,
+      readOnly,
     };
     set({
       extractSessions: [...get().extractSessions, newSession],

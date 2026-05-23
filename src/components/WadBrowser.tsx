@@ -312,6 +312,25 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
 
     return (
         <div className="left-panel" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', ...style }}>
+            {/* Warning Banner */}
+            {session.readOnly && (
+                <div style={{
+                    padding: '8px 12px',
+                    background: 'color-mix(in oklab, var(--error) 15%, var(--bg-secondary))',
+                    color: 'var(--text-primary)',
+                    fontSize: '11px',
+                    fontWeight: 500,
+                    borderBottom: '1px solid var(--border)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    flexShrink: 0,
+                }}>
+                    <span dangerouslySetInnerHTML={{ __html: getIcon('warning') }} style={{ color: 'var(--error)', display: 'inline-flex', width: '12px', height: '12px' }} />
+                    <span>Game WAD: Read-Only</span>
+                </div>
+            )}
+
             {/* Header */}
             <div className="left-panel__header" style={{ padding: '10px 12px 6px', flexShrink: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>

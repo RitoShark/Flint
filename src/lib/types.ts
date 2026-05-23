@@ -201,6 +201,7 @@ export interface ExtractSession {
     expandedFolders: Set<string>;
     searchQuery: string;
     loading: boolean;
+    readOnly?: boolean;
 }
 
 /** A WAD file discovered while scanning a game installation */

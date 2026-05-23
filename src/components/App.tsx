@@ -4,6 +4,7 @@
 
 import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { useAppState, useAppMetadataStore, useConfigStore } from '../lib/stores';
+import { useNavigationStore } from '../lib/stores/navigationStore';
 import { navigationCoordinator } from '../lib/stores/navigationCoordinator';
 import { initShortcuts, registerShortcut } from '../lib/utils';
 import * as api from '../lib/api';
@@ -81,7 +82,7 @@ const ActiveModal: React.FC<{ activeModal: string | null }> = React.memo(({ acti
 ActiveModal.displayName = 'ActiveModal';
 
 export const App: React.FC = () => {
-    const { state, openModal, closeModal, setWorking, setReady, showToast } = useAppState();
+    const { state, dispatch, openModal, closeModal, setWorking, setReady, showToast } = useAppState();
     const [leftPanelWidth, setLeftPanelWidth] = useState(280);
     const [showTutorial, setShowTutorial] = useState(false);
     const resizerRef = useRef<HTMLDivElement>(null);
@@ -261,6 +262,37 @@ export const App: React.FC = () => {
             unlistenReady.then((unlisten) => unlisten());
         };
     }, []);
+
+    // Handle files opened via Windows "Open with" / double-click.
+    // Rust reads argv[1] and emits this event 250ms after the webview loads.
+    useEffect(() => {
+        const BIN_TEXT_EXTS = ['.bin', '.ritobin', '.py', '.luabin', '.luabin64', '.troybin'];
+        const unlistenFileOpen = listen<string>('file-open-request', async (event) => {
+            const filePath = event.payload;
+            if (!filePath) return;
+            const lower = filePath.toLowerCase();
+
+            if (lower.endsWith('.wad') || lower.endsWith('.wad.client')) {
+                try {
+                    setWorking('Opening WAD...');
+                    const chunks = await api.getWadChunks(filePath);
+                    const sessionId = `extract-${Date.now()}`;
+                    dispatch({ type: 'OPEN_EXTRACT_SESSION', payload: { id: sessionId, wadPath: filePath } });
+                    dispatch({ type: 'SET_EXTRACT_CHUNKS', payload: { sessionId, chunks } });
+                    setReady('WAD opened');
+                } catch (err) {
+                    console.error('Failed to open WAD:', err);
+                    showToast('error', 'Failed to open WAD archive');
+                    setReady('Error');
+                }
+                return;
+            }
+
+            const kind = BIN_TEXT_EXTS.some(ext => lower.endsWith(ext)) ? 'binText' : 'raw';
+            useNavigationStore.getState().navigateToFileEditor({ filePath, kind });
+        });
+        return () => { unlistenFileOpen.then((unlisten) => unlisten()); };
+    }, [dispatch, setWorking, setReady, showToast]);
 
     // Manage preview file watcher for hot reload.
     //

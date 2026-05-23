@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAppState, useConfigStore, useUxStore } from '../../lib/stores';
 import * as api from '../../lib/api';
+import type { FileAssocStatus } from '../../lib/api';
 import * as updater from '../../lib/updater';
 import { open } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
@@ -469,6 +470,10 @@ export const SettingsModal: React.FC = () => {
     const [quartzPath, setQuartzPath] = useState(configStore.quartzPath || '');
     const [isValidating, setIsValidating] = useState(false);
 
+    // File-association status (Windows registry Open With)
+    const [assocStatus, setAssocStatus] = useState<FileAssocStatus | null>(null);
+    const [isRegisteringAssoc, setIsRegisteringAssoc] = useState(false);
+
     const [currentVersion, setCurrentVersion] = useState<string>('');
     const [latestVersion, setLatestVersion] = useState<string | null>(null);
     const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
@@ -507,6 +512,8 @@ export const SettingsModal: React.FC = () => {
         setJadePath(configStore.jadePath || '');
         setQuartzPath(configStore.quartzPath || '');
         getVersion().then(setCurrentVersion).catch(() => setCurrentVersion('0.0.0'));
+        // Refresh file-association status when settings modal opens
+        api.getFileAssociationStatus().then(setAssocStatus).catch(() => {});
     }, [isVisible, state.leaguePath, state.leaguePathPbe, state.defaultProjectPath, state.creatorName, state.creatorDescription, state.creatorHome, state.creatorTip, state.autoUpdateEnabled, state.verboseLogging, state.ltkManagerModPath, state.autoSyncToLauncher, configStore.jadePath, configStore.quartzPath, configStore.selectedTheme]);
 
     useEffect(() => {
@@ -973,6 +980,86 @@ export const SettingsModal: React.FC = () => {
                                     label="Automatic Updates"
                                     description="Check for updates on startup"
                                 />
+                            </div>
+
+                            {/* Windows "Open with" file association card */}
+                            <div className="settings-item">
+                                <label className="settings-item__label">
+                                    <Icon name="link" />
+                                    Open With — Windows File Associations
+                                    <span className="settings-item__badge">Windows</span>
+                                </label>
+                                <div className="settings-item__hint" style={{ marginBottom: 8 }}>
+                                    Adds Flint as an &ldquo;Open with&rdquo; option for .wad, .bin, .tex, .modpkg, .fantome and more.
+                                    Files opened this way go straight to Flint&rsquo;s file editor. Does <em>not</em> override your
+                                    current default app.
+                                </div>
+                                {assocStatus && (
+                                    <div className="settings-item__hint" style={{ marginBottom: 8 }}>
+                                        {assocStatus.registered.length === 0
+                                            ? <span style={{ color: 'var(--text-muted)' }}>Not registered</span>
+                                            : <>
+                                                <span style={{ color: 'var(--color-success, #22c55e)' }}>✓ Registered</span>
+                                                {' '}&mdash; {assocStatus.registered.length} extension{assocStatus.registered.length !== 1 ? 's' : ''}
+                                                {assocStatus.missing.length > 0 && (
+                                                    <span style={{ color: 'var(--color-warning)' }}>
+                                                        {' '}({assocStatus.missing.length} missing — re-register to fix)
+                                                    </span>
+                                                )}
+                                            </>
+                                        }
+                                    </div>
+                                )}
+                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                    <Button
+                                        variant="primary"
+                                        size="sm"
+                                        icon="link"
+                                        disabled={isRegisteringAssoc}
+                                        onClick={async () => {
+                                            setIsRegisteringAssoc(true);
+                                            try {
+                                                const result = await api.registerFileAssociations();
+                                                const status = await api.getFileAssociationStatus();
+                                                setAssocStatus(status);
+                                                if (result.errors.length === 0) {
+                                                    showToast('success', `Registered ${result.touched.length} file types — right-click any file to try it`);
+                                                } else {
+                                                    showToast('warning', `Registered with ${result.errors.length} error(s): ${result.errors[0]}`);
+                                                }
+                                            } catch {
+                                                showToast('error', 'Failed to register file associations');
+                                            } finally {
+                                                setIsRegisteringAssoc(false);
+                                            }
+                                        }}
+                                    >
+                                        {isRegisteringAssoc ? 'Registering…' : 'Register'}
+                                    </Button>
+                                    {assocStatus && assocStatus.registered.length > 0 && (
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            icon="close"
+                                            disabled={isRegisteringAssoc}
+                                            onClick={async () => {
+                                                setIsRegisteringAssoc(true);
+                                                try {
+                                                    await api.unregisterFileAssociations();
+                                                    const status = await api.getFileAssociationStatus();
+                                                    setAssocStatus(status);
+                                                    showToast('success', 'File associations removed');
+                                                } catch {
+                                                    showToast('error', 'Failed to remove file associations');
+                                                } finally {
+                                                    setIsRegisteringAssoc(false);
+                                                }
+                                            }}
+                                        >
+                                            Unregister
+                                        </Button>
+                                    )}
+                                </div>
                             </div>
 
                             <div className={`settings-hash settings-hash--${state.hashesLoaded ? 'ok' : 'warn'}`}>
