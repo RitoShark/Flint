@@ -89,14 +89,13 @@ const Tab: React.FC<TabProps> = ({ tab, isActive, onSwitch, onClose }) => {
     }, [triggerClose]);
 
     const projectName = tab.project.display_name || tab.project.name;
-    const champion = tab.project.champion;
 
     return (
         <div
             className={`titlebar__tab ${isActive ? 'titlebar__tab--active' : ''}${closing ? ' titlebar__tab--closing' : ''}`}
             onClick={closing ? undefined : onSwitch}
             onMouseDown={handleMiddleClick}
-            title={`${champion} - ${projectName}\n${tab.projectPath}`}
+            title={`${projectName}\n${tab.projectPath}`}
             data-tauri-drag-region="false"
         >
             <span
@@ -104,7 +103,7 @@ const Tab: React.FC<TabProps> = ({ tab, isActive, onSwitch, onClose }) => {
                 dangerouslySetInnerHTML={{ __html: getIcon('folder') }}
             />
             <span className="titlebar__tab-name">
-                {champion} - {projectName}
+                {projectName}
             </span>
             <button
                 className="titlebar__tab-close"

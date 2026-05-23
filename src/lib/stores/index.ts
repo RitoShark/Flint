@@ -447,6 +447,12 @@ export function useAppState() {
       case 'SET_EXTRACT_LOADING':
         wadExtract.setLoading(action.payload.sessionId, action.payload.loading);
         break;
+      case 'STAGE_EXTRACT_CHUNK_EDIT':
+        wadExtract.stageChunkEdit(action.payload.sessionId, action.payload.hash, action.payload.newSize);
+        break;
+      case 'SET_EXTRACT_SESSION_DIRTY':
+        wadExtract.setSessionDirty(action.payload.sessionId, action.payload.isDirty);
+        break;
 
       // Generic SET_STATE for partial updates
       case 'SET_STATE':

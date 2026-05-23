@@ -148,7 +148,7 @@ export const TabBar: React.FC = () => {
 
     const handleCloseExtract = useCallback((e: React.MouseEvent, sessionId: string) => {
         e.stopPropagation();
-        useWadExtractStore.getState().closeSession(sessionId);
+        navigationCoordinator.closeExtractSessionWithFallback(sessionId);
     }, []);
 
     const isWadExplorerActive = currentView === 'wad-explorer';

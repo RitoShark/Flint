@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import type { ExtractSession, WadChunk } from '../types';
 import { useConfigStore } from './configStore';
+import * as api from '../api';
 
 interface WadExtractState {
   extractSessions: ExtractSession[];
@@ -21,6 +22,10 @@ interface WadExtractState {
   toggleChunk: (sessionId: string, hash: string) => void;
   setSearch: (sessionId: string, query: string) => void;
   setLoading: (sessionId: string, loading: boolean) => void;
+  setCurrentDir: (sessionId: string, dir: string) => void;
+  navigateHistory: (sessionId: string, direction: 'back' | 'forward' | 'up') => void;
+  stageChunkEdit: (sessionId: string, hash: string, newSize: number) => void;
+  setSessionDirty: (sessionId: string, isDirty: boolean) => void;
 }
 
 export const useWadExtractStore = create<WadExtractState>((set, get) => ({
@@ -79,15 +84,33 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
       searchQuery: '',
       loading: true,
       readOnly,
+      currentDir: '',
+      history: [''],
+      historyIndex: 0,
+      isDirty: false,
     };
     set({
       extractSessions: [...get().extractSessions, newSession],
       activeExtractId: id,
     });
+
+    if (!readOnly) {
+      api.openWadEditSession(wadPath).then((res) => {
+        set((state) => ({
+          extractSessions: state.extractSessions.map((s) =>
+            s.id === id ? { ...s, editSessionId: res.session_id } : s
+          ),
+        }));
+        console.log(`[WAD Edit] Opened edit session ${res.session_id} for WAD:`, wadPath);
+      }).catch((err) => {
+        console.error('[WAD Edit] Failed to open edit session:', err);
+      });
+    }
   },
 
   closeSession: (sessionId) => {
     const { extractSessions, activeExtractId } = get();
+    const sessionToClose = extractSessions.find(s => s.id === sessionId);
     const newSessions = extractSessions.filter(s => s.id !== sessionId);
     let newActiveId = activeExtractId;
 
@@ -104,6 +127,14 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
       extractSessions: newSessions,
       activeExtractId: newActiveId,
     });
+
+    if (sessionToClose?.editSessionId) {
+      api.closeWadEditSession(sessionToClose.editSessionId).then(() => {
+        console.log(`[WAD Edit] Closed edit session ${sessionToClose.editSessionId}`);
+      }).catch((err) => {
+        console.error('[WAD Edit] Failed to close edit session:', err);
+      });
+    }
 
     return { newActiveId, remainingSessions: newSessions };
   },
@@ -173,6 +204,80 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
     set((state) => ({
       extractSessions: state.extractSessions.map(s =>
         s.id === sessionId ? { ...s, loading } : s
+      ),
+    }));
+  },
+
+  setCurrentDir: (sessionId, dir) => {
+    set((state) => ({
+      extractSessions: state.extractSessions.map(s => {
+        if (s.id !== sessionId) return s;
+        const newHistory = s.history.slice(0, s.historyIndex + 1);
+        if (newHistory[newHistory.length - 1] !== dir) {
+          newHistory.push(dir);
+        }
+        return {
+          ...s,
+          currentDir: dir,
+          history: newHistory,
+          historyIndex: newHistory.length - 1,
+        };
+      }),
+    }));
+  },
+
+  navigateHistory: (sessionId, direction) => {
+    set((state) => ({
+      extractSessions: state.extractSessions.map(s => {
+        if (s.id !== sessionId) return s;
+        let newIndex = s.historyIndex;
+        if (direction === 'back' && s.historyIndex > 0) {
+          newIndex = s.historyIndex - 1;
+        } else if (direction === 'forward' && s.historyIndex < s.history.length - 1) {
+          newIndex = s.historyIndex + 1;
+        } else if (direction === 'up' && s.currentDir) {
+          const idx = s.currentDir.lastIndexOf('/');
+          const parentDir = idx === -1 ? '' : s.currentDir.slice(0, idx);
+          const newHistory = s.history.slice(0, s.historyIndex + 1);
+          if (newHistory[newHistory.length - 1] !== parentDir) {
+            newHistory.push(parentDir);
+          }
+          return {
+            ...s,
+            currentDir: parentDir,
+            history: newHistory,
+            historyIndex: newHistory.length - 1,
+          };
+        }
+        return {
+          ...s,
+          currentDir: s.history[newIndex],
+          historyIndex: newIndex,
+        };
+      }),
+    }));
+  },
+
+  stageChunkEdit: (sessionId, hash, newSize) => {
+    set((state) => ({
+      extractSessions: state.extractSessions.map(s => {
+        if (s.id !== sessionId) return s;
+        const newChunks = s.chunks.map(c =>
+          c.hash === hash ? { ...c, size: newSize } : c
+        );
+        return {
+          ...s,
+          chunks: newChunks,
+          isDirty: true,
+        };
+      }),
+    }));
+  },
+
+  setSessionDirty: (sessionId, isDirty) => {
+    set((state) => ({
+      extractSessions: state.extractSessions.map(s =>
+        s.id === sessionId ? { ...s, isDirty } : s
       ),
     }));
   },

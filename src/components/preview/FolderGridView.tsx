@@ -15,7 +15,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useProjectTabStore, useAppMetadataStore, useModalStore, useNotificationStore, useConfigStore } from '../../lib/stores';
+import { useProjectTabStore, useAppMetadataStore, useModalStore, useNotificationStore, useConfigStore, useNavigationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { getFileIcon } from '../../lib/fileIcons';
 import { getCachedImage, cacheImage } from '../../lib/imageCache';
@@ -223,6 +223,36 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
                 >
                     {entries.map((entry) => {
                         const isTexture = !entry.is_directory && TEXTURE_EXTS.has(entry.extension);
+                        const isBinText = !entry.is_directory && ['.bin', '.ritobin', '.py', '.luabin', '.luabin64', '.troybin'].some(ext => entry.name.toLowerCase().endsWith(ext));
+                        const isRawText = !entry.is_directory && ['.json', '.txt', '.lua', '.py'].some(ext => entry.name.toLowerCase().endsWith(ext)) && entry.name !== 'mod.config.json';
+
+                        const handleDoubleClick = () => {
+                            if (isTexture) {
+                                openModal('fullResImage', {
+                                    absPath: entry.absolute_path,
+                                    fileName: entry.name,
+                                });
+                            } else if (entry.name === 'mod.config.json') {
+                                useNavigationStore.getState().navigateToFileEditor({
+                                    filePath: entry.absolute_path,
+                                    kind: 'modConfig',
+                                    projectPath,
+                                });
+                            } else if (isBinText) {
+                                useNavigationStore.getState().navigateToFileEditor({
+                                    filePath: entry.absolute_path,
+                                    kind: 'binText',
+                                    projectPath,
+                                });
+                            } else if (isRawText) {
+                                useNavigationStore.getState().navigateToFileEditor({
+                                    filePath: entry.absolute_path,
+                                    kind: 'raw',
+                                    projectPath,
+                                });
+                            }
+                        };
+
                         return (
                             <FolderGridCard
                                 key={entry.absolute_path}
@@ -230,14 +260,7 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
                                 cardSize={cardSize}
                                 onClick={() => goTo(entry.relative_path)}
                                 onContextMenu={(e) => handleEntryContextMenu(e, entry)}
-                                onDoubleClick={
-                                    isTexture
-                                        ? () => openModal('fullResImage', {
-                                            absPath: entry.absolute_path,
-                                            fileName: entry.name,
-                                        })
-                                        : undefined
-                                }
+                                onDoubleClick={handleDoubleClick}
                             />
                         );
                     })}

@@ -17,12 +17,14 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useAppState } from '../lib/stores';
+import { useAppState, useConfigStore } from '../lib/stores';
 import * as api from '../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getIcon } from '../lib/fileIcons';
 import * as monaco from 'monaco-editor';
 import { RITOBIN_LANGUAGE_ID, RITOBIN_THEME_ID, registerRitobinLanguage, registerRitobinTheme } from '../lib/ritobinLanguage';
+import { Dropdown } from './ui/Dropdown';
+import LazyModelPreview from './preview/LazyModelPreview';
 
 // =============================================================================
 // File-type detection from magic bytes + path hint
@@ -50,6 +52,9 @@ function detectChunkType(bytes: Uint8Array, pathHint: string | null): ChunkTypeI
         // JPEG magic
         if (b[0] === 0xff && b[1] === 0xd8)
             return { fileType: 'image/jpeg', extension: 'jpg' };
+        // luabin bytecode: \x1bLua
+        if (b[0] === 0x1b && b[1] === 0x4c && b[2] === 0x75 && b[3] === 0x61)
+            return { fileType: 'application/x-luabin', extension: 'luabin' };
         // BIN: PROP / PTCH
         const magic = String.fromCharCode(b[0], b[1], b[2], b[3]);
         if (magic === 'PROP' || magic === 'PTCH')
@@ -81,6 +86,9 @@ function detectChunkType(bytes: Uint8Array, pathHint: string | null): ChunkTypeI
         anm: 'animation/x-lol-anm',
         bnk: 'audio/x-wwise-bnk',
         wpk: 'audio/x-wwise-wpk',
+        luabin: 'application/x-luabin',
+        luabin64: 'application/x-luabin',
+        troybin: 'application/x-troybin',
     };
 
     return { fileType: extMap[ext] ?? 'application/octet-stream', extension: ext };
@@ -136,6 +144,8 @@ function getTypeLabel(fileType: string): string {
         'image/png': 'PNG Image',
         'image/jpeg': 'JPEG Image',
         'application/x-bin': 'BIN Property File',
+        'application/x-luabin': 'Lua Bytecode (Luabin)',
+        'application/x-troybin': 'Troybin Config',
         'application/json': 'JSON',
         'text/plain': 'Plain Text',
         'text/x-python': 'Ritobin / Python',
@@ -208,7 +218,11 @@ const ErrorState: React.FC<{ message: string }> = ({ message }) => (
 registerRitobinLanguage(monaco as any);
 registerRitobinTheme(monaco as any);
 
-const MonacoBinViewer: React.FC<{ text: string }> = ({ text }) => {
+const MonacoBinViewer: React.FC<{
+    text: string;
+    readOnly?: boolean;
+    onChange?: (value: string) => void;
+}> = ({ text, readOnly = true, onChange }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
 
@@ -220,7 +234,7 @@ const MonacoBinViewer: React.FC<{ text: string }> = ({ text }) => {
             value: text,
             language: RITOBIN_LANGUAGE_ID,
             theme: RITOBIN_THEME_ID,
-            readOnly: true,
+            readOnly,
             automaticLayout: true,
             fontFamily: 'var(--font-mono), "Cascadia Code", "Fira Code", Consolas, monospace',
             fontSize: 13,
@@ -234,13 +248,81 @@ const MonacoBinViewer: React.FC<{ text: string }> = ({ text }) => {
 
         editorRef.current = editor;
 
+        const model = editor.getModel();
+        if (model) {
+            const listener = model.onDidChangeContent(() => {
+                if (onChange) {
+                    onChange(editor.getValue());
+                }
+            });
+            return () => {
+                listener.dispose();
+                editor.dispose();
+                editorRef.current = null;
+            };
+        }
+
         return () => {
             editor.dispose();
             editorRef.current = null;
         };
     }, []); // Only create once
 
+    // Update readOnly setting
+    useEffect(() => {
+        if (editorRef.current) {
+            editorRef.current.updateOptions({ readOnly });
+        }
+    }, [readOnly]);
+
     // Update content when text changes
+    useEffect(() => {
+        if (editorRef.current) {
+            const model = editorRef.current.getModel();
+            if (model && model.getValue() !== text) {
+                model.setValue(text);
+            }
+        }
+    }, [text]);
+
+    return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
+};
+
+// =============================================================================
+// Generic Monaco Viewer (Lua, INI, etc. with built-in language support)
+// =============================================================================
+
+const MonacoTextViewer: React.FC<{ text: string; language: string }> = ({ text, language }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+
+    useEffect(() => {
+        if (!containerRef.current) return;
+
+        const editor = monaco.editor.create(containerRef.current, {
+            value: text,
+            language,
+            theme: 'vs-dark',
+            readOnly: true,
+            automaticLayout: true,
+            fontFamily: 'var(--font-mono), "Cascadia Code", "Fira Code", Consolas, monospace',
+            fontSize: 13,
+            lineHeight: 20,
+            minimap: { enabled: false },
+            scrollBeyondLastLine: false,
+            renderWhitespace: 'none',
+            folding: true,
+            lineNumbers: 'on',
+        });
+
+        editorRef.current = editor;
+
+        return () => {
+            editor.dispose();
+            editorRef.current = null;
+        };
+    }, [language]); // Recreate if language changes
+
     useEffect(() => {
         if (editorRef.current) {
             const model = editorRef.current.getModel();
@@ -257,8 +339,8 @@ const MonacoBinViewer: React.FC<{ text: string }> = ({ text }) => {
 // Main component
 // =============================================================================
 
-export const WadPreviewPanel: React.FC = () => {
-    const { state, showToast } = useAppState();
+export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
+    const { state, dispatch, showToast } = useAppState();
 
     const [preview, setPreview] = useState<PreviewState | null>(null);
     const [loading, setLoading] = useState(false);
@@ -266,11 +348,39 @@ export const WadPreviewPanel: React.FC = () => {
     const [imageZoom, setImageZoom] = useState<'fit' | number>('fit');
     const [isExtracting, setIsExtracting] = useState(false);
 
+    // Editing states for in-memory WAD edits
+    const [editedContent, setEditedContent] = useState<string | null>(null);
+    const [isContentDirty, setIsContentDirty] = useState(false);
+    const [isSavingChunk, setIsSavingChunk] = useState(false);
+
     // Object-URL cleanup: store the URL so we can revoke it when the chunk changes
     const blobUrlRef = useRef<string | null>(null);
 
+    // Model preview states
+    const [modelPreviewPath, setModelPreviewPath] = useState<string | null>(null);
+    const [modelTempDir, setModelTempDir] = useState<string | null>(null);
+    const [modelLoading, setModelLoading] = useState(false);
+
     const session = state.extractSessions.find(s => s.id === state.activeExtractId);
     const chunk = session?.chunks.find(c => c.hash === session.previewHash) ?? null;
+
+    // Reset editing states when preview changes
+    useEffect(() => {
+        if (preview && preview.textContent !== null) {
+            setEditedContent(preview.textContent);
+            setIsContentDirty(false);
+        } else {
+            setEditedContent(null);
+            setIsContentDirty(false);
+        }
+    }, [preview]);
+
+    // Cleanup model temp dir on chunk change or unmount
+    useEffect(() => {
+        return () => {
+            if (modelTempDir) api.cleanupWadModelPreview(modelTempDir).catch(() => {});
+        };
+    }, [modelTempDir]);
 
     // -------------------------------------------------------------------------
     // Load preview whenever the selected chunk changes
@@ -280,6 +390,13 @@ export const WadPreviewPanel: React.FC = () => {
         if (blobUrlRef.current) {
             URL.revokeObjectURL(blobUrlRef.current);
             blobUrlRef.current = null;
+        }
+
+        // Clean up previous model preview files
+        setModelPreviewPath(null);
+        if (modelTempDir) {
+            api.cleanupWadModelPreview(modelTempDir).catch(() => {});
+            setModelTempDir(null);
         }
 
         if (!session || !chunk) {
@@ -297,8 +414,10 @@ export const WadPreviewPanel: React.FC = () => {
             setImageZoom('fit');
 
             try {
-                // 1. Fetch raw decompressed bytes from WAD — zero disk I/O
-                const bytes = await api.readWadChunkData(session.wadPath, chunk.hash);
+                // 1. Fetch raw decompressed bytes from WAD — check edit session first for in-memory modifications
+                const bytes = session.editSessionId
+                    ? await api.readSessionChunk(session.editSessionId, chunk.hash)
+                    : await api.readWadChunkData(session.wadPath, chunk.hash);
 
                 if (cancelled) return;
 
@@ -326,6 +445,12 @@ export const WadPreviewPanel: React.FC = () => {
                     if (!cancelled) imageDataUrl = url;
                 } else if (fileType === 'application/x-bin') {
                     const text = await api.convertBinToText(bytes);
+                    if (!cancelled) textContent = text;
+                } else if (fileType === 'application/x-luabin') {
+                    const text = await api.readWadLuabin(session.wadPath, chunk.hash);
+                    if (!cancelled) textContent = text;
+                } else if (fileType === 'application/x-troybin') {
+                    const text = await api.readWadTroybin(session.wadPath, chunk.hash);
                     if (!cancelled) textContent = text;
                 } else if (
                     fileType.startsWith('text/') ||
@@ -381,10 +506,50 @@ export const WadPreviewPanel: React.FC = () => {
     };
 
     // -------------------------------------------------------------------------
+    // Save current in-memory edits to backend edit session
+    // -------------------------------------------------------------------------
+    const handleSaveChunk = async () => {
+        if (!session || !chunk || !session.editSessionId || editedContent === null) return;
+
+        setIsSavingChunk(true);
+        try {
+            // 1. Compile ritobin text back to binary bytes
+            const binConverterEngine = useConfigStore.getState().binConverterEngine;
+            const useJade = binConverterEngine === 'jade';
+            const binBytes = await api.compileRitobinTextToBytes(editedContent, useJade);
+
+            // 2. Write binary bytes to the edit session
+            await api.writeSessionChunk(session.editSessionId, chunk.hash, binBytes);
+
+            // 3. Update chunk list in the store (update size and set dirty)
+            dispatch({
+                type: 'STAGE_EXTRACT_CHUNK_EDIT',
+                payload: {
+                    sessionId: session.id,
+                    hash: chunk.hash,
+                    newSize: binBytes.length,
+                },
+            });
+
+            // 4. Update parent's textContent so it matches and dirty flag clears
+            setPreview(p => p ? { ...p, bytes: binBytes, textContent: editedContent } : null);
+            setIsContentDirty(false);
+
+            showToast('success', 'File edited in memory. Save the WAD to persist changes on disk.');
+        } catch (err) {
+            console.error('[WadPreviewPanel] Save chunk failed:', err);
+            const msg = err instanceof api.FlintError ? err.getUserMessage() : String(err);
+            showToast('error', `Failed to compile/save: ${msg}`);
+        } finally {
+            setIsSavingChunk(false);
+        }
+    };
+
+    // -------------------------------------------------------------------------
     // Early returns
     // -------------------------------------------------------------------------
     if (!session || !chunk) {
-        return <div className="preview-panel"><EmptyState /></div>;
+        return <div className="preview-panel" style={style}><EmptyState /></div>;
     }
 
     const fileName = chunk.path
@@ -407,7 +572,7 @@ export const WadPreviewPanel: React.FC = () => {
         if (isImage && imageDataUrl) {
             const imgStyle: React.CSSProperties =
                 imageZoom === 'fit'
-                    ? { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }
+                    ? { width: '100%', height: '100%', objectFit: 'contain' }
                     : { width: `${(dimensions?.[0] ?? 0) * (imageZoom as number)}px` };
 
             return (
@@ -418,29 +583,47 @@ export const WadPreviewPanel: React.FC = () => {
                         const cur = imageZoom === 'fit' ? 1 : (imageZoom as number);
                         setImageZoom(Math.max(0.1, Math.min(5, cur + (e.deltaY > 0 ? -0.1 : 0.1))));
                     }}
-                    style={{ overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}
                 >
-                    <img
-                        src={imageDataUrl}
-                        alt={fileName}
-                        draggable={false}
-                        style={imgStyle}
-                        onLoad={e => {
-                            if (!dimensions) {
-                                const img = e.currentTarget;
-                                setPreview(p => p ? { ...p, dimensions: [img.naturalWidth, img.naturalHeight] } : p);
-                            }
-                        }}
-                    />
+                    <div className="image-preview__container">
+                        <img
+                            src={imageDataUrl}
+                            alt={fileName}
+                            draggable={false}
+                            style={imgStyle}
+                            onLoad={e => {
+                                if (!dimensions) {
+                                    const img = e.currentTarget;
+                                    setPreview(p => p ? { ...p, dimensions: [img.naturalWidth, img.naturalHeight] } : p);
+                                }
+                            }}
+                        />
+                    </div>
                 </div>
             );
         }
 
-        // BIN / text
+        // BIN / text / luabin / troybin
         if (textContent !== null) {
-            // BIN files get Monaco editor with syntax highlighting
+            // BIN files get Monaco editor with syntax highlighting (editable if editSessionId is active)
             if (fileType === 'application/x-bin') {
-                return <MonacoBinViewer text={textContent} />;
+                return (
+                    <MonacoBinViewer
+                        text={textContent}
+                        readOnly={!session.editSessionId}
+                        onChange={(val) => {
+                            setEditedContent(val);
+                            setIsContentDirty(val !== textContent);
+                        }}
+                    />
+                );
+            }
+            // LuaBin files get Monaco editor with Lua syntax highlighting
+            if (fileType === 'application/x-luabin') {
+                return <MonacoTextViewer text={textContent} language="lua" />;
+            }
+            // TroyBin files get Monaco editor with INI syntax highlighting
+            if (fileType === 'application/x-troybin') {
+                return <MonacoTextViewer text={textContent} language="ini" />;
             }
             // Plain text files get simple div
             return (
@@ -463,7 +646,54 @@ export const WadPreviewPanel: React.FC = () => {
             );
         }
 
-        // Model / Audio — suggest extraction
+        // 3D Model: SKN skinned mesh preview inline
+        if (fileType === 'model/x-lol-skn') {
+            if (modelPreviewPath) {
+                return (
+                    <div style={{ height: '100%', width: '100%' }}>
+                        <LazyModelPreview filePath={modelPreviewPath} meshType="skinned" />
+                    </div>
+                );
+            }
+            return (
+                <div className="preview-panel__empty">
+                    <div style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '0 24px' }}>
+                        <div style={{ marginBottom: '12px' }}>{getTypeLabel(fileType)}</div>
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '16px' }}>
+                            <button
+                                className="btn btn--primary btn--sm"
+                                disabled={modelLoading}
+                                onClick={async () => {
+                                    setModelLoading(true);
+                                    try {
+                                        const result = await api.extractWadModelPreview(session.wadPath, chunk.hash);
+                                        setModelPreviewPath(result.skn_path);
+                                        setModelTempDir(result.temp_dir);
+                                    } catch (e) {
+                                        showToast('error', (e as Error).message || 'Failed to prepare model preview');
+                                    } finally {
+                                        setModelLoading(false);
+                                    }
+                                }}
+                            >
+                                <span dangerouslySetInnerHTML={{ __html: getIcon('model') }} />
+                                <span>{modelLoading ? 'Preparing…' : 'Preview 3D Model'}</span>
+                            </button>
+                            <button
+                                className="btn btn--sm"
+                                onClick={handleExtractThis}
+                                disabled={isExtracting}
+                            >
+                                <span dangerouslySetInnerHTML={{ __html: getIcon('export') }} />
+                                <span>Extract</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // Other Model / Audio / Animation — suggest extraction
         if (
             fileType.startsWith('model/') ||
             fileType.startsWith('audio/') ||
@@ -497,11 +727,11 @@ export const WadPreviewPanel: React.FC = () => {
     // Render
     // -------------------------------------------------------------------------
     return (
-        <div className="preview-panel">
+        <div className="preview-panel" style={style}>
             {/* Toolbar */}
-            <div className="preview-panel__toolbar">
+            <div className="preview-panel__toolbar" style={{ position: 'relative', paddingRight: '240px' }}>
                 {isImage && (
-                    <div className="preview-panel__zoom-controls">
+                    <div className="preview-panel__zoom-controls" style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
                         {(['fit', 1, 2] as const).map(z => (
                             <button
                                 key={String(z)}
@@ -514,8 +744,78 @@ export const WadPreviewPanel: React.FC = () => {
                         <div style={{ width: '1px', height: '16px', background: 'var(--border)', margin: '0 8px' }} />
                     </div>
                 )}
-                <span className="preview-panel__filename">{fileName}</span>
-                <div style={{ marginLeft: 'auto' }}>
+                <span className="preview-panel__filename" style={{ minWidth: 0, flex: 1, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', margin: '0 8px' }}>
+                    {fileName}
+                </span>
+                <div style={{ 
+                    position: 'absolute', 
+                    right: '12px', 
+                    top: '50%', 
+                    transform: 'translateY(-50%)', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '8px' 
+                }}>
+                    <Dropdown
+                        align="right"
+                        trigger={(open, toggle) => (
+                            <button
+                                className={`btn btn--sm ${open ? 'btn--active' : ''}`}
+                                onClick={toggle}
+                                style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                                title="Copy metadata to clipboard"
+                            >
+                                <span dangerouslySetInnerHTML={{ __html: getIcon('copy') }} />
+                                <span>Copy</span>
+                                <span style={{ opacity: 0.5, fontSize: '9px', marginLeft: '2px' }}>▼</span>
+                            </button>
+                        )}
+                        items={[
+                            ...(chunk.path ? [
+                                {
+                                    label: 'Copy Path',
+                                    onClick: () => {
+                                        navigator.clipboard.writeText(chunk.path!);
+                                        showToast('success', 'Path copied to clipboard');
+                                    }
+                                },
+                                {
+                                    label: 'Copy File Name',
+                                    onClick: () => {
+                                        navigator.clipboard.writeText(chunk.path!.split('/').pop() ?? chunk.path!);
+                                        showToast('success', 'File name copied to clipboard');
+                                    }
+                                },
+                                { divider: true }
+                            ] : []),
+                            {
+                                label: 'Copy Hash',
+                                onClick: () => {
+                                    navigator.clipboard.writeText(chunk.hash);
+                                    showToast('success', 'Hash copied to clipboard');
+                                }
+                            },
+                            {
+                                label: 'Copy WAD Name',
+                                onClick: () => {
+                                    navigator.clipboard.writeText(session.wadName);
+                                    showToast('success', 'WAD name copied to clipboard');
+                                }
+                            }
+                        ]}
+                    />
+                    {session.editSessionId && isContentDirty && (
+                        <button
+                            className="btn btn--sm btn--primary"
+                            onClick={handleSaveChunk}
+                            disabled={isSavingChunk}
+                            title="Save this file in memory inside the WAD session"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'var(--success, #28a745)', borderColor: 'var(--success, #28a745)', color: '#fff' }}
+                        >
+                            <span dangerouslySetInnerHTML={{ __html: getIcon('save') || '💾' }} />
+                            <span>{isSavingChunk ? 'Saving...' : 'Save File'}</span>
+                        </button>
+                    )}
                     <button
                         className="btn btn--sm btn--primary"
                         onClick={handleExtractThis}
@@ -525,6 +825,16 @@ export const WadPreviewPanel: React.FC = () => {
                         <span dangerouslySetInnerHTML={{ __html: getIcon('export') }} />
                         <span>{isExtracting ? 'Extracting…' : 'Extract File'}</span>
                     </button>
+                    <button
+                        className="btn btn--sm"
+                        onClick={() => {
+                            dispatch({ type: 'SET_EXTRACT_PREVIEW', payload: { sessionId: session.id, hash: null } });
+                        }}
+                        title="Close preview"
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', padding: 0 }}
+                    >
+                        <span dangerouslySetInnerHTML={{ __html: getIcon('close') || '✕' }} />
+                    </button>
                 </div>
             </div>
 
@@ -533,7 +843,7 @@ export const WadPreviewPanel: React.FC = () => {
 
             {/* Info bar */}
             {preview && (
-                <div className="preview-panel__info-bar">
+                <div className="preview-panel__info-bar" style={{ height: '44px', boxSizing: 'border-box' }}>
                     <span className="preview-panel__info-item">
                         <span className="preview-panel__info-label">Type: </span>
                         {getTypeLabel(preview.fileType)}

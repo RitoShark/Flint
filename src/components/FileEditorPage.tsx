@@ -22,9 +22,10 @@ import {
     useFileEditorStore,
     useNavigationStore,
     useNotificationStore,
-    useProjectTabStore,
+    useModalStore,
 } from '../lib/stores';
 import type { FileEditorTarget } from '../lib/types';
+import { BinEditor } from './preview/BinEditor';
 import { Button, Field, FormGroup, FormLabel, Input, Textarea } from './ui';
 
 // ─── mod.config.json structured editor ──────────────────────────────────
@@ -151,7 +152,7 @@ const ModConfigEditor: React.FC<{ target: FileEditorTarget }> = ({ target }) => 
     }
 
     return (
-        <div style={{ padding: '0 32px 32px', maxWidth: 720 }}>
+        <div style={{ padding: '16px 24px 24px', maxWidth: 720 }}>
             <Field
                 label="Display Name"
                 placeholder="My Awesome Mod"
@@ -290,7 +291,7 @@ const RawTextEditor: React.FC<{ target: FileEditorTarget }> = ({ target }) => {
     }, [target.filePath, content, showToast, setDirty]);
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', padding: '0 32px 32px', height: '100%' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', padding: '16px 24px 24px', height: '100%', minHeight: 0 }}>
             <Textarea
                 value={content}
                 onChange={(e) => { setContent(e.target.value); setLocalDirty(true); setDirty(true); }}
@@ -321,9 +322,9 @@ const RawTextEditor: React.FC<{ target: FileEditorTarget }> = ({ target }) => {
 export const FileEditorPage: React.FC = () => {
     const target = useFileEditorStore((s) => s.target);
     const closeTarget = useFileEditorStore((s) => s.closeTarget);
+    const isDirty = useFileEditorStore((s) => s.dirty);
+    const openConfirmDialog = useModalStore((s) => s.openConfirmDialog);
     const setView = useNavigationStore((s) => s.setView);
-    const activeTabId = useProjectTabStore((s) => s.activeTabId);
-    const openTabs = useProjectTabStore((s) => s.openTabs);
 
     // Fallback: if the page is mounted but no target was set, send the user
     // back to the welcome view. Belt-and-braces — `navigateToFileEditor`
@@ -336,17 +337,7 @@ export const FileEditorPage: React.FC = () => {
         );
     }
 
-    const activeTab = activeTabId ? openTabs.find((t) => t.id === activeTabId) : null;
-    const projectPath = target.projectPath || activeTab?.projectPath || '';
-    const relPath = projectPath
-        ? target.filePath.replace(projectPath.replace(/\\/g, '/'), '').replace(/\\/g, '/').replace(/^\//, '')
-        : target.filePath;
-
-    const titleByKind: Record<typeof target.kind, string> = {
-        modConfig: 'Edit Project Info',
-        binText: 'Edit BIN',
-        raw: 'Edit File',
-    };
+    const fileName = target.filePath.split(/[/\\]/).pop() || target.filePath;
 
     return (
         <div
@@ -355,7 +346,7 @@ export const FileEditorPage: React.FC = () => {
                 display: 'flex',
                 flexDirection: 'column',
                 height: '100%',
-                overflowY: 'auto',
+                overflowY: target.kind === 'binText' ? 'hidden' : 'auto',
                 backgroundColor: 'var(--bg-primary)',
             }}
         >
@@ -363,48 +354,72 @@ export const FileEditorPage: React.FC = () => {
                 style={{
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '20px 32px 16px',
+                    gap: 12,
+                    padding: '8px 16px',
                     borderBottom: '1px solid var(--border)',
                     backgroundColor: 'var(--bg-secondary)',
+                    minHeight: 0,
                 }}
             >
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>
-                        {titleByKind[target.kind]}
-                    </h2>
-                    <div
-                        style={{
-                            fontSize: 12,
-                            color: 'var(--text-muted)',
-                            fontFamily: 'var(--font-mono)',
-                            userSelect: 'text',
-                        }}
-                        title={target.filePath}
-                    >
-                        {relPath || target.filePath}
-                    </div>
+                {/* Filename + dirty dot */}
+                <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 5 }}>
+                    {fileName}
+                    {isDirty && <span style={{ color: 'var(--accent-primary)', fontSize: 9, lineHeight: 1 }}>●</span>}
+                </span>
+
+                {/* Full path — takes all remaining space, truncated at left */}
+                <div
+                    style={{
+                        flex: 1,
+                        minWidth: 0,
+                        fontSize: 11,
+                        color: 'var(--text-muted)',
+                        fontFamily: 'var(--font-mono)',
+                        userSelect: 'text',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        direction: 'rtl',
+                        textAlign: 'left',
+                    }}
+                    title={target.filePath}
+                >
+                    {target.filePath}
                 </div>
+
+                {/* Close button */}
                 <Button
                     size="sm"
                     variant="secondary"
                     onClick={() => {
-                        closeTarget();
-                        setView('preview');
+                        if (isDirty) {
+                            openConfirmDialog({
+                                title: 'Discard changes?',
+                                message: 'You have unsaved changes. Are you sure you want to discard them?',
+                                confirmLabel: 'Discard',
+                                danger: true,
+                                onConfirm: () => {
+                                    closeTarget();
+                                    setView('preview');
+                                },
+                            });
+                        } else {
+                            closeTarget();
+                            setView('preview');
+                        }
                     }}
                     title="Close editor"
+                    style={{ padding: '4px 8px', flexShrink: 0 }}
                 >
                     ✕
                 </Button>
             </header>
 
-            <div style={{ flex: 1, paddingTop: 24 }}>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                 {target.kind === 'modConfig' && <ModConfigEditor key={target.filePath} target={target} />}
                 {target.kind === 'raw' && <RawTextEditor key={target.filePath} target={target} />}
                 {target.kind === 'binText' && (
-                    <div style={{ padding: 32, color: 'var(--text-secondary)' }}>
-                        BIN text editor not yet implemented — coming soon.
-                    </div>
+                    <BinEditor key={target.filePath} filePath={target.filePath} hideFilename />
                 )}
             </div>
         </div>

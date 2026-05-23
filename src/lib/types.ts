@@ -205,6 +205,11 @@ export interface ExtractSession {
     searchQuery: string;
     loading: boolean;
     readOnly?: boolean;
+    currentDir: string;
+    history: string[];
+    historyIndex: number;
+    editSessionId?: string;       // backend session ID, if opened
+    isDirty?: boolean;            // true if there are unsaved memory edits in the WAD
 }
 
 /** A WAD file discovered while scanning a game installation */

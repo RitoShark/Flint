@@ -334,6 +334,36 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             },
             separator: true,
         });
+    } else {
+        const BIN_TEXT_EXTS = ['.bin', '.ritobin', '.py', '.luabin', '.luabin64', '.troybin'];
+        const isBinText = BIN_TEXT_EXTS.some(e => fileName.toLowerCase().endsWith(e));
+        const isRawText = ['.json', '.txt', '.lua', '.py'].some(e => fileName.toLowerCase().endsWith(e));
+
+        if (isBinText) {
+            options.push({
+                label: 'Edit BIN',
+                icon: getIcon('code'),
+                onClick: () => {
+                    useNavigationStore.getState().navigateToFileEditor({
+                        filePath: fullPath,
+                        kind: 'binText',
+                        projectPath,
+                    });
+                },
+            });
+        } else if (isRawText) {
+            options.push({
+                label: 'Edit File',
+                icon: getIcon('code'),
+                onClick: () => {
+                    useNavigationStore.getState().navigateToFileEditor({
+                        filePath: fullPath,
+                        kind: 'raw',
+                        projectPath,
+                    });
+                },
+            });
+        }
     }
 
     if (onRename) {

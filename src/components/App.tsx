@@ -15,7 +15,6 @@ import { isSidecarFile } from '../lib/sidecarFiles';
 
 import { TitleBar } from './TitleBar';
 import { LeftPanel } from './FileTree';
-import { WadBrowserPanel } from './WadBrowser';
 import { WadExplorer } from './WadExplorer';
 import { CenterPanel } from './CenterPanel';
 import { StatusBar } from './StatusBar';
@@ -582,12 +581,9 @@ export const App: React.FC = () => {
                 )}
                 {!isWadExplorer && (
                     <>
-                        {hasProject && (
+                        {hasProject && !isExtractMode && (
                             <>
-                                {isExtractMode
-                                    ? <WadBrowserPanel style={{ width: leftPanelWidth }} />
-                                    : <LeftPanel style={{ width: leftPanelWidth }} />
-                                }
+                                <LeftPanel style={{ width: leftPanelWidth }} />
                                 <div
                                     ref={resizerRef}
                                     className="panel-resizer"

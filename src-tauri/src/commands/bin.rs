@@ -621,6 +621,25 @@ pub async fn save_ritobin_to_bin(
     Ok(())
 }
 
+/// Compiles ritobin text content back to binary bytes in-memory.
+#[tauri::command]
+pub async fn compile_ritobin_text_to_bytes(
+    content: String,
+    use_jade: Option<bool>,
+) -> Result<tauri::ipc::Response, String> {
+    let _t = ipc_trace::enter("compile_ritobin_text_to_bytes");
+    let use_jade = use_jade.unwrap_or(false);
+    let binary_data = if use_jade {
+        flint_ltk::bin::jade::convert_text_to_bin(&content)?
+    } else {
+        let bin = flint_ltk::bin::text_to_tree(&content)
+            .map_err(|e| format!("Failed to parse text content: {}", e))?;
+        flint_ltk::bin::write_bin_ltk(&bin)
+            .map_err(|e| format!("Failed to convert to binary: {}", e))?
+    };
+    Ok(tauri::ipc::Response::new(binary_data))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -255,6 +255,7 @@ fn main() {
             commands::bin::parse_bin_file_to_text,
             commands::bin::read_or_convert_bin,
             commands::bin::save_ritobin_to_bin,
+            commands::bin::compile_ritobin_text_to_bytes,
             // League detection commands
 
             commands::league::detect_league,

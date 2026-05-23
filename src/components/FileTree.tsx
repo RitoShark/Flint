@@ -29,7 +29,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({ style }) => {
     const hasProject = !!activeTab;
 
     if (!hasProject) {
-        return <ProjectsPanel />;
+        return null;
     }
 
     return (
@@ -369,6 +369,36 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
         }
     };
 
+    const handleDoubleClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (isRenaming || effectiveNode.isDirectory) return;
+
+        const path = effectiveNode.path;
+        const lower = path.toLowerCase();
+        const BIN_TEXT_EXTS = ['.bin', '.ritobin', '.py', '.luabin', '.luabin64', '.troybin'];
+        const fullFilePath = `${projectPath}/${path}`;
+
+        if (effectiveNode.name === 'mod.config.json') {
+            useNavigationStore.getState().navigateToFileEditor({
+                filePath: fullFilePath,
+                kind: 'modConfig',
+                projectPath,
+            });
+        } else if (BIN_TEXT_EXTS.some(ext => lower.endsWith(ext))) {
+            useNavigationStore.getState().navigateToFileEditor({
+                filePath: fullFilePath,
+                kind: 'binText',
+                projectPath,
+            });
+        } else if (lower.endsWith('.json') || lower.endsWith('.txt') || lower.endsWith('.lua') || lower.endsWith('.py')) {
+            useNavigationStore.getState().navigateToFileEditor({
+                filePath: fullFilePath,
+                kind: 'raw',
+                projectPath,
+            });
+        }
+    };
+
     const handleRenameSubmit = async (newName: string) => {
         setRenamingPath(null);
         const currentName = getFileName(effectiveNode.path);
@@ -432,6 +462,7 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
                 className={`file-tree__item ${isSelected ? 'file-tree__item--selected' : ''} ${statusClass}${isDropTarget ? ' file-tree__item--drop-target' : ''}`}
                 style={{ paddingLeft: 4 + depth * 12 }}
                 onClick={handleClick}
+                onDoubleClick={handleDoubleClick}
                 onContextMenu={handleContextMenu}
             >
                 {effectiveNode.isDirectory ? (
@@ -562,20 +593,28 @@ const ProjectsPanel: React.FC = () => {
     return (
         <aside className="left-panel projects-panel">
             <div className="projects-panel__header">
-                <span className="projects-panel__title">Projects</span>
-                <button
-                    className="btn btn--ghost btn--small"
-                    title="New Project"
-                    onClick={() => openModal('newProject')}
-                    dangerouslySetInnerHTML={{ __html: getIcon('plus') }}
-                />
+                <span className="projects-panel__title">Recent Folders</span>
+                <div style={{ display: 'flex', gap: '4px' }}>
+                    <button
+                        className="btn btn--ghost btn--small"
+                        title="Open Folder"
+                        onClick={() => openModal('projectList')}
+                        dangerouslySetInnerHTML={{ __html: getIcon('folderOpen2') }}
+                    />
+                    <button
+                        className="btn btn--ghost btn--small"
+                        title="New Workspace"
+                        onClick={() => openModal('newProject')}
+                        dangerouslySetInnerHTML={{ __html: getIcon('plus') }}
+                    />
+                </div>
             </div>
             <div className="projects-panel__list">
                 {recentProjects.length === 0 ? (
                     <div className="projects-panel__empty">
-                        <p>No recent projects</p>
+                        <p>No recent folders</p>
                         <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                            Create a new project to get started
+                            Open a folder to get started
                         </p>
                     </div>
                 ) : (
@@ -591,9 +630,9 @@ const ProjectsPanel: React.FC = () => {
                             />
                             <div className="projects-panel__info">
                                 <div className="projects-panel__name">
-                                    {project.champion} - {project.name}
+                                    {project.name}
                                 </div>
-                                <div className="projects-panel__meta">Skin {project.skin}</div>
+                                <div className="projects-panel__meta" title={project.path} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '170px' }}>{project.path}</div>
                             </div>
                         </div>
                     ))

@@ -41,11 +41,7 @@ export function removeTabWithFallback(tabId: string) {
   }
 }
 
-/**
- * Close an extract session and handle fallback navigation
- * Fallback order: other extract sessions → active project tab → WAD explorer → welcome
- */
-export function closeExtractSessionWithFallback(sessionId: string) {
+function performCloseExtractSession(sessionId: string) {
   const projectTab = useProjectTabStore.getState();
   const wadExtract = useWadExtractStore.getState();
   const wadExplorer = useWadExplorerStore.getState();
@@ -73,6 +69,37 @@ export function closeExtractSessionWithFallback(sessionId: string) {
       // Fall back to welcome screen
       navigation.setView('welcome');
     }
+  }
+}
+
+/**
+ * Close an extract session and handle fallback navigation
+ * Fallback order: other extract sessions → active project tab → WAD explorer → welcome
+ */
+export function closeExtractSessionWithFallback(sessionId: string) {
+  const wadExtract = useWadExtractStore.getState();
+  const session = wadExtract.extractSessions.find(s => s.id === sessionId);
+
+  if (session?.isDirty) {
+    import('./modalStore').then(({ useModalStore }) => {
+      useModalStore.getState().openConfirmDialog({
+        title: 'Unsaved WAD Changes',
+        message: 'You have unsaved in-memory changes to this WAD file. Closing the tab will discard all changes. Are you sure you want to close it?',
+        confirmLabel: 'Discard & Close',
+        cancelLabel: 'Keep Open',
+        danger: true,
+        onConfirm: (confirmed) => {
+          if (confirmed) {
+            performCloseExtractSession(sessionId);
+          }
+        }
+      });
+    }).catch(err => {
+      console.error('Failed to show close confirmation:', err);
+      performCloseExtractSession(sessionId);
+    });
+  } else {
+    performCloseExtractSession(sessionId);
   }
 }
 

@@ -124,22 +124,22 @@ export const WelcomeScreen: React.FC = () => {
 
             {/* Two Column Layout */}
             <div className="welcome__columns">
-                {/* Left Column: Create Project */}
+                {/* Left Column: Create Workspace */}
                 <div className="welcome__column welcome__column--left">
-                    <h2 className="welcome__column-title">Create Project</h2>
-
+                    <h2 className="welcome__column-title">Folders</h2>
+ 
                     <div className="welcome__actions">
-                        <button className="btn btn--primary btn--large" onClick={() => openModal('newProject')}>
-                            <span>Create New Project</span>
-                            <span dangerouslySetInnerHTML={{ __html: getIcon('plus') }} />
-                        </button>
-
-                        <button className="btn btn--secondary btn--large" onClick={handleOpenProject}>
-                            <span>Open Existing Project</span>
+                        <button className="btn btn--primary btn--large" onClick={handleOpenProject}>
+                            <span>Open Folder</span>
                             <span dangerouslySetInnerHTML={{ __html: getIcon('folderOpen2') }} />
                         </button>
+ 
+                        <button className="btn btn--secondary btn--large" onClick={() => openModal('newProject')}>
+                            <span>Create Workspace</span>
+                            <span dangerouslySetInnerHTML={{ __html: getIcon('plus') }} />
+                        </button>
                     </div>
-
+ 
                     {/* Recent Projects sub-section — capped to RECENT_DEFAULT_LIMIT
                         unless the user expands. Avoids overwhelming the welcome
                         screen when the list grows. */}
@@ -152,7 +152,7 @@ export const WelcomeScreen: React.FC = () => {
                             <div className="welcome__recent">
                                 <h3 className="welcome__recent-title">
                                     <ClockIcon />
-                                    <span>Recent Projects</span>
+                                    <span>Recent Folders</span>
                                     <span className="welcome__recent-count">{total}</span>
                                 </h3>
                                 <div className="welcome__recent-list">
@@ -165,7 +165,7 @@ export const WelcomeScreen: React.FC = () => {
                                             <div className="welcome__recent-info">
                                                 <span className="welcome__recent-icon" dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
                                                 <span className="welcome__recent-name">
-                                                    {project.champion} - {project.name}
+                                                    {project.name}
                                                 </span>
                                             </div>
                                             <div className="welcome__recent-actions">
@@ -203,20 +203,20 @@ export const WelcomeScreen: React.FC = () => {
                         );
                     })()}
                 </div>
-
+ 
                 {/* Vertical Divider */}
                 <div className="welcome__divider"></div>
-
+ 
                 {/* Right Column: Explore Files */}
                 <div className="welcome__column welcome__column--right">
                     <h2 className="welcome__column-title">Explore Files</h2>
-
+ 
                     <div className="welcome__actions">
                         <button className="btn btn--secondary btn--large" onClick={() => openModal('browseWad')}>
                             <span dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
                             <span>Browse WAD File</span>
                         </button>
-
+ 
                         <button className="btn btn--secondary btn--large" onClick={handleOpenWadExplorer}>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="2" />

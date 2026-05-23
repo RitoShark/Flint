@@ -2,12 +2,13 @@
  * Flint - Center Panel Component
  */
 
-import React from 'react';
-import { useProjectTabStore, useNavigationStore } from '../lib/stores';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useProjectTabStore, useNavigationStore, useAppState } from '../lib/stores';
 import { WelcomeScreen } from './WelcomeScreen';
 import { PreviewPanel } from './PreviewPanel';
 import { CheckpointTimeline } from './CheckpointTimeline';
 import { WadPreviewPanel } from './WadPreviewPanel';
+import { WadBrowserPanel } from './WadBrowser';
 import { FileEditorPage } from './FileEditorPage';
 import { getIcon, icons } from '../lib/fileIcons';
 
@@ -53,7 +54,7 @@ const ProjectView: React.FC = () => {
     return (
         <div className="project-view" style={{ padding: '24px' }}>
             <h2 style={{ marginBottom: '16px' }}>
-                {project ? `${project.champion} - ${project.display_name || project.name}` : 'Project'}
+                {project ? (project.display_name || project.name) : 'Folder'}
             </h2>
             <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
                 Select a file from the tree on the left to preview or edit it.
@@ -74,8 +75,97 @@ const ProjectView: React.FC = () => {
     );
 };
 
+const WadExtractMainView: React.FC = () => {
+    const { state } = useAppState();
+    const session = state.extractSessions.find(s => s.id === state.activeExtractId);
+    
+    // Store split percent (files percentage, defaults to 60%)
+    const [splitPercent, setSplitPercent] = useState(60);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const isDraggingRef = useRef(false);
+
+    const handleMouseDown = useCallback(() => {
+        isDraggingRef.current = true;
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+    }, []);
+
+    useEffect(() => {
+        const handleMouseMove = (e: MouseEvent) => {
+            if (!isDraggingRef.current || !containerRef.current) return;
+            const containerRect = containerRef.current.getBoundingClientRect();
+            const containerWidth = containerRect.width;
+
+            const minBrowserWidth = 200; // minimum pixels for the file list
+            const minPreviewWidth = 380; // minimum pixels for the preview (fits buttons)
+
+            const minX = minBrowserWidth;
+            const maxX = Math.max(minBrowserWidth, containerWidth - minPreviewWidth);
+
+            const relativeX = e.clientX - containerRect.left;
+            const clampedX = Math.min(maxX, Math.max(minX, relativeX));
+            const newPercent = (clampedX / containerWidth) * 100;
+
+            setSplitPercent(newPercent);
+        };
+
+        const handleMouseUp = () => {
+            if (isDraggingRef.current) {
+                isDraggingRef.current = false;
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+            }
+        };
+
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+        return () => {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, []);
+
+    if (!session) {
+        return <WadPreviewPanel />;
+    }
+
+    const hasPreview = !!session.previewHash;
+
+    return (
+        <div ref={containerRef} style={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden', position: 'relative' }}>
+            <WadBrowserPanel style={{ 
+                width: hasPreview ? `${splitPercent}%` : '100%', 
+                height: '100%', 
+                minWidth: hasPreview ? '200px' : 'unset',
+                maxWidth: 'none',
+                borderRight: 'none' 
+            }} />
+            {hasPreview && (
+                <>
+                    <div 
+                        className="panel-resizer" 
+                        onMouseDown={handleMouseDown}
+                        style={{ 
+                            width: '4px', 
+                            cursor: 'col-resize', 
+                            flexShrink: 0
+                        }} 
+                    />
+                    <WadPreviewPanel style={{ 
+                        width: `${100 - splitPercent}%`, 
+                        height: '100%', 
+                        minWidth: '380px' 
+                    }} />
+                </>
+            )}
+        </div>
+    );
+};
+
 export const CenterPanel: React.FC = () => {
     const currentView = useNavigationStore((s) => s.currentView);
+    const { state } = useAppState();
+    const { status, statusMessage } = state;
 
     const renderView = () => {
         switch (currentView) {
@@ -89,7 +179,7 @@ export const CenterPanel: React.FC = () => {
             case 'checkpoints':
                 return <CheckpointTimeline />;
             case 'extract':
-                return <WadPreviewPanel />;
+                return <WadExtractMainView />;
             case 'file-editor':
                 return <FileEditorPage />;
             default:
@@ -98,8 +188,34 @@ export const CenterPanel: React.FC = () => {
     };
 
     return (
-        <main className="center-panel" id="center-panel">
+        <main className="center-panel" id="center-panel" style={{ position: 'relative' }}>
+            <style>{`
+                @keyframes fadeIn {
+                    from { opacity: 0; }
+                    to { opacity: 1; }
+                }
+            `}</style>
             {renderView()}
+            {status === 'working' && (
+                <div style={{
+                    position: 'absolute',
+                    inset: 0,
+                    backgroundColor: 'rgba(17, 17, 17, 0.85)',
+                    backdropFilter: 'blur(4px)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '16px',
+                    zIndex: 100,
+                    animation: 'fadeIn 0.2s ease-in-out',
+                }}>
+                    <div className="spinner" style={{ width: '40px', height: '40px' }} />
+                    <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 500, letterSpacing: '0.02em' }}>
+                        {statusMessage || 'Working...'}
+                    </div>
+                </div>
+            )}
         </main>
     );
 };

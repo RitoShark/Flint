@@ -2413,3 +2413,13 @@ export async function syncChromaBins(
 export async function getChromaLinks(projectPath: string): Promise<ChromaLinks> {
     return invokeCommand('get_chroma_links', { projectPath });
 }
+
+// =============================================================================
+// BIN Compiler Commands
+// =============================================================================
+
+export async function compileRitobinTextToBytes(content: string, useJade?: boolean): Promise<Uint8Array> {
+    const buf = await invokeCommand<ArrayBuffer>('compile_ritobin_text_to_bytes', { content, useJade });
+    return new Uint8Array(buf);
+}
+

@@ -416,15 +416,15 @@ export const ProjectListModal: React.FC = () => {
         if (!project) return;
 
         openConfirmDialog({
-            title: 'Delete Project',
-            message: `Are you sure you want to delete "${project.name}"?\n\nThis will permanently delete all project files and cannot be undone.`,
+            title: 'Delete Folder',
+            message: `Are you sure you want to delete "${project.name}"?\n\nThis will permanently delete all folder files and cannot be undone.`,
             confirmLabel: 'Delete',
             cancelLabel: 'Cancel',
             danger: true,
             onConfirm: async () => {
                 try {
                     setRemovingId(projectId);
-                    setWorking('Deleting project files…');
+                    setWorking('Deleting folder files…');
                     try {
                         await api.deleteProject(project.path);
                     } catch (deleteError) {
@@ -590,10 +590,10 @@ export const ProjectListModal: React.FC = () => {
                     <span className="pl-title">
                         <span className="pl-title__icon"><Icon name="folder" /></span>
                         <span>
-                            <span className="pl-title__name">My Projects</span>
+                            <span className="pl-title__name">My Folders</span>
                             <span className="pl-title__sub">
                                 {savedProjects.length === 0
-                                    ? 'No saved projects yet'
+                                    ? 'No saved folders yet'
                                     : `${savedProjects.length} saved · open or import`}
                             </span>
                         </span>
@@ -627,7 +627,7 @@ export const ProjectListModal: React.FC = () => {
                 ) : visibleProjects.length === 0 ? (
                     <div className="pl-no-match">
                         <Icon name="search" />
-                        <span>No projects match “{search}”.</span>
+                        <span>No folders match “{search}”.</span>
                     </div>
                 ) : (
                     <div className="pl-grid">
@@ -668,9 +668,9 @@ const ProjectsEmpty: React.FC<{ onBrowse: () => void; onImport: () => void }> = 
             <span className="pl-empty__ring pl-empty__ring--2" />
             <span className="pl-empty__icon"><Icon name="folder" /></span>
         </div>
-        <h3 className="pl-empty__title">No projects yet</h3>
+        <h3 className="pl-empty__title">No folders yet</h3>
         <p className="pl-empty__desc">
-            Create a new project, open one from disk, or import a <code>.fantome</code> /
+            Create a new workspace, open one from disk, or import a <code>.fantome</code> /
             <code>.modpkg</code> to get started.
         </p>
         <div className="pl-empty__actions">
