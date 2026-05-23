@@ -101,7 +101,7 @@ function buildWadTree(chunks: WadChunk[], searchQuery: string): WadTreeNode[] {
         rootNodes.push({
             type: 'folder',
             name: '[Unknown Hashes]',
-            fullPath: '__unknown__',
+            fullPath: '[Unknown Hashes]',
             children: unresolved.map(c => ({ type: 'file' as const, name: c.hash, chunk: c })),
         });
     }
@@ -417,49 +417,7 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
     return (
         <div className="left-panel" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', ...style }}>
             {/* Header */}
-            <div className="left-panel__header" style={{ padding: '10px 12px 6px', flexShrink: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                    <span dangerouslySetInnerHTML={{ __html: getIcon('wad') }} />
-                    <span
-                        style={{ fontSize: '12px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}
-                        title={session.wadPath}
-                    >
-                        {session.wadName}
-                    </span>
-                    {unknownChunksCount > 0 && (
-                        <button
-                            className="btn btn--sm"
-                            onClick={handleUnhashWad}
-                            disabled={isUnhashing}
-                            title={`Scan WAD's BIN/SKN files for asset paths to unhash ${unknownChunksCount} unresolved files`}
-                            style={{
-                                padding: '2px 6px',
-                                fontSize: '10px',
-                                height: '22px',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                                background: 'color-mix(in oklab, var(--accent-primary) 12%, transparent)',
-                                border: '1px solid color-mix(in oklab, var(--accent-primary) 35%, transparent)',
-                                color: 'var(--accent-primary)',
-                                cursor: 'pointer',
-                                borderRadius: '4px',
-                                flexShrink: 0
-                            }}
-                        >
-                            <span dangerouslySetInnerHTML={{ __html: getIcon('wrench') }} />
-                            <span>{isUnhashing ? 'Unhashing...' : 'Unhash'}</span>
-                        </button>
-                    )}
-                    {session.readOnly && (
-                        <span
-                            title="This is a game WAD archive. It is read-only and cannot be modified."
-                            style={{ display: 'inline-flex', color: 'var(--error)', cursor: 'help', width: '14px', height: '14px', flexShrink: 0 }}
-                            dangerouslySetInnerHTML={{ __html: getIcon('warning') }}
-                        />
-                    )}
-                </div>
-
+            <div className="left-panel__header" style={{ padding: '10px 12px', flexShrink: 0 }}>
                 {/* Search */}
                 <div className="file-tree__search" style={{ position: 'relative' }}>
                     <span
@@ -563,6 +521,47 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                                 </React.Fragment>
                             );
                         })}
+                    </div>
+                    {/* Unhash and read-only indicators */}
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        flexShrink: 0,
+                        marginLeft: '8px'
+                    }}>
+                        {unknownChunksCount > 0 && (
+                            <button
+                                className="btn btn--sm"
+                                onClick={handleUnhashWad}
+                                disabled={isUnhashing}
+                                title={`Scan WAD's BIN/SKN files for asset paths to unhash ${unknownChunksCount} unresolved files`}
+                                style={{
+                                    padding: '2px 6px',
+                                    fontSize: '10px',
+                                    height: '22px',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    background: 'color-mix(in oklab, var(--accent-primary) 12%, transparent)',
+                                    border: '1px solid color-mix(in oklab, var(--accent-primary) 35%, transparent)',
+                                    color: 'var(--accent-primary)',
+                                    cursor: 'pointer',
+                                    borderRadius: '4px',
+                                    flexShrink: 0
+                                }}
+                            >
+                                <span dangerouslySetInnerHTML={{ __html: getIcon('wrench') }} />
+                                <span>{isUnhashing ? 'Unhashing...' : 'Unhash'}</span>
+                            </button>
+                        )}
+                        {session.readOnly && (
+                            <span
+                                title="This is a game WAD archive. It is read-only and cannot be modified."
+                                style={{ display: 'inline-flex', color: 'var(--error)', cursor: 'help', width: '14px', height: '14px', flexShrink: 0 }}
+                                dangerouslySetInnerHTML={{ __html: getIcon('warning') }}
+                            />
+                        )}
                     </div>
                 </div>
             )}
