@@ -138,7 +138,10 @@ export interface ConfirmDialogState {
     confirmLabel?: string;
     cancelLabel?: string;
     danger?: boolean;
-    onConfirm: () => void;
+    onConfirm: (checked: boolean) => void;
+    showCheckbox?: boolean;
+    checkboxLabel?: string;
+    hideCancel?: boolean;
 }
 
 export interface ContextMenuState {

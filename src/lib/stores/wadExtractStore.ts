@@ -50,6 +50,24 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
       }
     }
 
+    if (readOnly && localStorage.getItem('flint.hideGameWadWarning') !== 'true') {
+      import('./modalStore').then(({ useModalStore }) => {
+        useModalStore.getState().openConfirmDialog({
+          title: 'Game WAD Archive',
+          message: 'This is a game WAD archive. It is read-only and cannot be modified to prevent corrupting your League of Legends installation.',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          showCheckbox: true,
+          checkboxLabel: "Don't show this warning again",
+          onConfirm: (dontShowAgain) => {
+            if (dontShowAgain) {
+              localStorage.setItem('flint.hideGameWadWarning', 'true');
+            }
+          },
+        });
+      }).catch(err => console.error('Failed to show game WAD warning:', err));
+    }
+
     const newSession: ExtractSession = {
       id,
       wadPath,

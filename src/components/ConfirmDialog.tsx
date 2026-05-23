@@ -31,9 +31,11 @@ export const ConfirmDialog: React.FC = () => {
     const dialog = useModalStore((s) => s.confirmDialog);
     const closeConfirmDialog = useModalStore((s) => s.closeConfirmDialog);
     const confirmBtnRef = useRef<HTMLButtonElement>(null);
+    const [checked, setChecked] = React.useState(false);
 
     useEffect(() => {
         if (!dialog) return;
+        setChecked(false);
         const focusTimer = setTimeout(() => confirmBtnRef.current?.focus(), 50);
         const onKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape') closeConfirmDialog();
@@ -48,7 +50,7 @@ export const ConfirmDialog: React.FC = () => {
     if (!dialog) return null;
 
     const handleConfirm = () => {
-        dialog.onConfirm();
+        dialog.onConfirm(checked);
         closeConfirmDialog();
     };
 
@@ -63,15 +65,29 @@ export const ConfirmDialog: React.FC = () => {
                 <div className="confirm-dialog__content">
                     <h3 className="confirm-dialog__title">{dialog.title}</h3>
                     <p className="confirm-dialog__message">{dialog.message}</p>
+                    {dialog.showCheckbox && (
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px', fontSize: '13px', cursor: 'pointer', userSelect: 'none' }}>
+                            <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(e) => setChecked(e.target.checked)}
+                                style={{ width: '14px', height: '14px', margin: 0 }}
+                            />
+                            <span>{dialog.checkboxLabel || "Don't show again"}</span>
+                        </label>
+                    )}
                 </div>
                 <div className="confirm-dialog__actions">
-                    <Button variant="secondary" onClick={closeConfirmDialog}>
-                        {dialog.cancelLabel || 'Cancel'}
-                    </Button>
+                    {!dialog.hideCancel && (
+                        <Button variant="secondary" onClick={closeConfirmDialog}>
+                            {dialog.cancelLabel || 'Cancel'}
+                        </Button>
+                    )}
                     <Button
                         ref={confirmBtnRef}
                         variant={dialog.danger ? 'danger' : 'primary'}
                         onClick={handleConfirm}
+                        style={{ marginLeft: dialog.hideCancel ? 0 : undefined }}
                     >
                         {dialog.confirmLabel || 'Confirm'}
                     </Button>
