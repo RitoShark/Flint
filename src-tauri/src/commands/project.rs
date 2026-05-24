@@ -22,6 +22,28 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tauri::Emitter;
 
+fn find_companions_wad(league_path: &Path) -> Option<PathBuf> {
+    let standard = league_path
+        .join("Game")
+        .join("DATA")
+        .join("FINAL")
+        .join("Companions.wad.client");
+    if standard.exists() {
+        return Some(standard);
+    }
+    
+    let alt_paths = [
+        league_path.join("Game").join("DATA").join("FINAL").join("Companions").join("Companions.wad.client"),
+        league_path.join("DATA").join("FINAL").join("Companions.wad.client"),
+    ];
+    for alt in &alt_paths {
+        if alt.exists() {
+            return Some(alt.clone());
+        }
+    }
+    None
+}
+
 /// Create a new project
 ///
 /// # Arguments
@@ -46,6 +68,7 @@ pub async fn create_project(
     creator_name: Option<String>,
     use_jade: Option<bool>,
     is_pbe: Option<bool>,
+    is_tft: Option<bool>,
     lmdb: tauri::State<'_, LmdbCacheState>,
     app: tauri::AppHandle,
 ) -> Result<Project, String> {
@@ -90,18 +113,24 @@ pub async fn create_project(
 
     // 2. Validate WAD existence before creating project
     let t = Instant::now();
-    let wad_path = find_champion_wad(&league_path_buf, &champion)
-        .ok_or_else(|| if pbe {
-            format!(
-                "[E_PBE_CHAMP_NOT_FOUND] Champion '{}' was not found in your local PBE install. The PBE client may not be updated to a patch that ships this champion yet — try logging into the PBE launcher to apply pending updates, or disable the PBE toggle to use the Live client.",
-                champion
-            )
-        } else {
-            format!(
-                "Champion WAD not found for '{}'. Please check League installation.",
-                champion
-            )
-        })?;
+    let is_tft_project = is_tft.unwrap_or(false);
+    let wad_path = if is_tft_project {
+        find_companions_wad(&league_path_buf)
+            .ok_or_else(|| "Companions WAD (Companions.wad.client) not found. Please check League installation.".to_string())?
+    } else {
+        find_champion_wad(&league_path_buf, &champion)
+            .ok_or_else(|| if pbe {
+                format!(
+                    "[E_PBE_CHAMP_NOT_FOUND] Champion '{}' was not found in your local PBE install. The PBE client may not be updated to a patch that ships this champion yet — try logging into the PBE launcher to apply pending updates, or disable the PBE toggle to use the Live client.",
+                    champion
+                )
+            } else {
+                format!(
+                    "Champion WAD not found for '{}'. Please check League installation.",
+                    champion
+                )
+            })?
+    };
     let d = t.elapsed();
     tracing::info!("[TIMING] find_champion_wad: {:?}", d);
     phase_timings.push(("find_champion_wad", d));
@@ -145,14 +174,23 @@ pub async fn create_project(
     let league_clone = league_path_buf.clone();
     let output_clone = output_path_buf.clone();
     let creator_clone = creator_name.clone();
+    let is_tft_clone = is_tft_project;
 
     let t = Instant::now();
-    let project = tokio::task::spawn_blocking(move || {
-        core_create_project(&name_clone, &champion_clone, skin_id, &league_clone, &output_clone, creator_clone)
+    let project = tokio::task::spawn_blocking(move || -> Result<Project, String> {
+        let mut project = core_create_project(&name_clone, &champion_clone, skin_id, &league_clone, &output_clone, creator_clone)
+            .map_err(|e| e.to_string())?;
+        if is_tft_clone {
+            project = project.into_tft(&champion_clone, skin_id);
+            core_save_project(&project).map_err(|e| e.to_string())?;
+            if let Err(e) = core_register_in_index(&output_clone, &project) {
+                tracing::warn!("Failed to refresh projects.json: {}", e);
+            }
+        }
+        Ok(project)
     })
     .await
-    .map_err(|e| format!("Task failed: {}", e))?
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| format!("Task failed: {}", e))??;
     let d = t.elapsed();
     tracing::info!("[TIMING] core_create_project (mkdir + manifest): {:?}", d);
     phase_timings.push(("core_create_project", d));
@@ -191,6 +229,7 @@ pub async fn create_project(
             &champion_for_extract,
             skin_id,
             &resolve,
+            is_tft_project,
         ) {
             Ok(r) => Ok(r),
             Err(e) => {
@@ -204,6 +243,7 @@ pub async fn create_project(
                     &champion_for_extract,
                     skin_id,
                     resolve,
+                    is_tft_project,
                 )
                 .map_err(|e| e.to_string())
             }
@@ -242,9 +282,9 @@ pub async fn create_project(
         }
     };
 
-    // 5. Repath assets if creator name is provided
+    // 5. Repath assets if creator name is provided (skip for TFT projects)
     if let Some(creator) = creator_name {
-        if !creator.is_empty() {
+        if !creator.is_empty() && !is_tft_project {
             let _ = app.emit("project-create-progress", serde_json::json!({
                 "phase": "repath",
                 "message": format!("Repathing assets to ASSETS/{}/{}...", creator, name)

@@ -13,6 +13,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useAppState, useConfigStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import * as datadragon from '../../lib/datadragon';
+import * as tftApi from '../../lib/tftApi';
 import { getChromaImageUrl } from '../../lib/datadragon';
 import type { DDragonChampion, DDragonSkin, DDragonChroma } from '../../lib/datadragon';
 import type { Project } from '../../lib/types';
@@ -69,7 +70,7 @@ const NameAndPathRow: React.FC<{
     </div>
 );
 
-type ProjectType = 'skin' | 'loading-screen' | 'map';
+type ProjectType = 'skin' | 'loading-screen' | 'map' | 'tft';
 
 const SCALE_OPTIONS = [
     { label: '100%', value: 1.0 },
@@ -179,6 +180,15 @@ export const NewProjectModal: React.FC = () => {
     const cdragonBranch: 'pbe' | 'latest' = usePbe ? 'pbe' : 'latest';
     const effectiveLeaguePath = usePbe ? configStore.leaguePathPbe : state.leaguePath;
 
+    // ─── TFT project state ───────────────────────────────────────────────
+    const [tftTacticians, setTftTacticians] = useState<tftApi.Tactician[]>([]);
+    const [selectedTactician, setSelectedTactician] = useState<tftApi.Tactician | null>(null);
+    const [tftSkins, setTftSkins] = useState<tftApi.TacticianSkin[]>([]);
+    const [selectedTftSkin, setSelectedTftSkin] = useState<tftApi.TacticianSkin | null>(null);
+    const [tftSearch, setTftSearch] = useState('');
+    const [tftSkinSearch, setTftSkinSearch] = useState('');
+    const [tftSkinPickerOpen, setTftSkinPickerOpen] = useState(false);
+
     // ─── Map project state ───────────────────────────────────────────────
     const [availableMaps, setAvailableMaps] = useState<api.MapEntry[]>([]);
     const [selectedMapId, setSelectedMapId] = useState<string>('');
@@ -250,6 +260,23 @@ export const NewProjectModal: React.FC = () => {
             setSelectedChroma(null);
         }
     }, [selectedSkin, selectedChampion]);
+
+    useEffect(() => {
+        if (isVisible && projectType === 'tft') {
+            loadTacticians();
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isVisible, projectType, usePbe]);
+
+    useEffect(() => {
+        if (selectedTactician) {
+            loadTacticianSkins(selectedTactician.id);
+        } else {
+            setTftSkins([]);
+            setSelectedTftSkin(null);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedTactician, usePbe]);
 
     useEffect(() => {
         if (!isVisible || projectType !== 'map' || !effectiveLeaguePath) {
@@ -564,6 +591,44 @@ export const NewProjectModal: React.FC = () => {
         }
     };
 
+    const loadTacticians = async () => {
+        try {
+            setWorking(usePbe ? 'Loading PBE tacticians...' : 'Loading tacticians...');
+            const result = await tftApi.getTacticians(cdragonBranch);
+            setTftTacticians(result);
+            if (result.length > 0) {
+                const found = result.find(c => c.id === selectedTactician?.id);
+                setSelectedTactician(found || result[0]);
+            }
+            setReady();
+            console.info(`[NewProject] Loaded ${result.length} tacticians from CDragon (${cdragonBranch})`);
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error(`[NewProject] loadTacticians failed: ${msg}`, err);
+            showToast('error', `Failed to load ${usePbe ? 'PBE ' : ''}tacticians — see log panel`);
+            setReady();
+        }
+    };
+
+    const loadTacticianSkins = async (tacticianId: string) => {
+        try {
+            setWorking('Loading tactician variants...');
+            const result = await tftApi.getTacticianSkins(tacticianId, cdragonBranch);
+            setTftSkins(result);
+            if (result.length > 0) {
+                const found = result.find(s => s.full_id === selectedTftSkin?.full_id);
+                setSelectedTftSkin(found || result[0]);
+            }
+            setReady();
+            console.info(`[NewProject] Loaded ${result.length} skins for tactician ${tacticianId} (${cdragonBranch})`);
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error(`[NewProject] loadTacticianSkins failed: ${msg}`, err);
+            showToast('error', `Tactician variants fetch failed — see log panel`);
+            setReady();
+        }
+    };
+
     const handleBrowsePath = async () => {
         try {
             const { open } = await import('@tauri-apps/plugin-dialog');
@@ -858,9 +923,53 @@ export const NewProjectModal: React.FC = () => {
         }
     };
 
+    const handleCreateTft = async () => {
+        if (!projectName || !projectPath || !selectedTactician || !selectedTftSkin) {
+            showToast('error', 'Please fill in all required fields');
+            return;
+        }
+        if (!effectiveLeaguePath) {
+            showToast('error', usePbe
+                ? 'PBE League path is not configured. Open Settings (Ctrl+,) and set the LoL PBE folder.'
+                : 'League path is not configured. Open Settings (Ctrl+,) and set the LoL folder.');
+            return;
+        }
+
+        setIsCreating(true);
+        setProgress(usePbe ? 'Creating TFT project from PBE...' : 'Creating TFT project...');
+
+        console.info(
+            `[NewProject] Creating TFT project: name=${projectName}, champion=${selectedTftSkin.wadAlias}, skin=${selectedTftSkin.wadSkinNum}, path=${projectPath}, pbe=${usePbe}`
+        );
+
+        try {
+            const project = await api.createProject({
+                name: projectName,
+                champion: selectedTftSkin.wadAlias,
+                skin: selectedTftSkin.wadSkinNum,
+                projectPath,
+                leaguePath: effectiveLeaguePath,
+                creatorName: state.creatorName || undefined,
+                useJade: configStore.binConverterEngine === 'jade',
+                isPbe: usePbe,
+                isTft: true,
+            });
+
+            await finishProjectCreation(project, selectedTactician.name, selectedTftSkin.wadSkinNum);
+        } catch (err) {
+            const flintError = err as api.FlintError;
+            const userMsg = flintError.getUserMessage?.() || 'Failed to create TFT project';
+            showToast('error', `${userMsg} — see log panel for full error`);
+        } finally {
+            setIsCreating(false);
+            setProgress('');
+        }
+    };
+
     const handleCreate = () => {
         if (projectType === 'skin') return handleCreateSkin();
         if (projectType === 'map') return handleCreateMap();
+        if (projectType === 'tft') return handleCreateTft();
         return handleCreateLoadingScreen();
     };
 
@@ -925,7 +1034,10 @@ export const NewProjectModal: React.FC = () => {
         && !!projectName && !!projectPath && !!selectedMapId && !!effectiveLeaguePath && !isCreating
         && (mapExtractMode === 'full' || !!selectedVariant);
 
-    const canCreate = canCreateSkin || canCreateLoadingScreen || canCreateMap;
+    const canCreateTft = projectType === 'tft'
+        && !!projectName && !!projectPath && !!selectedTactician && !!selectedTftSkin && !isCreating;
+
+    const canCreate = canCreateSkin || canCreateLoadingScreen || canCreateMap || canCreateTft;
 
     const budgetMaxDim = budget ? Math.max(budget.grid?.sheetWidth ?? 0, budget.grid?.sheetHeight ?? 0) : 0;
     const budgetPercent = Math.min(100, (budgetMaxDim / 16384) * 100);
@@ -938,6 +1050,9 @@ export const NewProjectModal: React.FC = () => {
     };
 
     const getHeroSplashUrl = () => {
+        if (projectType === 'tft') {
+            return selectedTftSkin?.centeredSplashPath || '';
+        }
         if (!selectedChampion || !selectedSkin) return '';
         // Prefer the centered loading-screen splash from CDragon's per-champion JSON.
         // (Pattern from preyneyv/lol-skin-explorer — see Skin-Explorer/data/helpers.js `asset()`.)
@@ -948,6 +1063,7 @@ export const NewProjectModal: React.FC = () => {
     };
 
     const getHeroSplashFallback = () => {
+        if (projectType === 'tft') return '';
         if (!selectedChampion || !selectedSkin) return '';
         // First fallback: uncentered CDragon splash (still on the selected branch).
         // Second fallback (DDragon, live only) handled below if both fail.
@@ -955,6 +1071,7 @@ export const NewProjectModal: React.FC = () => {
     };
 
     const getHeroSplashFinalFallback = () => {
+        if (projectType === 'tft') return '';
         if (!selectedChampion || !selectedSkin) return '';
         // DDragon has no PBE branch — used only when both CDragon attempts fail.
         return cachedUrl(datadragon.getSkinSplashUrl(selectedChampion.alias, selectedSkin.num));
@@ -1073,6 +1190,19 @@ export const NewProjectModal: React.FC = () => {
                             </div>
                             <span className="np-type-card__label">Loading Screen</span>
                         </button>
+
+                        <button
+                            className={`np-type-card${projectType === 'tft' ? ' np-type-card--active' : ''}`}
+                            onClick={() => setProjectType('tft')}
+                        >
+                            <div className="np-type-card__glow" />
+                            <div className="np-type-card__icon">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="none"/>
+                                </svg>
+                            </div>
+                            <span className="np-type-card__label">TFT</span>
+                        </button>
                     </div>
 
                     {/* ════════════ Skin Project Form ════════════ */}
@@ -1180,6 +1310,91 @@ export const NewProjectModal: React.FC = () => {
                             </div>
                         </div>
 
+                    </div>
+
+                    {/* ════════════ TFT Project Form ════════════ */}
+                    <div className={`np-form${projectType === 'tft' ? ' np-form--active' : ''}`}>
+                        {/* Hero splash preview with splash-tinted glow behind it */}
+                        {selectedTactician && selectedTftSkin && (
+                            <div className="np-hero-wrap np-hero-wrap--tft">
+                                <div
+                                    className="np-hero-glow"
+                                    style={{ backgroundImage: `url(${JSON.stringify(selectedTftSkin.centeredSplashPath).slice(1, -1)})` }}
+                                    aria-hidden="true"
+                                />
+                                <div className="np-hero-splash">
+                                    <img
+                                        key={`${selectedTactician.id}-${selectedTftSkin.id}-${cdragonBranch}`}
+                                        src={selectedTftSkin.centeredSplashPath || ''}
+                                        alt={selectedTftSkin.name}
+                                        className={`np-hero-splash__img${splashLoaded ? ' np-hero-splash__img--loaded' : ''}`}
+                                        onLoad={() => setSplashLoaded(true)}
+                                        onError={() => setSplashLoaded(true)}
+                                    />
+                                    <div className="np-hero-splash__overlay" />
+                                    <div className="np-hero-splash__info">
+                                        <span className="np-hero-splash__champion">{selectedTactician.name}</span>
+                                        <span className="np-hero-splash__skin">{selectedTftSkin.name}</span>
+                                    </div>
+                                    <button
+                                        className="np-hero-splash__edit"
+                                        onClick={() => { setTftSkinSearch(''); setTftSkinPickerOpen(true); }}
+                                        title="Change variant"
+                                    >
+                                        <Icon name="file-edit" />
+                                        <span>Change variant</span>
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        <NameAndPathRow
+                            namePlaceholder="e.g., Ahri Chibi Custom"
+                            name={projectName}
+                            onNameChange={setProjectName}
+                            path={projectPath}
+                            onPathChange={setProjectPath}
+                            onBrowse={handleBrowsePath}
+                        />
+
+                        {/* Tactician Selection */}
+                        <div className="np-section">
+                            <div className="np-section__header">
+                                <label className="np-label">Tactician Species</label>
+                                <div className="np-search-wrap">
+                                    <span className="np-search-icon"><Icon name="search" /></span>
+                                    <input
+                                        type="text"
+                                        className="np-search"
+                                        placeholder="Search tacticians…"
+                                        value={tftSearch}
+                                        onChange={(e) => setTftSearch(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                            <div className="np-champion-grid">
+                                {tftTacticians
+                                    .filter(c => c.name.toLowerCase().includes(tftSearch.toLowerCase()))
+                                    .map((tactician, i) => (
+                                        <button
+                                            key={tactician.id}
+                                            className={`np-champ-card${selectedTactician?.id === tactician.id ? ' np-champ-card--active' : ''}`}
+                                            onClick={() => { setSelectedTactician(tactician); setTftSearch(''); }}
+                                            title={tactician.name}
+                                            style={{ animationDelay: `${Math.min(i * 15, 300)}ms` }}
+                                        >
+                                            <img
+                                                src={tactician.iconUrl}
+                                                alt={tactician.name}
+                                                className="np-champ-card__icon"
+                                                loading="lazy"
+                                                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                            />
+                                            <span className="np-champ-card__name">{tactician.name}</span>
+                                        </button>
+                                    ))}
+                            </div>
+                        </div>
                     </div>
 
                     {/* ════════════ Loading Screen Form ════════════ */}
@@ -1451,7 +1666,7 @@ export const NewProjectModal: React.FC = () => {
 
                 {/* Footer */}
                 <div className="np-footer">
-                    {(projectType === 'skin' || projectType === 'loading-screen') && (
+                    {(projectType === 'skin' || projectType === 'loading-screen' || projectType === 'tft') && (
                         <label
                             className={`np-pbe-toggle${usePbe ? ' np-pbe-toggle--on' : ''}`}
                             title={configStore.leaguePathPbe
@@ -1821,6 +2036,77 @@ export const NewProjectModal: React.FC = () => {
                                     </div>
                                 );
                             })}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ─── TFT Variant Picker Modal ─── */}
+            {tftSkinPickerOpen && selectedTactician && (
+                <div className="np-skin-picker-overlay" onClick={() => setTftSkinPickerOpen(false)}>
+                    <div className="np-skin-picker" onClick={(e) => e.stopPropagation()}>
+                        <div className="np-skin-picker__header">
+                            <h3 className="np-skin-picker__title">Choose Variant</h3>
+                            <div className="dl-search np-skin-picker__search">
+                                <span className="dl-icon">
+                                    <svg viewBox="0 0 16 16" fill="none">
+                                        <circle cx="6.5" cy="6.5" r="4" stroke="currentColor" strokeWidth="1.4"/>
+                                        <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                                    </svg>
+                                </span>
+                                <input
+                                    type="text"
+                                    className="dl-input"
+                                    placeholder="Search variants…"
+                                    value={tftSkinSearch}
+                                    onChange={(e) => setTftSkinSearch(e.target.value)}
+                                    autoFocus
+                                />
+                            </div>
+                            <button
+                                className="dl-btn dl-btn--ghost dl-btn--icon dl-btn--sm"
+                                onClick={() => setTftSkinPickerOpen(false)}
+                                aria-label="Close"
+                                style={{ flexShrink: 0 }}
+                            >
+                                <Icon name="close" />
+                            </button>
+                        </div>
+
+                        <div className="np-skin-picker__grid">
+                            {tftSkins
+                                .filter(s => s.name.toLowerCase().includes(tftSkinSearch.toLowerCase()))
+                                .map((skin, i) => {
+                                    const isActiveSkin = selectedTftSkin?.full_id === skin.full_id;
+                                    return (
+                                        <div
+                                            key={skin.full_id}
+                                            role="button"
+                                            tabIndex={0}
+                                            className={`np-skin-card${isActiveSkin ? ' np-skin-card--active' : ''}`}
+                                            onClick={() => { setSelectedTftSkin(skin); setTftSkinPickerOpen(false); }}
+                                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedTftSkin(skin); setTftSkinPickerOpen(false); } }}
+                                            style={{ animationDelay: `${Math.min(i * 18, 280)}ms` }}
+                                        >
+                                            <div className="np-skin-card__img-wrap np-skin-card__img-wrap--tft">
+                                                <img
+                                                    src={skin.tilePath || ''}
+                                                    alt={skin.name}
+                                                    className="np-skin-card__img np-skin-card__img--tft"
+                                                    loading="lazy"
+                                                />
+                                                {isActiveSkin && (
+                                                    <div className="np-skin-card__check">
+                                                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                                            <path d="M3.5 8.5L6.5 11.5L12.5 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                                        </svg>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <span className="np-skin-card__name">{skin.name}</span>
+                                        </div>
+                                    );
+                                })}
                         </div>
                     </div>
                 </div>

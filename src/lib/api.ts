@@ -398,6 +398,7 @@ interface CreateProjectParams {
     creatorName?: string;
     useJade?: boolean;
     isPbe?: boolean;
+    isTft?: boolean;
 }
 
 export async function createProject(params: CreateProjectParams): Promise<Project> {
@@ -410,6 +411,7 @@ export async function createProject(params: CreateProjectParams): Promise<Projec
         creatorName: params.creatorName,
         useJade: params.useJade,
         isPbe: params.isPbe,
+        isTft: params.isTft,
     });
 }
 
@@ -1626,17 +1628,6 @@ export async function readAnimationList(sknPath: string): Promise<AnimationList>
  */
 export async function readAnimation(path: string, basePath?: string): Promise<AnimationData> {
     return invokeCommand('read_animation', { path, basePath });
-}
-
-/**
- * Evaluate animation at a specific time to get joint poses
- */
-export async function evaluateAnimation(
-    path: string,
-    basePath: string | undefined,
-    time: number
-): Promise<AnimationPose> {
-    return invokeCommand('evaluate_animation', { path, basePath, time });
 }
 
 /**

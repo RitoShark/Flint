@@ -335,8 +335,10 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             separator: true,
         });
     } else {
-        const BIN_TEXT_EXTS = ['.bin', '.ritobin', '.py', '.luabin', '.luabin64', '.troybin'];
+        const BIN_TEXT_EXTS = ['.bin', '.ritobin', '.py', '.troybin'];
+        const LUA_BIN_EXTS = ['.luabin', '.luabin64'];
         const isBinText = BIN_TEXT_EXTS.some(e => fileName.toLowerCase().endsWith(e));
+        const isLuaBin = LUA_BIN_EXTS.some(e => fileName.toLowerCase().endsWith(e));
         const isRawText = ['.json', '.txt', '.lua', '.py'].some(e => fileName.toLowerCase().endsWith(e));
 
         if (isBinText) {
@@ -347,6 +349,18 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                     useNavigationStore.getState().navigateToFileEditor({
                         filePath: fullPath,
                         kind: 'binText',
+                        projectPath,
+                    });
+                },
+            });
+        } else if (isLuaBin) {
+            options.push({
+                label: 'Edit LuaBin64',
+                icon: getIcon('code'),
+                onClick: () => {
+                    useNavigationStore.getState().navigateToFileEditor({
+                        filePath: fullPath,
+                        kind: 'luaBin64',
                         projectPath,
                     });
                 },

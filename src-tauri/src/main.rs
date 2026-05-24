@@ -332,7 +332,6 @@ fn main() {
             commands::mesh::read_skl_skeleton,
             commands::mesh::read_animation_list,
             commands::mesh::read_animation,
-            commands::mesh::evaluate_animation,
             commands::mesh::resolve_asset_path,
             // Auto-update commands
             commands::updater::get_current_version,

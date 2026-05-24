@@ -6,7 +6,15 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import * as THREE from 'three';
+import { Engine } from '@babylonjs/core/Engines/engine';
+import { Scene } from '@babylonjs/core/scene';
+import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
+import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
+import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
+import { Mesh } from '@babylonjs/core/Meshes/mesh';
+import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
+import { Vector3, Color3, Color4 } from '@babylonjs/core/Maths/math';
 import * as api from '../../lib/api';
 
 interface AssetPreviewTooltipProps {
@@ -51,111 +59,92 @@ function getAssetType(path: string): 'texture' | 'mesh' | 'unknown' {
 }
 
 /**
- * Mini 3D mesh preview component using Three.js
+ * Mini 3D mesh preview component using Babylon.js
  */
 const MiniMeshPreview: React.FC<{ meshData: MeshData }> = ({ meshData }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
-    const sceneRef = useRef<{
-        renderer: THREE.WebGLRenderer;
-        scene: THREE.Scene;
-        camera: THREE.PerspectiveCamera;
-        mesh: THREE.Mesh;
-        animationId: number;
-    } | null>(null);
 
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas || !meshData.positions.length) return;
 
-        // Create scene
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x1b1b1b);
-
-        // Create camera
-        const camera = new THREE.PerspectiveCamera(45, canvas.width / canvas.height, 0.1, 1000);
-
-        // Create renderer
-        const renderer = new THREE.WebGLRenderer({
-            canvas,
+        // Create Babylon engine & scene
+        const engine = new Engine(canvas, true, {
+            preserveDrawingBuffer: false,
+            stencil: false,
             antialias: true,
             alpha: true
         });
-        renderer.setSize(canvas.width, canvas.height);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        const scene = new Scene(engine);
+        scene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0); // #1b1b1b matching old bg
 
-        // Create geometry from mesh data
-        const geometry = new THREE.BufferGeometry();
+        // Build geometry
+        const mesh = new Mesh("mini-preview-mesh", scene);
+        const vd = new VertexData();
+        vd.positions = meshData.positions;
 
-        // Positions / indices are already typed arrays from the IPC binary
-        // payload — feed them straight into Three.js, no copy.
-        geometry.setAttribute('position', new THREE.BufferAttribute(meshData.positions, 3));
-        geometry.setIndex(new THREE.BufferAttribute(meshData.indices, 1));
+        // Swap triangle winding for Babylon (left-handed space)
+        const indexCount = meshData.indices.length;
+        const indices = new Uint32Array(indexCount);
+        for (let i = 0; i < indexCount; i += 3) {
+            indices[i] = meshData.indices[i];
+            indices[i + 1] = meshData.indices[i + 2];
+            indices[i + 2] = meshData.indices[i + 1];
+        }
+        vd.indices = indices;
 
-        // Compute normals for lighting
-        geometry.computeVertexNormals();
+        // Compute normals for shading
+        const normals = new Float32Array(meshData.positions.length);
+        VertexData.ComputeNormals(meshData.positions, indices, normals);
+        vd.normals = normals;
 
-        // Center the geometry
-        geometry.computeBoundingBox();
-        const center = new THREE.Vector3();
-        geometry.boundingBox!.getCenter(center);
-        geometry.translate(-center.x, -center.y, -center.z);
+        // Apply vertex data
+        vd.applyToMesh(mesh);
 
-        // Calculate size for camera positioning
-        const size = new THREE.Vector3();
-        geometry.boundingBox!.getSize(size);
-        const maxDim = Math.max(size.x, size.y, size.z);
+        // Center the mesh geometry
+        mesh.computeWorldMatrix(true);
+        const boundingInfo = mesh.getBoundingInfo();
+        const center = boundingInfo.boundingBox.center;
+        mesh.position.set(-center.x, -center.y, -center.z);
 
-        // Create material
-        const material = new THREE.MeshStandardMaterial({
-            color: 0x6699cc,
-            roughness: 0.7,
-            metalness: 0.2,
-            flatShading: false
+        // Calculate size for camera radius
+        const extents = boundingInfo.boundingBox.extendSize;
+        const maxDim = Math.max(extents.x, extents.y, extents.z) * 2;
+
+        // Material with unlit/soft League style look
+        const material = new StandardMaterial("mini-preview-mat", scene);
+        material.diffuseColor = new Color3(0.4, 0.6, 0.8); // 0x6699cc
+        material.specularColor = new Color3(0, 0, 0);
+        material.backFaceCulling = false;
+        mesh.material = material;
+
+        // Orbit camera: ArcRotateCamera(name, alpha, beta, radius, target, scene)
+        const camera = new ArcRotateCamera(
+            "mini-camera",
+            0,
+            Math.PI / 3,
+            maxDim * 2.0,
+            Vector3.Zero(),
+            scene
+        );
+
+        // Lights
+        const ambientLight = new HemisphericLight("mini-ambient", new Vector3(0, 1, 0), scene);
+        ambientLight.intensity = 0.8;
+        ambientLight.specular = new Color3(0, 0, 0);
+
+        const dirLight = new DirectionalLight("mini-dir", new Vector3(1, 1, 1), scene);
+        dirLight.intensity = 0.5;
+
+        // Animation render loop
+        engine.runRenderLoop(() => {
+            camera.alpha += 0.015; // Auto rotate
+            scene.render();
         });
 
-        // Create mesh
-        const mesh = new THREE.Mesh(geometry, material);
-        scene.add(mesh);
-
-        // Add lights
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
-        scene.add(ambientLight);
-
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        directionalLight.position.set(1, 1, 1);
-        scene.add(directionalLight);
-
-        const backLight = new THREE.DirectionalLight(0xffffff, 0.3);
-        backLight.position.set(-1, -1, -1);
-        scene.add(backLight);
-
-        // Position camera
-        camera.position.set(0, 0, maxDim * 2.5);
-        camera.lookAt(0, 0, 0);
-
-        // Animation loop - auto-rotate
-        let rotation = 0;
-        const animate = () => {
-            const id = requestAnimationFrame(animate);
-            sceneRef.current!.animationId = id;
-
-            rotation += 0.015;
-            mesh.rotation.y = rotation;
-
-            renderer.render(scene, camera);
-        };
-
-        sceneRef.current = { renderer, scene, camera, mesh, animationId: 0 };
-        animate();
-
-        // Cleanup
+        // Cleanup on unmount
         return () => {
-            if (sceneRef.current) {
-                cancelAnimationFrame(sceneRef.current.animationId);
-                sceneRef.current.renderer.dispose();
-                geometry.dispose();
-                material.dispose();
-            }
+            engine.dispose();
         };
     }, [meshData]);
 

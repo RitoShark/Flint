@@ -767,9 +767,9 @@ pub async fn read_skl_skeleton(path: String) -> Result<SklData, String> {
 }
 
 use flint_ltk::mesh::animation::{
-    find_animation_bin, extract_animation_list, parse_animation_file, 
-    resolve_animation_path, evaluate_animation_at,
-    AnimationList, AnimationData, AnimationPose,
+    find_animation_bin, extract_animation_list, 
+    resolve_animation_path,
+    AnimationList, BakedAnimation,
 };
 
 /// Get list of available animations for a model
@@ -794,10 +794,10 @@ pub async fn read_animation_list(skn_path: String) -> Result<AnimationList, Stri
         })
 }
 
-/// Read and parse an ANM animation file
+/// Read and parse an ANM animation file and bake it
 #[tauri::command]
-pub async fn read_animation(path: String, base_path: Option<String>) -> Result<AnimationData, String> {
-    tracing::debug!("Reading animation: {}", path);
+pub async fn read_animation(path: String, base_path: Option<String>) -> Result<BakedAnimation, String> {
+    tracing::debug!("Reading and baking animation: {}", path);
     
     // Try to resolve the animation path
     let resolved_path = if let Some(base) = base_path {
@@ -814,45 +814,10 @@ pub async fn read_animation(path: String, base_path: Option<String>) -> Result<A
         return Err(format!("Animation file not found: {}", anim_path.display()));
     }
     
-    parse_animation_file(&anim_path)
+    flint_ltk::mesh::animation::bake_animation_file(&anim_path)
         .map_err(|e| {
-            tracing::error!("Failed to parse animation {}: {}", anim_path.display(), e);
-            format!("Failed to parse animation: {}", e)
-        })
-}
-
-/// Evaluate animation at a specific time to get joint poses
-///
-/// Returns a map of joint hash → (rotation, translation, scale) for all joints.
-#[tauri::command]
-pub async fn evaluate_animation(
-    path: String,
-    base_path: Option<String>,
-    time: f32
-) -> Result<AnimationPose, String> {
-    tracing::debug!("Evaluating animation at time {}: {}", time, path);
-
-    // Resolve the animation path
-    let resolved_path = if let Some(base) = base_path {
-        let base_dir = std::path::Path::new(&base)
-            .parent()
-            .unwrap_or(std::path::Path::new("."));
-        resolve_animation_path(base_dir, &path)
-    } else {
-        Some(std::path::PathBuf::from(&path))
-    };
-
-    let anim_path = resolved_path
-        .ok_or_else(|| format!("Could not resolve animation path: {}", path))?;
-
-    if !anim_path.exists() {
-        return Err(format!("Animation file not found: {}", anim_path.display()));
-    }
-
-    evaluate_animation_at(&anim_path, time)
-        .map_err(|e| {
-            tracing::error!("Failed to evaluate animation {}: {}", anim_path.display(), e);
-            format!("Failed to evaluate animation: {}", e)
+            tracing::error!("Failed to bake animation {}: {}", anim_path.display(), e);
+            format!("Failed to parse and bake animation: {}", e)
         })
 }
 

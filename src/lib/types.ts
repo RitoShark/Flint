@@ -15,7 +15,7 @@ export type ViewType = 'welcome' | 'preview' | 'editor' | 'project' | 'checkpoin
  * in the PreviewPanel). The page-based file editor switches its form
  * layout off this kind.
  */
-export type FileEditorKind = 'modConfig' | 'binText' | 'raw';
+export type FileEditorKind = 'modConfig' | 'binText' | 'raw' | 'luaBin64';
 
 export interface FileEditorTarget {
     /** Absolute path to the file being edited. */
@@ -53,7 +53,7 @@ export interface RecentProject {
 
 /** What flavour of project this is. Drives which of the type-specific
  *  fields below are meaningful for display. Mirrors the Rust enum. */
-export type ProjectKind = 'skin' | 'map' | 'loading-screen';
+export type ProjectKind = 'skin' | 'map' | 'loading-screen' | 'tft';
 
 /** Result of `discover_projects` — every project the backend can locate
  *  (on-disk walk ∪ projects.json index entries). */

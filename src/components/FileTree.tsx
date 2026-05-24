@@ -368,14 +368,14 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
             onItemClick(effectiveNode.path, effectiveNode.isDirectory);
         }
     };
-
     const handleDoubleClick = (e: React.MouseEvent) => {
         e.stopPropagation();
         if (isRenaming || effectiveNode.isDirectory) return;
 
         const path = effectiveNode.path;
         const lower = path.toLowerCase();
-        const BIN_TEXT_EXTS = ['.bin', '.ritobin', '.py', '.luabin', '.luabin64', '.troybin'];
+        const BIN_TEXT_EXTS = ['.bin', '.ritobin', '.py', '.troybin'];
+        const LUA_BIN_EXTS = ['.luabin', '.luabin64'];
         const fullFilePath = `${projectPath}/${path}`;
 
         if (effectiveNode.name === 'mod.config.json') {
@@ -390,6 +390,12 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
                 kind: 'binText',
                 projectPath,
             });
+        } else if (LUA_BIN_EXTS.some(ext => lower.endsWith(ext))) {
+            useNavigationStore.getState().navigateToFileEditor({
+                filePath: fullFilePath,
+                kind: 'luaBin64',
+                projectPath,
+            });
         } else if (lower.endsWith('.json') || lower.endsWith('.txt') || lower.endsWith('.lua') || lower.endsWith('.py')) {
             useNavigationStore.getState().navigateToFileEditor({
                 filePath: fullFilePath,
@@ -398,7 +404,6 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
             });
         }
     };
-
     const handleRenameSubmit = async (newName: string) => {
         setRenamingPath(null);
         const currentName = getFileName(effectiveNode.path);

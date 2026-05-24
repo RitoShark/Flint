@@ -15,20 +15,19 @@
     "release": "node scripts/release.js"
   },
   "dependencies": {
-    "@react-three/drei": "9.117",
-    "@react-three/fiber": "^8.18.0",
+    "@babylonjs/core": "^9.9.1",
+    "@babylonjs/loaders": "^9.9.1",
+    "@babylonjs/materials": "^9.9.1",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-opener": "^2.5.3",
     "@tauri-apps/plugin-process": "^2.0.0",
     "@tauri-apps/plugin-updater": "^2.0.0",
     "@types/react-window": "^1.8.8",
-    "@types/three": "^0.182.0",
     "monaco-editor": "^0.55.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-window": "^2.2.3",
-    "three": "^0.182.0",
     "zustand": "^5.0.11"
   },
   "devDependencies": {

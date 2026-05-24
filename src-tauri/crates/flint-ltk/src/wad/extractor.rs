@@ -463,12 +463,17 @@ pub fn extract_skin_assets(
     champion: &str,
     _skin_id: u32,
     resolve_paths: impl Fn(&[u64]) -> ResolvedHashes,
+    is_tft: bool,
 ) -> Result<ExtractionResult> {
     let wad_path   = wad_path.as_ref();
     let output_dir = output_dir.as_ref();
 
     let champion_lower   = champion.to_lowercase();
-    let wad_folder_name  = format!("{}.wad.client", champion_lower);
+    let wad_folder_name  = if is_tft {
+        "Companions.wad.client".to_string()
+    } else {
+        format!("{}.wad.client", champion_lower)
+    };
     let wad_output_dir   = output_dir.join(&wad_folder_name);
 
     tracing::info!(
@@ -810,12 +815,17 @@ pub fn extract_skin_assets_selective(
     champion: &str,
     skin_id: u32,
     resolve_paths: impl Fn(&[u64]) -> ResolvedHashes,
+    is_tft: bool,
 ) -> Result<ExtractionResult> {
     let wad_path = wad_path.as_ref();
     let output_dir = output_dir.as_ref();
 
     let champion_lower = champion.to_lowercase();
-    let wad_folder_name = format!("{}.wad.client", champion_lower);
+    let wad_folder_name = if is_tft {
+        "Companions.wad.client".to_string()
+    } else {
+        format!("{}.wad.client", champion_lower)
+    };
     let wad_output_dir = output_dir.join(&wad_folder_name);
 
     // ── Mount WAD via mmap ─────────────────────────────────────────────────

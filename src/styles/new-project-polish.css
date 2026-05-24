@@ -1010,7 +1010,28 @@ input.np-search:focus {
     border-radius: 50%;
     font-size: 10px;
     color: white;
-    line-height: 1;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
-    z-index: 1;
+}
+
+/* --------------------------------------------------------------------------
+   TFT Project Type Styles
+   -------------------------------------------------------------------------- */
+.np-hero-wrap--tft .np-hero-splash__img {
+    object-fit: contain !important;
+    background: color-mix(in oklab, var(--bg-tertiary) 70%, transparent);
+}
+
+.np-skin-card__img-wrap--tft {
+    aspect-ratio: 1 / 1 !important;
+}
+
+.np-skin-card__img--tft {
+    object-fit: cover !important;
+}
+
+.np-skin-picker .np-skin-picker__grid .np-skin-card:has(.np-skin-card__img-wrap--tft) {
+    height: 250px !important;
+}
+
+.np-form .np-skin-grid .np-skin-card:has(.np-skin-card__img-wrap--tft) {
+    height: 250px !important;
 }

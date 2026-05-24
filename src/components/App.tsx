@@ -265,7 +265,6 @@ export const App: React.FC = () => {
     // Handle files opened via Windows "Open with" / double-click.
     // Rust reads argv[1] and emits this event 250ms after the webview loads.
     useEffect(() => {
-        const BIN_TEXT_EXTS = ['.bin', '.ritobin', '.py', '.luabin', '.luabin64', '.troybin'];
         const unlistenFileOpen = listen<string>('file-open-request', async (event) => {
             const filePath = event.payload;
             if (!filePath) return;
@@ -287,7 +286,12 @@ export const App: React.FC = () => {
                 return;
             }
 
-            const kind = BIN_TEXT_EXTS.some(ext => lower.endsWith(ext)) ? 'binText' : 'raw';
+            let kind: 'raw' | 'binText' | 'luaBin64' = 'raw';
+            if (lower.endsWith('.bin') || lower.endsWith('.ritobin') || lower.endsWith('.py') || lower.endsWith('.troybin')) {
+                kind = 'binText';
+            } else if (lower.endsWith('.luabin') || lower.endsWith('.luabin64')) {
+                kind = 'luaBin64';
+            }
             useNavigationStore.getState().navigateToFileEditor({ filePath, kind });
         });
         return () => { unlistenFileOpen.then((unlisten) => unlisten()); };

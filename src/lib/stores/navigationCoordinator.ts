@@ -88,10 +88,8 @@ export function closeExtractSessionWithFallback(sessionId: string) {
         confirmLabel: 'Discard & Close',
         cancelLabel: 'Keep Open',
         danger: true,
-        onConfirm: (confirmed) => {
-          if (confirmed) {
-            performCloseExtractSession(sessionId);
-          }
+        onConfirm: () => {
+          performCloseExtractSession(sessionId);
         }
       });
     }).catch(err => {

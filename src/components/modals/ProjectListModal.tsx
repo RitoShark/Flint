@@ -29,6 +29,7 @@ const SORT_OPTIONS = [
  *  modal mixes skin / map / loading-screen rows so each card needs a
  *  type-specific subtitle and fallback artwork. */
 function projectSubtitle(p: SavedProject): string {
+    if (p.kind === 'tft') return p.champion ? `TFT · ${p.champion}` : 'TFT';
     if (p.kind === 'map') return p.mapId ? `Map · ${p.mapId}` : 'Map';
     if (p.kind === 'loading-screen') return 'Loading Screen';
     return p.champion || 'Project';
@@ -37,6 +38,7 @@ function projectSubtitle(p: SavedProject): string {
 /** Two-letter monogram for the tile. For maps and loading-screens we don't
  *  have a champion name, so derive something readable from the project kind. */
 function monogram(p: SavedProject): string {
+    if (p.kind === 'tft') return 'TF';
     if (p.kind === 'map') return 'M';
     if (p.kind === 'loading-screen') return 'LS';
     const c = (p.champion || p.name || '?').trim();

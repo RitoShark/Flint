@@ -26,6 +26,7 @@ import {
 } from '../lib/stores';
 import type { FileEditorTarget } from '../lib/types';
 import { BinEditor } from './preview/BinEditor';
+import { LuaBin64Editor } from './preview/LuaBin64Editor';
 import { Button, Field, FormGroup, FormLabel, Input, Textarea } from './ui';
 
 // ─── mod.config.json structured editor ──────────────────────────────────
@@ -420,6 +421,9 @@ export const FileEditorPage: React.FC = () => {
                 {target.kind === 'raw' && <RawTextEditor key={target.filePath} target={target} />}
                 {target.kind === 'binText' && (
                     <BinEditor key={target.filePath} filePath={target.filePath} hideFilename />
+                )}
+                {target.kind === 'luaBin64' && (
+                    <LuaBin64Editor key={target.filePath} filePath={target.filePath} hideFilename />
                 )}
             </div>
         </div>

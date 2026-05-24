@@ -1,819 +1,47 @@
 /**
  * Flint - ModelPreview Component
- * 3D preview for SKN mesh files with material visibility controls
+ * 3D preview for SKN mesh files using Babylon.js and client-side animation playback.
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Canvas, useThree } from '@react-three/fiber';
-import { OrbitControls, PerspectiveCamera, Sky } from '@react-three/drei';
-import * as THREE from 'three';
+import { Scene } from '@babylonjs/core/scene';
+import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
+import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
+import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
+import { Mesh } from '@babylonjs/core/Meshes/mesh';
+import { Skeleton } from '@babylonjs/core/Bones/skeleton';
+import { Bone } from '@babylonjs/core/Bones/bone';
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
+import { Material } from '@babylonjs/core/Materials/material';
+import { Texture } from '@babylonjs/core/Materials/Textures/texture';
+import { Vector3, Color3, Color4 } from '@babylonjs/core/Maths/math';
+import { CreateLineSystem } from '@babylonjs/core/Meshes/Builders/linesBuilder';
+import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder';
+import { SkeletonViewer } from '@babylonjs/core/Debug/skeletonViewer';
+
 import * as api from '../../lib/api';
-import type { AnimationPose } from '../../lib/api';
 import { useAppMetadataStore } from '../../lib/stores';
 import { getIcon } from '../../lib/fileIcons';
+
+// Import our custom Babylon wrappers
+import { createEngine } from '../../lib/babylon/engine';
+import { buildSknMeshes, type MeshDTO } from '../../lib/babylon/meshBuilder';
+import { buildBabylonSkeleton, type BoneData } from '../../lib/babylon/skeletonBuilder';
+import { AnimationPlayer } from '../../lib/babylon/animationPlayer';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-interface MaterialRange {
-    name: string;
-    start_index: number;
-    index_count: number;
-    start_vertex: number;
-    vertex_count: number;
-}
-
-// Shape now lives in `lib/api.ts` — vertex/index buffers are typed arrays
-// straight off the IPC `ArrayBuffer`, no per-vertex JSON.
 type SknMeshData = api.SknMeshData;
-
-// Material data with texture and UV transform parameters
-interface MaterialData {
-    texture: string;           // base64 PNG
-    uv_scale?: [number, number];
-    uv_offset?: [number, number];
-    flipbook_size?: [number, number];
-    flipbook_frame?: number;
-}
-
-interface BoneData {
-    name: string;
-    id: number;
-    parent_id: number;
-    local_translation: [number, number, number];
-    local_rotation: [number, number, number, number];
-    local_scale: [number, number, number];
-    world_position: [number, number, number];
-    inverse_bind_matrix: [[number, number, number, number], [number, number, number, number], [number, number, number, number], [number, number, number, number]];
-}
-
-interface SklData {
-    name: string;
-    asset_name: string;
-    bones: BoneData[];
-    influences: number[];  // Maps vertex bone indices to actual bone IDs
-}
-
 type ScbMeshData = api.ScbMeshData;
-
-// Union type for mesh data
 type MeshData = SknMeshData | ScbMeshData;
 
 interface ModelPreviewProps {
     filePath: string;
     meshType?: 'skinned' | 'static';  // skinned = SKN, static = SCB/SCO
 }
-
-// ============================================================================
-// Mesh Component (renders the 3D geometry)
-// ============================================================================
-
-interface MeshViewerProps {
-    meshData: MeshData;
-    visibleMaterials: Set<string>;
-    wireframe: boolean;
-    skeletonData?: SklData | null;  // For CPU skinning
-    animationPose?: AnimationPose | null;  // Current animation pose for skinning
-}
-
-// Helper to check if mesh data is SKN type
-const isSknMeshDataType = (data: MeshData): data is SknMeshData => data.kind === 'skn';
-
-
-const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wireframe, skeletonData, animationPose }) => {
-    const { camera } = useThree();
-    const groupRef = useRef<THREE.Group>(null);
-    const meshRefs = useRef<Map<string, THREE.Mesh>>(new Map());
-
-    // Riot's ELF hash variant - used for bone/joint name hashing
-    const elfHash = (name: string): number => {
-        let hash = 0;
-        const lowerName = name.toLowerCase();
-        for (let i = 0; i < lowerName.length; i++) {
-            hash = ((hash << 4) + lowerName.charCodeAt(i)) >>> 0;
-            const high = hash & 0xF0000000;
-            if (high !== 0) {
-                hash ^= high >>> 24;
-            }
-            hash &= ~high;
-        }
-        return hash >>> 0;
-    };
-
-
-
-    // Compute bone transform matrices from animation pose
-    // IMPORTANT: bone_indices in mesh refer to array index, NOT bone.id!
-    const boneMatrices = useMemo(() => {
-        if (!skeletonData) return null;
-
-        const matrices: THREE.Matrix4[] = [];
-        const worldTransforms = new Map<number, THREE.Matrix4>();
-
-        // Build a map from bone ID to array index
-        // Mesh bone_indices reference array positions, not bone IDs
-        const idToIndex = new Map<number, number>();
-        skeletonData.bones.forEach((bone, index) => {
-            idToIndex.set(bone.id, index);
-        });
-
-        // Sort bones by ID to ensure parents are processed before children
-        const sortedBones = [...skeletonData.bones].sort((a, b) => a.id - b.id);
-
-        sortedBones.forEach(bone => {
-            const localMatrix = new THREE.Matrix4();
-
-            if (animationPose && Object.keys(animationPose.joints).length > 0) {
-                // Get animation transform for this bone by hash
-                const boneHash = elfHash(bone.name);
-                const animTransform = animationPose.joints[boneHash];
-
-                if (animTransform) {
-                    const rotation = new THREE.Quaternion(
-                        animTransform.rotation[0],
-                        animTransform.rotation[1],
-                        animTransform.rotation[2],
-                        animTransform.rotation[3]
-                    );
-                    const translation = new THREE.Vector3(
-                        animTransform.translation[0],
-                        animTransform.translation[1],
-                        animTransform.translation[2]
-                    );
-                    const scale = new THREE.Vector3(
-                        animTransform.scale[0],
-                        animTransform.scale[1],
-                        animTransform.scale[2]
-                    );
-                    localMatrix.compose(translation, rotation, scale);
-                } else {
-                    // Use bind pose
-                    const rotation = new THREE.Quaternion(
-                        bone.local_rotation[0],
-                        bone.local_rotation[1],
-                        bone.local_rotation[2],
-                        bone.local_rotation[3]
-                    );
-                    const translation = new THREE.Vector3(
-                        bone.local_translation[0],
-                        bone.local_translation[1],
-                        bone.local_translation[2]
-                    );
-                    const scale = new THREE.Vector3(
-                        bone.local_scale[0],
-                        bone.local_scale[1],
-                        bone.local_scale[2]
-                    );
-                    localMatrix.compose(translation, rotation, scale);
-                }
-            } else {
-                // Use bind pose
-                const rotation = new THREE.Quaternion(
-                    bone.local_rotation[0],
-                    bone.local_rotation[1],
-                    bone.local_rotation[2],
-                    bone.local_rotation[3]
-                );
-                const translation = new THREE.Vector3(
-                    bone.local_translation[0],
-                    bone.local_translation[1],
-                    bone.local_translation[2]
-                );
-                const scale = new THREE.Vector3(
-                    bone.local_scale[0],
-                    bone.local_scale[1],
-                    bone.local_scale[2]
-                );
-                localMatrix.compose(translation, rotation, scale);
-            }
-
-            // Compute world transform
-            let worldMatrix: THREE.Matrix4;
-            if (bone.parent_id >= 0 && worldTransforms.has(bone.parent_id)) {
-                const parentWorld = worldTransforms.get(bone.parent_id)!;
-                worldMatrix = new THREE.Matrix4().multiplyMatrices(parentWorld, localMatrix);
-            } else {
-                worldMatrix = localMatrix.clone();
-            }
-            worldTransforms.set(bone.id, worldMatrix);
-
-            // Compute final skinning matrix: world * inverse_bind
-            // Create inverse bind matrix from the stored column-major array
-            const invBind = bone.inverse_bind_matrix;
-            const invBindMatrix = new THREE.Matrix4().set(
-                invBind[0][0], invBind[1][0], invBind[2][0], invBind[3][0],
-                invBind[0][1], invBind[1][1], invBind[2][1], invBind[3][1],
-                invBind[0][2], invBind[1][2], invBind[2][2], invBind[3][2],
-                invBind[0][3], invBind[1][3], invBind[2][3], invBind[3][3]
-            );
-
-            const skinMatrix = new THREE.Matrix4().multiplyMatrices(worldMatrix, invBindMatrix);
-
-            // Store by array index, NOT bone.id - mesh bone_indices are array positions
-            const arrayIndex = idToIndex.get(bone.id)!;
-            matrices[arrayIndex] = skinMatrix;
-        });
-
-        return matrices;
-    }, [skeletonData, animationPose]);
-
-    // Apply skinning to vertex positions. Operates directly on the
-    // `Float32Array` / `Uint16Array` buffers that came off IPC — no per-vertex
-    // tuple allocations, no `[number, number, number]` indirection. Reuses a
-    // single `THREE.Vector3` per loop iteration to keep GC pressure flat.
-    const applySkinnedPositions = (
-        positions: Float32Array,
-        indices: Uint16Array,
-        startIdx: number,
-        count: number,
-    ): Float32Array => {
-        const out = new Float32Array(count * 3);
-        const sknData = meshData as SknMeshData;
-        const weights = sknData.bone_weights;
-        const boneIdxArr = sknData.bone_indices;
-        const influences = skeletonData?.influences;
-
-        const boneIdToArrayIndex = new Map<number, number>();
-        if (skeletonData) {
-            skeletonData.bones.forEach((bone, index) => {
-                boneIdToArrayIndex.set(bone.id, index);
-            });
-        }
-
-        const original = new THREE.Vector3();
-        const skinned = new THREE.Vector3();
-        const transformed = new THREE.Vector3();
-
-        for (let i = 0; i < count; i++) {
-            const vertexIdx = indices[startIdx + i];
-            const px = positions[vertexIdx * 3];
-            const py = positions[vertexIdx * 3 + 1];
-            const pz = positions[vertexIdx * 3 + 2];
-
-            if (boneMatrices && weights && boneIdxArr && influences) {
-                skinned.set(0, 0, 0);
-                let totalWeight = 0;
-                const wBase = vertexIdx * 4;
-
-                for (let j = 0; j < 4; j++) {
-                    const weight = weights[wBase + j];
-                    if (weight <= 0.0001) continue;
-                    const influenceIdx = boneIdxArr[wBase + j];
-                    const boneId = influences[influenceIdx];
-                    const boneArrayIndex = boneIdToArrayIndex.get(boneId) ?? influenceIdx;
-                    const matrix = boneMatrices[boneArrayIndex];
-                    if (!matrix) continue;
-                    original.set(px, py, pz);
-                    transformed.copy(original).applyMatrix4(matrix);
-                    skinned.addScaledVector(transformed, weight);
-                    totalWeight += weight;
-                }
-
-                if (totalWeight > 0.0001) {
-                    if (Math.abs(totalWeight - 1.0) > 0.01) skinned.divideScalar(totalWeight);
-                    out[i * 3] = skinned.x;
-                    out[i * 3 + 1] = skinned.y;
-                    out[i * 3 + 2] = skinned.z;
-                    continue;
-                }
-            }
-
-            out[i * 3] = px;
-            out[i * 3 + 1] = py;
-            out[i * 3 + 2] = pz;
-        }
-
-        return out;
-    };
-
-    // Create base geometries with skinning data (non-indexed for proper UV mapping)
-    const materialGeometries = useMemo(() => {
-        const geometries: Map<string, { geo: THREE.BufferGeometry; startIdx: number; count: number }> = new Map();
-
-        if (isSknMeshDataType(meshData)) {
-            const positions = meshData.positions;
-            const normals = meshData.normals;
-            const uvs = meshData.uvs;
-            const indices = meshData.indices;
-
-            meshData.materials.forEach((mat) => {
-                const geo = new THREE.BufferGeometry();
-                const startIdx = mat.start_index;
-                const count = mat.index_count;
-
-                // Build per-material non-indexed buffers. Each output triangle
-                // pulls its vertex straight from the SKN's typed array — no
-                // tuple objects, no nested `.flat()`, just memcpy + indexed
-                // reads off the source buffer.
-                const outPos = new Float32Array(count * 3);
-                const outNrm = new Float32Array(count * 3);
-                const outUv = new Float32Array(count * 2);
-
-                for (let i = 0; i < count; i++) {
-                    const idx = indices[startIdx + i];
-                    const p = idx * 3;
-                    const u = idx * 2;
-                    const o3 = i * 3;
-                    const o2 = i * 2;
-                    outPos[o3] = positions[p];
-                    outPos[o3 + 1] = positions[p + 1];
-                    outPos[o3 + 2] = positions[p + 2];
-                    outNrm[o3] = normals[p];
-                    outNrm[o3 + 1] = normals[p + 1];
-                    outNrm[o3 + 2] = normals[p + 2];
-                    outUv[o2] = uvs[u];
-                    outUv[o2 + 1] = uvs[u + 1];
-                }
-
-                geo.setAttribute('position', new THREE.BufferAttribute(outPos, 3));
-                geo.setAttribute('normal', new THREE.BufferAttribute(outNrm, 3));
-                geo.setAttribute('uv', new THREE.BufferAttribute(outUv, 2));
-
-                geometries.set(mat.name, { geo, startIdx, count });
-            });
-        } else {
-            const scbData = meshData as ScbMeshData;
-            const geo = new THREE.BufferGeometry();
-
-            // Three.js consumes the typed arrays straight off IPC — no copy.
-            geo.setAttribute('position', new THREE.BufferAttribute(scbData.positions, 3));
-            geo.setAttribute('normal', new THREE.BufferAttribute(scbData.normals, 3));
-            geo.setAttribute('uv', new THREE.BufferAttribute(scbData.uvs, 2));
-            geo.setIndex(new THREE.BufferAttribute(scbData.indices, 1));
-
-            const matKey = scbData.materials[0] || 'default';
-            geometries.set(matKey, { geo, startIdx: 0, count: scbData.indices.length });
-        }
-
-        return geometries;
-    }, [meshData]);
-
-    // Dispose geometries on unmount to free GPU memory
-    useEffect(() => {
-        return () => {
-            materialGeometries.forEach(({ geo }) => geo.dispose());
-        };
-    }, [materialGeometries]);
-
-    // Update positions when animation pose changes
-    useEffect(() => {
-        if (!isSknMeshDataType(meshData) || !boneMatrices) return;
-
-        materialGeometries.forEach(({ geo, startIdx, count }, _matName) => {
-            const skinnedPositions = applySkinnedPositions(
-                meshData.positions,
-                meshData.indices,
-                startIdx,
-                count
-            );
-
-            const positionAttribute = geo.getAttribute('position') as THREE.BufferAttribute;
-            positionAttribute.array.set(skinnedPositions);
-            positionAttribute.needsUpdate = true;
-            geo.computeBoundingSphere();
-        });
-    }, [animationPose, boneMatrices, meshData, materialGeometries]);
-
-    // Create material groups for visibility control
-    const materialGroups = useMemo(() => {
-        if (isSknMeshDataType(meshData)) {
-            return meshData.materials.map((mat, index) => ({
-                name: mat.name,
-                visible: visibleMaterials.has(mat.name),
-                color: new THREE.Color().setHSL((index * 0.618033988749895) % 1, 0.7, 0.5),
-            }));
-        } else {
-            const scbData = meshData as ScbMeshData;
-            const matName = scbData.materials[0] || 'default';
-            return [{
-                name: matName,
-                visible: visibleMaterials.has(matName),
-                color: new THREE.Color().setHSL(0.5, 0.7, 0.5),
-            }];
-        }
-    }, [meshData, visibleMaterials]);
-
-    // Load textures from the backend-provided material_data (with UV transforms)
-    // Works for both SKN and SCB mesh data
-    const textureCache = useMemo(() => {
-        const cache = new Map<string, THREE.Texture>();
-
-        // Get material_data from either SKN or SCB mesh data
-        const matData: Record<string, MaterialData> | undefined =
-            isSknMeshDataType(meshData)
-                ? meshData.material_data
-                : (meshData as ScbMeshData).material_data;
-
-        if (matData && Object.keys(matData).length > 0) {
-            for (const [materialName, data] of Object.entries(matData)) {
-                try {
-                    const dataUrl = `data:image/png;base64,${data.texture}`;
-
-                    // Create texture and configure it BEFORE loading
-                    const texture = new THREE.Texture();
-                    texture.flipY = false;
-                    texture.colorSpace = THREE.SRGBColorSpace;
-                    texture.wrapS = THREE.RepeatWrapping;
-                    texture.wrapT = THREE.RepeatWrapping;
-
-                    // Apply UV transformations from material properties
-                    if (data.uv_scale) {
-                        texture.repeat.set(data.uv_scale[0], data.uv_scale[1]);
-                    }
-
-                    if (data.uv_offset) {
-                        texture.offset.set(data.uv_offset[0], data.uv_offset[1]);
-                    }
-
-                    // Handle flipbook materials
-                    if (data.flipbook_size) {
-                        const [cols, rows] = data.flipbook_size;
-                        const frame = data.flipbook_frame || 0;
-                        const col = Math.floor(frame % cols);
-                        const row = Math.floor(frame / cols);
-                        texture.repeat.set(1 / cols, 1 / rows);
-                        texture.offset.set(col / cols, 1 - (row + 1) / rows);
-                    }
-
-                    // Load image asynchronously and update texture when ready
-                    const image = new Image();
-                    image.onload = () => {
-                        texture.image = image;
-                        texture.needsUpdate = true;
-                    };
-                    image.src = dataUrl;
-
-                    cache.set(materialName, texture);
-                } catch {
-                    // Texture decode failed - material will show as magenta
-                }
-            }
-        } else if (isSknMeshDataType(meshData) && meshData.textures) {
-            // Fallback to deprecated textures field for backward compatibility
-            for (const [materialName, base64Data] of Object.entries(meshData.textures)) {
-                try {
-                    const dataUrl = `data:image/png;base64,${base64Data}`;
-
-                    const texture = new THREE.Texture();
-                    texture.flipY = false;
-                    texture.colorSpace = THREE.SRGBColorSpace;
-                    texture.wrapS = THREE.RepeatWrapping;
-                    texture.wrapT = THREE.RepeatWrapping;
-
-                    const image = new Image();
-                    image.onload = () => {
-                        texture.image = image;
-                        texture.needsUpdate = true;
-                    };
-                    image.src = dataUrl;
-
-                    cache.set(materialName, texture);
-                } catch {
-                    // Texture decode failed
-                }
-            }
-        }
-
-        return cache;
-    }, [meshData]);
-
-    // Dispose textures on unmount/change to free GPU memory
-    useEffect(() => {
-        return () => {
-            textureCache.forEach(texture => texture.dispose());
-        };
-    }, [textureCache]);
-
-    // Memoized texture lookup with fuzzy matching (mirrors backend strategies)
-    const materialTextureMap = useMemo(() => {
-        const map = new Map<string, THREE.Texture>();
-        const materialNames = isSknMeshDataType(meshData)
-            ? meshData.materials.map(m => m.name)
-            : [meshData.materials[0] || 'default'];
-
-        for (const name of materialNames) {
-            // Direct lookup
-            let texture = textureCache.get(name);
-            // Try stripping "mesh_" prefix
-            if (!texture && name.startsWith("mesh_")) {
-                texture = textureCache.get(name.substring(5));
-            }
-            // Try adding "mesh_" prefix
-            if (!texture) {
-                texture = textureCache.get(`mesh_${name}`);
-            }
-            // Case-insensitive fallback
-            if (!texture) {
-                const lower = name.toLowerCase();
-                for (const [key, tex] of textureCache) {
-                    if (key.toLowerCase() === lower) {
-                        texture = tex;
-                        break;
-                    }
-                }
-            }
-            if (texture) map.set(name, texture);
-        }
-        return map;
-    }, [meshData, textureCache]);
-
-    // Center camera on mesh (use natural bounding-box center so parts below Y=0 stay below the grid)
-    useEffect(() => {
-        const [[minX, minY, minZ], [maxX, maxY, maxZ]] = meshData.bounding_box;
-        const center = new THREE.Vector3(
-            (minX + maxX) / 2,
-            (minY + maxY) / 2,
-            (minZ + maxZ) / 2
-        );
-        const size = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
-
-        if (camera instanceof THREE.PerspectiveCamera) {
-            camera.position.set(center.x, center.y, center.z + size * 2);
-            camera.lookAt(center);
-        }
-    }, [meshData.bounding_box, camera]);
-
-    return (
-        <group ref={groupRef}>
-            {materialGroups.map((mat, index) => {
-                if (!mat.visible) return null;
-
-                const geoData = materialGeometries.get(mat.name);
-                if (!geoData) return null;
-
-                const matchedTexture = materialTextureMap.get(mat.name) || null;
-
-                return (
-                    <mesh
-                        key={mat.name || index}
-                        geometry={geoData.geo}
-                        ref={(mesh) => { if (mesh) meshRefs.current.set(mat.name, mesh); }}
-                    >
-                        <meshStandardMaterial
-                            map={matchedTexture || null}
-                            // Use magenta for missing textures to make them obvious
-                            color={matchedTexture ? 0xffffff : 0xff00ff}
-                            wireframe={wireframe}
-                            side={THREE.DoubleSide}
-                            flatShading={false}
-                        />
-                    </mesh>
-                );
-            })}
-        </group>
-    );
-};
-
-
-// ============================================================================
-// Textured Floor Component (loads actual MindCorpViewer floor.dds)
-// ============================================================================
-
-const TexturedFloor: React.FC = () => {
-    const [floorTexture, setFloorTexture] = useState<THREE.Texture | null>(null);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        let isMounted = true;
-        let texture: THREE.Texture | null = null;
-        let objectUrl: string | null = null;
-
-        const loadFloorTexture = async () => {
-            try {
-                // Load bundled floor as PNG bytes (pre-converted from DDS)
-                const pngBytes = await api.getBundledFloorPng();
-
-                if (!isMounted) return;
-
-                // Create Blob from PNG bytes
-                const blob = new Blob([new Uint8Array(pngBytes)], { type: 'image/png' });
-                objectUrl = URL.createObjectURL(blob);
-
-                // Create texture from Blob URL
-                const image = new Image();
-                image.onload = () => {
-                    if (!isMounted) return;
-                    texture = new THREE.Texture(image);
-                    texture.wrapS = THREE.ClampToEdgeWrapping;
-                    texture.wrapT = THREE.ClampToEdgeWrapping;
-                    texture.colorSpace = THREE.SRGBColorSpace;
-                    texture.needsUpdate = true;
-                    setFloorTexture(texture);
-                    setLoading(false);
-                };
-                image.onerror = () => {
-                    console.error('Failed to load decoded floor texture');
-                    setLoading(false);
-                };
-                image.src = objectUrl;
-            } catch (err) {
-                console.error('Error loading floor texture:', err);
-                setLoading(false);
-            }
-        };
-
-        loadFloorTexture();
-
-        return () => {
-            isMounted = false;
-            if (texture) {
-                texture.dispose();
-            }
-            if (objectUrl) {
-                URL.revokeObjectURL(objectUrl);
-            }
-        };
-    }, []);
-
-    if (loading || !floorTexture) {
-        return null;
-    }
-
-    return (
-        <mesh position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-            <planeGeometry args={[1500, 1500]} />
-            <meshStandardMaterial
-                map={floorTexture}
-                roughness={0.9}
-                metalness={0.1}
-            />
-        </mesh>
-    );
-};
-
-// ============================================================================
-// Skeleton Viewer Component (renders bone lines)
-// ============================================================================
-
-interface SkeletonViewerProps {
-    skeletonData: SklData;
-    animationPose?: AnimationPose | null;
-}
-
-const SkeletonViewer: React.FC<SkeletonViewerProps> = ({ skeletonData, animationPose }) => {
-    // Riot's ELF hash variant - used for bone/joint name hashing in League files
-    const elfHash = (name: string): number => {
-        let hash = 0;
-        const lowerName = name.toLowerCase();
-        for (let i = 0; i < lowerName.length; i++) {
-            hash = ((hash << 4) + lowerName.charCodeAt(i)) >>> 0;
-            const high = hash & 0xF0000000;
-            if (high !== 0) {
-                hash ^= high >>> 24;
-            }
-            hash &= ~high;
-        }
-        return hash >>> 0; // unsigned 32-bit
-    };
-
-    // Build a map from bone id to its name hash for quick lookup
-    const boneIdToHash = useMemo(() => {
-        const map = new Map<number, number>();
-        skeletonData.bones.forEach(bone => {
-            const hash = elfHash(bone.name);
-            map.set(bone.id, hash);
-        });
-
-        return map;
-    }, [skeletonData]);
-
-    // Compute bone positions - use animation pose if available, otherwise bind pose
-    const bonePositions = useMemo(() => {
-        const positions: Record<number, THREE.Vector3> = {};
-
-        if (animationPose && Object.keys(animationPose.joints).length > 0) {
-            // Build hierarchy of animated transforms
-            const worldTransforms = new Map<number, THREE.Matrix4>();
-
-            // Sort bones by parent dependency (parents before children)
-            const sortedBones = [...skeletonData.bones].sort((a, b) => a.id - b.id);
-
-            sortedBones.forEach(bone => {
-                const localMatrix = new THREE.Matrix4();
-
-                // Get the hash for this bone and look up animation transform
-                const boneHash = boneIdToHash.get(bone.id);
-                const animTransform = boneHash !== undefined ? animationPose.joints[boneHash] : undefined;
-
-                if (animTransform) {
-                    // Use animation transform
-                    const rotation = new THREE.Quaternion(
-                        animTransform.rotation[0],
-                        animTransform.rotation[1],
-                        animTransform.rotation[2],
-                        animTransform.rotation[3]
-                    );
-                    const translation = new THREE.Vector3(
-                        animTransform.translation[0],
-                        animTransform.translation[1],
-                        animTransform.translation[2]
-                    );
-                    const scale = new THREE.Vector3(
-                        animTransform.scale[0],
-                        animTransform.scale[1],
-                        animTransform.scale[2]
-                    );
-                    localMatrix.compose(translation, rotation, scale);
-                } else {
-                    // Use bind pose local transform
-                    const rotation = new THREE.Quaternion(
-                        bone.local_rotation[0],
-                        bone.local_rotation[1],
-                        bone.local_rotation[2],
-                        bone.local_rotation[3]
-                    );
-                    const translation = new THREE.Vector3(
-                        bone.local_translation[0],
-                        bone.local_translation[1],
-                        bone.local_translation[2]
-                    );
-                    const scale = new THREE.Vector3(
-                        bone.local_scale[0],
-                        bone.local_scale[1],
-                        bone.local_scale[2]
-                    );
-                    localMatrix.compose(translation, rotation, scale);
-                }
-
-                // Multiply by parent world transform
-                if (bone.parent_id >= 0 && worldTransforms.has(bone.parent_id)) {
-                    const parentWorld = worldTransforms.get(bone.parent_id)!;
-                    const worldMatrix = new THREE.Matrix4().multiplyMatrices(parentWorld, localMatrix);
-                    worldTransforms.set(bone.id, worldMatrix);
-                } else {
-                    worldTransforms.set(bone.id, localMatrix);
-                }
-
-                // Extract position from world transform
-                const worldMatrix = worldTransforms.get(bone.id)!;
-                const pos = new THREE.Vector3();
-                pos.setFromMatrixPosition(worldMatrix);
-                positions[bone.id] = pos;
-            });
-        } else {
-            // Use bind pose world positions
-            skeletonData.bones.forEach(bone => {
-                positions[bone.id] = new THREE.Vector3(
-                    bone.world_position[0],
-                    bone.world_position[1],
-                    bone.world_position[2]
-                );
-            });
-        }
-
-        return positions;
-    }, [skeletonData, animationPose, boneIdToHash]);
-
-    // Create line segments for bone connections
-    const linePoints = useMemo(() => {
-        const points: THREE.Vector3[] = [];
-
-        skeletonData.bones.forEach(bone => {
-            if (bone.parent_id >= 0) {
-                const childPos = bonePositions[bone.id];
-                const parentPos = bonePositions[bone.parent_id];
-                if (childPos && parentPos) {
-                    points.push(parentPos, childPos);
-                }
-            }
-        });
-
-        return points;
-    }, [skeletonData, bonePositions]);
-
-    // Create joint spheres
-    const jointPositions = useMemo(() => {
-        return Object.values(bonePositions);
-    }, [bonePositions]);
-
-    return (
-        <group key={animationPose?.time ?? 'bind'}>
-            {/* Bone lines */}
-            {linePoints.length > 0 && (
-                <lineSegments>
-                    <bufferGeometry>
-                        <bufferAttribute
-                            attach="attributes-position"
-                            count={linePoints.length}
-                            array={new Float32Array(linePoints.flatMap(p => [p.x, p.y, p.z]))}
-                            itemSize={3}
-                        />
-                    </bufferGeometry>
-                    <lineBasicMaterial color="#00ff00" linewidth={2} />
-                </lineSegments>
-            )}
-
-            {/* Joint spheres */}
-            {jointPositions.map((pos, i) => (
-                <mesh key={i} position={[pos.x, pos.y, pos.z]}>
-                    <sphereGeometry args={[0.02, 8, 8]} />
-                    <meshBasicMaterial color="#ff0000" />
-                </mesh>
-            ))}
-        </group>
-    );
-};
 
 // ============================================================================
 // Main Component
@@ -839,6 +67,7 @@ const loadSettings = () => {
         ambientIntensity: 0.8,
         directionalIntensity: 1.5,
         showSkeleton: true,
+        customizeLighting: false,
     };
 };
 
@@ -857,11 +86,12 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const [floorMode, setFloorMode] = useState<'grid' | 'textured' | 'none'>(savedSettings.floorMode);
     const [ambientIntensity, setAmbientIntensity] = useState(savedSettings.ambientIntensity);
     const [directionalIntensity, setDirectionalIntensity] = useState(savedSettings.directionalIntensity);
+    const [customizeLighting, setCustomizeLighting] = useState(savedSettings.customizeLighting ?? false);
 
     // Popup states for controls
     const [activePopup, setActivePopup] = useState<'display' | 'environment' | 'materials' | 'animations' | null>(null);
 
-    // Subscribe to file version changes for hot reload — see ImagePreview.
+    // Subscribe to file version changes for hot reload
     const fileVersion = useAppMetadataStore((state) => {
         void state.fileVersionsRev;
         return state.getFileVersion(filePath);
@@ -875,52 +105,160 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     // Animation playback state
     const [animationData, setAnimationData] = useState<{ duration: number; fps: number; joint_count: number; joint_hashes: number[] } | null>(null);
     const [currentTime, setCurrentTime] = useState(0);
-    const [currentPose, setCurrentPose] = useState<AnimationPose | null>(null);
-    const animationRef = useRef<number | null>(null);
-    const lastFrameTimeRef = useRef<number>(0);
 
     // Skeleton state (only for skinned meshes, persisted)
-    const [skeletonData, setSkeletonData] = useState<SklData | null>(null);
+    const [skeletonData, setSkeletonData] = useState<any | null>(null);
     const [showSkeleton, setShowSkeleton] = useState(savedSettings.showSkeleton);
 
     // Texture preview state
     const [hoveredMaterial, setHoveredMaterial] = useState<string | null>(null);
     const [previewPosition, setPreviewPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
-    // Helper to check if mesh data is SKN type
-    const isSknMeshData = (data: MeshData): data is SknMeshData => {
-        return Array.isArray((data as SknMeshData).materials) &&
-            typeof (data as SknMeshData).materials[0] === 'object';
-    };
-
-    // Clean up animation on unmount to prevent leaked RAF
-    useEffect(() => {
-        return () => {
-            if (animationRef.current) {
-                cancelAnimationFrame(animationRef.current);
-                animationRef.current = null;
-            }
-        };
-    }, []);
-
-    // Track our canvas for cleanup
+    // Babylon.js refs & states
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
+    const [scene, setScene] = useState<Scene | null>(null);
+    const [camera, setCamera] = useState<ArcRotateCamera | null>(null);
 
-    // Clean up WebGL context and event listeners on unmount
+    const activeMeshesRef = useRef<Mesh[]>([]);
+    const skeletonRef = useRef<Skeleton | null>(null);
+    const skeletonViewerRef = useRef<SkeletonViewer | null>(null);
+    const gridMeshRef = useRef<any>(null);
+    const floorMeshRef = useRef<any>(null);
+
+    // Animation player refs
+    const animationPlayerRef = useRef<AnimationPlayer | null>(null);
+    const lastTimeRef = useRef<number>(0);
+    const lastReactTimeRef = useRef<number>(0);
+
+    const builtSklRef = useRef<{
+        boneIndexByHash: Map<number, number>;
+        bones: Bone[];
+        joints: BoneData[];
+    } | null>(null);
+
+    // Initialize engine & scene when canvas is available
     useEffect(() => {
-        return () => {
-            const canvas = canvasRef.current;
-            if (canvas && (canvas as any)._flintCleanup) {
-                try {
-                    (canvas as any)._flintCleanup();
-                    delete (canvas as any)._flintCleanup;
-                } catch (_e) {
-                    // Ignore errors during cleanup
-                }
-            }
-            canvasRef.current = null;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const engine = createEngine(canvas);
+        const activeScene = new Scene(engine);
+        setScene(activeScene);
+
+        // Default scene clearColor matching the app background
+        activeScene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0); // #1b1b1b
+
+        // Set up orbital camera
+        const activeCamera = new ArcRotateCamera(
+            "camera",
+            Math.PI / 2 + Math.PI / 8, // Face front of model (tilted slightly like Jade)
+            Math.PI / 3,
+            5,
+            Vector3.Zero(),
+            activeScene
+        );
+        activeCamera.panningSensibility = 100; // Sensibility of panning (lower value is faster)
+        activeCamera.attachControl(canvas, true);
+        activeCamera.wheelDeltaPercentage = 0.05; // smooth percentage zoom
+        setCamera(activeCamera);
+
+        // Prevent default browser context menu to allow panning via right click drag
+        const handleContextMenu = (e: MouseEvent) => {
+            e.preventDefault();
         };
-    }, []);
+        canvas.addEventListener('contextmenu', handleContextMenu);
+
+        // Set up lighting (Jade-style soft/unlit default, customizable if checked)
+        const ambientLight = new HemisphericLight("ambient", new Vector3(0, 1, 0), activeScene);
+        ambientLight.intensity = customizeLighting ? ambientIntensity : 1.2;
+        ambientLight.specular = new Color3(0, 0, 0);
+
+        const dirLight1 = new DirectionalLight("dirLight1", new Vector3(-1, -1, -1), activeScene);
+        dirLight1.intensity = customizeLighting ? directionalIntensity : 0.0;
+
+        const dirLight2 = new DirectionalLight("dirLight2", new Vector3(1, 1, 1), activeScene);
+        dirLight2.intensity = customizeLighting ? directionalIntensity * 0.4 : 0.0;
+
+        const dirLight3 = new DirectionalLight("dirLight3", new Vector3(0, 1, 0), activeScene);
+        dirLight3.intensity = customizeLighting ? directionalIntensity * 0.3 : 0.0;
+
+        // Render loop
+        engine.runRenderLoop(() => {
+            if (animationPlayerRef.current) {
+                const now = performance.now();
+                if (lastTimeRef.current !== 0) {
+                    const dt = (now - lastTimeRef.current) / 1000;
+                    animationPlayerRef.current.tick(dt);
+
+                    // Throttle state update so the React timeline slider moves smoothly without lagging the UI
+                    const curTime = animationPlayerRef.current.time;
+                    const rounded = Math.round(curTime * 100) / 100;
+                    if (Math.abs(rounded - lastReactTimeRef.current) >= 0.05) {
+                        lastReactTimeRef.current = rounded;
+                        setCurrentTime(curTime);
+                    }
+                }
+                lastTimeRef.current = now;
+            }
+            activeScene.render();
+        });
+
+        // Resize handler
+        const handleResize = () => {
+            engine.resize();
+        };
+        window.addEventListener('resize', handleResize);
+
+        // Store cleanup on canvas ref to matches old contract
+        (canvas as any)._flintCleanup = () => {
+            window.removeEventListener('resize', handleResize);
+            canvas.removeEventListener('contextmenu', handleContextMenu);
+
+            if (skeletonViewerRef.current) {
+                skeletonViewerRef.current.dispose();
+                skeletonViewerRef.current = null;
+            }
+
+            activeMeshesRef.current.forEach(m => {
+                if (m.material) {
+                    const mat = m.material as PBRMaterial;
+                    if (mat.albedoTexture) mat.albedoTexture.dispose();
+                    mat.dispose();
+                }
+                m.dispose();
+            });
+            activeMeshesRef.current = [];
+
+            if (skeletonRef.current) {
+                skeletonRef.current.dispose();
+                skeletonRef.current = null;
+            }
+
+            if (gridMeshRef.current) {
+                gridMeshRef.current.dispose();
+                gridMeshRef.current = null;
+            }
+
+            if (floorMeshRef.current) {
+                if (floorMeshRef.current.material) {
+                    floorMeshRef.current.material.dispose();
+                }
+                floorMeshRef.current.dispose();
+                floorMeshRef.current = null;
+            }
+
+            engine.dispose();
+        };
+
+        return () => {
+            if (canvas && (canvas as any)._flintCleanup) {
+                (canvas as any)._flintCleanup();
+                delete (canvas as any)._flintCleanup;
+            }
+            setScene(null);
+            setCamera(null);
+        };
+    }, [filePath, loading, error]);
 
     // Load mesh data
     useEffect(() => {
@@ -936,11 +274,8 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 let data: MeshData;
 
                 if (meshType === 'static') {
-                    // Load SCB/SCO static mesh
                     data = await api.readScbMesh(filePath);
                 } else {
-                    // Load SKN skinned mesh AND skeleton/animations in parallel
-                    // This significantly reduces loading time by parallelizing independent requests
                     const sklPath = filePath.replace(/\.skn$/i, '.skl');
 
                     const [meshResult, animResult, sklResult] = await Promise.allSettled([
@@ -949,7 +284,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         api.readSklSkeleton(sklPath)
                     ]);
 
-                    // Handle mesh result (required)
                     if (meshResult.status === 'fulfilled') {
                         data = meshResult.value;
                     } else {
@@ -958,7 +292,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
                     if (cancelled) return;
 
-                    // Handle animation result (optional)
                     if (animResult.status === 'fulfilled') {
                         const animList = animResult.value;
                         if (animList.clips && animList.clips.length > 0) {
@@ -966,7 +299,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         }
                     }
 
-                    // Handle skeleton result (optional)
                     if (sklResult.status === 'fulfilled') {
                         setSkeletonData(sklResult.value);
                     }
@@ -974,14 +306,12 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
                 if (cancelled) return;
 
-                // Set mesh data and visible materials (for both static and skinned meshes)
                 setMeshData(data);
 
-                // Initialize all materials as visible
-                if (isSknMeshData(data)) {
-                    setVisibleMaterials(new Set(data.materials.map((m: MaterialRange) => m.name)));
+                if (data.kind === 'skn') {
+                    setVisibleMaterials(new Set((data as SknMeshData).materials.map(m => m.name)));
                 } else {
-                    setVisibleMaterials(new Set(data.materials));
+                    setVisibleMaterials(new Set((data as ScbMeshData).materials));
                 }
             } catch (err) {
                 if (cancelled) return;
@@ -995,102 +325,441 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
         loadMesh();
         return () => { cancelled = true; };
-    }, [filePath, meshType, fileVersion]); // Re-run when file version changes (hot reload)
+    }, [filePath, meshType, fileVersion]);
+
+    // Build/Rebuild mesh, skeleton & materials in the scene
+    useEffect(() => {
+        if (!scene || !camera || !meshData) return;
+
+        // Tear down previous mesh assets
+        if (skeletonViewerRef.current) {
+            skeletonViewerRef.current.dispose();
+            skeletonViewerRef.current = null;
+        }
+
+        activeMeshesRef.current.forEach(m => {
+            if (m.material) {
+                const mat = m.material as PBRMaterial;
+                if (mat.albedoTexture) mat.albedoTexture.dispose();
+                mat.dispose();
+            }
+            m.dispose();
+        });
+        activeMeshesRef.current = [];
+
+        if (skeletonRef.current) {
+            skeletonRef.current.dispose();
+            skeletonRef.current = null;
+        }
+        builtSklRef.current = null;
+        animationPlayerRef.current = null;
+
+        // 1. Build Babylon Skeleton if rigged
+        let babylonSkeleton: Skeleton | undefined;
+        if (skeletonData) {
+            const built = buildBabylonSkeleton(skeletonData, scene, "skeleton");
+            babylonSkeleton = built.skeleton;
+            skeletonRef.current = babylonSkeleton;
+            builtSklRef.current = {
+                boneIndexByHash: built.boneIndexByHash,
+                bones: built.bones,
+                joints: built.joints
+            };
+        }
+
+        // 2. Map mesh fields to MeshDTO
+        const isSkn = meshData.kind === 'skn';
+        const meshDto: MeshDTO = {
+            positions: meshData.positions,
+            indices: meshData.indices,
+            normals: meshData.normals,
+            uvs: meshData.uvs,
+            bone_indices: isSkn ? (meshData as SknMeshData).bone_indices : undefined,
+            bone_weights: isSkn ? (meshData as SknMeshData).bone_weights : undefined,
+            submeshes: isSkn
+                ? (meshData as SknMeshData).materials.map(m => ({
+                    name: m.name,
+                    start_vertex: m.start_vertex,
+                    vertex_count: m.vertex_count,
+                    start_index: m.start_index,
+                    index_count: m.index_count
+                  }))
+                : (meshData as ScbMeshData).materials.map(matName => {
+                    const scb = meshData as ScbMeshData;
+                    const range = scb.material_ranges?.[matName] || [0, scb.indices.length];
+                    return {
+                        name: matName,
+                        start_vertex: 0,
+                        vertex_count: scb.positions.length / 3,
+                        start_index: range[0],
+                        index_count: range[1]
+                    };
+                  }),
+            bbox: meshData.bounding_box
+        };
+
+        // 3. Build meshes
+        const influences = skeletonData?.influences;
+        const { meshes } = buildSknMeshes(meshDto, scene, babylonSkeleton, influences);
+        activeMeshesRef.current = meshes;
+
+        // 4. Create base64 texture maps
+        const textureCache = new Map<string, Texture>();
+        const matData = meshData.material_data;
+        if (matData && Object.keys(matData).length > 0) {
+            for (const [matName, data] of Object.entries(matData)) {
+                try {
+                    const dataUrl = "data:image/png;base64," + data.texture;
+                    // Load texture with invertY = true to match V-flipped UV coordinates
+                    const texture = new Texture(dataUrl, scene, false, true);
+                    texture.wrapU = Texture.WRAP_ADDRESSMODE;
+                    texture.wrapV = Texture.WRAP_ADDRESSMODE;
+                    texture.hasAlpha = false; // Force texture to be opaque
+
+                    if (data.uv_scale) {
+                        texture.uScale = data.uv_scale[0];
+                        texture.vScale = data.uv_scale[1];
+                    }
+                    if (data.uv_offset) {
+                        texture.uOffset = data.uv_offset[0];
+                        texture.vOffset = data.uv_offset[1];
+                    }
+                    if (data.flipbook_size) {
+                        const [cols, rows] = data.flipbook_size;
+                        const frame = data.flipbook_frame || 0;
+                        const col = Math.floor(frame % cols);
+                        const row = Math.floor(frame / cols);
+                        texture.uScale = 1 / cols;
+                        texture.vScale = 1 / rows;
+                        texture.uOffset = col / cols;
+                        texture.vOffset = 1 - (row + 1) / rows;
+                    }
+                    textureCache.set(matName, texture);
+                } catch (e) {
+                    console.error("Failed to decode base64 texture for:", matName, e);
+                }
+            }
+        } else if (isSkn && (meshData as SknMeshData).textures) {
+            const textures = (meshData as SknMeshData).textures!;
+            for (const [matName, base64Data] of Object.entries(textures)) {
+                try {
+                    const dataUrl = "data:image/png;base64," + base64Data;
+                    // Load texture with invertY = true to match V-flipped UV coordinates
+                    const texture = new Texture(dataUrl, scene, false, true);
+                    texture.wrapU = Texture.WRAP_ADDRESSMODE;
+                    texture.wrapV = Texture.WRAP_ADDRESSMODE;
+                    texture.hasAlpha = false; // Force texture to be opaque
+                    textureCache.set(matName, texture);
+                } catch (e) {
+                    console.error("Failed to decode base64 texture fallback for:", matName, e);
+                }
+            }
+        }
+
+        // 5. Apply materials with fuzzy matching
+        meshes.forEach(m => {
+            const matName = m.name;
+
+            let texture = textureCache.get(matName);
+            if (!texture && matName.startsWith("mesh_")) {
+                texture = textureCache.get(matName.substring(5));
+            }
+            if (!texture) {
+                texture = textureCache.get(`mesh_${matName}`);
+            }
+            if (!texture) {
+                const lower = matName.toLowerCase();
+                for (const [key, tex] of textureCache) {
+                    if (key.toLowerCase() === lower) {
+                        texture = tex;
+                        break;
+                    }
+                }
+            }
+
+            // ─────────────────────────────────────────────────────────────
+            // IMPORTANT: Use PBRMaterial with unlit=true — this is the ONLY
+            // correct way to render League SKN models in Babylon.js.
+            //
+            // WHY unlit=true MUST NEVER BE REMOVED:
+            //   Jade (the reference viewer) sets mat.unlit = true by default.
+            //   League models are authored for a flat / toon-shaded look. Any
+            //   lighting calculation applied on top of the albedo texture makes
+            //   the model look washed-out, darkened, or otherwise wrong.
+            //
+            //   PBR without unlit=true also uses normals for shading — and even
+            //   after ComputeNormals the per-vertex smoothed normals of a League
+            //   mesh don't look right under a PBR lighting model.
+            //
+            //   The "Customize Lighting" checkbox in the Environment panel only
+            //   controls the scene lights' intensities — it does NOT, and SHOULD
+            //   NOT, change unlit on these materials. DO NOT add shadingEnabled
+            //   or similar logic here. If you want a lit mode, gate it behind an
+            //   explicit user setting and keep unlit=true as the hard default.
+            // ─────────────────────────────────────────────────────────────
+            const mat = new PBRMaterial(matName + "_material", scene);
+            mat.unlit = true;              // ← MUST stay true. See warning above.
+            mat.backFaceCulling = true;
+            mat.twoSidedLighting = true;
+            mat.metallic = 0;
+            mat.roughness = 1;
+            mat.environmentIntensity = 0;  // kill env irradiance, not needed for unlit
+            mat.needDepthPrePass = false;
+            mat.wireframe = wireframe;
+
+            if (texture) {
+                texture.hasAlpha = false;
+                mat.albedoTexture = texture;
+                mat.albedoColor = new Color3(1, 1, 1);
+                mat.useAlphaFromAlbedoTexture = false;
+                mat.transparencyMode = Material.MATERIAL_OPAQUE;
+            } else {
+                mat.albedoColor = new Color3(1, 0, 1); // magenta — no texture found
+            }
+
+            m.material = mat;
+            m.setEnabled(visibleMaterials.has(matName));
+        });
+
+        // 6. Camera centering using bounding box
+        const [[minX, minY, minZ], [maxX, maxY, maxZ]] = meshData.bounding_box;
+        const center = new Vector3(
+            (minX + maxX) / 2,
+            (minY + maxY) / 2,
+            (minZ + maxZ) / 2
+        );
+        const size = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
+
+        camera.target = center;
+        camera.radius = size * 2;
+        camera.lowerRadiusLimit = size * 0.1;
+        camera.upperRadiusLimit = size * 10.0;
+        camera.panningSensibility = 8000 / camera.radius; // Dynamic panning sensibility based on model size
+        camera.alpha = Math.PI / 2 + Math.PI / 8; // Face front of model (tilted slightly like Jade)
+        camera.beta = Math.PI / 3;
+
+        // 7. Setup SkeletonViewer if active
+        if (showSkeleton && babylonSkeleton && meshes.length > 0) {
+            try {
+                const viewer = new SkeletonViewer(
+                    babylonSkeleton,
+                    meshes[0],
+                    scene,
+                    true,
+                    3,
+                    {
+                        displayMode: SkeletonViewer.DISPLAY_LINES,
+                    }
+                );
+                viewer.isEnabled = true;
+                skeletonViewerRef.current = viewer;
+            } catch (e) {
+                console.error("Failed to build skeleton viewer:", e);
+            }
+        }
+
+        return () => {
+            textureCache.forEach(tex => tex.dispose());
+        };
+    }, [scene, camera, meshData, skeletonData]);
 
     // Load animation when selection changes
     useEffect(() => {
         if (!selectedAnimation) {
             setAnimationData(null);
             setCurrentTime(0);
-            setCurrentPose(null);
+            animationPlayerRef.current = null;
             return;
         }
 
         const loadAnimation = async () => {
             try {
                 const animData = await api.readAnimation(selectedAnimation, filePath);
-                setAnimationData(animData);
+                setAnimationData(animData as any);
                 setCurrentTime(0);
-            } catch {
+
+                if (skeletonRef.current && builtSklRef.current) {
+                    const { boneIndexByHash, bones, joints } = builtSklRef.current;
+                    const player = new AnimationPlayer(
+                        animData as any,
+                        boneIndexByHash,
+                        bones,
+                        joints
+                    );
+                    player.paused = !isPlaying;
+                    animationPlayerRef.current = player;
+                    lastTimeRef.current = performance.now();
+                }
+            } catch (err) {
+                console.error("Failed to load animation:", err);
                 setAnimationData(null);
+                animationPlayerRef.current = null;
             }
         };
 
         loadAnimation();
     }, [selectedAnimation, filePath]);
 
-    // Animation playback loop
+    // Playback state synchronization
     useEffect(() => {
-        if (!isPlaying || !animationData) {
-            lastFrameTimeRef.current = 0;
-            return;
+        if (animationPlayerRef.current) {
+            animationPlayerRef.current.paused = !isPlaying;
+            if (isPlaying) {
+                lastTimeRef.current = performance.now();
+            }
+        }
+    }, [isPlaying]);
+
+    // Slider manual updates
+    const handleSliderChange = (val: number) => {
+        setCurrentTime(val);
+        if (animationPlayerRef.current) {
+            animationPlayerRef.current.time = val;
+            animationPlayerRef.current.tick(0); // force update pose on frame
+        }
+    };
+
+    // Floor mode toggles
+    useEffect(() => {
+        if (!scene) return;
+
+        if (gridMeshRef.current) {
+            gridMeshRef.current.dispose();
+            gridMeshRef.current = null;
+        }
+        if (floorMeshRef.current) {
+            if (floorMeshRef.current.material) {
+                floorMeshRef.current.material.dispose();
+            }
+            floorMeshRef.current.dispose();
+            floorMeshRef.current = null;
         }
 
-        const animate = (timestamp: number) => {
-            if (!lastFrameTimeRef.current) lastFrameTimeRef.current = timestamp;
-
-            const deltaTime = (timestamp - lastFrameTimeRef.current) / 1000;
-            lastFrameTimeRef.current = timestamp;
-
-            setCurrentTime(prev => {
-                const newTime = prev + deltaTime;
-                return newTime >= animationData.duration ? 0 : newTime;
-            });
-
-            animationRef.current = requestAnimationFrame(animate);
-        };
-
-        animationRef.current = requestAnimationFrame(animate);
-
-        return () => {
-            if (animationRef.current) {
-                cancelAnimationFrame(animationRef.current);
-                animationRef.current = null;
+        if (floorMode === 'grid') {
+            const gridLines: Vector3[][] = [];
+            const gridColors: Color4[][] = [];
+            const size = 1000;
+            const step = 20;
+            const color = new Color4(0.29, 0.29, 0.29, 1.0); // #4a4a4a
+            for (let i = -size; i <= size; i += step) {
+                gridLines.push([new Vector3(i, 0, -size), new Vector3(i, 0, size)]);
+                gridLines.push([new Vector3(-size, 0, i), new Vector3(size, 0, i)]);
+                gridColors.push([color, color], [color, color]);
             }
-        };
-    }, [isPlaying, animationData]);
+            gridMeshRef.current = CreateLineSystem("grid", { lines: gridLines, colors: gridColors, useVertexAlpha: false }, scene);
+            gridMeshRef.current.isPickable = false;
+        } else if (floorMode === 'textured') {
+            let isMounted = true;
+            let objectUrl: string | null = null;
 
-    // Evaluate animation at current time (throttled to avoid IPC spam)
-    const lastEvalTimeRef = useRef<number>(0);
-    const pendingEvalRef = useRef<number | null>(null);
+            const loadFloor = async () => {
+                try {
+                    const pngBytes = await api.getBundledFloorPng();
+                    if (!isMounted) return;
 
+                    const blob = new Blob([new Uint8Array(pngBytes)], { type: 'image/png' });
+                    objectUrl = URL.createObjectURL(blob);
+
+                    const ground = CreateGround("ground", { width: 1500, height: 1500 }, scene);
+                    ground.isPickable = false;
+                    const mat = new StandardMaterial("ground-mat", scene);
+                    const tex = new Texture(objectUrl, scene);
+                    mat.diffuseTexture = tex;
+                    mat.specularColor = new Color3(0, 0, 0);
+                    ground.material = mat;
+
+                    floorMeshRef.current = ground;
+                } catch (e) {
+                    console.error("Failed to load textured floor:", e);
+                }
+            };
+            loadFloor();
+            return () => {
+                isMounted = false;
+                if (objectUrl) URL.revokeObjectURL(objectUrl);
+            };
+        }
+    }, [scene, floorMode]);
+
+    // Ambient light controls
     useEffect(() => {
-        if (!selectedAnimation || !animationData) return;
+        if (!scene) return;
 
-        // Throttle: only evaluate every ~33ms (30fps) to avoid IPC overload
-        const now = performance.now();
-        const elapsed = now - lastEvalTimeRef.current;
+        const ambient = scene.getLightByName("ambient");
+        if (ambient) {
+            ambient.intensity = customizeLighting ? ambientIntensity : 1.2;
+        }
+    }, [scene, ambientIntensity, customizeLighting]);
 
-        if (elapsed < 33) {
-            // Schedule evaluation after remaining throttle time
-            if (pendingEvalRef.current) cancelAnimationFrame(pendingEvalRef.current);
-            pendingEvalRef.current = requestAnimationFrame(() => {
-                pendingEvalRef.current = null;
-                lastEvalTimeRef.current = performance.now();
-                api.evaluateAnimation(selectedAnimation, filePath, currentTime)
-                    .then(pose => setCurrentPose(pose))
-                    .catch(() => {});
-            });
-            return;
+    // Directional lights controls
+    useEffect(() => {
+        if (!scene) return;
+
+        const dir1 = scene.getLightByName("dirLight1");
+        const dir2 = scene.getLightByName("dirLight2");
+        const dir3 = scene.getLightByName("dirLight3");
+        if (dir1) dir1.intensity = customizeLighting ? directionalIntensity : 0.0;
+        if (dir2) dir2.intensity = customizeLighting ? directionalIntensity * 0.4 : 0.0;
+        if (dir3) dir3.intensity = customizeLighting ? directionalIntensity * 0.3 : 0.0;
+    }, [scene, directionalIntensity, customizeLighting]);
+
+    // Skybox / clearColor toggles
+    useEffect(() => {
+        if (!scene) return;
+
+        if (showSkybox) {
+            scene.clearColor = new Color4(0.53, 0.81, 0.92, 1.0); // Sky blue
+        } else {
+            scene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0); // Dark grey
+        }
+    }, [scene, showSkybox]);
+
+    // Wireframe updates
+    useEffect(() => {
+        activeMeshesRef.current.forEach(m => {
+            if (m.material) {
+                m.material.wireframe = wireframe;
+            }
+        });
+    }, [wireframe]);
+
+    // Visibility of meshes
+    useEffect(() => {
+        activeMeshesRef.current.forEach(m => {
+            m.setEnabled(visibleMaterials.has(m.name));
+        });
+    }, [visibleMaterials]);
+
+    // SkeletonViewer visibility toggle
+    useEffect(() => {
+        if (!scene) return;
+
+        if (skeletonViewerRef.current) {
+            skeletonViewerRef.current.dispose();
+            skeletonViewerRef.current = null;
         }
 
-        lastEvalTimeRef.current = now;
-        let cancelled = false;
-
-        api.evaluateAnimation(selectedAnimation, filePath, currentTime)
-            .then(pose => { if (!cancelled) setCurrentPose(pose); })
-            .catch(() => {});
-
-        return () => {
-            cancelled = true;
-            if (pendingEvalRef.current) {
-                cancelAnimationFrame(pendingEvalRef.current);
-                pendingEvalRef.current = null;
+        if (showSkeleton && skeletonRef.current && activeMeshesRef.current.length > 0) {
+            try {
+                const viewer = new SkeletonViewer(
+                    skeletonRef.current,
+                    activeMeshesRef.current[0],
+                    scene,
+                    true,
+                    3,
+                    {
+                        displayMode: SkeletonViewer.DISPLAY_LINES,
+                    }
+                );
+                viewer.isEnabled = true;
+                skeletonViewerRef.current = viewer;
+            } catch (e) {
+                console.error("Failed to update skeleton viewer state:", e);
             }
-        };
-    }, [selectedAnimation, currentTime, filePath, animationData]);
+        }
+    }, [scene, showSkeleton]);
 
-    // Close popup when clicking outside (MUST be before early returns to satisfy Rules of Hooks)
+    // Close popup when clicking outside
     useEffect(() => {
         if (!activePopup) return;
 
@@ -1105,7 +774,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [activePopup]);
 
-    // Persist settings to localStorage when they change
+    // Persist settings to localStorage
     useEffect(() => {
         const settings = {
             wireframe,
@@ -1114,11 +783,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             ambientIntensity,
             directionalIntensity,
             showSkeleton,
+            customizeLighting,
         };
         localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    }, [wireframe, showSkybox, floorMode, ambientIntensity, directionalIntensity, showSkeleton]);
+    }, [wireframe, showSkybox, floorMode, ambientIntensity, directionalIntensity, showSkeleton, customizeLighting]);
 
-    // Toggle material visibility
     const toggleMaterial = (name: string) => {
         setVisibleMaterials(prev => {
             const next = new Set(prev);
@@ -1131,13 +800,12 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         });
     };
 
-    // Toggle all materials
     const toggleAllMaterials = (visible: boolean) => {
         if (visible && meshData) {
-            if (isSknMeshData(meshData)) {
-                setVisibleMaterials(new Set(meshData.materials.map(m => m.name)));
+            if (meshData.kind === 'skn') {
+                setVisibleMaterials(new Set((meshData as SknMeshData).materials.map(m => m.name)));
             } else {
-                setVisibleMaterials(new Set(meshData.materials));
+                setVisibleMaterials(new Set((meshData as ScbMeshData).materials));
             }
         } else {
             setVisibleMaterials(new Set());
@@ -1212,96 +880,10 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
             {/* 3D Canvas */}
             <div className="model-preview__canvas">
-                <Canvas
-                    key={filePath} // Force unmount/remount on file change
-                    onCreated={({ gl, scene, invalidate }) => {
-                        const canvas = gl.domElement;
-                        canvasRef.current = canvas;
-
-                        const handleContextLost = (e: Event) => {
-                            e.preventDefault();
-                        };
-                        const handleContextRestored = () => {
-                            gl.clear();
-                            invalidate();
-                        };
-                        canvas.addEventListener('webglcontextlost', handleContextLost);
-                        canvas.addEventListener('webglcontextrestored', handleContextRestored);
-
-                        // Store cleanup on the canvas. On unmount we explicitly
-                        // dispose the renderer and all scene resources so the GPU
-                        // context is released synchronously — prevents "Context Lost"
-                        // when the next preview component mounts.
-                        (canvas as any)._flintCleanup = () => {
-                            canvas.removeEventListener('webglcontextlost', handleContextLost);
-                            canvas.removeEventListener('webglcontextrestored', handleContextRestored);
-
-                            // Traverse scene and dispose all GPU resources
-                            scene.traverse((obj) => {
-                                if (obj instanceof THREE.Mesh) {
-                                    obj.geometry?.dispose();
-                                    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-                                    mats.forEach((mat) => {
-                                        if (mat) {
-                                            Object.values(mat).forEach((val) => {
-                                                if (val instanceof THREE.Texture) val.dispose();
-                                            });
-                                            mat.dispose();
-                                        }
-                                    });
-                                }
-                            });
-
-                            gl.renderLists.dispose();
-                            gl.dispose();
-                        };
-                    }}
-                >
-                    <PerspectiveCamera makeDefault fov={50} position={[0, 0, 5]} />
-
-                    {/* Skybox - rendered as background */}
-                    {showSkybox && (
-                        <Sky
-                            distance={450000}
-                            sunPosition={[100, 20, 100]}
-                            inclination={0.6}
-                            azimuth={0.25}
-                            mieCoefficient={0.005}
-                            mieDirectionalG={0.8}
-                            rayleigh={0.5}
-                        />
-                    )}
-
-                    {/* Enhanced lighting setup - adjustable via controls */}
-                    <ambientLight intensity={ambientIntensity} />
-                    <directionalLight
-                        position={[10, 10, 10]}
-                        intensity={directionalIntensity}
-                        castShadow
-                        shadow-mapSize-width={1024}
-                        shadow-mapSize-height={1024}
-                    />
-                    <directionalLight position={[-10, -10, -10]} intensity={directionalIntensity * 0.4} />
-                    <directionalLight position={[0, 10, 0]} intensity={directionalIntensity * 0.3} />
-                    <hemisphereLight args={['#87ceeb', '#654321', 0.3]} />
-
-                    {/* Floor - Grid or Textured (at Y=0, model is offset to align feet) */}
-                    {floorMode === 'grid' && (
-                        <gridHelper args={[1000, 50, '#4a4a4a', '#3a3a3a']} position={[0, 0, 0]} />
-                    )}
-                    {floorMode === 'textured' && <TexturedFloor />}
-                    <MeshViewer
-                        meshData={meshData}
-                        visibleMaterials={visibleMaterials}
-                        wireframe={wireframe}
-                        skeletonData={skeletonData}
-                        animationPose={currentPose}
-                    />
-                    {showSkeleton && skeletonData && (
-                        <SkeletonViewer skeletonData={skeletonData} animationPose={currentPose} />
-                    )}
-                    <OrbitControls />
-                </Canvas>
+                <canvas
+                    ref={canvasRef}
+                    style={{ width: '100%', height: '100%', display: 'block', outline: 'none' }}
+                />
             </div>
 
             {/* Popup Panels */}
@@ -1363,37 +945,50 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                             </select>
                         </div>
 
-                        <div className="model-preview__slider">
-                            <label className="model-preview__slider-label">
-                                <span>Ambient Light</span>
-                                <span className="model-preview__slider-value">{ambientIntensity.toFixed(1)}</span>
-                            </label>
+                        <label className="model-preview__toggle" style={{ marginTop: '12px', marginBottom: '8px' }}>
                             <input
-                                type="range"
-                                min="0"
-                                max="2"
-                                step="0.1"
-                                value={ambientIntensity}
-                                onChange={(e) => setAmbientIntensity(parseFloat(e.target.value))}
-                                className="model-preview__slider-input"
+                                type="checkbox"
+                                checked={customizeLighting}
+                                onChange={(e) => setCustomizeLighting(e.target.checked)}
                             />
-                        </div>
+                            <span>Customize Lighting</span>
+                        </label>
 
-                        <div className="model-preview__slider">
-                            <label className="model-preview__slider-label">
-                                <span>Directional Light</span>
-                                <span className="model-preview__slider-value">{directionalIntensity.toFixed(1)}</span>
-                            </label>
-                            <input
-                                type="range"
-                                min="0"
-                                max="3"
-                                step="0.1"
-                                value={directionalIntensity}
-                                onChange={(e) => setDirectionalIntensity(parseFloat(e.target.value))}
-                                className="model-preview__slider-input"
-                            />
-                        </div>
+                        {customizeLighting && (
+                            <>
+                                <div className="model-preview__slider">
+                                    <label className="model-preview__slider-label">
+                                        <span>Ambient Light</span>
+                                        <span className="model-preview__slider-value">{ambientIntensity.toFixed(1)}</span>
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max="2"
+                                        step="0.1"
+                                        value={ambientIntensity}
+                                        onChange={(e) => setAmbientIntensity(parseFloat(e.target.value))}
+                                        className="model-preview__slider-input"
+                                    />
+                                </div>
+
+                                <div className="model-preview__slider">
+                                    <label className="model-preview__slider-label">
+                                        <span>Directional Light</span>
+                                        <span className="model-preview__slider-value">{directionalIntensity.toFixed(1)}</span>
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max="3"
+                                        step="0.1"
+                                        value={directionalIntensity}
+                                        onChange={(e) => setDirectionalIntensity(parseFloat(e.target.value))}
+                                        className="model-preview__slider-input"
+                                    />
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
             )}
@@ -1438,11 +1033,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                             {meshData.materials.map((mat, index) => {
                                 const matName = typeof mat === 'string' ? mat : mat.name;
                                 const hasTexture =
-                                    (isSknMeshData(meshData) && (
-                                        meshData.material_data?.[matName] ||
-                                        meshData.textures?.[matName]
+                                    (meshData.kind === 'skn' && (
+                                        (meshData as SknMeshData).material_data?.[matName] ||
+                                        (meshData as SknMeshData).textures?.[matName]
                                     )) ||
-                                    (!isSknMeshData(meshData) && (meshData as ScbMeshData).material_data?.[matName]);
+                                    (meshData.kind !== 'skn' && (meshData as ScbMeshData).material_data?.[matName]);
                                 const isVisible = visibleMaterials.has(matName);
                                 return (
                                     <label
@@ -1530,7 +1125,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                                     </button>
                                     <button
                                         className="model-preview__playback-btn"
-                                        onClick={() => { setIsPlaying(false); setCurrentTime(0); }}
+                                        onClick={() => { setIsPlaying(false); handleSliderChange(0); }}
                                         title="Stop"
                                     >
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1547,7 +1142,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                                             max={animationData.duration}
                                             step={0.001}
                                             value={currentTime}
-                                            onChange={(e) => setCurrentTime(parseFloat(e.target.value))}
+                                            onChange={(e) => handleSliderChange(parseFloat(e.target.value))}
                                             className="model-preview__timeline-slider"
                                         />
                                         <div className="model-preview__timeline-info">
@@ -1576,45 +1171,44 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         pointerEvents: 'none'
                     }}
                 >
-                            <div className="asset-preview-tooltip__header">
-                                {hoveredMaterial}
-                            </div>
-                            <div className="asset-preview-tooltip__content">
-                                {(() => {
-                                    // Get texture from material_data (works for both SKN and SCB)
-                                    const sknData = meshData as SknMeshData;
-                                    const scbData = meshData as ScbMeshData;
-                                    const textureData = sknData.material_data?.[hoveredMaterial]?.texture ||
-                                        scbData.material_data?.[hoveredMaterial]?.texture ||
-                                        sknData.textures?.[hoveredMaterial];
-                                    if (textureData) {
-                                        return (
-                                            <div className="asset-preview-tooltip__texture">
-                                                <img
-                                                    src={`data:image/png;base64,${textureData}`}
-                                                    alt={hoveredMaterial}
-                                                    style={{
-                                                        maxWidth: '180px',
-                                                        maxHeight: '160px',
-                                                        objectFit: 'contain',
-                                                        borderRadius: '4px',
-                                                        background: 'repeating-conic-gradient(var(--bg-tertiary) 0% 25%, var(--bg-primary) 0% 50%) 50% / 10px 10px'
-                                                    }}
-                                                />
-                                            </div>
-                                        );
-                                    } else {
-                                        return (
-                                            <div className="asset-preview-tooltip__error">
-                                                <span className="asset-preview-tooltip__error-icon">🎨</span>
-                                                <span>No texture loaded</span>
-                                            </div>
-                                        );
-                                    }
-                                })()}
-                            </div>
-                        </div>
-                    )}
+                    <div className="asset-preview-tooltip__header">
+                        {hoveredMaterial}
+                    </div>
+                    <div className="asset-preview-tooltip__content">
+                        {(() => {
+                            const sknData = meshData as SknMeshData;
+                            const scbData = meshData as ScbMeshData;
+                            const textureData = (meshData.kind === 'skn'
+                                ? sknData.material_data?.[hoveredMaterial]?.texture || sknData.textures?.[hoveredMaterial]
+                                : scbData.material_data?.[hoveredMaterial]?.texture);
+                            if (textureData) {
+                                return (
+                                    <div className="asset-preview-tooltip__texture">
+                                        <img
+                                            src={`data:image/png;base64,${textureData}`}
+                                            alt={hoveredMaterial}
+                                            style={{
+                                                maxWidth: '180px',
+                                                maxHeight: '160px',
+                                                objectFit: 'contain',
+                                                borderRadius: '4px',
+                                                background: 'repeating-conic-gradient(var(--bg-tertiary) 0% 25%, var(--bg-primary) 0% 50%) 50% / 10px 10px'
+                                            }}
+                                        />
+                                    </div>
+                                );
+                            } else {
+                                return (
+                                    <div className="asset-preview-tooltip__error">
+                                        <span className="asset-preview-tooltip__error-icon">🎨</span>
+                                        <span>No texture loaded</span>
+                                    </div>
+                                );
+                            }
+                        })()}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

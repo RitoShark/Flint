@@ -28,6 +28,7 @@ pub enum ProjectKind {
     Skin,
     Map,
     LoadingScreen,
+    Tft,
 }
 
 impl ProjectKind {
@@ -36,6 +37,7 @@ impl ProjectKind {
             ProjectKind::Skin => "skin",
             ProjectKind::Map => "map",
             ProjectKind::LoadingScreen => "loading-screen",
+            ProjectKind::Tft => "tft",
         }
     }
 }
@@ -256,6 +258,15 @@ impl Project {
         self
     }
 
+    /// Mark this project as a TFT project.
+    pub fn into_tft(mut self, wad_alias: impl Into<String>, skin_id: u32) -> Self {
+        self.kind = ProjectKind::Tft;
+        self.champion = wad_alias.into();
+        self.skin_id = skin_id;
+        self.map_id = None;
+        self
+    }
+
     /// Convert to ltk_mod_project::ModProject for export compatibility
     pub fn to_mod_project(&self) -> ModProject {
         ModProject {
@@ -276,8 +287,8 @@ impl Project {
         FlintMetadata {
             pid: self.pid.clone(),
             kind: self.kind,
-            champion: if matches!(self.kind, ProjectKind::Skin) { self.champion.clone() } else { String::new() },
-            skin_id: if matches!(self.kind, ProjectKind::Skin) { self.skin_id } else { 0 },
+            champion: if matches!(self.kind, ProjectKind::Skin) || matches!(self.kind, ProjectKind::Tft) { self.champion.clone() } else { String::new() },
+            skin_id: if matches!(self.kind, ProjectKind::Skin) || matches!(self.kind, ProjectKind::Tft) { self.skin_id } else { 0 },
             map_id: if matches!(self.kind, ProjectKind::Map) { self.map_id.clone() } else { None },
             league_path: self.league_path.clone(),
             created_at: self.created_at,
@@ -411,8 +422,8 @@ pub fn register_in_index(projects_root: &Path, project: &Project) -> Result<()> 
         display_name: project.display_name.clone(),
         name: project.name.clone(),
         kind: project.kind,
-        champion: if matches!(project.kind, ProjectKind::Skin) { project.champion.clone() } else { String::new() },
-        skin_id: if matches!(project.kind, ProjectKind::Skin) { project.skin_id } else { 0 },
+        champion: if matches!(project.kind, ProjectKind::Skin) || matches!(project.kind, ProjectKind::Tft) { project.champion.clone() } else { String::new() },
+        skin_id: if matches!(project.kind, ProjectKind::Skin) || matches!(project.kind, ProjectKind::Tft) { project.skin_id } else { 0 },
         map_id: if matches!(project.kind, ProjectKind::Map) { project.map_id.clone() } else { None },
         created_at: project.created_at,
         last_seen_at: now,

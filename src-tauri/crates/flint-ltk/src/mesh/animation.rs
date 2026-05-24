@@ -484,6 +484,97 @@ pub fn resolve_animation_path(base_dir: &Path, anim_path: &str) -> Option<PathBu
     None
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct BakedFrame {
+    pub translation: [f32; 3],
+    pub rotation: [f32; 4], // xyzw
+    pub scale: [f32; 3],
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BakedTrack {
+    pub joint_hash: u32,
+    pub frames: Vec<BakedFrame>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BakedAnimation {
+    pub duration: f32,
+    pub fps: f32,
+    pub frame_count: u32,
+    pub tracks: Vec<BakedTrack>,
+}
+
+/// Parse and bake an ANM file into a complete frame-by-frame animation object.
+pub fn bake_animation_file<P: AsRef<Path>>(path: P) -> anyhow::Result<BakedAnimation> {
+    let file = File::open(path.as_ref())?;
+    let mut reader = BufReader::new(file);
+
+    // Wrap in catch_unwind because ltk_anim may panic on unsupported formats
+    let asset = catch_unwind(AssertUnwindSafe(|| {
+        AnimationAsset::from_reader(&mut reader)
+    }))
+    .map_err(|panic| {
+        let msg = panic.downcast_ref::<&str>().map(|s| s.to_string())
+            .or_else(|| panic.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "Unknown panic in animation parser".to_string());
+        anyhow::anyhow!("Animation parser panicked: {}", msg)
+    })?
+    .map_err(|e| anyhow::anyhow!("Failed to parse ANM file: {:?}", e))?;
+
+    let duration = asset.duration();
+    let fps = asset.fps();
+    let joint_hashes = asset.joints();
+
+    // Calculate frame count
+    let frame_duration = if fps > 0.0 { 1.0 / fps } else { 0.0333 };
+    let frame_count = if duration > 0.0 && fps > 0.0 {
+        (duration * fps).round() as usize
+    } else {
+        1
+    };
+    let frame_count = frame_count.max(1);
+
+    // Initialize tracks for all joint hashes
+    let mut tracks_map: HashMap<u32, Vec<BakedFrame>> = HashMap::new();
+    for &hash in joint_hashes.iter() {
+        tracks_map.insert(hash, Vec::with_capacity(frame_count));
+    }
+
+    // Evaluate at each frame
+    for f in 0..frame_count {
+        let time = f as f32 * frame_duration;
+        let pose = asset.evaluate(time);
+
+        for (hash, (rot, trans, scale)) in pose {
+            if let Some(frames) = tracks_map.get_mut(&hash) {
+                // Apply the same X-mirror that skl.rs applies to skeleton joints
+                // (local_translation: [-x, y, z], local_rotation: [x, -y, -z, w]).
+                // Without this, animation frames are in raw League space while the
+                // skeleton bind pose is in mirrored space — causing deformation to
+                // twist/explode during playback.
+                frames.push(BakedFrame {
+                    translation: [-trans.x, trans.y, trans.z],
+                    rotation: [rot.x, -rot.y, -rot.z, rot.w],
+                    scale: [scale.x, scale.y, scale.z],
+                });
+            }
+        }
+    }
+
+    // Convert map to Vec of BakedTrack
+    let tracks = tracks_map.into_iter()
+        .map(|(joint_hash, frames)| BakedTrack { joint_hash, frames })
+        .collect();
+
+    Ok(BakedAnimation {
+        duration,
+        fps,
+        frame_count: frame_count as u32,
+        tracks,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -491,3 +582,4 @@ mod tests {
         // Test would require actual files
     }
 }
+
