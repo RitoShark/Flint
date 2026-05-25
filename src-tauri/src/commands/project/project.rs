@@ -1096,6 +1096,23 @@ pub async fn list_project_files(project_path: String) -> Result<serde_json::Valu
     Ok(tree)
 }
 
+/// Combined open + list-files. One IPC round-trip replacing the
+/// `open_project` + `list_project_files` sequence used in
+/// [FileTree.handleOpenProject] every time the user opens a project.
+#[derive(serde::Serialize)]
+pub struct OpenProjectWithTree {
+    pub project: Project,
+    pub file_tree: serde_json::Value,
+}
+
+#[tauri::command]
+pub async fn open_project_with_tree(path: String) -> Result<OpenProjectWithTree, String> {
+    let project = open_project(path).await?;
+    let project_path = project.project_path.to_string_lossy().to_string();
+    let file_tree = list_project_files(project_path).await?;
+    Ok(OpenProjectWithTree { project, file_tree })
+}
+
 /// Pre-convert all BIN files in a project to .ritobin format
 /// This enables instant loading when the user opens BIN files later
 ///

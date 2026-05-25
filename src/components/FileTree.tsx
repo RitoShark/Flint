@@ -563,7 +563,9 @@ const ProjectsPanel: React.FC = () => {
                 normalizedPath = normalizedPath.replace(/[\\/](mod\.config|flint|project)\.json$/, '');
             }
 
-            const project = await api.openProject(normalizedPath);
+            // One IPC call: open the project AND get its file tree back in
+            // the same round-trip.
+            const { project, fileTree: files } = await api.openProjectWithTree(normalizedPath);
 
             // Add tab + switch to preview
             useProjectTabStore.getState().addTab(project, normalizedPath);
@@ -580,7 +582,6 @@ const ProjectsPanel: React.FC = () => {
                 lastOpened: new Date().toISOString(),
             });
 
-            const files = await api.listProjectFiles(normalizedPath);
             const tabId = useProjectTabStore.getState().activeTabId;
             if (tabId) useProjectTabStore.getState().setFileTree(tabId, files);
 

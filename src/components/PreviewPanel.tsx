@@ -182,19 +182,22 @@ export const PreviewPanel: React.FC = () => {
             }
 
             try {
-                // Cheap dir check first — folders skip the file pipeline.
-                const isDir = await api.isDirectory(filePath);
+                // One IPC call: returns { is_directory, info? } — folders
+                // skip the file pipeline, files get their FileInfo back in
+                // the same round-trip.
+                const inspection = await api.inspectPath(filePath);
                 if (cancelled) return;
-                if (isDir) {
+                if (inspection.is_directory) {
                     setIsFolderSelection(true);
                     setLoading(false);
                     prevFileInfoRef.current = null;
                     return;
                 }
-                const info = await api.readFileInfo(filePath);
-                if (cancelled) return;
-                setFileInfo(info as unknown as FileInfo);
-                prevFileInfoRef.current = info as unknown as FileInfo;
+                if (!inspection.info) {
+                    throw new Error('File not found');
+                }
+                setFileInfo(inspection.info as unknown as FileInfo);
+                prevFileInfoRef.current = inspection.info as unknown as FileInfo;
             } catch (err) {
                 if (cancelled) return;
                 console.error('[PreviewPanel] Error:', err);

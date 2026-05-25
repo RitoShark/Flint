@@ -264,6 +264,7 @@ fn main() {
             commands::project::create_project,
             commands::project::create_loading_screen_project,
             commands::project::open_project,
+            commands::project::open_project_with_tree,
             commands::project::discover_projects,
             commands::project::forget_project,
             commands::project::save_project,
@@ -287,6 +288,7 @@ fn main() {
             // File commands (preview system)
             commands::file::read_file_bytes,
             commands::file::read_file_info,
+            commands::file::inspect_path,
             commands::file::decode_dds_to_png,
             commands::file::decode_bytes_to_png,
             commands::file::get_bundled_floor_png,
@@ -320,6 +322,7 @@ fn main() {
             commands::external_apps::detect_quartz_installation,
             commands::external_apps::launch_jade,
             commands::external_apps::launch_quartz,
+            commands::external_apps::detect_external_apps,
             // Export commands
             commands::export::repath_project_cmd,
             commands::export::export_fantome,
@@ -345,6 +348,7 @@ fn main() {
             commands::checkpoint::delete_checkpoint,
             commands::checkpoint::read_checkpoint_file,
             commands::checkpoint::get_file_changes,
+            commands::checkpoint::list_checkpoints_with_diffs,
             // Audio commands (BNK/WPK editor)
             commands::audio::parse_audio_bank,
             commands::audio::parse_audio_bank_bytes,

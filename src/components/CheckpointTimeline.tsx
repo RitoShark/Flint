@@ -66,19 +66,10 @@ export const CheckpointTimeline: React.FC = () => {
         if (!currentProjectPath) return;
         setIsLoading(true);
         try {
-            const list = await api.listCheckpoints(currentProjectPath);
+            // One IPC call returns the list + every adjacent diff. Diffs are
+            // computed in parallel on the Rust side via rayon.
+            const { checkpoints: list, diffs } = await api.listCheckpointsWithDiffs(currentProjectPath);
             setCheckpoints(list);
-
-            // Compute diffs for all checkpoints (for card summaries)
-            const diffs: Record<string, CheckpointDiff> = {};
-            for (let i = 0; i < list.length - 1; i++) {
-                try {
-                    const d = await api.compareCheckpoints(currentProjectPath, list[i + 1].id, list[i].id);
-                    diffs[list[i].id] = d;
-                } catch {
-                    // Skip failed comparisons
-                }
-            }
             setDiffCache(diffs);
         } catch (err) {
             console.error('Failed to load checkpoints:', err);

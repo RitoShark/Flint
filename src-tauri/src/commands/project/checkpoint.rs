@@ -1,4 +1,6 @@
 use flint_ltk::checkpoint::{Checkpoint, CheckpointDiff, CheckpointFileContent, CheckpointManager, CheckpointProgress};
+use rayon::prelude::*;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter};
@@ -77,4 +79,47 @@ pub async fn get_file_changes(project_path: String) -> Result<HashMap<String, St
     let path = PathBuf::from(project_path);
     let manager = CheckpointManager::new(path);
     manager.get_file_changes().map_err(|e| e.to_string())
+}
+
+/// Result of `list_checkpoints_with_diffs` — the checkpoint list plus
+/// per-pair diffs, keyed by the *newer* checkpoint's id (matches the
+/// existing JS pattern `diffs[list[i].id] = compare(list[i+1], list[i])`).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckpointsWithDiffs {
+    pub checkpoints: Vec<Checkpoint>,
+    pub diffs: HashMap<String, CheckpointDiff>,
+}
+
+/// One round-trip replacement for the
+/// `list_checkpoints` + N×`compare_checkpoints` loop in
+/// [CheckpointTimeline.tsx]. Diffs are computed in parallel via rayon.
+#[tauri::command]
+pub async fn list_checkpoints_with_diffs(
+    project_path: String,
+) -> Result<CheckpointsWithDiffs, String> {
+    let path = PathBuf::from(&project_path);
+    let manager = CheckpointManager::new(path);
+    let checkpoints = manager.list_checkpoints().map_err(|e| e.to_string())?;
+
+    // Build (newer_id, older_id) pairs in newest-first order. Skip the last
+    // entry — it has no predecessor to diff against.
+    let pairs: Vec<(String, String)> = checkpoints
+        .windows(2)
+        .map(|w| (w[0].id.clone(), w[1].id.clone()))
+        .collect();
+
+    let diffs: HashMap<String, CheckpointDiff> = pairs
+        .into_par_iter()
+        .filter_map(|(newer, older)| {
+            // Each rayon thread gets its own manager — CheckpointManager
+            // holds no shared cross-thread state we care about here.
+            let m = CheckpointManager::new(PathBuf::from(&project_path));
+            m.compare_checkpoints(&older, &newer)
+                .ok()
+                .map(|diff| (newer, diff))
+        })
+        .collect();
+
+    Ok(CheckpointsWithDiffs { checkpoints, diffs })
 }

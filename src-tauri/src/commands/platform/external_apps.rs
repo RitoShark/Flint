@@ -241,3 +241,37 @@ pub async fn launch_quartz(file_path: String, quartz_path: String) -> Result<(),
 
     Ok(())
 }
+
+/// Combined detection of every external app Flint knows how to integrate
+/// with. Each field is the detected install/storage path, or None when the
+/// app isn't found. All four probes run concurrently on the Rust side so
+/// the IPC overhead is a single round-trip instead of four.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExternalAppsDetection {
+    pub jade: Option<String>,
+    pub quartz: Option<String>,
+    pub ltk_manager: Option<String>,
+    pub celestial: Option<String>,
+}
+
+#[tauri::command]
+pub async fn detect_external_apps(app: tauri::AppHandle) -> ExternalAppsDetection {
+    use crate::commands::ltk_manager::{get_ltk_manager_mod_path, get_celestial_mod_path};
+
+    // tokio::join! runs all four concurrently. Each individual probe handles
+    // its own errors and returns `None` on failure, so the merged response
+    // never fails as a whole.
+    let (jade, quartz, ltk, celestial) = tokio::join!(
+        detect_jade_installation(),
+        detect_quartz_installation(),
+        get_ltk_manager_mod_path(app.clone()),
+        get_celestial_mod_path(app),
+    );
+
+    ExternalAppsDetection {
+        jade: jade.ok().flatten(),
+        quartz: quartz.ok().flatten(),
+        ltk_manager: ltk.ok().flatten(),
+        celestial: celestial.ok().flatten(),
+    }
+}

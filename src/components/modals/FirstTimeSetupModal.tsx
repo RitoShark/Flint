@@ -154,21 +154,22 @@ export const FirstTimeSetupModal: React.FC = () => {
                 failures.push('PBE');
             }
 
-            // 3) Launchers — both LTK Manager and Celestial in parallel
-            const [ltkRes, celRes] = await Promise.allSettled([
-                api.getLtkManagerModPath(),
-                api.getCelestialModPath(),
-            ]);
-            const ltkFound = ltkRes.status === 'fulfilled' && ltkRes.value;
-            const celFound = celRes.status === 'fulfilled' && celRes.value;
+            // 3) Launchers — single IPC call probes both in parallel on the
+            //    Rust side (and also fills jade/quartz which the modal
+            //    surfaces elsewhere).
+            const ext = await api.detectExternalApps().catch(() => ({
+                jade: null, quartz: null, ltk_manager: null, celestial: null,
+            }));
+            const ltkFound = ext.ltk_manager;
+            const celFound = ext.celestial;
             if (ltkFound) {
-                setLtkPath(ltkRes.value as string);
+                setLtkPath(ltkFound);
                 results.push('LTK Manager');
             } else {
                 failures.push('LTK Manager');
             }
             if (celFound) {
-                setCelestialPath(celRes.value as string);
+                setCelestialPath(celFound);
                 results.push('Celestial');
             }
             // Pick a default launcher: prefer the existing choice; else first one we found.

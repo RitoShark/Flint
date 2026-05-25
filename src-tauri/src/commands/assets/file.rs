@@ -11,7 +11,7 @@ use std::process::Command;
 use crate::core::ipc_trace;
 
 /// Bundled floor texture from MindCorpViewer (PNG)
-static FLOOR_PNG: &[u8] = include_bytes!("../../resources/floor.png");
+static FLOOR_PNG: &[u8] = include_bytes!("../../../resources/floor.png");
 
 /// Information about a file
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -263,14 +263,16 @@ pub async fn read_file_info(path: String) -> Result<FileInfo, String> {
         return Err(format!("File not found: {}", path));
     }
 
-    let metadata = fs::metadata(&path_buf).map_err(|e| format!("Failed to read metadata: {}", e))?;
+    read_file_info_inner(path, &path_buf)
+}
 
-    // Read first few bytes for magic detection
-    let data = fs::read(&path_buf).map_err(|e| format!("Failed to read file: {}", e))?;
+/// Shared file-info reader — extracted so `inspect_path` can reuse it.
+fn read_file_info_inner(path: String, path_buf: &std::path::Path) -> Result<FileInfo, String> {
+    let metadata = fs::metadata(path_buf).map_err(|e| format!("Failed to read metadata: {}", e))?;
+    let data = fs::read(path_buf).map_err(|e| format!("Failed to read file: {}", e))?;
 
-    let (file_type, extension) = detect_file_type(&path_buf, &data);
+    let (file_type, extension) = detect_file_type(path_buf, &data);
 
-    // Try to get dimensions for texture files (DDS and TEX)
     let dimensions = if file_type == "image/dds" || file_type == "image/tex" {
         parse_texture_dimensions(&data).ok()
     } else {
@@ -284,6 +286,31 @@ pub async fn read_file_info(path: String) -> Result<FileInfo, String> {
         extension,
         dimensions,
     })
+}
+
+/// Combined "is this a directory, and if not what's the file info" — single
+/// IPC round-trip replacing the `is_directory` + `read_file_info` sequence in
+/// [PreviewPanel.tsx]. `info` is None for directories or missing paths.
+#[derive(Debug, Clone, Serialize)]
+pub struct PathInspection {
+    pub is_directory: bool,
+    pub info: Option<FileInfo>,
+}
+
+#[tauri::command]
+pub async fn inspect_path(path: String) -> PathInspection {
+    let _t = ipc_trace::enter("inspect_path");
+    let path_buf = std::path::PathBuf::from(&path);
+
+    if path_buf.is_dir() {
+        return PathInspection { is_directory: true, info: None };
+    }
+    if !path_buf.exists() {
+        return PathInspection { is_directory: false, info: None };
+    }
+
+    let info = read_file_info_inner(path, &path_buf).ok();
+    PathInspection { is_directory: false, info }
 }
 
 /// Parse texture dimensions using ltk_texture (handles both DDS and TEX)
@@ -1345,7 +1372,7 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> std::io::Result<()> {
 /// PNG doesn't get JSON-encoded.
 #[tauri::command]
 pub fn get_bundled_floor_png() -> tauri::ipc::Response {
-    if let Ok(home) = super::settings::get_flint_home() {
+    if let Ok(home) = crate::commands::settings::get_flint_home() {
         let custom = home.join("themes").join("floor.png");
         if custom.exists() {
             if let Ok(bytes) = std::fs::read(&custom) {
