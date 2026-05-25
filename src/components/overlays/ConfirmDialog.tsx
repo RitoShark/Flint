@@ -5,8 +5,8 @@
  */
 
 import React, { useEffect, useRef } from 'react';
-import { useModalStore } from '../lib/stores';
-import { Button } from './ui';
+import { useModalStore } from '../../lib/stores';
+import { Button } from '../ui';
 
 const DangerIcon = () => (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none">

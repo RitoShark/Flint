@@ -3,8 +3,8 @@
  */
 
 import React from 'react';
-import { useNotificationStore } from '../lib/stores';
-import { getToastIcon } from '../lib/fileIcons';
+import { useNotificationStore } from '../../lib/stores';
+import { getToastIcon } from '../../lib/ui-helpers/fileIcons';
 
 const ToastIcon: React.FC<{ type: string }> = ({ type }) => {
     const iconHtml = getToastIcon(type as 'info' | 'success' | 'warning' | 'error');

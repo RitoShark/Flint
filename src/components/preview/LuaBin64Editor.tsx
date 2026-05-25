@@ -10,7 +10,7 @@ import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
 import { useAppState, useAppMetadataStore, useFileEditorStore } from '../../lib/stores';
 import * as api from '../../lib/api';
-import { getIcon } from '../../lib/fileIcons';
+import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { AssetPreviewTooltip } from './AssetPreviewTooltip';
 
 const LUABIN64_THEME_ID = 'luabin64-theme';

@@ -4,10 +4,10 @@
  */
 
 import React, { useCallback } from 'react';
-import { useProjectTabStore, useNavigationStore, useWadExplorerStore, useWadExtractStore } from '../lib/stores';
-import { navigationCoordinator } from '../lib/stores/navigationCoordinator';
-import { getIcon } from '../lib/fileIcons';
-import type { ProjectTab, ExtractSession } from '../lib/types';
+import { useProjectTabStore, useNavigationStore, useWadExplorerStore, useWadExtractStore } from '../../lib/stores';
+import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
+import { getIcon } from '../../lib/ui-helpers/fileIcons';
+import type { ProjectTab, ExtractSession } from '../../lib/types';
 
 /**
  * Individual tab component

@@ -3,43 +3,43 @@
  */
 
 import React, { useEffect, useCallback, useRef, useState } from 'react';
-import { useAppState, useAppMetadataStore, useConfigStore } from '../lib/stores';
-import { useNavigationStore } from '../lib/stores/navigationStore';
-import { navigationCoordinator } from '../lib/stores/navigationCoordinator';
-import { initShortcuts, registerShortcut } from '../lib/utils';
-import * as api from '../lib/api';
-import * as updater from '../lib/updater';
+import { useAppState, useAppMetadataStore, useConfigStore } from '../../lib/stores';
+import { useNavigationStore } from '../../lib/stores/navigationStore';
+import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
+import { initShortcuts, registerShortcut } from '../../lib/util/utils';
+import * as api from '../../lib/api';
+import * as updater from '../../lib/util/updater';
 import { listen } from '@tauri-apps/api/event';
-import { invalidateCachedImage } from '../lib/imageCache';
-import { isSidecarFile } from '../lib/sidecarFiles';
+import { invalidateCachedImage } from '../../lib/ui-helpers/imageCache';
+import { isSidecarFile } from '../../lib/editor/sidecarFiles';
 
 import { TitleBar } from './TitleBar';
-import { LeftPanel } from './FileTree';
-import { WadExplorer } from './WadExplorer';
+import { LeftPanel } from '../browser/FileTree';
+import { WadExplorer } from '../browser/WadExplorer';
 import { CenterPanel } from './CenterPanel';
 import { StatusBar } from './StatusBar';
-import { ContextMenu } from './ContextMenu';
-import { ConfirmDialog } from './ConfirmDialog';
-import { NewProjectModal } from './modals/NewProjectModal';
-import { SettingsModal } from './modals/SettingsModal';
-import { ExportModal } from './modals/ExportModal';
-import { FirstTimeSetupModal } from './modals/FirstTimeSetupModal';
-import { UpdateModal } from './modals/UpdateModal';
-import { RecolorModal } from './modals/RecolorModal';
-import { FixerModal } from './modals/FixerModal';
-import { ProjectListModal } from './modals/ProjectListModal';
-import { ModConfigEditorModal } from './modals/ModConfigEditorModal';
-import { ThumbnailCropModal } from './modals/ThumbnailCropModal';
-import { CheckpointModal } from './modals/CheckpointModal';
-import { BinSplitModal } from './modals/BinSplitModal';
-import { FullResImageModal } from './modals/FullResImageModal';
-import { BrowseWadModal } from './modals/BrowseWadModal';
-import { FileCompareModal } from './modals/FileCompareModal';
-import { AddLayerModal } from './modals/AddLayerModal';
-import { ChromaPortModal } from './modals/ChromaPortModal';
-import { ToastContainer } from './Toast';
-import { TutorialOverlay, isOnboardingDone, TUTORIAL_REPLAY_EVENT } from './TutorialOverlay';
-import { TooltipProvider } from './TooltipProvider';
+import { ContextMenu } from '../overlays/ContextMenu';
+import { ConfirmDialog } from '../overlays/ConfirmDialog';
+import { NewProjectModal } from '../modals/NewProjectModal';
+import { SettingsModal } from '../modals/SettingsModal';
+import { ExportModal } from '../modals/ExportModal';
+import { FirstTimeSetupModal } from '../modals/FirstTimeSetupModal';
+import { UpdateModal } from '../modals/UpdateModal';
+import { RecolorModal } from '../modals/RecolorModal';
+import { FixerModal } from '../modals/FixerModal';
+import { ProjectListModal } from '../modals/ProjectListModal';
+import { ModConfigEditorModal } from '../modals/ModConfigEditorModal';
+import { ThumbnailCropModal } from '../modals/ThumbnailCropModal';
+import { CheckpointModal } from '../modals/CheckpointModal';
+import { BinSplitModal } from '../modals/BinSplitModal';
+import { FullResImageModal } from '../modals/FullResImageModal';
+import { BrowseWadModal } from '../modals/BrowseWadModal';
+import { FileCompareModal } from '../modals/FileCompareModal';
+import { AddLayerModal } from '../modals/AddLayerModal';
+import { ChromaPortModal } from '../modals/ChromaPortModal';
+import { ToastContainer } from '../overlays/Toast';
+import { TutorialOverlay, isOnboardingDone, TUTORIAL_REPLAY_EVENT } from '../overlays/TutorialOverlay';
+import { TooltipProvider } from '../overlays/TooltipProvider';
 
 // Helper to get active tab from state
 function getActiveTab(state: { activeTabId: string | null; openTabs: Array<{ id: string; project: any; projectPath: string; selectedFile: string | null }> }) {

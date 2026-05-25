@@ -4,7 +4,7 @@
  * This is initialized BEFORE React mounts to capture early logs
  */
 
-import type { LogEntry } from './types';
+import type { LogEntry } from '../types';
 
 // Direct import of the store - no dispatcher pattern needed
 let addLogBatchToStore: ((entries: Array<{ level: LogEntry['level']; message: string }>) => void) | null = null;

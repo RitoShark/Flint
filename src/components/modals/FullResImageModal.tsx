@@ -12,7 +12,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useAppState } from '../../lib/stores';
 import * as api from '../../lib/api';
-import { getCachedImage, cacheImage } from '../../lib/imageCache';
+import { getCachedImage, cacheImage } from '../../lib/ui-helpers/imageCache';
 import { Button, Modal, ModalHeader } from '../ui';
 
 interface FullResImageOptions {

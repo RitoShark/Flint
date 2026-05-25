@@ -5,11 +5,11 @@
  */
 
 import React, { useMemo, useCallback, useState } from 'react';
-import { useAppState, useModalStore, useWadExtractStore } from '../lib/stores';
-import * as api from '../lib/api';
+import { useAppState, useModalStore, useWadExtractStore } from '../../lib/stores';
+import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
-import { getIcon, getFileIcon } from '../lib/fileIcons';
-import type { WadChunk } from '../lib/types';
+import { getIcon, getFileIcon } from '../../lib/ui-helpers/fileIcons';
+import type { WadChunk } from '../../lib/types';
 
 // =============================================================================
 // Virtual Tree Types (used for traversing internal folders)

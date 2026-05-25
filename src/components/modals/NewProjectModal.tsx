@@ -12,10 +12,10 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppState, useConfigStore } from '../../lib/stores';
 import * as api from '../../lib/api';
-import * as datadragon from '../../lib/datadragon';
-import * as tftApi from '../../lib/tftApi';
-import { getChromaImageUrl } from '../../lib/datadragon';
-import type { DDragonChampion, DDragonSkin, DDragonChroma } from '../../lib/datadragon';
+import * as datadragon from '../../lib/data/datadragon';
+import * as tftApi from '../../lib/data/tftApi';
+import { getChromaImageUrl } from '../../lib/data/datadragon';
+import type { DDragonChampion, DDragonSkin, DDragonChroma } from '../../lib/data/datadragon';
 import type { Project } from '../../lib/types';
 import {
     calculateBudget,
@@ -23,63 +23,13 @@ import {
     generateSpritesheet,
     type VideoMeta,
     type BudgetResult,
-} from '../../lib/spritesheet';
-import { Button, Icon, Input, Picker } from '../ui';
+} from '../../lib/data/spritesheet';
+import { Button, Icon, Picker } from '../ui';
 
-// Deflate compression using browser-native CompressionStream.
-// IMPORTANT: use 'deflate-raw' (RFC 1951, no header/trailer), NOT 'deflate'
-// (which outputs zlib format / RFC 1950 with a 2-byte header + Adler-32).
-// Rust's flate2::read::DeflateDecoder expects raw deflate.
-async function compressDeflate(data: Uint8Array): Promise<Uint8Array> {
-    const stream = new Response(data as any).body!
-        .pipeThrough(new CompressionStream('deflate-raw'));
-    const compressedBuffer = await new Response(stream).arrayBuffer();
-    return new Uint8Array(compressedBuffer);
-}
-
-// ─── Local helpers ───────────────────────────────────────────────────────────
-
-/** Project name + folder location row, shared across all project types. */
-const NameAndPathRow: React.FC<{
-    namePlaceholder: string;
-    name: string;
-    onNameChange: (v: string) => void;
-    path: string;
-    onPathChange: (v: string) => void;
-    onBrowse: () => void;
-}> = ({ namePlaceholder, name, onNameChange, path, onPathChange, onBrowse }) => (
-    <div className="np-fields-row">
-        <div className="np-field np-field--grow">
-            <label className="np-label">Project Name</label>
-            <Input
-                placeholder={namePlaceholder}
-                value={name}
-                onChange={(e) => onNameChange(e.target.value)}
-            />
-        </div>
-        <div className="np-field np-field--grow">
-            <label className="np-label">Location</label>
-            <Input
-                placeholder="Select folder…"
-                value={path}
-                onChange={(e) => onPathChange(e.target.value)}
-                buttonLabel="Browse"
-                onButtonClick={onBrowse}
-            />
-        </div>
-    </div>
-);
-
-type ProjectType = 'skin' | 'loading-screen' | 'map' | 'tft';
-
-const SCALE_OPTIONS = [
-    { label: '100%', value: 1.0 },
-    { label: '75%', value: 0.75 },
-    { label: '50%', value: 0.5 },
-    { label: '25%', value: 0.25 },
-];
-
-const FPS_OPTIONS = [15, 24, 30, 60];
+// Extracted small subcomponents and helpers - see ./new-project/ folder.
+import { compressDeflate, type ProjectType, SCALE_OPTIONS, FPS_OPTIONS } from './new-project/helpers';
+import { NameAndPathRow } from './new-project/NameAndPathRow';
+import { ChromaPreviewPopup } from './new-project/ChromaPreviewPopup';
 
 export const NewProjectModal: React.FC = () => {
     const { state, dispatch, closeModal, showToast, setWorking, setReady } = useAppState();
@@ -2125,36 +2075,3 @@ export const NewProjectModal: React.FC = () => {
  * Renders a 160px chroma image, name, and two colour chips. Positioned
  * above the dot by default, flips below if there isn't room.
  * ────────────────────────────────────────────────────────────────────────── */
-interface ChromaPreviewData {
-    url: string;
-    name: string;
-    c1: string;
-    c2?: string;
-    anchorX: number;
-    anchorY: number;
-}
-const ChromaPreviewPopup: React.FC<{ data: ChromaPreviewData }> = ({ data }) => {
-    const W = 200;
-    const H = 244;
-    const GAP = 12;
-    const vpW = window.innerWidth;
-    const vpH = window.innerHeight;
-    let left = Math.round(data.anchorX - W / 2);
-    left = Math.max(8, Math.min(vpW - W - 8, left));
-    const above = data.anchorY - GAP - H;
-    const top = above >= 8 ? above : Math.min(vpH - H - 8, data.anchorY + 36 + GAP);
-    return (
-        <div className="np-chroma-preview" style={{ left, top, width: W }}>
-            <div className="np-chroma-preview__img-wrap">
-                <img src={data.url} alt={data.name} draggable={false} />
-            </div>
-            <div className="np-chroma-preview__meta">
-                <div className="np-chroma-preview__name">{data.name}</div>
-                <div className="np-chroma-preview__swatches">
-                    <span className="np-chroma-preview__chip" style={{ background: data.c1 }} />
-                    {data.c2 && <span className="np-chroma-preview__chip" style={{ background: data.c2 }} />}
-                </div>
-            </div>
-        </div>
-    );
-};

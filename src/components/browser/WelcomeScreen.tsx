@@ -3,11 +3,11 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useAppState } from '../lib/stores';
-import { formatRelativeTime } from '../lib/utils';
-import * as api from '../lib/api';
-import { getIcon } from '../lib/fileIcons';
-import type { RecentProject } from '../lib/types';
+import { useAppState } from '../../lib/stores';
+import { formatRelativeTime } from '../../lib/util/utils';
+import * as api from '../../lib/api';
+import { getIcon } from '../../lib/ui-helpers/fileIcons';
+import type { RecentProject } from '../../lib/types';
 
 /**
  * Clock icon for recent projects

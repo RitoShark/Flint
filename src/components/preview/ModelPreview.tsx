@@ -22,7 +22,7 @@ import { SkeletonViewer } from '@babylonjs/core/Debug/skeletonViewer';
 
 import * as api from '../../lib/api';
 import { useAppMetadataStore } from '../../lib/stores';
-import { getIcon } from '../../lib/fileIcons';
+import { getIcon } from '../../lib/ui-helpers/fileIcons';
 
 // Import our custom Babylon wrappers
 import { createEngine } from '../../lib/babylon/engine';

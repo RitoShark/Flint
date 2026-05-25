@@ -10,8 +10,8 @@
  */
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useModalStore } from '../lib/stores';
-import type { ContextMenuOption } from '../lib/types';
+import { useModalStore } from '../../lib/stores';
+import type { ContextMenuOption } from '../../lib/types';
 
 /** Width is approximate — the panel snaps to its content but we need a guess
  *  for off-screen flipping before measure happens. */

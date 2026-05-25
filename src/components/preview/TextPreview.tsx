@@ -9,7 +9,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
 import * as api from '../../lib/api';
-import { getIcon } from '../../lib/fileIcons';
+import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { useAppMetadataStore } from '../../lib/stores';
 
 // Configure Monaco workers — wrap in try-catch so a broken worker doesn't

@@ -5,11 +5,11 @@
 import React, { useCallback, useState, useMemo, useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { save } from '@tauri-apps/plugin-dialog';
-import { useAppState } from '../lib/stores';
-import { getIcon } from '../lib/fileIcons';
-import * as api from '../lib/api';
-import { sanitizeChampionName } from '../lib/utils';
-import type { ProjectTab, ExtractSession } from '../lib/types';
+import { useAppState } from '../../lib/stores';
+import { getIcon } from '../../lib/ui-helpers/fileIcons';
+import * as api from '../../lib/api';
+import { sanitizeChampionName } from '../../lib/util/utils';
+import type { ProjectTab, ExtractSession } from '../../lib/types';
 
 // Window control icons as inline SVGs
 const MinimizeIcon: React.FC = () => (

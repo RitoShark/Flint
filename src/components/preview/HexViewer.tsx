@@ -4,7 +4,7 @@
 
 import React, { useState, useEffect } from 'react';
 import * as api from '../../lib/api';
-import { getIcon } from '../../lib/fileIcons';
+import { getIcon } from '../../lib/ui-helpers/fileIcons';
 
 interface HexViewerProps {
     filePath: string;

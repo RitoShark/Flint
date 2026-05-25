@@ -3,8 +3,8 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useAppState } from '../lib/stores';
-import type { ModalType } from '../lib/types';
+import { useAppState } from '../../lib/stores';
+import type { ModalType } from '../../lib/types';
 
 const ONBOARDING_KEY = 'flint_onboarding_done';
 export function isOnboardingDone(): boolean { return localStorage.getItem(ONBOARDING_KEY) === 'true'; }

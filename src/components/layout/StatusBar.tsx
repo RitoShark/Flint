@@ -8,9 +8,9 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useAppMetadataStore, useNotificationStore } from '../lib/stores';
-import { setLogStore } from '../lib/logger';
-import { Button, Icon } from './ui';
+import { useAppMetadataStore, useNotificationStore } from '../../lib/stores';
+import { setLogStore } from '../../lib/util/logger';
+import { Button, Icon } from '../ui';
 
 type LogLevel = 'info' | 'warning' | 'error';
 type FilterLevel = 'all' | LogLevel;

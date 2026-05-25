@@ -17,17 +17,17 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import * as api from '../lib/api';
+import * as api from '../../lib/api';
 import {
     useFileEditorStore,
     useNavigationStore,
     useNotificationStore,
     useModalStore,
-} from '../lib/stores';
-import type { FileEditorTarget } from '../lib/types';
-import { BinEditor } from './preview/BinEditor';
-import { LuaBin64Editor } from './preview/LuaBin64Editor';
-import { Button, Field, FormGroup, FormLabel, Input, Textarea } from './ui';
+} from '../../lib/stores';
+import type { FileEditorTarget } from '../../lib/types';
+import { BinEditor } from '../preview/BinEditor';
+import { LuaBin64Editor } from '../preview/LuaBin64Editor';
+import { Button, Field, FormGroup, FormLabel, Input, Textarea } from '../ui';
 
 // ─── mod.config.json structured editor ──────────────────────────────────
 

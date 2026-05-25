@@ -4,11 +4,11 @@
 
 import React, { useState, useMemo, useCallback, useRef, useEffect, CSSProperties } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { useAppMetadataStore, useProjectTabStore, useModalStore, useNotificationStore, useConfigStore, useNavigationStore } from '../lib/stores';
-import { getFileIcon, getExpanderIcon, getIcon } from '../lib/fileIcons';
-import * as api from '../lib/api';
-import { buildFileContextMenuOptions } from '../lib/fileContextMenuOptions';
-import type { FileTreeNode, ProjectTab } from '../lib/types';
+import { useAppMetadataStore, useProjectTabStore, useModalStore, useNotificationStore, useConfigStore, useNavigationStore } from '../../lib/stores';
+import { getFileIcon, getExpanderIcon, getIcon } from '../../lib/ui-helpers/fileIcons';
+import * as api from '../../lib/api';
+import { buildFileContextMenuOptions } from '../../lib/editor/fileContextMenuOptions';
+import type { FileTreeNode, ProjectTab } from '../../lib/types';
 
 // Helper to get active tab from projectTabStore state
 function getActiveTab(activeTabId: string | null, openTabs: ProjectTab[]): ProjectTab | null {

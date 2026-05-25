@@ -17,14 +17,14 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useAppState, useConfigStore } from '../lib/stores';
-import * as api from '../lib/api';
+import { useAppState, useConfigStore } from '../../lib/stores';
+import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
-import { getIcon } from '../lib/fileIcons';
+import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import * as monaco from 'monaco-editor';
-import { RITOBIN_LANGUAGE_ID, RITOBIN_THEME_ID, registerRitobinLanguage, registerRitobinTheme } from '../lib/ritobinLanguage';
-import { Dropdown } from './ui/Dropdown';
-import LazyModelPreview from './preview/LazyModelPreview';
+import { RITOBIN_LANGUAGE_ID, RITOBIN_THEME_ID, registerRitobinLanguage, registerRitobinTheme } from '../../lib/editor/ritobinLanguage';
+import { Dropdown } from '../ui/Dropdown';
+import LazyModelPreview from '../preview/LazyModelPreview';
 
 // =============================================================================
 // File-type detection from magic bytes + path hint

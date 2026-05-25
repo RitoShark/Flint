@@ -4,10 +4,10 @@
  * both places.
  */
 
-import * as api from './api';
-import { getIcon } from './fileIcons';
-import { useNavigationStore } from './stores/navigationStore';
-import type { ContextMenuOption, ModalType } from './types';
+import * as api from '../api';
+import { getIcon } from '../ui-helpers/fileIcons';
+import { useNavigationStore } from '../stores/navigationStore';
+import type { ContextMenuOption, ModalType } from '../types';
 
 interface BuildOptionsArgs {
     /** The node being right-clicked. */

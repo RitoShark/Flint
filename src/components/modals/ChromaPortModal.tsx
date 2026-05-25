@@ -30,8 +30,8 @@ import {
     fetchChampionSkins,
     getChromaImageUrl,
     resolveCDragonAsset,
-} from '../../lib/datadragon';
-import type { DDragonChroma } from '../../lib/datadragon';
+} from '../../lib/data/datadragon';
+import type { DDragonChroma } from '../../lib/data/datadragon';
 import {
     Button,
     Modal,

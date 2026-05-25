@@ -6,7 +6,7 @@ import React, { useState } from 'react';
 import { useAppState } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { save } from '@tauri-apps/plugin-dialog';
-import { sanitizeChampionName } from '../../lib/utils';
+import { sanitizeChampionName } from '../../lib/util/utils';
 import {
     Button,
     FormGroup,

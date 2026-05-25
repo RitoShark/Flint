@@ -6,11 +6,11 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useAppState } from '../lib/stores';
-import * as api from '../lib/api';
-import { getIcon } from '../lib/fileIcons';
+import { useAppState } from '../../lib/stores';
+import * as api from '../../lib/api';
+import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { listen } from '@tauri-apps/api/event';
-import type { Checkpoint, CheckpointDiff, CheckpointProgress, CheckpointFileContent } from '../lib/types';
+import type { Checkpoint, CheckpointDiff, CheckpointProgress, CheckpointFileContent } from '../../lib/types';
 
 /** Helper to extract just the filename from a path */
 function getFileName(path: string): string {

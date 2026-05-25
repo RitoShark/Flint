@@ -19,13 +19,13 @@ import type { editor } from 'monaco-editor';
 import { useAppState, useAppMetadataStore, useConfigStore, useFileEditorStore } from '../../lib/stores';
 import { useProjectTabStore } from '../../lib/stores/projectTabStore';
 import * as api from '../../lib/api';
-import { getIcon } from '../../lib/fileIcons';
+import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import {
     RITOBIN_LANGUAGE_ID,
     RITOBIN_THEME_ID,
     registerRitobinLanguage,
     registerRitobinTheme
-} from '../../lib/ritobinLanguage';
+} from '../../lib/editor/ritobinLanguage';
 import { AssetPreviewTooltip } from './AssetPreviewTooltip';
 
 // Configure Monaco workers — wrap in try-catch so a broken worker doesn't

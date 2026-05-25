@@ -16,11 +16,11 @@ console.log(`[startup] JS entry hit at ${__FLINT_JS_START_WALL} (perf=${__FLINT_
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { initializeLogger, initBackendLogListener } from './lib/logger';
-import { installButtonGlow } from './lib/buttonGlow';
+import { initializeLogger, initBackendLogListener } from './lib/util/logger';
+import { installButtonGlow } from './lib/ui-helpers/buttonGlow';
 import { AppProvider } from './lib/stores';
 import { bootUxPrefs } from './lib/stores/uxStore';
-import { App } from './components/App';
+import { App } from './components/layout/App';
 import { DesignLab } from './components/ui/DesignLab';
 
 // Import styles

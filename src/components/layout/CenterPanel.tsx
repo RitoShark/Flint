@@ -3,14 +3,14 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useProjectTabStore, useNavigationStore, useAppState } from '../lib/stores';
-import { WelcomeScreen } from './WelcomeScreen';
-import { PreviewPanel } from './PreviewPanel';
-import { CheckpointTimeline } from './CheckpointTimeline';
-import { WadPreviewPanel } from './WadPreviewPanel';
-import { WadBrowserPanel } from './WadBrowser';
-import { FileEditorPage } from './FileEditorPage';
-import { getIcon, icons } from '../lib/fileIcons';
+import { useProjectTabStore, useNavigationStore, useAppState } from '../../lib/stores';
+import { WelcomeScreen } from '../browser/WelcomeScreen';
+import { PreviewPanel } from '../editor/PreviewPanel';
+import { CheckpointTimeline } from '../editor/CheckpointTimeline';
+import { WadPreviewPanel } from '../editor/WadPreviewPanel';
+import { WadBrowserPanel } from '../browser/WadBrowser';
+import { FileEditorPage } from '../editor/FileEditorPage';
+import { getIcon, icons } from '../../lib/ui-helpers/fileIcons';
 
 interface QuickActionCardProps {
     icon: keyof typeof icons;

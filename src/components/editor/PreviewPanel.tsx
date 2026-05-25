@@ -4,19 +4,19 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useAppState, useConfigStore } from '../lib/stores';
-import * as api from '../lib/api';
-import { getIcon } from '../lib/fileIcons';
-import { ImagePreview } from './preview/ImagePreview';
-import { HexViewer } from './preview/HexViewer';
-import { TextPreview } from './preview/TextPreview';
-import { BinEditor } from './preview/BinEditor';
-import { ModelPreview } from './preview/ModelPreview';
-import { HUDEditor } from './preview/HUDEditor';
-import { BnkPreview } from './preview/BnkPreview';
-import { FolderGridView } from './preview/FolderGridView';
-import { JadeIcon } from './icons/JadeIcon';
-import { QuartzIcon } from './icons/QuartzIcon';
+import { useAppState, useConfigStore } from '../../lib/stores';
+import * as api from '../../lib/api';
+import { getIcon } from '../../lib/ui-helpers/fileIcons';
+import { ImagePreview } from '../preview/ImagePreview';
+import { HexViewer } from '../preview/HexViewer';
+import { TextPreview } from '../preview/TextPreview';
+import { BinEditor } from '../preview/BinEditor';
+import { ModelPreview } from '../preview/ModelPreview';
+import { HUDEditor } from '../preview/HUDEditor';
+import { BnkPreview } from '../preview/BnkPreview';
+import { FolderGridView } from '../preview/FolderGridView';
+import { JadeIcon } from '../icons/JadeIcon';
+import { QuartzIcon } from '../icons/QuartzIcon';
 
 interface FileInfo {
     path: string;

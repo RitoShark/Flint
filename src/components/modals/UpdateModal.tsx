@@ -10,7 +10,7 @@
 
 import React, { useState } from 'react';
 import { useAppState } from '../../lib/stores';
-import * as updater from '../../lib/updater';
+import * as updater from '../../lib/util/updater';
 import type { UpdateInfo } from '../../lib/types';
 import {
     Button,
