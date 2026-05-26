@@ -1,16 +1,26 @@
 /**
  * Flint - File Tree Component
+ *
+ * The tree is flattened into a row array during render and only the visible
+ * window is mounted. `TreeRow` is a pure leaf renderer with no store
+ * subscriptions — all handlers come from the parent as stable callbacks.
  */
 
 import React, { useState, useMemo, useCallback, useRef, useEffect, CSSProperties } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useAppMetadataStore, useProjectTabStore, useModalStore, useNotificationStore, useConfigStore, useNavigationStore } from '../../lib/stores';
 import { getFileIcon, getExpanderIcon, getIcon } from '../../lib/ui-helpers/fileIcons';
+import { VirtualizedList } from './wad-explorer/VirtualizedList';
 import * as api from '../../lib/api';
 import { buildFileContextMenuOptions } from '../../lib/editor/fileContextMenuOptions';
 import type { FileTreeNode, ProjectTab } from '../../lib/types';
 
-// Helper to get active tab from projectTabStore state
+const ROW_HEIGHT = 22;
+const ROW_OVERSCAN = 8;
+
+const BIN_TEXT_EXTS = ['.bin', '.ritobin', '.py', '.troybin'];
+const LUA_BIN_EXTS = ['.luabin', '.luabin64'];
+
 function getActiveTab(activeTabId: string | null, openTabs: ProjectTab[]): ProjectTab | null {
     if (!activeTabId) return null;
     return openTabs.find(t => t.id === activeTabId) || null;
@@ -26,11 +36,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({ style }) => {
     const [searchQuery, setSearchQuery] = useState('');
 
     const activeTab = getActiveTab(activeTabId, openTabs);
-    const hasProject = !!activeTab;
-
-    if (!hasProject) {
-        return null;
-    }
+    if (!activeTab) return null;
 
     return (
         <aside className="left-panel" id="left-panel" style={style}>
@@ -52,6 +58,111 @@ interface FileTreeProps {
     searchQuery: string;
 }
 
+interface TreeRowData {
+    /** Underlying node after compact-folder merging. */
+    node: FileTreeNode;
+    /** Displayed path; for compacted folders this includes the merged segments. */
+    displayPath: string;
+    depth: number;
+    isExpanded: boolean;
+    /** When set, the row should render as the inline-rename input. */
+    isRenaming: boolean;
+    /** Status badge state, if any. */
+    status?: 'new' | 'modified';
+}
+
+/** Compact single-child directory chains into one row label. */
+function compactNode(node: FileTreeNode): { displayPath: string; effectiveNode: FileTreeNode } {
+    let current = node;
+    const parts = [current.name];
+    while (
+        current.isDirectory &&
+        current.children?.length === 1 &&
+        current.children[0].isDirectory
+    ) {
+        current = current.children[0];
+        parts.push(current.name);
+    }
+    return { displayPath: parts.join('/'), effectiveNode: current };
+}
+
+function collectAllFolderPaths(node: FileTreeNode): string[] {
+    if (!node.isDirectory) return [];
+    const result = [node.path];
+    for (const child of node.children ?? []) {
+        result.push(...collectAllFolderPaths(child));
+    }
+    return result;
+}
+
+function getFileName(path: string): string {
+    const parts = path.replace(/\\/g, '/').split('/');
+    return parts[parts.length - 1] || path;
+}
+
+function filterTreeByQuery(node: FileTreeNode, query: string): FileTreeNode | null {
+    if (node.name.toLowerCase().includes(query)) {
+        return node;
+    }
+
+    if (node.isDirectory && node.children) {
+        const filteredChildren = node.children
+            .map((child) => filterTreeByQuery(child, query))
+            .filter((child): child is FileTreeNode => child !== null);
+
+        if (filteredChildren.length > 0) {
+            return { ...node, children: filteredChildren };
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Walk the tree in display order, applying compact-folder merging + expanded
+ * filter, and emit one `TreeRowData` per visible row. Iterative to avoid stack
+ * pressure on deep trees.
+ */
+function flattenTree(
+    root: FileTreeNode,
+    expandedFolders: Set<string>,
+    renamingPath: string | null,
+    statusByRelPath: Map<string, 'new' | 'modified'>,
+): TreeRowData[] {
+    const rows: TreeRowData[] = [];
+    // Stack frames: (node, depth). DFS, children pushed in reverse so the
+    // first child is processed first.
+    const stack: Array<{ node: FileTreeNode; depth: number }> = [
+        { node: root, depth: 0 },
+    ];
+
+    while (stack.length > 0) {
+        const { node, depth } = stack.pop()!;
+        const { displayPath, effectiveNode } = node.isDirectory
+            ? compactNode(node)
+            : { displayPath: node.name, effectiveNode: node };
+
+        const isExpanded = expandedFolders.has(effectiveNode.path);
+        rows.push({
+            node: effectiveNode,
+            displayPath,
+            depth,
+            isExpanded,
+            isRenaming: renamingPath === effectiveNode.path,
+            status: statusByRelPath.get(effectiveNode.path),
+        });
+
+        if (effectiveNode.isDirectory && isExpanded && effectiveNode.children) {
+            // Reverse-push so children render in their natural order.
+            for (let i = effectiveNode.children.length - 1; i >= 0; i--) {
+                stack.push({ node: effectiveNode.children[i], depth: depth + 1 });
+            }
+        }
+    }
+
+    return rows;
+}
+
 const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
     const activeTabId = useProjectTabStore((s) => s.activeTabId);
     const openTabs = useProjectTabStore((s) => s.openTabs);
@@ -60,14 +171,16 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
     const setSelectedFile = useProjectTabStore((s) => s.setSelectedFile);
     const bulkSetFolders = useProjectTabStore((s) => s.bulkSetFolders);
     const showToast = useNotificationStore((s) => s.showToast);
+    const openModal = useModalStore((s) => s.openModal);
+    const openContextMenu = useModalStore((s) => s.openContextMenu);
+    const openConfirmDialog = useModalStore((s) => s.openConfirmDialog);
+    const leaguePath = useConfigStore((s) => s.leaguePath);
 
-    // Get active tab for file tree data
     const activeTab = getActiveTab(activeTabId, openTabs);
     const fileTree = activeTab?.fileTree || null;
     const selectedFile = activeTab?.selectedFile || null;
     const expandedFolders = activeTab?.expandedFolders || new Set<string>();
 
-    // Subscribe to file tree version changes — auto-refresh when files are created/removed
     const fileTreeVersion = useAppMetadataStore((s) => s.fileTreeVersion);
     useEffect(() => {
         if (!activeTab || fileTreeVersion === 0) return;
@@ -76,11 +189,8 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         }).catch(() => {});
     }, [fileTreeVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // ONE subscription to the file-status revision counter. When it bumps,
-    // we read the current Map snapshot and pass paths-with-status as plain
-    // props down the tree. Previously every TreeNode had its own selector
-    // subscription on this store — with hundreds of nodes, every status
-    // update triggered hundreds of selector re-evaluations.
+    // One subscription on the file-status revision counter. Read the Map
+    // snapshot once and pass it as a prop into the row data.
     const fileStatusesRev = useAppMetadataStore((s) => s.fileStatusesRev);
     const projectPathForStatus = activeTab?.projectPath || '';
     const statusByRelPath = useMemo(() => {
@@ -96,15 +206,10 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         return map;
     }, [fileStatusesRev, projectPathForStatus]);
 
-    // Rename state — shared across all tree nodes
     const [renamingPath, setRenamingPath] = useState<string | null>(null);
-
-    // External drag & drop (OS files dropped onto the file tree).
-    // WebView2 swallows HTML5 dragover/drop, so we use Tauri's webview-level
-    // drag-drop event and hit-test the DOM with `position` from the payload.
     const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
 
-    // Fresh refs so the listener always sees current state
+    // Fresh refs so the long-lived OS drag listener always sees current state.
     const activeTabRef = useRef(activeTab);
     useEffect(() => { activeTabRef.current = activeTab; });
     const setFileTreeRef = useRef(setFileTree);
@@ -126,8 +231,8 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
             return folderEl?.getAttribute('data-drop-path') ?? null;
         };
 
-        // The webview drag-drop event reports physical pixel coordinates; the
-        // DOM uses CSS pixels. Divide by devicePixelRatio.
+        // The webview drag-drop event reports physical pixel coordinates;
+        // the DOM uses CSS pixels.
         const cssCoords = (pos: { x: number; y: number }) => ({
             x: pos.x / window.devicePixelRatio,
             y: pos.y / window.devicePixelRatio,
@@ -177,7 +282,6 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
                         }
                     })();
                 } else {
-                    // 'leave' / 'cancelled'
                     if (expandTimer !== null) { clearTimeout(expandTimer); expandTimer = null; }
                     lastHover = null;
                     setDropTargetPath(null);
@@ -196,15 +300,25 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         };
     }, []);
 
-    const dragProps: DragProps = useMemo(() => ({
-        dropTargetPath,
-    }), [dropTargetPath]);
+    const filteredTree = useMemo(() => {
+        if (!fileTree || !searchQuery) return fileTree;
+        return filterTreeByQuery(fileTree, searchQuery.toLowerCase());
+    }, [fileTree, searchQuery]);
 
-    // Row body click = select. For folders that means routing to the
-    // folder grid view in the preview panel. The chevron is the only
-    // thing that toggles expansion (handled separately on the expander
-    // span itself, see TreeNode below).
-    const handleItemClick = useCallback((path: string, _isFolder: boolean) => {
+    const rows = useMemo(() => {
+        if (!filteredTree) return [];
+        return flattenTree(filteredTree, expandedFolders, renamingPath, statusByRelPath);
+    }, [filteredTree, expandedFolders, renamingPath, statusByRelPath]);
+
+    const projectPath = activeTab?.projectPath || '';
+
+    const refreshFileTree = useCallback(async () => {
+        if (!activeTab) return;
+        const files = await api.listProjectFiles(activeTab.projectPath);
+        setFileTree(activeTab.id, files);
+    }, [activeTab, setFileTree]);
+
+    const handleItemClick = useCallback((path: string) => {
         if (!activeTab) return;
         setSelectedFile(activeTab.id, path);
         useNavigationStore.getState().setView('preview');
@@ -214,203 +328,35 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         if (activeTab) toggleFolder(activeTab.id, path);
     }, [activeTab, toggleFolder]);
 
-    const handleDeepToggle = useCallback((paths: string[], expand: boolean) => {
-        if (activeTab) bulkSetFolders(activeTab.id, paths, expand);
+    const handleDeepToggle = useCallback((node: FileTreeNode, expand: boolean) => {
+        if (!activeTab) return;
+        bulkSetFolders(activeTab.id, collectAllFolderPaths(node), expand);
     }, [activeTab, bulkSetFolders]);
 
-    const filteredTree = useMemo(() => {
-        if (!fileTree || !searchQuery) return fileTree;
-        return filterTreeByQuery(fileTree, searchQuery.toLowerCase());
-    }, [fileTree, searchQuery]);
-
-    if (!filteredTree) {
-        return (
-            <div className="file-tree">
-                <div className="file-tree__empty">No project files loaded</div>
-            </div>
-        );
-    }
-
-    return (
-        <div className="file-tree">
-            <TreeNode
-                node={filteredTree}
-                depth={0}
-                selectedFile={selectedFile}
-                expandedFolders={expandedFolders}
-                onItemClick={handleItemClick}
-                onExpanderClick={handleExpanderClick}
-                onDeepToggle={handleDeepToggle}
-                renamingPath={renamingPath}
-                setRenamingPath={setRenamingPath}
-                projectPath={activeTab?.projectPath || ''}
-                dragProps={dragProps}
-                statusByRelPath={statusByRelPath}
-            />
-        </div>
-    );
-};
-
-interface DragProps {
-    dropTargetPath: string | null;
-}
-
-interface TreeNodeProps {
-    node: FileTreeNode;
-    depth: number;
-    selectedFile: string | null;
-    expandedFolders: Set<string>;
-    onItemClick: (path: string, isFolder: boolean) => void;
-    onExpanderClick: (path: string) => void;
-    onDeepToggle: (paths: string[], expand: boolean) => void;
-    renamingPath: string | null;
-    setRenamingPath: (path: string | null) => void;
-    projectPath: string;
-    dragProps: DragProps;
-    statusByRelPath: Map<string, 'new' | 'modified'>;
-}
-
-// Compact folders: merge single-child directory chains into one label
-function compactNode(node: FileTreeNode): { displayPath: string; effectiveNode: FileTreeNode } {
-    let current = node;
-    const parts = [current.name];
-    while (
-        current.isDirectory &&
-        current.children?.length === 1 &&
-        current.children[0].isDirectory
-    ) {
-        current = current.children[0];
-        parts.push(current.name);
-    }
-    return { displayPath: parts.join('/'), effectiveNode: current };
-}
-
-// Collect all descendant folder paths for deep expand/collapse
-function collectAllFolderPaths(node: FileTreeNode): string[] {
-    if (!node.isDirectory) return [];
-    const result = [node.path];
-    for (const child of node.children ?? []) {
-        result.push(...collectAllFolderPaths(child));
-    }
-    return result;
-}
-
-// Get just the filename from a path
-function getFileName(path: string): string {
-    const parts = path.replace(/\\/g, '/').split('/');
-    return parts[parts.length - 1] || path;
-}
-
-const TreeNode: React.FC<TreeNodeProps> = React.memo(({
-    node,
-    depth,
-    selectedFile,
-    expandedFolders,
-    onItemClick,
-    onExpanderClick,
-    onDeepToggle,
-    renamingPath,
-    setRenamingPath,
-    projectPath,
-    dragProps,
-    statusByRelPath,
-}) => {
-    const openModal = useModalStore((s) => s.openModal);
-    const openContextMenu = useModalStore((s) => s.openContextMenu);
-    const openConfirmDialog = useModalStore((s) => s.openConfirmDialog);
-    const showToast = useNotificationStore((s) => s.showToast);
-    const leaguePath = useConfigStore((s) => s.leaguePath);
-    const renameInputRef = useRef<HTMLInputElement>(null);
-
-    // Apply compact-folder merging
-    const { displayPath, effectiveNode } = node.isDirectory ? compactNode(node) : { displayPath: node.name, effectiveNode: node };
-    const isExpanded = expandedFolders.has(effectiveNode.path);
-    const isSelected = selectedFile === effectiveNode.path;
-    const isRenaming = renamingPath === effectiveNode.path;
-
-    // Drop-target highlight when external files are dragged over this folder
-    const isDropTarget = dragProps.dropTargetPath === effectiveNode.path;
-
-    // File status comes from the parent — no per-node store subscription.
-    const fileStatus = statusByRelPath.get(effectiveNode.path);
-
-    // Focus rename input when it appears
-    useEffect(() => {
-        if (isRenaming && renameInputRef.current) {
-            const input = renameInputRef.current;
-            input.focus();
-            // Select filename without extension for files
-            const name = getFileName(effectiveNode.path);
-            const dotIdx = name.lastIndexOf('.');
-            if (!effectiveNode.isDirectory && dotIdx > 0) {
-                input.setSelectionRange(0, dotIdx);
-            } else {
-                input.select();
-            }
-        }
-    }, [isRenaming]);
-
-    const refreshFileTree = async () => {
-        if (!projectPath) return;
-        const files = await api.listProjectFiles(projectPath);
-        const { activeTabId } = useProjectTabStore.getState();
-        if (activeTabId) useProjectTabStore.getState().setFileTree(activeTabId, files);
-    };
-
-    const handleClick = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (isRenaming) return;
-        if (e.shiftKey && effectiveNode.isDirectory) {
-            // Deep expand/collapse
-            const allPaths = collectAllFolderPaths(effectiveNode);
-            onDeepToggle(allPaths, !isExpanded);
-        } else {
-            onItemClick(effectiveNode.path, effectiveNode.isDirectory);
-        }
-    };
-    const handleDoubleClick = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (isRenaming || effectiveNode.isDirectory) return;
-
-        const path = effectiveNode.path;
+    const handleDoubleClick = useCallback((node: FileTreeNode) => {
+        if (node.isDirectory) return;
+        const path = node.path;
         const lower = path.toLowerCase();
-        const BIN_TEXT_EXTS = ['.bin', '.ritobin', '.py', '.troybin'];
-        const LUA_BIN_EXTS = ['.luabin', '.luabin64'];
         const fullFilePath = `${projectPath}/${path}`;
+        const nav = useNavigationStore.getState();
 
-        if (effectiveNode.name === 'mod.config.json') {
-            useNavigationStore.getState().navigateToFileEditor({
-                filePath: fullFilePath,
-                kind: 'modConfig',
-                projectPath,
-            });
+        if (node.name === 'mod.config.json') {
+            nav.navigateToFileEditor({ filePath: fullFilePath, kind: 'modConfig', projectPath });
         } else if (BIN_TEXT_EXTS.some(ext => lower.endsWith(ext))) {
-            useNavigationStore.getState().navigateToFileEditor({
-                filePath: fullFilePath,
-                kind: 'binText',
-                projectPath,
-            });
+            nav.navigateToFileEditor({ filePath: fullFilePath, kind: 'binText', projectPath });
         } else if (LUA_BIN_EXTS.some(ext => lower.endsWith(ext))) {
-            useNavigationStore.getState().navigateToFileEditor({
-                filePath: fullFilePath,
-                kind: 'luaBin64',
-                projectPath,
-            });
+            nav.navigateToFileEditor({ filePath: fullFilePath, kind: 'luaBin64', projectPath });
         } else if (lower.endsWith('.json') || lower.endsWith('.txt') || lower.endsWith('.lua') || lower.endsWith('.py')) {
-            useNavigationStore.getState().navigateToFileEditor({
-                filePath: fullFilePath,
-                kind: 'raw',
-                projectPath,
-            });
+            nav.navigateToFileEditor({ filePath: fullFilePath, kind: 'raw', projectPath });
         }
-    };
-    const handleRenameSubmit = async (newName: string) => {
-        setRenamingPath(null);
-        const currentName = getFileName(effectiveNode.path);
-        if (!newName || newName === currentName) return;
+    }, [projectPath]);
 
+    const handleRenameSubmit = useCallback(async (path: string, newName: string) => {
+        setRenamingPath(null);
+        const currentName = getFileName(path);
+        if (!newName || newName === currentName) return;
         try {
-            const result = await api.renameFile(projectPath, effectiveNode.path, newName);
+            const result = await api.renameFile(projectPath, path, newName);
             await refreshFileTree();
             if (result.bin_updates > 0) {
                 showToast('success', `Renamed and updated ${result.bin_updates} BIN file${result.bin_updates > 1 ? 's' : ''}`);
@@ -421,26 +367,17 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
             const flintError = err as api.FlintError;
             showToast('error', flintError.getUserMessage?.() || 'Failed to rename');
         }
-    };
+    }, [projectPath, refreshFileTree, showToast]);
 
-    const handleRenameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === 'Enter') {
-            handleRenameSubmit(e.currentTarget.value.trim());
-        } else if (e.key === 'Escape') {
-            setRenamingPath(null);
-        }
-    };
-
-    const handleContextMenu = (e: React.MouseEvent) => {
+    const handleContextMenu = useCallback((
+        e: React.MouseEvent,
+        node: FileTreeNode,
+        depth: number,
+    ) => {
         e.preventDefault();
         e.stopPropagation();
-
         const options = buildFileContextMenuOptions({
-            node: {
-                path: effectiveNode.path,
-                name: getFileName(effectiveNode.path),
-                isDirectory: effectiveNode.isDirectory,
-            },
+            node: { path: node.path, name: getFileName(node.path), isDirectory: node.isDirectory },
             projectPath,
             depth,
             refreshFileTree,
@@ -451,35 +388,140 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
             leaguePath,
         });
         openContextMenu(e.clientX, e.clientY, options);
+    }, [projectPath, refreshFileTree, openModal, openConfirmDialog, showToast, leaguePath, openContextMenu]);
+
+    if (!filteredTree) {
+        return (
+            <div className="file-tree">
+                <div className="file-tree__empty">No project files loaded</div>
+            </div>
+        );
+    }
+
+    // renderEpoch bumps whenever the rows array identity changes (selection,
+    // expand, rename, drop target, file status).
+    const renderEpoch = rows.length + (selectedFile?.length ?? 0) + (dropTargetPath?.length ?? 0);
+
+    return (
+        <div className="file-tree">
+            <VirtualizedList
+                totalRows={rows.length}
+                rowHeight={ROW_HEIGHT}
+                overscan={ROW_OVERSCAN}
+                renderEpoch={renderEpoch}
+                renderRow={(index) => {
+                    const row = rows[index];
+                    if (!row) return null;
+                    return (
+                        <TreeRow
+                            row={row}
+                            isSelected={selectedFile === row.node.path}
+                            isDropTarget={dropTargetPath === row.node.path}
+                            onItemClick={handleItemClick}
+                            onExpanderClick={handleExpanderClick}
+                            onDeepToggle={handleDeepToggle}
+                            onDoubleClick={handleDoubleClick}
+                            onRenameSubmit={handleRenameSubmit}
+                            onRenameCancel={() => setRenamingPath(null)}
+                            onContextMenu={handleContextMenu}
+                        />
+                    );
+                }}
+            />
+        </div>
+    );
+};
+
+interface TreeRowProps {
+    row: TreeRowData;
+    isSelected: boolean;
+    isDropTarget: boolean;
+    onItemClick: (path: string) => void;
+    onExpanderClick: (path: string) => void;
+    onDeepToggle: (node: FileTreeNode, expand: boolean) => void;
+    onDoubleClick: (node: FileTreeNode) => void;
+    onRenameSubmit: (path: string, newName: string) => void;
+    onRenameCancel: () => void;
+    onContextMenu: (e: React.MouseEvent, node: FileTreeNode, depth: number) => void;
+}
+
+const TreeRow: React.FC<TreeRowProps> = React.memo(({
+    row,
+    isSelected,
+    isDropTarget,
+    onItemClick,
+    onExpanderClick,
+    onDeepToggle,
+    onDoubleClick,
+    onRenameSubmit,
+    onRenameCancel,
+    onContextMenu,
+}) => {
+    const { node, displayPath, depth, isExpanded, isRenaming, status } = row;
+    const renameInputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (isRenaming && renameInputRef.current) {
+            const input = renameInputRef.current;
+            input.focus();
+            const name = getFileName(node.path);
+            const dotIdx = name.lastIndexOf('.');
+            if (!node.isDirectory && dotIdx > 0) {
+                input.setSelectionRange(0, dotIdx);
+            } else {
+                input.select();
+            }
+        }
+    }, [isRenaming, node.path, node.isDirectory]);
+
+    const handleClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (isRenaming) return;
+        if (e.shiftKey && node.isDirectory) {
+            onDeepToggle(node, !isExpanded);
+        } else {
+            onItemClick(node.path);
+        }
     };
 
-    const icon = getFileIcon(effectiveNode.name, effectiveNode.isDirectory, isExpanded);
-    const expanderIcon = getExpanderIcon(isExpanded);
+    const handleDoubleClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (isRenaming) return;
+        onDoubleClick(node);
+    };
 
-    const statusClass = fileStatus ? `file-tree__item--${fileStatus}` : '';
+    const handleRenameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
+            onRenameSubmit(node.path, e.currentTarget.value.trim());
+        } else if (e.key === 'Escape') {
+            onRenameCancel();
+        }
+    };
+
+    const icon = getFileIcon(node.name, node.isDirectory, isExpanded);
+    const expanderIcon = getExpanderIcon(isExpanded);
+    const statusClass = status ? `file-tree__item--${status}` : '';
 
     return (
         <div
             className={`file-tree__node${isDropTarget ? ' file-tree__node--drop-target' : ''}`}
-            data-drop-path={effectiveNode.isDirectory ? effectiveNode.path : undefined}
+            data-drop-path={node.isDirectory ? node.path : undefined}
         >
             <div
                 className={`file-tree__item ${isSelected ? 'file-tree__item--selected' : ''} ${statusClass}${isDropTarget ? ' file-tree__item--drop-target' : ''}`}
                 style={{ paddingLeft: 4 + depth * 12 }}
                 onClick={handleClick}
                 onDoubleClick={handleDoubleClick}
-                onContextMenu={handleContextMenu}
+                onContextMenu={(e) => onContextMenu(e, node, depth)}
             >
-                {effectiveNode.isDirectory ? (
+                {node.isDirectory ? (
                     <span
                         className="file-tree__expander"
                         onClick={(e) => {
-                            // Chevron toggles expansion only — does NOT
-                            // also select the folder, so the user has to
-                            // click the row body explicitly to open the
-                            // folder grid view.
+                            // Chevron only toggles expansion; clicking the row
+                            // body is what opens the folder grid view.
                             e.stopPropagation();
-                            onExpanderClick(effectiveNode.path);
+                            onExpanderClick(node.path);
                         }}
                         style={{ cursor: 'pointer' }}
                         dangerouslySetInnerHTML={{ __html: expanderIcon }}
@@ -495,8 +537,8 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
                     <input
                         ref={renameInputRef}
                         className="file-tree__rename-input"
-                        defaultValue={getFileName(effectiveNode.path)}
-                        onBlur={(e) => handleRenameSubmit(e.currentTarget.value.trim())}
+                        defaultValue={getFileName(node.path)}
+                        onBlur={(e) => onRenameSubmit(node.path, e.currentTarget.value.trim())}
                         onKeyDown={handleRenameKeyDown}
                         onClick={(e) => e.stopPropagation()}
                     />
@@ -514,38 +556,19 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
                                 displayPath
                             )}
                         </span>
-                        {fileStatus && (
-                            <span className={`file-tree__status-badge file-tree__status-badge--${fileStatus}`}>
-                                {fileStatus === 'new' ? 'N' : 'M'}
+                        {status && (
+                            <span className={`file-tree__status-badge file-tree__status-badge--${status}`}>
+                                {status === 'new' ? 'N' : 'M'}
                             </span>
                         )}
                     </>
                 )}
             </div>
-            {effectiveNode.isDirectory && isExpanded && effectiveNode.children && (
-                <div className="file-tree__children">
-                    {effectiveNode.children.map((child) => (
-                        <TreeNode
-                            key={child.path}
-                            node={child}
-                            depth={depth + 1}
-                            selectedFile={selectedFile}
-                            expandedFolders={expandedFolders}
-                            onItemClick={onItemClick}
-                            onExpanderClick={onExpanderClick}
-                            onDeepToggle={onDeepToggle}
-                            renamingPath={renamingPath}
-                            setRenamingPath={setRenamingPath}
-                            projectPath={projectPath}
-                            dragProps={dragProps}
-                            statusByRelPath={statusByRelPath}
-                        />
-                    ))}
-                </div>
-            )}
         </div>
     );
 });
+
+TreeRow.displayName = 'TreeRow';
 
 const ProjectsPanel: React.FC = () => {
     const openModal = useModalStore((s) => s.openModal);
@@ -556,22 +579,16 @@ const ProjectsPanel: React.FC = () => {
         try {
             setWorking('Opening project...');
 
-            // Normalize path - strip project file name if present
-            // Handles: mod.config.json, flint.json, project.json
             let normalizedPath = projectPath;
             if (normalizedPath.endsWith('.json')) {
                 normalizedPath = normalizedPath.replace(/[\\/](mod\.config|flint|project)\.json$/, '');
             }
 
-            // One IPC call: open the project AND get its file tree back in
-            // the same round-trip.
             const { project, fileTree: files } = await api.openProjectWithTree(normalizedPath);
 
-            // Add tab + switch to preview
             useProjectTabStore.getState().addTab(project, normalizedPath);
             useNavigationStore.getState().setView('preview');
 
-            // Auto-save to saved projects list
             useConfigStore.getState().addSavedProject({
                 id: `proj-${Date.now()}`,
                 name: project.display_name || project.name,
@@ -585,7 +602,6 @@ const ProjectsPanel: React.FC = () => {
             const tabId = useProjectTabStore.getState().activeTabId;
             if (tabId) useProjectTabStore.getState().setFileTree(tabId, files);
 
-            // Clear file statuses when opening a new project
             useAppMetadataStore.getState().clearFileStatuses();
 
             setReady();
@@ -647,23 +663,5 @@ const ProjectsPanel: React.FC = () => {
         </aside>
     );
 };
-
-function filterTreeByQuery(node: FileTreeNode, query: string): FileTreeNode | null {
-    if (node.name.toLowerCase().includes(query)) {
-        return node;
-    }
-
-    if (node.isDirectory && node.children) {
-        const filteredChildren = node.children
-            .map((child) => filterTreeByQuery(child, query))
-            .filter((child): child is FileTreeNode => child !== null);
-
-        if (filteredChildren.length > 0) {
-            return { ...node, children: filteredChildren };
-        }
-    }
-
-    return null;
-}
 
 export { FileTree, ProjectsPanel };

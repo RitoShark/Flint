@@ -5,7 +5,8 @@
 import React, { useCallback, useState, useMemo, useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { save } from '@tauri-apps/plugin-dialog';
-import { useAppState } from '../../lib/stores';
+import { useProjectTabStore, useWadExtractStore, useWadExplorerStore, useNavigationStore, useConfigStore, useModalStore, useNotificationStore } from '../../lib/stores';
+import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import * as api from '../../lib/api';
 import { sanitizeChampionName } from '../../lib/util/utils';
@@ -185,7 +186,19 @@ const ExtractTab: React.FC<ExtractTabProps> = ({ session, isActive, onSwitch, on
 };
 
 export const TitleBar: React.FC = () => {
-    const { state, dispatch, openModal, showToast } = useAppState();
+    const activeTabId = useProjectTabStore((s) => s.activeTabId);
+    const openTabs = useProjectTabStore((s) => s.openTabs);
+    const extractSessions = useWadExtractStore((s) => s.extractSessions);
+    const activeExtractId = useWadExtractStore((s) => s.activeExtractId);
+    const wadExplorerOpen = useWadExplorerStore((s) => s.isOpen);
+    const currentView = useNavigationStore((s) => s.currentView);
+    const ltkManagerModPath = useConfigStore((s) => s.ltkManagerModPath);
+    const celestialModPath = useConfigStore((s) => s.celestialModPath);
+    const preferredLauncher = useConfigStore((s) => s.preferredLauncher);
+    const creatorName = useConfigStore((s) => s.creatorName);
+    const openModal = useModalStore((s) => s.openModal);
+    const showToast = useNotificationStore((s) => s.showToast);
+
     const [dropdownOpen, setDropdownOpen] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
@@ -194,9 +207,9 @@ export const TitleBar: React.FC = () => {
 
     // Get active tab
     const activeTab = useMemo(() => {
-        if (!state.activeTabId) return null;
-        return state.openTabs.find(t => t.id === state.activeTabId) || null;
-    }, [state.activeTabId, state.openTabs]);
+        if (!activeTabId) return null;
+        return openTabs.find(t => t.id === activeTabId) || null;
+    }, [activeTabId, openTabs]);
 
     const currentProject = activeTab?.project || null;
     const currentProjectPath = activeTab?.projectPath || null;
@@ -246,14 +259,12 @@ export const TitleBar: React.FC = () => {
     // Resolve which launcher to sync to based on the user's preference, with
     // graceful fallback if the preferred one isn't configured.
     const launcherTarget = useMemo<{ name: string; path: string } | null>(() => {
-        const ltk = state.ltkManagerModPath;
-        const celestial = state.celestialModPath;
-        if (state.preferredLauncher === 'celestial' && celestial) return { name: 'Celestial', path: celestial };
-        if (state.preferredLauncher === 'ltk' && ltk) return { name: 'LTK Manager', path: ltk };
-        if (celestial) return { name: 'Celestial', path: celestial };
-        if (ltk) return { name: 'LTK Manager', path: ltk };
+        if (preferredLauncher === 'celestial' && celestialModPath) return { name: 'Celestial', path: celestialModPath };
+        if (preferredLauncher === 'ltk' && ltkManagerModPath) return { name: 'LTK Manager', path: ltkManagerModPath };
+        if (celestialModPath) return { name: 'Celestial', path: celestialModPath };
+        if (ltkManagerModPath) return { name: 'LTK Manager', path: ltkManagerModPath };
         return null;
-    }, [state.preferredLauncher, state.ltkManagerModPath, state.celestialModPath]);
+    }, [preferredLauncher, ltkManagerModPath, celestialModPath]);
 
     const handleSyncToLauncher = useCallback(async () => {
         if (!currentProjectPath || !currentProject) return;
@@ -309,7 +320,7 @@ export const TitleBar: React.FC = () => {
                 champion: sanitizeChampionName(currentProject.champion),
                 metadata: {
                     name: currentProject.name,
-                    author: currentProject.creator || state.creatorName || 'Unknown',
+                    author: currentProject.creator || creatorName || 'Unknown',
                     version: currentProject.version || '1.0.0',
                     description: currentProject.description || '',
                 },
@@ -329,7 +340,7 @@ export const TitleBar: React.FC = () => {
         } finally {
             setIsExporting(false);
         }
-    }, [currentProject, currentProjectPath, state.creatorName, showToast]);
+    }, [currentProject, currentProjectPath, creatorName, showToast]);
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -342,37 +353,39 @@ export const TitleBar: React.FC = () => {
 
     // Tab handlers
     const handleSwitchTab = useCallback((tabId: string) => {
-        dispatch({ type: 'SWITCH_TAB', payload: tabId });
-    }, [dispatch]);
+        useProjectTabStore.getState().switchTab(tabId);
+        useNavigationStore.getState().setView('preview');
+    }, []);
 
     const handleCloseTab = useCallback((e: React.MouseEvent, tabId: string) => {
         e.stopPropagation();
-        dispatch({ type: 'REMOVE_TAB', payload: tabId });
-    }, [dispatch]);
+        navigationCoordinator.removeTabWithFallback(tabId);
+    }, []);
 
     const handleSwitchExtract = useCallback((sessionId: string) => {
-        dispatch({ type: 'SWITCH_EXTRACT_TAB', payload: sessionId });
-    }, [dispatch]);
+        useWadExtractStore.getState().switchSession(sessionId);
+        useNavigationStore.getState().setView('extract');
+    }, []);
 
     const handleCloseExtract = useCallback((e: React.MouseEvent, sessionId: string) => {
         e.stopPropagation();
-        dispatch({ type: 'CLOSE_EXTRACT_SESSION', payload: sessionId });
-    }, [dispatch]);
+        navigationCoordinator.closeExtractSessionWithFallback(sessionId);
+    }, []);
 
     // Determine active states
-    const isWadExplorerOpen = state.wadExplorer.isOpen;
-    const isWadExplorerActive = state.currentView === 'wad-explorer';
-    const isProjectActive = state.currentView === 'preview';
-    const isExtractActive = state.currentView === 'extract';
+    const isWadExplorerOpen = wadExplorerOpen;
+    const isWadExplorerActive = currentView === 'wad-explorer';
+    const isProjectActive = currentView === 'preview';
+    const isExtractActive = currentView === 'extract';
 
-    const hasTabs = state.openTabs.length > 0 || state.extractSessions.length > 0 || isWadExplorerOpen;
+    const hasTabs = openTabs.length > 0 || extractSessions.length > 0 || isWadExplorerOpen;
 
     return (
         <div className="titlebar" data-tauri-drag-region>
             <div className="titlebar__left" data-tauri-drag-region>
                 <div
                     className="titlebar__logo"
-                    onClick={() => dispatch({ type: 'SET_STATE', payload: { currentView: 'welcome' } })}
+                    onClick={() => useNavigationStore.getState().setView('welcome')}
                     style={{ cursor: 'pointer' }}
                     title="Go to Home"
                     data-tauri-drag-region="false"
@@ -390,7 +403,7 @@ export const TitleBar: React.FC = () => {
                         {isWadExplorerOpen && (
                             <div
                                 className={`titlebar__tab ${isWadExplorerActive ? 'titlebar__tab--active' : ''}${wadExplorerClosing ? ' titlebar__tab--closing' : ''}`}
-                                onClick={wadExplorerClosing ? undefined : () => dispatch({ type: 'OPEN_WAD_EXPLORER' })}
+                                onClick={wadExplorerClosing ? undefined : () => navigationCoordinator.openWadExplorer()}
                                 title="WAD Explorer — unified game asset browser"
                                 data-tauri-drag-region="false"
                             >
@@ -406,7 +419,7 @@ export const TitleBar: React.FC = () => {
                                         if (wadExplorerClosing) return;
                                         setWadExplorerClosing(true);
                                         setTimeout(() => {
-                                            dispatch({ type: 'CLOSE_WAD_EXPLORER' });
+                                            navigationCoordinator.closeWadExplorerWithFallback();
                                             setWadExplorerClosing(false);
                                         }, 180);
                                     }}
@@ -419,20 +432,20 @@ export const TitleBar: React.FC = () => {
                             </div>
                         )}
 
-                        {state.openTabs.map(tab => (
+                        {openTabs.map(tab => (
                             <Tab
                                 key={tab.id}
                                 tab={tab}
-                                isActive={tab.id === state.activeTabId && isProjectActive}
+                                isActive={tab.id === activeTabId && isProjectActive}
                                 onSwitch={() => handleSwitchTab(tab.id)}
                                 onClose={(e) => handleCloseTab(e, tab.id)}
                             />
                         ))}
-                        {state.extractSessions.map(session => (
+                        {extractSessions.map(session => (
                             <ExtractTab
                                 key={session.id}
                                 session={session}
-                                isActive={session.id === state.activeExtractId && isExtractActive}
+                                isActive={session.id === activeExtractId && isExtractActive}
                                 onSwitch={() => handleSwitchExtract(session.id)}
                                 onClose={(e) => handleCloseExtract(e, session.id)}
                             />
@@ -443,7 +456,7 @@ export const TitleBar: React.FC = () => {
 
             <div className="titlebar__controls" data-tauri-drag-region="false">
                 {/* Sync to Launcher button — visible when a project is open and any launcher is configured */}
-                {state.currentView === 'preview' && currentProject && launcherTarget && (
+                {currentView === 'preview' && currentProject && launcherTarget && (
                     <button
                         className="titlebar__button titlebar__button--sync"
                         onClick={handleSyncToLauncher}
@@ -458,7 +471,7 @@ export const TitleBar: React.FC = () => {
                 )}
 
                 {/* Timeline button (only visible when a project is open) */}
-                {state.currentView === 'preview' && currentProject && (
+                {currentView === 'preview' && currentProject && (
                     <button
                         className="titlebar__button titlebar__button--timeline"
                         onClick={() => openModal('checkpoint')}
@@ -472,7 +485,7 @@ export const TitleBar: React.FC = () => {
                 )}
 
                 {/* Export dropdown (only visible when a project is open) */}
-                {state.currentView === 'preview' && currentProject && (
+                {currentView === 'preview' && currentProject && (
                     <div className="titlebar__dropdown" style={{ position: 'relative', display: 'inline-block' }}>
                         <button
                             className="titlebar__button titlebar__button--export"

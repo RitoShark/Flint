@@ -3,7 +3,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useAppState } from '../../lib/stores';
+import { useConfigStore, useProjectTabStore, useNavigationStore, useModalStore, useAppMetadataStore } from '../../lib/stores';
+import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
 import { formatRelativeTime } from '../../lib/util/utils';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
@@ -28,7 +29,12 @@ const ClockIcon: React.FC = () => (
 const RECENT_DEFAULT_LIMIT = 3;
 
 export const WelcomeScreen: React.FC = () => {
-    const { state, dispatch, openModal, setWorking, setReady, setError } = useAppState();
+    const recentProjects = useConfigStore((s) => s.recentProjects);
+    const creatorName = useConfigStore((s) => s.creatorName) || 'Creator';
+    const openModal = useModalStore((s) => s.openModal);
+    const setWorking = useAppMetadataStore((s) => s.setWorking);
+    const setReady = useAppMetadataStore((s) => s.setReady);
+    const setError = useAppMetadataStore((s) => s.setError);
     const [greeting, setGreeting] = useState('');
     const [showAllRecent, setShowAllRecent] = useState(false);
 
@@ -60,16 +66,24 @@ export const WelcomeScreen: React.FC = () => {
 
             const { project, fileTree: files } = await api.openProjectWithTree(projectDir);
 
-            dispatch({
-                type: 'SET_PROJECT',
-                payload: { project, path: projectDir },
+            useProjectTabStore.getState().addTab(project, projectDir);
+            useNavigationStore.getState().setView('preview');
+            useConfigStore.getState().addSavedProject({
+                id: `proj-${Date.now()}`,
+                name: project.display_name || project.name,
+                kind: project.kind ?? 'skin',
+                champion: project.champion,
+                mapId: project.map_id ?? null,
+                path: projectDir,
+                lastOpened: new Date().toISOString(),
             });
-            dispatch({ type: 'SET_FILE_TREE', payload: files });
+            const tabId = useProjectTabStore.getState().activeTabId;
+            if (tabId) useProjectTabStore.getState().setFileTree(tabId, files);
 
             setReady();
 
             // Update recent projects
-            const recent = state.recentProjects.filter(p => p.path !== projectPath);
+            const recent = recentProjects.filter(p => p.path !== projectPath);
             recent.unshift({
                 name: project.display_name || project.name,
                 champion: project.champion,
@@ -77,7 +91,7 @@ export const WelcomeScreen: React.FC = () => {
                 path: projectPath,
                 lastOpened: new Date().toISOString(),
             });
-            dispatch({ type: 'SET_RECENT_PROJECTS', payload: recent.slice(0, 10) });
+            useConfigStore.getState().setRecentProjects(recent.slice(0, 10));
 
         } catch (error) {
             console.error('Failed to open project:', error);
@@ -93,17 +107,15 @@ export const WelcomeScreen: React.FC = () => {
     /** Remove a recent project from the list */
     const handleRemoveRecent = (e: React.MouseEvent, projectPath: string) => {
         e.stopPropagation();
-        const filtered = state.recentProjects.filter(p => p.path !== projectPath);
-        dispatch({ type: 'SET_RECENT_PROJECTS', payload: filtered });
+        useConfigStore.getState().setRecentProjects(
+            recentProjects.filter(p => p.path !== projectPath),
+        );
     };
 
     /** Open the WAD Explorer workspace */
     const handleOpenWadExplorer = () => {
-        dispatch({ type: 'OPEN_WAD_EXPLORER' });
+        navigationCoordinator.openWadExplorer();
     };
-
-    // Get creator name or use default
-    const creatorName = state.creatorName || 'Creator';
 
     return (
         <div className="welcome">
@@ -136,10 +148,10 @@ export const WelcomeScreen: React.FC = () => {
                     {/* Recent Projects sub-section — capped to RECENT_DEFAULT_LIMIT
                         unless the user expands. Avoids overwhelming the welcome
                         screen when the list grows. */}
-                    {state.recentProjects.length > 0 && (() => {
-                        const total = state.recentProjects.length;
+                    {recentProjects.length > 0 && (() => {
+                        const total = recentProjects.length;
                         const limit = showAllRecent ? total : RECENT_DEFAULT_LIMIT;
-                        const visible = state.recentProjects.slice(0, limit);
+                        const visible = recentProjects.slice(0, limit);
                         const hidden = total - visible.length;
                         return (
                             <div className="welcome__recent">

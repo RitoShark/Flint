@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useAppState, useConfigStore } from '../../lib/stores';
+import { useConfigStore, useProjectTabStore, useModalStore, useNotificationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { ImagePreview } from '../preview/ImagePreview';
@@ -114,7 +114,10 @@ const is3DType = (info: FileInfo | null): boolean => {
 };
 
 export const PreviewPanel: React.FC = () => {
-    const { state, openModal, showToast } = useAppState();
+    const activeTabId = useProjectTabStore((s) => s.activeTabId);
+    const openTabs = useProjectTabStore((s) => s.openTabs);
+    const openModal = useModalStore((s) => s.openModal);
+    const showToast = useNotificationStore((s) => s.showToast);
     const jadePath = useConfigStore((state) => state.jadePath);
     const quartzPath = useConfigStore((state) => state.quartzPath);
     const [fileInfo, setFileInfo] = useState<FileInfo | null>(null);
@@ -135,8 +138,8 @@ export const PreviewPanel: React.FC = () => {
     const prevFileInfoRef = useRef<FileInfo | null>(null);
 
     // Get selected file and project path from active tab
-    const activeTab = state.activeTabId
-        ? state.openTabs.find(t => t.id === state.activeTabId)
+    const activeTab = activeTabId
+        ? openTabs.find(t => t.id === activeTabId)
         : null;
     const selectedFile = activeTab?.selectedFile || null;
     const projectPath = activeTab?.projectPath || null;

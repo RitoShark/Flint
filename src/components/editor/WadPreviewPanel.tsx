@@ -17,7 +17,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useAppState, useConfigStore } from '../../lib/stores';
+import { useConfigStore, useWadExtractStore, useNotificationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
@@ -340,7 +340,9 @@ const MonacoTextViewer: React.FC<{ text: string; language: string }> = ({ text, 
 // =============================================================================
 
 export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
-    const { state, dispatch, showToast } = useAppState();
+    const extractSessions = useWadExtractStore((s) => s.extractSessions);
+    const activeExtractId = useWadExtractStore((s) => s.activeExtractId);
+    const showToast = useNotificationStore((s) => s.showToast);
 
     const [preview, setPreview] = useState<PreviewState | null>(null);
     const [loading, setLoading] = useState(false);
@@ -361,7 +363,7 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
     const [modelTempDir, setModelTempDir] = useState<string | null>(null);
     const [modelLoading, setModelLoading] = useState(false);
 
-    const session = state.extractSessions.find(s => s.id === state.activeExtractId);
+    const session = extractSessions.find(s => s.id === activeExtractId);
     const chunk = session?.chunks.find(c => c.hash === session.previewHash) ?? null;
 
     // Reset editing states when preview changes
@@ -522,14 +524,7 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
             await api.writeSessionChunk(session.editSessionId, chunk.hash, binBytes);
 
             // 3. Update chunk list in the store (update size and set dirty)
-            dispatch({
-                type: 'STAGE_EXTRACT_CHUNK_EDIT',
-                payload: {
-                    sessionId: session.id,
-                    hash: chunk.hash,
-                    newSize: binBytes.length,
-                },
-            });
+            useWadExtractStore.getState().stageChunkEdit(session.id, chunk.hash, binBytes.length);
 
             // 4. Update parent's textContent so it matches and dirty flag clears
             setPreview(p => p ? { ...p, bytes: binBytes, textContent: editedContent } : null);
@@ -828,7 +823,7 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                     <button
                         className="btn btn--sm"
                         onClick={() => {
-                            dispatch({ type: 'SET_EXTRACT_PREVIEW', payload: { sessionId: session.id, hash: null } });
+                            useWadExtractStore.getState().setPreview(session.id, null);
                         }}
                         title="Close preview"
                         style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', padding: 0 }}

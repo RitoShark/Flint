@@ -3,8 +3,7 @@
  */
 
 import React, { useEffect, useCallback, useRef, useState } from 'react';
-import { useAppState, useAppMetadataStore, useConfigStore } from '../../lib/stores';
-import { useNavigationStore } from '../../lib/stores/navigationStore';
+import { useAppMetadataStore, useConfigStore, useProjectTabStore, useNavigationStore, useWadExtractStore, useWadExplorerStore, useModalStore, useNotificationStore } from '../../lib/stores';
 import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
 import { initShortcuts, registerShortcut } from '../../lib/util/utils';
 import * as api from '../../lib/api';
@@ -81,15 +80,59 @@ const ActiveModal: React.FC<{ activeModal: string | null }> = React.memo(({ acti
 ActiveModal.displayName = 'ActiveModal';
 
 export const App: React.FC = () => {
-    const { state, dispatch, openModal, closeModal, setWorking, setReady, showToast } = useAppState();
+    // Narrow store subscriptions — App used to call useAppState() which
+    // subscribed to 9 stores at once, so any unrelated dispatch re-rendered
+    // the whole tree. Each hook here picks the single field actually used
+    // in render or memo deps.
+    const activeTabId = useProjectTabStore((s) => s.activeTabId);
+    const openTabs = useProjectTabStore((s) => s.openTabs);
+    const currentView = useNavigationStore((s) => s.currentView);
+    const activeModal = useModalStore((s) => s.activeModal);
+    const wadExplorerOpen = useWadExplorerStore((s) => s.isOpen);
+    const autoSyncToLauncher = useConfigStore((s) => s.autoSyncToLauncher);
+    const ltkManagerModPath = useConfigStore((s) => s.ltkManagerModPath);
+    const celestialModPath = useConfigStore((s) => s.celestialModPath);
+    const preferredLauncher = useConfigStore((s) => s.preferredLauncher);
+    const creatorName = useConfigStore((s) => s.creatorName);
+
+    const openModal = useModalStore((s) => s.openModal);
+    const closeModal = useModalStore((s) => s.closeModal);
+    const setWorking = useAppMetadataStore((s) => s.setWorking);
+    const setReady = useAppMetadataStore((s) => s.setReady);
+    const showToast = useNotificationStore((s) => s.showToast);
+
     const [leftPanelWidth, setLeftPanelWidth] = useState(280);
     const [showTutorial, setShowTutorial] = useState(false);
     const resizerRef = useRef<HTMLDivElement>(null);
     const isResizingRef = useRef(false);
 
-    // Keep a ref to always-current state so shortcut handlers are never stale
-    const stateRef = useRef(state);
-    useEffect(() => { stateRef.current = state; });
+    // stateRef holds the snapshot fields shortcut handlers + event listeners
+    // need. They previously read from a `state` literal that re-rebuilt on
+    // every render; now we mirror only what they actually use.
+    const stateRef = useRef({
+        activeTabId,
+        openTabs,
+        currentView,
+        activeModal,
+        recentProjects: useConfigStore.getState().recentProjects,
+        verboseLogging: useAppMetadataStore.getState().verboseLogging,
+        autoUpdateEnabled: useConfigStore.getState().autoUpdateEnabled,
+        skippedUpdateVersion: useConfigStore.getState().skippedUpdateVersion,
+        activeExtractId: useWadExtractStore.getState().activeExtractId,
+    });
+    useEffect(() => {
+        stateRef.current = {
+            activeTabId,
+            openTabs,
+            currentView,
+            activeModal,
+            recentProjects: useConfigStore.getState().recentProjects,
+            verboseLogging: useAppMetadataStore.getState().verboseLogging,
+            autoUpdateEnabled: useConfigStore.getState().autoUpdateEnabled,
+            skippedUpdateVersion: useConfigStore.getState().skippedUpdateVersion,
+            activeExtractId: useWadExtractStore.getState().activeExtractId,
+        };
+    });
 
     // Initialize shortcuts and load data on mount
     useEffect(() => {
@@ -153,9 +196,9 @@ export const App: React.FC = () => {
     // Manage file watcher for auto-sync
     // Compute the current project path (useMemo to avoid triggering effect on every state change)
     const currentProjectPath = React.useMemo(() => {
-        const activeTab = getActiveTab(state);
+        const activeTab = getActiveTab({ activeTabId, openTabs });
         return activeTab?.projectPath || null;
-    }, [state.activeTabId, state.openTabs]);
+    }, [activeTabId, openTabs]);
 
     // Block the browser's native right-click menu globally. Flint's own
     // hierarchical ContextMenu component handles right-click — the system
@@ -184,19 +227,17 @@ export const App: React.FC = () => {
     // Resolve which launcher auto-sync should target. Mirrors the same
     // preference→fallback logic used by the manual Sync button in TitleBar.
     const autoSyncTarget = React.useMemo<{ name: string; path: string } | null>(() => {
-        const ltk = state.ltkManagerModPath;
-        const celestial = state.celestialModPath;
-        if (state.preferredLauncher === 'celestial' && celestial) return { name: 'Celestial', path: celestial };
-        if (state.preferredLauncher === 'ltk' && ltk) return { name: 'LTK Manager', path: ltk };
-        if (celestial) return { name: 'Celestial', path: celestial };
-        if (ltk) return { name: 'LTK Manager', path: ltk };
+        if (preferredLauncher === 'celestial' && celestialModPath) return { name: 'Celestial', path: celestialModPath };
+        if (preferredLauncher === 'ltk' && ltkManagerModPath) return { name: 'LTK Manager', path: ltkManagerModPath };
+        if (celestialModPath) return { name: 'Celestial', path: celestialModPath };
+        if (ltkManagerModPath) return { name: 'LTK Manager', path: ltkManagerModPath };
         return null;
-    }, [state.preferredLauncher, state.ltkManagerModPath, state.celestialModPath]);
+    }, [preferredLauncher, ltkManagerModPath, celestialModPath]);
     const autoSyncNameRef = React.useRef<string>(autoSyncTarget?.name ?? 'launcher');
     React.useEffect(() => { autoSyncNameRef.current = autoSyncTarget?.name ?? 'launcher'; }, [autoSyncTarget]);
 
     useEffect(() => {
-        const shouldWatch = !!(state.autoSyncToLauncher && autoSyncTarget && currentProjectPath);
+        const shouldWatch = !!(autoSyncToLauncher && autoSyncTarget && currentProjectPath);
 
         if (shouldWatch) {
             isWatchingRef.current = true;
@@ -221,7 +262,7 @@ export const App: React.FC = () => {
                 api.stopProjectWatcher().catch(() => { });
             }
         };
-    }, [currentProjectPath, state.autoSyncToLauncher, autoSyncTarget]);
+    }, [currentProjectPath, autoSyncToLauncher, autoSyncTarget]);
 
     // Listen for auto-sync events from Rust
     useEffect(() => {
@@ -275,8 +316,9 @@ export const App: React.FC = () => {
                     setWorking('Opening WAD...');
                     const chunks = await api.getWadChunks(filePath);
                     const sessionId = `extract-${Date.now()}`;
-                    dispatch({ type: 'OPEN_EXTRACT_SESSION', payload: { id: sessionId, wadPath: filePath } });
-                    dispatch({ type: 'SET_EXTRACT_CHUNKS', payload: { sessionId, chunks } });
+                    useWadExtractStore.getState().openSession(sessionId, filePath);
+                    useNavigationStore.getState().setView('extract');
+                    useWadExtractStore.getState().setChunks(sessionId, chunks);
                     setReady('WAD opened');
                 } catch (err) {
                     console.error('Failed to open WAD:', err);
@@ -295,7 +337,7 @@ export const App: React.FC = () => {
             useNavigationStore.getState().navigateToFileEditor({ filePath, kind });
         });
         return () => { unlistenFileOpen.then((unlisten) => unlisten()); };
-    }, [dispatch, setWorking, setReady, showToast]);
+    }, [setWorking, setReady, showToast]);
 
     // Manage preview file watcher for hot reload.
     //
@@ -517,10 +559,10 @@ export const App: React.FC = () => {
     }, []);
 
     // Use currentView as the single source of truth for what's displayed
-    const isWadExplorer = state.currentView === 'wad-explorer';
-    const isExtractMode = state.currentView === 'extract';
+    const isWadExplorer = currentView === 'wad-explorer';
+    const isExtractMode = currentView === 'extract';
     // Show a left panel for any view that isn't the welcome screen or WAD Explorer
-    const hasProject = !isWadExplorer && state.currentView !== 'welcome';
+    const hasProject = !isWadExplorer && currentView !== 'welcome';
 
     // Workspace intro animation: the NewProjectModal dispatches
     // `flint:project-intro` right before it starts its zoom-out, and we
@@ -540,19 +582,19 @@ export const App: React.FC = () => {
     // Check if first-time setup is needed (wait for settings to load from disk first)
     const hydrated = useConfigStore((s) => s._hydrated);
     useEffect(() => {
-        if (hydrated && !state.creatorName && !state.activeModal) {
+        if (hydrated && !creatorName && !activeModal) {
             openModal('firstTimeSetup');
         }
-    }, [hydrated, state.creatorName, state.activeModal, openModal]);
+    }, [hydrated, creatorName, activeModal, openModal]);
 
     // Show tutorial once after first-time setup. Guard with !showTutorial so
     // opening modals from within the tutorial doesn't re-trigger this effect.
     useEffect(() => {
-        if (hydrated && state.creatorName && !showTutorial && !state.activeModal && !isOnboardingDone()) {
+        if (hydrated && creatorName && !showTutorial && !activeModal && !isOnboardingDone()) {
             const timer = setTimeout(() => setShowTutorial(true), 350);
             return () => clearTimeout(timer);
         }
-    }, [hydrated, state.creatorName, state.activeModal, showTutorial]);
+    }, [hydrated, creatorName, activeModal, showTutorial]);
 
     // External replay trigger — Settings → Dev → "Replay Tutorial" fires
     // a window event so we can re-enter the overlay without round-tripping
@@ -571,7 +613,7 @@ export const App: React.FC = () => {
                 id="main-content"
             >
                 {/* Keep WadExplorer mounted when open — toggling display avoids the ~10s rescan on every switch */}
-                {state.wadExplorer.isOpen && (
+                {wadExplorerOpen && (
                     <div style={{ display: isWadExplorer ? 'contents' : 'none' }}>
                         <WadExplorer />
                     </div>
@@ -599,7 +641,7 @@ export const App: React.FC = () => {
             {/* Modals — only the active one is mounted. Mounting all 15
                 meant every modal called useAppState() (9-store fan-out)
                 and re-ran on every dispatch, even with nothing open. */}
-            <ActiveModal activeModal={state.activeModal} />
+            <ActiveModal activeModal={activeModal} />
 
             {/* Toast notifications */}
             <ToastContainer />

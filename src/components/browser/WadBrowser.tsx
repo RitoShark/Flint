@@ -5,7 +5,7 @@
  */
 
 import React, { useMemo, useCallback, useState } from 'react';
-import { useAppState, useModalStore, useWadExtractStore } from '../../lib/stores';
+import { useAppMetadataStore, useModalStore, useNotificationStore, useWadExtractStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getIcon, getFileIcon } from '../../lib/ui-helpers/fileIcons';
@@ -142,8 +142,11 @@ function formatSize(bytes: number): string {
 // =============================================================================
 
 export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
-    const { state, dispatch, showToast } = useAppState();
-    const session = state.extractSessions.find(s => s.id === state.activeExtractId);
+    const extractSessions = useWadExtractStore((s) => s.extractSessions);
+    const activeExtractId = useWadExtractStore((s) => s.activeExtractId);
+    const showToast = useNotificationStore((s) => s.showToast);
+    const setStatus = useAppMetadataStore((s) => s.setStatus);
+    const session = extractSessions.find(s => s.id === activeExtractId);
 
     const setCurrentDir = useWadExtractStore((s) => s.setCurrentDir);
     const navigateHistory = useWadExtractStore((s) => s.navigateHistory);
@@ -168,7 +171,7 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
         if (!session) return;
         try {
             setIsUnhashing(true);
-            dispatch({ type: 'SET_STATUS', payload: { status: 'working', message: 'Scanning WAD for asset paths...' } });
+            setStatus('working', 'Scanning WAD for asset paths...');
 
             // 1. Run the hash scanner
             const result = await api.extractHashesFromWad(session.wadPath);
@@ -176,7 +179,7 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
 
             // 2. Refresh chunks and update store
             const refreshedChunks = await api.getWadChunks(session.wadPath);
-            dispatch({ type: 'SET_EXTRACT_CHUNKS', payload: { sessionId: session.id, chunks: refreshedChunks } });
+            useWadExtractStore.getState().setChunks(session.id, refreshedChunks);
 
             const beforeUnknown = session.chunks.filter(c => !c.path).length;
             const afterUnknown = refreshedChunks.filter(c => !c.path).length;
@@ -194,30 +197,27 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
             showToast('error', `Unhashing failed: ${(err as Error).message || err}`);
         } finally {
             setIsUnhashing(false);
-            dispatch({ type: 'SET_STATUS', payload: { status: 'ready', message: '' } });
+            setStatus('ready', '');
         }
-    }, [session, dispatch, showToast]);
+    }, [session, showToast, setStatus]);
 
     const handleSaveWad = useCallback(async () => {
         if (!session || !session.editSessionId) return;
         try {
             setIsSavingWad(true);
-            dispatch({ type: 'SET_STATUS', payload: { status: 'working', message: 'Saving WAD...' } });
+            setStatus('working', 'Saving WAD...');
             
             await api.saveWadEditSession(session.editSessionId, session.wadPath);
-            dispatch({
-                type: 'SET_EXTRACT_SESSION_DIRTY',
-                payload: { sessionId: session.id, isDirty: false }
-            });
+            useWadExtractStore.getState().setSessionDirty(session.id, false);
             showToast('success', 'WAD saved successfully!');
         } catch (err) {
             console.error('[WadBrowser] Save WAD failed:', err);
             showToast('error', `Failed to save WAD: ${(err as Error).message || err}`);
         } finally {
             setIsSavingWad(false);
-            dispatch({ type: 'SET_STATUS', payload: { status: 'ready', message: '' } });
+            setStatus('ready', '');
         }
-    }, [session, dispatch, showToast]);
+    }, [session, showToast, setStatus]);
 
     // Directory contents at active path
     const nodes = useMemo(() => {
@@ -242,13 +242,13 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
 
     const onPreview = useCallback((hash: string) => {
         if (!session) return;
-        dispatch({ type: 'SET_EXTRACT_PREVIEW', payload: { sessionId: session.id, hash } });
-    }, [dispatch, session?.id]);
+        useWadExtractStore.getState().setPreview(session.id, hash);
+    }, [session?.id]);
 
     const onToggleChunk = useCallback((hash: string) => {
         if (!session) return;
-        dispatch({ type: 'TOGGLE_EXTRACT_CHUNK', payload: { sessionId: session.id, hash } });
-    }, [dispatch, session?.id]);
+        useWadExtractStore.getState().toggleChunk(session.id, hash);
+    }, [session?.id]);
 
     // Toggles selection for all chunks under a tree node recursively
     const handleToggleFolderSelection = useCallback((node: WadTreeFolder) => {
@@ -259,12 +259,12 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
         for (const hash of hashes) {
             const isCurrentlySelected = session.selectedHashes.has(hash);
             if (allSelected && isCurrentlySelected) {
-                dispatch({ type: 'TOGGLE_EXTRACT_CHUNK', payload: { sessionId: session.id, hash } });
+                useWadExtractStore.getState().toggleChunk(session.id, hash);
             } else if (!allSelected && !isCurrentlySelected) {
-                dispatch({ type: 'TOGGLE_EXTRACT_CHUNK', payload: { sessionId: session.id, hash } });
+                useWadExtractStore.getState().toggleChunk(session.id, hash);
             }
         }
-    }, [dispatch, session]);
+    }, [session]);
 
     const handleExtractSelected = useCallback(async () => {
         if (!session || session.selectedHashes.size === 0) return;
@@ -287,8 +287,8 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
 
     const onSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         if (!session) return;
-        dispatch({ type: 'SET_EXTRACT_SEARCH', payload: { sessionId: session.id, query: e.target.value } });
-    }, [dispatch, session?.id]);
+        useWadExtractStore.getState().setSearch(session.id, e.target.value);
+    }, [session?.id]);
 
     // =========================================================================
     // Right-Click Context Menus
@@ -307,13 +307,13 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                     try {
                         const dest = await open({ title: 'Choose Extraction Folder', directory: true });
                         if (!dest) return;
-                        dispatch({ type: 'SET_STATUS', payload: { status: 'working', message: 'Extracting...' } });
+                        setStatus('working', 'Extracting...');
                         const res = await api.extractWad(session.wadPath, dest as string, [chunk.hash]);
                         showToast('success', `Extracted ${res.extracted} file`);
                     } catch {
                         showToast('error', 'Extraction failed');
                     } finally {
-                        dispatch({ type: 'SET_STATUS', payload: { status: 'ready', message: '' } });
+                        setStatus('ready', '');
                     }
                 }
             },
@@ -356,7 +356,7 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
         ];
 
         openContextMenu(e.clientX, e.clientY, options);
-    }, [session, dispatch, showToast, openContextMenu]);
+    }, [session, showToast, openContextMenu, setStatus]);
 
     const handleFolderContextMenu = useCallback((e: React.MouseEvent, node: WadTreeFolder) => {
         e.preventDefault();
@@ -372,14 +372,14 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                     try {
                         const dest = await open({ title: 'Choose Extraction Folder', directory: true });
                         if (!dest) return;
-                        dispatch({ type: 'SET_STATUS', payload: { status: 'working', message: 'Extracting...' } });
+                        setStatus('working', 'Extracting...');
                         const hashes = getAllChunkHashes([node]);
                         const res = await api.extractWad(session.wadPath, dest as string, hashes);
                         showToast('success', `Extracted ${res.extracted} files`);
                     } catch {
                         showToast('error', 'Extraction failed');
                     } finally {
-                        dispatch({ type: 'SET_STATUS', payload: { status: 'ready', message: '' } });
+                        setStatus('ready', '');
                     }
                 }
             },
@@ -399,7 +399,7 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
         ];
 
         openContextMenu(e.clientX, e.clientY, options);
-    }, [session, dispatch, showToast, openContextMenu]);
+    }, [session, showToast, openContextMenu, setStatus]);
 
     if (!session) {
         return (

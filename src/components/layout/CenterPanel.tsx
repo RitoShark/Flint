@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useProjectTabStore, useNavigationStore, useAppState } from '../../lib/stores';
+import { useProjectTabStore, useNavigationStore, useAppMetadataStore, useWadExtractStore } from '../../lib/stores';
 import { WelcomeScreen } from '../browser/WelcomeScreen';
 import { PreviewPanel } from '../editor/PreviewPanel';
 import { CheckpointTimeline } from '../editor/CheckpointTimeline';
@@ -76,8 +76,9 @@ const ProjectView: React.FC = () => {
 };
 
 const WadExtractMainView: React.FC = () => {
-    const { state } = useAppState();
-    const session = state.extractSessions.find(s => s.id === state.activeExtractId);
+    const extractSessions = useWadExtractStore((s) => s.extractSessions);
+    const activeExtractId = useWadExtractStore((s) => s.activeExtractId);
+    const session = extractSessions.find(s => s.id === activeExtractId);
     
     // Store split percent (files percentage, defaults to 60%)
     const [splitPercent, setSplitPercent] = useState(60);
@@ -164,8 +165,8 @@ const WadExtractMainView: React.FC = () => {
 
 export const CenterPanel: React.FC = () => {
     const currentView = useNavigationStore((s) => s.currentView);
-    const { state } = useAppState();
-    const { status, statusMessage } = state;
+    const status = useAppMetadataStore((s) => s.status);
+    const statusMessage = useAppMetadataStore((s) => s.statusMessage);
 
     const renderView = () => {
         switch (currentView) {

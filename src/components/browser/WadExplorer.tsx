@@ -13,7 +13,8 @@
 import React, {
     useState, useCallback, useEffect, useRef, useMemo,
 } from 'react';
-import { useAppState, useConfigStore, useWadExplorerStore } from '../../lib/stores';
+import { useShallow } from 'zustand/react/shallow';
+import { useConfigStore, useWadExplorerStore, useNavigationStore, useModalStore, useNotificationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getIcon, getFileIcon } from '../../lib/ui-helpers/fileIcons';
@@ -40,8 +41,22 @@ import { QuickActionPanel, WadListSkeleton } from './wad-explorer/QuickActionPan
 import { ExtractOverlay } from './wad-explorer/ExtractOverlay';
 
 export const WadExplorer: React.FC = () => {
-    const { state, dispatch, showToast } = useAppState();
-    const { wadExplorer } = state;
+    const wadExplorer = useWadExplorerStore(useShallow((s) => ({
+        isOpen: s.isOpen,
+        wads: s.wads,
+        scanStatus: s.scanStatus,
+        scanError: s.scanError,
+        selected: s.selected,
+        expandedWads: s.expandedWads,
+        expandedFolders: s.expandedFolders,
+        searchQuery: s.searchQuery,
+        checkedFiles: s.checkedFiles,
+        checkedCountPerWad: s.checkedCountPerWad,
+    })));
+    const leaguePath = useConfigStore((s) => s.leaguePath);
+    const currentView = useNavigationStore((s) => s.currentView);
+    const openContextMenu = useModalStore((s) => s.openContextMenu);
+    const showToast = useNotificationStore((s) => s.showToast);
 
     // ── Local UI state ───────────────────────────────────────────────────────
     const [leftWidth, setLeftWidth] = useState(420);
@@ -94,7 +109,7 @@ export const WadExplorer: React.FC = () => {
         scanError: string | null;
     }>>(new Map());
 
-    const effectiveLeagueRoot = branch === 'pbe' ? configStore.leaguePathPbe : state.leaguePath;
+    const effectiveLeagueRoot = branch === 'pbe' ? configStore.leaguePathPbe : leaguePath;
     const effectiveGamePath = effectiveLeagueRoot ? `${effectiveLeagueRoot}/Game` : null;
 
     // ── Scan on mount if not yet scanned ────────────────────────────────────
@@ -105,12 +120,12 @@ export const WadExplorer: React.FC = () => {
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const runScan = async (gamePath: string) => {
-        dispatch({ type: 'SET_WAD_EXPLORER_SCAN', payload: { status: 'scanning' } });
+        useWadExplorerStore.getState().setScan('scanning');
         try {
             const wads = await api.scanGameWads(gamePath);
-            dispatch({ type: 'SET_WAD_EXPLORER_SCAN', payload: { status: 'ready', wads } });
+            useWadExplorerStore.getState().setScan('ready', wads);
         } catch (e) {
-            dispatch({ type: 'SET_WAD_EXPLORER_SCAN', payload: { status: 'error', error: (e as Error).message } });
+            useWadExplorerStore.getState().setScan('error', undefined, (e as Error).message);
             showToast('error', 'Failed to scan WAD directory');
         }
     };
@@ -148,50 +163,46 @@ export const WadExplorer: React.FC = () => {
                 name: w.name,
                 category: w.category,
             }));
-            dispatch({
-                type: 'SET_WAD_EXPLORER_SCAN',
-                payload: { status: 'ready', wads: baseWads },
-            });
+            useWadExplorerStore.getState().setScan('ready', baseWads);
             const loaded = cached.wads.filter(w => w.status === 'loaded' && w.chunks.length > 0);
             if (loaded.length > 0) {
-                dispatch({
-                    type: 'BATCH_SET_WAD_STATUSES',
-                    payload: loaded.map(w => ({ wadPath: w.path, status: 'loaded' as const, chunks: w.chunks })),
-                });
+                useWadExplorerStore.getState().batchSetWadStatuses(
+                    loaded.map(w => ({ wadPath: w.path, status: 'loaded' as const, chunks: w.chunks })),
+                );
             }
             return;
         }
 
         // No cache for this branch yet — fresh scan against the new path.
-        const nextRoot = next === 'pbe' ? configStore.leaguePathPbe : state.leaguePath;
+        const nextRoot = next === 'pbe' ? configStore.leaguePathPbe : leaguePath;
         const nextGamePath = nextRoot ? `${nextRoot}/Game` : null;
         if (!nextGamePath) {
-            dispatch({ type: 'SET_WAD_EXPLORER_SCAN', payload: { status: 'idle' } });
+            useWadExplorerStore.getState().setScan('idle');
             return;
         }
         runScan(nextGamePath);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [branch, configStore.leaguePathPbe, state.leaguePath, wadExplorer.wads, wadExplorer.scanStatus, wadExplorer.scanError]);
+    }, [branch, configStore.leaguePathPbe, leaguePath, wadExplorer.wads, wadExplorer.scanStatus, wadExplorer.scanError]);
 
     // ── Lazy WAD loading: load on-demand when WAD is expanded ─────────────────
     // This is MUCH faster than bulk-loading all 457 WADs upfront (was 15+ seconds).
     // Now the UI appears instantly and chunks load only when the user expands a WAD.
     const loadWad = useCallback(async (wadPath: string) => {
-        dispatch({ type: 'SET_WAD_EXPLORER_WAD_STATUS', payload: { wadPath, status: 'loading' } });
+        useWadExplorerStore.getState().setWadStatus(wadPath, 'loading');
         try {
             const chunks = await api.getWadChunks(wadPath);
-            dispatch({ type: 'SET_WAD_EXPLORER_WAD_STATUS', payload: { wadPath, status: 'loaded', chunks } });
+            useWadExplorerStore.getState().setWadStatus(wadPath, 'loaded', chunks);
         } catch (e) {
-            dispatch({ type: 'SET_WAD_EXPLORER_WAD_STATUS', payload: { wadPath, status: 'error', error: (e as Error).message } });
+            useWadExplorerStore.getState().setWadStatus(wadPath, 'error', undefined, (e as Error).message);
         }
-    }, [dispatch]);
+    }, []);
 
     const pushRecentWad = useWadExplorerStore((s) => s.pushRecentWad);
     const handleToggleWad = useCallback((wadPath: string) => {
         const wad = wadExplorer.wads.find(w => w.path === wadPath);
         const wasCollapsed = !wadExplorer.expandedWads.has(wadPath);
 
-        dispatch({ type: 'TOGGLE_WAD_EXPLORER_WAD', payload: wadPath });
+        useWadExplorerStore.getState().toggleWad(wadPath);
 
         // Track WAD as recently-opened on expand. Used by the empty-state
         // panel to offer one-click reopen.
@@ -201,7 +212,7 @@ export const WadExplorer: React.FC = () => {
         if (wad?.status === 'idle' && wasCollapsed) {
             loadWad(wadPath);
         }
-    }, [dispatch, loadWad, wadExplorer.wads, wadExplorer.expandedWads, pushRecentWad]);
+    }, [loadWad, wadExplorer.wads, wadExplorer.expandedWads, pushRecentWad]);
 
     // ── Cheat sheet navigation ────────────────────────────────────────────────
     // Reads always-fresh data from refs so it can be called from effects and
@@ -238,7 +249,7 @@ export const WadExplorer: React.FC = () => {
             }
             const unexpanded = folderKeys.filter(k => !wadExplorer.expandedFolders.has(k));
             if (unexpanded.length > 0) {
-                dispatch({ type: 'BULK_SET_WAD_EXPLORER_FOLDERS', payload: { keys: unexpanded, expand: true } });
+                useWadExplorerStore.getState().bulkSetFolders(unexpanded, true);
                 return;
             }
 
@@ -254,7 +265,7 @@ export const WadExplorer: React.FC = () => {
                 pendingNavRef.current = null;
             }
         }
-    }, [dispatch, wadExplorer.wads, wadExplorer.expandedFolders]);
+    }, [wadExplorer.wads, wadExplorer.expandedFolders]);
 
     const handleCheatSheetOpenWad = useCallback((wadName: string, filePath?: string) => {
         const wad = wadExplorer.wads.find(w => w.name.toLowerCase() === wadName.toLowerCase());
@@ -275,9 +286,9 @@ export const WadExplorer: React.FC = () => {
     const handleCheatSheetFilter = useCallback((path: string) => {
         setSearchMode('regex');
         setInputValue(path);
-        dispatch({ type: 'SET_WAD_EXPLORER_SEARCH', payload: path });
+        useWadExplorerStore.getState().setSearch(path);
         setTimeout(() => searchRef.current?.focus(), 50);
-    }, [dispatch]);
+    }, []);
 
     // ── Background bulk indexing for whole-game search ─────────────────────────
     // Loads all WADs so search works across the entire game.
@@ -301,36 +312,33 @@ export const WadExplorer: React.FC = () => {
         const idlePaths = wadExplorer.wads.filter(w => w.status === 'idle').map(w => w.path);
         if (idlePaths.length === 0) return;
 
-        // Mark all as loading in one dispatch so the UI shows progress immediately.
-        dispatch({
-            type: 'BATCH_SET_WAD_STATUSES',
-            payload: idlePaths.map(p => ({ wadPath: p, status: 'loading' as const })),
-        });
+        // Mark all as loading in one batch so the UI shows progress immediately.
+        useWadExplorerStore.getState().batchSetWadStatuses(
+            idlePaths.map(p => ({ wadPath: p, status: 'loading' as const })),
+        );
 
         let cancelled = false;
         (async () => {
             try {
                 const batches = await api.loadAllWadChunks(idlePaths);
                 if (cancelled) return;
-                dispatch({
-                    type: 'BATCH_SET_WAD_STATUSES',
-                    payload: batches.map(b => ({
+                useWadExplorerStore.getState().batchSetWadStatuses(
+                    batches.map(b => ({
                         wadPath: b.path,
                         status: (b.error ? 'error' : 'loaded') as WadExplorerWad['status'],
                         chunks: b.chunks,
                         error: b.error ?? undefined,
                     })),
-                });
+                );
             } catch (e) {
                 if (cancelled) return;
-                dispatch({
-                    type: 'BATCH_SET_WAD_STATUSES',
-                    payload: idlePaths.map(p => ({
+                useWadExplorerStore.getState().batchSetWadStatuses(
+                    idlePaths.map(p => ({
                         wadPath: p,
                         status: 'error' as const,
                         error: (e as Error).message,
                     })),
-                });
+                );
             }
         })();
 
@@ -340,20 +348,20 @@ export const WadExplorer: React.FC = () => {
     }, [wadExplorer.scanStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const handleToggleFolder = useCallback((key: string) => {
-        dispatch({ type: 'TOGGLE_WAD_EXPLORER_FOLDER', payload: key });
-    }, [dispatch]);
+        useWadExplorerStore.getState().toggleFolder(key);
+    }, []);
 
     const handleDeepToggleFolder = useCallback((keys: string[], expand: boolean) => {
-        dispatch({ type: 'BULK_SET_WAD_EXPLORER_FOLDERS', payload: { keys, expand } });
-    }, [dispatch]);
+        useWadExplorerStore.getState().bulkSetFolders(keys, expand);
+    }, []);
 
     const handleSelectFile = useCallback((wadPath: string, chunk: WadChunk) => {
-        dispatch({ type: 'SET_WAD_EXPLORER_SELECTED', payload: { wadPath, hash: chunk.hash } });
-    }, [dispatch]);
+        useWadExplorerStore.getState().setSelected(wadPath, chunk.hash);
+    }, []);
 
     const handleToggleCheck = useCallback((keys: string[], checked: boolean) => {
-        dispatch({ type: 'WAD_EXPLORER_TOGGLE_CHECK', payload: { keys, checked } });
-    }, [dispatch]);
+        useWadExplorerStore.getState().toggleCheck(keys, checked);
+    }, []);
 
     const handleSelectAll = useCallback(() => {
         const keys: string[] = [];
@@ -367,12 +375,12 @@ export const WadExplorer: React.FC = () => {
                 for (const c of w.chunks) keys.push(makeFileKey(w.path, c.hash));
             }
         }
-        dispatch({ type: 'WAD_EXPLORER_TOGGLE_CHECK', payload: { keys, checked: true } });
-    }, [dispatch, wadExplorer.wads, hasQuery, searchRe, plainLower, searchMode]);
+        useWadExplorerStore.getState().toggleCheck(keys, true);
+    }, [wadExplorer.wads, hasQuery, searchRe, plainLower, searchMode]);
 
     const handleDeselectAll = useCallback(() => {
-        dispatch({ type: 'WAD_EXPLORER_CLEAR_CHECKS' });
-    }, [dispatch]);
+        useWadExplorerStore.getState().clearChecks();
+    }, []);
 
     /**
      * Shared progress state for the extract overlay. Every extract path
@@ -478,12 +486,12 @@ export const WadExplorer: React.FC = () => {
             }));
             const total = await runExtract(groups, dest as string, `Extracting ${checkedFiles.size} selected file${checkedFiles.size > 1 ? 's' : ''}`);
             showToast('success', `Extracted ${total} files from ${groups.length} WAD${groups.length > 1 ? 's' : ''}`);
-            dispatch({ type: 'WAD_EXPLORER_CLEAR_CHECKS' });
+            useWadExplorerStore.getState().clearChecks();
         } catch {
             setExtractProgress(null);
             showToast('error', 'Extraction failed');
         }
-    }, [wadExplorer, dispatch, showToast, runExtract]);
+    }, [wadExplorer, showToast, runExtract]);
 
     // ── Search ───────────────────────────────────────────────────────────────
     const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -491,27 +499,27 @@ export const WadExplorer: React.FC = () => {
         setInputValue(val);
         if (debounceRef.current) clearTimeout(debounceRef.current);
         debounceRef.current = setTimeout(() => {
-            dispatch({ type: 'SET_WAD_EXPLORER_SEARCH', payload: val });
+            useWadExplorerStore.getState().setSearch(val);
         }, 300);
-    }, [dispatch]);
+    }, []);
 
     // Ctrl+F → focus search; Escape → clear search
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            if (e.ctrlKey && e.key === 'f' && state.currentView === 'wad-explorer') {
+            if (e.ctrlKey && e.key === 'f' && currentView === 'wad-explorer') {
                 e.preventDefault();
                 searchRef.current?.focus();
                 searchRef.current?.select();
             }
             if (e.key === 'Escape' && document.activeElement === searchRef.current) {
                 setInputValue('');
-                dispatch({ type: 'SET_WAD_EXPLORER_SEARCH', payload: '' });
+                useWadExplorerStore.getState().setSearch('');
                 searchRef.current?.blur();
             }
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [dispatch, state.currentView]);
+    }, [currentView]);
 
     // ── Context menus ────────────────────────────────────────────────────────
     /** Build the "Extract ▸" submenu for any extraction action. Default item
@@ -561,7 +569,7 @@ export const WadExplorer: React.FC = () => {
         options.push({
             label: isChecked ? 'Uncheck' : 'Check',
             icon: getIcon(isChecked ? 'close' : 'check'),
-            onClick: () => dispatch({ type: 'WAD_EXPLORER_TOGGLE_CHECK', payload: { keys: [key], checked: !isChecked } }),
+            onClick: () => useWadExplorerStore.getState().toggleCheck([key], !isChecked),
         });
 
         // ── Extract ▸ ──
@@ -595,8 +603,8 @@ export const WadExplorer: React.FC = () => {
             submenu: copySubmenu,
         });
 
-        dispatch({ type: 'OPEN_CONTEXT_MENU', payload: { x, y, options } });
-    }, [dispatch, showToast, wadExplorer.checkedFiles, handleExtractSelected, runExtract, buildExtractSubmenu, wrapInWadFolder]);
+        openContextMenu(x, y, options);
+    }, [openContextMenu, showToast, wadExplorer.checkedFiles, handleExtractSelected, runExtract, buildExtractSubmenu, wrapInWadFolder]);
 
     const handleFolderContextMenu = useCallback((folder: VFSFolder, wadPath: string, x: number, y: number) => {
         const fileKeys = collectFolderFileKeys(folder, wadPath);
@@ -623,7 +631,7 @@ export const WadExplorer: React.FC = () => {
         options.push({
             label: folderCheckState === 'all' ? 'Uncheck All in Folder' : 'Check All in Folder',
             icon: getIcon(folderCheckState === 'all' ? 'close' : 'check'),
-            onClick: () => dispatch({ type: 'WAD_EXPLORER_TOGGLE_CHECK', payload: { keys: fileKeys, checked: folderCheckState !== 'all' } }),
+            onClick: () => useWadExplorerStore.getState().toggleCheck(fileKeys, folderCheckState !== 'all'),
         });
         options.push({
             label: `Extract Folder (${hashes.length})`,
@@ -651,8 +659,8 @@ export const WadExplorer: React.FC = () => {
                 { label: 'WAD Name', icon: getIcon('wad'), onClick: () => navigator.clipboard.writeText(wadName) },
             ],
         });
-        dispatch({ type: 'OPEN_CONTEXT_MENU', payload: { x, y, options } });
-    }, [dispatch, showToast, wadExplorer.checkedFiles, handleExtractSelected, runExtract, buildExtractSubmenu, wrapInWadFolder]);
+        openContextMenu(x, y, options);
+    }, [openContextMenu, showToast, wadExplorer.checkedFiles, handleExtractSelected, runExtract, buildExtractSubmenu, wrapInWadFolder]);
 
     const handleWadContextMenu = useCallback((wad: WadExplorerWad, x: number, y: number) => {
         const wadCheckState = getWadCheckState(wad, wadExplorer.checkedFiles);
@@ -681,7 +689,7 @@ export const WadExplorer: React.FC = () => {
         options.push({
             label: wadCheckState === 'all' ? 'Uncheck All in WAD' : 'Check All in WAD',
             icon: getIcon(wadCheckState === 'all' ? 'close' : 'check'),
-            onClick: () => dispatch({ type: 'WAD_EXPLORER_TOGGLE_CHECK', payload: { keys: wadFileKeys, checked: wadCheckState !== 'all' } }),
+            onClick: () => useWadExplorerStore.getState().toggleCheck(wadFileKeys, wadCheckState !== 'all'),
             disabled: !loaded,
         });
 
@@ -715,12 +723,12 @@ export const WadExplorer: React.FC = () => {
                     onClick: async () => {
                         try {
                             await api.invalidateWadCache(wad.path);
-                            dispatch({ type: 'SET_WAD_EXPLORER_WAD_STATUS', payload: { wadPath: wad.path, status: 'loading' } });
+                            useWadExplorerStore.getState().setWadStatus(wad.path, 'loading');
                             const chunks = await api.getWadChunks(wad.path);
-                            dispatch({ type: 'SET_WAD_EXPLORER_WAD_STATUS', payload: { wadPath: wad.path, status: 'loaded', chunks } });
+                            useWadExplorerStore.getState().setWadStatus(wad.path, 'loaded', chunks);
                             showToast('success', 'WAD reloaded');
                         } catch (e) {
-                            dispatch({ type: 'SET_WAD_EXPLORER_WAD_STATUS', payload: { wadPath: wad.path, status: 'error', error: (e as Error).message } });
+                            useWadExplorerStore.getState().setWadStatus(wad.path, 'error', undefined, (e as Error).message);
                             showToast('error', 'Failed to reload WAD');
                         }
                     },
@@ -755,8 +763,8 @@ export const WadExplorer: React.FC = () => {
             ],
         });
 
-        dispatch({ type: 'OPEN_CONTEXT_MENU', payload: { x, y, options } });
-    }, [dispatch, showToast, wadExplorer.checkedFiles, handleExtractSelected, runExtract, buildExtractSubmenu, wrapInWadFolder]);
+        openContextMenu(x, y, options);
+    }, [openContextMenu, showToast, wadExplorer.checkedFiles, handleExtractSelected, runExtract, buildExtractSubmenu, wrapInWadFolder]);
 
     // ── Resizer ───────────────────────────────────────────────────────────────
     useEffect(() => {
@@ -1129,7 +1137,7 @@ export const WadExplorer: React.FC = () => {
                                         onClick: handleExtractSelected,
                                     });
                                 }
-                                dispatch({ type: 'OPEN_CONTEXT_MENU', payload: { x: e.clientX, y: e.clientY, options } });
+                                openContextMenu(e.clientX, e.clientY, options);
                             }}
                         >
                             <span className="file-tree__chevron" dangerouslySetInnerHTML={{ __html: getIcon(isFolderCollapsed ? 'chevronRight' : 'chevronDown') }} />
@@ -1543,7 +1551,7 @@ export const WadExplorer: React.FC = () => {
                         key={`${wadExplorer.selected.wadPath}::${wadExplorer.selected.hash}`}
                         wadPath={wadExplorer.selected.wadPath}
                         chunk={selectedChunk}
-                        onClose={() => dispatch({ type: 'SET_WAD_EXPLORER_SELECTED', payload: null })}
+                        onClose={() => useWadExplorerStore.getState().setSelected(null, null)}
                     />
                 ) : (
                     <QuickActionPanel
@@ -1551,7 +1559,7 @@ export const WadExplorer: React.FC = () => {
                         onSetFilter={query => {
                             setInputValue(query);
                             setSearchMode('regex');
-                            dispatch({ type: 'SET_WAD_EXPLORER_SEARCH', payload: query });
+                            useWadExplorerStore.getState().setSearch(query);
                             searchRef.current?.focus();
                         }}
                         onOpenRecent={(wadPath) => {
