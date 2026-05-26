@@ -270,7 +270,7 @@ fn main() {
             commands::project::save_project,
             commands::project::delete_project,
             commands::project::list_project_files,
-            commands::project::project_path_valid,
+            commands::project::projects_path_valid,
             commands::project::preconvert_project_bins,
             commands::project::create_project_layer,
             commands::project::list_project_layers,
@@ -281,10 +281,6 @@ fn main() {
             // Champion discovery commands
             commands::champion::discover_champions,
             commands::champion::get_champion_skins,
-            commands::champion::search_champions,
-            // Validation commands
-            commands::validation::extract_asset_references,
-            commands::validation::validate_assets,
             // File commands (preview system)
             commands::file::read_file_bytes,
             commands::file::read_file_info,
@@ -327,7 +323,6 @@ fn main() {
             commands::export::repath_project_cmd,
             commands::export::export_fantome,
             commands::export::export_modpkg,
-            commands::export::get_fantome_filename,
             commands::export::get_export_preview,
             // Mesh commands (3D preview)
             commands::mesh::read_skn_mesh,
@@ -337,7 +332,6 @@ fn main() {
             commands::mesh::read_animation,
             commands::mesh::resolve_asset_path,
             // Auto-update commands
-            commands::updater::get_current_version,
             commands::updater::check_for_updates,
             commands::updater::download_and_install_update,
             // Checkpoint commands

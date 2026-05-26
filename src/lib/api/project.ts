@@ -232,12 +232,12 @@ export async function listProjectFiles(projectPath: string): Promise<FileTreeNod
 }
 
 /**
- * Lightweight existence + manifest check for a project directory. Use this
- * when you only need to know "is this project still valid?" — far cheaper than
- * `listProjectFiles`, which recursively walks the entire content/ tree.
+ * Batched existence check for project directories. Used by `cleanStaleProjects`
+ * at startup — replaces N IPC calls with one.
  */
-export async function projectPathValid(projectPath: string): Promise<boolean> {
-    return invokeCommand('project_path_valid', { projectPath });
+export async function projectsPathValid(projectPaths: string[]): Promise<boolean[]> {
+    if (projectPaths.length === 0) return [];
+    return invokeCommand('projects_path_valid', { projectPaths });
 }
 
 export async function preconvertProjectBins(projectPath: string): Promise<number> {

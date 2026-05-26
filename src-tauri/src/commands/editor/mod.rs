@@ -1,6 +1,4 @@
-//! Higher-level editor features: HUD editor, Hematite-style project fixer,
-//! and project-level asset validation.
+//! Higher-level editor features: HUD editor and Hematite-style project fixer.
 
 pub mod hud;
 pub mod fixer;
-pub mod validation;

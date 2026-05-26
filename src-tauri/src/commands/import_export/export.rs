@@ -3,7 +3,6 @@
 //! These commands expose export and repathing functionality to the frontend.
 //! Builds proper WAD binary files for fantome export.
 
-use flint_ltk::export::generate_fantome_filename;
 use flint_ltk::repath::{organize_project, OrganizerConfig};
 use flint_ltk::ltk_types::{ModProject, ModProjectAuthor};
 use serde::{Deserialize, Serialize};
@@ -354,12 +353,6 @@ fn format_authors(authors: &[ModProjectAuthor]) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ")
-}
-
-/// Generate a suggested filename for the fantome export
-#[tauri::command]
-pub fn get_fantome_filename(name: String, version: String) -> String {
-    generate_fantome_filename(&name, &version)
 }
 
 /// Get export preview (list of files that would be exported)

@@ -28,5 +28,5 @@ pub use bin::bin_split;
 pub use league::{champion, champion_schema, hash};
 pub use import_export::{export, fantome_import, modpkg_import};
 pub use platform::{external_apps, file_assoc, ltk_manager, settings, updater};
-pub use editor::{hud, fixer, validation};
+pub use editor::{hud, fixer};
 pub use system::{logging, dev};

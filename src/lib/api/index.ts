@@ -28,7 +28,6 @@
  *   - export         — fantome / modpkg export
  *   - import         — fantome / modpkg import
  *   - hud            — HUD editor
- *   - validation     — asset reference / validation
  *   - externalApps   — Jade/Quartz launch + Windows file associations
  *   - dev            — schema aggregation (dev-only)
  *   - settings       — disk-backed settings + themes
@@ -58,7 +57,6 @@ export * from './checkpoint';
 export * from './export';
 export * from './import';
 export * from './hud';
-export * from './validation';
 export * from './externalApps';
 export * from './dev';
 export * from './settings';

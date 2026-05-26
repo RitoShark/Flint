@@ -468,17 +468,10 @@ export const App: React.FC = () => {
             const recent = stateRef.current.recentProjects;
             if (recent.length === 0) return;
 
-            // Cheap existence check — `list_project_files` was running an entire
-            // recursive tree walk per recent project (~250-300ms each) just to
-            // detect deleted projects. The lightweight check is microseconds.
-            const results = await Promise.all(
-                recent.map(async (project) => ({
-                    project,
-                    valid: await api.projectPathValid(project.path),
-                })),
-            );
-
-            const validProjects = results.filter((r) => r.valid).map((r) => r.project);
+            // One batched IPC call instead of N — Rust parallelizes the disk
+            // checks via rayon.
+            const validity = await api.projectsPathValid(recent.map((p) => p.path));
+            const validProjects = recent.filter((_, i) => validity[i]);
 
             if (validProjects.length !== recent.length) {
                 useConfigStore.getState().setRecentProjects(validProjects);

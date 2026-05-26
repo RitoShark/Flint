@@ -12,9 +12,3 @@ export async function getChampionSkins(
     return invokeCommand('get_champion_skins', { leaguePath, championId });
 }
 
-export async function searchChampions(
-    leaguePath: string,
-    query: string
-): Promise<Array<{ name: string; id: string }>> {
-    return invokeCommand('search_champions', { leaguePath, query });
-}

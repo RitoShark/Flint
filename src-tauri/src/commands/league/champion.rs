@@ -53,23 +53,3 @@ pub async fn get_champion_skins(
         .map_err(|e| e.to_string())
 }
 
-/// Search champions by name
-///
-/// # Arguments
-/// * `champions` - List of champions to search
-/// * `query` - Search query
-///
-/// # Returns
-/// Filtered list of champions matching the query
-#[tauri::command]
-pub fn search_champions(champions: Vec<ChampionInfo>, query: String) -> Vec<ChampionInfo> {
-    let query_lower = query.to_lowercase();
-    
-    champions
-        .into_iter()
-        .filter(|c| {
-            c.name.to_lowercase().contains(&query_lower)
-                || c.internal_name.to_lowercase().contains(&query_lower)
-        })
-        .collect()
-}

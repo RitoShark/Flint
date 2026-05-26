@@ -989,22 +989,26 @@ pub async fn save_project(project: Project) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// Lightweight existence check for a project directory.
+/// Batched existence check for a list of project directories.
 ///
-/// `cleanStaleProjects` was firing `list_project_files` once per recent project
-/// at startup just to find dead entries — each call walks the entire project
-/// tree (250+ ms × N projects). This avoids the walk entirely.
+/// `cleanStaleProjects` runs at startup over every recent project. Doing one
+/// IPC call per project meant N round-trips on every cold boot; this batches
+/// them into a single call and parallelizes the disk checks via rayon.
 #[tauri::command]
-pub async fn project_path_valid(project_path: String) -> bool {
-    let path = PathBuf::from(&project_path);
-    if !path.is_dir() {
-        return false;
-    }
-    // A project directory must have one of the recognized config files —
-    // matches what `core_load_project` accepts as a project root.
-    path.join("mod.config.json").is_file()
-        || path.join("flint.json").is_file()
-        || path.join("project.json").is_file()
+pub async fn projects_path_valid(project_paths: Vec<String>) -> Vec<bool> {
+    use rayon::prelude::*;
+    project_paths
+        .par_iter()
+        .map(|project_path| {
+            let path = PathBuf::from(project_path);
+            if !path.is_dir() {
+                return false;
+            }
+            path.join("mod.config.json").is_file()
+                || path.join("flint.json").is_file()
+                || path.join("project.json").is_file()
+        })
+        .collect()
 }
 
 /// List files in a project directory

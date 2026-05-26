@@ -1,10 +1,6 @@
 import { invokeCommand } from './core';
 import type { UpdateInfo } from '../types';
 
-export async function getCurrentVersion(): Promise<string> {
-    return invokeCommand('get_current_version');
-}
-
 export async function checkForUpdates(): Promise<UpdateInfo> {
     return invokeCommand('check_for_updates');
 }

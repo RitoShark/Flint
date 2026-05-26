@@ -39,8 +39,7 @@ struct GitHubAsset {
     browser_download_url: String,
 }
 
-#[tauri::command]
-pub fn get_current_version() -> String {
+fn get_current_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
