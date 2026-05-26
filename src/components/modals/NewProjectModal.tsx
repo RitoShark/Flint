@@ -146,6 +146,25 @@ export const NewProjectModal: React.FC = () => {
     const [tftSkinSearch, setTftSkinSearch] = useState('');
     const [tftSkinPickerOpen, setTftSkinPickerOpen] = useState(false);
 
+    // ─── Experimental warning ────────────────────────────────────────────
+    const [experimentalWarning, setExperimentalWarning] = useState<'tft' | 'map' | null>(null);
+
+    const handleSelectExperimentalType = (type: 'tft' | 'map') => {
+        const key = `flint.seenExperimentalWarning.${type}`;
+        if (localStorage.getItem(key) !== 'true') {
+            setExperimentalWarning(type);
+        } else {
+            setProjectType(type);
+        }
+    };
+
+    const confirmExperimental = () => {
+        if (!experimentalWarning) return;
+        localStorage.setItem(`flint.seenExperimentalWarning.${experimentalWarning}`, 'true');
+        setProjectType(experimentalWarning);
+        setExperimentalWarning(null);
+    };
+
     // ─── Map project state ───────────────────────────────────────────────
     const [availableMaps, setAvailableMaps] = useState<api.MapEntry[]>([]);
     const [selectedMapId, setSelectedMapId] = useState<string>('');
@@ -1130,21 +1149,19 @@ export const NewProjectModal: React.FC = () => {
                             <span className="np-type-card__label">Skin</span>
                         </button>
 
-                        {import.meta.env.DEV && (
-                            <button
-                                className={`np-type-card${projectType === 'map' ? ' np-type-card--active' : ''}`}
-                                onClick={() => setProjectType('map')}
-                            >
-                                <div className="np-type-card__glow" />
-                                <div className="np-type-card__icon">
-                                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                                        <path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinejoin="round"/>
-                                        <path d="M9 4v14M15 6v14" stroke="currentColor" strokeWidth="1.5"/>
-                                    </svg>
-                                </div>
-                                <span className="np-type-card__label">Map</span>
-                            </button>
-                        )}
+                        <button
+                            className={`np-type-card np-type-card--experimental${projectType === 'map' ? ' np-type-card--active' : ''}`}
+                            onClick={() => handleSelectExperimentalType('map')}
+                        >
+                            <div className="np-type-card__glow" />
+                            <div className="np-type-card__icon">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                                    <path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinejoin="round"/>
+                                    <path d="M9 4v14M15 6v14" stroke="currentColor" strokeWidth="1.5"/>
+                                </svg>
+                            </div>
+                            <span className="np-type-card__label">Map</span>
+                        </button>
 
                         <button
                             className={`np-type-card${projectType === 'loading-screen' ? ' np-type-card--active' : ''}`}
@@ -1161,8 +1178,8 @@ export const NewProjectModal: React.FC = () => {
                         </button>
 
                         <button
-                            className={`np-type-card${projectType === 'tft' ? ' np-type-card--active' : ''}`}
-                            onClick={() => setProjectType('tft')}
+                            className={`np-type-card np-type-card--experimental${projectType === 'tft' ? ' np-type-card--active' : ''}`}
+                            onClick={() => handleSelectExperimentalType('tft')}
                         >
                             <div className="np-type-card__glow" />
                             <div className="np-type-card__icon">
@@ -1283,48 +1300,46 @@ export const NewProjectModal: React.FC = () => {
 
                     {/* ════════════ TFT Project Form ════════════ */}
                     <div className={`np-form${projectType === 'tft' ? ' np-form--active' : ''}`}>
-                        {/* Hero splash preview with splash-tinted glow behind it */}
-                        {selectedTactician && selectedTftSkin && (
-                            <div className="np-hero-wrap np-hero-wrap--tft">
-                                <div
-                                    className="np-hero-glow"
-                                    style={{ backgroundImage: `url(${JSON.stringify(selectedTftSkin.centeredSplashPath).slice(1, -1)})` }}
-                                    aria-hidden="true"
+                        {/* Card + fields side-by-side row */}
+                        <div className="np-tft-top-row">
+                            <div className="np-tft-top-row__fields">
+                                <NameAndPathRow
+                                    namePlaceholder="e.g., Ahri Chibi Custom"
+                                    name={projectName}
+                                    onNameChange={setProjectName}
+                                    path={projectPath}
+                                    onPathChange={setProjectPath}
+                                    onBrowse={handleBrowsePath}
                                 />
-                                <div className="np-hero-splash">
+                            </div>
+                            {selectedTactician && selectedTftSkin && (
+                                <div
+                                    className={`np-tft-card np-tft-card--hero${splashLoaded ? ' np-tft-card--loaded' : ''}`}
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() => { setTftSkinSearch(''); setTftSkinPickerOpen(true); }}
+                                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTftSkinSearch(''); setTftSkinPickerOpen(true); } }}
+                                    title="Change variant"
+                                >
                                     <img
                                         key={`${selectedTactician.id}-${selectedTftSkin.id}-${cdragonBranch}`}
                                         src={selectedTftSkin.centeredSplashPath || ''}
                                         alt={selectedTftSkin.name}
-                                        className={`np-hero-splash__img${splashLoaded ? ' np-hero-splash__img--loaded' : ''}`}
+                                        className="np-tft-card__img"
                                         onLoad={() => setSplashLoaded(true)}
                                         onError={() => setSplashLoaded(true)}
                                     />
-                                    <div className="np-hero-splash__overlay" />
-                                    <div className="np-hero-splash__info">
-                                        <span className="np-hero-splash__champion">{selectedTactician.name}</span>
-                                        <span className="np-hero-splash__skin">{selectedTftSkin.name}</span>
+                                    <div className="np-tft-card__footer">
+                                        <span className="np-tft-card__species">{selectedTactician.name}</span>
+                                        <span className="np-tft-card__variant">{selectedTftSkin.name}</span>
                                     </div>
-                                    <button
-                                        className="np-hero-splash__edit"
-                                        onClick={() => { setTftSkinSearch(''); setTftSkinPickerOpen(true); }}
-                                        title="Change variant"
-                                    >
+                                    <div className="np-tft-card__change-hint">
                                         <Icon name="file-edit" />
                                         <span>Change variant</span>
-                                    </button>
+                                    </div>
                                 </div>
-                            </div>
-                        )}
-
-                        <NameAndPathRow
-                            namePlaceholder="e.g., Ahri Chibi Custom"
-                            name={projectName}
-                            onNameChange={setProjectName}
-                            path={projectPath}
-                            onPathChange={setProjectPath}
-                            onBrowse={handleBrowsePath}
-                        />
+                            )}
+                        </div>
 
                         {/* Tactician Selection */}
                         <div className="np-section">
@@ -1464,8 +1479,7 @@ export const NewProjectModal: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* ════════════ Map Project Form (Dev Only) ════════════ */}
-                    {import.meta.env.DEV && (
+                    {/* ════════════ Map Project Form ════════════ */}
                     <div className={`np-form${projectType === 'map' ? ' np-form--active' : ''}`}>
                         <NameAndPathRow
                             namePlaceholder="e.g., My Custom Map"
@@ -1630,7 +1644,6 @@ export const NewProjectModal: React.FC = () => {
                                 : 'Dumps the entire map WAD into your project. Use this if you need every chunk — most users want “Variant only”.'}
                         </div>
                     </div>
-                    )}
                 </div>
 
                 {/* Footer */}
@@ -2010,6 +2023,28 @@ export const NewProjectModal: React.FC = () => {
                 </div>
             )}
 
+            {/* ─── Experimental feature warning ─── */}
+            {experimentalWarning && (
+                <div className="np-skin-picker-overlay" onClick={() => setExperimentalWarning(null)}>
+                    <div className="np-experimental-dialog" onClick={(e) => e.stopPropagation()}>
+                        <div className="np-experimental-dialog__icon">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                                <path d="M12 2L2 19h20L12 2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="none"/>
+                                <path d="M12 9v5M12 16.5v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                            </svg>
+                        </div>
+                        <h3 className="np-experimental-dialog__title">Experimental Feature</h3>
+                        <p className="np-experimental-dialog__body">
+                            <strong>{experimentalWarning === 'tft' ? 'TFT' : 'Map'} projects</strong> are experimental and may not work as intended. Proceed with caution.
+                        </p>
+                        <div className="np-experimental-dialog__actions">
+                            <button className="btn btn--secondary" onClick={() => setExperimentalWarning(null)}>Cancel</button>
+                            <button className="btn btn--primary" onClick={confirmExperimental}>Continue anyway</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* ─── TFT Variant Picker Modal ─── */}
             {tftSkinPickerOpen && selectedTactician && (
                 <div className="np-skin-picker-overlay" onClick={() => setTftSkinPickerOpen(false)}>
@@ -2052,16 +2087,16 @@ export const NewProjectModal: React.FC = () => {
                                             key={skin.full_id}
                                             role="button"
                                             tabIndex={0}
-                                            className={`np-skin-card${isActiveSkin ? ' np-skin-card--active' : ''}`}
+                                            className={`np-skin-card np-skin-card--tft${isActiveSkin ? ' np-skin-card--active' : ''}`}
                                             onClick={() => { setSelectedTftSkin(skin); setTftSkinPickerOpen(false); }}
                                             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedTftSkin(skin); setTftSkinPickerOpen(false); } }}
                                             style={{ animationDelay: `${Math.min(i * 18, 280)}ms` }}
                                         >
-                                            <div className="np-skin-card__img-wrap np-skin-card__img-wrap--tft">
+                                            <div className="np-skin-card__img-wrap">
                                                 <img
                                                     src={skin.tilePath || ''}
                                                     alt={skin.name}
-                                                    className="np-skin-card__img np-skin-card__img--tft"
+                                                    className="np-skin-card__img"
                                                     loading="lazy"
                                                 />
                                                 {isActiveSkin && (
@@ -2072,7 +2107,9 @@ export const NewProjectModal: React.FC = () => {
                                                     </div>
                                                 )}
                                             </div>
-                                            <span className="np-skin-card__name">{skin.name}</span>
+                                            <div className="np-skin-card__label">
+                                                <span className="np-skin-card__name">{skin.name}</span>
+                                            </div>
                                         </div>
                                     );
                                 })}

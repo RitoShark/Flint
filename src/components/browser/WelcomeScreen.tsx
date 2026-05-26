@@ -134,14 +134,14 @@ export const WelcomeScreen: React.FC = () => {
                     <h2 className="welcome__column-title">Folders</h2>
  
                     <div className="welcome__actions">
-                        <button className="btn btn--primary btn--large" onClick={handleOpenProject}>
+                        <button className="btn btn--primary btn--large" onClick={() => openModal('newProject')}>
+                            <span>Create Project</span>
+                            <span dangerouslySetInnerHTML={{ __html: getIcon('plus') }} />
+                        </button>
+
+                        <button className="btn btn--secondary btn--large" onClick={handleOpenProject}>
                             <span>Open Folder</span>
                             <span dangerouslySetInnerHTML={{ __html: getIcon('folderOpen2') }} />
-                        </button>
- 
-                        <button className="btn btn--secondary btn--large" onClick={() => openModal('newProject')}>
-                            <span>Create Workspace</span>
-                            <span dangerouslySetInnerHTML={{ __html: getIcon('plus') }} />
                         </button>
                     </div>
  

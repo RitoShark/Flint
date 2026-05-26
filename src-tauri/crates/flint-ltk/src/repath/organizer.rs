@@ -31,6 +31,9 @@ pub struct OrganizerConfig {
     pub cleanup_unused: bool,
     /// Use Jade engine for BIN parsing (instead of LTK)
     pub use_jade_engine: bool,
+    /// Override the WAD folder name (e.g. "Companions.wad.client" for TFT).
+    /// When None, defaults to "{champion}.wad.client".
+    pub wad_folder_override: Option<String>,
 }
 
 /// Result of a complete project organization operation
@@ -74,9 +77,8 @@ pub fn organize_project(
     // League doesn't support spaces in asset paths or folder names
     let champion_sanitized = config.champion.to_lowercase().replace(' ', "-");
 
-    // Compute the WAD folder path: content_base/{champion}.wad.client/
-    // This is required for league-mod compatible project structure
-    let wad_folder_name = format!("{}.wad.client", champion_sanitized);
+    let wad_folder_name = config.wad_folder_override.clone()
+        .unwrap_or_else(|| format!("{}.wad.client", champion_sanitized));
     let wad_base = content_base.join(&wad_folder_name);
 
     // Determine which base to use for file operations

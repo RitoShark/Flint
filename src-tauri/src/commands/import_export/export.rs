@@ -80,6 +80,7 @@ pub async fn repath_project_cmd(
         target_skin_id: 0,
         cleanup_unused: true,
         use_jade_engine: use_jade.unwrap_or(false),
+        wad_folder_override: None,
     };
 
     let result = tokio::task::spawn_blocking(move || {

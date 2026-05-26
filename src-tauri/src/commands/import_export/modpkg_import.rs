@@ -375,6 +375,7 @@ fn import_modpkg_internal(
             target_skin_id,
             cleanup_unused: false,
             use_jade_engine: options.use_jade.unwrap_or(false),
+            wad_folder_override: None,
         };
 
         organize_project(&content_path, &config, &path_mappings)

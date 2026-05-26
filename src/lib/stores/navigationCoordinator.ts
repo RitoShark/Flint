@@ -7,6 +7,7 @@ import { useProjectTabStore } from './projectTabStore';
 import { useWadExtractStore } from './wadExtractStore';
 import { useWadExplorerStore } from './wadExplorerStore';
 import { useNavigationStore } from './navigationStore';
+import { useFileEditorStore } from './fileEditorStore';
 
 /**
  * Remove a project tab and handle fallback navigation
@@ -136,6 +137,35 @@ export function closeWadExplorerWithFallback() {
 }
 
 /**
+ * Close the file editor and handle fallback navigation
+ * Fallback order: active project tab → active extract session → WAD explorer → welcome
+ */
+export function closeFileEditorWithFallback() {
+  const projectTab = useProjectTabStore.getState();
+  const wadExtract = useWadExtractStore.getState();
+  const wadExplorer = useWadExplorerStore.getState();
+  const navigation = useNavigationStore.getState();
+
+  useFileEditorStore.getState().closeTarget();
+
+  if (projectTab.activeTabId && projectTab.openTabs.find(t => t.id === projectTab.activeTabId)) {
+    navigation.setView('preview');
+  } else if (projectTab.openTabs.length > 0) {
+    projectTab.switchTab(projectTab.openTabs[0].id);
+    navigation.setView('preview');
+  } else if (wadExtract.activeExtractId && wadExtract.extractSessions.find(s => s.id === wadExtract.activeExtractId)) {
+    navigation.setView('extract');
+  } else if (wadExtract.extractSessions.length > 0) {
+    wadExtract.switchSession(wadExtract.extractSessions[0].id);
+    navigation.setView('extract');
+  } else if (wadExplorer.isOpen) {
+    navigation.setView('wad-explorer');
+  } else {
+    navigation.setView('welcome');
+  }
+}
+
+/**
  * Open the WAD Explorer
  */
 export function openWadExplorer() {
@@ -153,5 +183,6 @@ export const navigationCoordinator = {
   removeTabWithFallback,
   closeExtractSessionWithFallback,
   closeWadExplorerWithFallback,
+  closeFileEditorWithFallback,
   openWadExplorer,
 };

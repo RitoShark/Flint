@@ -22,7 +22,6 @@ import {
     useFileEditorStore,
     useNavigationStore,
     useNotificationStore,
-    useModalStore,
 } from '../../lib/stores';
 import type { FileEditorTarget } from '../../lib/types';
 import { BinEditor } from '../preview/BinEditor';
@@ -322,14 +321,7 @@ const RawTextEditor: React.FC<{ target: FileEditorTarget }> = ({ target }) => {
 
 export const FileEditorPage: React.FC = () => {
     const target = useFileEditorStore((s) => s.target);
-    const closeTarget = useFileEditorStore((s) => s.closeTarget);
-    const isDirty = useFileEditorStore((s) => s.dirty);
-    const openConfirmDialog = useModalStore((s) => s.openConfirmDialog);
-    const setView = useNavigationStore((s) => s.setView);
 
-    // Fallback: if the page is mounted but no target was set, send the user
-    // back to the welcome view. Belt-and-braces — `navigateToFileEditor`
-    // always sets the target before flipping the view.
     if (!target) {
         return (
             <div style={{ padding: 32, color: 'var(--text-secondary)' }}>
@@ -337,8 +329,6 @@ export const FileEditorPage: React.FC = () => {
             </div>
         );
     }
-
-    const fileName = target.filePath.split(/[/\\]/).pop() || target.filePath;
 
     return (
         <div
@@ -351,71 +341,6 @@ export const FileEditorPage: React.FC = () => {
                 backgroundColor: 'var(--bg-primary)',
             }}
         >
-            <header
-                style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                    padding: '8px 16px',
-                    borderBottom: '1px solid var(--border)',
-                    backgroundColor: 'var(--bg-secondary)',
-                    minHeight: 0,
-                }}
-            >
-                {/* Filename + dirty dot */}
-                <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 5 }}>
-                    {fileName}
-                    {isDirty && <span style={{ color: 'var(--accent-primary)', fontSize: 9, lineHeight: 1 }}>●</span>}
-                </span>
-
-                {/* Full path — takes all remaining space, truncated at left */}
-                <div
-                    style={{
-                        flex: 1,
-                        minWidth: 0,
-                        fontSize: 11,
-                        color: 'var(--text-muted)',
-                        fontFamily: 'var(--font-mono)',
-                        userSelect: 'text',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        direction: 'rtl',
-                        textAlign: 'left',
-                    }}
-                    title={target.filePath}
-                >
-                    {target.filePath}
-                </div>
-
-                {/* Close button */}
-                <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => {
-                        if (isDirty) {
-                            openConfirmDialog({
-                                title: 'Discard changes?',
-                                message: 'You have unsaved changes. Are you sure you want to discard them?',
-                                confirmLabel: 'Discard',
-                                danger: true,
-                                onConfirm: () => {
-                                    closeTarget();
-                                    setView('preview');
-                                },
-                            });
-                        } else {
-                            closeTarget();
-                            setView('preview');
-                        }
-                    }}
-                    title="Close editor"
-                    style={{ padding: '4px 8px', flexShrink: 0 }}
-                >
-                    ✕
-                </Button>
-            </header>
-
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                 {target.kind === 'modConfig' && <ModConfigEditor key={target.filePath} target={target} />}
                 {target.kind === 'raw' && <RawTextEditor key={target.filePath} target={target} />}

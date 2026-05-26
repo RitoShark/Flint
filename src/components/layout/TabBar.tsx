@@ -4,7 +4,7 @@
  */
 
 import React, { useCallback } from 'react';
-import { useProjectTabStore, useNavigationStore, useWadExplorerStore, useWadExtractStore } from '../../lib/stores';
+import { useProjectTabStore, useNavigationStore, useWadExplorerStore, useWadExtractStore, useFileEditorStore, useModalStore } from '../../lib/stores';
 import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import type { ProjectTab, ExtractSession } from '../../lib/types';
@@ -130,6 +130,9 @@ export const TabBar: React.FC = () => {
     const isWadExplorerOpen = useWadExplorerStore((s) => s.isOpen);
     const extractSessions = useWadExtractStore((s) => s.extractSessions);
     const activeExtractId = useWadExtractStore((s) => s.activeExtractId);
+    const fileEditorTarget = useFileEditorStore((s) => s.target);
+    const fileEditorDirty = useFileEditorStore((s) => s.dirty);
+    const openConfirmDialog = useModalStore((s) => s.openConfirmDialog);
 
     const handleSwitchTab = useCallback((tabId: string) => {
         useProjectTabStore.getState().switchTab(tabId);
@@ -154,9 +157,29 @@ export const TabBar: React.FC = () => {
     const isWadExplorerActive = currentView === 'wad-explorer';
     const isProjectActive = currentView === 'preview';
     const isExtractActive = currentView === 'extract';
+    const isFileEditorActive = currentView === 'file-editor';
+
+    const handleCloseFileEditor = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation();
+        const doClose = () => {
+            useFileEditorStore.getState().closeTarget();
+            useNavigationStore.getState().setView('preview');
+        };
+        if (fileEditorDirty) {
+            openConfirmDialog({
+                title: 'Discard changes?',
+                message: 'You have unsaved changes. Are you sure you want to discard them?',
+                confirmLabel: 'Discard',
+                danger: true,
+                onConfirm: doClose,
+            });
+        } else {
+            doClose();
+        }
+    }, [fileEditorDirty, openConfirmDialog]);
 
     // Don't render if nothing is open
-    if (openTabs.length === 0 && extractSessions.length === 0 && !isWadExplorerOpen) {
+    if (openTabs.length === 0 && extractSessions.length === 0 && !isWadExplorerOpen && !fileEditorTarget) {
         return null;
     }
 
@@ -179,6 +202,34 @@ export const TabBar: React.FC = () => {
                             className="tabbar__tab-close"
                             onClick={e => { e.stopPropagation(); navigationCoordinator.closeWadExplorerWithFallback(); }}
                             title="Close WAD Explorer"
+                        >
+                            <svg viewBox="0 0 16 16" width="14" height="14">
+                                <path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+                            </svg>
+                        </button>
+                    </div>
+                )}
+
+                {/* File editor tab — shown when a bin/text file is open in the editor */}
+                {fileEditorTarget && (
+                    <div
+                        className={`tabbar__tab ${isFileEditorActive ? 'tabbar__tab--active' : ''}`}
+                        onClick={() => useNavigationStore.getState().setView('file-editor')}
+                        onMouseDown={(e) => { if (e.button === 1) handleCloseFileEditor(e); }}
+                        title={fileEditorTarget.filePath}
+                    >
+                        <span
+                            className="tabbar__tab-icon"
+                            dangerouslySetInnerHTML={{ __html: getIcon('bin') }}
+                        />
+                        <span className="tabbar__tab-name">
+                            {fileEditorTarget.filePath.split(/[/\\]/).pop()}
+                            {fileEditorDirty && <span style={{ color: 'var(--accent-primary)', marginLeft: 4 }}>●</span>}
+                        </span>
+                        <button
+                            className="tabbar__tab-close"
+                            onClick={handleCloseFileEditor}
+                            title="Close file"
                         >
                             <svg viewBox="0 0 16 16" width="14" height="14">
                                 <path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />

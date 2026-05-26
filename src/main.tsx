@@ -49,6 +49,8 @@ import './styles/titlebar-polish.css';
 import './styles/tutorial-polish.css';
 // Design lab primitives — usable in the main app via .dl-root scope
 import './styles/design-lab.css';
+// What's New modal polish
+import './styles/whats-new-polish.css';
 // Flint 2.0 polish — animated transitions, glassmorphism, FPS-mode kill switch,
 // fullscreen setup wizard, theme tab. Loaded LAST so its rules win cleanly.
 import './styles/flint-2.css';

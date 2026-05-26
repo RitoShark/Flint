@@ -858,6 +858,7 @@ export const SettingsModal: React.FC = () => {
                                 </div>
                                 <Button
                                     variant="secondary"
+                                    size="sm"
                                     icon="info"
                                     onClick={() => {
                                         closeModal();
@@ -870,6 +871,26 @@ export const SettingsModal: React.FC = () => {
                                 </Button>
                             </div>
 
+                            {import.meta.env.DEV && (
+                                <div className="settings-item">
+                                    <label className="settings-item__label">
+                                        Test What's New Popup
+                                        <span className="settings-item__badge">Dev only</span>
+                                    </label>
+                                    <div className="settings-item__hint" style={{ marginBottom: 8 }}>
+                                        Preview the version update announcement modal without needing to clear your localStorage or bump the app version.
+                                    </div>
+                                    <Button
+                                        variant="secondary"
+                                        size="sm"
+                                        icon="info"
+                                        onClick={() => openModal('whatsNew', {})}
+                                    >
+                                        Show What's New
+                                    </Button>
+                                </div>
+                            )}
+
 
                             <div className="settings-item">
                                 <label className="settings-item__label">BIN Schema Aggregator</label>
@@ -879,6 +900,7 @@ export const SettingsModal: React.FC = () => {
                                     outputs a ritobin-style schema reference with value ranges.
                                 </div>
                                 <Button
+                                    size="sm"
                                     icon="download"
                                     onClick={handleAggregateBinSchema}
                                     disabled={isAggregating || !leaguePath}
@@ -906,7 +928,7 @@ export const SettingsModal: React.FC = () => {
 
                             <div
                                 className="settings-item"
-                                style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--color-border)' }}
+                                style={{ marginTop: 16 }}
                             >
                                 <label className="settings-item__label">Champion BIN Schema Creator</label>
                                 <div className="settings-item__hint" style={{ marginBottom: 8 }}>
@@ -917,6 +939,7 @@ export const SettingsModal: React.FC = () => {
                                     .ritobin file.
                                 </div>
                                 <Button
+                                    size="sm"
                                     icon="download"
                                     onClick={handleAggregateChampionSchema}
                                     disabled={isAggregatingChampion || !leaguePath}

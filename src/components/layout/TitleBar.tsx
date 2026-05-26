@@ -5,7 +5,7 @@
 import React, { useCallback, useState, useMemo, useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { save } from '@tauri-apps/plugin-dialog';
-import { useProjectTabStore, useWadExtractStore, useWadExplorerStore, useNavigationStore, useConfigStore, useModalStore, useNotificationStore } from '../../lib/stores';
+import { useProjectTabStore, useWadExtractStore, useWadExplorerStore, useNavigationStore, useConfigStore, useModalStore, useNotificationStore, useFileEditorStore } from '../../lib/stores';
 import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import * as api from '../../lib/api';
@@ -373,12 +373,32 @@ export const TitleBar: React.FC = () => {
     }, []);
 
     // Determine active states
+    const fileEditorTarget = useFileEditorStore((s) => s.target);
+    const fileEditorDirty = useFileEditorStore((s) => s.dirty);
+    const openConfirmDialog = useModalStore((s) => s.openConfirmDialog);
+
     const isWadExplorerOpen = wadExplorerOpen;
     const isWadExplorerActive = currentView === 'wad-explorer';
     const isProjectActive = currentView === 'preview';
     const isExtractActive = currentView === 'extract';
+    const isFileEditorActive = currentView === 'file-editor';
 
-    const hasTabs = openTabs.length > 0 || extractSessions.length > 0 || isWadExplorerOpen;
+    const handleCloseFileEditor = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (fileEditorDirty) {
+            openConfirmDialog({
+                title: 'Discard changes?',
+                message: 'You have unsaved changes. Are you sure you want to discard them?',
+                confirmLabel: 'Discard',
+                danger: true,
+                onConfirm: () => navigationCoordinator.closeFileEditorWithFallback(),
+            });
+        } else {
+            navigationCoordinator.closeFileEditorWithFallback();
+        }
+    }, [fileEditorDirty, openConfirmDialog]);
+
+    const hasTabs = openTabs.length > 0 || extractSessions.length > 0 || isWadExplorerOpen || !!fileEditorTarget;
 
     return (
         <div className="titlebar" data-tauri-drag-region>
@@ -424,6 +444,32 @@ export const TitleBar: React.FC = () => {
                                         }, 180);
                                     }}
                                     title="Close WAD Explorer"
+                                >
+                                    <svg viewBox="0 0 16 16" width="12" height="12">
+                                        <path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+                                    </svg>
+                                </button>
+                            </div>
+                        )}
+
+                        {/* File editor tab */}
+                        {fileEditorTarget && (
+                            <div
+                                className={`titlebar__tab ${isFileEditorActive ? 'titlebar__tab--active' : ''}`}
+                                onClick={() => useNavigationStore.getState().setView('file-editor')}
+                                onMouseDown={(e) => { if (e.button === 1) handleCloseFileEditor(e); }}
+                                title={fileEditorTarget.filePath}
+                                data-tauri-drag-region="false"
+                            >
+                                <span className="titlebar__tab-icon" dangerouslySetInnerHTML={{ __html: getIcon('bin') }} />
+                                <span className="titlebar__tab-name">
+                                    {fileEditorTarget.filePath.split(/[/\\]/).pop()}
+                                    {fileEditorDirty && <span style={{ color: 'var(--accent-primary)', marginLeft: 3 }}>●</span>}
+                                </span>
+                                <button
+                                    className="titlebar__tab-close"
+                                    onClick={handleCloseFileEditor}
+                                    title="Close file"
                                 >
                                     <svg viewBox="0 0 16 16" width="12" height="12">
                                         <path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />

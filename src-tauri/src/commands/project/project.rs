@@ -282,9 +282,46 @@ pub async fn create_project(
         }
     };
 
-    // 5. Repath assets if creator name is provided (skip for TFT projects)
-    if let Some(creator) = creator_name {
-        if !creator.is_empty() && !is_tft_project {
+    // 5. Repath assets if creator name is provided; TFT skips repath but still needs concat
+    if is_tft_project {
+        let _ = app.emit("project-create-progress", serde_json::json!({
+            "phase": "concat",
+            "message": "Merging linked BINs..."
+        }));
+
+        let concat_config = OrganizerConfig {
+            enable_concat: true,
+            enable_repath: false,
+            creator_name: String::new(),
+            project_name: name.clone(),
+            champion: champion.clone(),
+            target_skin_id: skin_id,
+            cleanup_unused: false,
+            use_jade_engine: use_jade.unwrap_or(false),
+            wad_folder_override: Some("Companions.wad.client".to_string()),
+        };
+
+        let assets_path_for_concat = project.assets_path();
+        let path_mappings = extraction_result.path_mappings.clone();
+        let t = Instant::now();
+        let concat_result = tokio::task::spawn_blocking(move || {
+            organize_project(&assets_path_for_concat, &concat_config, &path_mappings)
+        })
+        .await;
+        let d = t.elapsed();
+        tracing::info!("[TIMING] organize_project (concat only, TFT): {:?}", d);
+        phase_timings.push(("organize_project_tft_concat", d));
+
+        match concat_result {
+            Ok(Ok(result)) => {
+                let bins_combined = result.concat_result.as_ref().map(|r| r.source_count).unwrap_or(0);
+                tracing::info!("TFT concat complete: {} BINs combined", bins_combined);
+            }
+            Ok(Err(e)) => tracing::warn!("TFT concat failed (project still usable): {}", e),
+            Err(e) => tracing::warn!("TFT concat task panicked (project still usable): {}", e),
+        }
+    } else if let Some(creator) = creator_name {
+        if !creator.is_empty() {
             let _ = app.emit("project-create-progress", serde_json::json!({
                 "phase": "repath",
                 "message": format!("Repathing assets to ASSETS/{}/{}...", creator, name)
@@ -301,6 +338,7 @@ pub async fn create_project(
                 target_skin_id: skin_id,
                 cleanup_unused: true,
                 use_jade_engine: use_jade.unwrap_or(false),
+                wad_folder_override: None,
             };
 
             let assets_path_for_repath = project.assets_path();

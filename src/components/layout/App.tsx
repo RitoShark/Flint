@@ -8,6 +8,8 @@ import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
 import { initShortcuts, registerShortcut } from '../../lib/util/utils';
 import * as api from '../../lib/api';
 import * as updater from '../../lib/util/updater';
+import { getVersion } from '@tauri-apps/api/app';
+import { CHANGELOG } from '../../lib/data/changelog';
 import { listen } from '@tauri-apps/api/event';
 import { invalidateCachedImage } from '../../lib/ui-helpers/imageCache';
 import { isSidecarFile } from '../../lib/editor/sidecarFiles';
@@ -36,6 +38,7 @@ import { BrowseWadModal } from '../modals/BrowseWadModal';
 import { FileCompareModal } from '../modals/FileCompareModal';
 import { AddLayerModal } from '../modals/AddLayerModal';
 import { ChromaPortModal } from '../modals/ChromaPortModal';
+import { WhatsNewModal } from '../modals/WhatsNewModal';
 import { ToastContainer } from '../overlays/Toast';
 import { TutorialOverlay, isOnboardingDone, TUTORIAL_REPLAY_EVENT } from '../overlays/TutorialOverlay';
 import { TooltipProvider } from '../overlays/TooltipProvider';
@@ -74,6 +77,7 @@ const ActiveModal: React.FC<{ activeModal: string | null }> = React.memo(({ acti
         case 'fileCompare':      return <FileCompareModal />;
         case 'addLayer':         return <AddLayerModal />;
         case 'chromaPort':       return <ChromaPortModal />;
+        case 'whatsNew':         return <WhatsNewModal />;
         default:                 return null;
     }
 });
@@ -459,6 +463,8 @@ export const App: React.FC = () => {
 
             // Check for updates after a short delay (don't block startup)
             setTimeout(checkForUpdates, 3000);
+            // Show "What's New" popup once per version, after update check
+            setTimeout(showWhatsNew, 5000);
         } catch (error) {
             console.error('[Flint] Failed to load initial data:', error);
         }
@@ -502,6 +508,34 @@ export const App: React.FC = () => {
         } catch (error) {
             // Silently fail - don't bother user if update check fails
             console.log('[Flint] Update check failed:', error);
+        }
+    };
+
+    const showWhatsNew = async () => {
+        // Don't show if the user is still in first-time setup
+        const config = useConfigStore.getState();
+        if (!config.creatorName) return;
+
+        // Don't show if another modal is already open
+        const modal = useModalStore.getState();
+        if (modal.activeModal) return;
+
+        try {
+            const currentVersion = await getVersion();
+            const seenKey = 'flint_whats_new_seen_v';
+            const seenVersion = localStorage.getItem(seenKey);
+
+            if (seenVersion !== currentVersion) {
+                // Mark as seen regardless — don't re-show even if no entry
+                try { localStorage.setItem(seenKey, currentVersion); } catch { /* non-fatal */ }
+
+                const entry = CHANGELOG.find((c) => c.version === currentVersion);
+                if (entry) {
+                    openModal('whatsNew');
+                }
+            }
+        } catch (err) {
+            console.log('[Flint] What\'s New check failed:', err);
         }
     };
 

@@ -1,0 +1,307 @@
+/**
+ * Flint — What's New Modal Polish
+ *
+ * Scoped to `.modal--whats-new`. Follows the same pattern as
+ * settings-polish.css, fixer-polish.css, etc.
+ */
+
+/* ========================================================================== */
+/* Modal shell                                                                 */
+/* ========================================================================== */
+
+.modal--whats-new {
+    max-width: 560px !important;
+    width: 90vw !important;
+    border-radius: 16px !important;
+    overflow: hidden !important;
+}
+
+/* ========================================================================== */
+/* Header title                                                                */
+/* ========================================================================== */
+
+.modal--whats-new .wn-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.modal--whats-new .wn-title__icon {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    background: linear-gradient(
+        135deg,
+        color-mix(in oklab, var(--accent-primary) 22%, var(--bg-tertiary)),
+        var(--bg-tertiary)
+    );
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 35%, var(--border));
+    border-radius: 10px;
+    color: var(--accent-primary);
+    box-shadow: 0 0 12px color-mix(in oklab, var(--accent-primary) 25%, transparent);
+    flex: none;
+}
+
+.modal--whats-new .wn-title__icon svg {
+    width: 18px;
+    height: 18px;
+    display: block;
+}
+
+.modal--whats-new .wn-title__text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.modal--whats-new .wn-title__name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.2;
+}
+
+.modal--whats-new .wn-title__sub {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    line-height: 1.3;
+}
+
+/* ========================================================================== */
+/* Body                                                                        */
+/* ========================================================================== */
+
+.modal--whats-new .wn-body {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-height: 55vh;
+    overflow-y: auto;
+    /* Fade-out mask at the bottom to hint scrollability */
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent 100%);
+    padding-bottom: 8px;
+}
+
+/* ========================================================================== */
+/* Hero headline                                                               */
+/* ========================================================================== */
+
+.modal--whats-new .wn-hero {
+    padding: 18px 20px;
+    background:
+        radial-gradient(
+            circle at top right,
+            color-mix(in oklab, var(--accent-primary) 8%, transparent) 0%,
+            transparent 60%
+        ),
+        var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    text-align: center;
+}
+
+.modal--whats-new .wn-hero__title {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+}
+
+.modal--whats-new .wn-hero__sub {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.5;
+}
+
+/* ========================================================================== */
+/* Entry cards                                                                 */
+/* ========================================================================== */
+
+.modal--whats-new .wn-entries {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.modal--whats-new .wn-entry {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    /* Staggered entrance animation */
+    animation: wn-fade-in 350ms ease-out both;
+}
+
+@keyframes wn-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Entry image (optional) */
+.modal--whats-new .wn-entry__image {
+    width: 100%;
+    max-height: 180px;
+    overflow: hidden;
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border);
+}
+
+.modal--whats-new .wn-entry__image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+/* Entry text content */
+.modal--whats-new .wn-entry__content {
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.modal--whats-new .wn-entry__head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.modal--whats-new .wn-entry__icon {
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    flex: none;
+}
+
+.modal--whats-new .wn-entry__icon svg,
+.modal--whats-new .wn-entry__icon span {
+    width: 14px;
+    height: 14px;
+}
+
+.modal--whats-new .wn-entry__title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.3;
+}
+
+.modal--whats-new .wn-entry__desc {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin: 0;
+    line-height: 1.55;
+}
+
+/* ========================================================================== */
+/* Tag pills                                                                   */
+/* ========================================================================== */
+
+.modal--whats-new .wn-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 7px;
+    height: 16px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    border-radius: 4px;
+    flex: none;
+}
+
+/* Feature — accent green */
+.modal--whats-new .wn-tag--feature {
+    background: color-mix(in oklab, #22c55e 18%, transparent);
+    border: 1px solid color-mix(in oklab, #22c55e 35%, transparent);
+    color: #22c55e;
+}
+
+/* Improvement — accent blue */
+.modal--whats-new .wn-tag--improvement {
+    background: color-mix(in oklab, #3b82f6 18%, transparent);
+    border: 1px solid color-mix(in oklab, #3b82f6 35%, transparent);
+    color: #3b82f6;
+}
+
+/* Fix — accent orange */
+.modal--whats-new .wn-tag--fix {
+    background: color-mix(in oklab, #f59e0b 18%, transparent);
+    border: 1px solid color-mix(in oklab, #f59e0b 35%, transparent);
+    color: #f59e0b;
+}
+
+/* Breaking — accent red */
+.modal--whats-new .wn-tag--breaking {
+    background: color-mix(in oklab, #ef4444 18%, transparent);
+    border: 1px solid color-mix(in oklab, #ef4444 35%, transparent);
+    color: #ef4444;
+}
+
+/* ========================================================================== */
+/* Empty state                                                                 */
+/* ========================================================================== */
+
+.modal--whats-new .wn-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 32px 16px;
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+.modal--whats-new .wn-empty svg {
+    width: 24px;
+    height: 24px;
+    opacity: 0.5;
+}
+
+/* ========================================================================== */
+/* Footer hint                                                                 */
+/* ========================================================================== */
+
+.modal--whats-new .wn-footer-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-right: auto;
+}
+
+.modal--whats-new .wn-footer-hint svg {
+    width: 12px;
+    height: 12px;
+}
+
+/* ========================================================================== */
+/* Hover / interaction polish                                                  */
+/* ========================================================================== */
+
+.modal--whats-new .wn-entry {
+    transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.modal--whats-new .wn-entry:hover {
+    border-color: color-mix(in oklab, var(--accent-primary) 30%, var(--border));
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent-primary) 10%, transparent);
+}

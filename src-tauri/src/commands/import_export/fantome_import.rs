@@ -507,6 +507,7 @@ fn apply_refathering(
         // DON'T cleanup for imports - pre-repathed VFX/particles won't be in BIN references
         cleanup_unused: false,
         use_jade_engine: use_jade,
+        wad_folder_override: None,
     };
 
     organize_project(content_path, &config, path_mappings)
