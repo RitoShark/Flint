@@ -10,6 +10,7 @@ import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
+import { deferCleanup } from '../../lib/ui-helpers/deferCleanup';
 import { useAppMetadataStore } from '../../lib/stores';
 
 // Configure Monaco workers — wrap in try-catch so a broken worker doesn't
@@ -145,8 +146,10 @@ export const TextPreview: React.FC<TextPreviewProps> = ({ filePath }) => {
         }
 
         return () => {
-            ed.dispose();
             editorRef.current = null;
+            // Defer Monaco dispose to idle — synchronous dispose blocks the
+            // unmount commit by a few hundred ms.
+            deferCleanup(() => ed.dispose());
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [loading, error]);

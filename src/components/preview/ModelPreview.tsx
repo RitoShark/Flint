@@ -23,6 +23,7 @@ import { SkeletonViewer } from '@babylonjs/core/Debug/skeletonViewer';
 import * as api from '../../lib/api';
 import { useAppMetadataStore } from '../../lib/stores';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
+import { deferCleanup } from '../../lib/ui-helpers/deferCleanup';
 
 // Import our custom Babylon wrappers
 import { createEngine } from '../../lib/babylon/engine';
@@ -254,15 +255,10 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             const cleanup = canvas && (canvas as any)._flintCleanup;
             if (cleanup) {
                 delete (canvas as any)._flintCleanup;
-                // Defer GPU teardown to after the current render commit so
-                // closing a project that had a 3D preview open returns the UI
-                // immediately. The engine + meshes + textures get disposed on
-                // the next idle slot.
-                if (typeof requestIdleCallback === 'function') {
-                    requestIdleCallback(cleanup, { timeout: 500 });
-                } else {
-                    setTimeout(cleanup, 0);
-                }
+                // Defer GPU teardown so closing a project that had a 3D
+                // preview open returns the UI immediately. The engine +
+                // meshes + textures get disposed on the next idle slot.
+                deferCleanup(cleanup);
             }
             setScene(null);
             setCamera(null);

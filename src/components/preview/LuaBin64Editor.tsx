@@ -11,6 +11,7 @@ import type { editor } from 'monaco-editor';
 import { useAppMetadataStore, useFileEditorStore, useNotificationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
+import { deferCleanup } from '../../lib/ui-helpers/deferCleanup';
 import { AssetPreviewTooltip } from './AssetPreviewTooltip';
 
 const LUABIN64_THEME_ID = 'luabin64-theme';
@@ -219,8 +220,8 @@ export const LuaBin64Editor: React.FC<LuaBin64EditorProps> = ({ filePath, hideFi
         }
 
         return () => {
-            ed.dispose();
             editorRef.current = null;
+            deferCleanup(() => ed.dispose());
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [loading, error]);
