@@ -2,6 +2,7 @@
 //! management, history checkpoints, original-file comparison, chroma
 //! porting, and the LTK Manager / preview watcher integration.
 
+#[allow(clippy::module_inception)]
 pub mod project;
 pub mod map_project;
 pub mod project_watcher;

@@ -12,6 +12,11 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+/// One entry in the extraction plan: the chunk to extract, the output path,
+/// and an optional (relative-path, absolute-path) mapping recorded when a
+/// long filename had to be saved under its hash.
+type ExtractPlanEntry = (WadChunk, PathBuf, Option<(String, String)>);
+
 /// Result of an extraction operation
 #[derive(Debug, Clone)]
 pub struct ExtractionResult {
@@ -232,7 +237,7 @@ pub fn extract_chunks_parallel(
     // so we don't `String::clone` per chunk (was ~80k clones for a full
     // champion WAD). Parents are gathered through a per-thread `HashSet`
     // that we union at the end.
-    let plan: Vec<(WadChunk, PathBuf, Option<(String, String)>)> = target_chunks
+    let plan: Vec<ExtractPlanEntry> = target_chunks
         .par_iter()
         .map(|chunk| {
             let path_hash = chunk.path_hash();
@@ -962,7 +967,7 @@ pub fn extract_skin_assets_selective(
         for h in hashes {
             if !resolved.contains_key(h) {
                 if let Some(p) = known_paths.get(h) {
-                    resolved.insert(*h, &p);
+                    resolved.insert(*h, p);
                 }
             }
         }

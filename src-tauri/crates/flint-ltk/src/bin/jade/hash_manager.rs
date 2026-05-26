@@ -307,17 +307,15 @@ fn load_from_lmdb() -> HashManager {
 
     let mut mgr = HashManager::new();
     let mut count = 0usize;
-    for result in iter {
-        if let Ok((key_bytes, name)) = result {
-            if key_bytes.len() == 4 {
-                let hash = u32::from_be_bytes([key_bytes[0], key_bytes[1], key_bytes[2], key_bytes[3]]);
-                let name_bytes = name.as_bytes();
-                let str_offset = mgr.string_storage.len();
-                mgr.string_storage.extend_from_slice(name_bytes);
-                mgr.fnv_keys.push(hash);
-                mgr.fnv_data.push(((str_offset as u64) << 16) | (name_bytes.len() as u64 & 0xFFFF));
-                count += 1;
-            }
+    for (key_bytes, name) in iter.flatten() {
+        if key_bytes.len() == 4 {
+            let hash = u32::from_be_bytes([key_bytes[0], key_bytes[1], key_bytes[2], key_bytes[3]]);
+            let name_bytes = name.as_bytes();
+            let str_offset = mgr.string_storage.len();
+            mgr.string_storage.extend_from_slice(name_bytes);
+            mgr.fnv_keys.push(hash);
+            mgr.fnv_data.push(((str_offset as u64) << 16) | (name_bytes.len() as u64 & 0xFFFF));
+            count += 1;
         }
     }
 

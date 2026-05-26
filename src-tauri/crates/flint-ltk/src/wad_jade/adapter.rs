@@ -27,6 +27,11 @@ use std::path::{Path, PathBuf};
 // the rest of the codebase.
 pub use crate::wad_jade::format::WadChunk as Chunk;
 
+/// One entry in the Jade extraction plan: chunk descriptor, output path,
+/// and an optional (relative-path, absolute-path) mapping recorded when a
+/// long filename had to be saved under its hash.
+type ExtractPlanEntry = (WadChunk, PathBuf, Option<(String, String)>);
+
 /// LTK-shape collection over Jade chunks. Provides `.iter()`, `.get(hash)`,
 /// `.len()`, `.is_empty()` so existing code keeps working without changes
 /// beyond the import swap.
@@ -174,7 +179,7 @@ pub fn extract_chunks_parallel(
     let resolved_map = resolve_paths(&all_hashes);
 
     // Build extraction plan in parallel.
-    let plan: Vec<(WadChunk, PathBuf, Option<(String, String)>)> = target_chunks
+    let plan: Vec<ExtractPlanEntry> = target_chunks
         .par_iter()
         .map(|chunk| {
             let path_hash = chunk.path_hash;

@@ -144,8 +144,8 @@ pub fn write_wad(entries: Vec<EntryToWrite>) -> Result<(Vec<u8>, WriteStats)> {
         // type_frame_count: frame_count (high nibble) << 4 | compression (low nibble).
         // We never write multi-frame chunks (the multi-frame compression
         // type is for streamed audio; League's tooling only emits it for
-        // sound banks). frame_count = 0.
-        let type_byte = (0u8 << 4) | (e.compression as u8);
+        // sound banks), so the high nibble is always zero.
+        let type_byte = e.compression as u8;
         cursor.write_u8(type_byte)?;
         // start_frame: 24-bit, ordered hi / lo / mi as the reader expects.
         cursor.write_u8(0)?;

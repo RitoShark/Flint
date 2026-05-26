@@ -2,6 +2,7 @@
 //! split / organize-vfx commands that restructure BIN files into VFX
 //! sidecars.
 
+#[allow(clippy::module_inception)]
 pub mod bin;
 pub mod bin_split;
 

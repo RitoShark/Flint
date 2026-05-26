@@ -101,11 +101,7 @@ fn main() {
                 let clean_path = std::fs::canonicalize(path)
                     .map(|p| {
                         let s = p.to_string_lossy().into_owned();
-                        if s.starts_with(r"\\?\") {
-                            s[4..].to_string()
-                        } else {
-                            s
-                        }
+                        s.strip_prefix(r"\\?\").map(str::to_owned).unwrap_or(s)
                     })
                     .unwrap_or_else(|_| path.clone());
                 let _ = app.emit("file-open-request", clean_path);
@@ -211,11 +207,7 @@ fn main() {
                     std::fs::canonicalize(&a)
                         .map(|p| {
                             let s = p.to_string_lossy().into_owned();
-                            if s.starts_with(r"\\?\") {
-                                s[4..].to_string()
-                            } else {
-                                s
-                            }
+                            s.strip_prefix(r"\\?\").map(str::to_owned).unwrap_or(s)
                         })
                         .unwrap_or(a)
                 });

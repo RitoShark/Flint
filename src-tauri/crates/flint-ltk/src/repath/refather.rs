@@ -1038,7 +1038,7 @@ fn cleanup_irrelevant_bins(content_base: &Path, champion: &str, target_skin_id: 
             if rel_str.contains("/animations/") {
                 let is_match = filename == target_skin_name 
                     || filename == target_skin_name_padded 
-                    || referenced_animation_bin.as_ref().map_or(false, |ref_anim| filename == *ref_anim);
+                    || referenced_animation_bin.as_ref().is_some_and(|ref_anim| filename == *ref_anim);
                 if is_match {
                     tracing::debug!("Keeping animation BIN: {}", rel_str);
                     continue;
