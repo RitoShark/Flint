@@ -122,10 +122,15 @@ export type SearchMode = 'contains' | 'starts' | 'regex';
 
 export function matchChunk(chunk: WadChunk, re: RegExp | null, plain: string, mode: SearchMode): boolean {
     if (mode === 'regex') return re ? re.test(chunk.path ?? chunk.hash) : false;
-    // `haystack` is precomputed (lowercased path, or hash if unresolved) at
-    // decode time — see decodeWadChunkPayload in api/wad.ts. Falling back to
-    // the old re-lowercase path keeps callers that build chunks by hand working.
-    const haystack = chunk.haystack ?? (chunk.path?.toLowerCase() ?? chunk.hash);
+    // Lowercased path is cached on the chunk on first search to avoid
+    // re-lowercasing the same string across keystrokes. Decode no longer
+    // pre-computes this — eagerly lowercasing all 820K chunks at boot was
+    // ~1.5s of wasted work since most never get searched.
+    let haystack = chunk.haystack;
+    if (haystack === undefined) {
+        haystack = chunk.path !== null ? chunk.path.toLowerCase() : chunk.hash;
+        chunk.haystack = haystack;
+    }
     if (mode === 'starts') {
         // Match either the file basename or the full path starting with the query
         const slash = haystack.lastIndexOf('/');

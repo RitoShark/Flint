@@ -251,9 +251,18 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         };
 
         return () => {
-            if (canvas && (canvas as any)._flintCleanup) {
-                (canvas as any)._flintCleanup();
+            const cleanup = canvas && (canvas as any)._flintCleanup;
+            if (cleanup) {
                 delete (canvas as any)._flintCleanup;
+                // Defer GPU teardown to after the current render commit so
+                // closing a project that had a 3D preview open returns the UI
+                // immediately. The engine + meshes + textures get disposed on
+                // the next idle slot.
+                if (typeof requestIdleCallback === 'function') {
+                    requestIdleCallback(cleanup, { timeout: 500 });
+                } else {
+                    setTimeout(cleanup, 0);
+                }
             }
             setScene(null);
             setCamera(null);

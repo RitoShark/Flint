@@ -22,7 +22,7 @@ export async function getWadChunks(
 
 export interface WadChunkBatch {
     path: string;
-    chunks: Array<{ hash: string; path: string | null; size: number; haystack: string }>;
+    chunks: Array<{ hash: string; path: string | null; size: number }>;
     error: string | null;
 }
 
@@ -81,6 +81,11 @@ function decodeWadChunkPayload(bytes: Uint8Array): WadChunkBatch[] {
         const lensOff   = off;          off += chunkCount * 2;
         let stringsOff = off;
 
+        // Haystack (lowercased path) is computed lazily by matchChunk only for
+        // chunks that the user actually searches over. Pre-lowercasing 820K
+        // strings during decode used to allocate ~50MB and cost ~1.5s on a
+        // full-game scan, almost entirely wasted since the user typically
+        // searches a small subset.
         const chunks = new Array(chunkCount);
         for (let i = 0; i < chunkCount; i++) {
             const hbase = hashesOff + i * 8;
@@ -98,16 +103,13 @@ function decodeWadChunkPayload(bytes: Uint8Array): WadChunkBatch[] {
             const plen = view.getUint16(lensOff + i * 2, true);
 
             let path: string | null;
-            let haystack: string;
             if (plen === 0xFFFF) {
                 path = null;
-                haystack = hash;
             } else {
                 path = utf8.decode(bytes.subarray(stringsOff, stringsOff + plen));
                 stringsOff += plen;
-                haystack = path.toLowerCase();
             }
-            chunks[i] = { hash, path, size, haystack };
+            chunks[i] = { hash, path, size };
         }
         off = stringsOff;
         out[w] = { path, chunks, error: null };
