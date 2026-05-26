@@ -1107,6 +1107,7 @@ pub struct OpenProjectWithTree {
 
 #[tauri::command]
 pub async fn open_project_with_tree(path: String) -> Result<OpenProjectWithTree, String> {
+    let _t = ipc_trace::enter("open_project_with_tree");
     let project = open_project(path).await?;
     let project_path = project.project_path.to_string_lossy().to_string();
     let file_tree = list_project_files(project_path).await?;

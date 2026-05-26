@@ -136,12 +136,16 @@ function extractDominantColor(img: HTMLImageElement): [number, number, number] |
  * for what the user is actually looking at.
  */
 function useProjectArtUrl(project: SavedProject, visible: boolean) {
-    const [thumb, setThumb] = useState<string | null>(() => thumbnailCache.get(project.path) ?? null);
-    const [thumbFailed, setThumbFailed] = useState(thumbnailCache.get(project.path) === null);
+    const [thumb, setThumb] = useState<string | null>(() => project.thumbnail ?? thumbnailCache.get(project.path) ?? null);
+    const [thumbFailed, setThumbFailed] = useState(thumbnailCache.get(project.path) === null && !project.thumbnail);
     const cancelled = useRef(false);
 
     useEffect(() => {
         cancelled.current = false;
+        if (project.thumbnail) {
+            setThumb(project.thumbnail);
+            return;
+        }
         if (!visible) return;
         if (thumbnailCache.has(project.path)) return;
         (async () => {
@@ -161,7 +165,7 @@ function useProjectArtUrl(project: SavedProject, visible: boolean) {
             }
         })();
         return () => { cancelled.current = true; };
-    }, [project.path, visible]);
+    }, [project.path, visible, project.thumbnail]);
 
     // Only skin projects have a meaningful DDragon splash fallback. Maps and
     // loading-screens go directly to the monogram tile when no thumbnail is
@@ -335,6 +339,7 @@ export const ProjectListModal: React.FC = () => {
                         mapId: l.map_id ?? null,
                         path: l.path,
                         lastOpened: l.last_seen_at || l.modified_at || l.created_at,
+                        thumbnail: l.thumbnail || null,
                     }));
                 configStore.setSavedProjects(mapped);
             } catch (err) {
@@ -371,15 +376,9 @@ export const ProjectListModal: React.FC = () => {
                 normalizedPath = normalizedPath.replace(/[\\/](mod\.config|flint|project)\.json$/, '');
             }
 
-            const project = await api.openProject(normalizedPath);
+            const { project, fileTree: files } = await api.openProjectWithTree(normalizedPath);
             dispatch({ type: 'SET_PROJECT', payload: { project, path: normalizedPath } });
-
-            try {
-                const files = await api.listProjectFiles(normalizedPath);
-                dispatch({ type: 'SET_FILE_TREE', payload: files });
-            } catch (filesError) {
-                console.error('Failed to load project files:', filesError);
-            }
+            dispatch({ type: 'SET_FILE_TREE', payload: files });
 
             setReady();
 

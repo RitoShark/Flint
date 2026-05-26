@@ -78,6 +78,8 @@ export interface ProjectListing {
     on_disk: boolean;
     /** True if the project was rediscovered at a new path this scan. */
     relocated: boolean;
+    /** Base64 WebP data URL for the project thumbnail if it exists. */
+    thumbnail?: string | null;
 }
 
 export interface SavedProject {
@@ -89,6 +91,8 @@ export interface SavedProject {
     mapId?: string | null;
     path: string;
     lastOpened: string;
+    /** Base64 WebP data URL for the project thumbnail if it exists. */
+    thumbnail?: string | null;
 }
 
 export interface FileTreeNode {

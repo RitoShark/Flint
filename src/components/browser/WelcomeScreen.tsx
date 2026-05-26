@@ -52,26 +52,19 @@ export const WelcomeScreen: React.FC = () => {
         try {
             setWorking('Opening project...');
 
-            const project = await api.openProject(projectPath);
-
-            dispatch({
-                type: 'SET_PROJECT',
-                payload: { project, path: projectPath },
-            });
-
             // Determine project directory
             let projectDir = projectPath;
             if (projectDir.endsWith('project.json')) {
                 projectDir = projectDir.replace(/[\\/]project\.json$/, '');
             }
 
-            // Fetch file tree
-            try {
-                const files = await api.listProjectFiles(projectDir);
-                dispatch({ type: 'SET_FILE_TREE', payload: files });
-            } catch (filesError) {
-                console.error('Failed to load project files:', filesError);
-            }
+            const { project, fileTree: files } = await api.openProjectWithTree(projectDir);
+
+            dispatch({
+                type: 'SET_PROJECT',
+                payload: { project, path: projectDir },
+            });
+            dispatch({ type: 'SET_FILE_TREE', payload: files });
 
             setReady();
 
