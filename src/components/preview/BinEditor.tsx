@@ -16,16 +16,17 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
-import { useAppState, useAppMetadataStore, useConfigStore, useFileEditorStore } from '../../lib/stores';
+import { useAppMetadataStore, useConfigStore, useFileEditorStore, useNotificationStore } from '../../lib/stores';
 import { useProjectTabStore } from '../../lib/stores/projectTabStore';
 import * as api from '../../lib/api';
-import { getIcon } from '../../lib/fileIcons';
+import { getIcon } from '../../lib/ui-helpers/fileIcons';
+import { deferCleanup } from '../../lib/ui-helpers/deferCleanup';
 import {
     RITOBIN_LANGUAGE_ID,
     RITOBIN_THEME_ID,
     registerRitobinLanguage,
     registerRitobinTheme
-} from '../../lib/ritobinLanguage';
+} from '../../lib/editor/ritobinLanguage';
 import { AssetPreviewTooltip } from './AssetPreviewTooltip';
 
 // Configure Monaco workers — wrap in try-catch so a broken worker doesn't
@@ -787,7 +788,9 @@ interface BinEditorProps {
 }
 
 export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) => {
-    const { showToast, setWorking, setReady } = useAppState();
+    const showToast = useNotificationStore((s) => s.showToast);
+    const setWorking = useAppMetadataStore((s) => s.setWorking);
+    const setReady = useAppMetadataStore((s) => s.setReady);
     const binConverterEngine = useConfigStore((state) => state.binConverterEngine);
 
     const [content, setContent] = useState<string>('');
@@ -970,14 +973,18 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         }
 
         return () => {
-            inlineProvider.dispose();
-            ed.dispose();
             editorRef.current = null;
             decorationsRef.current = [];
             emitterDecorationsRef.current = [];
             // Clean up emitter hint styles
             const styleEl = document.getElementById('flint-emitter-hint-styles');
             if (styleEl) styleEl.textContent = '';
+            // Defer Monaco dispose to idle — it's synchronous and easily blocks
+            // tab-close commits for a few hundred ms otherwise.
+            deferCleanup(() => {
+                inlineProvider.dispose();
+                ed.dispose();
+            });
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [loading, error]);

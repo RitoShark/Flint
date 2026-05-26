@@ -14,7 +14,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useAppState } from '../../lib/stores';
+import { useModalStore, useNotificationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { Button, Input, Modal, ModalBody, ModalFooter, ModalHeader } from '../ui';
 
@@ -45,9 +45,12 @@ interface BinSplitFolderOptions {
 type BinSplitOptions = BinSplitSingleOptions | BinSplitFolderOptions;
 
 export const BinSplitModal: React.FC = () => {
-    const { state, closeModal, showToast } = useAppState();
-    const isVisible = state.activeModal === 'binSplit';
-    const options = state.modalOptions as BinSplitOptions | null;
+    const closeModal = useModalStore((s) => s.closeModal);
+    const activeModal = useModalStore((s) => s.activeModal);
+    const modalOptions = useModalStore((s) => s.modalOptions);
+    const showToast = useNotificationStore((s) => s.showToast);
+    const isVisible = activeModal === 'binSplit';
+    const options = modalOptions as BinSplitOptions | null;
 
     const isFolderMode = options?.mode === 'folder';
 

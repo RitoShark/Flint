@@ -1,5 +1,5 @@
 import React from 'react';
-import { getIcon, icons } from '../../lib/fileIcons';
+import { getIcon, icons } from '../../lib/ui-helpers/fileIcons';
 
 export type IconName = keyof typeof icons;
 

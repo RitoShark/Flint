@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useAppState } from '../../lib/stores';
+import { useModalStore, useNotificationStore, useAppMetadataStore, useProjectTabStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { Button, Icon, Input, Modal, ModalBody, ModalHeader, ProgressBar, Spinner } from '../ui';
 import { listen } from '@tauri-apps/api/event';
@@ -40,7 +40,13 @@ function formatRelativeTime(timestamp: string): string {
 }
 
 export const CheckpointModal: React.FC = () => {
-    const { state, closeModal, showToast, setWorking, setReady } = useAppState();
+    const closeModal = useModalStore((s) => s.closeModal);
+    const activeModal = useModalStore((s) => s.activeModal);
+    const showToast = useNotificationStore((s) => s.showToast);
+    const setWorking = useAppMetadataStore((s) => s.setWorking);
+    const setReady = useAppMetadataStore((s) => s.setReady);
+    const activeTabId = useProjectTabStore((s) => s.activeTabId);
+    const openTabs = useProjectTabStore((s) => s.openTabs);
     const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [message, setMessage] = useState('');
@@ -61,10 +67,10 @@ export const CheckpointModal: React.FC = () => {
     // Cache diffs per checkpoint ID
     const [diffCache, setDiffCache] = useState<Record<string, CheckpointDiff>>({});
 
-    const isVisible = state.activeModal === 'checkpoint';
+    const isVisible = activeModal === 'checkpoint';
 
-    const activeTab = state.activeTabId
-        ? state.openTabs.find(t => t.id === state.activeTabId)
+    const activeTab = activeTabId
+        ? openTabs.find(t => t.id === activeTabId)
         : null;
     const currentProjectPath = activeTab?.projectPath || null;
 

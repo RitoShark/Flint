@@ -12,6 +12,11 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+/// One entry in the extraction plan: the chunk to extract, the output path,
+/// and an optional (relative-path, absolute-path) mapping recorded when a
+/// long filename had to be saved under its hash.
+type ExtractPlanEntry = (WadChunk, PathBuf, Option<(String, String)>);
+
 /// Result of an extraction operation
 #[derive(Debug, Clone)]
 pub struct ExtractionResult {
@@ -232,7 +237,7 @@ pub fn extract_chunks_parallel(
     // so we don't `String::clone` per chunk (was ~80k clones for a full
     // champion WAD). Parents are gathered through a per-thread `HashSet`
     // that we union at the end.
-    let plan: Vec<(WadChunk, PathBuf, Option<(String, String)>)> = target_chunks
+    let plan: Vec<ExtractPlanEntry> = target_chunks
         .par_iter()
         .map(|chunk| {
             let path_hash = chunk.path_hash();
@@ -866,6 +871,19 @@ pub fn extract_skin_assets_selective(
     queue.push_back(seed.clone());
     bin_seen.insert(seed.clone());
 
+    // Also seed the animation BINs to ensure animations and their .anm files are extracted
+    let anim_seeds = vec![
+        format!("data/characters/{}/animations/skin0.bin", champion_lower),
+        format!("data/characters/{}/animations/skin00.bin", champion_lower),
+        format!("data/characters/{}/animations/skin{}.bin", champion_lower, skin_id),
+        format!("data/characters/{}/animations/skin{:02}.bin", champion_lower, skin_id),
+    ];
+    for anim_seed in anim_seeds {
+        if bin_seen.insert(anim_seed.clone()) {
+            queue.push_back(anim_seed);
+        }
+    }
+
     let mut bins_walked: usize = 0;
     let mut bins_failed: usize = 0;
 
@@ -949,7 +967,7 @@ pub fn extract_skin_assets_selective(
         for h in hashes {
             if !resolved.contains_key(h) {
                 if let Some(p) = known_paths.get(h) {
-                    resolved.insert(*h, &p);
+                    resolved.insert(*h, p);
                 }
             }
         }

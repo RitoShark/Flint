@@ -844,7 +844,7 @@ fn relocate_assets(content_base: &Path, existing_paths: &HashSet<String>, prefix
     for path in existing_paths {
         // Skip BIN files EXCEPT concat.bin (which needs to move to match its
         // repathed reference)
-        if path.to_lowercase().ends_with(".bin") && !path.to_lowercase().contains("_Concat") {
+        if path.to_lowercase().ends_with(".bin") && !path.to_lowercase().contains("_concat") {
             continue;
         }
 
@@ -972,11 +972,37 @@ fn cleanup_irrelevant_bins(content_base: &Path, champion: &str, target_skin_id: 
     let target_skin_name = format!("skin{}.bin", target_skin_id);
     let target_skin_name_padded = format!("skin{:02}.bin", target_skin_id);
 
-    tracing::info!(
-        "Cleaning up BINs (keeping only: {}, {}, and _Concat.bin)",
-        target_skin_name,
-        target_skin_name_padded
-    );
+    // Dynamically read main skin BIN to find the referenced animation BIN (to keep it)
+    let mut referenced_animation_bin: Option<String> = None;
+    if let Some(main_bin_path) = find_main_skin_bin(content_base, champion, target_skin_id) {
+        if let Ok(data) = fs::read(&main_bin_path) {
+            if let Ok(bin) = read_bin(&data) {
+                for dep in &bin.dependencies {
+                    if crate::bin::classify_bin(dep) == crate::bin::BinCategory::Animation {
+                        if let Some(filename) = Path::new(dep).file_name() {
+                            referenced_animation_bin = Some(filename.to_string_lossy().to_lowercase());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(ref ref_anim) = referenced_animation_bin {
+        tracing::info!(
+            "Cleaning up BINs (keeping only: {}, {}, referenced animation: {}, and _Concat.bin)",
+            target_skin_name,
+            target_skin_name_padded,
+            ref_anim
+        );
+    } else {
+        tracing::info!(
+            "Cleaning up BINs (keeping only: {}, {}, and _Concat.bin)",
+            target_skin_name,
+            target_skin_name_padded
+        );
+    }
 
     for entry in WalkDir::new(content_base)
         .into_iter()
@@ -996,7 +1022,7 @@ fn cleanup_irrelevant_bins(content_base: &Path, champion: &str, target_skin_id: 
             // === WHITELIST: BINs we KEEP ===
             
             // 1. Keep the concatenated BIN
-            if filename.contains("_Concat") {
+            if filename.contains("_concat") {
                 tracing::debug!("Keeping concat BIN: {}", rel_str);
                 continue;
             }
@@ -1008,11 +1034,15 @@ fn cleanup_irrelevant_bins(content_base: &Path, champion: &str, target_skin_id: 
                 continue;
             }
 
-            // 3. Keep the animation BIN for the target skin
-            if rel_str.contains("/animations/") && 
-               (filename == target_skin_name || filename == target_skin_name_padded) {
-                tracing::debug!("Keeping animation BIN: {}", rel_str);
-                continue;
+            // 3. Keep the animation BIN for the target skin or the referenced animation BIN
+            if rel_str.contains("/animations/") {
+                let is_match = filename == target_skin_name 
+                    || filename == target_skin_name_padded 
+                    || referenced_animation_bin.as_ref().is_some_and(|ref_anim| filename == *ref_anim);
+                if is_match {
+                    tracing::debug!("Keeping animation BIN: {}", rel_str);
+                    continue;
+                }
             }
 
             // === EVERYTHING ELSE IS DELETED ===

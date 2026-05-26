@@ -50,6 +50,9 @@ pub struct ProjectListing {
     /// True if this row was rediscovered (in index AND on disk under a new
     /// path). Useful for "we re-located your project" toasts.
     pub relocated: bool,
+    /// Base64 encoded thumbnail.webp if it exists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumbnail: Option<String>,
 }
 
 /// Scan `projects_root` one level deep for project folders, merge with the
@@ -130,6 +133,7 @@ pub fn discover_projects(projects_root: &Path) -> Result<Vec<ProjectListing>> {
             indexed.entries.push(upsert_entry.clone());
         }
 
+        let thumbnail = read_thumbnail_base64(&path);
         results.push(ProjectListing {
             pid: listing.pid,
             path: listing.path,
@@ -145,6 +149,7 @@ pub fn discover_projects(projects_root: &Path) -> Result<Vec<ProjectListing>> {
             exists: true,
             on_disk: true,
             relocated,
+            thumbnail,
         });
     }
 
@@ -152,6 +157,7 @@ pub fn discover_projects(projects_root: &Path) -> Result<Vec<ProjectListing>> {
     for e in &indexed.entries {
         if results.iter().any(|r| r.pid == e.pid) { continue; }
         let exists_now = e.path.is_dir() && e.path.join(PROJECT_FILE).is_file();
+        let thumbnail = if exists_now { read_thumbnail_base64(&e.path) } else { None };
         results.push(ProjectListing {
             pid: e.pid.clone(),
             path: e.path.clone(),
@@ -167,6 +173,7 @@ pub fn discover_projects(projects_root: &Path) -> Result<Vec<ProjectListing>> {
             exists: exists_now,
             on_disk: false,
             relocated: false,
+            thumbnail,
         });
     }
 
@@ -242,6 +249,7 @@ fn read_listing_lightweight(project_path: &Path) -> Option<ProjectListing> {
         exists: true,
         on_disk: true,
         relocated: false,
+        thumbnail: None,
     })
 }
 
@@ -261,5 +269,18 @@ fn listing_from_project(p: &Project) -> ProjectListing {
         exists: true,
         on_disk: true,
         relocated: false,
+        thumbnail: None,
     }
+}
+
+fn read_thumbnail_base64(project_path: &Path) -> Option<String> {
+    let thumb_path = project_path.join("thumbnail.webp");
+    if thumb_path.is_file() {
+        if let Ok(data) = fs::read(&thumb_path) {
+            use base64::{engine::general_purpose::STANDARD, Engine};
+            let b64 = STANDARD.encode(&data);
+            return Some(format!("data:image/webp;base64,{}", b64));
+        }
+    }
+    None
 }

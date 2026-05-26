@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useAppState } from '../../lib/stores';
+import { useModalStore, useNotificationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import {
     Button,
@@ -124,10 +124,13 @@ const AuthorEditor: React.FC<{
 );
 
 export const ModConfigEditorModal: React.FC = () => {
-    const { state, closeModal, showToast } = useAppState();
+    const closeModal = useModalStore((s) => s.closeModal);
+    const activeModal = useModalStore((s) => s.activeModal);
+    const modalOptions = useModalStore((s) => s.modalOptions);
+    const showToast = useNotificationStore((s) => s.showToast);
 
-    const isVisible = state.activeModal === 'modConfig';
-    const options = state.modalOptions as { filePath: string } | null;
+    const isVisible = activeModal === 'modConfig';
+    const options = modalOptions as { filePath: string } | null;
 
     const [config, setConfig] = useState<ModConfig | null>(null);
     const [displayName, setDisplayName] = useState('');

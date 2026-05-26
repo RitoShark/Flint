@@ -1,0 +1,85 @@
+/**
+ * PathSettingItem - row in the Settings 'Paths' tab. Renders an Input
+ * with a Browse button, an optional detect button, and a filled/empty
+ * pill. Used by both directory and file pickers (see `setting.file`).
+ */
+import React from 'react';
+import { open } from '@tauri-apps/plugin-dialog';
+import { Button, Icon, type IconName, Input } from '../../ui';
+
+export interface PathSetting {
+    label: string;
+    badge?: string;
+    placeholder: string;
+    value: string;
+    onChange: (v: string) => void;
+    browseTitle: string;
+    onDetect?: () => void;
+    detectLabel?: string;
+    /** Treat as file picker rather than directory. */
+    file?: boolean;
+    hint?: string;
+    disabled?: boolean;
+    /** Optional brand logo image; renders inside the icon frame. */
+    logoSrc?: string;
+    /** Optional brand colour; drives the connected glow + badge tint. */
+    logoColor?: string;
+    /** Optional generic icon name (Icon glyph) when no logoSrc. */
+    iconName?: IconName;
+}
+
+export const PathSettingItem: React.FC<{ setting: PathSetting }> = ({ setting }) => {
+    const handleBrowse = async () => {
+        const selected = await open({
+            title: setting.browseTitle,
+            directory: !setting.file,
+        });
+        if (selected) setting.onChange(selected as string);
+    };
+    const filled = setting.value.trim().length > 0;
+    const style = setting.logoColor ? ({ ['--logo' as never]: setting.logoColor } as React.CSSProperties) : undefined;
+    return (
+        <div
+            className={`settings-prow ${filled ? 'is-filled' : ''} ${setting.logoSrc ? 'has-logo' : ''}`}
+            style={style}
+        >
+            <span className="settings-prow__icon" aria-hidden="true">
+                {setting.logoSrc
+                    ? <img src={setting.logoSrc} alt="" className="settings-prow__logo-img" draggable={false} />
+                    : <Icon name={setting.iconName ?? 'folder'} />}
+                {setting.logoSrc && <span className="settings-prow__logo-ring" />}
+            </span>
+            <div className="settings-prow__body">
+                <div className="settings-prow__head">
+                    <strong className="settings-prow__name">{setting.label}</strong>
+                    {setting.badge && <span className="settings-prow__badge">{setting.badge}</span>}
+                    <span className={`settings-prow__pill ${filled ? 'is-on' : ''}`}>
+                        <span className="settings-prow__pill-dot" />
+                        {filled ? 'Set' : 'Empty'}
+                    </span>
+                </div>
+                {setting.hint && <p className="settings-prow__tagline">{setting.hint}</p>}
+                <div className="settings-prow__field">
+                    <Input
+                        placeholder={setting.placeholder}
+                        value={setting.value}
+                        onChange={(e) => setting.onChange(e.target.value)}
+                        buttonLabel="Browse"
+                        onButtonClick={handleBrowse}
+                    />
+                    {setting.onDetect && setting.detectLabel && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            icon="search"
+                            onClick={setting.onDetect}
+                            disabled={setting.disabled}
+                        >
+                            {setting.detectLabel}
+                        </Button>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};

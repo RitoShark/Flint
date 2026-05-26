@@ -23,15 +23,15 @@ function chromaLabel(name: string | undefined, skinName: string, skinNum: number
         .replace(/\s*Chroma\s*$/i, '')
         .trim() || `#${skinNum}`;
 }
-import { useAppState } from '../../lib/stores';
+import { useModalStore, useNotificationStore, useProjectTabStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import {
     fetchChampions,
     fetchChampionSkins,
     getChromaImageUrl,
     resolveCDragonAsset,
-} from '../../lib/datadragon';
-import type { DDragonChroma } from '../../lib/datadragon';
+} from '../../lib/data/datadragon';
+import type { DDragonChroma } from '../../lib/data/datadragon';
 import {
     Button,
     Modal,
@@ -43,12 +43,16 @@ import {
 } from '../ui';
 
 export const ChromaPortModal: React.FC = () => {
-    const { state, closeModal, showToast } = useAppState();
+    const closeModal = useModalStore((s) => s.closeModal);
+    const activeModal = useModalStore((s) => s.activeModal);
+    const showToast = useNotificationStore((s) => s.showToast);
+    const activeTabId = useProjectTabStore((s) => s.activeTabId);
+    const openTabs = useProjectTabStore((s) => s.openTabs);
 
-    const isVisible = state.activeModal === 'chromaPort';
+    const isVisible = activeModal === 'chromaPort';
 
-    const activeTab = state.activeTabId
-        ? state.openTabs.find((t) => t.id === state.activeTabId)
+    const activeTab = activeTabId
+        ? openTabs.find((t) => t.id === activeTabId)
         : null;
     const project = activeTab?.project ?? null;
     const projectPath = activeTab?.projectPath ?? null;

@@ -22,7 +22,8 @@ import { SkeletonViewer } from '@babylonjs/core/Debug/skeletonViewer';
 
 import * as api from '../../lib/api';
 import { useAppMetadataStore } from '../../lib/stores';
-import { getIcon } from '../../lib/fileIcons';
+import { getIcon } from '../../lib/ui-helpers/fileIcons';
+import { deferCleanup } from '../../lib/ui-helpers/deferCleanup';
 
 // Import our custom Babylon wrappers
 import { createEngine } from '../../lib/babylon/engine';
@@ -251,14 +252,21 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         };
 
         return () => {
-            if (canvas && (canvas as any)._flintCleanup) {
-                (canvas as any)._flintCleanup();
+            const cleanup = canvas && (canvas as any)._flintCleanup;
+            if (cleanup) {
                 delete (canvas as any)._flintCleanup;
+                // Defer GPU teardown so closing a project that had a 3D
+                // preview open returns the UI immediately. The engine +
+                // meshes + textures get disposed on the next idle slot.
+                deferCleanup(cleanup);
             }
             setScene(null);
             setCamera(null);
         };
-    }, [filePath, loading, error]);
+        // Engine + scene + camera set up once per component mount. Reloading
+        // a new file path mutates the existing scene instead of tearing down
+        // and recreating the WebGL context.
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Load mesh data
     useEffect(() => {
@@ -269,6 +277,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             setError(null);
             setAnimations([]);
             setSkeletonData(null);
+            // Reset per-file state — previously handled by remounting via
+            // key={filePath} on the parent, which also tore down the engine.
+            setSelectedAnimation('');
+            setActivePopup(null);
+            setMeshData(null);
 
             try {
                 let data: MeshData;
@@ -812,79 +825,86 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         }
     };
 
-    if (loading) {
-        return (
-            <div className="model-preview model-preview--loading">
+    // The Babylon engine effect is mounted by the <canvas> below. Returning
+    // a different tree for loading/error/empty would unmount the canvas and
+    // tear down the WebGL context — expensive (~50–200ms) every time the
+    // preview file changes. Instead, render the status as an overlay and
+    // keep the canvas in the tree at all times.
+    const statusOverlay = loading
+        ? (
+            <div className="model-preview__overlay model-preview__overlay--loading">
                 <div className="spinner" />
                 <span>Loading 3D model...</span>
             </div>
-        );
-    }
-
-    if (error) {
-        return (
-            <div className="model-preview model-preview--error">
-                <span className="error-icon">⚠️</span>
-                <span>{error}</span>
-            </div>
-        );
-    }
-
-    if (!meshData) {
-        return (
-            <div className="model-preview model-preview--empty">
-                <span>No mesh data available</span>
-            </div>
-        );
-    }
+        )
+        : error
+            ? (
+                <div className="model-preview__overlay model-preview__overlay--error">
+                    <span className="error-icon">⚠️</span>
+                    <span>{error}</span>
+                </div>
+            )
+            : !meshData
+                ? (
+                    <div className="model-preview__overlay model-preview__overlay--empty">
+                        <span>No mesh data available</span>
+                    </div>
+                )
+                : null;
 
     return (
         <div className="model-preview">
-            {/* Environment Button - Top Left Corner */}
-            <div className="model-preview__controls-bar model-preview__controls-bar--left">
-                <button
-                    className={`model-preview__control-btn ${activePopup === 'environment' ? 'model-preview__control-btn--active' : ''}`}
-                    onClick={() => setActivePopup(activePopup === 'environment' ? null : 'environment')}
-                    title="Environment Settings"
-                >
-                    <span dangerouslySetInnerHTML={{ __html: getIcon('settings') }} />
-                </button>
-            </div>
+            {meshData && (
+                <>
+                    {/* Environment Button - Top Left Corner */}
+                    <div className="model-preview__controls-bar model-preview__controls-bar--left">
+                        <button
+                            className={`model-preview__control-btn ${activePopup === 'environment' ? 'model-preview__control-btn--active' : ''}`}
+                            onClick={() => setActivePopup(activePopup === 'environment' ? null : 'environment')}
+                            title="Environment Settings"
+                        >
+                            <span dangerouslySetInnerHTML={{ __html: getIcon('settings') }} />
+                        </button>
+                    </div>
 
-            {/* Other Control Buttons - Top Right */}
-            <div className="model-preview__controls-bar">
-                <button
-                    className={`model-preview__control-btn ${activePopup === 'display' ? 'model-preview__control-btn--active' : ''}`}
-                    onClick={() => setActivePopup(activePopup === 'display' ? null : 'display')}
-                    title="Display & Skeleton"
-                >
-                    <span dangerouslySetInnerHTML={{ __html: getIcon('image') }} />
-                </button>
-                <button
-                    className={`model-preview__control-btn ${activePopup === 'materials' ? 'model-preview__control-btn--active' : ''}`}
-                    onClick={() => setActivePopup(activePopup === 'materials' ? null : 'materials')}
-                    title="Materials"
-                >
-                    <span dangerouslySetInnerHTML={{ __html: getIcon('picture') }} />
-                </button>
-                {animations.length > 0 && (
-                    <button
-                        className={`model-preview__control-btn ${activePopup === 'animations' ? 'model-preview__control-btn--active' : ''}`}
-                        onClick={() => setActivePopup(activePopup === 'animations' ? null : 'animations')}
-                        title="Animations"
-                    >
-                        <span dangerouslySetInnerHTML={{ __html: getIcon('video') }} />
-                    </button>
-                )}
-            </div>
+                    {/* Other Control Buttons - Top Right */}
+                    <div className="model-preview__controls-bar">
+                        <button
+                            className={`model-preview__control-btn ${activePopup === 'display' ? 'model-preview__control-btn--active' : ''}`}
+                            onClick={() => setActivePopup(activePopup === 'display' ? null : 'display')}
+                            title="Display & Skeleton"
+                        >
+                            <span dangerouslySetInnerHTML={{ __html: getIcon('image') }} />
+                        </button>
+                        <button
+                            className={`model-preview__control-btn ${activePopup === 'materials' ? 'model-preview__control-btn--active' : ''}`}
+                            onClick={() => setActivePopup(activePopup === 'materials' ? null : 'materials')}
+                            title="Materials"
+                        >
+                            <span dangerouslySetInnerHTML={{ __html: getIcon('picture') }} />
+                        </button>
+                        {animations.length > 0 && (
+                            <button
+                                className={`model-preview__control-btn ${activePopup === 'animations' ? 'model-preview__control-btn--active' : ''}`}
+                                onClick={() => setActivePopup(activePopup === 'animations' ? null : 'animations')}
+                                title="Animations"
+                            >
+                                <span dangerouslySetInnerHTML={{ __html: getIcon('video') }} />
+                            </button>
+                        )}
+                    </div>
+                </>
+            )}
 
-            {/* 3D Canvas */}
+            {/* 3D Canvas — stays mounted across loading/error/empty states so
+                the Babylon engine isn't torn down and recreated. */}
             <div className="model-preview__canvas">
                 <canvas
                     ref={canvasRef}
                     style={{ width: '100%', height: '100%', display: 'block', outline: 'none' }}
                 />
             </div>
+            {statusOverlay}
 
             {/* Popup Panels */}
             {activePopup === 'display' && (
@@ -993,7 +1013,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 </div>
             )}
 
-            {activePopup === 'materials' && (
+            {meshData && activePopup === 'materials' && (
                 <div className="model-preview__popup model-preview__popup--top-right model-preview__popup--wide">
                     <div className="model-preview__popup-header">
                         <h4>Materials ({meshData.materials.length})</h4>
@@ -1160,7 +1180,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             )}
 
             {/* Texture Preview Tooltip */}
-            {hoveredMaterial && (
+            {hoveredMaterial && meshData && (
                 <div
                     className="asset-preview-tooltip"
                     style={{

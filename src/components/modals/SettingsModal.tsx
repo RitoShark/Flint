@@ -4,10 +4,11 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useAppState, useConfigStore, useUxStore } from '../../lib/stores';
+import { useConfigStore, useUxStore, useModalStore, useNotificationStore, useAppMetadataStore, useWadExplorerStore } from '../../lib/stores';
+import { useShallow } from 'zustand/react/shallow';
 import * as api from '../../lib/api';
 import type { FileAssocStatus } from '../../lib/api';
-import * as updater from '../../lib/updater';
+import * as updater from '../../lib/util/updater';
 import { open } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
 import { getVersion } from '@tauri-apps/api/app';
@@ -16,455 +17,51 @@ import {
     Checkbox,
     Icon,
     type IconName,
-    Input,
     Modal,
     ModalBody,
     ModalFooter,
     ModalHeader,
-    ProgressBar,
     DesignLab,
-    Textarea,
 } from '../ui';
-import { triggerTutorialReplay } from '../TutorialOverlay';
+import { triggerTutorialReplay } from '../overlays/TutorialOverlay';
 
 type SettingsTab = 'creator' | 'general' | 'theme' | 'paths' | 'integrations' | 'dev';
 
-interface PathSetting {
-    label: string;
-    badge?: string;
-    placeholder: string;
-    value: string;
-    onChange: (v: string) => void;
-    browseTitle: string;
-    onDetect?: () => void;
-    detectLabel?: string;
-    /** Treat as file picker rather than directory. */
-    file?: boolean;
-    hint?: string;
-    disabled?: boolean;
-    /** Optional brand logo image; renders inside the icon frame. */
-    logoSrc?: string;
-    /** Optional brand colour; drives the connected glow + badge tint. */
-    logoColor?: string;
-    /** Optional generic icon name (Icon glyph) when no logoSrc. */
-    iconName?: IconName;
-}
-
-const PathSettingItem: React.FC<{ setting: PathSetting }> = ({ setting }) => {
-    const handleBrowse = async () => {
-        const selected = await open({
-            title: setting.browseTitle,
-            directory: !setting.file,
-        });
-        if (selected) setting.onChange(selected as string);
-    };
-    const filled = setting.value.trim().length > 0;
-    const style = setting.logoColor ? ({ ['--logo' as never]: setting.logoColor } as React.CSSProperties) : undefined;
-    return (
-        <div
-            className={`settings-prow ${filled ? 'is-filled' : ''} ${setting.logoSrc ? 'has-logo' : ''}`}
-            style={style}
-        >
-            <span className="settings-prow__icon" aria-hidden="true">
-                {setting.logoSrc
-                    ? <img src={setting.logoSrc} alt="" className="settings-prow__logo-img" draggable={false} />
-                    : <Icon name={setting.iconName ?? 'folder'} />}
-                {setting.logoSrc && <span className="settings-prow__logo-ring" />}
-            </span>
-            <div className="settings-prow__body">
-                <div className="settings-prow__head">
-                    <strong className="settings-prow__name">{setting.label}</strong>
-                    {setting.badge && <span className="settings-prow__badge">{setting.badge}</span>}
-                    <span className={`settings-prow__pill ${filled ? 'is-on' : ''}`}>
-                        <span className="settings-prow__pill-dot" />
-                        {filled ? 'Set' : 'Empty'}
-                    </span>
-                </div>
-                {setting.hint && <p className="settings-prow__tagline">{setting.hint}</p>}
-                <div className="settings-prow__field">
-                    <Input
-                        placeholder={setting.placeholder}
-                        value={setting.value}
-                        onChange={(e) => setting.onChange(e.target.value)}
-                        buttonLabel="Browse"
-                        onButtonClick={handleBrowse}
-                    />
-                    {setting.onDetect && setting.detectLabel && (
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            icon="search"
-                            onClick={setting.onDetect}
-                            disabled={setting.disabled}
-                        >
-                            {setting.detectLabel}
-                        </Button>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
-};
-
-interface SchemaProgress {
-    phase: string;
-    current: number;
-    total: number;
-    bins_parsed: number;
-    bins_failed: number;
-    classes_found: number;
-}
-
-const SchemaProgressView: React.FC<{ progress: SchemaProgress }> = ({ progress }) => {
-    const pct = (progress.current / Math.max(progress.total, 1)) * 100;
-    return (
-        <div className="settings-item">
-            <div className="settings-item__label">
-                {progress.phase === 'complete'
-                    ? 'Complete'
-                    : `Scanning WAD ${progress.current} / ${progress.total}`}
-            </div>
-            <ProgressBar value={pct} hideHeader />
-            <div className="settings-item__hint" style={{ marginTop: 4 }}>
-                {progress.bins_parsed.toLocaleString()} BINs parsed
-                {progress.bins_failed > 0 && ` (${progress.bins_failed} failed)`}
-                {' | '}
-                {progress.classes_found.toLocaleString()} classes found
-            </div>
-        </div>
-    );
-};
-
-const SchemaResultView: React.FC<{
-    classes: number;
-    fields: number;
-    binsParsed: number;
-    binsFailed: number;
-    wads: number;
-    outputPath: string;
-    label?: string;
-}> = ({ classes, fields, binsParsed, binsFailed, wads, outputPath, label = 'BIN files' }) => (
-    <div className="settings-item">
-        <div className="settings-item__label">Result</div>
-        <div className="settings-item__hint">
-            Found {classes.toLocaleString()} classes with {fields.toLocaleString()} fields across{' '}
-            {binsParsed.toLocaleString()} {label}
-            {binsFailed > 0 && ` (${binsFailed} failed to parse)`} from {wads.toLocaleString()} WADs
-        </div>
-        <div className="settings-item__hint" style={{ marginTop: 4 }}>
-            Output: {outputPath}
-        </div>
-        <Button
-            variant="ghost"
-            size="sm"
-            icon="folder"
-            style={{ marginTop: 6 }}
-            onClick={() => {
-                const dir = outputPath.replace(/[\\/][^\\/]+$/, '');
-                api.openInExplorer(dir).catch(() => {});
-            }}
-        >
-            Open in Explorer
-        </Button>
-    </div>
-);
-
-/* -------------------------------------------------------------------------- */
-/* Theme preset grid — same 5 cards as the wizard, lives on the Theme tab     */
-/* -------------------------------------------------------------------------- */
-/* Flint is the default — `id: null` means "no theme override, fall back to
-   index.css :root defaults". Selecting it routes to setSelectedTheme(null).
-   The other 4 bind to real `themes/<id>.json` files seeded by the Rust
-   `seed_builtin_themes` command. */
-type SettingsThemePreset = { id: string | null; name: string; bg: string; raised: string; accent: string };
-const SETTINGS_THEME_PRESETS: SettingsThemePreset[] = [
-    { id: null,        name: 'Flint',     bg: '#0c0c10', raised: '#15151b', accent: '#EF4444' },
-    { id: 'celestial', name: 'Celestial', bg: '#0a0a14', raised: '#13132a', accent: '#A05CF6' },
-    { id: 'jade',      name: 'Jade',      bg: '#08111a', raised: '#0f1c28', accent: '#06B6D4' },
-    { id: 'froggy',    name: 'Froggy',    bg: '#0a1410', raised: '#11241c', accent: '#22C55E' },
-    { id: 'quartz',    name: 'Quartz',    bg: '#0f0a14', raised: '#1d1424', accent: '#EC4899' },
-];
-const ThemePresetGrid: React.FC<{
-    selectedTheme: string | null;
-    onSelect: (id: string | null, accent: string) => void;
-}> = ({ selectedTheme, onSelect }) => {
-    // Seed the JSON theme files on first render so clicking a card actually
-    // resolves to a real `themes/<id>.json` via the existing apply path.
-    useEffect(() => {
-        api.seedBuiltinThemes().catch(() => { /* non-fatal */ });
-    }, []);
-    return (
-        <div className="theme-preset-grid">
-            {SETTINGS_THEME_PRESETS.map((t) => {
-                const active = selectedTheme === t.id;
-                return (
-                    <button
-                        key={t.id ?? '__default__'}
-                        type="button"
-                        className={`theme-preset ${active ? 'is-active' : ''}`}
-                        style={{ ['--accent' as never]: t.accent, ['--bg' as never]: t.bg, ['--raised' as never]: t.raised }}
-                        onClick={() => onSelect(t.id, t.accent)}
-                        aria-pressed={active}
-                    >
-                        <span className="theme-preset__mock">
-                            <span className="theme-preset__mock-rail" />
-                            <span className="theme-preset__mock-rows">
-                                <span className="theme-preset__mock-row">
-                                    <span className="theme-preset__mock-tile" />
-                                    <span className="theme-preset__mock-tile theme-preset__mock-tile--accent" />
-                                </span>
-                                <span className="theme-preset__mock-row">
-                                    <span className="theme-preset__mock-tile theme-preset__mock-tile--accent-soft" />
-                                    <span className="theme-preset__mock-tile" />
-                                </span>
-                            </span>
-                        </span>
-                        <span className="theme-preset__foot">
-                            <span className="theme-preset__name">{t.name}</span>
-                            <span className="theme-preset__dots">
-                                <span className="theme-preset__dot" style={{ background: t.bg }} />
-                                <span className="theme-preset__dot" style={{ background: t.accent }} />
-                                {active && (
-                                    <span className="theme-preset__check" style={{ background: t.accent }}>
-                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-                                            <polyline points="20 6 9 17 4 12" />
-                                        </svg>
-                                    </span>
-                                )}
-                            </span>
-                        </span>
-                    </button>
-                );
-            })}
-        </div>
-    );
-};
-
-/* -------------------------------------------------------------------------- */
-/* Creator tab — name, description, home URL, tip URL                          */
-/* Inspired by celestial-1's CreatorHubTab but laid out in Flint's settings   */
-/* primitive (settings-item / Field / Input). The header uses a glassy hero    */
-/* card so the tab feels distinct from the rest of Settings.                   */
-/* -------------------------------------------------------------------------- */
-const CreatorTab: React.FC<{
-    name: string;
-    onName: (v: string) => void;
-    description: string;
-    onDescription: (v: string) => void;
-    home: string;
-    onHome: (v: string) => void;
-    tip: string;
-    onTip: (v: string) => void;
-}> = ({ name, onName, description, onDescription, home, onHome, tip, onTip }) => {
-    return (
-        <div className="creator-tab">
-            <div className="settings-item">
-                <label className="settings-item__label">
-                    <Icon name="user" /> Creator name
-                </label>
-                <Input
-                    placeholder="Your handle (for mod credits)"
-                    value={name}
-                    onChange={(e) => onName(e.target.value)}
-                />
-            </div>
-
-            <div className="settings-item">
-                <label className="settings-item__label">
-                    <Icon name="info" /> Default description
-                    <span className="settings-item__badge">Optional</span>
-                </label>
-                <Textarea
-                    placeholder="Short tagline shown on every imported / new mod (e.g. “Stylized recolors for Aatrox”)"
-                    value={description}
-                    onChange={(e) => onDescription(e.target.value)}
-                    rows={2}
-                    maxLength={280}
-                />
-                <div className="settings-item__hint">
-                    Pre-fills the description on every new project — editable per-project later. {description.length}/280
-                </div>
-            </div>
-
-            <div className="settings-item">
-                <label className="settings-item__label">
-                    <Icon name="globe" /> Home URL
-                    <span className="settings-item__badge">Optional</span>
-                </label>
-                <Input
-                    type="url"
-                    placeholder="https://yoursite.com or your socials"
-                    value={home}
-                    onChange={(e) => onHome(e.target.value)}
-                />
-                <div className="settings-item__hint">
-                    Shown as a “Home” link on every mod you publish.
-                </div>
-            </div>
-
-            <div className="settings-item">
-                <label className="settings-item__label">
-                    <Icon name="heart" /> Tip URL
-                    <span className="settings-item__badge">Optional</span>
-                </label>
-                <Input
-                    type="url"
-                    placeholder="https://ko-fi.com/you  ·  buymeacoffee.com/you"
-                    value={tip}
-                    onChange={(e) => onTip(e.target.value)}
-                />
-                <div className="settings-item__hint">
-                    Shown as a tip-jar link so users can support your work.
-                </div>
-            </div>
-        </div>
-    );
-};
-
-/* -------------------------------------------------------------------------- */
-/* Integrations tab — branded "Connect" cards for each external app           */
-/* -------------------------------------------------------------------------- */
-type IntegrationDisplay = {
-    id: 'ltk' | 'celestial' | 'jade' | 'quartz';
-    name: string;
-    tagline: string;
-    accent: string;
-    path: string;
-    setPath: (v: string) => void;
-    onDetect: () => void;
-    browseTitle: string;
-    directory: boolean;
-    helpUrl?: string;
-    kind?: 'launcher' | 'app';
-};
-const INTEGRATION_LOGOS: Record<IntegrationDisplay['id'], string> = {
-    ltk: '/ltk-manager-logo.svg',
-    celestial: '/celestial-logo.webp',
-    jade: '/jade-logo.webp',
-    quartz: '/quartz-logo.webp',
-};
-const IntegrationLogo: React.FC<{ id: IntegrationDisplay['id']; accent: string }> = ({ id, accent }) => (
-    <div className="integration-card__logo" style={{ ['--logo' as never]: accent }}>
-        <img src={INTEGRATION_LOGOS[id]} alt="" className="integration-card__logo-img" draggable={false} />
-        <span className="integration-card__logo-ring" />
-    </div>
-);
-const IntegrationsTab: React.FC<{
-    integrations: IntegrationDisplay[];
-    onConnect: (i: IntegrationDisplay) => Promise<void> | void;
-    autoSync: boolean;
-    onAutoSyncChange: (v: boolean) => void;
-    ltkConfigured: boolean;
-    preferredLauncher: 'ltk' | 'celestial' | null;
-    onPreferredLauncherChange: (l: 'ltk' | 'celestial' | null) => void;
-}> = ({ integrations, onConnect, autoSync, onAutoSyncChange, ltkConfigured, preferredLauncher, onPreferredLauncherChange }) => {
-    const launchers = integrations.filter((i) => i.kind === 'launcher');
-    const apps = integrations.filter((i) => i.kind !== 'launcher');
-    const effective = preferredLauncher
-        ?? (launchers.find((l) => l.path.trim().length > 0)?.id as 'ltk' | 'celestial' | undefined)
-        ?? 'ltk';
-
-    const renderCard = (i: IntegrationDisplay, isLauncher: boolean) => {
-        const connected = i.path.trim().length > 0;
-        const isDefault = isLauncher && effective === i.id;
-        return (
-            <div
-                key={i.id}
-                className={`integration-card ${connected ? 'is-connected' : ''} ${isDefault ? 'is-default' : ''}`}
-                style={{ ['--logo' as never]: i.accent }}
-            >
-                <IntegrationLogo id={i.id} accent={i.accent} />
-                <div className="integration-card__body">
-                    <div className="integration-card__head">
-                        <strong>{i.name}</strong>
-                        <span className={`integration-card__pill ${connected ? 'is-on' : ''}`}>
-                            <span className="integration-card__pill-dot" />
-                            {connected ? 'Connected' : 'Not connected'}
-                        </span>
-                        {isDefault && (
-                            <span className="integration-card__pill integration-card__pill--default">
-                                <span className="integration-card__pill-dot" />
-                                Default launcher
-                            </span>
-                        )}
-                    </div>
-                    <p className="integration-card__tagline">{i.tagline}</p>
-                    {connected && <p className="integration-card__path" title={i.path}>{i.path}</p>}
-                </div>
-                <div className="integration-card__actions">
-                    {connected ? (
-                        <>
-                            {isLauncher && !isDefault && (
-                                <Button
-                                    variant="primary"
-                                    size="sm"
-                                    icon="check"
-                                    onClick={() => onPreferredLauncherChange(i.id as 'ltk' | 'celestial')}
-                                >
-                                    Set as default
-                                </Button>
-                            )}
-                            <Button variant="ghost" size="sm" icon="refresh" onClick={() => void onConnect(i)}>Change</Button>
-                            <Button variant="ghost" size="sm" icon="close" onClick={() => i.setPath('')}>Disconnect</Button>
-                        </>
-                    ) : (
-                        <>
-                            <Button variant="primary" size="sm" icon="link" onClick={() => void onConnect(i)}>
-                                Connect
-                            </Button>
-                            <Button variant="ghost" size="sm" icon="search" onClick={i.onDetect}>Auto-detect</Button>
-                        </>
-                    )}
-                </div>
-                {isDefault && connected && (
-                    <div className="integration-card__extra">
-                        <Checkbox
-                            toggle
-                            checked={autoSync}
-                            onChange={(e) => onAutoSyncChange(e.target.checked)}
-                            disabled={!ltkConfigured}
-                            label={`Auto-Sync to ${i.name}`}
-                            description="Push project changes whenever files are modified."
-                        />
-                    </div>
-                )}
-            </div>
-        );
-    };
-
-    return (
-        <div className="integrations-tab">
-            <p className="integrations-tab__intro">
-                Connect external tools so Flint can hand off work to them. Each one is fully optional — you can swap them any time.
-            </p>
-            <div className="integrations-tab__group-label">Launchers</div>
-            {launchers.map((i) => renderCard(i, true))}
-            <div className="integrations-tab__group-label">External apps</div>
-            {apps.map((i) => renderCard(i, false))}
-        </div>
-    );
-};
+// Extracted tab content - see ./settings/ for implementations.
+import { PathSettingItem, type PathSetting } from './settings/PathSettingItem';
+import { SchemaProgressView, SchemaResultView, type SchemaProgress } from './settings/SchemaViews';
+import { ThemePresetGrid } from './settings/ThemeTab';
+import { CreatorTab } from './settings/CreatorTab';
+import { IntegrationsTab } from './settings/IntegrationsTab';
 
 export const SettingsModal: React.FC = () => {
-    const { state, dispatch, closeModal, showToast } = useAppState();
+    const closeModal = useModalStore((s) => s.closeModal);
+    const openModal = useModalStore((s) => s.openModal);
+    const activeModal = useModalStore((s) => s.activeModal);
+    const showToast = useNotificationStore((s) => s.showToast);
+    const hashesLoaded = useAppMetadataStore((s) => s.hashesLoaded);
+    const hashCount = useAppMetadataStore((s) => s.hashCount);
+    const verboseLoggingStore = useAppMetadataStore((s) => s.verboseLogging);
+    const wadExplorer = useWadExplorerStore(useShallow((s) => ({ isOpen: s.isOpen, wads: s.wads })));
+    const setWadStatus = useWadExplorerStore((s) => s.setWadStatus);
     const configStore = useConfigStore();
     const ux = useUxStore();
 
     const [activeTab, setActiveTab] = useState<SettingsTab>('creator');
 
-    const [leaguePath, setLeaguePath] = useState(state.leaguePath || '');
-    const [leaguePathPbe, setLeaguePathPbe] = useState(state.leaguePathPbe || '');
-    const [defaultProjectPath, setDefaultProjectPath] = useState(state.defaultProjectPath || '');
-    const [creatorName, setCreatorName] = useState(state.creatorName || '');
-    const [creatorDescription, setCreatorDescription] = useState(state.creatorDescription || '');
-    const [creatorHome, setCreatorHome] = useState(state.creatorHome || '');
-    const [creatorTip, setCreatorTip] = useState(state.creatorTip || '');
-    const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(state.autoUpdateEnabled);
-    const [verboseLogging, setVerboseLogging] = useState(state.verboseLogging);
-    const [ltkManagerModPath, setLtkManagerModPath] = useState(state.ltkManagerModPath || '');
-    const [autoSyncToLauncher, setAutoSyncToLauncher] = useState(state.autoSyncToLauncher);
-    const [celestialPath, setCelestialPath] = useState(state.celestialModPath || '');
-    const [preferredLauncher, setPreferredLauncher] = useState<'ltk' | 'celestial' | null>(state.preferredLauncher);
+    const [leaguePath, setLeaguePath] = useState(configStore.leaguePath || '');
+    const [leaguePathPbe, setLeaguePathPbe] = useState(configStore.leaguePathPbe || '');
+    const [defaultProjectPath, setDefaultProjectPath] = useState(configStore.defaultProjectPath || '');
+    const [creatorName, setCreatorName] = useState(configStore.creatorName || '');
+    const [creatorDescription, setCreatorDescription] = useState(configStore.creatorDescription || '');
+    const [creatorHome, setCreatorHome] = useState(configStore.creatorHome || '');
+    const [creatorTip, setCreatorTip] = useState(configStore.creatorTip || '');
+    const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(configStore.autoUpdateEnabled);
+    const [verboseLogging, setVerboseLogging] = useState(verboseLoggingStore);
+    const [ltkManagerModPath, setLtkManagerModPath] = useState(configStore.ltkManagerModPath || '');
+    const [autoSyncToLauncher, setAutoSyncToLauncher] = useState(configStore.autoSyncToLauncher);
+    const [celestialPath, setCelestialPath] = useState(configStore.celestialModPath || '');
+    const [preferredLauncher, setPreferredLauncher] = useState<'ltk' | 'celestial' | null>(configStore.preferredLauncher);
     // BIN engine is pinned to Jade — no UI selector; configStore default handles it.
     const [jadePath, setJadePath] = useState(configStore.jadePath || '');
     const [quartzPath, setQuartzPath] = useState(configStore.quartzPath || '');
@@ -491,30 +88,30 @@ export const SettingsModal: React.FC = () => {
 
     const [showUIPreview, setShowUIPreview] = useState(false);
 
-    const isVisible = state.activeModal === 'settings';
+    const isVisible = activeModal === 'settings';
 
     useEffect(() => {
         if (!isVisible) return;
-        setLeaguePath(state.leaguePath || '');
-        setLeaguePathPbe(state.leaguePathPbe || '');
-        setDefaultProjectPath(state.defaultProjectPath || '');
-        setCreatorName(state.creatorName || '');
-        setCreatorDescription(state.creatorDescription || '');
-        setCreatorHome(state.creatorHome || '');
-        setCreatorTip(state.creatorTip || '');
-        setAutoUpdateEnabled(state.autoUpdateEnabled);
-        setVerboseLogging(state.verboseLogging);
-        setLtkManagerModPath(state.ltkManagerModPath || '');
-        setAutoSyncToLauncher(state.autoSyncToLauncher);
-        setCelestialPath(state.celestialModPath || '');
-        setPreferredLauncher(state.preferredLauncher);
+        setLeaguePath(configStore.leaguePath || '');
+        setLeaguePathPbe(configStore.leaguePathPbe || '');
+        setDefaultProjectPath(configStore.defaultProjectPath || '');
+        setCreatorName(configStore.creatorName || '');
+        setCreatorDescription(configStore.creatorDescription || '');
+        setCreatorHome(configStore.creatorHome || '');
+        setCreatorTip(configStore.creatorTip || '');
+        setAutoUpdateEnabled(configStore.autoUpdateEnabled);
+        setVerboseLogging(verboseLoggingStore);
+        setLtkManagerModPath(configStore.ltkManagerModPath || '');
+        setAutoSyncToLauncher(configStore.autoSyncToLauncher);
+        setCelestialPath(configStore.celestialModPath || '');
+        setPreferredLauncher(configStore.preferredLauncher);
         // binConverterEngine no longer user-controlled — pinned to 'jade'.
         setJadePath(configStore.jadePath || '');
         setQuartzPath(configStore.quartzPath || '');
         getVersion().then(setCurrentVersion).catch(() => setCurrentVersion('0.0.0'));
         // Refresh file-association status when settings modal opens
         api.getFileAssociationStatus().then(setAssocStatus).catch(() => {});
-    }, [isVisible, state.leaguePath, state.leaguePathPbe, state.defaultProjectPath, state.creatorName, state.creatorDescription, state.creatorHome, state.creatorTip, state.autoUpdateEnabled, state.verboseLogging, state.ltkManagerModPath, state.autoSyncToLauncher, configStore.jadePath, configStore.quartzPath, configStore.selectedTheme]);
+    }, [isVisible, configStore.leaguePath, configStore.leaguePathPbe, configStore.defaultProjectPath, configStore.creatorName, configStore.creatorDescription, configStore.creatorHome, configStore.creatorTip, configStore.autoUpdateEnabled, verboseLoggingStore, configStore.ltkManagerModPath, configStore.autoSyncToLauncher, configStore.jadePath, configStore.quartzPath, configStore.selectedTheme]);
 
     useEffect(() => {
         const unlisten = listen<SchemaProgress>('schema-progress', (event) => {
@@ -546,7 +143,7 @@ export const SettingsModal: React.FC = () => {
     };
 
     const handleDetectPbe = async () => {
-        const basePath = leaguePath || state.leaguePath;
+        const basePath = leaguePath || configStore.leaguePath;
         if (basePath) {
             const parent = basePath.replace(/[\\/][^\\/]+$/, '');
             const pbeCandidates = [
@@ -659,32 +256,23 @@ export const SettingsModal: React.FC = () => {
 
     const handleUpdateNow = () => {
         if (!latestVersion) return;
-        dispatch({
-            type: 'OPEN_MODAL',
-            payload: {
-                modal: 'updateAvailable',
-                options: {
-                    available: true,
-                    current_version: currentVersion,
-                    latest_version: latestVersion,
-                    release_notes: 'Check GitHub releases for details',
-                    published_at: new Date().toISOString(),
-                } as Record<string, unknown>,
-            },
-        });
+        openModal('updateAvailable', {
+            available: true,
+            current_version: currentVersion,
+            latest_version: latestVersion,
+            release_notes: 'Check GitHub releases for details',
+            published_at: new Date().toISOString(),
+        } as Record<string, unknown>);
     };
 
     const handleForceRebuildHashes = async () => {
         setIsRebuildingHashes(true);
         try {
             await api.forceRebuildHashes();
-            if (state.wadExplorer.isOpen) {
-                state.wadExplorer.wads.forEach((wad) => {
+            if (wadExplorer.isOpen) {
+                wadExplorer.wads.forEach((wad) => {
                     if (wad.status === 'loaded') {
-                        dispatch({
-                            type: 'SET_WAD_EXPLORER_WAD_STATUS',
-                            payload: { wadPath: wad.path, status: 'idle', chunks: [], error: null },
-                        });
+                        setWadStatus(wad.path, 'idle', [], undefined);
                     }
                 });
             }
@@ -698,7 +286,7 @@ export const SettingsModal: React.FC = () => {
     };
 
     const handleAggregateBinSchema = async () => {
-        if (!state.leaguePath) {
+        if (!leaguePath) {
             showToast('error', 'League path not configured. Set it in the Paths tab first.');
             return;
         }
@@ -706,7 +294,7 @@ export const SettingsModal: React.FC = () => {
         setSchemaProgress(null);
         setSchemaResult(null);
         try {
-            const stats = await api.aggregateBinSchema(state.leaguePath);
+            const stats = await api.aggregateBinSchema(leaguePath);
             setSchemaResult(stats);
             showToast('success', `Schema aggregated: ${stats.classes_found.toLocaleString()} classes, ${stats.total_fields.toLocaleString()} fields`);
         } catch (error) {
@@ -718,7 +306,7 @@ export const SettingsModal: React.FC = () => {
     };
 
     const handleAggregateChampionSchema = async () => {
-        if (!state.leaguePath) {
+        if (!leaguePath) {
             showToast('error', 'League path not configured. Set it in the Paths tab first.');
             return;
         }
@@ -726,7 +314,7 @@ export const SettingsModal: React.FC = () => {
         setChampionSchemaProgress(null);
         setChampionSchemaResult(null);
         try {
-            const stats = await api.aggregateChampionBinSchema(state.leaguePath);
+            const stats = await api.aggregateChampionBinSchema(leaguePath);
             setChampionSchemaResult(stats);
             showToast('success', `Champion schema built: ${stats.classes_found.toLocaleString()} classes, ${stats.total_fields.toLocaleString()} fields`);
         } catch (error) {
@@ -738,7 +326,7 @@ export const SettingsModal: React.FC = () => {
     };
 
     const handleSave = async () => {
-        if (leaguePath && leaguePath !== state.leaguePath) {
+        if (leaguePath && leaguePath !== configStore.leaguePath) {
             setIsValidating(true);
             try {
                 const result = await api.validateLeague(leaguePath);
@@ -755,24 +343,19 @@ export const SettingsModal: React.FC = () => {
             setIsValidating(false);
         }
 
-        dispatch({
-            type: 'SET_STATE',
-            payload: {
-                leaguePath: leaguePath || null,
-                leaguePathPbe: leaguePathPbe || null,
-                defaultProjectPath: defaultProjectPath || null,
-                creatorName: creatorName || null,
-                creatorDescription: creatorDescription.trim() || null,
-                creatorHome: creatorHome.trim() || null,
-                creatorTip: creatorTip.trim() || null,
-                autoUpdateEnabled,
-                verboseLogging,
-                ltkManagerModPath: ltkManagerModPath || null,
-                autoSyncToLauncher,
-                celestialModPath: celestialPath || null,
-                preferredLauncher,
-            },
-        });
+        configStore.setLeaguePath(leaguePath || null);
+        configStore.setLeaguePathPbe(leaguePathPbe || null);
+        configStore.setDefaultProjectPath(defaultProjectPath || null);
+        configStore.setCreatorName(creatorName || null);
+        configStore.setCreatorDescription(creatorDescription.trim() || null);
+        configStore.setCreatorHome(creatorHome.trim() || null);
+        configStore.setCreatorTip(creatorTip.trim() || null);
+        configStore.setAutoUpdateEnabled(autoUpdateEnabled);
+        configStore.setLtkManagerModPath(ltkManagerModPath || null);
+        configStore.setAutoSyncToLauncher(autoSyncToLauncher);
+        configStore.setCelestialModPath(celestialPath || null);
+        configStore.setPreferredLauncher(preferredLauncher);
+        useAppMetadataStore.getState().setVerboseLogging(verboseLogging);
 
         // BIN engine is pinned to 'jade' — no save needed.
         configStore.setJadePath(jadePath || null);
@@ -1062,15 +645,15 @@ export const SettingsModal: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className={`settings-hash settings-hash--${state.hashesLoaded ? 'ok' : 'warn'}`}>
-                                <div className={`settings-hash__icon settings-hash__icon--${state.hashesLoaded ? 'ok' : 'warn'}`}>
-                                    <Icon name={state.hashesLoaded ? 'success' : 'warning'} />
+                            <div className={`settings-hash settings-hash--${hashesLoaded ? 'ok' : 'warn'}`}>
+                                <div className={`settings-hash__icon settings-hash__icon--${hashesLoaded ? 'ok' : 'warn'}`}>
+                                    <Icon name={hashesLoaded ? 'success' : 'warning'} />
                                 </div>
                                 <div className="settings-hash__body">
                                     <div className="settings-hash__title">Hash Database</div>
                                     <div className="settings-hash__count">
-                                        {state.hashesLoaded
-                                            ? <><strong>{state.hashCount.toLocaleString()}</strong> hashes loaded</>
+                                        {hashesLoaded
+                                            ? <><strong>{hashCount.toLocaleString()}</strong> hashes loaded</>
                                             : <span style={{ color: 'var(--color-warning)' }}>Hashes not loaded</span>}
                                     </div>
                                     <div className="settings-hash__hint">
@@ -1254,10 +837,7 @@ export const SettingsModal: React.FC = () => {
                                             // Wait for the close animation to finish before opening the
                                             // wizard so the two transitions don't overlap visually.
                                             setTimeout(() => {
-                                                dispatch({
-                                                    type: 'OPEN_MODAL',
-                                                    payload: { modal: 'firstTimeSetup' },
-                                                });
+                                                useModalStore.getState().openModal('firstTimeSetup');
                                             }, 300);
                                         }}
                                     >
@@ -1301,11 +881,11 @@ export const SettingsModal: React.FC = () => {
                                 <Button
                                     icon="download"
                                     onClick={handleAggregateBinSchema}
-                                    disabled={isAggregating || !state.leaguePath}
+                                    disabled={isAggregating || !leaguePath}
                                 >
                                     {isAggregating ? 'Aggregating...' : 'Get BIN Entries'}
                                 </Button>
-                                {!state.leaguePath && (
+                                {!leaguePath && (
                                     <div className="settings-item__hint" style={{ color: 'var(--color-warning)', marginTop: 4 }}>
                                         Configure League path in the Paths tab first
                                     </div>
@@ -1339,11 +919,11 @@ export const SettingsModal: React.FC = () => {
                                 <Button
                                     icon="download"
                                     onClick={handleAggregateChampionSchema}
-                                    disabled={isAggregatingChampion || !state.leaguePath}
+                                    disabled={isAggregatingChampion || !leaguePath}
                                 >
                                     {isAggregatingChampion ? 'Building...' : 'Build Champion Schema'}
                                 </Button>
-                                {!state.leaguePath && (
+                                {!leaguePath && (
                                     <div className="settings-item__hint" style={{ color: 'var(--color-warning)', marginTop: 4 }}>
                                         Configure League path in the Paths tab first
                                     </div>

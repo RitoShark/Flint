@@ -8,9 +8,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
-import { useAppState, useAppMetadataStore, useFileEditorStore } from '../../lib/stores';
+import { useAppMetadataStore, useFileEditorStore, useNotificationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
-import { getIcon } from '../../lib/fileIcons';
+import { getIcon } from '../../lib/ui-helpers/fileIcons';
+import { deferCleanup } from '../../lib/ui-helpers/deferCleanup';
 import { AssetPreviewTooltip } from './AssetPreviewTooltip';
 
 const LUABIN64_THEME_ID = 'luabin64-theme';
@@ -120,7 +121,9 @@ interface LuaBin64EditorProps {
 }
 
 export const LuaBin64Editor: React.FC<LuaBin64EditorProps> = ({ filePath, hideFilename }) => {
-    const { showToast, setWorking, setReady } = useAppState();
+    const showToast = useNotificationStore((s) => s.showToast);
+    const setWorking = useAppMetadataStore((s) => s.setWorking);
+    const setReady = useAppMetadataStore((s) => s.setReady);
 
     const [content, setContent] = useState<string>('');
     const [originalContent, setOriginalContent] = useState<string>('');
@@ -217,8 +220,8 @@ export const LuaBin64Editor: React.FC<LuaBin64EditorProps> = ({ filePath, hideFi
         }
 
         return () => {
-            ed.dispose();
             editorRef.current = null;
+            deferCleanup(() => ed.dispose());
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [loading, error]);

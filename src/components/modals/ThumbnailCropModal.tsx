@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useAppState } from '../../lib/stores';
+import { useModalStore, useNotificationStore } from '../../lib/stores';
 import { open } from '@tauri-apps/plugin-dialog';
 import * as api from '../../lib/api';
 import { Button, Modal, ModalBody, ModalFooter, ModalHeader, Range } from '../ui';
@@ -15,10 +15,13 @@ const THUMB_H = 720;
 const ASPECT = 16 / 9;
 
 export const ThumbnailCropModal: React.FC = () => {
-    const { state, closeModal, showToast } = useAppState();
+    const closeModal = useModalStore((s) => s.closeModal);
+    const activeModal = useModalStore((s) => s.activeModal);
+    const modalOptions = useModalStore((s) => s.modalOptions);
+    const showToast = useNotificationStore((s) => s.showToast);
 
-    const isVisible = state.activeModal === 'thumbnail';
-    const options = state.modalOptions as { projectPath: string } | null;
+    const isVisible = activeModal === 'thumbnail';
+    const options = modalOptions as { projectPath: string } | null;
 
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const previewCanvasRef = useRef<HTMLCanvasElement>(null);

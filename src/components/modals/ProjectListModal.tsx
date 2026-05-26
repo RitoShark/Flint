@@ -8,8 +8,8 @@
  */
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { useAppState, useConfigStore } from '../../lib/stores';
-import { formatRelativeTime } from '../../lib/utils';
+import { useModalStore, useAppMetadataStore, useProjectTabStore, useConfigStore, useNavigationStore } from '../../lib/stores';
+import { formatRelativeTime } from '../../lib/util/utils';
 import { open } from '@tauri-apps/plugin-dialog';
 import { appDataDir } from '@tauri-apps/api/path';
 import { Button, Icon, Input, Modal, ModalBody, ModalFooter, ModalHeader, Picker } from '../ui';
@@ -136,12 +136,16 @@ function extractDominantColor(img: HTMLImageElement): [number, number, number] |
  * for what the user is actually looking at.
  */
 function useProjectArtUrl(project: SavedProject, visible: boolean) {
-    const [thumb, setThumb] = useState<string | null>(() => thumbnailCache.get(project.path) ?? null);
-    const [thumbFailed, setThumbFailed] = useState(thumbnailCache.get(project.path) === null);
+    const [thumb, setThumb] = useState<string | null>(() => project.thumbnail ?? thumbnailCache.get(project.path) ?? null);
+    const [thumbFailed, setThumbFailed] = useState(thumbnailCache.get(project.path) === null && !project.thumbnail);
     const cancelled = useRef(false);
 
     useEffect(() => {
         cancelled.current = false;
+        if (project.thumbnail) {
+            setThumb(project.thumbnail);
+            return;
+        }
         if (!visible) return;
         if (thumbnailCache.has(project.path)) return;
         (async () => {
@@ -161,7 +165,7 @@ function useProjectArtUrl(project: SavedProject, visible: boolean) {
             }
         })();
         return () => { cancelled.current = true; };
-    }, [project.path, visible]);
+    }, [project.path, visible, project.thumbnail]);
 
     // Only skin projects have a meaningful DDragon splash fallback. Maps and
     // loading-screens go directly to the monogram tile when no thumbnail is
@@ -293,14 +297,24 @@ const ProjectCard: React.FC<{
 };
 
 export const ProjectListModal: React.FC = () => {
-    const { state, dispatch, closeModal, setWorking, setReady, setError, openConfirmDialog } = useAppState();
-    const configStore = useConfigStore();
+    const closeModal = useModalStore((s) => s.closeModal);
+    const activeModal = useModalStore((s) => s.activeModal);
+    const openConfirmDialog = useModalStore((s) => s.openConfirmDialog);
+    const setWorking = useAppMetadataStore((s) => s.setWorking);
+    const setReady = useAppMetadataStore((s) => s.setReady);
+    const setError = useAppMetadataStore((s) => s.setError);
+    const savedProjects = useConfigStore((s) => s.savedProjects);
+    const recentProjects = useConfigStore((s) => s.recentProjects);
+    const leaguePath = useConfigStore((s) => s.leaguePath);
+    const binConverterEngine = useConfigStore((s) => s.binConverterEngine);
+    const creatorName = useConfigStore((s) => s.creatorName);
+    const defaultProjectPath = useConfigStore((s) => s.defaultProjectPath);
+    const setSavedProjects = useConfigStore((s) => s.setSavedProjects);
     const [removingId, setRemovingId] = useState<string | null>(null);
     const [search, setSearch] = useState('');
     const [sortMode, setSortMode] = useState<SortMode>('recent');
 
-    const isVisible = state.activeModal === 'projectList';
-    const savedProjects = state.savedProjects || [];
+    const isVisible = activeModal === 'projectList';
 
     // Reset search when modal opens
     useEffect(() => {
@@ -316,13 +330,12 @@ export const ProjectListModal: React.FC = () => {
     // backend reads each project's flint.json/mod.config.json directly,
     // and reconciles with projects.json so renamed/relocated folders still
     // show under the right pid).
-    const projectsRoot = configStore.defaultProjectPath;
     useEffect(() => {
-        if (!isVisible || !projectsRoot) return;
+        if (!isVisible || !defaultProjectPath) return;
         let cancelled = false;
         (async () => {
             try {
-                const listings = await api.discoverProjects(projectsRoot);
+                const listings = await api.discoverProjects(defaultProjectPath);
                 if (cancelled) return;
                 const mapped: SavedProject[] = listings
                     // Prefer rows that exist on disk; missing entries still
@@ -335,14 +348,15 @@ export const ProjectListModal: React.FC = () => {
                         mapId: l.map_id ?? null,
                         path: l.path,
                         lastOpened: l.last_seen_at || l.modified_at || l.created_at,
+                        thumbnail: l.thumbnail || null,
                     }));
-                configStore.setSavedProjects(mapped);
+                setSavedProjects(mapped);
             } catch (err) {
                 console.error('[ProjectList] discover_projects failed:', err);
             }
         })();
         return () => { cancelled = true; };
-    }, [isVisible, projectsRoot, configStore]);
+    }, [isVisible, defaultProjectPath, setSavedProjects]);
 
     // Listen for import progress events
     useEffect(() => {
@@ -371,19 +385,24 @@ export const ProjectListModal: React.FC = () => {
                 normalizedPath = normalizedPath.replace(/[\\/](mod\.config|flint|project)\.json$/, '');
             }
 
-            const project = await api.openProject(normalizedPath);
-            dispatch({ type: 'SET_PROJECT', payload: { project, path: normalizedPath } });
-
-            try {
-                const files = await api.listProjectFiles(normalizedPath);
-                dispatch({ type: 'SET_FILE_TREE', payload: files });
-            } catch (filesError) {
-                console.error('Failed to load project files:', filesError);
-            }
+            const { project, fileTree: files } = await api.openProjectWithTree(normalizedPath);
+            useProjectTabStore.getState().addTab(project, normalizedPath);
+            useNavigationStore.getState().setView('preview');
+            useConfigStore.getState().addSavedProject({
+                id: `proj-${Date.now()}`,
+                name: project.display_name || project.name,
+                kind: project.kind ?? 'skin',
+                champion: project.champion,
+                mapId: project.map_id ?? null,
+                path: normalizedPath,
+                lastOpened: new Date().toISOString(),
+            });
+            const tabId = useProjectTabStore.getState().activeTabId;
+            if (tabId) useProjectTabStore.getState().setFileTree(tabId, files);
 
             setReady();
 
-            const recent = state.recentProjects.filter((p) => p.path !== normalizedPath);
+            const recent = recentProjects.filter((p) => p.path !== normalizedPath);
             recent.unshift({
                 name: project.display_name || project.name,
                 champion: project.champion,
@@ -391,13 +410,13 @@ export const ProjectListModal: React.FC = () => {
                 path: normalizedPath,
                 lastOpened: new Date().toISOString(),
             });
-            dispatch({ type: 'SET_RECENT_PROJECTS', payload: recent.slice(0, 10) });
+            useConfigStore.getState().setRecentProjects(recent.slice(0, 10));
         } catch (error) {
             console.error('Failed to open project:', error);
             const flintError = error as api.FlintError;
             setError(flintError.getUserMessage?.() || 'Failed to open project');
         }
-    }, [state.recentProjects, dispatch, closeModal, setWorking, setReady, setError]);
+    }, [recentProjects, closeModal, setWorking, setReady, setError]);
 
     const handleBrowseFiles = useCallback(async () => {
         try {
@@ -433,7 +452,7 @@ export const ProjectListModal: React.FC = () => {
                         console.warn('Project folder may not exist, removing from list anyway:', deleteError);
                     }
                     setTimeout(() => {
-                        dispatch({ type: 'REMOVE_SAVED_PROJECT', payload: projectId });
+                        useConfigStore.getState().removeSavedProject(projectId);
                         setRemovingId(null);
                         setReady();
                     }, 200);
@@ -445,7 +464,7 @@ export const ProjectListModal: React.FC = () => {
                 }
             },
         });
-    }, [savedProjects, dispatch, setWorking, setReady, setError, openConfirmDialog]);
+    }, [savedProjects, setWorking, setReady, setError, openConfirmDialog]);
 
     const handleImportMod = useCallback(async () => {
         try {
@@ -469,7 +488,7 @@ export const ProjectListModal: React.FC = () => {
 
             let champion: string;
             let skinId: number;
-            let creatorName: string;
+            let importCreatorName: string;
             let modName: string;
 
             if (isModpkg) {
@@ -481,7 +500,7 @@ export const ProjectListModal: React.FC = () => {
                 }
                 champion = analysis.champion || 'Unknown';
                 skinId = analysis.skin_ids[0] || 0;
-                creatorName = analysis.authors[0] || state.creatorName || 'Unknown';
+                importCreatorName = analysis.authors[0] || creatorName || 'Unknown';
                 modName = analysis.display_name || analysis.name || `${champion}_Skin${skinId}_Imported`;
             } else {
                 setWorking('Analyzing Fantome mod…');
@@ -492,7 +511,7 @@ export const ProjectListModal: React.FC = () => {
                 }
                 champion = analysis.champion || 'Unknown';
                 skinId = analysis.skin_ids[0] || 0;
-                creatorName = analysis.metadata?.author || state.creatorName || 'Unknown';
+                importCreatorName = analysis.metadata?.author || creatorName || 'Unknown';
                 modName = analysis.metadata?.name || `${champion}_Skin${skinId}_Imported`;
             }
 
@@ -509,13 +528,13 @@ export const ProjectListModal: React.FC = () => {
 
             const options: api.ImportOptions = {
                 refather: true,
-                creator_name: creatorName,
+                creator_name: importCreatorName,
                 project_name: modName,
                 target_skin_id: skinId,
                 cleanup_unused: false,
                 match_from_league: !isModpkg,
-                league_path: state.leaguePath || null,
-                use_jade: configStore.binConverterEngine === 'jade',
+                league_path: leaguePath || null,
+                use_jade: binConverterEngine === 'jade',
             };
 
             const project = isModpkg
@@ -523,16 +542,27 @@ export const ProjectListModal: React.FC = () => {
                 : await api.importFantomeWad(filePath, projectDir, options);
 
             setWorking('Opening project…');
-            dispatch({ type: 'SET_PROJECT', payload: { project, path: projectDir } });
+            useProjectTabStore.getState().addTab(project, projectDir);
+            useNavigationStore.getState().setView('preview');
+            useConfigStore.getState().addSavedProject({
+                id: `proj-${Date.now()}`,
+                name: project.display_name || project.name,
+                kind: project.kind ?? 'skin',
+                champion: project.champion,
+                mapId: project.map_id ?? null,
+                path: projectDir,
+                lastOpened: new Date().toISOString(),
+            });
 
             try {
                 const files = await api.listProjectFiles(projectDir);
-                dispatch({ type: 'SET_FILE_TREE', payload: files });
+                const tabId = useProjectTabStore.getState().activeTabId;
+                if (tabId) useProjectTabStore.getState().setFileTree(tabId, files);
             } catch (filesError) {
                 console.error('Failed to load project files:', filesError);
             }
 
-            const recent = state.recentProjects.filter((p) => p.path !== projectDir);
+            const recent = recentProjects.filter((p) => p.path !== projectDir);
             recent.unshift({
                 name: project.display_name || project.name,
                 champion: project.champion,
@@ -540,7 +570,7 @@ export const ProjectListModal: React.FC = () => {
                 path: projectDir,
                 lastOpened: new Date().toISOString(),
             });
-            dispatch({ type: 'SET_RECENT_PROJECTS', payload: recent.slice(0, 10) });
+            useConfigStore.getState().setRecentProjects(recent.slice(0, 10));
 
             closeModal();
             setReady();
@@ -550,7 +580,7 @@ export const ProjectListModal: React.FC = () => {
             closeModal();
             setError(flintError.getUserMessage?.() || 'Failed to import mod');
         }
-    }, [state.leaguePath, state.creatorName, state.recentProjects, dispatch, closeModal, setWorking, setReady, setError, configStore.binConverterEngine]);
+    }, [leaguePath, creatorName, recentProjects, binConverterEngine, closeModal, setWorking, setReady, setError]);
 
     // Filtered + sorted view
     const visibleProjects = useMemo(() => {
@@ -633,7 +663,7 @@ export const ProjectListModal: React.FC = () => {
                     </div>
                 ) : (
                     <div className="pl-grid">
-                        {visibleProjects.map((project: SavedProject, i) => (
+                        {visibleProjects.map((project: SavedProject, i: number) => (
                             <ProjectCard
                                 key={project.id}
                                 project={project}

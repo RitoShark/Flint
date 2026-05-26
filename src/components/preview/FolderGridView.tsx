@@ -17,9 +17,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useProjectTabStore, useAppMetadataStore, useModalStore, useNotificationStore, useConfigStore, useNavigationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
-import { getFileIcon } from '../../lib/fileIcons';
-import { getCachedImage, cacheImage } from '../../lib/imageCache';
-import { buildFileContextMenuOptions } from '../../lib/fileContextMenuOptions';
+import { getFileIcon } from '../../lib/ui-helpers/fileIcons';
+import { getCachedImage, cacheImage } from '../../lib/ui-helpers/imageCache';
+import { buildFileContextMenuOptions } from '../../lib/editor/fileContextMenuOptions';
 
 interface FolderGridViewProps {
     /** Absolute path of the folder being shown. */
