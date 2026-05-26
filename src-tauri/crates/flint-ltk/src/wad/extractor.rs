@@ -866,6 +866,19 @@ pub fn extract_skin_assets_selective(
     queue.push_back(seed.clone());
     bin_seen.insert(seed.clone());
 
+    // Also seed the animation BINs to ensure animations and their .anm files are extracted
+    let anim_seeds = vec![
+        format!("data/characters/{}/animations/skin0.bin", champion_lower),
+        format!("data/characters/{}/animations/skin00.bin", champion_lower),
+        format!("data/characters/{}/animations/skin{}.bin", champion_lower, skin_id),
+        format!("data/characters/{}/animations/skin{:02}.bin", champion_lower, skin_id),
+    ];
+    for anim_seed in anim_seeds {
+        if bin_seen.insert(anim_seed.clone()) {
+            queue.push_back(anim_seed);
+        }
+    }
+
     let mut bins_walked: usize = 0;
     let mut bins_failed: usize = 0;
 
