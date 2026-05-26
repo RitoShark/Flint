@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { useAppState } from '../../lib/stores';
+import { useModalStore, useNotificationStore, useProjectTabStore, useConfigStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { appDataDir } from '@tauri-apps/api/path';
@@ -36,9 +36,15 @@ async function getProjectsBasePath(): Promise<string | undefined> {
 }
 
 export const FixerModal: React.FC = () => {
-    const { state, closeModal, showToast } = useAppState();
+    const closeModal = useModalStore((s) => s.closeModal);
+    const activeModal = useModalStore((s) => s.activeModal);
+    const showToast = useNotificationStore((s) => s.showToast);
+    const activeTabId = useProjectTabStore((s) => s.activeTabId);
+    const openTabs = useProjectTabStore((s) => s.openTabs);
+    const recentProjects = useConfigStore((s) => s.recentProjects);
+    const savedProjects = useConfigStore((s) => s.savedProjects);
 
-    const isVisible = state.activeModal === 'fixer';
+    const isVisible = activeModal === 'fixer';
 
     // Current tab
     const [tab, setTab] = useState<FixerTab>('single');
@@ -63,12 +69,12 @@ export const FixerModal: React.FC = () => {
     // Auto-fill project path from active tab
     useEffect(() => {
         if (isVisible) {
-            const activeTab = state.openTabs.find(t => t.id === state.activeTabId);
+            const activeTab = openTabs.find(t => t.id === activeTabId);
             if (activeTab?.projectPath) {
                 setProjectPath(activeTab.projectPath);
             }
         }
-    }, [isVisible, state.activeTabId, state.openTabs]);
+    }, [isVisible, activeTabId, openTabs]);
 
     // Reset state when modal closes
     useEffect(() => {
@@ -268,7 +274,7 @@ export const FixerModal: React.FC = () => {
                         onScan={handleScanProject}
                         onFix={handleFixProject}
                         isWorking={isWorking}
-                        recentProjects={state.recentProjects}
+                        recentProjects={recentProjects}
                     />
                 ) : (
                     <BatchFixTab
@@ -280,7 +286,7 @@ export const FixerModal: React.FC = () => {
                         onAdd={handleAddBatchProjects}
                         onFix={handleBatchFix}
                         isWorking={isWorking}
-                        savedProjects={state.savedProjects ?? []}
+                        savedProjects={savedProjects ?? []}
                     />
                 )}
             </ModalBody>

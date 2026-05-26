@@ -7,7 +7,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useAppState, useUxStore, useConfigStore } from '../../lib/stores';
+import { useModalStore, useNotificationStore, useConfigStore, useUxStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -48,26 +48,36 @@ const ACCENT_PRESETS: { name: string; hex: string }[] = [
 type DetectingState = boolean;
 
 export const FirstTimeSetupModal: React.FC = () => {
-    const { state, dispatch, closeModal, showToast } = useAppState();
+    const closeModal = useModalStore((s) => s.closeModal);
+    const activeModal = useModalStore((s) => s.activeModal);
+    const showToast = useNotificationStore((s) => s.showToast);
     const ux = useUxStore();
     const config = useConfigStore();
+
+    const creatorDescriptionStored = useConfigStore((s) => s.creatorDescription);
+    const leaguePathStored = useConfigStore((s) => s.leaguePath);
+    const leaguePathPbeStored = useConfigStore((s) => s.leaguePathPbe);
+    const defaultProjectPathStored = useConfigStore((s) => s.defaultProjectPath);
+    const ltkManagerModPathStored = useConfigStore((s) => s.ltkManagerModPath);
+    const celestialModPathStored = useConfigStore((s) => s.celestialModPath);
+    const preferredLauncherStored = useConfigStore((s) => s.preferredLauncher);
 
     const [stepIndex, setStepIndex] = useState(0);
     const [direction, setDirection] = useState<1 | -1>(1);
     const [creatorName, setCreatorName] = useState('');
-    const [creatorDescription, setCreatorDescription] = useState(state.creatorDescription || '');
-    const [leaguePath, setLeaguePath] = useState(state.leaguePath || '');
-    const [pbePath, setPbePath] = useState(state.leaguePathPbe || '');
-    const [defaultProjectPath, setDefaultProjectPath] = useState(state.defaultProjectPath || '');
-    const [ltkPath, setLtkPath] = useState(state.ltkManagerModPath || '');
-    const [celestialPath, setCelestialPath] = useState(state.celestialModPath || '');
-    const [preferredLauncher, setPreferredLauncher] = useState<'ltk' | 'celestial' | null>(state.preferredLauncher);
+    const [creatorDescription, setCreatorDescription] = useState(creatorDescriptionStored || '');
+    const [leaguePath, setLeaguePath] = useState(leaguePathStored || '');
+    const [pbePath, setPbePath] = useState(leaguePathPbeStored || '');
+    const [defaultProjectPath, setDefaultProjectPath] = useState(defaultProjectPathStored || '');
+    const [ltkPath, setLtkPath] = useState(ltkManagerModPathStored || '');
+    const [celestialPath, setCelestialPath] = useState(celestialModPathStored || '');
+    const [preferredLauncher, setPreferredLauncher] = useState<'ltk' | 'celestial' | null>(preferredLauncherStored);
     const [detectingAll, setDetectingAll] = useState<DetectingState>(false);
     const [flintHome, setFlintHome] = useState<string>('');
     const [accentChoice, setAccentChoice] = useState<string>(ux.accentPrimary || ACCENT_PRESETS[0].hex);
     const [glassChoice, setGlassChoice] = useState<boolean>(ux.glassmorphism);
 
-    const isVisible = state.activeModal === 'firstTimeSetup';
+    const isVisible = activeModal === 'firstTimeSetup';
     const step = STEPS[stepIndex];
     const isLast = stepIndex === STEPS.length - 1;
 
@@ -213,20 +223,15 @@ export const FirstTimeSetupModal: React.FC = () => {
             }
         }
 
-        // Persist paths via the legacy SET_STATE bridge — same wiring SettingsModal uses.
-        dispatch({
-            type: 'SET_STATE',
-            payload: {
-                creatorName: creatorName.trim(),
-                creatorDescription: creatorDescription.trim() || null,
-                leaguePath: leaguePath || null,
-                leaguePathPbe: pbePath || null,
-                defaultProjectPath: defaultProjectPath || null,
-                ltkManagerModPath: ltkPath || null,
-                celestialModPath: celestialPath || null,
-                preferredLauncher: preferredLauncher,
-            },
-        });
+        // Persist paths via direct store calls.
+        config.setCreatorName(creatorName.trim());
+        config.setCreatorDescription(creatorDescription.trim() || null);
+        config.setLeaguePath(leaguePath || null);
+        config.setLeaguePathPbe(pbePath || null);
+        config.setDefaultProjectPath(defaultProjectPath || null);
+        config.setLtkManagerModPath(ltkPath || null);
+        config.setCelestialModPath(celestialPath || null);
+        config.setPreferredLauncher(preferredLauncher);
 
         closeModal();
         showToast('success', 'Setup complete — welcome to Flint.');

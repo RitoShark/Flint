@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useAppState } from '../../lib/stores';
+import { useModalStore } from '../../lib/stores';
 import type { ModalType } from '../../lib/types';
 
 const ONBOARDING_KEY = 'flint_onboarding_done';
@@ -216,7 +216,8 @@ function buildCalloutStyle(
 interface Props { onDone: () => void; }
 
 export const TutorialOverlay: React.FC<Props> = ({ onDone }) => {
-    const { openModal, closeModal } = useAppState();
+    const openModal = useModalStore((s) => s.openModal);
+    const closeModal = useModalStore((s) => s.closeModal);
     const [idx, setIdx] = useState(0);
     const [spot, setSpot] = useState<Spot | null>(null);
     const [vpW, setVpW] = useState(window.innerWidth);

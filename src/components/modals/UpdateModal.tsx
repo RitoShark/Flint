@@ -9,7 +9,7 @@
  */
 
 import React, { useState } from 'react';
-import { useAppState } from '../../lib/stores';
+import { useModalStore, useNotificationStore, useConfigStore } from '../../lib/stores';
 import * as updater from '../../lib/util/updater';
 import type { UpdateInfo } from '../../lib/types';
 import {
@@ -76,12 +76,16 @@ const renderReleaseNotes = (md: string): string => {
 };
 
 export const UpdateModal: React.FC = () => {
-    const { state, dispatch, closeModal, showToast } = useAppState();
+    const closeModal = useModalStore((s) => s.closeModal);
+    const activeModal = useModalStore((s) => s.activeModal);
+    const modalOptions = useModalStore((s) => s.modalOptions);
+    const showToast = useNotificationStore((s) => s.showToast);
+    const setSkippedUpdateVersion = useConfigStore((s) => s.setSkippedUpdateVersion);
     const [isDownloading, setIsDownloading] = useState(false);
     const [downloadProgress, setDownloadProgress] = useState(0);
 
-    const isVisible = state.activeModal === 'updateAvailable';
-    const updateInfo = state.modalOptions as UpdateInfo | null;
+    const isVisible = activeModal === 'updateAvailable';
+    const updateInfo = modalOptions as UpdateInfo | null;
 
     const handleUpdateNow = async () => {
         setIsDownloading(true);
@@ -104,10 +108,7 @@ export const UpdateModal: React.FC = () => {
 
     const handleSkip = () => {
         if (updateInfo?.latest_version) {
-            dispatch({
-                type: 'SET_STATE',
-                payload: { skippedUpdateVersion: updateInfo.latest_version },
-            });
+            setSkippedUpdateVersion(updateInfo.latest_version);
         }
         closeModal();
     };

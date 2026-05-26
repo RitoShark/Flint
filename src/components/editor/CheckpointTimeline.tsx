@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useAppState } from '../../lib/stores';
+import { useProjectTabStore, useAppMetadataStore, useNotificationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { listen } from '@tauri-apps/api/event';
@@ -26,7 +26,11 @@ function formatSize(bytes: number): string {
 }
 
 export const CheckpointTimeline: React.FC = () => {
-    const { state, showToast, setWorking, setReady } = useAppState();
+    const activeTabId = useProjectTabStore((s) => s.activeTabId);
+    const openTabs = useProjectTabStore((s) => s.openTabs);
+    const showToast = useNotificationStore((s) => s.showToast);
+    const setWorking = useAppMetadataStore((s) => s.setWorking);
+    const setReady = useAppMetadataStore((s) => s.setReady);
     const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [message, setMessage] = useState('');
@@ -47,8 +51,8 @@ export const CheckpointTimeline: React.FC = () => {
     // Cache diffs per checkpoint ID so we can show summary on cards
     const [diffCache, setDiffCache] = useState<Record<string, CheckpointDiff>>({});
 
-    const activeTab = state.activeTabId
-        ? state.openTabs.find(t => t.id === state.activeTabId)
+    const activeTab = activeTabId
+        ? openTabs.find(t => t.id === activeTabId)
         : null;
     const currentProjectPath = activeTab?.projectPath || null;
 

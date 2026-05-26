@@ -12,7 +12,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useAppState } from '../../lib/stores';
+import { useModalStore, useConfigStore, useProjectTabStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import type { OriginalFileMeta } from '../../lib/api';
 import '../../styles/design-lab.css';
@@ -92,13 +92,17 @@ const CloseIcon: React.FC = () => (
 );
 
 export const FileCompareModal: React.FC = () => {
-    const { state, closeModal } = useAppState();
-    const isVisible = state.activeModal === 'fileCompare';
-    const options = state.modalOptions as FileCompareOptions | null;
-    const leaguePath = state.leaguePath;
+    const closeModal = useModalStore((s) => s.closeModal);
+    const activeModal = useModalStore((s) => s.activeModal);
+    const modalOptions = useModalStore((s) => s.modalOptions);
+    const leaguePath = useConfigStore((s) => s.leaguePath);
+    const activeTabId = useProjectTabStore((s) => s.activeTabId);
+    const openTabs = useProjectTabStore((s) => s.openTabs);
+    const isVisible = activeModal === 'fileCompare';
+    const options = modalOptions as FileCompareOptions | null;
 
-    const activeTab = state.activeTabId
-        ? state.openTabs.find(t => t.id === state.activeTabId)
+    const activeTab = activeTabId
+        ? openTabs.find(t => t.id === activeTabId)
         : null;
     const projectPath = activeTab?.projectPath || null;
 

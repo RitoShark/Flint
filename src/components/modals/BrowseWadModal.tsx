@@ -12,7 +12,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { useAppState } from '../../lib/stores';
+import { useModalStore, useNotificationStore, useConfigStore, useWadExtractStore, useNavigationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { Button, Icon, Modal, ModalBody, ModalFooter, ModalHeader } from '../ui';
 
@@ -21,9 +21,13 @@ const UNKNOWN_THRESHOLD = 3;
 type Phase = 'pick' | 'loading' | 'loaded' | 'error';
 
 export const BrowseWadModal: React.FC = () => {
-    const { state, dispatch, closeModal, showToast } = useAppState();
-    const isVisible = state.activeModal === 'browseWad';
-    const leaguePath = state.leaguePath || state.leaguePathPbe || null;
+    const closeModal = useModalStore((s) => s.closeModal);
+    const activeModal = useModalStore((s) => s.activeModal);
+    const showToast = useNotificationStore((s) => s.showToast);
+    const leaguePath = useConfigStore((s) => s.leaguePath);
+    const leaguePathPbe = useConfigStore((s) => s.leaguePathPbe);
+    const isVisible = activeModal === 'browseWad';
+    const effectiveLeaguePath = leaguePath || leaguePathPbe || null;
 
     const [phase, setPhase] = useState<Phase>('pick');
     const [wadPath, setWadPath] = useState<string | null>(null);
@@ -86,13 +90,13 @@ export const BrowseWadModal: React.FC = () => {
         Handles whether `leaguePath` points at the install root, the Game
         folder, or already deeper inside DATA/FINAL. */
     const handleBrowseLeague = async () => {
-        if (!leaguePath) {
+        if (!effectiveLeaguePath) {
             showToast('error', 'League path not set — configure it in Settings');
             return;
         }
-        const sep = leaguePath.includes('\\') ? '\\' : '/';
+        const sep = effectiveLeaguePath.includes('\\') ? '\\' : '/';
         // Normalize: strip trailing slashes, split into segments.
-        const norm = leaguePath.replace(/[\\/]+$/, '');
+        const norm = effectiveLeaguePath.replace(/[\\/]+$/, '');
         const lower = norm.toLowerCase().replace(/\\/g, '/');
         let dataFinal: string;
         if (lower.includes('/data/final')) {
@@ -231,8 +235,9 @@ export const BrowseWadModal: React.FC = () => {
     const handleOpenInExplorer = () => {
         if (!wadPath || !chunks) return;
         const sessionId = `extract-${Date.now()}`;
-        dispatch({ type: 'OPEN_EXTRACT_SESSION', payload: { id: sessionId, wadPath } });
-        dispatch({ type: 'SET_EXTRACT_CHUNKS', payload: { sessionId, chunks } });
+        useWadExtractStore.getState().openSession(sessionId, wadPath);
+        useNavigationStore.getState().setView('extract');
+        useWadExtractStore.getState().setChunks(sessionId, chunks);
         closeModal();
     };
 
@@ -458,8 +463,8 @@ export const BrowseWadModal: React.FC = () => {
                             type="button"
                             className="bwm-manual"
                             onClick={(e) => { e.stopPropagation(); handleBrowseLeague(); }}
-                            disabled={!leaguePath}
-                            title={leaguePath ?? 'League path not set in Settings'}
+                            disabled={!effectiveLeaguePath}
+                            title={effectiveLeaguePath ?? 'League path not set in Settings'}
                             style={{
                                 boxSizing: 'border-box',
                                 width: '100%',
@@ -476,11 +481,11 @@ export const BrowseWadModal: React.FC = () => {
                                 background: 'transparent',
                                 border: '1px solid var(--border)',
                                 borderRadius: 14,
-                                color: leaguePath ? 'var(--text-secondary)' : 'var(--text-muted)',
+                                color: effectiveLeaguePath ? 'var(--text-secondary)' : 'var(--text-muted)',
                                 fontSize: 14,
                                 fontWeight: 500,
-                                cursor: leaguePath ? 'pointer' : 'not-allowed',
-                                opacity: leaguePath ? 1 : 0.55,
+                                cursor: effectiveLeaguePath ? 'pointer' : 'not-allowed',
+                                opacity: effectiveLeaguePath ? 1 : 0.55,
                                 textAlign: 'center',
                                 transition: 'background 120ms, border-color 120ms, color 120ms, transform 120ms',
                             }}
@@ -502,7 +507,7 @@ export const BrowseWadModal: React.FC = () => {
                                     <path d="M15.5 8.5l-2 5-5 2 2-5z" />
                                 </svg>
                             </span>
-                            <span>{leaguePath ? 'Browse League directory' : 'League path not set'}</span>
+                            <span>{effectiveLeaguePath ? 'Browse League directory' : 'League path not set'}</span>
                         </button>
                     </div>
                 )}

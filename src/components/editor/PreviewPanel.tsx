@@ -308,9 +308,11 @@ export const PreviewPanel: React.FC = () => {
             return <BnkPreview key={filePath} filePath={filePath} />;
         }
 
-        // 3D model preview for SKN files
+        // 3D model preview for SKN files — no `key` here so swapping files
+        // reuses the same Babylon engine + WebGL context instead of paying
+        // 50–200ms to allocate a new one.
         if (fileInfo.extension === 'skn' || fileInfo.file_type === 'model/x-lol-skn') {
-            return <ModelPreview key={filePath} filePath={filePath} meshType="skinned" />;
+            return <ModelPreview filePath={filePath} meshType="skinned" />;
         }
 
         // 3D model preview for SCB/SCO static mesh files
@@ -318,7 +320,7 @@ export const PreviewPanel: React.FC = () => {
             fileInfo.extension === 'scb' || fileInfo.extension === 'sco' ||
             fileInfo.file_type === 'model/x-lol-scb' || fileInfo.file_type === 'model/x-lol-sco'
         ) {
-            return <ModelPreview key={filePath} filePath={filePath} meshType="static" />;
+            return <ModelPreview filePath={filePath} meshType="static" />;
         }
 
         // TODO: Add SKL skeleton preview once ltk_mesh supports it

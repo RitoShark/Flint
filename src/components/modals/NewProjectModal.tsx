@@ -10,7 +10,7 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useShallow } from 'zustand/react/shallow';
-import { useAppState, useConfigStore } from '../../lib/stores';
+import { useModalStore, useNotificationStore, useAppMetadataStore, useProjectTabStore, useConfigStore, useNavigationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import * as datadragon from '../../lib/data/datadragon';
 import * as tftApi from '../../lib/data/tftApi';
@@ -32,7 +32,14 @@ import { NameAndPathRow } from './new-project/NameAndPathRow';
 import { ChromaPreviewPopup } from './new-project/ChromaPreviewPopup';
 
 export const NewProjectModal: React.FC = () => {
-    const { state, dispatch, closeModal, showToast, setWorking, setReady } = useAppState();
+    const closeModal = useModalStore((s) => s.closeModal);
+    const activeModal = useModalStore((s) => s.activeModal);
+    const showToast = useNotificationStore((s) => s.showToast);
+    const setWorking = useAppMetadataStore((s) => s.setWorking);
+    const setReady = useAppMetadataStore((s) => s.setReady);
+    const creatorName = useConfigStore((s) => s.creatorName);
+    const leaguePath = useConfigStore((s) => s.leaguePath);
+    const recentProjects = useConfigStore((s) => s.recentProjects);
     // Subscribe to only the three config fields actually read in this file.
     // `useConfigStore()` (no selector) re-rendered the modal on every config
     // change anywhere — including unrelated fields like recentProjects that
@@ -128,7 +135,7 @@ export const NewProjectModal: React.FC = () => {
     useEffect(() => () => { if (chromaPreviewTimerRef.current) clearTimeout(chromaPreviewTimerRef.current); }, []);
     const [usePbe, setUsePbe] = useState(false);
     const cdragonBranch: 'pbe' | 'latest' = usePbe ? 'pbe' : 'latest';
-    const effectiveLeaguePath = usePbe ? configStore.leaguePathPbe : state.leaguePath;
+    const effectiveLeaguePath = usePbe ? configStore.leaguePathPbe : leaguePath;
 
     // ─── TFT project state ───────────────────────────────────────────────
     const [tftTacticians, setTftTacticians] = useState<tftApi.Tactician[]>([]);
@@ -175,7 +182,7 @@ export const NewProjectModal: React.FC = () => {
     const draggingHandle = useRef<'start' | 'end' | null>(null);
     const editorVideoUrlRef = useRef<string | null>(null);
 
-    const isVisible = state.activeModal === 'newProject';
+    const isVisible = activeModal === 'newProject';
 
     // ─── Effects ─────────────────────────────────────────────────────────
 
@@ -749,7 +756,7 @@ export const NewProjectModal: React.FC = () => {
                 skin: effectiveSkinNum,
                 projectPath,
                 leaguePath: effectiveLeaguePath,
-                creatorName: state.creatorName || undefined,
+                creatorName: creatorName || undefined,
                 useJade: configStore.binConverterEngine === 'jade',
                 isPbe: usePbe,
             });
@@ -806,7 +813,7 @@ export const NewProjectModal: React.FC = () => {
                 name: projectName,
                 projectPath,
                 leaguePath: effectiveLeaguePath,
-                creatorName: state.creatorName || 'SirDexal',
+                creatorName: creatorName || 'SirDexal',
                 spritesheetRgbaDeflated: deflatedBytes,
                 frameWidth: budget.frameW,
                 frameHeight: budget.frameH,
@@ -857,7 +864,7 @@ export const NewProjectModal: React.FC = () => {
                 includeLevels,
                 projectPath,
                 leaguePath: effectiveLeaguePath,
-                creatorName: state.creatorName || undefined,
+                creatorName: creatorName || undefined,
                 extractMode: mapExtractMode,
                 variantName: mapExtractMode === 'variant' ? selectedVariant : undefined,
             });
@@ -899,7 +906,7 @@ export const NewProjectModal: React.FC = () => {
                 skin: selectedTftSkin.wadSkinNum,
                 projectPath,
                 leaguePath: effectiveLeaguePath,
-                creatorName: state.creatorName || undefined,
+                creatorName: creatorName || undefined,
                 useJade: configStore.binConverterEngine === 'jade',
                 isPbe: usePbe,
                 isTft: true,
@@ -927,12 +934,24 @@ export const NewProjectModal: React.FC = () => {
         setProgress('Opening project...');
 
         const projectDir = project.project_path || projectPath;
-        dispatch({ type: 'SET_PROJECT', payload: { project, path: projectDir } });
+        useProjectTabStore.getState().addTab(project, projectDir);
+        useNavigationStore.getState().setView('preview');
+        const proj = project;
+        useConfigStore.getState().addSavedProject({
+            id: `proj-${Date.now()}`,
+            name: proj.display_name || proj.name,
+            kind: proj.kind ?? 'skin',
+            champion: proj.champion,
+            mapId: proj.map_id ?? null,
+            path: projectDir,
+            lastOpened: new Date().toISOString(),
+        });
 
         const files = await api.listProjectFiles(projectDir);
-        dispatch({ type: 'SET_FILE_TREE', payload: files });
+        const tabId = useProjectTabStore.getState().activeTabId;
+        if (tabId) useProjectTabStore.getState().setFileTree(tabId, files);
 
-        const recent = state.recentProjects.filter(p => p.path !== projectDir);
+        const recent = recentProjects.filter(p => p.path !== projectDir);
         recent.unshift({
             name: project.display_name || project.name,
             champion: championName,
@@ -940,7 +959,7 @@ export const NewProjectModal: React.FC = () => {
             path: projectDir,
             lastOpened: new Date().toISOString(),
         });
-        dispatch({ type: 'SET_RECENT_PROJECTS', payload: recent.slice(0, 10) });
+        useConfigStore.getState().setRecentProjects(recent.slice(0, 10));
 
         // Play the zoom-into-workspace outro before unmounting the modal.
         // SET_PROJECT above already rendered the workspace behind us — we're
@@ -1634,7 +1653,7 @@ export const NewProjectModal: React.FC = () => {
                                         showToast('error', 'No PBE League path configured. Open Settings (Ctrl+,) to set one.');
                                         return;
                                     }
-                                    console.info(`[NewProject] PBE toggle → ${next ? 'PBE' : 'Live'} (path=${next ? configStore.leaguePathPbe : state.leaguePath})`);
+                                    console.info(`[NewProject] PBE toggle → ${next ? 'PBE' : 'Live'} (path=${next ? configStore.leaguePathPbe : leaguePath})`);
                                     setUsePbe(next);
                                 }}
                             />

@@ -6291,6 +6291,27 @@ input.np-search:focus {
   color: var(--error);
 }
 
+/* Overlays rendered on top of the persistent canvas so the Babylon engine
+   doesn't get torn down across loading/error/empty state transitions. */
+.model-preview__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  color: var(--text-secondary);
+  background: rgba(17, 17, 17, 0.85);
+  backdrop-filter: blur(4px);
+  z-index: 10;
+  pointer-events: none;
+}
+
+.model-preview__overlay--error {
+  color: var(--error);
+}
+
 .model-preview__canvas {
   flex: 1;
   position: relative;

@@ -4,7 +4,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useAppState, useConfigStore, useUxStore } from '../../lib/stores';
+import { useConfigStore, useUxStore, useModalStore, useNotificationStore, useAppMetadataStore, useWadExplorerStore } from '../../lib/stores';
+import { useShallow } from 'zustand/react/shallow';
 import * as api from '../../lib/api';
 import type { FileAssocStatus } from '../../lib/api';
 import * as updater from '../../lib/util/updater';
@@ -34,25 +35,33 @@ import { CreatorTab } from './settings/CreatorTab';
 import { IntegrationsTab } from './settings/IntegrationsTab';
 
 export const SettingsModal: React.FC = () => {
-    const { state, dispatch, closeModal, showToast } = useAppState();
+    const closeModal = useModalStore((s) => s.closeModal);
+    const openModal = useModalStore((s) => s.openModal);
+    const activeModal = useModalStore((s) => s.activeModal);
+    const showToast = useNotificationStore((s) => s.showToast);
+    const hashesLoaded = useAppMetadataStore((s) => s.hashesLoaded);
+    const hashCount = useAppMetadataStore((s) => s.hashCount);
+    const verboseLoggingStore = useAppMetadataStore((s) => s.verboseLogging);
+    const wadExplorer = useWadExplorerStore(useShallow((s) => ({ isOpen: s.isOpen, wads: s.wads })));
+    const setWadStatus = useWadExplorerStore((s) => s.setWadStatus);
     const configStore = useConfigStore();
     const ux = useUxStore();
 
     const [activeTab, setActiveTab] = useState<SettingsTab>('creator');
 
-    const [leaguePath, setLeaguePath] = useState(state.leaguePath || '');
-    const [leaguePathPbe, setLeaguePathPbe] = useState(state.leaguePathPbe || '');
-    const [defaultProjectPath, setDefaultProjectPath] = useState(state.defaultProjectPath || '');
-    const [creatorName, setCreatorName] = useState(state.creatorName || '');
-    const [creatorDescription, setCreatorDescription] = useState(state.creatorDescription || '');
-    const [creatorHome, setCreatorHome] = useState(state.creatorHome || '');
-    const [creatorTip, setCreatorTip] = useState(state.creatorTip || '');
-    const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(state.autoUpdateEnabled);
-    const [verboseLogging, setVerboseLogging] = useState(state.verboseLogging);
-    const [ltkManagerModPath, setLtkManagerModPath] = useState(state.ltkManagerModPath || '');
-    const [autoSyncToLauncher, setAutoSyncToLauncher] = useState(state.autoSyncToLauncher);
-    const [celestialPath, setCelestialPath] = useState(state.celestialModPath || '');
-    const [preferredLauncher, setPreferredLauncher] = useState<'ltk' | 'celestial' | null>(state.preferredLauncher);
+    const [leaguePath, setLeaguePath] = useState(configStore.leaguePath || '');
+    const [leaguePathPbe, setLeaguePathPbe] = useState(configStore.leaguePathPbe || '');
+    const [defaultProjectPath, setDefaultProjectPath] = useState(configStore.defaultProjectPath || '');
+    const [creatorName, setCreatorName] = useState(configStore.creatorName || '');
+    const [creatorDescription, setCreatorDescription] = useState(configStore.creatorDescription || '');
+    const [creatorHome, setCreatorHome] = useState(configStore.creatorHome || '');
+    const [creatorTip, setCreatorTip] = useState(configStore.creatorTip || '');
+    const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(configStore.autoUpdateEnabled);
+    const [verboseLogging, setVerboseLogging] = useState(verboseLoggingStore);
+    const [ltkManagerModPath, setLtkManagerModPath] = useState(configStore.ltkManagerModPath || '');
+    const [autoSyncToLauncher, setAutoSyncToLauncher] = useState(configStore.autoSyncToLauncher);
+    const [celestialPath, setCelestialPath] = useState(configStore.celestialModPath || '');
+    const [preferredLauncher, setPreferredLauncher] = useState<'ltk' | 'celestial' | null>(configStore.preferredLauncher);
     // BIN engine is pinned to Jade — no UI selector; configStore default handles it.
     const [jadePath, setJadePath] = useState(configStore.jadePath || '');
     const [quartzPath, setQuartzPath] = useState(configStore.quartzPath || '');
@@ -79,30 +88,30 @@ export const SettingsModal: React.FC = () => {
 
     const [showUIPreview, setShowUIPreview] = useState(false);
 
-    const isVisible = state.activeModal === 'settings';
+    const isVisible = activeModal === 'settings';
 
     useEffect(() => {
         if (!isVisible) return;
-        setLeaguePath(state.leaguePath || '');
-        setLeaguePathPbe(state.leaguePathPbe || '');
-        setDefaultProjectPath(state.defaultProjectPath || '');
-        setCreatorName(state.creatorName || '');
-        setCreatorDescription(state.creatorDescription || '');
-        setCreatorHome(state.creatorHome || '');
-        setCreatorTip(state.creatorTip || '');
-        setAutoUpdateEnabled(state.autoUpdateEnabled);
-        setVerboseLogging(state.verboseLogging);
-        setLtkManagerModPath(state.ltkManagerModPath || '');
-        setAutoSyncToLauncher(state.autoSyncToLauncher);
-        setCelestialPath(state.celestialModPath || '');
-        setPreferredLauncher(state.preferredLauncher);
+        setLeaguePath(configStore.leaguePath || '');
+        setLeaguePathPbe(configStore.leaguePathPbe || '');
+        setDefaultProjectPath(configStore.defaultProjectPath || '');
+        setCreatorName(configStore.creatorName || '');
+        setCreatorDescription(configStore.creatorDescription || '');
+        setCreatorHome(configStore.creatorHome || '');
+        setCreatorTip(configStore.creatorTip || '');
+        setAutoUpdateEnabled(configStore.autoUpdateEnabled);
+        setVerboseLogging(verboseLoggingStore);
+        setLtkManagerModPath(configStore.ltkManagerModPath || '');
+        setAutoSyncToLauncher(configStore.autoSyncToLauncher);
+        setCelestialPath(configStore.celestialModPath || '');
+        setPreferredLauncher(configStore.preferredLauncher);
         // binConverterEngine no longer user-controlled — pinned to 'jade'.
         setJadePath(configStore.jadePath || '');
         setQuartzPath(configStore.quartzPath || '');
         getVersion().then(setCurrentVersion).catch(() => setCurrentVersion('0.0.0'));
         // Refresh file-association status when settings modal opens
         api.getFileAssociationStatus().then(setAssocStatus).catch(() => {});
-    }, [isVisible, state.leaguePath, state.leaguePathPbe, state.defaultProjectPath, state.creatorName, state.creatorDescription, state.creatorHome, state.creatorTip, state.autoUpdateEnabled, state.verboseLogging, state.ltkManagerModPath, state.autoSyncToLauncher, configStore.jadePath, configStore.quartzPath, configStore.selectedTheme]);
+    }, [isVisible, configStore.leaguePath, configStore.leaguePathPbe, configStore.defaultProjectPath, configStore.creatorName, configStore.creatorDescription, configStore.creatorHome, configStore.creatorTip, configStore.autoUpdateEnabled, verboseLoggingStore, configStore.ltkManagerModPath, configStore.autoSyncToLauncher, configStore.jadePath, configStore.quartzPath, configStore.selectedTheme]);
 
     useEffect(() => {
         const unlisten = listen<SchemaProgress>('schema-progress', (event) => {
@@ -134,7 +143,7 @@ export const SettingsModal: React.FC = () => {
     };
 
     const handleDetectPbe = async () => {
-        const basePath = leaguePath || state.leaguePath;
+        const basePath = leaguePath || configStore.leaguePath;
         if (basePath) {
             const parent = basePath.replace(/[\\/][^\\/]+$/, '');
             const pbeCandidates = [
@@ -247,32 +256,23 @@ export const SettingsModal: React.FC = () => {
 
     const handleUpdateNow = () => {
         if (!latestVersion) return;
-        dispatch({
-            type: 'OPEN_MODAL',
-            payload: {
-                modal: 'updateAvailable',
-                options: {
-                    available: true,
-                    current_version: currentVersion,
-                    latest_version: latestVersion,
-                    release_notes: 'Check GitHub releases for details',
-                    published_at: new Date().toISOString(),
-                } as Record<string, unknown>,
-            },
-        });
+        openModal('updateAvailable', {
+            available: true,
+            current_version: currentVersion,
+            latest_version: latestVersion,
+            release_notes: 'Check GitHub releases for details',
+            published_at: new Date().toISOString(),
+        } as Record<string, unknown>);
     };
 
     const handleForceRebuildHashes = async () => {
         setIsRebuildingHashes(true);
         try {
             await api.forceRebuildHashes();
-            if (state.wadExplorer.isOpen) {
-                state.wadExplorer.wads.forEach((wad) => {
+            if (wadExplorer.isOpen) {
+                wadExplorer.wads.forEach((wad) => {
                     if (wad.status === 'loaded') {
-                        dispatch({
-                            type: 'SET_WAD_EXPLORER_WAD_STATUS',
-                            payload: { wadPath: wad.path, status: 'idle', chunks: [], error: null },
-                        });
+                        setWadStatus(wad.path, 'idle', [], undefined);
                     }
                 });
             }
@@ -286,7 +286,7 @@ export const SettingsModal: React.FC = () => {
     };
 
     const handleAggregateBinSchema = async () => {
-        if (!state.leaguePath) {
+        if (!leaguePath) {
             showToast('error', 'League path not configured. Set it in the Paths tab first.');
             return;
         }
@@ -294,7 +294,7 @@ export const SettingsModal: React.FC = () => {
         setSchemaProgress(null);
         setSchemaResult(null);
         try {
-            const stats = await api.aggregateBinSchema(state.leaguePath);
+            const stats = await api.aggregateBinSchema(leaguePath);
             setSchemaResult(stats);
             showToast('success', `Schema aggregated: ${stats.classes_found.toLocaleString()} classes, ${stats.total_fields.toLocaleString()} fields`);
         } catch (error) {
@@ -306,7 +306,7 @@ export const SettingsModal: React.FC = () => {
     };
 
     const handleAggregateChampionSchema = async () => {
-        if (!state.leaguePath) {
+        if (!leaguePath) {
             showToast('error', 'League path not configured. Set it in the Paths tab first.');
             return;
         }
@@ -314,7 +314,7 @@ export const SettingsModal: React.FC = () => {
         setChampionSchemaProgress(null);
         setChampionSchemaResult(null);
         try {
-            const stats = await api.aggregateChampionBinSchema(state.leaguePath);
+            const stats = await api.aggregateChampionBinSchema(leaguePath);
             setChampionSchemaResult(stats);
             showToast('success', `Champion schema built: ${stats.classes_found.toLocaleString()} classes, ${stats.total_fields.toLocaleString()} fields`);
         } catch (error) {
@@ -326,7 +326,7 @@ export const SettingsModal: React.FC = () => {
     };
 
     const handleSave = async () => {
-        if (leaguePath && leaguePath !== state.leaguePath) {
+        if (leaguePath && leaguePath !== configStore.leaguePath) {
             setIsValidating(true);
             try {
                 const result = await api.validateLeague(leaguePath);
@@ -343,24 +343,19 @@ export const SettingsModal: React.FC = () => {
             setIsValidating(false);
         }
 
-        dispatch({
-            type: 'SET_STATE',
-            payload: {
-                leaguePath: leaguePath || null,
-                leaguePathPbe: leaguePathPbe || null,
-                defaultProjectPath: defaultProjectPath || null,
-                creatorName: creatorName || null,
-                creatorDescription: creatorDescription.trim() || null,
-                creatorHome: creatorHome.trim() || null,
-                creatorTip: creatorTip.trim() || null,
-                autoUpdateEnabled,
-                verboseLogging,
-                ltkManagerModPath: ltkManagerModPath || null,
-                autoSyncToLauncher,
-                celestialModPath: celestialPath || null,
-                preferredLauncher,
-            },
-        });
+        configStore.setLeaguePath(leaguePath || null);
+        configStore.setLeaguePathPbe(leaguePathPbe || null);
+        configStore.setDefaultProjectPath(defaultProjectPath || null);
+        configStore.setCreatorName(creatorName || null);
+        configStore.setCreatorDescription(creatorDescription.trim() || null);
+        configStore.setCreatorHome(creatorHome.trim() || null);
+        configStore.setCreatorTip(creatorTip.trim() || null);
+        configStore.setAutoUpdateEnabled(autoUpdateEnabled);
+        configStore.setLtkManagerModPath(ltkManagerModPath || null);
+        configStore.setAutoSyncToLauncher(autoSyncToLauncher);
+        configStore.setCelestialModPath(celestialPath || null);
+        configStore.setPreferredLauncher(preferredLauncher);
+        useAppMetadataStore.getState().setVerboseLogging(verboseLogging);
 
         // BIN engine is pinned to 'jade' — no save needed.
         configStore.setJadePath(jadePath || null);
@@ -650,15 +645,15 @@ export const SettingsModal: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className={`settings-hash settings-hash--${state.hashesLoaded ? 'ok' : 'warn'}`}>
-                                <div className={`settings-hash__icon settings-hash__icon--${state.hashesLoaded ? 'ok' : 'warn'}`}>
-                                    <Icon name={state.hashesLoaded ? 'success' : 'warning'} />
+                            <div className={`settings-hash settings-hash--${hashesLoaded ? 'ok' : 'warn'}`}>
+                                <div className={`settings-hash__icon settings-hash__icon--${hashesLoaded ? 'ok' : 'warn'}`}>
+                                    <Icon name={hashesLoaded ? 'success' : 'warning'} />
                                 </div>
                                 <div className="settings-hash__body">
                                     <div className="settings-hash__title">Hash Database</div>
                                     <div className="settings-hash__count">
-                                        {state.hashesLoaded
-                                            ? <><strong>{state.hashCount.toLocaleString()}</strong> hashes loaded</>
+                                        {hashesLoaded
+                                            ? <><strong>{hashCount.toLocaleString()}</strong> hashes loaded</>
                                             : <span style={{ color: 'var(--color-warning)' }}>Hashes not loaded</span>}
                                     </div>
                                     <div className="settings-hash__hint">
@@ -842,10 +837,7 @@ export const SettingsModal: React.FC = () => {
                                             // Wait for the close animation to finish before opening the
                                             // wizard so the two transitions don't overlap visually.
                                             setTimeout(() => {
-                                                dispatch({
-                                                    type: 'OPEN_MODAL',
-                                                    payload: { modal: 'firstTimeSetup' },
-                                                });
+                                                useModalStore.getState().openModal('firstTimeSetup');
                                             }, 300);
                                         }}
                                     >
@@ -889,11 +881,11 @@ export const SettingsModal: React.FC = () => {
                                 <Button
                                     icon="download"
                                     onClick={handleAggregateBinSchema}
-                                    disabled={isAggregating || !state.leaguePath}
+                                    disabled={isAggregating || !leaguePath}
                                 >
                                     {isAggregating ? 'Aggregating...' : 'Get BIN Entries'}
                                 </Button>
-                                {!state.leaguePath && (
+                                {!leaguePath && (
                                     <div className="settings-item__hint" style={{ color: 'var(--color-warning)', marginTop: 4 }}>
                                         Configure League path in the Paths tab first
                                     </div>
@@ -927,11 +919,11 @@ export const SettingsModal: React.FC = () => {
                                 <Button
                                     icon="download"
                                     onClick={handleAggregateChampionSchema}
-                                    disabled={isAggregatingChampion || !state.leaguePath}
+                                    disabled={isAggregatingChampion || !leaguePath}
                                 >
                                     {isAggregatingChampion ? 'Building...' : 'Build Champion Schema'}
                                 </Button>
-                                {!state.leaguePath && (
+                                {!leaguePath && (
                                     <div className="settings-item__hint" style={{ color: 'var(--color-warning)', marginTop: 4 }}>
                                         Configure League path in the Paths tab first
                                     </div>

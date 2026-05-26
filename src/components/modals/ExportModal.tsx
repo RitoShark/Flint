@@ -3,7 +3,7 @@
  */
 
 import React, { useState } from 'react';
-import { useAppState } from '../../lib/stores';
+import { useModalStore, useNotificationStore, useProjectTabStore, useConfigStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { save } from '@tauri-apps/plugin-dialog';
 import { sanitizeChampionName } from '../../lib/util/utils';
@@ -46,24 +46,30 @@ const FORMAT_OPTIONS = [
 ];
 
 export const ExportModal: React.FC = () => {
-    const { state, closeModal, showToast } = useAppState();
+    const closeModal = useModalStore((s) => s.closeModal);
+    const activeModal = useModalStore((s) => s.activeModal);
+    const modalOptions = useModalStore((s) => s.modalOptions);
+    const showToast = useNotificationStore((s) => s.showToast);
+    const activeTabId = useProjectTabStore((s) => s.activeTabId);
+    const openTabs = useProjectTabStore((s) => s.openTabs);
+    const creatorName = useConfigStore((s) => s.creatorName);
 
     const [format, setFormat] = useState<ExportFormat>('fantome');
     const [isExporting, setIsExporting] = useState(false);
     const [progress, setProgress] = useState('');
 
-    const activeTab = state.activeTabId
-        ? state.openTabs.find((t) => t.id === state.activeTabId)
+    const activeTab = activeTabId
+        ? openTabs.find((t) => t.id === activeTabId)
         : null;
     const currentProject = activeTab?.project || null;
     const currentProjectPath = activeTab?.projectPath || null;
 
-    const isVisible = state.activeModal === 'export';
-    const modalOptions = state.modalOptions as { format?: ExportFormat } | null;
+    const isVisible = activeModal === 'export';
+    const exportModalOptions = modalOptions as { format?: ExportFormat } | null;
 
     React.useEffect(() => {
-        if (modalOptions?.format) setFormat(modalOptions.format);
-    }, [modalOptions]);
+        if (exportModalOptions?.format) setFormat(exportModalOptions.format);
+    }, [exportModalOptions]);
 
     const handleExport = async () => {
         if (!currentProjectPath || !currentProject) return;
@@ -90,7 +96,7 @@ export const ExportModal: React.FC = () => {
                 champion: sanitizeChampionName(currentProject.champion),
                 metadata: {
                     name: currentProject.name,
-                    author: currentProject.creator || state.creatorName || 'Unknown',
+                    author: currentProject.creator || creatorName || 'Unknown',
                     version: currentProject.version || '1.0.0',
                     description: currentProject.description || '',
                 },

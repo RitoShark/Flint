@@ -8,7 +8,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { useAppState } from '../../lib/stores';
+import { useModalStore, useNotificationStore, useProjectTabStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import {
     Button,
@@ -43,14 +43,18 @@ const CATEGORIES: Category[] = [
 const SLUG_RE = /^[a-zA-Z0-9_-]+$/;
 
 export const AddLayerModal: React.FC = () => {
-    const { state, closeModal, showToast } = useAppState();
+    const closeModal = useModalStore((s) => s.closeModal);
+    const activeModal = useModalStore((s) => s.activeModal);
+    const showToast = useNotificationStore((s) => s.showToast);
+    const activeTabId = useProjectTabStore((s) => s.activeTabId);
+    const openTabs = useProjectTabStore((s) => s.openTabs);
 
-    const activeTab = state.activeTabId
-        ? state.openTabs.find((t) => t.id === state.activeTabId)
+    const activeTab = activeTabId
+        ? openTabs.find((t) => t.id === activeTabId)
         : null;
     const projectPath = activeTab?.projectPath || null;
 
-    const isVisible = state.activeModal === 'addLayer';
+    const isVisible = activeModal === 'addLayer';
 
     const [layerName, setLayerName] = useState('');
     const [description, setDescription] = useState('');

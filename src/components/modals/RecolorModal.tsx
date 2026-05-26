@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useAppState } from '../../lib/stores';
+import { useModalStore, useNotificationStore, useAppMetadataStore, useProjectTabStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import {
     Button,
@@ -96,10 +96,17 @@ const RangeField: React.FC<RangeFieldProps> = ({
 );
 
 export const RecolorModal: React.FC = () => {
-    const { state, closeModal, showToast, setWorking, setReady } = useAppState();
+    const closeModal = useModalStore((s) => s.closeModal);
+    const activeModal = useModalStore((s) => s.activeModal);
+    const modalOptions = useModalStore((s) => s.modalOptions);
+    const showToast = useNotificationStore((s) => s.showToast);
+    const setWorking = useAppMetadataStore((s) => s.setWorking);
+    const setReady = useAppMetadataStore((s) => s.setReady);
+    const activeTabId = useProjectTabStore((s) => s.activeTabId);
+    const openTabs = useProjectTabStore((s) => s.openTabs);
 
-    const activeTab = state.activeTabId
-        ? state.openTabs.find((t) => t.id === state.activeTabId)
+    const activeTab = activeTabId
+        ? openTabs.find((t) => t.id === activeTabId)
         : null;
     const currentProjectPath = activeTab?.projectPath || null;
     const fileTree = activeTab?.fileTree || null;
@@ -122,8 +129,8 @@ export const RecolorModal: React.FC = () => {
     const [skipDistortion, setSkipDistortion] = useState(true);
     const [folderImagePaths, setFolderImagePaths] = useState<string[]>([]);
 
-    const isVisible = state.activeModal === 'recolor';
-    const options = state.modalOptions as RecolorModalOptions | null;
+    const isVisible = activeModal === 'recolor';
+    const options = modalOptions as RecolorModalOptions | null;
     const isFolder = options?.isFolder || false;
 
     useEffect(() => {

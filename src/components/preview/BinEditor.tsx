@@ -16,7 +16,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
-import { useAppState, useAppMetadataStore, useConfigStore, useFileEditorStore } from '../../lib/stores';
+import { useAppMetadataStore, useConfigStore, useFileEditorStore, useNotificationStore } from '../../lib/stores';
 import { useProjectTabStore } from '../../lib/stores/projectTabStore';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
@@ -787,7 +787,9 @@ interface BinEditorProps {
 }
 
 export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) => {
-    const { showToast, setWorking, setReady } = useAppState();
+    const showToast = useNotificationStore((s) => s.showToast);
+    const setWorking = useAppMetadataStore((s) => s.setWorking);
+    const setReady = useAppMetadataStore((s) => s.setReady);
     const binConverterEngine = useConfigStore((state) => state.binConverterEngine);
 
     const [content, setContent] = useState<string>('');

@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { useAppState } from '../../lib/stores';
+import { useModalStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { getCachedImage, cacheImage } from '../../lib/ui-helpers/imageCache';
 import { Button, Modal, ModalHeader } from '../ui';
@@ -27,9 +27,11 @@ const MAX_ZOOM = 16;
 const ZOOM_STEP = 1.15;
 
 export const FullResImageModal: React.FC = () => {
-    const { state, closeModal } = useAppState();
-    const isVisible = state.activeModal === 'fullResImage';
-    const options = state.modalOptions as FullResImageOptions | null;
+    const closeModal = useModalStore((s) => s.closeModal);
+    const activeModal = useModalStore((s) => s.activeModal);
+    const modalOptions = useModalStore((s) => s.modalOptions);
+    const isVisible = activeModal === 'fullResImage';
+    const options = modalOptions as FullResImageOptions | null;
 
     const [src, setSrc] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);

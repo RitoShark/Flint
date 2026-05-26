@@ -12,7 +12,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { useAppState } from '../../../lib/stores';
+import { useNotificationStore } from '../../../lib/stores';
 import * as api from '../../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getIcon } from '../../../lib/ui-helpers/fileIcons';
@@ -26,7 +26,7 @@ export const ChunkPreview: React.FC<{
     chunk: WadChunk;
     onClose: () => void;
 }> = ({ wadPath, chunk, onClose }) => {
-    const { showToast } = useAppState();
+    const showToast = useNotificationStore((s) => s.showToast);
     const [data, setData] = useState<PreviewData | null>(null);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState<string | null>(null);
