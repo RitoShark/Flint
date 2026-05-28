@@ -252,6 +252,7 @@ export function detectType(bytes: Uint8Array, pathHint: string | null): string {
         if (b[0] === 0x1b && b[1] === 0x4c && b[2] === 0x75 && b[3] === 0x61) return 'application/x-luabin';
         const magic = String.fromCharCode(b[0], b[1], b[2], b[3]);
         if (magic === 'PROP' || magic === 'PTCH') return 'application/x-bin';
+        if (b[0] === 0x52 && b[1] === 0x53 && b[2] === 0x54) return 'application/x-rst'; // 'R' 'S' 'T'
     }
     const extMap: Record<string, string> = {
         dds: 'image/dds', tex: 'image/tex', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
@@ -260,6 +261,7 @@ export function detectType(bytes: Uint8Array, pathHint: string | null): string {
         skn: 'model/x-lol-skn', skl: 'model/x-lol-skl', scb: 'model/x-lol-scb',
         anm: 'animation/x-lol-anm', bnk: 'audio/x-wwise-bnk', wpk: 'audio/x-wwise-wpk',
         luabin: 'application/x-luabin', luabin64: 'application/x-luabin', troybin: 'application/x-troybin',
+        inibin: 'application/x-inibin', rst: 'application/x-rst', preload: 'text/plain', ini: 'text/plain',
     };
     return extMap[ext] ?? 'application/octet-stream';
 }

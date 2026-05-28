@@ -25,3 +25,16 @@ export interface ChampionSchemaStats {
 export async function aggregateChampionBinSchema(leaguePath: string): Promise<ChampionSchemaStats> {
     return invokeCommand('aggregate_champion_bin_schema', { leaguePath });
 }
+
+export interface LuabinExtractStats {
+    wads_scanned: number;
+    bins_parsed: number;
+    bins_failed: number;
+    classes_found: number;
+    total_fields: number;
+    output_path: string;
+}
+
+export async function extractAllLuabins(leaguePath: string): Promise<LuabinExtractStats> {
+    return invokeCommand('extract_all_luabins', { leaguePath });
+}

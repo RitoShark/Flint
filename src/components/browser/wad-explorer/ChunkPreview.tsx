@@ -36,6 +36,7 @@ export const ChunkPreview: React.FC<{
     const [modelPreviewPath, setModelPreviewPath] = useState<string | null>(null);
     const [modelTempDir, setModelTempDir] = useState<string | null>(null);
     const [modelLoading, setModelLoading] = useState(false);
+    const [unknownView, setUnknownView] = useState<'prompt' | 'hex' | 'text'>('prompt');
 
     useEffect(() => {
         return () => {
@@ -46,7 +47,7 @@ export const ChunkPreview: React.FC<{
     useEffect(() => {
         let cancelled = false;
         if (blobUrlRef.current) { URL.revokeObjectURL(blobUrlRef.current); blobUrlRef.current = null; }
-        setLoading(true); setErr(null); setData(null); setZoom('fit');
+        setLoading(true); setErr(null); setData(null); setZoom('fit'); setUnknownView('prompt');
         setModelPreviewPath(null);
         if (modelTempDir) { api.cleanupWadModelPreview(modelTempDir).catch(() => {}); setModelTempDir(null); }
 
@@ -75,6 +76,10 @@ export const ChunkPreview: React.FC<{
                     if (!cancelled) text = await api.readWadLuabin(wadPath, chunk.hash);
                 } else if (fileType === 'application/x-troybin') {
                     if (!cancelled) text = await api.readWadTroybin(wadPath, chunk.hash);
+                } else if (fileType === 'application/x-inibin') {
+                    if (!cancelled) text = await api.readWadInibin(wadPath, chunk.hash);
+                } else if (fileType === 'application/x-rst') {
+                    if (!cancelled) text = await api.readWadRst(wadPath, chunk.hash);
                 } else if (fileType.startsWith('text/') || fileType === 'application/json' || fileType === 'application/xml') {
                     if (!cancelled) text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
                 }
@@ -181,11 +186,22 @@ export const ChunkPreview: React.FC<{
                         if (fileType === 'application/x-troybin') {
                             return <MonacoTextViewer text={text} language="ini" />;
                         }
-                        return (
-                            <pre style={{ margin: 0, padding: '12px 16px', overflow: 'auto', height: '100%', fontFamily: 'var(--font-mono, monospace)', fontSize: '12px', lineHeight: '1.6', color: 'var(--text-primary)', background: 'var(--bg-secondary)', boxSizing: 'border-box', whiteSpace: 'pre-wrap' }}>
-                                {text}
-                            </pre>
-                        );
+                        if (fileType === 'application/x-inibin') {
+                            return <MonacoTextViewer text={text} language="json" />;
+                        }
+                        if (fileType === 'application/x-rst') {
+                            return <MonacoTextViewer text={text} language="json" />;
+                        }
+                        
+                        // Fallback: try to guess language from extension or fileType, default to plaintext
+                        let lang = 'plaintext';
+                        if (fileType === 'application/json' || fileName.endsWith('.json')) lang = 'json';
+                        else if (fileType === 'application/xml' || fileName.endsWith('.xml')) lang = 'xml';
+                        else if (fileName.endsWith('.js')) lang = 'javascript';
+                        else if (fileName.endsWith('.py')) lang = 'python';
+                        else if (fileName.endsWith('.ini')) lang = 'ini';
+                        
+                        return <MonacoTextViewer text={text} language={lang} />;
                     }
 
                     if (fileType === 'model/x-lol-skn') {
@@ -242,6 +258,24 @@ export const ChunkPreview: React.FC<{
                                 </div>
                             </div>
                         );
+                    }
+
+                    if (unknownView === 'prompt') {
+                        return (
+                            <div className="preview-panel__empty" style={{ display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'center', justifyContent: 'center' }}>
+                                <div dangerouslySetInnerHTML={{ __html: getIcon('document') }} style={{ width: '48px', height: '48px', color: 'var(--text-muted)', opacity: 0.7 }} />
+                                <div style={{ fontSize: '14px', fontWeight: 500 }}>Unknown File Format</div>
+                                <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>How would you like to view this file?</div>
+                                <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                                    <button className="btn btn--primary" onClick={() => setUnknownView('text')}>Open in Text Editor</button>
+                                    <button className="btn btn--secondary" onClick={() => setUnknownView('hex')}>Open in Hex View</button>
+                                </div>
+                            </div>
+                        );
+                    }
+                    if (unknownView === 'text') {
+                        const decodedText = text !== null ? text : new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+                        return <MonacoTextViewer text={decodedText} language="plaintext" />;
                     }
 
                     const slice = bytes.slice(0, 16 * 256);

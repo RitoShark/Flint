@@ -178,6 +178,14 @@ export async function readWadTroybin(wadPath: string, hash: string): Promise<str
     return invokeCommand('read_wad_troybin', { wadPath, hash });
 }
 
+export async function readWadInibin(wadPath: string, hash: string): Promise<string> {
+    return invokeCommand('read_wad_inibin', { wadPath, hash });
+}
+
+export async function readWadRst(wadPath: string, hash: string): Promise<string> {
+    return invokeCommand('read_wad_rst', { wadPath, hash });
+}
+
 /** Convert luabin (Lua bytecode) data to Lua source text. */
 export async function convertLuabinToText(data: Uint8Array): Promise<string> {
     return invokeCommand('convert_luabin_to_text', { data: Array.from(data) });

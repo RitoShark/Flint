@@ -6,6 +6,7 @@
 pub mod league;
 pub mod champion;
 pub mod champion_schema;
+pub mod luabin_extract;
 pub mod hash;
 
 // Flatten so `commands::league::detect_league` keeps resolving as before.

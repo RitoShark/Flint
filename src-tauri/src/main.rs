@@ -385,6 +385,8 @@ fn main() {
             commands::format_converters::convert_troybin_to_text,
             commands::format_converters::read_wad_luabin,
             commands::format_converters::read_wad_troybin,
+            commands::format_converters::read_wad_inibin,
+            commands::format_converters::read_wad_rst,
             // Texture format conversion (tex<->dds, +png export)
             commands::texture_convert::convert_tex_to_dds,
             commands::texture_convert::convert_dds_to_tex,
@@ -408,6 +410,7 @@ fn main() {
             // Dev commands (schema aggregation)
             commands::dev::aggregate_bin_schema,
             commands::champion_schema::aggregate_champion_bin_schema,
+            commands::luabin_extract::extract_all_luabins,
             // Settings commands (disk-based settings)
             commands::settings::get_app_home,
             commands::settings::get_settings,

@@ -12,6 +12,7 @@ import { HexViewer } from '../preview/HexViewer';
 import { TextPreview } from '../preview/TextPreview';
 import { BinEditor } from '../preview/BinEditor';
 import { ModelPreview } from '../preview/ModelPreview';
+import { UnknownPreview } from '../preview/UnknownPreview';
 import { HUDEditor } from '../preview/HUDEditor';
 import { BnkPreview } from '../preview/BnkPreview';
 import { FolderGridView } from '../preview/FolderGridView';
@@ -71,6 +72,7 @@ const getTypeLabel = (fileType: string, filePath?: string): string => {
         'model/x-lol-scb': 'SCB Static Mesh',
         'model/x-lol-sco': 'SCO Static Mesh',
         'application/octet-stream': 'Binary File',
+        'application/x-inibin': 'INIBIN File',
     };
     return labels[fileType] || fileType;
 };
@@ -295,7 +297,9 @@ export const PreviewPanel: React.FC = () => {
         if (
             fileInfo.file_type.startsWith('text/') ||
             fileInfo.extension === 'json' ||
-            fileInfo.extension === 'py'
+            fileInfo.extension === 'py' ||
+            fileInfo.extension === 'ini' ||
+            fileInfo.extension === 'preload'
         ) {
             return <TextPreview key={filePath} filePath={filePath} />;
         }
@@ -328,7 +332,7 @@ export const PreviewPanel: React.FC = () => {
         //     return <SkeletonPreview key={filePath} filePath={filePath} />;
         // }
 
-        return <HexViewer key={filePath} filePath={filePath} />;
+        return <UnknownPreview key={filePath} filePath={filePath} />;
     };
 
     return (
@@ -395,25 +399,27 @@ export const PreviewPanel: React.FC = () => {
                         </span>
                     </div>
                     {/* Conditional buttons for BIN files */}
-                    {(fileInfo.extension === 'bin' || fileInfo.file_type === 'application/x-bin') && jadePath && jadePath.trim() !== '' ? (
+                    {((fileInfo.extension === 'bin' || fileInfo.file_type === 'application/x-bin') && ((jadePath && jadePath.trim() !== '') || (quartzPath && quartzPath.trim() !== ''))) ? (
                         <div style={{ display: 'flex', gap: '8px' }}>
-                            <button
-                                className="preview-panel__open-btn"
-                                onClick={async () => {
-                                    try {
-                                        const normalizedPath = filePath.replace(/\//g, '\\');
-                                        await api.launchJade(normalizedPath, jadePath);
-                                    } catch (err) {
-                                        const message = (err as Error).message || String(err);
-                                        console.error('[PreviewPanel] Failed to launch Jade:', message);
-                                        showToast('error', `Failed to launch Jade: ${message}`);
-                                    }
-                                }}
-                                title="Open with Jade League Bin Editor"
-                            >
-                                <JadeIcon size={14} />
-                                <span>Jade</span>
-                            </button>
+                            {jadePath && jadePath.trim() !== '' && (
+                                <button
+                                    className="preview-panel__open-btn"
+                                    onClick={async () => {
+                                        try {
+                                            const normalizedPath = filePath.replace(/\//g, '\\');
+                                            await api.launchJade(normalizedPath, jadePath);
+                                        } catch (err) {
+                                            const message = (err as Error).message || String(err);
+                                            console.error('[PreviewPanel] Failed to launch Jade:', message);
+                                            showToast('error', `Failed to launch Jade: ${message}`);
+                                        }
+                                    }}
+                                    title="Open with Jade League Bin Editor"
+                                >
+                                    <JadeIcon size={14} />
+                                    <span>Jade</span>
+                                </button>
+                            )}
                             {quartzPath && quartzPath.trim() !== '' && (
                                 <button
                                     className="preview-panel__open-btn"

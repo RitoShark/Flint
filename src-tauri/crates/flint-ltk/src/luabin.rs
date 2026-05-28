@@ -47,7 +47,7 @@ const LUA_TSTRING: u8 = 4;
 // ── Value types for simulation ─────────────────────────────────────────────
 
 #[derive(Clone, Debug)]
-enum LuaValue {
+pub enum LuaValue {
     Nil,
     Bool(bool),
     Number(f64),
@@ -56,7 +56,33 @@ enum LuaValue {
 }
 
 impl LuaValue {
-    fn to_lua_source(&self, indent: usize) -> String {
+    pub fn merge(&mut self, other: LuaValue) {
+        match (self, other) {
+            (LuaValue::Table(ref mut a), LuaValue::Table(b)) => {
+                for (k_b, v_b) in b {
+                    // Try to find the key in a
+                    let mut found = false;
+                    for (k_a, v_a) in a.iter_mut() {
+                        // Compare keys by their formatted string to handle different number representations etc
+                        if k_a.to_lua_source(0) == k_b.to_lua_source(0) {
+                            v_a.merge(v_b.clone());
+                            found = true;
+                            break;
+                        }
+                    }
+                    if !found {
+                        a.push((k_b, v_b));
+                    }
+                }
+            }
+            // If they are not both tables, we just overwrite.
+            (this, other_val) => {
+                *this = other_val;
+            }
+        }
+    }
+
+    pub fn to_lua_source(&self, indent: usize) -> String {
         match self {
             LuaValue::Nil => "nil".to_string(),
             LuaValue::Bool(b) => if *b { "true" } else { "false" }.to_string(),
@@ -597,8 +623,8 @@ fn simulate_function(func: &FunctionProto) -> Vec<(String, LuaValue)> {
 // ── Public API ─────────────────────────────────────────────────────────────
 
 /// Parse a Lua 5.1 bytecode buffer (luabin or luabin64) and return
-/// reconstructed Lua source text.
-pub fn convert_luabin(data: &[u8]) -> Result<String, String> {
+/// the reconstructed global variable assignments.
+pub fn parse_luabin_globals(data: &[u8]) -> Result<Vec<(String, LuaValue)>, String> {
     if data.len() < 12 {
         return Err("File too small to be Lua bytecode".into());
     }
@@ -643,7 +669,14 @@ pub fn convert_luabin(data: &[u8]) -> Result<String, String> {
     let func = read_function(&mut r).map_err(|e| e.to_string())?;
 
     // Simulate and collect global assignments
-    let globals = simulate_function(&func);
+    Ok(simulate_function(&func))
+}
+
+/// Parse a Lua 5.1 bytecode buffer (luabin or luabin64) and return
+/// reconstructed Lua source text.
+pub fn convert_luabin(data: &[u8]) -> Result<String, String> {
+    // Simulate and collect global assignments
+    let globals = parse_luabin_globals(data)?;
 
     // Format output
     let mut output = String::new();

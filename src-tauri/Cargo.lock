@@ -1542,6 +1542,8 @@ dependencies = [
  "indexmap 2.13.0",
  "intel_tex_2 0.5.0",
  "libloading 0.8.9",
+ "ltk_inibin",
+ "ltk_rst",
  "notify",
  "notify-debouncer-full",
  "opener",
@@ -1604,6 +1606,7 @@ dependencies = [
  "ltk_anim 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
  "ltk_fantome",
  "ltk_file 0.2.8 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
+ "ltk_inibin",
  "ltk_mesh 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
  "ltk_meta 0.4.0 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
  "ltk_mod_core",
@@ -3295,6 +3298,26 @@ version = "0.2.5"
 source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4#ca8eff48b2210c89d63dd07692acb29f1a3e55f4"
 
 [[package]]
+name = "ltk_hash"
+version = "0.2.6"
+source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=3222fe477919fef4240829a0f1c731ee9728aab3#3222fe477919fef4240829a0f1c731ee9728aab3"
+dependencies = [
+ "xxhash-rust",
+]
+
+[[package]]
+name = "ltk_inibin"
+version = "0.1.0"
+dependencies = [
+ "byteorder",
+ "indexmap 2.13.0",
+ "miette 5.10.0",
+ "num_enum",
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "ltk_io_ext"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3341,6 +3364,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ltk_io_ext"
+version = "0.4.3"
+source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=3222fe477919fef4240829a0f1c731ee9728aab3#3222fe477919fef4240829a0f1c731ee9728aab3"
+dependencies = [
+ "byteorder",
+ "glam",
+ "ltk_primitives 0.3.4",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "ltk_mesh"
 version = "0.4.1"
 source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
@@ -3382,7 +3416,7 @@ dependencies = [
  "log",
  "ltk_io_ext 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
  "ltk_primitives 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "miette",
+ "miette 7.6.0",
  "num_enum",
  "paste",
  "serde",
@@ -3401,7 +3435,7 @@ dependencies = [
  "log",
  "ltk_io_ext 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
  "ltk_primitives 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
- "miette",
+ "miette 7.6.0",
  "num_enum",
  "paste",
  "thiserror 1.0.69",
@@ -3501,6 +3535,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ltk_primitives"
+version = "0.3.4"
+source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=3222fe477919fef4240829a0f1c731ee9728aab3#3222fe477919fef4240829a0f1c731ee9728aab3"
+dependencies = [
+ "byteorder",
+ "glam",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "ltk_ritobin"
 version = "0.2.1"
 source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
@@ -3510,11 +3554,23 @@ dependencies = [
  "ltk_hash 0.2.5 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
  "ltk_meta 0.4.0 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
  "ltk_primitives 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "miette",
+ "miette 7.6.0",
  "nom 7.1.3",
  "nom_locate",
  "thiserror 1.0.69",
  "xxhash-rust",
+]
+
+[[package]]
+name = "ltk_rst"
+version = "0.1.0"
+source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=3222fe477919fef4240829a0f1c731ee9728aab3#3222fe477919fef4240829a0f1c731ee9728aab3"
+dependencies = [
+ "byteorder",
+ "ltk_hash 0.2.6",
+ "ltk_io_ext 0.4.3",
+ "serde",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -3721,13 +3777,36 @@ dependencies = [
 
 [[package]]
 name = "miette"
+version = "5.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59bb584eaeeab6bd0226ccf3509a69d7936d148cf3d036ad350abe35e8c6856e"
+dependencies = [
+ "miette-derive 5.10.0",
+ "once_cell",
+ "thiserror 1.0.69",
+ "unicode-width",
+]
+
+[[package]]
+name = "miette"
 version = "7.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f98efec8807c63c752b5bd61f862c165c115b0a35685bdcfd9238c7aeb592b7"
 dependencies = [
  "cfg-if",
- "miette-derive",
+ "miette-derive 7.6.0",
  "unicode-width",
+]
+
+[[package]]
+name = "miette-derive"
+version = "5.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49e7bc1560b95a3c4a25d03de42fe76ca718ab92d1a22a55b9b4cf67b3ae635c"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -6606,7 +6685,7 @@ dependencies = [
  "serde_with",
  "swift-rs",
  "thiserror 2.0.18",
- "toml 0.9.12+spec-1.1.0",
+ "toml 1.1.2+spec-1.1.0",
  "url",
  "urlpattern",
  "uuid",

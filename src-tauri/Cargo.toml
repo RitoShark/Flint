@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/flint-ltk"]
+members = [".", "crates/flint-ltk", "crates/ltk_inibin"]
 
 [package]
 name = "flint"
@@ -25,6 +25,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 # Core library (all LTK deps live here)
 flint-ltk = { path = "crates/flint-ltk" }
+ltk_inibin = { path = "crates/ltk_inibin", features = ["serde"] }
+ltk_rst = { git = "https://github.com/LeagueToolkit/league-toolkit", rev = "3222fe477919fef4240829a0f1c731ee9728aab3", features = ["serde"] }
 intel_tex_2 = "0.5"
 flate2 = "1.0"
 
@@ -114,19 +116,19 @@ custom-protocol = ["tauri/custom-protocol"]
 # Development profile - fastest incremental rebuilds
 [profile.dev]
 # Minimal optimization for your code (fastest compile)
-opt-level = 0
+opt-level = 1
 # More codegen units = more parallelism during compilation
 codegen-units = 256
 # Enable incremental compilation
-incremental = true
+incremental = false
 # No debug info by default (faster linking), set to 2 for debugging
 debug = 1
 
 # Optimize dependencies even in dev mode (they don't change often)
 # This makes your app run faster without slowing down your code changes
 [profile.dev.package."*"]
-opt-level = 2
-codegen-units = 16
+opt-level = 1
+codegen-units = 256
 
 # Release-dev profile - for testing with optimizations (NO slow LTO)
 # Use: cargo build --profile release-dev

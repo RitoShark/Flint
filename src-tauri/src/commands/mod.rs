@@ -25,7 +25,7 @@ pub use project::{map_project, project_watcher, checkpoint, compare, chroma};
 pub use wad::{wad_edit, extract_hashes};
 pub use assets::{file, texture_convert, format_converters, mesh};
 pub use bin::bin_split;
-pub use league::{champion, champion_schema, hash};
+pub use league::{champion, champion_schema, hash, luabin_extract};
 pub use import_export::{export, fantome_import, modpkg_import};
 pub use platform::{external_apps, file_assoc, ltk_manager, settings, updater};
 pub use editor::{hud, fixer};

@@ -16,6 +16,7 @@ import {
     Button,
     Checkbox,
     Icon,
+    ProgressBar,
     type IconName,
     Modal,
     ModalBody,
@@ -86,6 +87,10 @@ export const SettingsModal: React.FC = () => {
     const [championSchemaProgress, setChampionSchemaProgress] = useState<SchemaProgress | null>(null);
     const [championSchemaResult, setChampionSchemaResult] = useState<api.ChampionSchemaStats | null>(null);
 
+    const [isAggregatingLuabins, setIsAggregatingLuabins] = useState(false);
+    const [luabinSchemaProgress, setLuabinSchemaProgress] = useState<SchemaProgress | null>(null);
+    const [luabinSchemaResult, setLuabinSchemaResult] = useState<api.LuabinExtractStats | null>(null);
+
     const [showUIPreview, setShowUIPreview] = useState(false);
 
     const isVisible = activeModal === 'settings';
@@ -123,6 +128,13 @@ export const SettingsModal: React.FC = () => {
     useEffect(() => {
         const unlisten = listen<SchemaProgress>('champion-schema-progress', (event) => {
             setChampionSchemaProgress(event.payload);
+        });
+        return () => { unlisten.then((fn) => fn()); };
+    }, []);
+
+    useEffect(() => {
+        const unlisten = listen<SchemaProgress>('luabin-extract-progress', (event) => {
+            setLuabinSchemaProgress(event.payload);
         });
         return () => { unlisten.then((fn) => fn()); };
     }, []);
@@ -322,6 +334,26 @@ export const SettingsModal: React.FC = () => {
             showToast('error', 'Champion schema aggregation failed. Check the log for details.');
         } finally {
             setIsAggregatingChampion(false);
+        }
+    };
+
+    const handleBuildLuabinSchema = async () => {
+        if (!leaguePath) {
+            showToast('error', 'League path not configured. Set it in the Paths tab first.');
+            return;
+        }
+        setIsAggregatingLuabins(true);
+        setLuabinSchemaProgress(null);
+        setLuabinSchemaResult(null);
+        try {
+            const stats = await api.extractAllLuabins(leaguePath);
+            setLuabinSchemaResult(stats);
+            showToast('success', `Built luabin schema with ${stats.classes_found.toLocaleString()} globals from ${stats.wads_scanned.toLocaleString()} WADs`);
+        } catch (error) {
+            console.error('Luabin schema build failed:', error);
+            showToast('error', 'Luabin schema build failed. Check the log for details.');
+        } finally {
+            setIsAggregatingLuabins(false);
         }
     };
 
@@ -965,6 +997,47 @@ export const SettingsModal: React.FC = () => {
                                     wads={championSchemaResult.wads_scanned}
                                     outputPath={championSchemaResult.output_path}
                                     label="LinkedData BINs"
+                                />
+                            )}
+
+                            <div
+                                className="settings-item"
+                                style={{ marginTop: 16 }}
+                            >
+                                <label className="settings-item__label">Luabin Schema Aggregator</label>
+                                <div className="settings-item__hint" style={{ marginBottom: 8 }}>
+                                    Walks every WAD in your League installation, finds all .luabin / .luabin64
+                                    chunks (Lua 5.1 bytecode data files), and extracts all global variable
+                                    assignments into a single massive `luabin-schema.lua` file. Overlapping
+                                    tables from different files are recursively merged.
+                                </div>
+                                <Button
+                                    size="sm"
+                                    icon="download"
+                                    onClick={handleBuildLuabinSchema}
+                                    disabled={isAggregatingLuabins || !leaguePath}
+                                >
+                                    {isAggregatingLuabins ? 'Building...' : 'Build Luabin Schema'}
+                                </Button>
+                                {!leaguePath && (
+                                    <div className="settings-item__hint" style={{ color: 'var(--color-warning)', marginTop: 4 }}>
+                                        Configure League path in the Paths tab first
+                                    </div>
+                                )}
+                            </div>
+
+                            {isAggregatingLuabins && luabinSchemaProgress && (
+                                <SchemaProgressView progress={luabinSchemaProgress} />
+                            )}
+                            {luabinSchemaResult && !isAggregatingLuabins && (
+                                <SchemaResultView
+                                    classes={luabinSchemaResult.classes_found}
+                                    fields={luabinSchemaResult.total_fields}
+                                    binsParsed={luabinSchemaResult.bins_parsed}
+                                    binsFailed={luabinSchemaResult.bins_failed}
+                                    wads={luabinSchemaResult.wads_scanned}
+                                    outputPath={luabinSchemaResult.output_path}
+                                    label="luabins"
                                 />
                             )}
                         </div>
