@@ -1,18 +1,15 @@
 //! SKN (Simple Skin) mesh parsing
-//! 
+//!
 //! Parses League of Legends skinned mesh files (.skn) and extracts:
 //! - Vertex positions, normals, and UVs
 //! - Index buffer for triangles
 //! - Material ranges for per-material visibility control
 //! - Bone weights and indices for skeletal animation skinning
 
-use std::fs::File;
-use std::io::BufReader;
 use std::path::Path;
 
-use league_toolkit::mesh::{SkinnedMesh, SkinnedMeshRange};
-use league_toolkit::mesh::mem::vertex::ElementName;
-use glam::{Vec2, Vec3, Vec4};
+use ritoshark::mesh::{SkinnedMesh, SkinnedMeshRange};
+use ritoshark::prelude::Parse; // brings `SkinnedMesh::from_bytes`
 use serde::Serialize;
 
 use std::collections::HashMap;
@@ -30,11 +27,11 @@ pub struct MaterialRange {
 impl From<&SkinnedMeshRange> for MaterialRange {
     fn from(range: &SkinnedMeshRange) -> Self {
         Self {
-            name: range.material.clone(),
-            start_index: range.start_index,
-            index_count: range.index_count,
-            start_vertex: range.start_vertex,
-            vertex_count: range.vertex_count,
+            name: range.name.clone(),
+            start_index: range.index_start as i32,
+            index_count: range.index_count as i32,
+            start_vertex: range.vertex_start as i32,
+            vertex_count: range.vertex_count as i32,
         }
     }
 }
@@ -95,79 +92,62 @@ pub struct SknMeshData {
 
 /// Parse an SKN file and extract mesh data for 3D rendering
 pub fn parse_skn_file<P: AsRef<Path>>(path: P) -> anyhow::Result<SknMeshData> {
-    let file = File::open(path.as_ref())?;
-    let mut reader = BufReader::new(file);
-    
-    let mesh = SkinnedMesh::from_reader(&mut reader)
+    let data = std::fs::read(path.as_ref())?;
+
+    let mesh = SkinnedMesh::from_bytes(&data)
         .map_err(|e| anyhow::anyhow!("Failed to parse SKN file: {:?}", e))?;
-    
-    // Extract materials
+
+    // Extract materials (per-material spans into the shared vertex/index buffers)
     let materials: Vec<MaterialRange> = mesh.ranges()
         .iter()
         .map(MaterialRange::from)
         .collect();
-    
-    // Extract vertex data using accessors
-    let vertex_buffer = mesh.vertex_buffer();
-    
-    // Get position accessor - Position is always XYZ_Float32 which maps to Vec3
-    // Apply mirrorX transformation: negate X to convert from League's left-hand coordinate system
-    let positions: Vec<[f32; 3]> = vertex_buffer
-        .accessor::<Vec3>(ElementName::Position)
-        .map(|acc| acc.iter().map(|v| [-v.x, v.y, v.z]).collect())
-        .ok_or_else(|| anyhow::anyhow!("SKN file missing position data"))?;
-    
-    // Get normal accessor - Normal is XYZ_Float32 which maps to Vec3
-    // Apply mirrorX transformation: negate Y and Z normals
-    let normals: Vec<[f32; 3]> = vertex_buffer
-        .accessor::<Vec3>(ElementName::Normal)
-        .map(|acc| acc.iter().map(|v| [v.x, -v.y, -v.z]).collect())
-        .unwrap_or_else(|| {
-            // Generate default normals if not present
-            vec![[0.0, 1.0, 0.0]; positions.len()]
-        });
-    
-    // Get UV accessor - Texcoord0 is XY_Float32 which maps to Vec2
-    // No UV flip applied - raw UVs are already in top-left origin format
-    // (Confirmed by uvee.py from ltmao which uses raw UVs directly)
-    let uvs: Vec<[f32; 2]> = vertex_buffer
-        .accessor::<Vec2>(ElementName::Texcoord0)
-        .map(|acc| acc.iter().map(|v| [v.x, v.y]).collect())
-        .unwrap_or_else(|| {
-            // Generate default UVs if not present
-            vec![[0.0, 0.0]; positions.len()]
-        });
-    
-    // Extract indices using iter()
-    let indices: Vec<u16> = mesh.index_buffer().iter().collect();
-    
+
+    // RitoShark exposes a single `Vec<SkinnedMeshVertex>` rather than LTK's typed
+    // accessor buffer; read the attributes straight off each vertex.
+    //
+    // Apply mirrorX transformation: negate X to convert from League's left-hand
+    // coordinate system. Normals negate Y and Z. UVs are kept raw (top-left
+    // origin, confirmed by ltmao's uvee.py).
+    let vertices = mesh.vertices();
+
+    let positions: Vec<[f32; 3]> = vertices
+        .iter()
+        .map(|v| [-v.position.x, v.position.y, v.position.z])
+        .collect();
+
+    let normals: Vec<[f32; 3]> = vertices
+        .iter()
+        .map(|v| [v.normal.x, -v.normal.y, -v.normal.z])
+        .collect();
+
+    let uvs: Vec<[f32; 2]> = vertices
+        .iter()
+        .map(|v| [v.uv.x, v.uv.y])
+        .collect();
+
+    // SKN index buffer is u16.
+    let indices: Vec<u16> = mesh.indices().to_vec();
+
     // Get bounding box
-    let aabb = mesh.aabb();
+    let aabb = mesh.bounding_box;
     let bounding_box = [
         [aabb.min.x, aabb.min.y, aabb.min.z],
         [aabb.max.x, aabb.max.y, aabb.max.z],
     ];
-    
-    // Extract bone weights for skinning - stored as XYZW_Float32 (Vec4)
-    // Each vertex has up to 4 bone influences with corresponding weights
-    let bone_weights: Vec<[f32; 4]> = vertex_buffer
-        .accessor::<Vec4>(ElementName::BlendWeight)
-        .map(|acc| acc.iter().map(|v| [v.x, v.y, v.z, v.w]).collect())
-        .unwrap_or_else(|| {
-            // Default to single bone influence if not present
-            vec![[1.0, 0.0, 0.0, 0.0]; positions.len()]
-        });
-    
-    // Extract bone indices for skinning - stored as XYZW_Byte ([u8; 4])
-    // Each index refers to a bone in the skeleton's bone array
-    let bone_indices: Vec<[u8; 4]> = vertex_buffer
-        .accessor::<[u8; 4]>(ElementName::BlendIndex)
-        .map(|acc| acc.iter().collect())
-        .unwrap_or_else(|| {
-            // Default to bone 0 influence if not present
-            vec![[0, 0, 0, 0]; positions.len()]
-        });
-    
+
+    // Extract bone weights for skinning - 4 influences per vertex.
+    let bone_weights: Vec<[f32; 4]> = vertices
+        .iter()
+        .map(|v| v.blend_weights)
+        .collect();
+
+    // Extract bone indices for skinning - 4 bone indices per vertex.
+    let bone_indices: Vec<[u8; 4]> = vertices
+        .iter()
+        .map(|v| v.blend_indices)
+        .collect();
+
     Ok(SknMeshData {
         materials,
         positions,
@@ -183,11 +163,11 @@ pub fn parse_skn_file<P: AsRef<Path>>(path: P) -> anyhow::Result<SknMeshData> {
     })
 }
 
-// TODO: Add SKL (Skeleton) parsing once ltk_mesh supports it
+// TODO: Add SKL (Skeleton) parsing once the skeleton reader is wired in here.
 // This would add:
 // - Bone hierarchy (parent-child relationships)
 // - Bone transforms (position, rotation, scale)
 // - Vertex bone weights and indices
-// 
+//
 // The skeleton would be rendered as lines connecting bone positions,
 // overlaid on the mesh preview.
