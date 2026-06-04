@@ -27,6 +27,9 @@ tauri-build = { version = "2", features = [] }
 flint-ltk = { path = "crates/flint-ltk" }
 ltk_inibin = { path = "crates/ltk_inibin", features = ["serde"] }
 ltk_rst = { git = "https://github.com/LeagueToolkit/league-toolkit", rev = "3222fe477919fef4240829a0f1c731ee9728aab3", features = ["serde"] }
+# RitoShark crates — migration target. Binary-crate commands use ritoshark types directly;
+# same git rev as flint-ltk's dep, so cargo compiles ONE shared copy (identical types across crates).
+ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "fb7832e0c05efba104a7397942bb4137455e44ab" }
 intel_tex_2 = "0.5"
 flate2 = "1.0"
 
