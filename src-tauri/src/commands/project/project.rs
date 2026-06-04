@@ -820,10 +820,11 @@ fn fnv1a_lower(s: &str) -> u32 {
     hash
 }
 
-/// Build a `BinProperty` from a field name and value.
-fn bin_prop(name: &str, value: flint_ltk::ltk_types::PropertyValueEnum) -> (u32, flint_ltk::ltk_types::BinProperty) {
-    let h = fnv1a_lower(name);
-    (h, flint_ltk::ltk_types::BinProperty { name_hash: h, value })
+/// Build a `(field_hash, value)` pair from a field name and value. rs_bin
+/// stores fields as `IndexMap<u32, BinValue>` keyed by the FNV1a-32 of the
+/// lowercased field name, so the value is the bare `BinValue` (no wrapper).
+fn bin_prop(name: &str, value: flint_ltk::ltk_types::BinValue) -> (u32, flint_ltk::ltk_types::BinValue) {
+    (fnv1a_lower(name), value)
 }
 
 /// Inject the animation configuration object directly into the uibase BIN tree.
@@ -844,14 +845,14 @@ fn inject_animation_block(
     total_frames: f32,
     cols: f32,
 ) -> Result<(), String> {
-    use flint_ltk::ltk_types::*;
+    use flint_ltk::ltk_types::{BinEntry, BinValue};
 
     tracing::info!("Injecting animation block into uibase BIN");
 
     let mut bin = flint_ltk::bin::read_bin_ltk(uibase_bytes)
         .map_err(|e| format!("Failed to parse uibase BIN: {}", e))?;
 
-    tracing::info!("uibase parsed: {} objects", bin.objects.len());
+    tracing::info!("uibase parsed: {} objects", bin.entries.len());
 
     let uv_w = frame_width as f32 / sheet_width as f32;
     let uv_h = frame_height as f32 / sheet_height as f32;
@@ -863,61 +864,58 @@ fn inject_animation_block(
     let scene_path = "ClientStates/LoadingScreen/UX/LoadingScreenClassic/UIBase/LoadingScreen";
 
     // UIRect embed inside Position
-    let ui_rect = Embedded(Struct {
-        class_hash: fnv1a_lower("UiElementRect"),
-        properties: vec![
-            bin_prop("Position", PropertyValueEnum::Vector2(Vector2::new(Vec2::new(0.0, 0.0)))),
-            bin_prop("Size", PropertyValueEnum::Vector2(Vector2::new(Vec2::new(1920.0, 1080.0)))),
-            bin_prop("SourceResolutionWidth", PropertyValueEnum::U16(U16::new(1920))),
-            bin_prop("SourceResolutionHeight", PropertyValueEnum::U16(U16::new(1080))),
+    let ui_rect = BinValue::Embed {
+        class: fnv1a_lower("UiElementRect"),
+        fields: vec![
+            bin_prop("Position", BinValue::Vec2([0.0, 0.0])),
+            bin_prop("Size", BinValue::Vec2([1920.0, 1080.0])),
+            bin_prop("SourceResolutionWidth", BinValue::U16(1920)),
+            bin_prop("SourceResolutionHeight", BinValue::U16(1080)),
         ].into_iter().collect(),
-        meta: Default::default(),
-    });
+    };
 
     // Position pointer → UiPositionRect
-    let position_ptr = Struct {
-        class_hash: fnv1a_lower("UiPositionRect"),
-        properties: vec![
-            bin_prop("UIRect", PropertyValueEnum::Embedded(ui_rect)),
-            bin_prop("IgnoreGlobalScale", PropertyValueEnum::Bool(Bool::new(true))),
+    let position_ptr = BinValue::Pointer {
+        class: fnv1a_lower("UiPositionRect"),
+        fields: vec![
+            bin_prop("UIRect", ui_rect),
+            bin_prop("IgnoreGlobalScale", BinValue::Bool(true)),
         ].into_iter().collect(),
-        meta: Default::default(),
     };
 
     // TextureData pointer → AtlasData
-    let atlas_data = Struct {
-        class_hash: fnv1a_lower("AtlasData"),
-        properties: vec![
-            bin_prop("mTextureName", PropertyValueEnum::String(values::String::from("assets/animatedloadscreen/spritesheet.tex"))),
-            bin_prop("mTextureSourceResolutionWidth", PropertyValueEnum::U32(U32::new(sheet_width))),
-            bin_prop("mTextureSourceResolutionHeight", PropertyValueEnum::U32(U32::new(sheet_height))),
-            bin_prop("mTextureUV", PropertyValueEnum::Vector4(Vector4::new(Vec4::new(0.0, 0.0, uv_w, uv_h)))),
+    let atlas_data = BinValue::Pointer {
+        class: fnv1a_lower("AtlasData"),
+        fields: vec![
+            bin_prop("mTextureName", BinValue::String("assets/animatedloadscreen/spritesheet.tex".to_string())),
+            bin_prop("mTextureSourceResolutionWidth", BinValue::U32(sheet_width)),
+            bin_prop("mTextureSourceResolutionHeight", BinValue::U32(sheet_height)),
+            bin_prop("mTextureUV", BinValue::Vec4([0.0, 0.0, uv_w, uv_h])),
         ].into_iter().collect(),
-        meta: Default::default(),
     };
 
-    // Top-level object
+    // Top-level entry
     let path_hash: u32 = 0x93e6_1733;
-    let anim_obj = flint_ltk::ltk_types::BinObject {
+    let anim_entry = BinEntry {
         path_hash,
         class_hash: fnv1a_lower("UiElementEffectAnimationData"),
-        properties: vec![
-            bin_prop("name", PropertyValueEnum::String(values::String::from(entry_name))),
-            bin_prop("Scene", PropertyValueEnum::ObjectLink(ObjectLink::new(fnv1a_lower(scene_path)))),
-            bin_prop("Enabled", PropertyValueEnum::Bool(Bool::new(true))),
-            bin_prop("Layer", PropertyValueEnum::U32(U32::new(0))),
-            bin_prop("Position", PropertyValueEnum::Struct(position_ptr)),
-            bin_prop("TextureData", PropertyValueEnum::Struct(atlas_data)),
-            bin_prop("FramesPerSecond", PropertyValueEnum::F32(F32::new(fps))),
-            bin_prop("TotalNumberOfFrames", PropertyValueEnum::F32(F32::new(total_frames))),
-            bin_prop("NumberOfFramesPerRowInAtlas", PropertyValueEnum::F32(F32::new(cols))),
-            bin_prop("mFinishBehavior", PropertyValueEnum::U8(U8::new(1))),
+        fields: vec![
+            bin_prop("name", BinValue::String(entry_name)),
+            bin_prop("Scene", BinValue::Link(fnv1a_lower(scene_path))),
+            bin_prop("Enabled", BinValue::Bool(true)),
+            bin_prop("Layer", BinValue::U32(0)),
+            bin_prop("Position", position_ptr),
+            bin_prop("TextureData", atlas_data),
+            bin_prop("FramesPerSecond", BinValue::F32(fps)),
+            bin_prop("TotalNumberOfFrames", BinValue::F32(total_frames)),
+            bin_prop("NumberOfFramesPerRowInAtlas", BinValue::F32(cols)),
+            bin_prop("mFinishBehavior", BinValue::U8(1)),
         ].into_iter().collect(),
     };
 
-    bin.objects.insert(path_hash, anim_obj);
+    bin.entries.push(anim_entry);
 
-    tracing::info!("Animation object inserted ({} objects total), writing binary", bin.objects.len());
+    tracing::info!("Animation object inserted ({} objects total), writing binary", bin.entries.len());
 
     let binary_data = flint_ltk::bin::write_bin_ltk(&bin)
         .map_err(|e| format!("Failed to write modified BIN: {}", e))?;

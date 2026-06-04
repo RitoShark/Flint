@@ -72,7 +72,7 @@ pub async fn convert_bin_to_text(
             format!("Failed to parse bin file '{}': {}", input_path, e)
         })?;
 
-    tracing::debug!("Parsed bin file with {} objects", bin.objects.len());
+    tracing::debug!("Parsed bin file with {} objects", bin.entries.len());
 
     // Convert to text with full hash resolution (same as the BIN editor path)
     let text = tree_to_text_cached(&bin)
@@ -187,7 +187,7 @@ pub async fn convert_text_to_bin(
             format!("Failed to parse text from '{}': {}", input_path, e)
         })?;
 
-    tracing::debug!("Parsed text to bin with {} objects", bin.objects.len());
+    tracing::debug!("Parsed text to bin with {} objects", bin.entries.len());
 
     // Convert to binary
     let data = write_bin(&bin)
@@ -284,7 +284,7 @@ pub async fn read_bin_info(input_path: String) -> Result<BinInfo, String> {
 
     // Return metadata
     Ok(BinInfo {
-        entry_count: bin.objects.len(),
+        entry_count: bin.entries.len(),
         version: 1, // TODO: Extract actual version from bin file if available
     })
 }
@@ -316,7 +316,7 @@ pub async fn convert_bin_bytes_to_text(
             format!("Failed to parse bin data: {}", e)
         })?;
 
-    tracing::debug!("Parsed bin data with {} objects", bin.objects.len());
+    tracing::debug!("Parsed bin data with {} objects", bin.entries.len());
 
     // Convert with full hash resolution (same path as the BIN editor)
     let text = tree_to_text_cached(&bin)
@@ -357,7 +357,7 @@ pub async fn convert_bin_bytes_to_json(
             format!("Failed to parse bin data: {}", e)
         })?;
 
-    tracing::debug!("Parsed bin data with {} objects", bin.objects.len());
+    tracing::debug!("Parsed bin data with {} objects", bin.entries.len());
 
     // Convert to JSON format
     let json = bin_to_json(&bin)
@@ -402,7 +402,7 @@ pub async fn parse_bin_file_to_text(
     let bin = flint_ltk::bin::read_bin_ltk(&data)
         .map_err(|e| format!("Failed to parse bin file: {}", e))?;
 
-    tracing::debug!("Parsed bin file with {} objects", bin.objects.len());
+    tracing::debug!("Parsed bin file with {} objects", bin.entries.len());
 
     let text = flint_ltk::bin::tree_to_text_cached(&bin)
         .map_err(|e| format!("Failed to convert to text: {}", e))?;

@@ -2,6 +2,7 @@
 pub mod ltk_bridge;
 pub mod jade;
 pub mod converter;
+pub mod bin_json;
 pub mod concat;
 pub mod split;
 
@@ -16,8 +17,8 @@ pub use ltk_bridge::{
     MAX_BIN_SIZE,
 };
 
-// Re-export ltk_meta types directly
-pub use ltk_meta::{Bin, BinObject, BinProperty, PropertyKind, PropertyValueEnum};
+// Re-export rs_bin types directly
+pub use ritoshark::bin::{Bin, BinEntry, BinType, BinValue};
 
 // Legacy aliases for backwards compatibility with commands
 pub use ltk_bridge::read_bin;

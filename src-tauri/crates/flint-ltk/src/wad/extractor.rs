@@ -1,6 +1,6 @@
 use crate::error::{Error, Result};
 use crate::hash::ResolvedHashes;
-use ltk_meta::PropertyValueEnum;
+use ritoshark::bin::BinValue;
 use league_toolkit::file::LeagueFileKind;
 use league_toolkit::wad::{Wad, WadChunk};
 use memmap2::Mmap;
@@ -574,10 +574,9 @@ fn resolve_chunk_path(path: &str, chunk_data: &[u8]) -> PathBuf {
 /// the post-extraction scan in `repath::refather::scan_bin_for_paths`. Used
 /// by the selective skin extractor so we can compute the chunk allow-list
 /// without writing anything to disk first.
-fn collect_paths_from_value_into(value: &PropertyValueEnum, out: &mut Vec<String>) {
+fn collect_paths_from_value_into(value: &BinValue, out: &mut Vec<String>) {
     match value {
-        PropertyValueEnum::String(s) => {
-            let v = &s.value;
+        BinValue::String(v) => {
             if v.len() >= 5
                 && (v.len() >= 7 && v[..7].eq_ignore_ascii_case("assets/")
                     || v.len() >= 5 && v[..5].eq_ignore_ascii_case("data/"))
@@ -585,23 +584,19 @@ fn collect_paths_from_value_into(value: &PropertyValueEnum, out: &mut Vec<String
                 out.push(v.to_lowercase().replace('\\', "/"));
             }
         }
-        PropertyValueEnum::Container(c) => {
-            for item in c.clone().into_items() { collect_paths_from_value_into(&item, out); }
+        // List / List2 both hold `items: Vec<BinValue>`.
+        BinValue::List { items, .. } => {
+            for item in items { collect_paths_from_value_into(item, out); }
         }
-        PropertyValueEnum::UnorderedContainer(uc) => {
-            for item in uc.0.clone().into_items() { collect_paths_from_value_into(&item, out); }
+        // Pointer / Embed both hold `fields: IndexMap<u32, BinValue>`.
+        BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
+            for v in fields.values() { collect_paths_from_value_into(v, out); }
         }
-        PropertyValueEnum::Struct(s) => {
-            for prop in s.properties.values() { collect_paths_from_value_into(&prop.value, out); }
+        BinValue::Option { value: Some(inner), .. } => {
+            collect_paths_from_value_into(inner, out);
         }
-        PropertyValueEnum::Embedded(e) => {
-            for prop in e.0.properties.values() { collect_paths_from_value_into(&prop.value, out); }
-        }
-        PropertyValueEnum::Optional(o) => {
-            if let Some(inner) = o.clone().into_inner() { collect_paths_from_value_into(&inner, out); }
-        }
-        PropertyValueEnum::Map(m) => {
-            for (k, v) in m.entries() {
+        BinValue::Map { entries, .. } => {
+            for (k, v) in entries {
                 collect_paths_from_value_into(k, out);
                 collect_paths_from_value_into(v, out);
             }
@@ -731,8 +726,8 @@ pub fn extract_skin_assets_selective(
         };
         bins_walked += 1;
 
-        // Linked BINs declared in the BIN header dependencies list.
-        for dep in &bin.dependencies {
+        // Linked BINs declared in the BIN header linked-files list.
+        for dep in &bin.linked {
             let dep_norm = dep.to_lowercase().replace('\\', "/");
             if bin_seen.insert(dep_norm.clone()) {
                 queue.push_back(dep_norm);
@@ -743,9 +738,9 @@ pub fn extract_skin_assets_selective(
         // the BFS queue so we recurse into them; everything else (textures,
         // anims, sounds, particles) goes straight in the want set.
         let mut paths_found: Vec<String> = Vec::new();
-        for object in bin.objects.values() {
-            for prop in object.properties.values() {
-                collect_paths_from_value_into(&prop.value, &mut paths_found);
+        for entry in &bin.entries {
+            for value in entry.fields.values() {
+                collect_paths_from_value_into(value, &mut paths_found);
             }
         }
         for p in paths_found {

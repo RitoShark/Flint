@@ -9,7 +9,7 @@
 
 use crate::bin::ltk_bridge::{read_bin, write_bin};
 use crate::error::{Error, Result};
-use ltk_meta::{Bin, BinObject};
+use ritoshark::bin::{Bin, BinEntry};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -85,14 +85,14 @@ pub fn classify_bin(path: &str) -> BinCategory {
     BinCategory::LinkedData
 }
 
-/// Get the linked paths from a Bin (uses dependencies field)
+/// Get the linked paths from a Bin (uses the `linked` field)
 pub fn get_linked_paths(bin: &Bin) -> Vec<String> {
-    bin.dependencies.clone()
+    bin.linked.clone()
 }
 
 /// Set the linked paths in a Bin
 pub fn set_linked_paths(bin: &mut Bin, paths: Vec<String>) {
-    bin.dependencies = paths;
+    bin.linked = paths;
 }
 
 /// Create a concatenated BIN from all Type 3 (LinkedData) BINs
@@ -131,8 +131,8 @@ pub fn create_concat_bin(
         ));
     }
 
-    // 3. Create new concat BIN - objects will be merged, dependencies empty
-    let mut all_objects: HashMap<u32, BinObject> = HashMap::new();
+    // 3. Create new concat BIN - objects will be merged, linked list empty
+    let mut all_objects: HashMap<u32, BinEntry> = HashMap::new();
     let mut collision_count = 0;
     let mut source_count = 0;
     let mut processed_paths: Vec<String> = Vec::new();
@@ -151,7 +151,7 @@ pub fn create_concat_bin(
             continue;
         }
 
-        // Load the source BIN using ltk_meta
+        // Load the source BIN
         let data = fs::read(&full_path).map_err(|e| Error::io_with_path(e, &full_path))?;
 
         let magic = if data.len() >= 4 {
@@ -182,33 +182,36 @@ pub fn create_concat_bin(
             }
         };
 
-        // Validate that source is indeed a linked BIN (should have empty dependencies)
-        if !source_bin.dependencies.is_empty() {
+        // Validate that source is indeed a linked BIN (should have empty linked list)
+        if !source_bin.linked.is_empty() {
             tracing::warn!(
-                "Type 3 BIN has non-empty dependencies ({}), may cause issues: {}",
-                source_bin.dependencies.len(),
+                "Type 3 BIN has non-empty linked list ({}), may cause issues: {}",
+                source_bin.linked.len(),
                 bin_path
             );
         }
 
         // Merge objects from source into all_objects
-        for (path_hash, object) in source_bin.objects {
+        for entry in source_bin.entries {
+            let path_hash = entry.path_hash;
             if all_objects.contains_key(&path_hash) {
                 collision_count += 1;
                 tracing::debug!("Hash collision for 0x{:08x} in {}, last-write-wins", path_hash, bin_path);
             }
-            all_objects.insert(path_hash, object);
+            all_objects.insert(path_hash, entry);
         }
 
         source_count += 1;
         processed_paths.push(actual_path.clone());
     }
 
-    // 4. Create the concat Bin using Bin::builder() for cleaner construction
-    let concat_bin = Bin::builder()
-        .objects(all_objects.into_values())
-        .build();
-    let object_count = concat_bin.objects.len();
+    // 4. Create the concat Bin from the merged entries. rs_bin has no
+    //    builder — construct with a struct literal over an empty v3 doc.
+    let concat_bin = Bin {
+        entries: all_objects.into_values().collect(),
+        ..Bin::new()
+    };
+    let object_count = concat_bin.entries.len();
 
     // 5. Generate concat path (sanitize names: replace spaces with dashes)
     // New naming: data/{creator}_{project}_Concat.bin
@@ -313,8 +316,8 @@ pub fn concatenate_linked_bins(
         .map_err(|e| Error::InvalidInput(format!("Failed to parse main BIN: {}", e)))?;
     drop(data); // free the raw bytes — we'll re-encode from the parsed struct
 
-    tracing::debug!("Original dependencies:");
-    for (i, path) in main_bin.dependencies.iter().enumerate() {
+    tracing::debug!("Original linked paths:");
+    for (i, path) in main_bin.linked.iter().enumerate() {
         tracing::debug!("  [{}] {} - {:?}", i, path, classify_bin(path));
     }
 

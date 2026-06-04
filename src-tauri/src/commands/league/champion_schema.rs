@@ -19,8 +19,8 @@ use crate::state::LmdbCacheState;
 use flint_ltk::bin::ltk_bridge::{get_cached_bin_hashes, read_bin, MAX_BIN_SIZE};
 use flint_ltk::bin::{classify_bin, BinCategory};
 use flint_ltk::hash::{get_hash_dir, resolve_hashes_lmdb_bulk, ResolvedHashes};
-use flint_ltk::ltk_types::HashProvider;
-use flint_ltk::ltk_types::{values, BinProperty, PropertyKind, PropertyValueEnum};
+use flint_ltk::ltk_types::HashMapper;
+use flint_ltk::ltk_types::{BinType, BinValue};
 use flint_ltk::wad_jade::adapter::WadHandle as WadReader;
 
 const SAMPLE_LIMIT_COMPLEX: usize = 3;
@@ -62,7 +62,7 @@ struct ClassSchema {
 
 struct FieldSchema {
     type_str: String,
-    samples: Vec<PropertyValueEnum>,
+    samples: Vec<BinValue>,
     sample_limit: usize,
 }
 
@@ -77,73 +77,80 @@ struct EntrySample {
 // — class info comes from the sample value itself when rendering)
 // =============================================================================
 
-fn kind_str(kind: PropertyKind) -> &'static str {
+fn kind_str(kind: BinType) -> &'static str {
     match kind {
-        PropertyKind::None => "none",
-        PropertyKind::Bool => "bool",
-        PropertyKind::I8 => "i8",
-        PropertyKind::U8 => "u8",
-        PropertyKind::I16 => "i16",
-        PropertyKind::U16 => "u16",
-        PropertyKind::I32 => "i32",
-        PropertyKind::U32 => "u32",
-        PropertyKind::I64 => "i64",
-        PropertyKind::U64 => "u64",
-        PropertyKind::F32 => "f32",
-        PropertyKind::Vector2 => "vec2",
-        PropertyKind::Vector3 => "vec3",
-        PropertyKind::Vector4 => "vec4",
-        PropertyKind::Matrix44 => "mtx44",
-        PropertyKind::Color => "rgba",
-        PropertyKind::String => "string",
-        PropertyKind::Hash => "hash",
-        PropertyKind::WadChunkLink => "file",
-        PropertyKind::Container => "list",
-        PropertyKind::UnorderedContainer => "list2",
-        PropertyKind::Struct => "pointer",
-        PropertyKind::Embedded => "embed",
-        PropertyKind::ObjectLink => "link",
-        PropertyKind::Optional => "option",
-        PropertyKind::Map => "map",
-        PropertyKind::BitBool => "flag",
+        BinType::None => "none",
+        BinType::Bool => "bool",
+        BinType::I8 => "i8",
+        BinType::U8 => "u8",
+        BinType::I16 => "i16",
+        BinType::U16 => "u16",
+        BinType::I32 => "i32",
+        BinType::U32 => "u32",
+        BinType::I64 => "i64",
+        BinType::U64 => "u64",
+        BinType::F32 => "f32",
+        BinType::Vec2 => "vec2",
+        BinType::Vec3 => "vec3",
+        BinType::Vec4 => "vec4",
+        BinType::Mtx44 => "mtx44",
+        BinType::Rgba => "rgba",
+        BinType::String => "string",
+        BinType::Hash => "hash",
+        BinType::File => "file",
+        BinType::List => "list",
+        BinType::List2 => "list2",
+        BinType::Pointer => "pointer",
+        BinType::Embed => "embed",
+        BinType::Link => "link",
+        BinType::Option => "option",
+        BinType::Map => "map",
+        BinType::Flag => "flag",
     }
 }
 
-fn describe_type(value: &PropertyValueEnum) -> String {
+fn describe_type(value: &BinValue) -> String {
     match value {
-        PropertyValueEnum::Struct(_) => "pointer".to_string(),
-        PropertyValueEnum::Embedded(_) => "embed".to_string(),
-        PropertyValueEnum::Container(c) => format!("list[{}]", kind_str(c.item_kind())),
-        PropertyValueEnum::UnorderedContainer(uc) => format!("list2[{}]", kind_str(uc.0.item_kind())),
-        PropertyValueEnum::Map(m) => format!("map[{},{}]", kind_str(m.key_kind()), kind_str(m.value_kind())),
-        PropertyValueEnum::Optional(o) => format!("option[{}]", kind_str(o.item_kind())),
-        other => kind_str(other.kind()).to_string(),
+        BinValue::Pointer { .. } => "pointer".to_string(),
+        BinValue::Embed { .. } => "embed".to_string(),
+        BinValue::List { is_list2, item, .. } => {
+            if *is_list2 {
+                format!("list2[{}]", kind_str(*item))
+            } else {
+                format!("list[{}]", kind_str(*item))
+            }
+        }
+        BinValue::Map { key, value, .. } => {
+            format!("map[{},{}]", kind_str(*key), kind_str(*value))
+        }
+        BinValue::Option { item, .. } => format!("option[{}]", kind_str(*item)),
+        other => kind_str(other.ty()).to_string(),
     }
 }
 
-fn is_scalar_value(v: &PropertyValueEnum) -> bool {
+fn is_scalar_value(v: &BinValue) -> bool {
     matches!(
         v,
-        PropertyValueEnum::Bool(_)
-            | PropertyValueEnum::BitBool(_)
-            | PropertyValueEnum::I8(_)
-            | PropertyValueEnum::U8(_)
-            | PropertyValueEnum::I16(_)
-            | PropertyValueEnum::U16(_)
-            | PropertyValueEnum::I32(_)
-            | PropertyValueEnum::U32(_)
-            | PropertyValueEnum::I64(_)
-            | PropertyValueEnum::U64(_)
-            | PropertyValueEnum::F32(_)
-            | PropertyValueEnum::Vector2(_)
-            | PropertyValueEnum::Vector3(_)
-            | PropertyValueEnum::Vector4(_)
-            | PropertyValueEnum::Matrix44(_)
-            | PropertyValueEnum::Color(_)
-            | PropertyValueEnum::String(_)
-            | PropertyValueEnum::Hash(_)
-            | PropertyValueEnum::ObjectLink(_)
-            | PropertyValueEnum::WadChunkLink(_)
+        BinValue::Bool(_)
+            | BinValue::Flag(_)
+            | BinValue::I8(_)
+            | BinValue::U8(_)
+            | BinValue::I16(_)
+            | BinValue::U16(_)
+            | BinValue::I32(_)
+            | BinValue::U32(_)
+            | BinValue::I64(_)
+            | BinValue::U64(_)
+            | BinValue::F32(_)
+            | BinValue::Vec2(_)
+            | BinValue::Vec3(_)
+            | BinValue::Vec4(_)
+            | BinValue::Mtx44(_)
+            | BinValue::Rgba(_)
+            | BinValue::String(_)
+            | BinValue::Hash(_)
+            | BinValue::Link(_)
+            | BinValue::File(_)
     )
 }
 
@@ -153,7 +160,7 @@ fn is_scalar_value(v: &PropertyValueEnum) -> bool {
 
 fn process_class(
     class_hash: u32,
-    properties: &IndexMap<u32, BinProperty>,
+    fields: &IndexMap<u32, BinValue>,
     schema: &mut HashMap<u32, ClassSchema>,
 ) {
     if class_hash == 0 {
@@ -164,15 +171,15 @@ fn process_class(
         fields: IndexMap::new(),
     });
 
-    for prop in properties.values() {
-        let type_str = describe_type(&prop.value);
-        let limit = if is_scalar_value(&prop.value) {
+    for (name_hash, value) in fields {
+        let type_str = describe_type(value);
+        let limit = if is_scalar_value(value) {
             SAMPLE_LIMIT_SCALAR
         } else {
             SAMPLE_LIMIT_COMPLEX
         };
 
-        let field = class.fields.entry(prop.name_hash).or_insert_with(|| FieldSchema {
+        let field = class.fields.entry(*name_hash).or_insert_with(|| FieldSchema {
             type_str: type_str.clone(),
             samples: Vec::new(),
             sample_limit: limit,
@@ -187,72 +194,38 @@ fn process_class(
             field.sample_limit = limit;
         }
         if field.samples.len() < field.sample_limit {
-            field.samples.push(prop.value.clone());
+            field.samples.push(value.clone());
         }
     }
 
     // Recurse into nested classes (collect first to avoid borrow conflicts).
-    let mut nested: Vec<(u32, IndexMap<u32, BinProperty>)> = Vec::new();
-    for prop in properties.values() {
-        collect_nested(&prop.value, &mut nested);
+    let mut nested: Vec<(u32, IndexMap<u32, BinValue>)> = Vec::new();
+    for value in fields.values() {
+        collect_nested(value, &mut nested);
     }
     for (ch, props) in nested {
         process_class(ch, &props, schema);
     }
 }
 
-fn collect_nested(value: &PropertyValueEnum, out: &mut Vec<(u32, IndexMap<u32, BinProperty>)>) {
+fn collect_nested(value: &BinValue, out: &mut Vec<(u32, IndexMap<u32, BinValue>)>) {
     match value {
-        PropertyValueEnum::Struct(s) if s.class_hash != 0 => {
-            out.push((s.class_hash, s.properties.clone()));
+        BinValue::Pointer { class, fields } | BinValue::Embed { class, fields } if *class != 0 => {
+            out.push((*class, fields.clone()));
         }
-        PropertyValueEnum::Embedded(e) if e.0.class_hash != 0 => {
-            out.push((e.0.class_hash, e.0.properties.clone()));
-        }
-        PropertyValueEnum::Container(c) => collect_nested_container(c, out),
-        PropertyValueEnum::UnorderedContainer(uc) => collect_nested_container(&uc.0, out),
-        PropertyValueEnum::Map(m) => {
-            for (_k, v) in m.entries() {
-                match v {
-                    PropertyValueEnum::Struct(s) if s.class_hash != 0 => {
-                        out.push((s.class_hash, s.properties.clone()));
-                    }
-                    PropertyValueEnum::Embedded(e) if e.0.class_hash != 0 => {
-                        out.push((e.0.class_hash, e.0.properties.clone()));
-                    }
-                    _ => {}
-                }
+        BinValue::List { items, .. } => {
+            for item in items {
+                collect_nested(item, out);
             }
         }
-        PropertyValueEnum::Optional(o) => match o {
-            values::Optional::Struct(Some(s)) if s.class_hash != 0 => {
-                out.push((s.class_hash, s.properties.clone()));
-            }
-            values::Optional::Embedded(Some(e)) if e.0.class_hash != 0 => {
-                out.push((e.0.class_hash, e.0.properties.clone()));
-            }
-            _ => {}
-        },
-        _ => {}
-    }
-}
-
-fn collect_nested_container(c: &values::Container, out: &mut Vec<(u32, IndexMap<u32, BinProperty>)>) {
-    match c {
-        values::Container::Struct { items, .. } => {
-            for s in items {
-                if s.class_hash != 0 {
-                    out.push((s.class_hash, s.properties.clone()));
-                }
+        BinValue::Map { entries, .. } => {
+            for (_k, v) in entries {
+                collect_nested(v, out);
             }
         }
-        values::Container::Embedded { items, .. } => {
-            for e in items {
-                if e.0.class_hash != 0 {
-                    out.push((e.0.class_hash, e.0.properties.clone()));
-                }
-            }
-        }
+        BinValue::Option {
+            value: Some(inner), ..
+        } => collect_nested(inner, out),
         _ => {}
     }
 }
@@ -261,24 +234,12 @@ fn collect_nested_container(c: &values::Container, out: &mut Vec<(u32, IndexMap<
 // Hash resolution helper
 // =============================================================================
 
-fn resolve_name(hash: u32, provider: &flint_ltk::ltk_types::HashMapProvider) -> Option<String> {
-    if let Some(n) = provider.lookup_type(hash) {
-        return Some(n.to_string());
-    }
-    if let Some(n) = provider.lookup_field(hash) {
-        return Some(n.to_string());
-    }
-    if let Some(n) = provider.lookup_entry(hash) {
-        return Some(n.to_string());
-    }
-    if let Some(n) = provider.lookup_hash(hash) {
-        return Some(n.to_string());
-    }
-    None
+fn resolve_name(hash: u32, provider: &HashMapper) -> Option<String> {
+    provider.get(hash as u64).map(|n| n.to_string())
 }
 
-fn resolve_entry_key(hash: u32, provider: &flint_ltk::ltk_types::HashMapProvider) -> String {
-    if let Some(name) = provider.lookup_entry(hash).or_else(|| provider.lookup_hash(hash)) {
+fn resolve_entry_key(hash: u32, provider: &HashMapper) -> String {
+    if let Some(name) = provider.get(hash as u64) {
         format!("\"{}\"", escape_str(name))
     } else {
         format!("0x{:08x}", hash)
@@ -317,9 +278,9 @@ fn indent_str(level: usize) -> String {
 /// to `render_class_block` which uses the merged global schema (so nested classes
 /// always show every field they ever had, not just what this sample carried).
 fn render_value(
-    value: &PropertyValueEnum,
+    value: &BinValue,
     schema: &HashMap<u32, ClassSchema>,
-    provider: &flint_ltk::ltk_types::HashMapProvider,
+    provider: &HashMapper,
     visited: &mut HashSet<u32>,
     indent: usize,
     out: &mut String,
@@ -327,281 +288,83 @@ fn render_value(
     use std::fmt::Write;
 
     match value {
-        PropertyValueEnum::None(_) => out.push_str("null"),
-        PropertyValueEnum::Bool(v) => out.push_str(if v.value { "true" } else { "false" }),
-        PropertyValueEnum::BitBool(v) => out.push_str(if v.value { "true" } else { "false" }),
-        PropertyValueEnum::I8(v) => write!(out, "{}", v.value).unwrap(),
-        PropertyValueEnum::U8(v) => write!(out, "{}", v.value).unwrap(),
-        PropertyValueEnum::I16(v) => write!(out, "{}", v.value).unwrap(),
-        PropertyValueEnum::U16(v) => write!(out, "{}", v.value).unwrap(),
-        PropertyValueEnum::I32(v) => write!(out, "{}", v.value).unwrap(),
-        PropertyValueEnum::U32(v) => write!(out, "{}", v.value).unwrap(),
-        PropertyValueEnum::I64(v) => write!(out, "{}", v.value).unwrap(),
-        PropertyValueEnum::U64(v) => write!(out, "{}", v.value).unwrap(),
-        PropertyValueEnum::F32(v) => out.push_str(&fmt_f32(v.value)),
-        PropertyValueEnum::Vector2(v) => {
-            write!(out, "{{ {}, {} }}", fmt_f32(v.value.x), fmt_f32(v.value.y)).unwrap();
+        BinValue::None => out.push_str("null"),
+        BinValue::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        BinValue::Flag(b) => out.push_str(if *b { "true" } else { "false" }),
+        BinValue::I8(n) => write!(out, "{}", n).unwrap(),
+        BinValue::U8(n) => write!(out, "{}", n).unwrap(),
+        BinValue::I16(n) => write!(out, "{}", n).unwrap(),
+        BinValue::U16(n) => write!(out, "{}", n).unwrap(),
+        BinValue::I32(n) => write!(out, "{}", n).unwrap(),
+        BinValue::U32(n) => write!(out, "{}", n).unwrap(),
+        BinValue::I64(n) => write!(out, "{}", n).unwrap(),
+        BinValue::U64(n) => write!(out, "{}", n).unwrap(),
+        BinValue::F32(n) => out.push_str(&fmt_f32(*n)),
+        BinValue::Vec2(a) => {
+            write!(out, "{{ {}, {} }}", fmt_f32(a[0]), fmt_f32(a[1])).unwrap();
         }
-        PropertyValueEnum::Vector3(v) => {
+        BinValue::Vec3(a) => {
             write!(
                 out,
                 "{{ {}, {}, {} }}",
-                fmt_f32(v.value.x),
-                fmt_f32(v.value.y),
-                fmt_f32(v.value.z)
+                fmt_f32(a[0]),
+                fmt_f32(a[1]),
+                fmt_f32(a[2])
             )
             .unwrap();
         }
-        PropertyValueEnum::Vector4(v) => {
+        BinValue::Vec4(a) => {
             write!(
                 out,
                 "{{ {}, {}, {}, {} }}",
-                fmt_f32(v.value.x),
-                fmt_f32(v.value.y),
-                fmt_f32(v.value.z),
-                fmt_f32(v.value.w)
+                fmt_f32(a[0]),
+                fmt_f32(a[1]),
+                fmt_f32(a[2]),
+                fmt_f32(a[3])
             )
             .unwrap();
         }
-        PropertyValueEnum::Matrix44(_) => out.push_str("{ /* mat4 */ }"),
-        PropertyValueEnum::Color(v) => {
-            write!(out, "{{ {}, {}, {}, {} }}", v.value.r, v.value.g, v.value.b, v.value.a).unwrap();
+        BinValue::Mtx44(_) => out.push_str("{ /* mat4 */ }"),
+        BinValue::Rgba(a) => {
+            write!(out, "{{ {}, {}, {}, {} }}", a[0], a[1], a[2], a[3]).unwrap();
         }
-        PropertyValueEnum::String(v) => {
-            write!(out, "\"{}\"", escape_str(&v.value)).unwrap();
+        BinValue::String(s) => {
+            write!(out, "\"{}\"", escape_str(s)).unwrap();
         }
-        PropertyValueEnum::Hash(v) => match resolve_name(v.value, provider) {
+        BinValue::Hash(h) => match resolve_name(*h, provider) {
             Some(name) => write!(out, "\"{}\"", escape_str(&name)).unwrap(),
-            None => write!(out, "0x{:08x}", v.value).unwrap(),
+            None => write!(out, "0x{:08x}", h).unwrap(),
         },
-        PropertyValueEnum::ObjectLink(v) => match resolve_name(v.value, provider) {
+        BinValue::Link(h) => match resolve_name(*h, provider) {
             Some(name) => write!(out, "\"{}\"", escape_str(&name)).unwrap(),
-            None => write!(out, "0x{:08x}", v.value).unwrap(),
+            None => write!(out, "0x{:08x}", h).unwrap(),
         },
-        PropertyValueEnum::WadChunkLink(v) => {
-            write!(out, "0x{:016x}", v.value).unwrap();
+        BinValue::File(h) => {
+            write!(out, "0x{:016x}", h).unwrap();
         }
-        PropertyValueEnum::Struct(s) => {
-            let class_name = resolve_name(s.class_hash, provider)
-                .unwrap_or_else(|| format!("0x{:08x}", s.class_hash));
+        BinValue::Pointer { class, .. } | BinValue::Embed { class, .. } => {
+            let class_name =
+                resolve_name(*class, provider).unwrap_or_else(|| format!("0x{:08x}", class));
             write!(out, "{} ", class_name).unwrap();
-            render_class_block(s.class_hash, schema, provider, visited, indent, out);
+            render_class_block(*class, schema, provider, visited, indent, out);
         }
-        PropertyValueEnum::Embedded(e) => {
-            let class_name = resolve_name(e.0.class_hash, provider)
-                .unwrap_or_else(|| format!("0x{:08x}", e.0.class_hash));
-            write!(out, "{} ", class_name).unwrap();
-            render_class_block(e.0.class_hash, schema, provider, visited, indent, out);
+        BinValue::List { items, .. } => {
+            render_container(items, schema, provider, visited, indent, out);
         }
-        PropertyValueEnum::Container(c) => {
-            render_container(c, schema, provider, visited, indent, out);
+        BinValue::Map { entries, .. } => {
+            render_map(entries, schema, provider, visited, indent, out);
         }
-        PropertyValueEnum::UnorderedContainer(uc) => {
-            render_container(&uc.0, schema, provider, visited, indent, out);
-        }
-        PropertyValueEnum::Map(m) => {
-            render_map(m, schema, provider, visited, indent, out);
-        }
-        PropertyValueEnum::Optional(o) => match o {
-            values::Optional::None(_) => out.push_str("null"),
-            values::Optional::Bool(Some(v)) => render_value(
-                &PropertyValueEnum::Bool(v.clone()),
-                schema,
-                provider,
-                visited,
-                indent,
-                out,
-            ),
-            values::Optional::Bool(None) => out.push_str("null"),
-            values::Optional::I8(Some(v)) => render_value(
-                &PropertyValueEnum::I8(v.clone()),
-                schema,
-                provider,
-                visited,
-                indent,
-                out,
-            ),
-            values::Optional::I8(None) => out.push_str("null"),
-            values::Optional::U8(Some(v)) => render_value(
-                &PropertyValueEnum::U8(v.clone()),
-                schema,
-                provider,
-                visited,
-                indent,
-                out,
-            ),
-            values::Optional::U8(None) => out.push_str("null"),
-            values::Optional::I16(Some(v)) => render_value(
-                &PropertyValueEnum::I16(v.clone()),
-                schema,
-                provider,
-                visited,
-                indent,
-                out,
-            ),
-            values::Optional::I16(None) => out.push_str("null"),
-            values::Optional::U16(Some(v)) => render_value(
-                &PropertyValueEnum::U16(v.clone()),
-                schema,
-                provider,
-                visited,
-                indent,
-                out,
-            ),
-            values::Optional::U16(None) => out.push_str("null"),
-            values::Optional::I32(Some(v)) => render_value(
-                &PropertyValueEnum::I32(v.clone()),
-                schema,
-                provider,
-                visited,
-                indent,
-                out,
-            ),
-            values::Optional::I32(None) => out.push_str("null"),
-            values::Optional::U32(Some(v)) => render_value(
-                &PropertyValueEnum::U32(v.clone()),
-                schema,
-                provider,
-                visited,
-                indent,
-                out,
-            ),
-            values::Optional::U32(None) => out.push_str("null"),
-            values::Optional::I64(Some(v)) => render_value(
-                &PropertyValueEnum::I64(v.clone()),
-                schema,
-                provider,
-                visited,
-                indent,
-                out,
-            ),
-            values::Optional::I64(None) => out.push_str("null"),
-            values::Optional::U64(Some(v)) => render_value(
-                &PropertyValueEnum::U64(v.clone()),
-                schema,
-                provider,
-                visited,
-                indent,
-                out,
-            ),
-            values::Optional::U64(None) => out.push_str("null"),
-            values::Optional::F32(Some(v)) => render_value(
-                &PropertyValueEnum::F32(v.clone()),
-                schema,
-                provider,
-                visited,
-                indent,
-                out,
-            ),
-            values::Optional::F32(None) => out.push_str("null"),
-            values::Optional::Vector2(Some(v)) => render_value(
-                &PropertyValueEnum::Vector2(v.clone()),
-                schema,
-                provider,
-                visited,
-                indent,
-                out,
-            ),
-            values::Optional::Vector2(None) => out.push_str("null"),
-            values::Optional::Vector3(Some(v)) => render_value(
-                &PropertyValueEnum::Vector3(v.clone()),
-                schema,
-                provider,
-                visited,
-                indent,
-                out,
-            ),
-            values::Optional::Vector3(None) => out.push_str("null"),
-            values::Optional::Vector4(Some(v)) => render_value(
-                &PropertyValueEnum::Vector4(v.clone()),
-                schema,
-                provider,
-                visited,
-                indent,
-                out,
-            ),
-            values::Optional::Vector4(None) => out.push_str("null"),
-            values::Optional::Color(Some(v)) => render_value(
-                &PropertyValueEnum::Color(v.clone()),
-                schema,
-                provider,
-                visited,
-                indent,
-                out,
-            ),
-            values::Optional::Color(None) => out.push_str("null"),
-            values::Optional::String(Some(v)) => render_value(
-                &PropertyValueEnum::String(v.clone()),
-                schema,
-                provider,
-                visited,
-                indent,
-                out,
-            ),
-            values::Optional::String(None) => out.push_str("null"),
-            values::Optional::Hash(Some(v)) => render_value(
-                &PropertyValueEnum::Hash(v.clone()),
-                schema,
-                provider,
-                visited,
-                indent,
-                out,
-            ),
-            values::Optional::Hash(None) => out.push_str("null"),
-            values::Optional::ObjectLink(Some(v)) => render_value(
-                &PropertyValueEnum::ObjectLink(v.clone()),
-                schema,
-                provider,
-                visited,
-                indent,
-                out,
-            ),
-            values::Optional::ObjectLink(None) => out.push_str("null"),
-            values::Optional::WadChunkLink(Some(v)) => render_value(
-                &PropertyValueEnum::WadChunkLink(v.clone()),
-                schema,
-                provider,
-                visited,
-                indent,
-                out,
-            ),
-            values::Optional::WadChunkLink(None) => out.push_str("null"),
-            values::Optional::Struct(Some(s)) => render_value(
-                &PropertyValueEnum::Struct(s.clone()),
-                schema,
-                provider,
-                visited,
-                indent,
-                out,
-            ),
-            values::Optional::Struct(None) => out.push_str("null"),
-            values::Optional::Embedded(Some(e)) => render_value(
-                &PropertyValueEnum::Embedded(e.clone()),
-                schema,
-                provider,
-                visited,
-                indent,
-                out,
-            ),
-            values::Optional::Embedded(None) => out.push_str("null"),
-            values::Optional::BitBool(Some(v)) => render_value(
-                &PropertyValueEnum::BitBool(v.clone()),
-                schema,
-                provider,
-                visited,
-                indent,
-                out,
-            ),
-            values::Optional::BitBool(None) => out.push_str("null"),
-            _ => out.push_str("null"),
+        BinValue::Option { value: inner, .. } => match inner {
+            Some(boxed) => render_value(boxed, schema, provider, visited, indent, out),
+            None => out.push_str("null"),
         },
     }
 }
 
 fn render_container(
-    c: &values::Container,
+    items: &[BinValue],
     schema: &HashMap<u32, ClassSchema>,
-    provider: &flint_ltk::ltk_types::HashMapProvider,
+    provider: &HashMapper,
     visited: &mut HashSet<u32>,
     indent: usize,
     out: &mut String,
@@ -610,7 +373,7 @@ fn render_container(
 
     // Take up to N samples from this container.
     let limit = SAMPLE_LIMIT_COMPLEX;
-    let items: Vec<PropertyValueEnum> = c.clone().into_items().take(limit).collect();
+    let items: Vec<&BinValue> = items.iter().take(limit).collect();
 
     if items.is_empty() {
         out.push_str("{}");
@@ -618,7 +381,7 @@ fn render_container(
     }
 
     // Inline-format scalar containers (short).
-    let all_scalar = items.iter().all(is_scalar_value);
+    let all_scalar = items.iter().all(|it| is_scalar_value(it));
     if all_scalar && items.len() <= 4 {
         out.push_str("{ ");
         for (i, it) in items.iter().enumerate() {
@@ -634,7 +397,7 @@ fn render_container(
     // Multi-line block format.
     out.push_str("{\n");
     let inner_indent = indent_str(indent + 1);
-    for it in &items {
+    for it in items.iter() {
         out.push_str(&inner_indent);
         render_value(it, schema, provider, visited, indent + 1, out);
         out.push('\n');
@@ -643,16 +406,15 @@ fn render_container(
 }
 
 fn render_map(
-    m: &values::Map,
+    entries: &[(BinValue, BinValue)],
     schema: &HashMap<u32, ClassSchema>,
-    provider: &flint_ltk::ltk_types::HashMapProvider,
+    provider: &HashMapper,
     visited: &mut HashSet<u32>,
     indent: usize,
     out: &mut String,
 ) {
     use std::fmt::Write;
 
-    let entries = m.entries();
     if entries.is_empty() {
         out.push_str("{}");
         return;
@@ -676,7 +438,7 @@ fn render_map(
 fn render_class_block(
     class_hash: u32,
     schema: &HashMap<u32, ClassSchema>,
-    provider: &flint_ltk::ltk_types::HashMapProvider,
+    provider: &HashMapper,
     visited: &mut HashSet<u32>,
     indent: usize,
     out: &mut String,
@@ -861,7 +623,7 @@ pub async fn aggregate_champion_bin_schema(
 
             // Sample a few linked-paths from the first BINs we successfully parse.
             if linked_samples.len() < LINKED_PATH_SAMPLE_LIMIT {
-                for dep in &bin.dependencies {
+                for dep in &bin.linked {
                     if linked_samples.len() >= LINKED_PATH_SAMPLE_LIMIT {
                         break;
                     }
@@ -871,21 +633,21 @@ pub async fn aggregate_champion_bin_schema(
                 }
             }
 
-            // Each top-level object becomes a root entry.
-            for obj in bin.objects.values() {
-                let entries_list = entries_by_class.entry(obj.class_hash).or_default();
-                if !root_class_order.contains(&obj.class_hash) {
-                    root_class_order.push(obj.class_hash);
+            // Each top-level entry becomes a root entry.
+            for entry in &bin.entries {
+                let entries_list = entries_by_class.entry(entry.class_hash).or_default();
+                if !root_class_order.contains(&entry.class_hash) {
+                    root_class_order.push(entry.class_hash);
                 }
                 if entries_list.len() < ENTRY_KEY_LIMIT_PER_CLASS {
-                    // path_hash on BinObject is u32 (entry hash).
-                    let key_repr = resolve_entry_key(obj.path_hash, &get_cached_bin_hashes().read());
+                    // path_hash on BinEntry is u32 (entry hash).
+                    let key_repr = resolve_entry_key(entry.path_hash, &get_cached_bin_hashes().read());
                     if !entries_list.iter().any(|e| e.key_repr == key_repr) {
                         entries_list.push(EntrySample { key_repr });
                     }
                 }
 
-                process_class(obj.class_hash, &obj.properties, &mut schema);
+                process_class(entry.class_hash, &entry.fields, &mut schema);
             }
 
             bins_parsed += 1;

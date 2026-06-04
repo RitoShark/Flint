@@ -63,7 +63,7 @@ pub async fn analyze_bin_for_split(bin_path: String) -> Result<BinSplitAnalysis,
     let data = std::fs::read(&path).map_err(|e| format!("Failed to read BIN: {}", e))?;
     let bin = read_bin(&data).map_err(|e| format!("Failed to parse BIN: {}", e))?;
 
-    let total = bin.objects.len();
+    let total = bin.entries.len();
     let vfx_set: HashSet<u32> = classify_vfx_objects(&bin).into_iter().collect();
 
     let class_cache = flint_ltk::bin::get_cached_bin_hashes();
@@ -95,12 +95,11 @@ pub async fn analyze_bin_for_split(bin_path: String) -> Result<BinSplitAnalysis,
 /// resolved name when present; falls back to `None` so the frontend renders
 /// the raw hex.
 fn lookup_bin_hash_name(
-    provider: &flint_ltk::bin::ltk_bridge::HashMapProvider,
+    provider: &flint_ltk::ltk_types::HashMapper,
     hash: u32,
 ) -> Option<String> {
-    use flint_ltk::bin::ltk_bridge::HashProvider;
-    // Class hashes resolve through the `types` table on the provider.
-    provider.lookup_type(hash).map(|s| s.to_string())
+    // BIN hashes are FNV1a-32; the HashMapper is u64-keyed, so widen at lookup.
+    provider.get(hash as u64).map(|s| s.to_string())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::bin::ltk_bridge;
-use ltk_meta::PropertyValueEnum;
+use ritoshark::bin::BinValue;
 use ritoshark::anim::Animation;
 // Only `Parse` is needed (for `Animation::from_bytes`); importing the whole prelude would also
 // pull rs_io's `Serialize` trait into scope, which reads confusingly next to `serde::Serialize`.
@@ -41,9 +41,9 @@ pub fn extract_animation_graph_path(skin_bin_path: &Path) -> Option<PathBuf> {
     
     // Look through dependencies for animation BIN (Type 2)
     // Animation BINs have "/animations/" in their path
-    tracing::debug!("Skin BIN has {} dependencies", tree.dependencies.len());
-    
-    for dep_path in &tree.dependencies {
+    tracing::debug!("Skin BIN has {} linked files", tree.linked.len());
+
+    for dep_path in &tree.linked {
         let normalized = dep_path.to_lowercase().replace('\\', "/");
         tracing::debug!("  Checking dependency: {}", dep_path);
         
@@ -263,10 +263,10 @@ pub fn extract_animation_list(bin_path: &Path) -> anyhow::Result<AnimationList> 
     let mut clips = Vec::new();
     
     // Iterate through all objects to find AtomicClipData
-    for (_path_hash, object) in &tree.objects {
-        // Look through properties for embedded AnimationResourceData
-        for (_name_hash, prop) in &object.properties {
-            extract_animation_paths_from_value(&prop.value, &mut clips);
+    for entry in &tree.entries {
+        // Look through fields for embedded AnimationResourceData
+        for value in entry.fields.values() {
+            extract_animation_paths_from_value(value, &mut clips);
         }
     }
     
@@ -274,10 +274,9 @@ pub fn extract_animation_list(bin_path: &Path) -> anyhow::Result<AnimationList> 
 }
 
 /// Recursively extract animation paths from property values
-fn extract_animation_paths_from_value(value: &PropertyValueEnum, clips: &mut Vec<AnimationClipInfo>) {
+fn extract_animation_paths_from_value(value: &BinValue, clips: &mut Vec<AnimationClipInfo>) {
     match value {
-        PropertyValueEnum::String(string_val) => {
-            let s = &string_val.value;
+        BinValue::String(s) => {
             // Check if this is an animation path
             if s.to_lowercase().ends_with(".anm") {
                 // Extract name from path
@@ -294,32 +293,27 @@ fn extract_animation_paths_from_value(value: &PropertyValueEnum, clips: &mut Vec
             }
         }
 
-        PropertyValueEnum::Embedded(embedded) => {
-            for (_hash, prop) in &embedded.0.properties {
-                extract_animation_paths_from_value(&prop.value, clips);
+        // Pointer / Embed both hold `fields: IndexMap<u32, BinValue>`.
+        BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
+            for val in fields.values() {
+                extract_animation_paths_from_value(val, clips);
             }
         }
 
-        PropertyValueEnum::Container(container) => {
-            for item in container.clone().into_items() {
-                extract_animation_paths_from_value(&item, clips);
+        // List / List2 both hold `items: Vec<BinValue>`.
+        BinValue::List { items, .. } => {
+            for item in items {
+                extract_animation_paths_from_value(item, clips);
             }
         }
 
-        PropertyValueEnum::Struct(struct_val) => {
-            for (_hash, prop) in &struct_val.properties {
-                extract_animation_paths_from_value(&prop.value, clips);
-            }
+        BinValue::Option { value: Some(inner), .. } => {
+            extract_animation_paths_from_value(inner, clips);
         }
 
-        PropertyValueEnum::Optional(opt) => {
-            if let Some(inner) = opt.clone().into_inner() {
-                extract_animation_paths_from_value(&inner, clips);
-            }
-        }
-
-        PropertyValueEnum::Map(map) => {
-            for (_key, val) in map.entries() {
+        BinValue::Map { entries, .. } => {
+            for (key, val) in entries {
+                extract_animation_paths_from_value(key, clips);
                 extract_animation_paths_from_value(val, clips);
             }
         }

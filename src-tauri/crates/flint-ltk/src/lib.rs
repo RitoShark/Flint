@@ -25,20 +25,14 @@ pub mod troybin;
 
 /// LTK types re-exported for the Flint binary crate
 pub mod ltk_types {
-    // ltk_meta core types (renamed in 0.4: BinTree→Bin, BinTreeObject→BinObject, BinPropertyKind→PropertyKind)
-    pub use ltk_meta::{Bin, BinObject, BinProperty, PropertyKind, PropertyValueEnum};
+    // BIN core types — MIGRATED to RitoShark's rs_bin (Plan 2). The flat `BinValue`
+    // replaces ltk_meta's `PropertyValueEnum` + typed sub-enums; `BinEntry` replaces
+    // `BinObject`/`BinProperty`; `BinType` replaces `PropertyKind`.
+    pub use ritoshark::bin::{Bin, BinEntry, BinType, BinValue};
 
-    // Value types module (use values::String to avoid shadowing std::string::String)
-    pub use ltk_meta::property::values;
-    pub use ltk_meta::property::values::{
-        Bool, I8, U8, I16, U16, I32, U32, I64, U64, F32,
-        Vector2, Vector3, Vector4, Matrix44,
-        Color, Hash, ObjectLink, BitBool, WadChunkLink,
-        Struct, Embedded, Container, UnorderedContainer, Optional, Map,
-    };
-
-    // ltk_ritobin (used by commands/dev.rs, bin_roundtrip_test.rs)
-    pub use ltk_ritobin::{HashProvider, HashMapProvider, write_with_hashes};
+    // Hash-name resolution for the ritobin text form (replaces ltk_ritobin's
+    // HashProvider/HashMapProvider/write_with_hashes — see flint_ltk::bin::ltk_bridge).
+    pub use ritoshark::hash::HashMapper;
 
     // ltk_mod_project (used by commands/export.rs, commands/ltk_manager.rs)
     pub use ltk_mod_project::{ModProject, ModProjectAuthor, default_layers};

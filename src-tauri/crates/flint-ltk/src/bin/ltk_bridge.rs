@@ -1,12 +1,15 @@
-//! Compatibility bridge to ltk_meta and ltk_ritobin for BIN file handling.
+//! Compatibility bridge to RitoShark's `rs_bin` for BIN file handling.
 //!
-//! This module provides a simplified interface to the League Toolkit libraries,
-//! wrapping their APIs for use throughout the application.
+//! This module provides a simplified interface to RitoShark's BIN reader/writer
+//! and ritobin text printer/parser, wrapping their APIs for use throughout the
+//! application. Hash-name resolution for the text form goes through a globally
+//! cached `HashMapper` populated from the `hashes-bin.lmdb` dictionary.
 
-use std::io::Cursor;
 use std::sync::OnceLock;
 use parking_lot::RwLock;
-use ltk_meta::{Bin};
+use ritoshark::bin::Bin;
+use ritoshark::hash::HashMapper;
+use ritoshark::prelude::{Parse as _, Serialize as _};
 
 /// Maximum allowed BIN file size (50MB - no legitimate BIN should be larger)
 pub const MAX_BIN_SIZE: usize = 50 * 1024 * 1024;
@@ -80,18 +83,17 @@ pub fn read_bin(data: &[u8]) -> Result<Bin> {
         )));
     }
 
-    // catch_unwind to handle OOM panics from ltk_meta
+    // catch_unwind to handle OOM panics from the parser
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut cursor = Cursor::new(data);
-        Bin::from_reader(&mut cursor)
+        Bin::from_bytes(data)
     }));
 
     match result {
         Ok(Ok(tree)) => {
             tracing::debug!(
-                "Successfully parsed BIN: {} objects, {} dependencies",
-                tree.objects.len(),
-                tree.dependencies.len()
+                "Successfully parsed BIN: {} entries, {} linked",
+                tree.entries.len(),
+                tree.linked.len()
             );
             Ok(tree)
         }
@@ -128,38 +130,32 @@ pub fn read_bin(data: &[u8]) -> Result<Bin> {
 /// # Returns
 /// A Vec<u8> containing the binary data
 pub fn write_bin(tree: &Bin) -> Result<Vec<u8>> {
-    let mut buffer = Cursor::new(Vec::new());
-    tree.to_writer(&mut buffer)
-        .map_err(|e| BinError(format!("Failed to write bin: {}", e)))?;
-    Ok(buffer.into_inner())
+    tree.to_bytes()
+        .map_err(|e| BinError(format!("Failed to write bin: {}", e)))
 }
 
 /// Convert a Bin to ritobin text format with hash name lookup.
 ///
 /// # Arguments
 /// * `tree` - The Bin to convert
-/// * `hashes` - Hash provider for name lookup
+/// * `hashes` - Hash mapper for name lookup
 ///
 /// # Returns
 /// A String containing the ritobin text format with resolved names
-pub fn tree_to_text_with_hashes<H: ltk_ritobin::HashProvider>(
-    tree: &Bin,
-    hashes: &H,
-) -> Result<String> {
-    ltk_ritobin::write_with_hashes(tree, hashes)
-        .map_err(|e| BinError(format!("Failed to convert to text: {}", e)))
+pub fn tree_to_text_with_hashes(tree: &Bin, hashes: &HashMapper) -> Result<String> {
+    Ok(ritoshark::bin::to_text(tree, Some(hashes)))
 }
 
 /// Load BIN hashes from `hashes-bin.lmdb` (named DB `"bin"`, 4-byte BE keys).
 ///
 /// The lmdb-hashes release bundles all 4 BIN hash categories (entries, fields,
-/// hashes, types) into a single DB. We populate all 4 HashMapProvider maps from
-/// the same entries so lookups work regardless of which category the caller queries —
-/// matches Quartz's approach.
-pub fn load_bin_hashes() -> HashMapProvider {
+/// hashes, types) into a single DB keyed by FNV1a-32. `rs_bin::to_text` resolves
+/// every u32 hash by widening it to `u64` (`mapper.get(hash as u64)`), so we
+/// insert each 32-bit key as `hash as u64` and a single map covers all categories.
+pub fn load_bin_hashes() -> HashMapper {
     use crate::hash::{downloader::get_hash_dir, get_bin_env};
 
-    let mut hashes = HashMapProvider::new();
+    let mut hashes = HashMapper::new();
 
     let hash_dir = match get_hash_dir() {
         Ok(dir) => dir.to_string_lossy().into_owned(),
@@ -213,11 +209,7 @@ pub fn load_bin_hashes() -> HashMapProvider {
                     let hash = u32::from_be_bytes([
                         key_bytes[0], key_bytes[1], key_bytes[2], key_bytes[3],
                     ]);
-                    let s = path_str.to_string();
-                    hashes.insert_type(hash, s.clone());
-                    hashes.insert_field(hash, s.clone());
-                    hashes.insert_entry(hash, s.clone());
-                    hashes.insert_hash(hash, s);
+                    hashes.insert(hash as u64, path_str.to_string());
                     count += 1;
                 }
             }
@@ -231,19 +223,19 @@ pub fn load_bin_hashes() -> HashMapProvider {
     hashes
 }
 
-/// Global cache for BIN hash provider - loaded once, reused for all conversions
+/// Global cache for BIN hash mapper - loaded once, reused for all conversions
 /// This eliminates the massive overhead of loading hash files for every BIN conversion
-static BIN_HASHES_CACHE: OnceLock<RwLock<HashMapProvider>> = OnceLock::new();
+static BIN_HASHES_CACHE: OnceLock<RwLock<HashMapper>> = OnceLock::new();
 
-/// Get or initialize the cached BIN hash provider
-/// 
+/// Get or initialize the cached BIN hash mapper
+///
 /// This is thread-safe and will only load hashes from disk once.
 /// All subsequent calls return the cached version.
-pub fn get_cached_bin_hashes() -> &'static RwLock<HashMapProvider> {
+pub fn get_cached_bin_hashes() -> &'static RwLock<HashMapper> {
     BIN_HASHES_CACHE.get_or_init(|| {
         tracing::info!("Initializing global BIN hash cache...");
         let hashes = load_bin_hashes();
-        tracing::info!("Global BIN hash cache initialized with {} hashes", hashes.total_count());
+        tracing::info!("Global BIN hash cache initialized with {} hashes", hashes.len());
         RwLock::new(hashes)
     })
 }
@@ -255,19 +247,19 @@ pub fn reload_bin_hash_cache() {
     if let Some(cache) = BIN_HASHES_CACHE.get() {
         tracing::info!("Reloading BIN hash cache from disk...");
         let new_hashes = load_bin_hashes();
-        let total = new_hashes.total_count();
+        let total = new_hashes.len();
         *cache.write() = new_hashes;
         tracing::info!("BIN hash cache reloaded with {} hashes", total);
     }
 }
 
-/// Convert a Bin to ritobin text format using the cached hash provider
+/// Convert a Bin to ritobin text format using the cached hash mapper
 ///
 /// This is the preferred method for BIN conversion as it reuses the globally
-/// cached hash provider instead of loading from disk each time.
+/// cached hash mapper instead of loading from disk each time.
 pub fn tree_to_text_cached(tree: &Bin) -> Result<String> {
     let hashes = get_cached_bin_hashes().read();
-    tree_to_text_with_hashes(tree, &*hashes)
+    tree_to_text_with_hashes(tree, &hashes)
 }
 
 /// Parse ritobin text format to Bin.
@@ -278,9 +270,6 @@ pub fn tree_to_text_cached(tree: &Bin) -> Result<String> {
 /// # Returns
 /// A Bin structure
 pub fn text_to_tree(text: &str) -> Result<Bin> {
-    ltk_ritobin::parse_to_bin_tree(text)
+    ritoshark::bin::from_text(text, None)
         .map_err(|e| BinError(format!("Failed to parse text: {}", e)))
 }
-
-// Re-export ltk_ritobin types for hash provider support
-pub use ltk_ritobin::{HashMapProvider, HashProvider};

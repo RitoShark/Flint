@@ -8,8 +8,7 @@
 
 use crate::bin::ltk_bridge::{read_bin, write_bin};
 use crate::error::{Error, Result};
-use ltk_meta::PropertyValueEnum;
-use ltk_meta::property::values;
+use ritoshark::bin::BinValue;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -326,9 +325,9 @@ pub fn repath_project(
         // Read the main BIN to get its linked BINs
         if let Ok(data) = fs::read(main_path) {
             if let Ok(bin) = read_bin(&data) {
-                tracing::info!("Main skin BIN has {} dependencies", bin.dependencies.len());
-                
-                for dep_path in &bin.dependencies {
+                tracing::info!("Main skin BIN has {} dependencies", bin.linked.len());
+
+                for dep_path in &bin.linked {
                     let normalized_path = dep_path.to_lowercase().replace('\\', "/");
 
                     let actual_path = path_mappings.get(&normalized_path)
@@ -507,50 +506,38 @@ fn scan_bin_for_paths(bin_path: &Path, use_jade: bool) -> Result<Vec<String>> {
 
     let mut paths = Vec::new();
 
-    for object in bin.objects.values() {
-        for prop in object.properties.values() {
-            collect_paths_from_value(&prop.value, &mut paths);
+    for entry in &bin.entries {
+        for value in entry.fields.values() {
+            collect_paths_from_value(value, &mut paths);
         }
     }
 
     Ok(paths)
 }
 
-/// Recursively collect asset paths from a PropertyValueEnum
-fn collect_paths_from_value(value: &PropertyValueEnum, paths: &mut Vec<String>) {
+/// Recursively collect asset paths from a BinValue
+fn collect_paths_from_value(value: &BinValue, paths: &mut Vec<String>) {
     match value {
-        PropertyValueEnum::String(s) => {
-            if is_asset_path(&s.value) {
-                paths.push(normalize_path(&s.value));
+        BinValue::String(s) => {
+            if is_asset_path(s) {
+                paths.push(normalize_path(s));
             }
         }
-        PropertyValueEnum::Container(c) => {
-            for item in c.clone().into_items() {
-                collect_paths_from_value(&item, paths);
+        BinValue::List { items, .. } => {
+            for item in items {
+                collect_paths_from_value(item, paths);
             }
         }
-        PropertyValueEnum::UnorderedContainer(uc) => {
-            for item in uc.0.clone().into_items() {
-                collect_paths_from_value(&item, paths);
+        BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
+            for v in fields.values() {
+                collect_paths_from_value(v, paths);
             }
         }
-        PropertyValueEnum::Struct(s) => {
-            for prop in s.properties.values() {
-                collect_paths_from_value(&prop.value, paths);
-            }
+        BinValue::Option { value: Some(inner), .. } => {
+            collect_paths_from_value(inner, paths);
         }
-        PropertyValueEnum::Embedded(e) => {
-            for prop in e.0.properties.values() {
-                collect_paths_from_value(&prop.value, paths);
-            }
-        }
-        PropertyValueEnum::Optional(o) => {
-            if let Some(inner) = o.clone().into_inner() {
-                collect_paths_from_value(&inner, paths);
-            }
-        }
-        PropertyValueEnum::Map(m) => {
-            for (key, val) in m.entries() {
+        BinValue::Map { entries, .. } => {
+            for (key, val) in entries {
                 collect_paths_from_value(key, paths);
                 collect_paths_from_value(val, paths);
             }
@@ -608,21 +595,21 @@ fn repath_bin_file(bin_path: &Path, existing_paths: &HashSet<String>, prefix: &s
 
     let mut modified_count = 0;
 
-    for object in bin.objects.values_mut() {
-        for (prop_name, prop) in object.properties.iter_mut() {
+    for entry in bin.entries.iter_mut() {
+        for (prop_name, value) in entry.fields.iter_mut() {
             // Special case: Replace championSkinName with project name (sanitized)
             if *prop_name == *CHAMPION_SKIN_NAME_HASH {
-                if let PropertyValueEnum::String(ref mut s) = prop.value {
+                if let BinValue::String(ref mut s) = value {
                     // Sanitize project name: replace spaces with hyphens
                     let sanitized_name = config.project_name.replace(' ', "-");
-                    s.value = sanitized_name.clone();
+                    *s = sanitized_name.clone();
                     modified_count += 1;
                     tracing::debug!("Replaced championSkinName with '{}' (sanitized from '{}')", sanitized_name, config.project_name);
                 }
             }
 
             // Normal repathing
-            modified_count += repath_value(&mut prop.value, existing_paths, prefix, config);
+            modified_count += repath_value(value, existing_paths, prefix, config);
         }
     }
 
@@ -646,130 +633,51 @@ fn repath_bin_file(bin_path: &Path, existing_paths: &HashSet<String>, prefix: &s
     Ok(modified_count)
 }
 
-/// Recursively repath string values in a PropertyValueEnum
+/// Recursively repath string values in a BinValue
 /// Also handles special fields like championSkinName and animation paths
-fn repath_value(value: &mut PropertyValueEnum, existing_paths: &HashSet<String>, prefix: &str, config: &RepathConfig) -> usize {
+fn repath_value(value: &mut BinValue, existing_paths: &HashSet<String>, prefix: &str, config: &RepathConfig) -> usize {
     let mut count = 0;
 
     match value {
-        PropertyValueEnum::String(s) => {
-            if is_asset_path(&s.value) {
-                let normalized = normalize_path(&s.value);
+        // Leaf: the only place a path string lives. Every nested string
+        // (inside List/Map/Pointer/Embed/Option) reaches this arm via recursion,
+        // so the per-string repath logic is written exactly once here.
+        BinValue::String(s) => {
+            if is_asset_path(s) {
+                let normalized = normalize_path(s);
                 if existing_paths.contains(&normalized) {
                     // Special handling for animation file paths: replace "Base" with skin ID folder
-                    let repathed = apply_prefix_to_path(&s.value, prefix, config);
-                    s.value = replace_base_folder_in_animation_path(&repathed, config.target_skin_id);
+                    let repathed = apply_prefix_to_path(s, prefix, config);
+                    *s = replace_base_folder_in_animation_path(&repathed, config.target_skin_id);
                     count += 1;
                 }
             }
         }
-        PropertyValueEnum::Container(c) => {
-            // Container is a typed enum; match variants that can contain rePathable strings
-            match c {
-                values::Container::String { items, .. } => {
-                    for s in items.iter_mut() {
-                        if is_asset_path(&s.value) {
-                            let normalized = normalize_path(&s.value);
-                            if existing_paths.contains(&normalized) {
-                                let repathed = apply_prefix_to_path(&s.value, prefix, config);
-                                s.value = replace_base_folder_in_animation_path(&repathed, config.target_skin_id);
-                                count += 1;
-                            }
-                        }
-                    }
-                }
-                values::Container::Struct { items, .. } => {
-                    for s in items.iter_mut() {
-                        for prop in s.properties.values_mut() {
-                            count += repath_value(&mut prop.value, existing_paths, prefix, config);
-                        }
-                    }
-                }
-                values::Container::Embedded { items, .. } => {
-                    for e in items.iter_mut() {
-                        for prop in e.0.properties.values_mut() {
-                            count += repath_value(&mut prop.value, existing_paths, prefix, config);
-                        }
-                    }
-                }
-                _ => {} // Other container item types can't contain asset paths
+        // List/List2 (ordered & unordered containers) collapse to one arm:
+        // recurse into every item regardless of element type.
+        BinValue::List { items, .. } => {
+            for item in items.iter_mut() {
+                count += repath_value(item, existing_paths, prefix, config);
             }
         }
-        PropertyValueEnum::UnorderedContainer(uc) => {
-            match &mut uc.0 {
-                values::Container::String { items, .. } => {
-                    for s in items.iter_mut() {
-                        if is_asset_path(&s.value) {
-                            let normalized = normalize_path(&s.value);
-                            if existing_paths.contains(&normalized) {
-                                let repathed = apply_prefix_to_path(&s.value, prefix, config);
-                                s.value = replace_base_folder_in_animation_path(&repathed, config.target_skin_id);
-                                count += 1;
-                            }
-                        }
-                    }
-                }
-                values::Container::Struct { items, .. } => {
-                    for s in items.iter_mut() {
-                        for prop in s.properties.values_mut() {
-                            count += repath_value(&mut prop.value, existing_paths, prefix, config);
-                        }
-                    }
-                }
-                values::Container::Embedded { items, .. } => {
-                    for e in items.iter_mut() {
-                        for prop in e.0.properties.values_mut() {
-                            count += repath_value(&mut prop.value, existing_paths, prefix, config);
-                        }
-                    }
-                }
-                _ => {}
+        // Pointer (Struct) and Embed (Embedded) share a struct body: walk fields.
+        BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
+            for v in fields.values_mut() {
+                count += repath_value(v, existing_paths, prefix, config);
             }
         }
-        PropertyValueEnum::Struct(s) => {
-            for prop in s.properties.values_mut() {
-                count += repath_value(&mut prop.value, existing_paths, prefix, config);
-            }
+        // Optional: recurse into the boxed inner value if present.
+        BinValue::Option { value: Some(inner), .. } => {
+            count += repath_value(inner, existing_paths, prefix, config);
         }
-        PropertyValueEnum::Embedded(e) => {
-            for prop in e.0.properties.values_mut() {
-                count += repath_value(&mut prop.value, existing_paths, prefix, config);
-            }
-        }
-        PropertyValueEnum::Optional(o) => {
-            match o {
-                values::Optional::String(Some(s)) => {
-                    if is_asset_path(&s.value) {
-                        let normalized = normalize_path(&s.value);
-                        if existing_paths.contains(&normalized) {
-                            let repathed = apply_prefix_to_path(&s.value, prefix, config);
-                            s.value = replace_base_folder_in_animation_path(&repathed, config.target_skin_id);
-                            count += 1;
-                        }
-                    }
-                }
-                values::Optional::Struct(Some(s)) => {
-                    for prop in s.properties.values_mut() {
-                        count += repath_value(&mut prop.value, existing_paths, prefix, config);
-                    }
-                }
-                values::Optional::Embedded(Some(e)) => {
-                    for prop in e.0.properties.values_mut() {
-                        count += repath_value(&mut prop.value, existing_paths, prefix, config);
-                    }
-                }
-                _ => {}
-            }
-        }
-        PropertyValueEnum::Map(m) => {
-            // Map entries are private; swap out, mutate, swap back
-            let key_kind = m.key_kind();
-            let value_kind = m.value_kind();
-            let mut entries = std::mem::take(m).into_entries();
-            for (_key, val) in entries.iter_mut() {
+        // Map: entries is a public Vec<(BinValue, BinValue)>; mutate in place.
+        // Walk both key and value (keys are primitives in practice, but the
+        // recursion is harmless and keeps parity with collect_paths).
+        BinValue::Map { entries, .. } => {
+            for (key, val) in entries.iter_mut() {
+                count += repath_value(key, existing_paths, prefix, config);
                 count += repath_value(val, existing_paths, prefix, config);
             }
-            *m = values::Map::new(key_kind, value_kind, entries).unwrap_or_default();
         }
         _ => {}
     }
@@ -977,7 +885,7 @@ fn cleanup_irrelevant_bins(content_base: &Path, champion: &str, target_skin_id: 
     if let Some(main_bin_path) = find_main_skin_bin(content_base, champion, target_skin_id) {
         if let Ok(data) = fs::read(&main_bin_path) {
             if let Ok(bin) = read_bin(&data) {
-                for dep in &bin.dependencies {
+                for dep in &bin.linked {
                     if crate::bin::classify_bin(dep) == crate::bin::BinCategory::Animation {
                         if let Some(filename) = Path::new(dep).file_name() {
                             referenced_animation_bin = Some(filename.to_string_lossy().to_lowercase());
