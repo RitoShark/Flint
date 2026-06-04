@@ -15,6 +15,11 @@ import { Button, Icon } from '../ui';
 type LogLevel = 'info' | 'warning' | 'error';
 type FilterLevel = 'all' | LogLevel;
 
+// Max log rows painted into the (non-virtualized) panel at once. Retention is
+// unbounded in the store; this only bounds the live DOM so the panel stays
+// responsive. Copy All exports the full history regardless of this window.
+const LOG_RENDER_WINDOW = 4000;
+
 const LEVEL_LABEL: Record<LogLevel, string> = {
     info: 'INFO',
     warning: 'WARN',
@@ -81,6 +86,14 @@ export const LogPanel: React.FC = () => {
             return true;
         });
     }, [logs, filter, levelFilter]);
+
+    // Log retention is unbounded (see appMetadataStore) so copying never loses
+    // lines, but the panel is NOT virtualized — painting tens of thousands of
+    // rows would freeze the UI. Window the DOM to the most recent slice; counts
+    // and Copy All still use the full filteredLogs. Bump if you need to scroll
+    // further back live (you can always Copy All to get everything).
+    const truncated = Math.max(0, filteredLogs.length - LOG_RENDER_WINDOW);
+    const visibleLogs = truncated > 0 ? filteredLogs.slice(-LOG_RENDER_WINDOW) : filteredLogs;
 
     // Auto-scroll to bottom when new logs appear
     useEffect(() => {
@@ -212,7 +225,13 @@ export const LogPanel: React.FC = () => {
                                 <span>{filter ? `Nothing matches "${filter}"` : `No ${levelFilter} entries.`}</span>
                             </div>
                         ) : (
-                            filteredLogs.map((log) => (
+                            <>
+                            {truncated > 0 && (
+                                <div className="log-panel__empty" style={{ padding: '6px 12px', opacity: 0.6 }}>
+                                    <small>{truncated.toLocaleString()} older line{truncated === 1 ? '' : 's'} hidden for performance — use <strong>Copy All</strong> to export the full history.</small>
+                                </div>
+                            )}
+                            {visibleLogs.map((log) => (
                                 <div
                                     key={log.id}
                                     className={`log-panel__entry log-panel__entry--${log.level}`}
@@ -231,7 +250,8 @@ export const LogPanel: React.FC = () => {
                                         <Icon name="copy" />
                                     </button>
                                 </div>
-                            ))
+                            ))}
+                            </>
                         )}
                     </div>
                 </div>

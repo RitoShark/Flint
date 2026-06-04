@@ -85,13 +85,17 @@ export const useAppMetadataStore = create<AppMetadataState>((set) => ({
   setError: (message) => set({ status: 'error', statusMessage: message }),
   setHashInfo: (loaded, count) => set({ hashesLoaded: loaded, hashCount: count }),
   setVerboseLogging: (enabled) => set({ verboseLogging: enabled }),
+  // No retention cap — keep every log line for the whole session so nothing
+  // gets truncated when copying. The log panel windows the DOM render (see
+  // LOG_RENDER_WINDOW in StatusBar) so unbounded retention never freezes the UI.
+  // Use clearLogs to reset.
   addLog: (level, message) => set((state) => ({
     logs: [...state.logs, {
       id: ++logIdCounter,
       timestamp: Date.now(),
       level,
       message,
-    }].slice(-100),
+    }],
   })),
   addLogsBatch: (entries) => set((state) => {
     const now = Date.now();
@@ -101,7 +105,7 @@ export const useAppMetadataStore = create<AppMetadataState>((set) => ({
       level: e.level,
       message: e.message,
     }));
-    return { logs: [...state.logs, ...newEntries].slice(-100) };
+    return { logs: [...state.logs, ...newEntries] };
   }),
   clearLogs: () => set({ logs: [] }),
   toggleLogPanel: () => set((state) => ({ logPanelExpanded: !state.logPanelExpanded })),
