@@ -126,8 +126,17 @@ pub fn parse_scb_file<P: AsRef<Path>>(path: P) -> anyhow::Result<ScbMeshData> {
         let normal = edge1.cross(edge2).normalize_or_zero();
         let normal_arr = [normal.x, normal.y, normal.z];
 
-        // Track material ranges
-        let face_material = face.material.clone();
+        // Track material ranges.
+        // rs_mesh yields an EMPTY material name for unnamed SCB materials. The
+        // frontend keys mesh visibility on the material name (`visibleMaterials`
+        // ⊇ submesh name), and `buildSknMeshes` substitutes `submesh_N` for an
+        // empty name — so an empty-named submesh never matches `visibleMaterials`
+        // and gets `setEnabled(false)`, rendering as pure skybox. Default empty
+        // names to a stable non-empty string so every name match agrees.
+        let face_material = {
+            let m = face.material.clone();
+            if m.is_empty() { "Mesh".to_string() } else { m }
+        };
         if current_material.as_ref() != Some(&face_material) {
             if let Some(mat) = current_material.take() {
                 let end_idx = indices.len() as u32;
