@@ -33,10 +33,14 @@ pub struct MaterialProperties {
     pub flipbook_frame: Option<f32>,
 }
 
-/// Texture mapping extracted from BIN file with UV transform parameters
+/// Texture mapping extracted from BIN file with UV transform parameters.
 ///
-/// DEPRECATED: Use bin_texture_discovery::discover_material_textures instead
-#[deprecated(note = "Use bin_texture_discovery::discover_material_textures instead")]
+/// NOTE: this is the legacy ritobin-text → regex resolution path. The
+/// intended successor is a direct parsed-BinTree walk (FNV1a field hashes,
+/// see Jade's `skin_textures.rs`); that lives in the new toolkit library
+/// rather than here. Until then this remains the live preview path, so it
+/// is NOT marked `#[deprecated]` — a deprecation pointing at a module that
+/// doesn't exist only produces misleading warnings.
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct TextureMapping {
     /// Default texture path for meshes without specific override
@@ -266,7 +270,39 @@ fn search_skins_dir(skins_dir: &Path, skin_folder: Option<&str>) -> Option<PathB
 /// 1. valid skinMeshProperties block (with default texture)
 /// 2. materialOverride blocks (with submesh -> texture/material mappings)
 /// 3. StaticMaterialDef blocks (to resolve material links)
-#[allow(clippy::regex_creation_in_loops, deprecated)]
+///
+/// A material linked by *hash* (as the main skin BIN renders it) still
+/// resolves against a StaticMaterialDef emitted by *name* (as a concat BIN
+/// renders it), via the FNV1a-32 bridge — this is the fix for the
+/// "StaticMaterialDef only in concat BIN" miss. `0xd1f16cee` below is the
+/// FNV1a-32 of the lowercased def path:
+///
+/// ```
+/// let ritobin = r#"
+/// skinMeshProperties: embed = SkinMeshDataProperties {
+///     materialOverride: list[embed] = {
+///         SkinMeshDataProperties_MaterialOverride {
+///             material: link = 0xd1f16cee
+///             submesh: string = "Body"
+///         }
+///     }
+/// }
+/// "Characters/Aatrox/Skins/Skin0/Materials/Body" = StaticMaterialDef {
+///     samplerValues: list2[embed] = {
+///         StaticMaterialShaderSamplerDef {
+///             textureName: string = "Diffuse_Texture"
+///             texturePath: string = "ASSETS/Characters/Aatrox/Skins/Skin0/Body.tex"
+///         }
+///     }
+/// }
+/// "#;
+/// let m = flint_ltk::mesh::texture::extract_texture_mapping_from_text(ritobin).unwrap();
+/// assert_eq!(
+///     m.material_properties.get("Body").map(|p| p.texture_path.as_str()),
+///     Some("ASSETS/Characters/Aatrox/Skins/Skin0/Body.tex"),
+/// );
+/// ```
+#[allow(clippy::regex_creation_in_loops)]
 pub fn extract_texture_mapping_from_text(content: &str) -> anyhow::Result<TextureMapping> {
     let mut mapping = TextureMapping::default();
     
@@ -681,6 +717,18 @@ fn resolve_material_texture(content: &str, material_path: &str) -> Option<Materi
         }
     }
 
+    // Fallback bridge (mirror of the hash-link case): the definition may be
+    // emitted under a raw `0xHASH` header even though the link references it
+    // by string path — again the main/concat separate-conversion mismatch.
+    // Hash the link path (FNV1a-32, lowercased) and retry against the
+    // hash-form header. Additive: only runs after every string strategy
+    // above has missed.
+    let target = fnv1a32_lower(material_path);
+    if let Some(props) = resolve_material_texture_by_hash(content, &format!("0x{:08x}", target)) {
+        tracing::debug!("Resolved material '{}' via hash-form bridge 0x{:08x}", material_path, target);
+        return Some(props);
+    }
+
     tracing::error!("FAILED ALL STRATEGIES for material: '{}'", material_path);
     None
 }
@@ -688,31 +736,93 @@ fn resolve_material_texture(content: &str, material_path: &str) -> Option<Materi
 /// Resolve a hex hash material reference to MaterialProperties
 fn resolve_material_texture_by_hash(content: &str, hash: &str) -> Option<MaterialProperties> {
     tracing::debug!("Resolving material link (hash): {}", hash);
-    
+
     // Find the definition header: 0xABCDEF = StaticMaterialDef {
     // Hash matching is case-insensitive
     let pattern = format!(r"(?i){}\s*=\s*StaticMaterialDef\s*", regex::escape(hash));
     let regex = Regex::new(&pattern).ok()?;
-    
+
     if let Some(mat) = regex.find(content) {
         tracing::debug!("Found StaticMaterialDef for hash {} at position {}", hash, mat.start());
-        
+
         // Use brace counting to extract the full block
         if let Some(block) = extract_braced_block(content, mat.end() - 1) {
-            if let Some(texture_path) = extract_diffuse_texture_from_block(&block) {
-                let (uv_scale, uv_offset, flipbook_size, flipbook_frame) = extract_param_values(&block);
-                return Some(MaterialProperties {
-                    texture_path,
-                    uv_scale,
-                    uv_offset,
-                    flipbook_size,
-                    flipbook_frame,
-                });
+            if let Some(props) = material_props_from_block(&block) {
+                return Some(props);
             }
         }
     }
-    
+
+    // Fallback bridge: the StaticMaterialDef may be emitted under its
+    // *resolved path name* (`"Characters/..." = StaticMaterialDef`) instead
+    // of the raw `0xHASH` header. This is the documented "material only in
+    // concat BIN" miss — the link (main skin BIN) and its definition (concat
+    // BIN) are converted to ritobin in separate passes, so one side renders
+    // the path as a hash and the other as a name. BIN object-path keys are
+    // FNV1a-32 of the lowercased path (same as object links), so we bridge
+    // the two forms by hashing every named StaticMaterialDef header and
+    // matching the link hash. Purely additive — only runs when the direct
+    // hash-header lookup above found nothing.
+    if let Some(target) = parse_hex_u32(hash) {
+        if let Some(props) = resolve_material_by_name_hash(content, target) {
+            tracing::debug!("Resolved material hash {} via named-def FNV1a bridge", hash);
+            return Some(props);
+        }
+    }
+
     tracing::debug!("Failed to resolve material hash: {}", hash);
+    None
+}
+
+/// Parse a `0x...` (or bare) hex string into a `u32`.
+fn parse_hex_u32(s: &str) -> Option<u32> {
+    let trimmed = s.trim().trim_start_matches("0x").trim_start_matches("0X");
+    u32::from_str_radix(trimmed, 16).ok()
+}
+
+/// FNV1a-32 over the lowercased bytes of `s` — the hash League/ritobin use
+/// for BIN object-path keys and object links.
+fn fnv1a32_lower(s: &str) -> u32 {
+    let mut hash: u32 = 0x811c_9dc5;
+    for b in s.bytes() {
+        let b = if b.is_ascii_uppercase() { b + 32 } else { b };
+        hash ^= b as u32;
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    hash
+}
+
+/// Build `MaterialProperties` (diffuse + UV/flipbook transforms) from a
+/// StaticMaterialDef block, or `None` if it has no diffuse sampler.
+fn material_props_from_block(block: &str) -> Option<MaterialProperties> {
+    let texture_path = extract_diffuse_texture_from_block(block)?;
+    let (uv_scale, uv_offset, flipbook_size, flipbook_frame) = extract_param_values(block);
+    Some(MaterialProperties {
+        texture_path,
+        uv_scale,
+        uv_offset,
+        flipbook_size,
+        flipbook_frame,
+    })
+}
+
+/// Scan every `"name" = StaticMaterialDef` header and return the diffuse
+/// `MaterialProperties` of the one whose lowercased name hashes (FNV1a-32)
+/// to `target`. Bridges a hash-form material link to a name-form definition.
+fn resolve_material_by_name_hash(content: &str, target: u32) -> Option<MaterialProperties> {
+    let header_regex = Regex::new(r#""([^"]+)"\s*=\s*StaticMaterialDef\s*"#).ok()?;
+    for cap in header_regex.captures_iter(content) {
+        let name = cap.get(1)?.as_str();
+        if fnv1a32_lower(name) != target {
+            continue;
+        }
+        let m = cap.get(0)?;
+        if let Some(block) = extract_braced_block(content, m.end().saturating_sub(1)) {
+            if let Some(props) = material_props_from_block(&block) {
+                return Some(props);
+            }
+        }
+    }
     None
 }
 
@@ -1028,6 +1138,49 @@ mod tests {
             Some(&"ASSETS/Characters/Test/Skins/Skin0/Hashed_Resolved.tex".to_string())
         );
         // Should not appear in static_materials since it was resolved
+        assert!(mapping.static_materials.is_empty());
+    }
+
+    #[test]
+    fn test_hash_link_resolves_named_def_via_bridge() {
+        // Reproduces the "StaticMaterialDef only in concat BIN" miss: the
+        // override links the material by *hash* (as the main skin BIN renders
+        // it) while the definition is emitted by *name* (as the concat BIN
+        // renders it). The FNV1a-32 bridge must connect the two.
+        let mat_path = "Characters/Test/Skins/Skin0/Materials/Bridged";
+        let hash = fnv1a32_lower(mat_path);
+        let content = format!(
+            r#"
+        skinMeshProperties: embed = SkinMeshDataProperties {{
+            texture: string = "ASSETS/Default.tex"
+            materialOverride: list[embed] = {{
+                SkinMeshDataProperties_MaterialOverride {{
+                    material: link = 0x{hash:08x}
+                    submesh: string = "BridgedMesh"
+                }}
+            }}
+        }}
+
+        "{mat_path}" = StaticMaterialDef {{
+            samplerValues: list2[embed] = {{
+                StaticMaterialShaderSamplerDef {{
+                    textureName: string = "Diffuse_Color"
+                    texturePath: string = "ASSETS/Characters/Test/Skins/Skin0/Bridged.tex"
+                }}
+            }}
+        }}
+        "#
+        );
+
+        let mapping = extract_texture_mapping_from_text(&content).unwrap();
+        assert_eq!(
+            mapping
+                .material_properties
+                .get("BridgedMesh")
+                .map(|p| p.texture_path.as_str()),
+            Some("ASSETS/Characters/Test/Skins/Skin0/Bridged.tex"),
+        );
+        // Resolved, so it must not be parked in the unresolved list.
         assert!(mapping.static_materials.is_empty());
     }
 

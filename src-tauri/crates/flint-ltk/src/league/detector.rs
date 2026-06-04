@@ -157,12 +157,9 @@ mod tests {
     fn test_league_installation_paths() {
         let path = PathBuf::from("C:\\Riot Games\\League of Legends");
         let installation = LeagueInstallation::new(path.clone(), false);
-        
-        assert_eq!(installation.data_path(), path.join("Game").join("DATA"));
-        assert_eq!(
-            installation.champions_path(),
-            path.join("Game").join("DATA").join("FINAL").join("Champions")
-        );
+
+        assert_eq!(installation.game_path, path.join("Game"));
+        assert!(!installation.auto_detected);
     }
 
     #[test]

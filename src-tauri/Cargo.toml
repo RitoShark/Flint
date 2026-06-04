@@ -101,6 +101,7 @@ zip = { version = "2.4", features = ["deflate"] }
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
 libloading = "0.8"
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell"] }
 
 [dev-dependencies]
 proptest = "1.0"

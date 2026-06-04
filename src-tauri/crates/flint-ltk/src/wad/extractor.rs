@@ -26,160 +26,6 @@ pub struct ExtractionResult {
     pub path_mappings: HashMap<String, String>,
 }
 
-/// Extracts a single chunk from a WAD archive to the specified output path
-/// 
-/// # Arguments
-/// * `wad` - Mutable reference to the Wad for decoding
-/// * `chunk` - The chunk to extract
-/// * `output_path` - Path where the chunk should be written
-/// * `hashtable` - Optional hashtable for path resolution (not used for single chunk extraction)
-/// 
-/// # Returns
-/// * `Result<()>` - Ok if extraction succeeded, Err otherwise
-/// 
-/// # Requirements
-/// Validates: Requirements 4.1, 4.2, 4.3
-pub fn extract_chunk(
-    wad: &mut Wad<File>,
-    chunk: &WadChunk,
-    output_path: impl AsRef<Path>,
-    _resolve_path: Option<&dyn Fn(u64) -> String>,
-) -> Result<()> {
-    let output_path = output_path.as_ref();
-
-    tracing::trace!("Extracting chunk to: {}", output_path.display());
-
-    // Decompress the chunk data
-    let chunk_data = wad
-        .load_chunk_decompressed(chunk)
-        .map_err(|e| {
-            tracing::error!("Failed to decompress chunk for '{}': {}", output_path.display(), e);
-            Error::Wad {
-                message: format!("Failed to decompress chunk: {}", e),
-                path: Some(output_path.to_path_buf()),
-            }
-        })?;
-    
-    // Verify decompressed size matches metadata
-    if chunk_data.len() != chunk.uncompressed_size() {
-        tracing::error!(
-            "Decompressed size mismatch for '{}': expected {}, got {}",
-            output_path.display(),
-            chunk.uncompressed_size(),
-            chunk_data.len()
-        );
-        return Err(Error::Wad {
-            message: format!(
-                "Decompressed size mismatch: expected {}, got {}",
-                chunk.uncompressed_size(),
-                chunk_data.len()
-            ),
-            path: Some(output_path.to_path_buf()),
-        });
-    }
-    
-    // Create parent directories if needed
-    if let Some(parent) = output_path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| {
-                tracing::error!("Failed to create directory '{}': {}", parent.display(), e);
-                Error::io_with_path(e, parent)
-            })?;
-    }
-    
-    // Write the chunk data to disk
-    fs::write(output_path, &chunk_data)
-        .map_err(|e| {
-            tracing::error!("Failed to write chunk to '{}': {}", output_path.display(), e);
-            Error::io_with_path(e, output_path)
-        })?;
-    
-    tracing::trace!("Successfully extracted chunk to: {}", output_path.display());
-    
-    Ok(())
-}
-
-/// Extracts all chunks from a WAD archive to the specified output directory
-/// 
-/// This function resolves chunk paths using the provided hashtable, creates
-/// the necessary directory structure, handles filename collisions, detects
-/// file types, and falls back to hex hashes for unresolved paths.
-/// 
-/// # Arguments
-/// * `wad` - Mutable reference to the Wad for decoding
-/// * `output_dir` - Base directory where chunks should be extracted
-/// * `hashtable` - Optional hashtable for path resolution
-/// 
-/// # Returns
-/// * `Result<usize>` - Number of chunks successfully extracted, or an error
-/// 
-/// # Requirements
-/// Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5, 4.6
-pub fn extract_all(
-    wad: &mut Wad<File>,
-    output_dir: impl AsRef<Path>,
-    resolve_path: impl Fn(u64) -> String,
-) -> Result<usize> {
-    let output_dir = output_dir.as_ref();
-    tracing::info!("Extracting all chunks to: {}", output_dir.display());
-
-    let chunks: Vec<_> = wad.chunks().iter().copied().collect();
-    let total_chunks = chunks.len();
-    tracing::info!("Total chunks to extract: {}", total_chunks);
-
-    // ── Phase 1: build extraction plan (sequential) ────────────────────────
-    let mut extraction_plan: Vec<(WadChunk, PathBuf)> = Vec::with_capacity(total_chunks);
-    let mut parents: HashSet<PathBuf> = HashSet::new();
-
-    for chunk in &chunks {
-        let path_hash = chunk.path_hash();
-        let resolved_path = resolve_path(path_hash);
-        let final_path = resolve_chunk_path(&resolved_path, &[]); // ext-only fallback
-        let out_path = safe_output_path(output_dir, &final_path.to_string_lossy(), path_hash);
-        if let Some(parent) = out_path.parent() {
-            parents.insert(parent.to_path_buf());
-        }
-        extraction_plan.push((*chunk, out_path));
-    }
-
-    for parent in parents { let _ = fs::create_dir_all(parent); }
-
-    // ── Phase 2: sequential decompress + write ─────────────────────────────
-    // (extract_skin_assets uses mmap+rayon and is the hot path for project creation;
-    //  extract_all is the WAD-explorer fallback and is sequential.)
-    let mut extracted_count = 0;
-    for (chunk, out_path) in &extraction_plan {
-        let chunk_data = match wad.load_chunk_decompressed(chunk) {
-            Ok(d) => d,
-            Err(e) => {
-                tracing::error!("Failed to decompress chunk for '{}': {}", out_path.display(), e);
-                continue;
-            }
-        };
-        // Re-resolve with actual data for extension detection
-        let final_path = resolve_chunk_path(&out_path.to_string_lossy(), &chunk_data);
-        let actual_path = safe_output_path(output_dir, &final_path.to_string_lossy(), chunk.path_hash());
-        if let Some(parent) = actual_path.parent() { let _ = fs::create_dir_all(parent); }
-        match fs::write(&actual_path, &chunk_data) {
-            Ok(()) => {
-                extracted_count += 1;
-                if extracted_count % 200 == 0 {
-                    tracing::info!("Extracted {}/{} chunks", extracted_count, total_chunks);
-                }
-            }
-            Err(e) => {
-                tracing::error!("Failed to write '{}': {}", actual_path.display(), e);
-                // Last-resort fallback: write as plain hash in output root
-                let hex = format!("{:016x}", chunk.path_hash());
-                let _ = fs::write(output_dir.join(hex), &chunk_data);
-                extracted_count += 1;
-            }
-        }
-    }
-    tracing::info!("Successfully extracted {}/{} chunks", extracted_count, total_chunks);
-    Ok(extracted_count)
-}
-
 /// Parallel extraction of arbitrary chunks from a WAD archive.
 ///
 /// Used by the WAD-explorer "extract selected" / "extract all" buttons.
@@ -664,37 +510,6 @@ pub fn extract_skin_assets(
     Ok(ExtractionResult { extracted_count, path_mappings })
 }
 
-/// Checks if the full output path exceeds Windows MAX_PATH and falls back to
-/// `{hash:016x}.{ext}` at the root of output_dir when it does. This prevents
-/// extraction failures for files with very long resolved paths. The hashed file
-/// always lands at root to avoid re-introducing path segments (e.g. "data/")
-/// that are already embedded in the original path string.
-fn safe_output_path(output_dir: &Path, resolved: &str, hash: u64) -> PathBuf {
-    let candidate = output_dir.join(resolved);
-    let total_len = candidate.to_string_lossy().len();
-
-    // 240 is a conservative limit (MAX_PATH=260 minus room for \\?\ prefix etc.)
-    if total_len <= 240 {
-        return candidate;
-    }
-
-    // Preserve extension from the resolved path
-    let ext = Path::new(resolved)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("bin");
-
-    let hash_name = format!("{:016x}.{}", hash, ext);
-    let fallback = output_dir.join(&hash_name);
-
-    tracing::debug!(
-        "Path too long ({} chars), using hashed fallback: {}",
-        total_len,
-        fallback.display()
-    );
-    fallback
-}
-
 /// Resolves the final chunk path by handling extensions
 /// 
 /// This function:
@@ -1006,24 +821,10 @@ pub fn extract_skin_assets_selective(
 }
 
 /// Extract every chunk from a WAD into `output_dir`, preserving the resolved
-/// path layout (`data/...`, `assets/...`). Used for non-champion WADs (maps,
-/// UI, common) where there's no `skinN` filtering to apply.
-///
-/// Mirrors `extract_skin_assets` (mmap + bulk hash resolve + rayon decompress),
-/// but writes directly under `output_dir` instead of nesting under a
-/// `<champion>.wad.client/` subfolder. The caller is responsible for passing
-/// the right output dir (typically `<project>/content/base/<wad_name>.wad.client/`).
-pub fn extract_full_wad(
-    wad_path: impl AsRef<Path>,
-    output_dir: impl AsRef<Path>,
-    resolve_paths: impl Fn(&[u64]) -> ResolvedHashes,
-) -> Result<ExtractionResult> {
-    extract_full_wad_filtered(wad_path, output_dir, resolve_paths, |_| false)
-}
-
-/// Like `extract_full_wad` but lets the caller drop chunks by their resolved
-/// (lowercased) path. The predicate returns `true` to skip the chunk. Used by
+/// path layout, but letting the caller drop chunks by their resolved
+/// (lowercased) path — the predicate returns `true` to skip the chunk. Used by
 /// the map flow to filter out localized files like `data/.../en_us/...`.
+/// Mirrors `extract_skin_assets` (mmap + bulk hash resolve + rayon decompress).
 pub fn extract_full_wad_filtered(
     wad_path: impl AsRef<Path>,
     output_dir: impl AsRef<Path>,

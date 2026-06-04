@@ -89,7 +89,7 @@ impl BinReader {
 // ── Value types ──────────────────────────────────────────────────────────────
 
 #[derive(Clone)]
-enum TroybinValue {
+pub enum TroybinValue {
     Int(i32),
     Float(f64),
     Str(String),
@@ -97,7 +97,7 @@ enum TroybinValue {
 }
 
 impl TroybinValue {
-    fn format_value(&self) -> String {
+    pub fn format_value(&self) -> String {
         match self {
             TroybinValue::Int(v) => v.to_string(),
             TroybinValue::Float(v) => {
@@ -120,9 +120,9 @@ impl TroybinValue {
 }
 
 #[derive(Clone)]
-struct HashEntry {
-    hash: u32,
-    value: TroybinValue,
+pub struct HashEntry {
+    pub hash: u32,
+    pub value: TroybinValue,
 }
 
 // ── Old format reader (version 1) ───────────────────────────────────────────
@@ -534,19 +534,20 @@ fn get_fixdict(entries: &[HashEntry]) -> Vec<ResolvedEntry> {
     result
 }
 
-struct FixedTroybin {
-    values: Vec<Group>,
-    unknown_hashes: Vec<HashEntry>,
+pub struct FixedTroybin {
+    pub values: Vec<Group>,
+    pub unknown_hashes: Vec<HashEntry>,
 }
 
-struct Group {
-    name: String,
-    properties: Vec<Property>,
+pub struct Group {
+    pub name: String,
+    pub properties: Vec<Property>,
 }
 
-struct Property {
-    name: String,
-    value: TroybinValue,
+#[derive(Clone)]
+pub struct Property {
+    pub name: String,
+    pub value: TroybinValue,
 }
 
 fn fix(entries: Vec<HashEntry>) -> FixedTroybin {
@@ -609,14 +610,7 @@ fn write_ini(troybin: FixedTroybin) -> String {
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
-impl Clone for Property {
-    fn clone(&self) -> Self {
-        Property { name: self.name.clone(), value: self.value.clone() }
-    }
-}
-
-/// Parse a troybin binary buffer and return INI-like text.
-pub fn convert_troybin(data: &[u8]) -> Result<String, String> {
+pub fn parse_troybin(data: &[u8]) -> Result<FixedTroybin, String> {
     if data.is_empty() {
         return Err("Empty troybin data".to_string());
     }
@@ -630,6 +624,11 @@ pub fn convert_troybin(data: &[u8]) -> Result<String, String> {
         _ => return Err(format!("Unknown troybin version: {}", version)),
     };
 
-    let fixed = fix(entries);
+    Ok(fix(entries))
+}
+
+/// Parse a troybin binary buffer and return INI-like text.
+pub fn convert_troybin(data: &[u8]) -> Result<String, String> {
+    let fixed = parse_troybin(data)?;
     Ok(write_ini(fixed))
 }

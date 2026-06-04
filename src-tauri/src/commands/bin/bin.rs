@@ -445,8 +445,7 @@ async fn read_or_convert_bin_inner(
     let use_jade = use_jade.unwrap_or(false);
     let engine_name = if use_jade { "Jade" } else { "LTK" };
 
-    tracing::info!("[BIN_READ] === Starting read_or_convert_bin ({}) ===", engine_name);
-    tracing::info!("[BIN_READ] Path: {}", bin_path);
+    tracing::info!("[BIN_READ] Starting read_or_convert_bin ({}) for {}", engine_name, bin_path);
 
     if bin_path.is_empty() {
         return Err("Path cannot be empty".to_string());
@@ -486,77 +485,50 @@ async fn read_or_convert_bin_inner(
         }
     }
 
-    // Log .bin file size
-    if let Ok(meta) = fs::metadata(bin_file) {
-        tracing::info!("[BIN_READ] .bin file size: {} bytes", meta.len());
-    }
-
     // Check for cached .ritobin file
     let ritobin_path = format!("{}.ritobin", bin_path);
     let ritobin_file = Path::new(&ritobin_path);
 
     // Check if cache is valid (exists and is newer than .bin)
     if ritobin_file.exists() {
-        tracing::info!("[BIN_READ] Cache file exists: {}", ritobin_path);
-        
         if let (Ok(bin_meta), Ok(ritobin_meta)) = (fs::metadata(bin_file), fs::metadata(ritobin_file)) {
-            tracing::info!("[BIN_READ] Cache file size: {} bytes", ritobin_meta.len());
-            
             if let (Ok(bin_time), Ok(ritobin_time)) = (bin_meta.modified(), ritobin_meta.modified()) {
-                tracing::info!("[BIN_READ] .bin modified: {:?}", bin_time);
-                tracing::info!("[BIN_READ] .ritobin modified: {:?}", ritobin_time);
-                
                 if ritobin_time >= bin_time {
                     // Cache is valid, read it directly - NO CONVERSION!
-                    tracing::info!("[BIN_READ] *** CACHE HIT *** Reading cached file directly");
                     let content = fs::read_to_string(ritobin_file)
                         .map_err(|e| format!("Failed to read cached file: {}", e))?;
-                    tracing::info!("[BIN_READ] *** CACHE HIT *** Loaded {} chars from cache", content.len());
+                    tracing::info!("[BIN_READ] Cache hit: loaded {} chars from {}", content.len(), ritobin_path);
                     return Ok(content);
-                } else {
-                    tracing::info!("[BIN_READ] Cache is STALE (bin is newer)");
                 }
             }
         }
-    } else {
-        tracing::info!("[BIN_READ] No cache file found");
     }
 
     // Cache miss or stale - need to convert
-    tracing::warn!("[BIN_READ] *** CACHE MISS *** Converting BIN file with {} engine...", engine_name);
+    tracing::info!("[BIN_READ] Cache miss: converting BIN with {} engine", engine_name);
 
     // Read binary file
     let data = fs::read(bin_file)
         .map_err(|e| format!("Failed to read file: {}", e))?;
-    tracing::info!("[BIN_READ] Read {} bytes from .bin file", data.len());
 
     // Convert binary to text using selected engine
     let text = if use_jade {
-        tracing::info!("[BIN_READ] Using Jade Custom converter");
         flint_ltk::bin::jade::convert_bin_to_text(&data)?
     } else {
-        tracing::info!("[BIN_READ] Using LTK converter");
-        tracing::info!("[BIN_READ] Parsing BIN structure...");
         let bin = flint_ltk::bin::read_bin_ltk(&data)
             .map_err(|e| format!("Failed to parse bin file: {}", e))?;
-        tracing::info!("[BIN_READ] Parsed: {} objects, {} dependencies", bin.objects.len(), bin.dependencies.len());
-
-        tracing::info!("[BIN_READ] Converting to text (using cached hashes)...");
         flint_ltk::bin::tree_to_text_cached(&bin)
             .map_err(|e| format!("Failed to convert to text: {}", e))?
     };
-    tracing::info!("[BIN_READ] Converted to {} chars of text", text.len());
 
     // Cache the result. Mark as a self-write first so the watcher doesn't
     // surface the implicit sidecar generation as a user-visible change.
     crate::core::write_echo::mark(&ritobin_path);
     if let Err(e) = fs::write(&ritobin_path, &text) {
         tracing::warn!("[BIN_READ] Failed to cache .ritobin file: {}", e);
-    } else {
-        tracing::info!("[BIN_READ] Wrote cache file: {}", ritobin_path);
     }
 
-    tracing::info!("[BIN_READ] === Completed (converted) ===");
+    tracing::info!("[BIN_READ] Converted {} to {} chars of text", bin_path, text.len());
     Ok(text)
 }
 

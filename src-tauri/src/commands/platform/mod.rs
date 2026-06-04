@@ -6,4 +6,5 @@ pub mod external_apps;
 pub mod file_assoc;
 pub mod ltk_manager;
 pub mod settings;
+pub mod taskbar;
 pub mod updater;

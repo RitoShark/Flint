@@ -16,7 +16,6 @@ use std::path::{Path, PathBuf};
 /// `path` field is informational — Phase 3 may use it for re-opening the
 /// file for extraction.
 #[derive(Debug)]
-#[allow(dead_code)]
 pub struct WadToc {
     pub path: PathBuf,
     pub version: WadVersion,

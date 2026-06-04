@@ -71,6 +71,9 @@ export const NewProjectModal: React.FC = () => {
     // in real time.
     useEffect(() => {
         if (!isCreating) return;
+        // Light up the Windows taskbar icon while the (30s+) create/extract
+        // work runs — phases carry no count, so use the indeterminate marquee.
+        api.setTaskbarProgress('indeterminate');
         const unlistenP = listen<{ phase: string; message: string }>(
             'project-create-progress',
             (event) => {
@@ -78,7 +81,10 @@ export const NewProjectModal: React.FC = () => {
                 if (typeof m === 'string' && m.length > 0) setProgress(m);
             },
         );
-        return () => { unlistenP.then((fn) => fn()).catch(() => {}); };
+        return () => {
+            unlistenP.then((fn) => fn()).catch(() => {});
+            api.setTaskbarProgress('no_progress');
+        };
     }, [isCreating]);
 
     // ─── Skin project state ─────────────────────────────────────────────

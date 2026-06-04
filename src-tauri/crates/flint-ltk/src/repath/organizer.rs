@@ -250,14 +250,23 @@ fn find_main_skin_bin(content_base: &Path, champion: &str, skin_id: u32) -> Opti
 mod tests {
     use super::*;
 
+    fn sample_config() -> OrganizerConfig {
+        OrganizerConfig {
+            enable_concat: true,
+            enable_repath: true,
+            creator_name: "TestCreator".to_string(),
+            project_name: "TestProject".to_string(),
+            champion: "Kayn".to_string(),
+            target_skin_id: 8,
+            cleanup_unused: true,
+            use_jade_engine: false,
+            wad_folder_override: None,
+        }
+    }
+
     #[test]
-    fn test_organizer_config_new() {
-        let config = OrganizerConfig::new(
-            "TestCreator".to_string(),
-            "TestProject".to_string(),
-            "Kayn".to_string(),
-            8,
-        );
+    fn test_organizer_config_full() {
+        let config = sample_config();
         assert!(config.enable_concat);
         assert!(config.enable_repath);
         assert!(config.cleanup_unused);
@@ -265,24 +274,20 @@ mod tests {
 
     #[test]
     fn test_organizer_config_concat_only() {
-        let config = OrganizerConfig::concat_only(
-            "TestCreator".to_string(),
-            "TestProject".to_string(),
-            "Kayn".to_string(),
-            8,
-        );
+        let config = OrganizerConfig {
+            enable_repath: false,
+            ..sample_config()
+        };
         assert!(config.enable_concat);
         assert!(!config.enable_repath);
     }
 
     #[test]
     fn test_organizer_config_repath_only() {
-        let config = OrganizerConfig::repath_only(
-            "TestCreator".to_string(),
-            "TestProject".to_string(),
-            "Kayn".to_string(),
-            8,
-        );
+        let config = OrganizerConfig {
+            enable_concat: false,
+            ..sample_config()
+        };
         assert!(!config.enable_concat);
         assert!(config.enable_repath);
     }

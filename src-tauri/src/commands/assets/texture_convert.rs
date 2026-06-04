@@ -15,12 +15,11 @@
 //! delete the source — caller (frontend or fixer) decides whether to
 //! remove the original after the conversion is verified.
 
-use base64::{engine::general_purpose::STANDARD, Engine};
 use flint_ltk::ltk_types::{EncodeOptions, Tex, Texture};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Cursor;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::core::ipc_trace;
 
@@ -233,10 +232,6 @@ pub async fn convert_texture_to_png(path: String) -> Result<ConversionResult, St
     }
     fs::write(&out_path, &png_bytes).map_err(|e| format!("Failed to write PNG: {}", e))?;
 
-    // We base64-encode here only to keep the return shape uniform with
-    // the other converters. The frontend doesn't have to decode it.
-    let _b64_marker = STANDARD.encode(&png_bytes[..png_bytes.len().min(4)]);
-
     Ok(ConversionResult {
         output_path: out_path.to_string_lossy().into_owned(),
         width: rgba.width(),
@@ -334,26 +329,4 @@ pub async fn convert_dds_bytes_to_tex(
     }
 
     Ok(tauri::ipc::Response::new(buf))
-}
-
-/// Helper for tests / fixer pipelines to convert an in-memory texture and
-/// drop it next to an arbitrary path. Not exposed as an IPC command.
-#[allow(dead_code)]
-pub fn convert_file_to_format(src: &Path, target_ext: &str) -> Result<PathBuf, String> {
-    let data = fs::read(src).map_err(|e| format!("Failed to read: {}", e))?;
-    let target = src.with_extension(target_ext);
-    match target_ext.to_ascii_lowercase().as_str() {
-        "dds" if data.starts_with(b"TEX\0") => {
-            // Reuse the main path by writing through a temp blocking call.
-            let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-            rt.block_on(convert_tex_to_dds(src.to_string_lossy().into_owned()))?;
-            Ok(target)
-        }
-        "tex" if data.starts_with(b"DDS ") => {
-            let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-            rt.block_on(convert_dds_to_tex(src.to_string_lossy().into_owned()))?;
-            Ok(target)
-        }
-        _ => Err("Unsupported conversion".into()),
-    }
 }

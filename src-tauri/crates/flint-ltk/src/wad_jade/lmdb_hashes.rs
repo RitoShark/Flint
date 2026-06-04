@@ -169,7 +169,6 @@ pub fn resolve_wad(hash: u64, hash_dir: &Path) -> String {
 /// extracted-overlay is layered first so user-discovered names win over
 /// LMDB. Returns a `HashMap<hash, path>` so callers can dedupe + index
 /// in O(1).
-#[allow(dead_code)] // Used by the WAD tree builder in `mount.rs`.
 pub fn resolve_wad_bulk(hashes: &[u64], hash_dir: &Path) -> HashMap<u64, String> {
     let mut out: HashMap<u64, String> = HashMap::with_capacity(hashes.len());
 

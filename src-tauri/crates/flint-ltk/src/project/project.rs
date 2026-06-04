@@ -207,14 +207,7 @@ impl Project {
         let now = Utc::now();
         let name_str = name.into();
         let champion_str = champion.into();
-        
-        // Create display name from champion and skin
-        let _display_name = if skin_id == 0 {
-            format!("{} Base Skin", champion_str)
-        } else {
-            format!("{} Skin {}", champion_str, skin_id)
-        };
-        
+
         // Store author as simple string
         let authors = author.into_iter().collect::<Vec<_>>();
         
@@ -675,12 +668,11 @@ mod tests {
     }
 
     #[test]
-    fn test_layer_names() {
+    fn test_layers() {
         let project = Project::new("Test", "Ahri", 0, "C:\\League", "C:\\test", None);
-        let layers = project.layer_names();
-        
-        assert_eq!(layers.len(), 1);
-        assert_eq!(layers[0], "base");
+
+        assert_eq!(project.layers.len(), 1);
+        assert_eq!(project.layers[0].name, "base");
     }
 
     #[test]

@@ -73,7 +73,6 @@ async fn read_scb_mesh_inner(path: String) -> Result<ScbMeshData, String> {
             bin_text
         };
 
-        #[allow(deprecated)]
         use flint_ltk::mesh::texture::extract_texture_mapping_from_text;
 
         // Extract all texture mappings from combined ritobin text (main + concat)
@@ -86,9 +85,7 @@ async fn read_scb_mesh_inner(path: String) -> Result<ScbMeshData, String> {
             }
         };
 
-        #[allow(deprecated)]
         let material_props = &texture_mapping.material_properties;
-        #[allow(deprecated)]
         let default_tex = &texture_mapping.default_texture;
 
         tracing::debug!("Extracted {} material mappings, default={:?}",
@@ -440,7 +437,6 @@ async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {
             bin_text
         };
 
-        #[allow(deprecated)]
         use flint_ltk::mesh::texture::extract_texture_mapping_from_text;
 
         // Extract all texture mappings from combined ritobin text (main + concat)
@@ -453,9 +449,7 @@ async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {
             }
         };
 
-        #[allow(deprecated)]
         let material_props = &texture_mapping.material_properties;
-        #[allow(deprecated)]
         let default_tex = &texture_mapping.default_texture;
 
         tracing::debug!("Extracted {} material mappings, default={:?}",
@@ -475,7 +469,6 @@ async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {
                 .or_else(|| {
                     // If not in override list, search for StaticMaterialDef by material name
                     tracing::debug!("  Material '{}' not in override list, searching for StaticMaterialDef...", material_name);
-                    #[allow(deprecated)]
                     use flint_ltk::mesh::texture::lookup_material_texture_by_name;
                     lookup_material_texture_by_name(&combined_text, material_name)
                 })

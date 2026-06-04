@@ -373,10 +373,10 @@ mod tests {
     }
 
     #[test]
-    fn test_champion_add_skin() {
+    fn test_champion_skins() {
         let mut champion = ChampionInfo::new("Ahri");
-        champion.add_skin(SkinInfo::new(0));
-        champion.add_skin(SkinInfo::new(1));
+        champion.skins.push(SkinInfo::new(0));
+        champion.skins.push(SkinInfo::new(1));
 
         assert_eq!(champion.skins.len(), 2);
         assert_eq!(champion.skins[0].id, 0);

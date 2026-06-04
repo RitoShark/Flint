@@ -15,8 +15,6 @@ use crate::state::LmdbCacheState;
 use flint_ltk::hash::{get_hash_dir, resolve_hashes_lmdb_bulk, ResolvedHashes};
 use flint_ltk::wad_jade::adapter::WadHandle as WadReader;
 
-
-
 // =============================================================================
 // Progress / public stats
 // =============================================================================
@@ -51,9 +49,6 @@ fn is_luabin_path(resolved: &str) -> bool {
     let lower = resolved.to_lowercase();
     lower.ends_with(".luabin") || lower.ends_with(".luabin64")
 }
-
-
-
 
 
 // =============================================================================

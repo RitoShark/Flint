@@ -269,8 +269,6 @@ struct Instruction {
     b: u16,
     c: u16,
     bx: u32,
-    #[allow(dead_code)]
-    sbx: i32,
 }
 
 fn decode_instruction(raw: u32) -> Instruction {
@@ -279,8 +277,7 @@ fn decode_instruction(raw: u32) -> Instruction {
     let c = ((raw >> 14) & 0x1FF) as u16;
     let b = ((raw >> 23) & 0x1FF) as u16;
     let bx = (raw >> 14) & 0x3FFFF;
-    let sbx = bx as i32 - 131071;
-    Instruction { opcode, a, b, c, bx, sbx }
+    Instruction { opcode, a, b, c, bx }
 }
 
 // ── Function prototype ─────────────────────────────────────────────────────
@@ -289,12 +286,6 @@ fn decode_instruction(raw: u32) -> Instruction {
 struct FunctionProto {
     constants: Vec<LuaValue>,
     instructions: Vec<Instruction>,
-    #[allow(dead_code)]
-    prototypes: Vec<FunctionProto>,
-    #[allow(dead_code)]
-    num_params: u8,
-    #[allow(dead_code)]
-    is_vararg: u8,
     max_stack: u8,
 }
 
@@ -307,8 +298,8 @@ fn read_function(r: &mut Reader) -> io::Result<FunctionProto> {
     let _last_line_defined = r.read_int()?;
 
     let _nups = r.read_u8()?;
-    let num_params = r.read_u8()?;
-    let is_vararg = r.read_u8()?;
+    let _num_params = r.read_u8()?;
+    let _is_vararg = r.read_u8()?;
     let max_stack = r.read_u8()?;
 
     // Instructions
@@ -341,11 +332,10 @@ fn read_function(r: &mut Reader) -> io::Result<FunctionProto> {
         constants.push(val);
     }
 
-    // Function prototypes
+    // Function prototypes (parsed to advance the cursor; not retained)
     let proto_size = r.read_int()? as usize;
-    let mut prototypes = Vec::with_capacity(proto_size);
     for _ in 0..proto_size {
-        prototypes.push(read_function(r)?);
+        read_function(r)?;
     }
 
     // Source line positions (skip)
@@ -371,9 +361,6 @@ fn read_function(r: &mut Reader) -> io::Result<FunctionProto> {
     Ok(FunctionProto {
         constants,
         instructions,
-        prototypes,
-        num_params,
-        is_vararg,
         max_stack,
     })
 }

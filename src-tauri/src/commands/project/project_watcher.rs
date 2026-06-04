@@ -41,8 +41,7 @@ pub struct WatcherHandle {
     /// The debouncer (must be kept alive)
     _debouncer: Box<dyn Send>,
     /// Sender to stop the watcher task (not read, but dropping it signals the task to stop)
-    #[allow(dead_code)]
-    stop_tx: mpsc::UnboundedSender<()>,
+    _stop_tx: mpsc::UnboundedSender<()>,
 }
 
 /// Handle to a running preview file watcher
@@ -171,7 +170,7 @@ pub async fn start_project_watcher(
     // Store the watcher handle
     *watcher_guard = Some(WatcherHandle {
         _debouncer: Box::new(debouncer),
-        stop_tx,
+        _stop_tx: stop_tx,
     });
 
     Ok(())

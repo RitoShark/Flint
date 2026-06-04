@@ -271,15 +271,6 @@ pub(crate) fn extract_skin_id_from_path(path: &str) -> Option<u32> {
     None
 }
 
-/// Detect champion and skin IDs from BIN file entries
-/// Currently simplified - just extracts from paths for now
-/// TODO: Implement proper BIN parsing for more accurate detection
-fn _detect_from_bin_file(_bin_data: &[u8]) -> (Option<String>, Option<u32>) {
-    // Disabled for now due to API complexity
-    // Will implement proper BIN analysis in a future update
-    (None, None)
-}
-
 /// Extract the most common champion name from a list of paths
 pub(crate) fn extract_champion_from_paths(paths: &[String]) -> Option<String> {
     let mut champion_counts: HashMap<String, usize> = HashMap::new();

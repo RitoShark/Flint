@@ -64,3 +64,4 @@ export * from './updater';
 export * from './fixer';
 export * from './compare';
 export * from './chroma';
+export * from './taskbar';

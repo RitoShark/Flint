@@ -357,6 +357,8 @@ fn main() {
             commands::fixer::analyze_project,
             commands::fixer::fix_project,
             commands::fixer::batch_fix_projects,
+            // Windows taskbar progress indicator
+            commands::taskbar::set_taskbar_progress,
             // Logging commands
             commands::logging::set_log_level,
             commands::logging::test_logging,

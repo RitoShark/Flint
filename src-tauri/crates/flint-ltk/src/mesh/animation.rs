@@ -30,35 +30,6 @@ pub struct AnimationList {
     pub clips: Vec<AnimationClipInfo>,
 }
 
-/// Parsed animation data from an ANM file
-#[derive(Debug, Serialize)]
-pub struct AnimationData {
-    pub duration: f32,
-    pub fps: f32,
-    pub joint_count: usize,
-    pub joint_hashes: Vec<u32>,
-}
-
-/// Transform data for a single joint at a specific time
-#[derive(Debug, Clone, Serialize)]
-pub struct JointTransform {
-    /// Rotation quaternion (x, y, z, w)
-    pub rotation: [f32; 4],
-    /// Translation vector
-    pub translation: [f32; 3],
-    /// Scale vector
-    pub scale: [f32; 3],
-}
-
-/// Animation pose containing all joint transforms at a specific time
-#[derive(Debug, Serialize)]
-pub struct AnimationPose {
-    /// Time in seconds
-    pub time: f32,
-    /// Joint hash → transform mapping
-    pub joints: HashMap<u32, JointTransform>,
-}
-
 /// Extract animation BIN path from skin BIN's dependencies list.
 /// Animation BINs are Type 2 (contain "/animations/" in path).
 pub fn extract_animation_graph_path(skin_bin_path: &Path) -> Option<PathBuf> {
@@ -355,70 +326,6 @@ fn extract_animation_paths_from_value(value: &PropertyValueEnum, clips: &mut Vec
 
         _ => {}
     }
-}
-
-/// Parse an ANM file and extract animation data
-/// 
-/// Uses the Animation trait from ltk_anim 0.3.0 to get real duration/fps values.
-pub fn parse_animation_file<P: AsRef<Path>>(path: P) -> anyhow::Result<AnimationData> {
-    let file = File::open(path.as_ref())?;
-    let mut reader = BufReader::new(file);
-
-    // Wrap in catch_unwind because ltk_anim may panic on unsupported formats
-    let asset = catch_unwind(AssertUnwindSafe(|| {
-        AnimationAsset::from_reader(&mut reader)
-    }))
-    .map_err(|panic| {
-        let msg = panic.downcast_ref::<&str>().map(|s| s.to_string())
-            .or_else(|| panic.downcast_ref::<String>().cloned())
-            .unwrap_or_else(|| "Unknown panic in animation parser".to_string());
-        anyhow::anyhow!("Animation parser panicked: {}", msg)
-    })?
-    .map_err(|e| anyhow::anyhow!("Failed to parse ANM file: {:?}", e))?;
-    
-    // Use Animation trait methods to get actual values
-    Ok(AnimationData {
-        duration: asset.duration(),
-        fps: asset.fps(),
-        joint_count: asset.joint_count(),
-        joint_hashes: asset.joints().to_vec(),
-    })
-}
-
-/// Evaluate animation at a specific time and return joint poses
-/// 
-/// Returns a map of joint hash → (rotation, translation, scale) for all joints.
-pub fn evaluate_animation_at<P: AsRef<Path>>(path: P, time: f32) -> anyhow::Result<AnimationPose> {
-    let file = File::open(path.as_ref())?;
-    let mut reader = BufReader::new(file);
-
-    // Wrap in catch_unwind because ltk_anim may panic on unsupported formats
-    let asset = catch_unwind(AssertUnwindSafe(|| {
-        AnimationAsset::from_reader(&mut reader)
-    }))
-    .map_err(|panic| {
-        let msg = panic.downcast_ref::<&str>().map(|s| s.to_string())
-            .or_else(|| panic.downcast_ref::<String>().cloned())
-            .unwrap_or_else(|| "Unknown panic in animation parser".to_string());
-        anyhow::anyhow!("Animation parser panicked: {}", msg)
-    })?
-    .map_err(|e| anyhow::anyhow!("Failed to parse ANM file: {:?}", e))?;
-    
-    // Evaluate at the given time - uses Animation trait's evaluate method
-    let pose = asset.evaluate(time);
-    
-    // Convert to our serializable format with mirrorX transformation
-    let joints = pose.into_iter()
-        .map(|(hash, (rot, trans, scale))| {
-            (hash, JointTransform {
-                rotation: [rot.x, -rot.y, -rot.z, rot.w],
-                translation: [-trans.x, trans.y, trans.z],
-                scale: [scale.x, scale.y, scale.z],
-            })
-        })
-        .collect();
-    
-    Ok(AnimationPose { time, joints })
 }
 
 /// Resolve animation path relative to project directory
