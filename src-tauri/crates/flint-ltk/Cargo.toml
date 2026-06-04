@@ -40,7 +40,7 @@ ltk_anim = { git = "https://github.com/LeagueToolkit/league-toolkit", rev = "613
 
 # RitoShark crates (owner's workspace — migrating off league-toolkit onto these).
 # Pinned to main HEAD; bump as the owner pushes (WadBuilder, etc.). Default features = all formats.
-ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "fb7832e0c05efba104a7397942bb4137455e44ab" }
+ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "60240be6a9331fde024175a39563bc212566ba71" }
 
 # Modding crates (still on crates.io — removed from league-toolkit monorepo)
 ltk_mod_project = "0.2"
