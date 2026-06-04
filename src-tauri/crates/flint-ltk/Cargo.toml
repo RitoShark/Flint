@@ -36,6 +36,11 @@ ltk_meta = { git = "https://github.com/LeagueToolkit/league-toolkit", rev = "613
 ltk_ritobin = { git = "https://github.com/LeagueToolkit/league-toolkit", rev = "6137083" }
 ltk_anim = { git = "https://github.com/LeagueToolkit/league-toolkit", rev = "6137083" }
 ltk_file = { git = "https://github.com/LeagueToolkit/league-toolkit", rev = "6137083" }
+
+# RitoShark crates (owner's workspace — migrating off league-toolkit onto these).
+# Pinned to main HEAD; bump as the owner pushes (WadBuilder, etc.). Default features = all formats.
+ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "fb7832e0c05efba104a7397942bb4137455e44ab" }
+
 # Modding crates (still on crates.io — removed from league-toolkit monorepo)
 ltk_mod_project = "0.2"
 ltk_mod_core = "0.1"
