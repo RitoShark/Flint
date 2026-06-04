@@ -114,7 +114,8 @@ export function buildSknMeshes(
             vd.matricesWeights = matrixWeights;
         }
 
-        const mesh = new Mesh(sm.name || `submesh_${s}`, scene);
+        const meshName = sm.name || `submesh_${s}`;
+        const mesh = new Mesh(meshName, scene);
         vd.applyToMesh(mesh);
 
         if (hasSkin) {
@@ -122,6 +123,21 @@ export function buildSknMeshes(
             mesh.numBoneInfluencers = 4;
         }
         mesh.sideOrientation = Mesh.DOUBLESIDE;
+
+        // ── DIAGNOSTIC: prove the geometry actually reached the GPU. A renamed
+        // submesh (empty source name → `submesh_N`), NaN positions, or a zero
+        // vertex count all produce an invisible mesh that still "builds OK".
+        let nanPos = 0;
+        for (let i = 0; i < positions.length; i++) if (!Number.isFinite(positions[i])) nanPos++;
+        let nanNrm = 0;
+        for (let i = 0; i < normals.length; i++) if (!Number.isFinite(normals[i])) nanNrm++;
+        console.log(
+            `[meshBuilder] submesh[${s}] srcName='${sm.name}' -> meshName='${meshName}' ` +
+            `vCount=${vCount} iCount=${iCount} posLen=${positions.length} idxLen=${indices.length} ` +
+            `nanPos=${nanPos} nanNrm=${nanNrm} hasSkin=${!!hasSkin} ` +
+            `gpuVerts=${mesh.getTotalVertices()} gpuIdx=${mesh.getTotalIndices()}`
+        );
+
         meshes.push(mesh);
     }
 

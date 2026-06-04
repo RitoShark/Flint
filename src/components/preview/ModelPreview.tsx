@@ -492,6 +492,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         }
 
         // 5. Apply materials with fuzzy matching
+        console.log(
+            `[MeshPreview] visibleMaterials(${visibleMaterials.size})=[${[...visibleMaterials].map(x => `'${x}'`).join(', ')}] ` +
+            `textureCacheKeys=[${[...textureCache.keys()].map(x => `'${x}'`).join(', ')}] ` +
+            `meshNames=[${meshes.map(m => `'${m.name}'`).join(', ')}]`
+        );
         meshes.forEach(m => {
             const matName = m.name;
 
@@ -553,7 +558,35 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             }
 
             m.material = mat;
-            m.setEnabled(visibleMaterials.has(matName));
+            const willEnable = visibleMaterials.has(matName);
+            m.setEnabled(willEnable);
+            console.log(
+                `[MeshPreview] applyMat mesh='${matName}' textureFound=${!!texture} ` +
+                `visibleMaterials.has('${matName}')=${willEnable} -> setEnabled(${willEnable}) ` +
+                `=> isEnabled=${m.isEnabled()} albedo=${texture ? 'tex' : 'MAGENTA(no-tex)'}`
+            );
+        });
+
+        // ── DIAGNOSTIC: dump the ACTUAL runtime state of every built mesh AFTER
+        // material + enable. This is the ground truth — if a mesh is invisible,
+        // exactly one of these fields explains why (disabled, 0 verts, off-screen,
+        // alpha 0, scaled to 0, or culled).
+        meshes.forEach((m, i) => {
+            const bi = m.getBoundingInfo();
+            const bb = bi.boundingBox;
+            const mat = m.material as PBRMaterial | null;
+            console.log(
+                `[MeshPreview] FINAL mesh[${i}] name='${m.name}' enabled=${m.isEnabled()} ` +
+                `isVisible=${m.isVisible} visibility=${m.visibility} alphaIndex=${m.alphaIndex} ` +
+                `gpuVerts=${m.getTotalVertices()} gpuIdx=${m.getTotalIndices()} ` +
+                `pos=(${m.position.x.toFixed(1)},${m.position.y.toFixed(1)},${m.position.z.toFixed(1)}) ` +
+                `scale=(${m.scaling.x},${m.scaling.y},${m.scaling.z}) ` +
+                `bbMinW=(${bb.minimumWorld.x.toFixed(1)},${bb.minimumWorld.y.toFixed(1)},${bb.minimumWorld.z.toFixed(1)}) ` +
+                `bbMaxW=(${bb.maximumWorld.x.toFixed(1)},${bb.maximumWorld.y.toFixed(1)},${bb.maximumWorld.z.toFixed(1)}) ` +
+                `mat='${mat?.name}' matAlpha=${mat?.alpha} unlit=${mat?.unlit} wireframe=${mat?.wireframe} ` +
+                `albedoColor=${mat?.albedoColor ? `(${mat.albedoColor.r},${mat.albedoColor.g},${mat.albedoColor.b})` : 'none'} ` +
+                `hasAlbedoTex=${!!mat?.albedoTexture}`
+            );
         });
 
         // 6. Camera centering using bounding box.

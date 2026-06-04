@@ -27,11 +27,14 @@ fn decode_texture_blocking(path: &Path) -> Result<String, String> {
 pub async fn read_scb_mesh(path: String) -> Result<tauri::ipc::Response, String> {
     let mesh = read_scb_mesh_inner(path).await?;
     tracing::info!(
-        "[mesh-wire] SCB '{}': {} verts, {} idx, {} mats, bbox={:?}",
+        "[mesh-wire] SCB '{}': {} verts, {} idx, {} mats={:?} ranges={:?} mat_data_keys={:?} bbox={:?}",
         mesh.name,
         mesh.positions.len(),
         mesh.indices.len(),
         mesh.materials.len(),
+        mesh.materials,
+        mesh.material_ranges,
+        mesh.material_data.keys().collect::<Vec<_>>(),
         mesh.bounding_box
     );
     let buf = flint_ltk::mesh::wire::encode_scb_binary(&mesh)?;
