@@ -767,7 +767,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
                     const ground = CreateGround("ground", { width: 1500, height: 1500 }, scene);
                     ground.isPickable = false;
+                    // Sit a hair below y=0 so flat particle SCBs (bbox y=[0,0])
+                    // that lie exactly on the floor plane can't occlude/z-fight it.
+                    ground.position.y = -2;
                     const mat = new StandardMaterial("ground-mat", scene);
+                    mat.backFaceCulling = false; // visible from any orbit angle
 
                     // CRITICAL: revoke the blob URL only AFTER the image has been
                     // pulled into the GPU texture — NEVER in the effect cleanup.
@@ -792,6 +796,24 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
                     floorMeshRef.current = ground;
                     console.log(`[floor] ground created (scene meshes=${scene.meshes.length})`);
+
+                    // ── DECISIVE DIAGNOSTIC: dump EVERY mesh actually in the scene
+                    // on the next rendered frame. If the floor is "loaded but
+                    // invisible", this says whether 'ground' is present+enabled+
+                    // visible (→ occlusion/material) or missing (→ disposed).
+                    scene.onAfterRenderObservable.addOnce(() => {
+                        const dump = scene.meshes.map(mm => {
+                            const mm2 = mm as any;
+                            return `${mm.name}{en=${mm.isEnabled()},vis=${mm.isVisible},a=${mm.visibility},y=${mm.position.y.toFixed(1)},` +
+                                `verts=${mm.getTotalVertices()},mat=${mm2.material?.getClassName?.() ?? mm2.material?.name ?? 'none'}}`;
+                        });
+                        const cam = scene.activeCamera as any;
+                        console.log(
+                            `[floor] AFTER-RENDER scene.meshes(${scene.meshes.length})=[${dump.join(', ')}] ` +
+                            `cam.radius=${cam?.radius?.toFixed?.(1)} cam.minZ=${cam?.minZ} cam.maxZ=${cam?.maxZ} ` +
+                            `clearColor=(${scene.clearColor.r.toFixed(2)},${scene.clearColor.g.toFixed(2)},${scene.clearColor.b.toFixed(2)})`
+                        );
+                    });
                 } catch (e) {
                     console.error("Failed to load textured floor:", e);
                 }
