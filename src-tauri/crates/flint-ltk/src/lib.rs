@@ -46,9 +46,7 @@ pub mod ltk_types {
     // ltk_file (used by commands/file.rs)
     pub use ltk_file::LeagueFileKind;
 
-    // ltk_texture (used by commands/file.rs, commands/project.rs)
-    pub use ltk_texture::Texture;
-    pub use ltk_texture::tex::{Tex, EncodeOptions, Format as TexFormat};
+    // ltk_texture: MIGRATED to ritoshark::tex (Phase 1) — re-export removed.
 
     // ltk_modpkg (used by commands/modpkg_import.rs, commands/export.rs)
     pub use ltk_modpkg::Modpkg;

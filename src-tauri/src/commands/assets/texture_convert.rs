@@ -8,14 +8,19 @@
 //!
 //! Mipmaps are intentionally disabled in both output paths — matches the
 //! existing recolor pipeline. See `commands::file::recolor_single_file`
-//! for the in-depth reasoning (League rejects partial mip chains; ltk-
-//! texture's mipmap walker also under-encodes sub-block sizes).
+//! for the in-depth reasoning (League rejects partial mip chains; encoder
+//! mip walkers also under-encode sub-block sizes).
 //!
 //! Both commands return the absolute path of the new file. They never
 //! delete the source — caller (frontend or fixer) decides whether to
 //! remove the original after the conversion is verified.
 
-use flint_ltk::ltk_types::{EncodeOptions, Tex, Texture};
+use ritoshark::prelude::*;
+// rs_io's `Serialize` (provides `.to_bytes()`) must be imported explicitly: the glob
+// above is suppressed by the `serde::Serialize` import below, so without this the
+// trait method isn't in scope.
+use ritoshark::prelude::Serialize as _;
+use ritoshark::tex::{TexFormat, Texture};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Cursor;
@@ -42,16 +47,19 @@ fn decode_to_clamped_rgba(data: &[u8]) -> Result<(image::RgbaImage, Texture), St
     if data.len() < 4 {
         return Err("File too small to be a valid texture".into());
     }
-    let mut cursor = Cursor::new(data);
-    let texture = Texture::from_reader(&mut cursor)
-        .map_err(|e| format!("Failed to parse texture: {:?}", e))?;
+    // RitoShark's `Texture` is a single struct with two constructors; branch on
+    // the 4-byte magic to pick the right one (TEX = b"TEX\0", DDS = b"DDS ").
+    let texture = if &data[0..4] == b"DDS " {
+        Texture::from_dds_bytes(data)
+            .map_err(|e| format!("Failed to parse texture: {:?}", e))?
+    } else {
+        Texture::from_bytes(data)
+            .map_err(|e| format!("Failed to parse texture: {:?}", e))?
+    };
 
-    let surface = texture
-        .decode_mipmap(0)
+    let mut rgba = texture
+        .decode_rgba()
         .map_err(|e| format!("Failed to decode top mipmap: {:?}", e))?;
-    let mut rgba = surface
-        .into_rgba_image()
-        .map_err(|e| format!("Failed to convert to RGBA: {:?}", e))?;
 
     // Block-compression formats need dims divisible by 4. The recolor path
     // does the same trim (see commands::file::recolor_single_file). We must
@@ -69,9 +77,9 @@ fn decode_to_clamped_rgba(data: &[u8]) -> Result<(image::RgbaImage, Texture), St
 
 /// Convert a TEX file to a sibling .dds.
 ///
-/// Format selection: ltk-texture's `Tex::format` (BC1 / BC3 / RGBA8) is
+/// Format selection: RitoShark's `Texture::format` (BC1 / BC3 / RGBA8) is
 /// mapped to the matching `image_dds::ImageFormat`. Anything we can't map
-/// falls through to BGRA8 uncompressed — the output is valid but larger.
+/// falls through to BC3 — the output is valid and preserves alpha.
 #[tauri::command]
 pub async fn convert_tex_to_dds(path: String) -> Result<ConversionResult, String> {
     let _t = ipc_trace::enter("convert_tex_to_dds");
@@ -87,22 +95,17 @@ pub async fn convert_tex_to_dds(path: String) -> Result<ConversionResult, String
 
     let (rgba, texture) = decode_to_clamped_rgba(&data)?;
 
-    // Pick a DDS format that matches the source TEX. We use whatever the
-    // ltk Tex parsed as its on-disk format — that's the most truthful
-    // mapping (BC1 source → BC1 destination, BC3 → BC3, etc.).
-    use flint_ltk::ltk_types::TexFormat;
-    let (dds_format, label) = match &texture {
-        Texture::Tex(t) => match t.format {
-            TexFormat::Etc1 | TexFormat::Etc2Eac => {
-                // Mobile-only formats. image_dds can't encode these — fall
-                // back to BC3 which preserves alpha and is widely supported.
-                (image_dds::ImageFormat::BC3RgbaUnorm, "BC3 (fallback from ETC)")
-            }
-            TexFormat::Bc1 => (image_dds::ImageFormat::BC1RgbaUnorm, "BC1 (DXT1)"),
-            TexFormat::Bc3 => (image_dds::ImageFormat::BC3RgbaUnorm, "BC3 (DXT5)"),
-            TexFormat::Bgra8 => (image_dds::ImageFormat::Rgba8Unorm, "RGBA8"),
-        },
-        Texture::Dds(_) => return Err("Source is already DDS — use the .dds → .tex conversion instead".into()),
+    // Pick a DDS format that matches the source TEX. We use whatever
+    // RitoShark parsed as its on-disk format — that's the most truthful
+    // mapping (BC1 source → BC1 destination, BC3 → BC3, etc.). Any format
+    // image_dds can't encode (ETC mobile formats, BC5/BC7, the alt/snorm
+    // variants) falls back to BC3, which preserves alpha and is widely
+    // supported.
+    let (dds_format, label) = match texture.format {
+        TexFormat::Bc1 => (image_dds::ImageFormat::BC1RgbaUnorm, "BC1 (DXT1)"),
+        TexFormat::Bc3 => (image_dds::ImageFormat::BC3RgbaUnorm, "BC3 (DXT5)"),
+        TexFormat::Bgra8 => (image_dds::ImageFormat::Rgba8Unorm, "RGBA8"),
+        _ => (image_dds::ImageFormat::BC3RgbaUnorm, "BC3 (fallback)"),
     };
 
     let new_dds = image_dds::dds_from_image(
@@ -131,7 +134,7 @@ pub async fn convert_tex_to_dds(path: String) -> Result<ConversionResult, String
 /// Convert a DDS file to a sibling .tex.
 ///
 /// Format selection: ddsfile's FourCC is matched to the closest
-/// `ltk_texture::tex::Format`. Unknown FourCCs default to BC3 (the
+/// `ritoshark::tex::TexFormat`. Unknown FourCCs default to BC3 (the
 /// safest common denominator for skin textures).
 #[tauri::command]
 pub async fn convert_dds_to_tex(path: String) -> Result<ConversionResult, String> {
@@ -149,13 +152,12 @@ pub async fn convert_dds_to_tex(path: String) -> Result<ConversionResult, String
     let (rgba, _) = decode_to_clamped_rgba(&data)?;
 
     // Read the DDS header again with ddsfile to look up the FourCC. We
-    // need the FourCC to pick the matching TEX format; the Texture::Dds
-    // wrapper hides this from us.
+    // need the FourCC to pick the matching TEX format; the decoded RGBA
+    // image alone doesn't tell us the original on-disk format.
     let mut cursor = Cursor::new(&data);
     let dds = ddsfile::Dds::read(&mut cursor)
         .map_err(|e| format!("Failed to parse DDS header: {}", e))?;
 
-    use flint_ltk::ltk_types::TexFormat;
     let (tex_format, label) = if let Some(fourcc) = dds.header.spf.fourcc {
         if fourcc.0 == u32::from_le_bytes(*b"DXT1") {
             (TexFormat::Bc1, "BC1 (DXT1)")
@@ -171,19 +173,21 @@ pub async fn convert_dds_to_tex(path: String) -> Result<ConversionResult, String
         (TexFormat::Bgra8, "RGBA8")
     };
 
-    let options = EncodeOptions::new(tex_format);
-    let new_tex = Tex::encode_rgba_image(&rgba, options)
-        .map_err(|e| format!("Failed to encode TEX: {:?}", e))?;
+    // RitoShark's `Texture::encode` only handles the block-compressed formats;
+    // build the uncompressed Bgra8 surface directly via `from_rgba_bgra8`.
+    let new_tex = match tex_format {
+        TexFormat::Bgra8 => Texture::from_rgba_bgra8(&rgba),
+        _ => Texture::encode(&rgba, tex_format, false)
+            .map_err(|e| format!("Failed to encode TEX: {:?}", e))?,
+    };
 
-    // ltk_texture's write() hardcodes ext_format byte 8 to 0; League's
-    // original TEX files use 0x01 for BC1/BC3. The recolor path patches
-    // this from the *source* TEX byte 8, but we don't have a source TEX
-    // here. Set it to 0x01 for BC1/BC3 (matches Riot's pattern) and 0x00
-    // for RGBA8.
-    let mut tex_bytes: Vec<u8> = Vec::new();
-    new_tex
-        .write(&mut tex_bytes)
-        .map_err(|e| format!("Failed to encode TEX to buffer: {}", e))?;
+    // RitoShark's writer emits `unknown1` (header byte 8) as 1; League's
+    // original TEX files use 0x01 for BC1/BC3. The recolor path patches this
+    // from the *source* TEX byte 8, but we don't have a source TEX here. Set
+    // it to 0x01 for BC1/BC3 (matches Riot's pattern) and 0x00 for RGBA8.
+    let mut tex_bytes: Vec<u8> = new_tex
+        .to_bytes()
+        .map_err(|e| format!("Failed to encode TEX to buffer: {:?}", e))?;
     if tex_bytes.len() >= 9 {
         tex_bytes[8] = match tex_format {
             TexFormat::Bc1 | TexFormat::Bc3 => 0x01,
@@ -259,13 +263,9 @@ pub async fn convert_tex_bytes_to_dds(
     }
 
     let (rgba, texture) = decode_to_clamped_rgba(data)?;
-    use flint_ltk::ltk_types::TexFormat;
-    let dds_format = match &texture {
-        Texture::Tex(t) => match t.format {
-            TexFormat::Bc1 => image_dds::ImageFormat::BC1RgbaUnorm,
-            TexFormat::Bgra8 => image_dds::ImageFormat::Rgba8Unorm,
-            _ => image_dds::ImageFormat::BC3RgbaUnorm,
-        },
+    let dds_format = match texture.format {
+        TexFormat::Bc1 => image_dds::ImageFormat::BC1RgbaUnorm,
+        TexFormat::Bgra8 => image_dds::ImageFormat::Rgba8Unorm,
         _ => image_dds::ImageFormat::BC3RgbaUnorm,
     };
 
@@ -304,7 +304,6 @@ pub async fn convert_dds_bytes_to_tex(
     let dds = ddsfile::Dds::read(&mut cursor)
         .map_err(|e| format!("Failed to parse DDS header: {}", e))?;
 
-    use flint_ltk::ltk_types::TexFormat;
     let tex_format = if let Some(fourcc) = dds.header.spf.fourcc {
         if fourcc.0 == u32::from_le_bytes(*b"DXT1") {
             TexFormat::Bc1
@@ -315,12 +314,17 @@ pub async fn convert_dds_bytes_to_tex(
         TexFormat::Bgra8
     };
 
-    let options = EncodeOptions::new(tex_format);
-    let new_tex = Tex::encode_rgba_image(&rgba, options)
-        .map_err(|e| format!("Failed to encode TEX: {:?}", e))?;
+    // RitoShark's `Texture::encode` only handles block-compressed formats;
+    // build the uncompressed Bgra8 surface directly via `from_rgba_bgra8`.
+    let new_tex = match tex_format {
+        TexFormat::Bgra8 => Texture::from_rgba_bgra8(&rgba),
+        _ => Texture::encode(&rgba, tex_format, false)
+            .map_err(|e| format!("Failed to encode TEX: {:?}", e))?,
+    };
 
-    let mut buf: Vec<u8> = Vec::new();
-    new_tex.write(&mut buf).map_err(|e| format!("Failed to serialize TEX: {}", e))?;
+    let mut buf: Vec<u8> = new_tex
+        .to_bytes()
+        .map_err(|e| format!("Failed to serialize TEX: {:?}", e))?;
     if buf.len() >= 9 {
         buf[8] = match tex_format {
             TexFormat::Bc1 | TexFormat::Bc3 => 0x01,

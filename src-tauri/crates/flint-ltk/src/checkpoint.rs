@@ -425,28 +425,31 @@ impl CheckpointManager {
 
     /// Decode DDS/TEX texture data to base64 PNG
     fn decode_texture_to_png(data: &[u8]) -> std::result::Result<(String, u32, u32), String> {
-        use ltk_texture::Texture;
-        use std::io::Cursor;
+        use ritoshark::prelude::*;
+        use ritoshark::tex::Texture;
         use base64::{engine::general_purpose::STANDARD, Engine};
 
         if data.len() < 4 {
             return Err("File too small".to_string());
         }
 
-        let mut cursor = Cursor::new(data);
-        let texture = Texture::from_reader(&mut cursor)
-            .map_err(|e| format!("Failed to parse texture: {:?}", e))?;
+        // RitoShark's `Texture` is one struct; branch on the 4-byte magic
+        // (b"DDS " → from_dds_bytes, otherwise TEX → from_bytes).
+        let texture = if &data[0..4] == b"DDS " {
+            Texture::from_dds_bytes(data)
+                .map_err(|e| format!("Failed to parse texture: {:?}", e))?
+        } else {
+            Texture::from_bytes(data)
+                .map_err(|e| format!("Failed to parse texture: {:?}", e))?
+        };
 
-        let width = texture.width();
-        let height = texture.height();
-
-        let surface = texture
-            .decode_mipmap(0)
+        let rgba_image = texture
+            .decode_rgba()
             .map_err(|e| format!("Failed to decode texture: {:?}", e))?;
 
-        let rgba_image = surface
-            .into_rgba_image()
-            .map_err(|e| format!("Failed to convert to RGBA: {:?}", e))?;
+        // Use the decoded buffer's actual dimensions for the PNG header.
+        let width = rgba_image.width();
+        let height = rgba_image.height();
 
         let mut png_data = Vec::new();
         {

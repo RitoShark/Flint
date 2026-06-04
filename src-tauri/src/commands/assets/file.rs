@@ -5,7 +5,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 use image::{RgbaImage, Rgba};
-use flint_ltk::ltk_types::Texture;
+use ritoshark::prelude::*;
+// Explicit: `serde::Serialize` in this file suppresses the glob's rs_io `Serialize`,
+// which provides `.to_bytes()`.
+use ritoshark::prelude::Serialize as _;
+use ritoshark::tex::{TexFormat, Texture};
 use std::io::Cursor;
 use std::process::Command;
 use crate::core::ipc_trace;
@@ -313,16 +317,25 @@ pub async fn inspect_path(path: String) -> PathInspection {
     PathInspection { is_directory: false, info }
 }
 
-/// Parse texture dimensions using ltk_texture (handles both DDS and TEX)
+/// Parse texture dimensions using RitoShark's rs_tex (handles both DDS and TEX)
 fn parse_texture_dimensions(data: &[u8]) -> Result<(u32, u32), String> {
-    use flint_ltk::ltk_types::Texture;
-    use std::io::Cursor;
+    let texture = parse_texture_any(data)?;
+    Ok((texture.width, texture.height))
+}
 
-    let mut cursor = Cursor::new(data);
-    let texture = Texture::from_reader(&mut cursor)
-        .map_err(|e| format!("Failed to parse texture: {:?}", e))?;
-
-    Ok((texture.width(), texture.height()))
+/// Parse a DDS or TEX byte buffer into a RitoShark `Texture`.
+///
+/// RitoShark's `Texture` is one struct with two constructors; branch on the
+/// 4-byte magic (`b"DDS "` → `from_dds_bytes`, otherwise TEX → `from_bytes`).
+fn parse_texture_any(data: &[u8]) -> Result<Texture, String> {
+    if data.len() < 4 {
+        return Err("Data too small to be a valid texture".to_string());
+    }
+    if &data[0..4] == b"DDS " {
+        Texture::from_dds_bytes(data).map_err(|e| format!("Failed to parse texture: {:?}", e))
+    } else {
+        Texture::from_bytes(data).map_err(|e| format!("Failed to parse texture: {:?}", e))
+    }
 }
 
 /// Synchronous DDS/TEX → base64 PNG, callable from rayon workers / other
@@ -339,17 +352,11 @@ fn decode_texture_bytes_impl(data: &[u8]) -> Result<DecodedImage, String> {
         return Err("Data too small to be a valid texture".to_string());
     }
 
-    let mut cursor = Cursor::new(data);
-    let texture = Texture::from_reader(&mut cursor)
-        .map_err(|e| format!("Failed to parse texture: {:?}", e))?;
+    let texture = parse_texture_any(data)?;
 
-    let surface = texture
-        .decode_mipmap(0)
+    let rgba_image = texture
+        .decode_rgba()
         .map_err(|e| format!("Failed to decode texture: {:?}", e))?;
-
-    let rgba_image = surface
-        .into_rgba_image()
-        .map_err(|e| format!("Failed to convert to RGBA: {:?}", e))?;
 
     let format = match &data[0..4] {
         [0x54, 0x45, 0x58, 0x00] => "TEX",
@@ -518,17 +525,12 @@ async fn recolor_single_file(
         return Err("Not a supported texture format (DDS or TEX)".into());
     }
 
-    // Decode using ltk_texture
-    let mut cursor = Cursor::new(&data);
-    let texture = Texture::from_reader(&mut cursor)
-        .map_err(|e| format!("Failed to parse texture: {:?}", e))?;
+    // Decode using RitoShark's rs_tex
+    let texture = parse_texture_any(&data)?;
+    let source_format = texture.format;
 
-    // Decode top mipmap
-    let surface = texture.decode_mipmap(0)
+    let mut rgba_img = texture.decode_rgba()
         .map_err(|e| format!("Failed to decode mipmap: {:?}", e))?;
-    
-    let mut rgba_img = surface.into_rgba_image()
-        .map_err(|e| format!("Failed to get RGBA image: {:?}", e))?;
 
     // BC1/BC3 block compression requires dimensions that are multiples of 4.
     // Clamp to the nearest lower multiple of 4 to avoid corrupt output or panics
@@ -543,66 +545,81 @@ async fn recolor_single_file(
     // Apply HSL transform
     apply_hsl_to_image(&mut rgba_img, hue, saturation, brightness);
 
-    // Save back to original file
-    match texture {
-        Texture::Tex(tex) => {
-            use flint_ltk::ltk_types::EncodeOptions;
-            // Mipmaps are intentionally OFF here. Upstream
-            // `encode_rgba_with_mipmaps` walks down to sub-block sizes
-            // (e.g. 16x1 for BC3) and intel-tex's `compress_blocks`
-            // under-encodes those -- the resulting TEX has a declared
-            // mip-table size larger than the byte buffer and any later
-            // decode panics with `range end index N out of range`.
-            // Single-mip TEX renders correctly in-game and lets the
-            // preview path round-trip cleanly.
-            let options = EncodeOptions::new(tex.format);
-            let new_tex = flint_ltk::ltk_types::Tex::encode_rgba_image(&rgba_img, options)
-                .map_err(|e| format!("Failed to encode TEX: {:?}", e))?;
+    // Save back to original file (re-encode in the same container the source
+    // came from — branch on the input magic).
+    if is_tex {
+        let new_tex = encode_tex_same_format(&rgba_img, source_format)?;
 
-            // ltk_texture's write() hardcodes ext_format byte (header offset +8) to 0,
-            // but League's original TEX files use 0x01 for BC1/BC3 textures.
-            // Changing it from 0x01 to 0x00 can cause a crash. Preserve the
-            // original value by encoding to a buffer first, then patching byte 8.
-            let mut tex_bytes: Vec<u8> = Vec::new();
-            new_tex.write(&mut tex_bytes).map_err(|e| format!("Failed to encode TEX to buffer: {}", e))?;
-            if tex_bytes.len() >= 9 && data.len() >= 9 {
-                tex_bytes[8] = data[8]; // restore original ext_format byte
-            }
-            fs::write(&path_buf, &tex_bytes).map_err(|e| format!("Failed to write TEX: {}", e))?;
+        // RitoShark's writer emits the ext_format byte (header offset +8) as 1,
+        // but League's original TEX files use 0x01 for BC1/BC3 textures.
+        // Changing it from 0x01 to 0x00 can cause a crash. Preserve the
+        // original value by patching byte 8 from the source after serializing.
+        let mut tex_bytes: Vec<u8> = new_tex.to_bytes()
+            .map_err(|e| format!("Failed to encode TEX to buffer: {:?}", e))?;
+        if tex_bytes.len() >= 9 && data.len() >= 9 {
+            tex_bytes[8] = data[8]; // restore original ext_format byte
         }
-        Texture::Dds(mut _dds) => {
-            // Re-parse with ddsfile to get header info and encode with image_dds
-            let mut cursor = Cursor::new(&data);
-            let dds = ddsfile::Dds::read(&mut cursor).map_err(|e| format!("Failed to parse DDS: {}", e))?;
+        fs::write(&path_buf, &tex_bytes).map_err(|e| format!("Failed to write TEX: {}", e))?;
+    } else {
+        // Re-parse with ddsfile to get header info and encode with image_dds
+        let mut cursor = Cursor::new(&data);
+        let dds = ddsfile::Dds::read(&mut cursor).map_err(|e| format!("Failed to parse DDS: {}", e))?;
 
-            // Try to match format
-            let format = if let Some(fourcc) = dds.header.spf.fourcc {
-                if fourcc.0 == u32::from_le_bytes(*b"DXT1") {
-                    image_dds::ImageFormat::BC1RgbaUnorm
-                } else {
-                    // DXT5 and other formats default to BC3
-                    image_dds::ImageFormat::BC3RgbaUnorm
-                }
+        // Try to match format
+        let format = if let Some(fourcc) = dds.header.spf.fourcc {
+            if fourcc.0 == u32::from_le_bytes(*b"DXT1") {
+                image_dds::ImageFormat::BC1RgbaUnorm
             } else {
-                image_dds::ImageFormat::Bgra8Unorm
-            };
+                // DXT5 and other formats default to BC3
+                image_dds::ImageFormat::BC3RgbaUnorm
+            }
+        } else {
+            image_dds::ImageFormat::Bgra8Unorm
+        };
 
-            // Mipmaps are disabled — generating them for DDS causes League to crash
-            // (the client expects either 0 or a complete standard mip chain; partial
-            // chains from GeneratedAutomatic can disagree with the header counts).
-            let new_dds = image_dds::dds_from_image(
-                &rgba_img,
-                format,
-                image_dds::Quality::Normal,
-                image_dds::Mipmaps::Disabled,
-            ).map_err(|e| format!("Failed to encode DDS: {:?}", e))?;
+        // Mipmaps are disabled — generating them for DDS causes League to crash
+        // (the client expects either 0 or a complete standard mip chain; partial
+        // chains from GeneratedAutomatic can disagree with the header counts).
+        let new_dds = image_dds::dds_from_image(
+            &rgba_img,
+            format,
+            image_dds::Quality::Normal,
+            image_dds::Mipmaps::Disabled,
+        ).map_err(|e| format!("Failed to encode DDS: {:?}", e))?;
 
-            let mut output = fs::File::create(&path_buf).map_err(|e| format!("Failed to create output file: {}", e))?;
-            new_dds.write(&mut output).map_err(|e| format!("Failed to write DDS: {}", e))?;
-        }
+        let mut output = fs::File::create(&path_buf).map_err(|e| format!("Failed to create output file: {}", e))?;
+        new_dds.write(&mut output).map_err(|e| format!("Failed to write DDS: {}", e))?;
     }
 
     Ok(())
+}
+
+/// Re-encode an RGBA image into a TEX, matching the source texture's format.
+///
+/// Mipmaps are intentionally OFF (the `false` arg). League rejects partial mip
+/// chains and the encoder's sub-block-size mips can under-encode — single-mip
+/// TEX renders correctly in-game and round-trips cleanly through the preview.
+///
+/// RitoShark's `Texture::encode` only handles the block-compressed formats, so:
+/// - `Bgra8` is built directly via `from_rgba_bgra8` (uncompressed, lossless);
+/// - the ETC mobile formats and `Rgba16Snorm` (which the PC client never ships,
+///   and which `encode` can't produce) fall back to BC3 — preserves alpha, like
+///   the TEX↔DDS converter's ETC fallback;
+/// - everything else (`Bc1/Bc1Alt/Bc3/Bc5/Bc7`) encodes to its own format.
+fn encode_tex_same_format(rgba: &RgbaImage, format: TexFormat) -> Result<Texture, String> {
+    match format {
+        TexFormat::Bgra8 => Ok(Texture::from_rgba_bgra8(rgba)),
+        TexFormat::Bc1
+        | TexFormat::Bc1Alt
+        | TexFormat::Bc3
+        | TexFormat::Bc5
+        | TexFormat::Bc7 => Texture::encode(rgba, format, false)
+            .map_err(|e| format!("Failed to encode TEX: {:?}", e)),
+        TexFormat::Etc1 | TexFormat::Etc2 | TexFormat::Etc2Eac | TexFormat::Rgba16Snorm => {
+            Texture::encode(rgba, TexFormat::Bc3, false)
+                .map_err(|e| format!("Failed to encode TEX: {:?}", e))
+        }
+    }
 }
 
 /// Recolor all texture files in a folder recursively
@@ -683,17 +700,12 @@ async fn colorize_single_file(
         return Err("Not a supported texture format (DDS or TEX)".into());
     }
 
-    // Decode using ltk_texture
-    let mut cursor = Cursor::new(&data);
-    let texture = Texture::from_reader(&mut cursor)
-        .map_err(|e| format!("Failed to parse texture: {:?}", e))?;
+    // Decode using RitoShark's rs_tex
+    let texture = parse_texture_any(&data)?;
+    let source_format = texture.format;
 
-    // Decode top mipmap
-    let surface = texture.decode_mipmap(0)
+    let mut rgba_img = texture.decode_rgba()
         .map_err(|e| format!("Failed to decode mipmap: {:?}", e))?;
-    
-    let mut rgba_img = surface.into_rgba_image()
-        .map_err(|e| format!("Failed to get RGBA image: {:?}", e))?;
 
     // BC1/BC3 block compression requires dimensions that are multiples of 4.
     // Clamp to the nearest lower multiple of 4 to avoid corrupt output or panics.
@@ -707,52 +719,46 @@ async fn colorize_single_file(
     // Apply colorize transform
     colorize_image_impl(&mut rgba_img, target_hue, preserve_saturation);
 
-    // Save back to original file
-    match texture {
-        Texture::Tex(tex) => {
-            use flint_ltk::ltk_types::EncodeOptions;
-            // See note in recolor_single_file -- mipmaps disabled to avoid
-            // upstream sub-block-size encode bug.
-            let options = EncodeOptions::new(tex.format);
-            let new_tex = flint_ltk::ltk_types::Tex::encode_rgba_image(&rgba_img, options)
-                .map_err(|e| format!("Failed to encode TEX: {:?}", e))?;
+    // Save back to original file (re-encode in the source container).
+    if is_tex {
+        // See note in encode_tex_same_format -- mipmaps disabled, source
+        // format preserved (with ETC/snorm → BC3 fallback).
+        let new_tex = encode_tex_same_format(&rgba_img, source_format)?;
 
-            // Preserve original ext_format byte -- see note in recolor_single_file.
-            let mut tex_bytes: Vec<u8> = Vec::new();
-            new_tex.write(&mut tex_bytes).map_err(|e| format!("Failed to encode TEX to buffer: {}", e))?;
-            if tex_bytes.len() >= 9 && data.len() >= 9 {
-                tex_bytes[8] = data[8]; // restore original ext_format byte
-            }
-            fs::write(&path_buf, &tex_bytes).map_err(|e| format!("Failed to write TEX: {}", e))?;
+        // Preserve original ext_format byte -- see note in recolor_single_file.
+        let mut tex_bytes: Vec<u8> = new_tex.to_bytes()
+            .map_err(|e| format!("Failed to encode TEX to buffer: {:?}", e))?;
+        if tex_bytes.len() >= 9 && data.len() >= 9 {
+            tex_bytes[8] = data[8]; // restore original ext_format byte
         }
-        Texture::Dds(mut _dds) => {
-            // Re-parse with ddsfile to get header info and encode with image_dds
-            let mut cursor = Cursor::new(&data);
-            let dds = ddsfile::Dds::read(&mut cursor).map_err(|e| format!("Failed to parse DDS: {}", e))?;
+        fs::write(&path_buf, &tex_bytes).map_err(|e| format!("Failed to write TEX: {}", e))?;
+    } else {
+        // Re-parse with ddsfile to get header info and encode with image_dds
+        let mut cursor = Cursor::new(&data);
+        let dds = ddsfile::Dds::read(&mut cursor).map_err(|e| format!("Failed to parse DDS: {}", e))?;
 
-            // Try to match format
-            let format = if let Some(fourcc) = dds.header.spf.fourcc {
-                if fourcc.0 == u32::from_le_bytes(*b"DXT1") {
-                    image_dds::ImageFormat::BC1RgbaUnorm
-                } else {
-                    // DXT5 and other formats default to BC3
-                    image_dds::ImageFormat::BC3RgbaUnorm
-                }
+        // Try to match format
+        let format = if let Some(fourcc) = dds.header.spf.fourcc {
+            if fourcc.0 == u32::from_le_bytes(*b"DXT1") {
+                image_dds::ImageFormat::BC1RgbaUnorm
             } else {
-                image_dds::ImageFormat::Bgra8Unorm
-            };
+                // DXT5 and other formats default to BC3
+                image_dds::ImageFormat::BC3RgbaUnorm
+            }
+        } else {
+            image_dds::ImageFormat::Bgra8Unorm
+        };
 
-            // Mipmaps are disabled — see note in recolor_single_file.
-            let new_dds = image_dds::dds_from_image(
-                &rgba_img,
-                format,
-                image_dds::Quality::Normal,
-                image_dds::Mipmaps::Disabled,
-            ).map_err(|e| format!("Failed to encode DDS: {:?}", e))?;
+        // Mipmaps are disabled — see note in recolor_single_file.
+        let new_dds = image_dds::dds_from_image(
+            &rgba_img,
+            format,
+            image_dds::Quality::Normal,
+            image_dds::Mipmaps::Disabled,
+        ).map_err(|e| format!("Failed to encode DDS: {:?}", e))?;
 
-            let mut output = fs::File::create(&path_buf).map_err(|e| format!("Failed to create output file: {}", e))?;
-            new_dds.write(&mut output).map_err(|e| format!("Failed to write DDS: {}", e))?;
-        }
+        let mut output = fs::File::create(&path_buf).map_err(|e| format!("Failed to create output file: {}", e))?;
+        new_dds.write(&mut output).map_err(|e| format!("Failed to write DDS: {}", e))?;
     }
 
     Ok(())
