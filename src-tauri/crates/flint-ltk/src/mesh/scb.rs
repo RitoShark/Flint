@@ -68,7 +68,16 @@ pub fn parse_scb_file<P: AsRef<Path>>(path: P) -> anyhow::Result<ScbMeshData> {
 
     // Static meshes store geometry per-face, not per-vertex
     // Each face has 3 vertex indices into the position array, plus its own UVs
-    let vertices = mesh.positions();
+    // Apply the SAME mirrorX as skn.rs (negate X to convert League's left-handed
+    // coords to Babylon's right-handed). SCB previously sent RAW coords, but it
+    // feeds the same `buildSknMeshes`, which assumes a mirrored backend and
+    // deliberately does NOT swap winding — so static meshes came out mirror-imaged
+    // / inside-out vs SKN (which mirrors). Mirroring here makes SCB match SKN.
+    let vertices: Vec<Vec3> = mesh
+        .positions()
+        .iter()
+        .map(|v| Vec3::new(-v.x, v.y, v.z))
+        .collect();
     let faces = mesh.faces();
 
     // We need to create non-indexed geometry since each face has unique UVs
@@ -87,7 +96,7 @@ pub fn parse_scb_file<P: AsRef<Path>>(path: P) -> anyhow::Result<ScbMeshData> {
     let mut min = Vec3::splat(f32::MAX);
     let mut max = Vec3::splat(f32::MIN);
 
-    for v in vertices {
+    for v in &vertices {
         min = min.min(*v);
         max = max.max(*v);
     }
