@@ -312,7 +312,7 @@ dependencies = [
  "anyhow",
  "arrayvec",
  "log",
- "nom 8.0.0",
+ "nom",
  "num-rational",
  "v_frame",
 ]
@@ -496,12 +496,6 @@ name = "bumpalo"
 version = "3.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d20789868f4b01b2f2caec9f5c4e0213b41e3e5702a50157d699ae31ced2fcb"
-
-[[package]]
-name = "bytecount"
-version = "0.6.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "175812e0be2bccb6abe50bb8d566126198344f707e304f45c648fd8f2cc0365e"
 
 [[package]]
 name = "bytemuck"
@@ -1603,17 +1597,11 @@ dependencies = [
  "image_dds",
  "indexmap 2.13.0",
  "itertools",
- "league-toolkit 0.2.18 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_anim 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
  "ltk_fantome",
  "ltk_inibin",
- "ltk_mesh 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_meta 0.4.0 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
  "ltk_mod_core",
  "ltk_mod_project",
  "ltk_modpkg",
- "ltk_ritobin",
- "ltk_texture 0.4.4 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
  "memmap2",
  "parking_lot",
  "rayon",
@@ -2030,9 +2018,6 @@ name = "glam"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e05e7e6723e3455f4818c7b26e855439f7546cf617ef669d1adedb8669e5cb9"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "glam"
@@ -2290,9 +2275,9 @@ dependencies = [
  "hematite-core",
  "hematite-types",
  "indexmap 2.13.0",
- "league-toolkit 0.2.18 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
+ "league-toolkit",
  "ltk_primitives 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
- "ltk_texture 0.4.4 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
+ "ltk_texture",
  "tracing",
  "xxhash-rust",
 ]
@@ -3029,30 +3014,15 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 [[package]]
 name = "league-toolkit"
 version = "0.2.18"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
-dependencies = [
- "ltk_anim 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_file 0.2.8 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_hash 0.2.5 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_mesh 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_meta 0.4.0 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_primitives 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_texture 0.4.4 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_wad 0.2.13 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
-]
-
-[[package]]
-name = "league-toolkit"
-version = "0.2.18"
 source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4#ca8eff48b2210c89d63dd07692acb29f1a3e55f4"
 dependencies = [
- "ltk_anim 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
+ "ltk_anim",
  "ltk_file 0.2.8 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
- "ltk_hash 0.2.5 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
- "ltk_mesh 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
- "ltk_meta 0.4.0 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
+ "ltk_hash",
+ "ltk_mesh",
+ "ltk_meta",
  "ltk_primitives 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
- "ltk_texture 0.4.4 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
+ "ltk_texture",
  "ltk_wad 0.2.13 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
 ]
 
@@ -3228,28 +3198,13 @@ dependencies = [
 [[package]]
 name = "ltk_anim"
 version = "0.3.2"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
-dependencies = [
- "bitflags 2.11.0",
- "bytemuck",
- "byteorder",
- "glam 0.27.0",
- "ltk_hash 0.2.5 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_io_ext 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "num_enum",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "ltk_anim"
-version = "0.3.2"
 source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4#ca8eff48b2210c89d63dd07692acb29f1a3e55f4"
 dependencies = [
  "bitflags 2.11.0",
  "bytemuck",
  "byteorder",
  "glam 0.27.0",
- "ltk_hash 0.2.5 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
+ "ltk_hash",
  "ltk_io_ext 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
  "num_enum",
  "thiserror 1.0.69",
@@ -3287,24 +3242,10 @@ dependencies = [
 [[package]]
 name = "ltk_file"
 version = "0.2.8"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
-dependencies = [
- "serde",
- "strum 0.27.2",
-]
-
-[[package]]
-name = "ltk_file"
-version = "0.2.8"
 source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4#ca8eff48b2210c89d63dd07692acb29f1a3e55f4"
 dependencies = [
  "strum 0.27.2",
 ]
-
-[[package]]
-name = "ltk_hash"
-version = "0.2.5"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
 
 [[package]]
 name = "ltk_hash"
@@ -3350,37 +3291,11 @@ dependencies = [
 [[package]]
 name = "ltk_io_ext"
 version = "0.4.1"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
-dependencies = [
- "byteorder",
- "glam 0.27.0",
- "ltk_primitives 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "ltk_io_ext"
-version = "0.4.1"
 source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4#ca8eff48b2210c89d63dd07692acb29f1a3e55f4"
 dependencies = [
  "byteorder",
  "glam 0.27.0",
  "ltk_primitives 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "ltk_mesh"
-version = "0.4.1"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
-dependencies = [
- "bitflags 2.11.0",
- "byteorder",
- "glam 0.27.0",
- "lazy_static",
- "ltk_io_ext 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_primitives 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "num_enum",
  "thiserror 1.0.69",
 ]
 
@@ -3396,25 +3311,6 @@ dependencies = [
  "ltk_io_ext 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
  "ltk_primitives 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
  "num_enum",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "ltk_meta"
-version = "0.4.0"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
-dependencies = [
- "byteorder",
- "enum_dispatch",
- "glam 0.27.0",
- "indexmap 2.13.0",
- "log",
- "ltk_io_ext 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_primitives 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "miette 7.6.0",
- "num_enum",
- "paste",
- "serde",
  "thiserror 1.0.69",
 ]
 
@@ -3511,55 +3407,10 @@ dependencies = [
 [[package]]
 name = "ltk_primitives"
 version = "0.3.2"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
-dependencies = [
- "byteorder",
- "glam 0.27.0",
- "serde",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "ltk_primitives"
-version = "0.3.2"
 source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4#ca8eff48b2210c89d63dd07692acb29f1a3e55f4"
 dependencies = [
  "byteorder",
  "glam 0.27.0",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "ltk_ritobin"
-version = "0.2.1"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
-dependencies = [
- "glam 0.27.0",
- "indexmap 2.13.0",
- "ltk_hash 0.2.5 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_meta 0.4.0 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_primitives 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "miette 7.6.0",
- "nom 7.1.3",
- "nom_locate",
- "thiserror 1.0.69",
- "xxhash-rust",
-]
-
-[[package]]
-name = "ltk_texture"
-version = "0.4.4"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
-dependencies = [
- "bitflags 2.11.0",
- "byteorder",
- "ddsfile",
- "image",
- "image_dds",
- "intel_tex_2 0.5.0",
- "ltk_io_ext 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "num_enum",
- "texture2ddecoder",
  "thiserror 1.0.69",
 ]
 
@@ -3594,25 +3445,6 @@ dependencies = [
  "ltk_io_ext 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "memchr",
  "num_enum",
- "thiserror 1.0.69",
- "xxhash-rust",
- "zstd 0.13.3",
-]
-
-[[package]]
-name = "ltk_wad"
-version = "0.2.13"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
-dependencies = [
- "byteorder",
- "camino",
- "flate2",
- "itertools",
- "ltk_file 0.2.8 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_io_ext 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "memchr",
- "num_enum",
- "serde",
  "thiserror 1.0.69",
  "xxhash-rust",
  "zstd 0.13.3",
@@ -3800,12 +3632,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
-name = "minimal-lexical"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
-
-[[package]]
 name = "minisign-verify"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3902,32 +3728,11 @@ checksum = "72ef4a56884ca558e5ddb05a1d1e7e1bfd9a68d9ed024c21704cc98872dae1bb"
 
 [[package]]
 name = "nom"
-version = "7.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d273983c5a657a70a3e8f2a01329822f3b8c8172b73826411a55751e404a0a4a"
-dependencies = [
- "memchr",
- "minimal-lexical",
-]
-
-[[package]]
-name = "nom"
 version = "8.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df9761775871bdef83bee530e60050f7e54b1105350d6884eb0fb4f46c2f9405"
 dependencies = [
  "memchr",
-]
-
-[[package]]
-name = "nom_locate"
-version = "4.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e3c83c053b0713da60c5b8de47fe8e494fe3ece5267b2f23090a07a053ba8f3"
-dependencies = [
- "bytecount",
- "memchr",
- "nom 7.1.3",
 ]
 
 [[package]]
