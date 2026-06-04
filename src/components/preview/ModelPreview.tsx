@@ -23,7 +23,6 @@ import { SkeletonViewer } from '@babylonjs/core/Debug/skeletonViewer';
 import * as api from '../../lib/api';
 import { useAppMetadataStore } from '../../lib/stores';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
-import { deferCleanup } from '../../lib/ui-helpers/deferCleanup';
 
 // Import our custom Babylon wrappers
 import { createEngine } from '../../lib/babylon/engine';
@@ -143,18 +142,31 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         if (!canvas) return;
 
         const engine = createEngine(canvas);
+        console.log('[engine] CREATED (live GL engines pile up if this fires per file)');
 
-        // WebGL context loss is the OTHER way the preview "panics" — the canvas
-        // goes blank without render() throwing. Rapidly creating engines (one per
-        // file when the preview remounts) can exhaust the browser's ~16 live GL
-        // contexts and force the oldest one lost. Log both so we can tell a lost
-        // context apart from a JS throw in the render loop.
-        engine.onContextLostObservable.add(() => {
-            console.error('[render] ⚠ WebGL CONTEXT LOST — canvas will blank until restored');
-        });
-        engine.onContextRestoredObservable.add(() => {
-            console.log('[render] ✓ WebGL context restored');
-        });
+        // ── CATCH-ALL PANIC LOGGING ──────────────────────────────────────────
+        // "Loads fine, then BOOM" happens OUTSIDE scene.render(), so the render-
+        // loop try/catch never sees it. These fire no matter where it blows up:
+        //   • window 'error'           — any uncaught JS error anywhere
+        //   • 'unhandledrejection'     — a rejected async (texture upload, IPC)
+        //   • canvas 'webglcontextlost'— GPU context dropped (DOM event, the most
+        //                                reliable signal; preventDefault lets it restore)
+        //   • Babylon context observables — same, via Babylon's own plumbing
+        const onWinError = (e: ErrorEvent) =>
+            console.error(`[render] 💥 window error: ${e.message}`, e.error?.stack ?? e.error ?? '');
+        const onRejection = (e: PromiseRejectionEvent) =>
+            console.error('[render] 💥 unhandledrejection:', e.reason?.stack ?? e.reason ?? e.reason);
+        const onCtxLost = (e: Event) => {
+            e.preventDefault();
+            console.error('[render] 💥 canvas webglcontextlost (GPU context dropped)');
+        };
+        const onCtxRestored = () => console.log('[render] ✓ canvas webglcontextrestored');
+        window.addEventListener('error', onWinError);
+        window.addEventListener('unhandledrejection', onRejection);
+        canvas.addEventListener('webglcontextlost', onCtxLost);
+        canvas.addEventListener('webglcontextrestored', onCtxRestored);
+        engine.onContextLostObservable.add(() => console.error('[render] 💥 Babylon onContextLost'));
+        engine.onContextRestoredObservable.add(() => console.log('[render] ✓ Babylon onContextRestored'));
 
         const activeScene = new Scene(engine);
         setScene(activeScene);
@@ -245,6 +257,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         (canvas as any)._flintCleanup = () => {
             window.removeEventListener('resize', handleResize);
             canvas.removeEventListener('contextmenu', handleContextMenu);
+            window.removeEventListener('error', onWinError);
+            window.removeEventListener('unhandledrejection', onRejection);
+            canvas.removeEventListener('webglcontextlost', onCtxLost);
+            canvas.removeEventListener('webglcontextrestored', onCtxRestored);
+            console.log('[engine] DISPOSED');
 
             if (skeletonViewerRef.current) {
                 skeletonViewerRef.current.dispose();
@@ -286,10 +303,16 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             const cleanup = canvas && (canvas as any)._flintCleanup;
             if (cleanup) {
                 delete (canvas as any)._flintCleanup;
-                // Defer GPU teardown so closing a project that had a 3D
-                // preview open returns the UI immediately. The engine +
-                // meshes + textures get disposed on the next idle slot.
-                deferCleanup(cleanup);
+                // Dispose SYNCHRONOUSLY, not on idle. This effect recreates a
+                // whole Engine + WebGL context per file ([engine] CREATED fires on
+                // every load). Deferring engine.dispose() up to 500ms means the
+                // PREVIOUS file's context is still live while the NEXT one renders
+                // — on fast switches the browser's ~16-context cap is hit and the
+                // live preview's context gets force-killed ("loads fine, then
+                // boom"). Releasing the context here, before the next mount's
+                // engine is created, keeps at most ~1 live context. The ~100-200ms
+                // unmount cost is well worth not nuking the preview.
+                cleanup();
             }
             setScene(null);
             setCamera(null);
