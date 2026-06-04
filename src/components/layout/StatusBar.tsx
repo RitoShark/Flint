@@ -15,10 +15,14 @@ import { Button, Icon } from '../ui';
 type LogLevel = 'info' | 'warning' | 'error';
 type FilterLevel = 'all' | LogLevel;
 
-// Max log rows painted into the (non-virtualized) panel at once. Retention is
-// unbounded in the store; this only bounds the live DOM so the panel stays
-// responsive. Copy All exports the full history regardless of this window.
-const LOG_RENDER_WINDOW = 4000;
+// Virtualized log list. Retention is unbounded in the store; only the rows in
+// (and just around) the viewport are ever in the DOM — so memory/DOM stay tiny
+// no matter how many heavy lines pile up. ROW_H must match the fixed row height
+// the CSS/inline style enforces; OVERSCAN renders a few extra rows above/below
+// for smooth scrolling. Copy All / range-copy read from the store, so off-screen
+// (un-rendered) lines copy fine.
+const ROW_H = 22;        // px, single-line row height
+const OVERSCAN = 12;     // rows rendered beyond the viewport on each side
 
 const LEVEL_LABEL: Record<LogLevel, string> = {
     info: 'INFO',
@@ -87,20 +91,90 @@ export const LogPanel: React.FC = () => {
         });
     }, [logs, filter, levelFilter]);
 
-    // Log retention is unbounded (see appMetadataStore) so copying never loses
-    // lines, but the panel is NOT virtualized — painting tens of thousands of
-    // rows would freeze the UI. Window the DOM to the most recent slice; counts
-    // and Copy All still use the full filteredLogs. Bump if you need to scroll
-    // further back live (you can always Copy All to get everything).
-    const truncated = Math.max(0, filteredLogs.length - LOG_RENDER_WINDOW);
-    const visibleLogs = truncated > 0 ? filteredLogs.slice(-LOG_RENDER_WINDOW) : filteredLogs;
+    // ── Virtualization state ────────────────────────────────────────────────
+    const [scrollTop, setScrollTop] = useState(0);
+    const [viewportH, setViewportH] = useState(400);
+    const stickToBottomRef = useRef(true);
 
-    // Auto-scroll to bottom when new logs appear
+    // ── Range selection (click → anchor, shift-click → extend) ──────────────
+    // Indices are into filteredLogs. Copy reads from the store array, so it
+    // works across rows that aren't currently rendered.
+    const [selAnchor, setSelAnchor] = useState<number | null>(null);
+    const [selFocus, setSelFocus] = useState<number | null>(null);
+    const selLo = selAnchor === null || selFocus === null ? -1 : Math.min(selAnchor, selFocus);
+    const selHi = selAnchor === null || selFocus === null ? -1 : Math.max(selAnchor, selFocus);
+    const selCount = selLo < 0 ? 0 : selHi - selLo + 1;
+
+    const total = filteredLogs.length;
+    const totalHeight = total * ROW_H;
+    const startIndex = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
+    const endIndex = Math.min(total, Math.ceil((scrollTop + viewportH) / ROW_H) + OVERSCAN);
+    const windowRows = filteredLogs.slice(startIndex, endIndex);
+
+    // Auto-scroll to bottom when new logs appear — but ONLY if the user is
+    // already pinned to the bottom. If they scrolled up (to read/select older
+    // lines), incoming logs must not yank them back down.
     useEffect(() => {
-        if (contentRef.current && logPanelExpanded) {
-            contentRef.current.scrollTop = contentRef.current.scrollHeight;
+        const el = contentRef.current;
+        if (el && logPanelExpanded && stickToBottomRef.current) {
+            el.scrollTop = el.scrollHeight;
+            setScrollTop(el.scrollTop);
         }
     }, [filteredLogs, logPanelExpanded]);
+
+    // Measure viewport height (drives how many rows are virtualized)
+    useEffect(() => {
+        if (!logPanelExpanded) return;
+        const el = contentRef.current;
+        if (!el) return;
+        const measure = () => setViewportH(el.clientHeight);
+        measure();
+        const ro = new ResizeObserver(measure);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [logPanelExpanded]);
+
+    const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+        const el = e.currentTarget;
+        setScrollTop(el.scrollTop);
+        // Pinned-to-bottom if within ~2 rows of the end.
+        stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < ROW_H * 2;
+    };
+
+    // Click selects a single line; Shift-click extends the range from the anchor.
+    const handleRowClick = (index: number, e: React.MouseEvent) => {
+        if (e.shiftKey && selAnchor !== null) {
+            setSelFocus(index);
+            // Prevent the browser's native text-selection from fighting the range UI.
+            window.getSelection?.()?.removeAllRanges();
+        } else {
+            setSelAnchor(index);
+            setSelFocus(index);
+        }
+    };
+
+    const formatRange = (lo: number, hi: number) =>
+        filteredLogs.slice(lo, hi + 1).map((log) => {
+            const time = formatTime(log.timestamp);
+            const level = LEVEL_LABEL[log.level as LogLevel].padEnd(5);
+            return `[${time}] ${level} ${log.message}`;
+        }).join('\n');
+
+    const copySelection = () => {
+        if (selLo < 0) return;
+        navigator.clipboard.writeText(formatRange(selLo, selHi))
+            .then(() => showToast('success', `${selCount} line${selCount === 1 ? '' : 's'} copied`))
+            .catch(() => showToast('error', 'Failed to copy selection'));
+    };
+
+    // Ctrl/Cmd+C copies the selected range (reads from the store, so off-screen
+    // rows are included) instead of only the natively-selected visible text.
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && selLo >= 0) {
+            const nativeSel = window.getSelection?.()?.toString();
+            if (!nativeSel) { e.preventDefault(); copySelection(); }
+        }
+    };
 
     const latestLog = logs.length > 0 ? logs[logs.length - 1] : null;
     const displayMessage = latestLog ? latestLog.message : statusMessage || 'Ready';
@@ -156,6 +230,11 @@ export const LogPanel: React.FC = () => {
                             </span>
                         </span>
                         <div className="log-panel__actions">
+                            {selCount > 0 && (
+                                <Button size="sm" variant="primary" icon="copy" onClick={copySelection}>
+                                    Copy selection ({selCount})
+                                </Button>
+                            )}
                             <Button size="sm" icon="copy" onClick={copyAll} disabled={filteredLogs.length === 0}>
                                 Copy logs
                             </Button>
@@ -209,8 +288,16 @@ export const LogPanel: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Content */}
-                    <div className="log-panel__content" ref={contentRef}>
+                    {/* Content (virtualized — only the rows near the viewport are
+                        in the DOM; click a line / shift-click another to select a
+                        range, then Ctrl+C or "Copy selection") */}
+                    <div
+                        className="log-panel__content"
+                        ref={contentRef}
+                        onScroll={handleScroll}
+                        onKeyDown={handleKeyDown}
+                        tabIndex={0}
+                    >
                         {logs.length === 0 ? (
                             <div className="log-panel__empty">
                                 <span className="log-panel__empty-icon"><Icon name="info" /></span>
@@ -225,33 +312,52 @@ export const LogPanel: React.FC = () => {
                                 <span>{filter ? `Nothing matches "${filter}"` : `No ${levelFilter} entries.`}</span>
                             </div>
                         ) : (
-                            <>
-                            {truncated > 0 && (
-                                <div className="log-panel__empty" style={{ padding: '6px 12px', opacity: 0.6 }}>
-                                    <small>{truncated.toLocaleString()} older line{truncated === 1 ? '' : 's'} hidden for performance — use <strong>Copy All</strong> to export the full history.</small>
-                                </div>
-                            )}
-                            {visibleLogs.map((log) => (
-                                <div
-                                    key={log.id}
-                                    className={`log-panel__entry log-panel__entry--${log.level}`}
-                                >
-                                    <span className="log-panel__time">{formatTime(log.timestamp)}</span>
-                                    <span className={`log-panel__level-pill log-panel__level-pill--${log.level}`}>
-                                        {LEVEL_LABEL[log.level as LogLevel]}
-                                    </span>
-                                    <span className="log-panel__message">{log.message}</span>
-                                    <button
-                                        className="log-panel__entry-copy"
-                                        onClick={() => copyLine(log.message)}
-                                        title="Copy line"
-                                        aria-label="Copy log line"
-                                    >
-                                        <Icon name="copy" />
-                                    </button>
-                                </div>
-                            ))}
-                            </>
+                            <div style={{ height: totalHeight, position: 'relative' }}>
+                                {windowRows.map((log, i) => {
+                                    const index = startIndex + i;
+                                    const selected = selLo >= 0 && index >= selLo && index <= selHi;
+                                    return (
+                                        <div
+                                            key={log.id}
+                                            className={`log-panel__entry log-panel__entry--${log.level}`}
+                                            style={{
+                                                position: 'absolute',
+                                                top: index * ROW_H,
+                                                left: 0,
+                                                right: 0,
+                                                height: ROW_H,
+                                                padding: '0 12px',
+                                                alignItems: 'center',
+                                                cursor: 'pointer',
+                                                background: selected
+                                                    ? 'color-mix(in oklab, var(--accent-primary) 24%, transparent)'
+                                                    : undefined,
+                                            }}
+                                            onClick={(e) => handleRowClick(index, e)}
+                                        >
+                                            <span className="log-panel__time">{formatTime(log.timestamp)}</span>
+                                            <span className={`log-panel__level-pill log-panel__level-pill--${log.level}`}>
+                                                {LEVEL_LABEL[log.level as LogLevel]}
+                                            </span>
+                                            <span
+                                                className="log-panel__message"
+                                                style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                                title={log.message}
+                                            >
+                                                {log.message}
+                                            </span>
+                                            <button
+                                                className="log-panel__entry-copy"
+                                                onClick={(e) => { e.stopPropagation(); copyLine(log.message); }}
+                                                title="Copy line"
+                                                aria-label="Copy log line"
+                                            >
+                                                <Icon name="copy" />
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         )}
                     </div>
                 </div>
