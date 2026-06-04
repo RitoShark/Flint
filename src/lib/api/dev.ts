@@ -26,6 +26,20 @@ export async function aggregateChampionBinSchema(leaguePath: string): Promise<Ch
     return invokeCommand('aggregate_champion_bin_schema', { leaguePath });
 }
 
+export interface TroybinSchemaStats {
+    wads_scanned: number;
+    bins_parsed: number;
+    bins_failed: number;
+    classes_found: number;
+    total_fields: number;
+    output_path: string;
+}
+
+export async function aggregateTroybinSchema(leaguePath: string): Promise<TroybinSchemaStats> {
+    return invokeCommand('aggregate_troybin_schema', { leaguePath });
+}
+
+
 export interface LuabinExtractStats {
     wads_scanned: number;
     bins_parsed: number;

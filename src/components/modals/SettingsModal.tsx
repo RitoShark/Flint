@@ -91,6 +91,10 @@ export const SettingsModal: React.FC = () => {
     const [luabinSchemaProgress, setLuabinSchemaProgress] = useState<SchemaProgress | null>(null);
     const [luabinSchemaResult, setLuabinSchemaResult] = useState<api.LuabinExtractStats | null>(null);
 
+    const [isAggregatingTroybin, setIsAggregatingTroybin] = useState(false);
+    const [troybinSchemaProgress, setTroybinSchemaProgress] = useState<SchemaProgress | null>(null);
+    const [troybinSchemaResult, setTroybinSchemaResult] = useState<api.TroybinSchemaStats | null>(null);
+
     const [showUIPreview, setShowUIPreview] = useState(false);
 
     const isVisible = activeModal === 'settings';
@@ -135,6 +139,13 @@ export const SettingsModal: React.FC = () => {
     useEffect(() => {
         const unlisten = listen<SchemaProgress>('luabin-extract-progress', (event) => {
             setLuabinSchemaProgress(event.payload);
+        });
+        return () => { unlisten.then((fn) => fn()); };
+    }, []);
+
+    useEffect(() => {
+        const unlisten = listen<SchemaProgress>('troybin-schema-progress', (event) => {
+            setTroybinSchemaProgress(event.payload);
         });
         return () => { unlisten.then((fn) => fn()); };
     }, []);
@@ -354,6 +365,26 @@ export const SettingsModal: React.FC = () => {
             showToast('error', 'Luabin schema build failed. Check the log for details.');
         } finally {
             setIsAggregatingLuabins(false);
+        }
+    };
+
+    const handleAggregateTroybinSchema = async () => {
+        if (!leaguePath) {
+            showToast('error', 'League path not configured. Set it in the Paths tab first.');
+            return;
+        }
+        setIsAggregatingTroybin(true);
+        setTroybinSchemaProgress(null);
+        setTroybinSchemaResult(null);
+        try {
+            const stats = await api.aggregateTroybinSchema(leaguePath);
+            setTroybinSchemaResult(stats);
+            showToast('success', `Troybin schema built: ${stats.classes_found.toLocaleString()} classes, ${stats.total_fields.toLocaleString()} fields`);
+        } catch (error) {
+            console.error('Troybin schema aggregation failed:', error);
+            showToast('error', 'Troybin schema aggregation failed. Check the log for details.');
+        } finally {
+            setIsAggregatingTroybin(false);
         }
     };
 
@@ -1038,6 +1069,44 @@ export const SettingsModal: React.FC = () => {
                                     wads={luabinSchemaResult.wads_scanned}
                                     outputPath={luabinSchemaResult.output_path}
                                     label="luabins"
+                                />
+                            )}
+
+                            <div
+                                className="settings-item"
+                                style={{ marginTop: 16 }}
+                            >
+                                <label className="settings-item__label">Troybin Schema Creator</label>
+                                <div className="settings-item__hint" style={{ marginBottom: 8 }}>
+                                    Walks all WADs, picks up .troybin files, merges every property of every class globally and emits ONE synthetic ritobin file in real block syntax.
+                                </div>
+                                <Button
+                                    size="sm"
+                                    icon="download"
+                                    onClick={handleAggregateTroybinSchema}
+                                    disabled={isAggregatingTroybin || !leaguePath}
+                                >
+                                    {isAggregatingTroybin ? 'Building...' : 'Build Troybin Schema'}
+                                </Button>
+                                {!leaguePath && (
+                                    <div className="settings-item__hint" style={{ color: 'var(--color-warning)', marginTop: 4 }}>
+                                        Configure League path in the Paths tab first
+                                    </div>
+                                )}
+                            </div>
+
+                            {isAggregatingTroybin && troybinSchemaProgress && (
+                                <SchemaProgressView progress={troybinSchemaProgress} />
+                            )}
+                            {troybinSchemaResult && !isAggregatingTroybin && (
+                                <SchemaResultView
+                                    classes={troybinSchemaResult.classes_found}
+                                    fields={troybinSchemaResult.total_fields}
+                                    binsParsed={troybinSchemaResult.bins_parsed}
+                                    binsFailed={troybinSchemaResult.bins_failed}
+                                    wads={troybinSchemaResult.wads_scanned}
+                                    outputPath={troybinSchemaResult.output_path}
+                                    label=".troybin BINs"
                                 />
                             )}
                         </div>

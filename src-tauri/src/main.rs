@@ -410,6 +410,7 @@ fn main() {
             // Dev commands (schema aggregation)
             commands::dev::aggregate_bin_schema,
             commands::champion_schema::aggregate_champion_bin_schema,
+            commands::troybin_schema::aggregate_troybin_schema,
             commands::luabin_extract::extract_all_luabins,
             // Settings commands (disk-based settings)
             commands::settings::get_app_home,
