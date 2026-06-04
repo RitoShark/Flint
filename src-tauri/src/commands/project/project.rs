@@ -803,11 +803,11 @@ fn extract_uibase_chunk(wad_path: &std::path::Path) -> Result<Vec<u8>, String> {
 
     let bytes = reader
         .wad_mut()
-        .load_chunk_decompressed(&chunk)
+        .chunk_data(&chunk)
         .map_err(|e| format!("Failed to decompress uibase chunk: {}", e))?;
 
     tracing::info!("Extracted uibase: {} bytes", bytes.len());
-    Ok(bytes.into())
+    Ok(bytes)
 }
 
 /// FNV-1a hash (lowercase) — matches the hashing used by League BIN files.

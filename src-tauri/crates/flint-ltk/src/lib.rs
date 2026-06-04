@@ -48,13 +48,9 @@ pub mod ltk_types {
     pub use ltk_modpkg::builder::{ModpkgBuilder, ModpkgChunkBuilder, ModpkgLayerBuilder};
     pub use ltk_modpkg::{ModpkgMetadata, ModpkgAuthor};
 
-    // league-toolkit WAD builders (used by commands/export.rs)
-    pub use league_toolkit::wad::{WadBuilder, WadChunkBuilder, WadBuilderError};
-    // WAD chunk type — needed by commands/wad.rs to express its `Vec<WadChunk>`
-    // result type when implementing the byte-encoder trait. The `flint_ltk::wad`
-    // module's `WadChunk` re-export above is private; this one is public for
-    // the binary crate.
-    pub use league_toolkit::wad::WadChunk;
+    // league_toolkit::wad: MIGRATED to ritoshark::wad (Plan 3) — re-exports removed.
+    // export/mod.rs builds via rs_wad::WadBuilder; the binary crate's chunk type is
+    // wad_jade::format::WadChunk.
 
     // glam (used by commands/project.rs)
     pub use glam::{Vec2, Vec4};

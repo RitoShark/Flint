@@ -1,5 +1,7 @@
 use crate::error::{Error, Result};
-use league_toolkit::wad::{Wad, WadChunk, WadChunks};
+use ritoshark::prelude::*;
+use ritoshark::wad::{Wad, WadChunk};
+#[cfg(test)]
 use std::fs::File;
 #[cfg(test)]
 use std::io::Read;
@@ -17,19 +19,21 @@ use std::path::Path;
 ///
 /// WAD 3.3 is commonly used in legacy League of Legends mods. This reader fully
 /// supports loading and extracting WAD 3.3 archives through the underlying
-/// `league-toolkit` crate, which handles all version-specific parsing and
-/// decompression logic including:
+/// `ritoshark::wad` (rs_wad) crate, which handles all version-specific parsing
+/// and decompression logic including:
 /// - Subchunked ZStandard decompression (type 4)
 /// - SHA-256 checksums (v3.0) and xxh3_64bits checksums (v3.1+)
 /// - Subchunk Table of Contents (.wad.SubChunkTOC) resolution
 pub struct WadReader {
-    wad: Wad<File>,
+    wad: Wad,
 }
 
 impl WadReader {
     /// Opens a WAD file and parses its structure
     ///
     /// Supports WAD format versions 3.0-3.4+, including legacy mods using WAD 3.3.
+    /// The archive is memory-mapped and fully parsed up front (rs_wad captures the
+    /// data section verbatim), so the `File` handle does not need to be retained.
     ///
     /// # Arguments
     /// * `path` - Path to the WAD file
@@ -43,13 +47,7 @@ impl WadReader {
         let path = path.as_ref();
         tracing::debug!("Opening WAD file: {}", path.display());
 
-        let file = File::open(path)
-            .map_err(|e| {
-                tracing::error!("Failed to open WAD file '{}': {}", path.display(), e);
-                Error::io_with_path(e, path)
-            })?;
-
-        let wad = Wad::mount(file)
+        let wad = Wad::from_path(path)
             .map_err(|e| {
                 tracing::error!("Failed to mount WAD file '{}': {}", path.display(), e);
                 Error::wad_with_path(format!("Failed to mount WAD file: {}", e), path)
@@ -58,7 +56,7 @@ impl WadReader {
         tracing::debug!(
             "Successfully opened WAD '{}' with {} chunks",
             path.display(),
-            wad.chunks().len()
+            wad.chunks.len()
         );
 
         Ok(Self { wad })
@@ -95,12 +93,12 @@ impl WadReader {
     /// Returns a reference to all chunks in the WAD archive
     ///
     /// # Returns
-    /// * A reference to the WadChunks collection
+    /// * A slice of all [`WadChunk`] entries in the archive
     ///
     /// # Requirements
     /// Validates: Requirements 3.2, 3.3
-    pub fn chunks(&self) -> &WadChunks {
-        self.wad.chunks()
+    pub fn chunks(&self) -> &[WadChunk] {
+        &self.wad.chunks
     }
 
     /// Looks up a specific chunk by its path hash
@@ -114,17 +112,40 @@ impl WadReader {
     /// # Requirements
     /// Validates: Requirements 3.4
     pub fn get_chunk(&self, path_hash: u64) -> Option<&WadChunk> {
-        self.wad.chunks().get(path_hash)
+        self.wad.chunk_by_hash(path_hash)
     }
 
     /// Returns the total number of chunks in the WAD
     pub fn chunk_count(&self) -> usize {
-        self.wad.chunks().len()
+        self.wad.chunks.len()
     }
 
-    /// Gets a mutable reference to the underlying Wad
-    pub fn wad_mut(&mut self) -> &mut Wad<File> {
-        &mut self.wad
+    /// Decompresses and returns the bytes of a single chunk by its path hash.
+    ///
+    /// Convenience over `get_chunk` + `wad().chunk_data`. Returns an error if the
+    /// chunk is not present in the archive.
+    pub fn read_chunk(&self, path_hash: u64) -> Result<Vec<u8>> {
+        let chunk = self
+            .wad
+            .chunk_by_hash(path_hash)
+            .ok_or_else(|| Error::Wad {
+                message: format!("chunk with hash {:016x} not found", path_hash),
+                path: None,
+            })?;
+        self.wad
+            .chunk_data(chunk)
+            .map_err(|e| Error::Wad {
+                message: format!("Failed to decompress chunk {:016x}: {}", path_hash, e),
+                path: None,
+            })
+    }
+
+    /// Gets a reference to the underlying [`Wad`].
+    ///
+    /// rs_wad reads chunk data through `&self` (`chunk_data`), so a shared
+    /// reference is sufficient. The name is kept for call-site compatibility.
+    pub fn wad_mut(&mut self) -> &Wad {
+        &self.wad
     }
 }
 

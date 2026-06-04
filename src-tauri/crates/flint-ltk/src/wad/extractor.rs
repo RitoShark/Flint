@@ -1,16 +1,39 @@
 use crate::error::{Error, Result};
 use crate::hash::ResolvedHashes;
 use ritoshark::bin::BinValue;
-use league_toolkit::file::LeagueFileKind;
-use league_toolkit::wad::{Wad, WadChunk};
-use memmap2::Mmap;
+use ritoshark::file::{detect, FileKind};
+use ritoshark::prelude::*;
+use ritoshark::wad::{Wad, WadChunk};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ffi::OsStr;
-use std::fs::{self, File};
-use std::io::Cursor;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+
+/// Map a ritoshark [`FileKind`] (magic-detected) to the extension Flint appends
+/// to extension-less chunks. Mirrors the old `LeagueFileKind::extension()`
+/// table so the `.ltk[.ext]` naming for hash-only chunks is unchanged.
+/// `None` means "no known extension" → caller writes a bare `.ltk`.
+fn file_kind_extension(kind: FileKind) -> Option<&'static str> {
+    Some(match kind {
+        FileKind::Unknown => return None,
+        FileKind::PropBin | FileKind::PatchBin => "bin",
+        FileKind::Wad => "wad",
+        FileKind::Tex => "tex",
+        FileKind::Dds => "dds",
+        FileKind::SkinnedMesh => "skn",
+        FileKind::Skeleton => "skl",
+        FileKind::AnimUncompressed | FileKind::AnimCompressed => "anm",
+        FileKind::StaticMeshBinary => "scb",
+        FileKind::StaticMeshText => "sco",
+        FileKind::MapGeo => "mapgeo",
+        FileKind::Rst => "stringtable",
+        FileKind::Rman => "rman",
+        FileKind::Wpk => "wpk",
+        FileKind::Bnk => "bnk",
+    })
+}
 
 /// One entry in the extraction plan: the chunk to extract, the output path,
 /// and an optional (relative-path, absolute-path) mapping recorded when a
@@ -29,11 +52,11 @@ pub struct ExtractionResult {
 /// Parallel extraction of arbitrary chunks from a WAD archive.
 ///
 /// Used by the WAD-explorer "extract selected" / "extract all" buttons.
-/// Mirrors the `extract_skin_assets` pattern: mmap the WAD once, mount a
-/// per-rayon-worker `Wad` cursor over the shared mmap, then decompress +
-/// write in parallel. The previous implementation walked chunks serially on
-/// the IPC thread, so multi-select extracts (a few hundred chunks) blocked
-/// the runtime for several seconds.
+/// Mirrors the `extract_skin_assets` pattern: parse the WAD once (rs_wad owns
+/// its data section), then decompress + write in parallel by sharing `&wad`
+/// across rayon workers (`chunk_data(&self)` is immutable). The previous
+/// implementation walked chunks serially on the IPC thread, so multi-select
+/// extracts (a few hundred chunks) blocked the runtime for several seconds.
 ///
 /// `chunk_hashes = None` extracts every chunk in the WAD. Otherwise only
 /// chunks whose path-hash appears in the input set are extracted.
@@ -49,26 +72,23 @@ pub fn extract_chunks_parallel(
     let wad_path = wad_path.as_ref();
     let output_dir = output_dir.as_ref();
 
-    // mmap + parse TOC.
-    let file = File::open(wad_path).map_err(|e| Error::io_with_path(e, wad_path))?;
-    let mmap = unsafe { Mmap::map(&file) }.map_err(|e| Error::Wad {
-        message: format!("Failed to mmap WAD: {}", e),
-        path: Some(wad_path.to_path_buf()),
-    })?;
-    let toc = Wad::mount(Cursor::new(&mmap[..])).map_err(|e| Error::Wad {
-        message: format!("Failed to mount WAD: {}", e),
+    // Parse the WAD once. rs_wad mmaps internally, parses the TOC, and OWNS the
+    // decompressed-on-demand data section, so we can share `&wad` across rayon
+    // workers below.
+    let wad = Wad::from_path(wad_path).map_err(|e| Error::Wad {
+        message: format!("Failed to parse WAD: {}", e),
         path: Some(wad_path.to_path_buf()),
     })?;
 
     // Filter the TOC to the requested chunks.
     let target_chunks: Vec<WadChunk> = match chunk_hashes {
-        Some(want) => toc
-            .chunks()
+        Some(want) => wad
+            .chunks
             .iter()
-            .filter(|c| want.contains(&c.path_hash()))
+            .filter(|c| want.contains(&c.path_hash))
             .copied()
             .collect(),
-        None => toc.chunks().iter().copied().collect(),
+        None => wad.chunks.to_vec(),
     };
     let total = target_chunks.len();
     if total == 0 {
@@ -76,7 +96,7 @@ pub fn extract_chunks_parallel(
     }
 
     // Bulk-resolve every hash in one LMDB txn.
-    let all_hashes: Vec<u64> = target_chunks.iter().map(|c| c.path_hash()).collect();
+    let all_hashes: Vec<u64> = target_chunks.iter().map(|c| c.path_hash).collect();
     let resolved_map = resolve_paths(&all_hashes);
 
     // Build extraction plan in parallel. Reads `resolved_map` via shared `&`
@@ -86,7 +106,7 @@ pub fn extract_chunks_parallel(
     let plan: Vec<ExtractPlanEntry> = target_chunks
         .par_iter()
         .map(|chunk| {
-            let path_hash = chunk.path_hash();
+            let path_hash = chunk.path_hash;
             let fallback;
             let resolved: &str = match resolved_map.get(&path_hash) {
                 Some(s) => s,
@@ -147,21 +167,16 @@ pub fn extract_chunks_parallel(
         let _ = fs::create_dir_all(parent);
     });
 
-    // Parallel decompress + write. Each worker mounts its own Wad cursor over
-    // the shared mmap — no contention on the underlying file handle.
-    let mmap_ref = &mmap;
+    // Parallel decompress + write. `wad.chunk_data(&self)` is immutable, so all
+    // workers share `&wad` — no per-thread mount, no file-handle contention.
     let chunk_size = (plan.len() / rayon::current_num_threads().max(1)).max(1);
     let results: Vec<(usize, usize)> = plan
         .par_chunks(chunk_size)
         .map(|slice| {
-            let mut local_wad = match Wad::mount(Cursor::new(&mmap_ref[..])) {
-                Ok(w) => w,
-                Err(_) => return (0, slice.len()),
-            };
             let mut extracted = 0usize;
             let mut failed = 0usize;
             for (chunk, out_path, _) in slice {
-                match local_wad.load_chunk_decompressed(chunk) {
+                match wad.chunk_data(chunk) {
                     Ok(data) => {
                         // Path-already-has-extension fast path: skip the
                         // resolve_chunk_path syscall + create_dir_all dance.
@@ -228,21 +243,14 @@ pub fn wad_contains_skin_bin(
         .map(|p| xxhash_rust::xxh64::xxh64(p.as_bytes(), 0))
         .collect();
 
-    let file = File::open(wad_path)
-        .map_err(|e| Error::io_with_path(e, wad_path))?;
-    let mmap = unsafe { Mmap::map(&file) }
+    let wad = Wad::from_path(wad_path)
         .map_err(|e| Error::Wad {
-            message: format!("Failed to mmap WAD: {}", e),
-            path: Some(wad_path.to_path_buf()),
-        })?;
-    let wad = Wad::mount(Cursor::new(&mmap[..]))
-        .map_err(|e| Error::Wad {
-            message: format!("Failed to mount WAD: {}", e),
+            message: format!("Failed to parse WAD: {}", e),
             path: Some(wad_path.to_path_buf()),
         })?;
 
-    for chunk in wad.chunks().iter() {
-        let h = chunk.path_hash();
+    for chunk in wad.chunks.iter() {
+        let h = chunk.path_hash;
         if candidate_hashes.contains(&h) {
             return Ok(true);
         }
@@ -332,29 +340,22 @@ pub fn extract_skin_assets(
         output_dir.display(), wad_folder_name
     );
 
-    // ── Open + mmap the WAD for parallel access ────────────────────────────
-    let file = File::open(wad_path)
-        .map_err(|e| Error::io_with_path(e, wad_path))?;
-    let mmap = unsafe { Mmap::map(&file) }
+    // ── Parse the WAD once for parallel access ─────────────────────────────
+    // rs_wad mmaps + parses internally and OWNS the data section, so `&wad` can
+    // be shared across rayon workers (`chunk_data(&self)` is immutable).
+    let wad = Wad::from_path(wad_path)
         .map_err(|e| Error::Wad {
-            message: format!("Failed to mmap WAD: {}", e),
+            message: format!("Failed to parse WAD: {}", e),
             path: Some(wad_path.to_path_buf()),
         })?;
 
-    // Parse the TOC from the mmap'd data
-    let wad_toc = Wad::mount(Cursor::new(&mmap[..]))
-        .map_err(|e| Error::Wad {
-            message: format!("Failed to mount WAD: {}", e),
-            path: Some(wad_path.to_path_buf()),
-        })?;
-
-    let chunks: Vec<WadChunk> = wad_toc.chunks().iter().copied().collect();
+    let chunks: Vec<WadChunk> = wad.chunks.to_vec();
     let total_chunks = chunks.len();
     tracing::info!("Total chunks in WAD: {}", total_chunks);
 
     // ── Phase 1: bulk-resolve hashes, filter, plan dirs (sequential) ──────
     // Resolve ALL hashes in one LMDB read txn — single call instead of N per-chunk calls.
-    let all_hashes: Vec<u64> = chunks.iter().map(|c| c.path_hash()).collect();
+    let all_hashes: Vec<u64> = chunks.iter().map(|c| c.path_hash).collect();
     let resolved_map = resolve_paths(&all_hashes);
 
     let mut extraction_plan: Vec<(WadChunk, PathBuf)> = Vec::with_capacity(total_chunks / 2);
@@ -363,7 +364,7 @@ pub fn extract_skin_assets(
     let mut skipped_unknown = 0usize;
 
     for chunk in &chunks {
-        let path_hash    = chunk.path_hash();
+        let path_hash    = chunk.path_hash;
         let resolved     = resolved_map.get(&path_hash)
             .map(String::from)
             .unwrap_or_else(|| format!("{:016x}", path_hash));
@@ -411,10 +412,9 @@ pub fn extract_skin_assets(
         extraction_plan.len(), path_mappings.len()
     );
 
-    // ── Phase 2: parallel decompress + write (rayon + mmap) ───────────────
-    // Each rayon worker mounts its own Wad cursor over the shared mmap.
-    // Mmap is Send + Sync; each cursor is thread-local — zero contention.
-    let mmap_ref = &mmap;
+    // ── Phase 2: parallel decompress + write (rayon, shared &wad) ─────────
+    // `wad.chunk_data(&self)` is immutable, so every rayon worker decompresses
+    // straight off the shared `&wad` — no per-thread mount, zero contention.
     let chunk_size = (extraction_plan.len() / rayon::current_num_threads().max(1)).max(1);
 
     // Per-thread sub-timings let us see whether the dominant cost is
@@ -429,16 +429,12 @@ pub fn extract_skin_assets(
             let mut t_decompress = Duration::ZERO;
             let mut t_path_resolve = Duration::ZERO;
             let mut t_write = Duration::ZERO;
-            let mut local_wad = match Wad::mount(Cursor::new(&mmap_ref[..])) {
-                Ok(w)  => w,
-                Err(_) => return (0, slice.len(), Duration::ZERO, Duration::ZERO, Duration::ZERO),
-            };
             // Per-thread cache so we only `create_dir_all` once per parent
             // even when the extension-correction path goes there many times.
             let mut dirs_seen: HashSet<PathBuf> = HashSet::new();
             for (chunk, out_path) in slice {
                 let t0 = Instant::now();
-                let decompressed = local_wad.load_chunk_decompressed(chunk);
+                let decompressed = wad.chunk_data(chunk);
                 t_decompress += t0.elapsed();
                 match decompressed {
                     Err(_) => { skipped += 1; },
@@ -531,42 +527,26 @@ fn resolve_chunk_path(path: &str, chunk_data: &[u8]) -> PathBuf {
     
     // Check if the path has an extension
     if chunk_path.extension().is_none() {
-        // Detect file type from content
-        let file_kind = LeagueFileKind::identify_from_bytes(chunk_data);
-        
-        match file_kind {
-            LeagueFileKind::Unknown => {
-                // No known file type, add .ltk extension
-                let filename = chunk_path
-                    .file_name()
-                    .unwrap_or(OsStr::new("unknown"))
-                    .to_string_lossy()
-                    .to_string();
-                chunk_path = chunk_path.with_file_name(format!("{}.ltk", filename));
+        // Detect file type from content (magic bytes)
+        let file_kind = detect(chunk_data);
+        let filename = chunk_path
+            .file_name()
+            .unwrap_or(OsStr::new("unknown"))
+            .to_string_lossy()
+            .to_string();
+
+        match file_kind_extension(file_kind) {
+            // Known file type: add .ltk first, then the detected extension.
+            Some(extension) => {
+                chunk_path = chunk_path.with_file_name(format!("{}.ltk.{}", filename, extension));
             }
-            _ => {
-                // Known file type, add appropriate extension
-                if let Some(extension) = file_kind.extension() {
-                    // Add .ltk first, then the detected extension
-                    let filename = chunk_path
-                        .file_name()
-                        .unwrap_or(OsStr::new("unknown"))
-                        .to_string_lossy()
-                        .to_string();
-                    chunk_path = chunk_path.with_file_name(format!("{}.ltk.{}", filename, extension));
-                } else {
-                    // File kind known but no extension, just add .ltk
-                    let filename = chunk_path
-                        .file_name()
-                        .unwrap_or(OsStr::new("unknown"))
-                        .to_string_lossy()
-                        .to_string();
-                    chunk_path = chunk_path.with_file_name(format!("{}.ltk", filename));
-                }
+            // Unknown (or no mapped extension): just add .ltk.
+            None => {
+                chunk_path = chunk_path.with_file_name(format!("{}.ltk", filename));
             }
         }
     }
-    
+
     chunk_path
 }
 
@@ -643,21 +623,16 @@ pub fn extract_skin_assets_selective(
     };
     let wad_output_dir = output_dir.join(&wad_folder_name);
 
-    // ── Mount WAD via mmap ─────────────────────────────────────────────────
-    let file = File::open(wad_path).map_err(|e| Error::io_with_path(e, wad_path))?;
-    let mmap = unsafe { Mmap::map(&file) }.map_err(|e| Error::Wad {
-        message: format!("Failed to mmap WAD: {}", e),
-        path: Some(wad_path.to_path_buf()),
-    })?;
-    let mut wad_toc = Wad::mount(Cursor::new(&mmap[..])).map_err(|e| Error::Wad {
-        message: format!("Failed to mount WAD: {}", e),
+    // ── Parse WAD (rs_wad mmaps + owns its data) ───────────────────────────
+    let wad = Wad::from_path(wad_path).map_err(|e| Error::Wad {
+        message: format!("Failed to parse WAD: {}", e),
         path: Some(wad_path.to_path_buf()),
     })?;
 
-    let by_hash: HashMap<u64, WadChunk> = wad_toc
-        .chunks()
+    let by_hash: HashMap<u64, WadChunk> = wad
+        .chunks
         .iter()
-        .map(|c| (c.path_hash(), *c))
+        .map(|c| (c.path_hash, *c))
         .collect();
 
     let xx = |s: &str| xxhash_rust::xxh64::xxh64(s.as_bytes(), 0);
@@ -705,7 +680,7 @@ pub fn extract_skin_assets_selective(
             // live in Common.wad.client etc.) — silently skip.
             None => continue,
         };
-        let bytes = match wad_toc.load_chunk_decompressed(&chunk) {
+        let bytes = match wad.chunk_data(&chunk) {
             Ok(b) => b,
             Err(e) => {
                 tracing::warn!("[selective] failed to decompress {}: {}", bin_path, e);
@@ -784,11 +759,9 @@ pub fn extract_skin_assets_selective(
         resolved
     };
 
-    // Drop the mmap before extract_chunks_parallel re-mmaps the same file.
-    // This Wad cursor borrows from `mmap`, so it must go first.
-    drop(wad_toc);
-    drop(mmap);
-    drop(file);
+    // Free this WAD's owned data section before extract_chunks_parallel parses
+    // the same file again — avoids holding two full copies in RAM at once.
+    drop(wad);
 
     let (extracted, failed, path_mappings) = extract_chunks_parallel(
         wad_path,
@@ -831,25 +804,19 @@ pub fn extract_full_wad_filtered(
 
     tracing::info!("Extracting full WAD '{}' → '{}'", wad_path.display(), output_dir.display());
 
-    let file = File::open(wad_path)
-        .map_err(|e| Error::io_with_path(e, wad_path))?;
-    let mmap = unsafe { Mmap::map(&file) }
+    // rs_wad mmaps + parses internally and OWNS the data section, so `&wad` is
+    // shared across rayon workers below (`chunk_data(&self)` is immutable).
+    let wad = Wad::from_path(wad_path)
         .map_err(|e| Error::Wad {
-            message: format!("Failed to mmap WAD: {}", e),
+            message: format!("Failed to parse WAD: {}", e),
             path: Some(wad_path.to_path_buf()),
         })?;
 
-    let wad_toc = Wad::mount(Cursor::new(&mmap[..]))
-        .map_err(|e| Error::Wad {
-            message: format!("Failed to mount WAD: {}", e),
-            path: Some(wad_path.to_path_buf()),
-        })?;
-
-    let chunks: Vec<WadChunk> = wad_toc.chunks().iter().copied().collect();
+    let chunks: Vec<WadChunk> = wad.chunks.to_vec();
     let total_chunks = chunks.len();
     tracing::info!("Total chunks in WAD: {}", total_chunks);
 
-    let all_hashes: Vec<u64> = chunks.iter().map(|c| c.path_hash()).collect();
+    let all_hashes: Vec<u64> = chunks.iter().map(|c| c.path_hash).collect();
     let resolved_map = resolve_paths(&all_hashes);
 
     let mut extraction_plan: Vec<(WadChunk, PathBuf)> = Vec::with_capacity(total_chunks);
@@ -861,7 +828,7 @@ pub fn extract_full_wad_filtered(
         .map_err(|e| Error::io_with_path(e, output_dir))?;
 
     for chunk in &chunks {
-        let path_hash = chunk.path_hash();
+        let path_hash = chunk.path_hash;
         let resolved = resolved_map.get(&path_hash)
             .map(String::from)
             .unwrap_or_else(|| format!("{:016x}", path_hash));
@@ -911,7 +878,6 @@ pub fn extract_full_wad_filtered(
         extraction_plan.len()
     );
 
-    let mmap_ref = &mmap;
     let chunk_size = (extraction_plan.len() / rayon::current_num_threads().max(1)).max(1);
 
     let thread_results: Vec<(usize, usize)> = extraction_plan
@@ -919,12 +885,8 @@ pub fn extract_full_wad_filtered(
         .map(|slice| {
             let mut extracted = 0usize;
             let mut skipped = 0usize;
-            let mut local_wad = match Wad::mount(Cursor::new(&mmap_ref[..])) {
-                Ok(w) => w,
-                Err(_) => return (0, slice.len()),
-            };
             for (chunk, out_path) in slice {
-                match local_wad.load_chunk_decompressed(chunk) {
+                match wad.chunk_data(chunk) {
                     Err(_) => { skipped += 1; }
                     Ok(data) => {
                         let final_path = resolve_chunk_path(&out_path.to_string_lossy(), &data);
@@ -972,19 +934,12 @@ pub fn resolve_wad_paths(
     resolve_paths: impl Fn(&[u64]) -> ResolvedHashes,
 ) -> Result<ResolvedHashes> {
     let wad_path = wad_path.as_ref();
-    let file = File::open(wad_path)
-        .map_err(|e| Error::io_with_path(e, wad_path))?;
-    let mmap = unsafe { Mmap::map(&file) }
+    let wad = Wad::from_path(wad_path)
         .map_err(|e| Error::Wad {
-            message: format!("Failed to mmap WAD: {}", e),
+            message: format!("Failed to parse WAD: {}", e),
             path: Some(wad_path.to_path_buf()),
         })?;
-    let wad_toc = Wad::mount(Cursor::new(&mmap[..]))
-        .map_err(|e| Error::Wad {
-            message: format!("Failed to mount WAD: {}", e),
-            path: Some(wad_path.to_path_buf()),
-        })?;
-    let hashes: Vec<u64> = wad_toc.chunks().iter().map(|c| c.path_hash()).collect();
+    let hashes: Vec<u64> = wad.chunks.iter().map(|c| c.path_hash).collect();
     Ok(resolve_paths(&hashes))
 }
 
