@@ -92,6 +92,14 @@ pub fn parse_scb_file<P: AsRef<Path>>(path: P) -> anyhow::Result<ScbMeshData> {
         max = max.max(*v);
     }
 
+    // An empty mesh leaves min/max inverted (MAX/MIN). Collapse to a zero box so
+    // the frontend camera framing never sees a negative/NaN span — an inverted box
+    // drives the ArcRotateCamera radius to 0/negative and blanks the viewport.
+    if vertices.is_empty() {
+        min = Vec3::ZERO;
+        max = Vec3::ZERO;
+    }
+
     for face in faces {
         // SCB face indices are [u32; 3].
         let v0_idx = face.indices[0] as usize;

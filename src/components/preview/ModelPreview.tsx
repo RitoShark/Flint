@@ -534,20 +534,38 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             m.setEnabled(visibleMaterials.has(matName));
         });
 
-        // 6. Camera centering using bounding box
-        const [[minX, minY, minZ], [maxX, maxY, maxZ]] = meshData.bounding_box;
+        // 6. Camera centering using bounding box.
+        //
+        // Guard against a degenerate/empty/inverted box. A mesh the parser returns
+        // with zero vertices (common for tiny particle assets) yields an INVERTED
+        // box on the Rust side — `min = f32::MAX, max = f32::MIN` — so `max - min`
+        // is negative/NaN. Unguarded, that drives `camera.radius` to 0/negative/NaN,
+        // which collapses the ArcRotateCamera and renders nothing but the background
+        // ("only the skybox, floor gone"). Jade's MeshPreview guards the same framing
+        // with `Math.max(...) || 5` and derives the box from the built mesh (never
+        // inverted); we reject a non-finite or inverted box, then clamp.
+        let [[minX, minY, minZ], [maxX, maxY, maxZ]] = meshData.bounding_box;
+        const boxValid =
+            [minX, minY, minZ, maxX, maxY, maxZ].every(Number.isFinite) &&
+            maxX >= minX && maxY >= minY && maxZ >= minZ;
+        if (!boxValid) {
+            minX = minY = minZ = -1;
+            maxX = maxY = maxZ = 1;
+        }
         const center = new Vector3(
             (minX + maxX) / 2,
             (minY + maxY) / 2,
             (minZ + maxZ) / 2
         );
-        const size = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
+        // Clamp to a positive minimum so tiny/zero-size meshes keep a usable radius
+        // (mirrors Jade's `|| 5` fallback).
+        const size = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 0.01) || 5;
 
         camera.target = center;
         camera.radius = size * 2;
         camera.lowerRadiusLimit = size * 0.1;
         camera.upperRadiusLimit = size * 10.0;
-        camera.panningSensibility = 8000 / camera.radius; // Dynamic panning sensibility based on model size
+        camera.panningSensibility = 8000 / Math.max(camera.radius, 0.001); // guard divide-by-zero
         camera.alpha = Math.PI / 2 + Math.PI / 8; // Face front of model (tilted slightly like Jade)
         camera.beta = Math.PI / 3;
 
