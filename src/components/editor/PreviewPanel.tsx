@@ -16,6 +16,11 @@ import { UnknownPreview } from '../preview/UnknownPreview';
 import { HUDEditor } from '../preview/HUDEditor';
 import { BnkPreview } from '../preview/BnkPreview';
 import { FolderGridView } from '../preview/FolderGridView';
+import { LuabinViewer } from '../preview/LuabinViewer';
+import { TroybinViewer } from '../preview/TroybinViewer';
+import { InibinEditor } from '../preview/InibinEditor';
+import { StringTableEditor } from '../preview/StringTableEditor';
+import { ManifestViewer } from '../preview/ManifestViewer';
 import { JadeIcon } from '../icons/JadeIcon';
 import { QuartzIcon } from '../icons/QuartzIcon';
 
@@ -292,6 +297,26 @@ export const PreviewPanel: React.FC = () => {
 
         if (fileInfo.extension === 'bin' || fileInfo.file_type === 'application/x-bin') {
             return <BinEditor key={filePath} filePath={filePath} />;
+        }
+
+        if (fileInfo.extension === 'luabin64' || fileInfo.extension === 'luabin' || fileInfo.file_type === 'application/x-luabin') {
+            return <LuabinViewer key={filePath} filePath={filePath} />;
+        }
+
+        if (fileInfo.extension === 'troybin' || fileInfo.file_type === 'application/x-troybin') {
+            return <TroybinViewer key={filePath} filePath={filePath} />;
+        }
+
+        if (fileInfo.extension === 'inibin' || fileInfo.extension === 'cfgbin' || fileInfo.file_type === 'application/x-inibin') {
+            return <InibinEditor key={filePath} filePath={filePath} />;
+        }
+
+        if (fileInfo.extension === 'stringtable' || fileInfo.extension === 'rst' || fileInfo.file_type === 'application/x-stringtable') {
+            return <StringTableEditor key={filePath} filePath={filePath} />;
+        }
+
+        if (fileInfo.extension === 'manifest' || fileInfo.extension === 'rman' || fileInfo.file_type === 'application/x-manifest') {
+            return <ManifestViewer key={filePath} filePath={filePath} />;
         }
 
         if (

@@ -17,6 +17,9 @@ pub mod checkpoint;
 pub mod hud;
 pub mod luabin;
 pub mod troybin;
+pub mod inibin_text;
+pub mod stringtable;
+pub mod manifest;
 
 // =============================================================================
 // Re-exports: Types that commands import directly from LTK crates.

@@ -200,7 +200,7 @@ fn detect_file_type(path: &Path, data: &[u8]) -> (String, String) {
         FileKind::MapGeo => "model/x-lol-mapgeo".to_string(),
         FileKind::StaticMeshText => "model/x-lol-sco".to_string(),
         FileKind::StaticMeshBinary => "model/x-lol-scb".to_string(),
-        FileKind::Rst => "text/x-stringtable".to_string(),
+        FileKind::Rst => "application/x-stringtable".to_string(),
         // rs_file detects these but Flint never special-cased them — let them fall
         // through to the extension/octet-stream path exactly like the old `Unknown` arm.
         FileKind::Wad | FileKind::Rman | FileKind::Unknown => {
@@ -227,6 +227,11 @@ fn detect_file_type(path: &Path, data: &[u8]) -> (String, String) {
                     "xml" => "application/xml".to_string(),
                     "wav" | "ogg" | "mp3" => "audio".to_string(),
                     "skn" | "skl" | "anm" => "model".to_string(),
+                    "inibin" | "cfgbin" => "application/x-inibin".to_string(),
+                    "stringtable" | "rst" => "application/x-stringtable".to_string(),
+                    "manifest" | "rman" => "application/x-manifest".to_string(),
+                    "luabin64" | "luabin" => "application/x-luabin".to_string(),
+                    "troybin" => "application/x-troybin".to_string(),
                     _ => "application/octet-stream".to_string(),
                 }
             }

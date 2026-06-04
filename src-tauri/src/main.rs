@@ -384,11 +384,18 @@ fn main() {
             commands::hud::get_hud_file_stats,
             // Format converter commands (luabin, troybin)
             commands::format_converters::convert_luabin_to_text,
+            commands::format_converters::read_luabin_text,
             commands::format_converters::convert_troybin_to_text,
+            commands::format_converters::read_troybin_text,
             commands::format_converters::read_wad_luabin,
             commands::format_converters::read_wad_troybin,
             commands::format_converters::read_wad_inibin,
             commands::format_converters::read_wad_rst,
+            commands::format_converters::read_inibin_text,
+            commands::format_converters::save_inibin_text,
+            commands::format_converters::read_stringtable_json,
+            commands::format_converters::save_stringtable_json,
+            commands::format_converters::read_manifest_json,
             // Texture format conversion (tex<->dds, +png export)
             commands::texture_convert::convert_tex_to_dds,
             commands::texture_convert::convert_dds_to_tex,

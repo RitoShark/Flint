@@ -59,6 +59,7 @@ export * from './import';
 export * from './hud';
 export * from './externalApps';
 export * from './dev';
+export * from './legacyFormats';
 export * from './settings';
 export * from './updater';
 export * from './fixer';
