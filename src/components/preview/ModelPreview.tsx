@@ -396,7 +396,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     vertex_count: m.vertex_count,
                     start_index: m.start_index,
                     index_count: m.index_count
-                  }))
+                }))
                 : (meshData as ScbMeshData).materials.map(matName => {
                     const scb = meshData as ScbMeshData;
                     const range = scb.material_ranges?.[matName] || [0, scb.indices.length];
@@ -407,7 +407,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         start_index: range[0],
                         index_count: range[1]
                     };
-                  }),
+                }),
             bbox: meshData.bounding_box
         };
 
@@ -553,7 +553,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 // ignore the texture entirely and render an OPAQUE, DOUBLE-SIDED
                 // solid red so the full shape is always visible regardless of
                 // winding or alpha. (User choice: red over a texture gamble.)
-                mat.albedoColor = new Color3(1, 0, 0);
+                mat.albedoColor = new Color3(0.6, 0, 0);
                 mat.albedoTexture = null;
                 mat.backFaceCulling = false;
                 mat.useAlphaFromAlbedoTexture = false;
@@ -754,34 +754,50 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             gridMeshRef.current.isPickable = false;
         } else if (floorMode === 'textured') {
             let isMounted = true;
-            let objectUrl: string | null = null;
 
             const loadFloor = async () => {
                 try {
                     const pngBytes = await api.getBundledFloorPng();
-                    if (!isMounted) return;
+                    // Bail if this effect was torn down OR the scene was disposed
+                    // (fast file switches remount the whole component + scene).
+                    if (!isMounted || scene.isDisposed) return;
 
                     const blob = new Blob([new Uint8Array(pngBytes)], { type: 'image/png' });
-                    objectUrl = URL.createObjectURL(blob);
+                    const objectUrl = URL.createObjectURL(blob);
 
                     const ground = CreateGround("ground", { width: 1500, height: 1500 }, scene);
                     ground.isPickable = false;
                     const mat = new StandardMaterial("ground-mat", scene);
-                    const tex = new Texture(objectUrl, scene);
+
+                    // CRITICAL: revoke the blob URL only AFTER the image has been
+                    // pulled into the GPU texture — NEVER in the effect cleanup.
+                    // Revoking while the <img> is still fetching the blob aborts the
+                    // load and the floor renders blank until a manual reload. The
+                    // old code revoked in cleanup, which fires mid-load on fast SCB
+                    // switches / StrictMode remounts → intermittent missing floor.
+                    const tex = new Texture(
+                        objectUrl, scene, undefined, undefined, undefined,
+                        () => {
+                            URL.revokeObjectURL(objectUrl);
+                            console.log('[floor] ground texture loaded (url revoked)');
+                        },
+                        (msg, ex) => {
+                            URL.revokeObjectURL(objectUrl);
+                            console.error('[floor] ground texture FAILED to load:', msg, ex);
+                        },
+                    );
                     mat.diffuseTexture = tex;
                     mat.specularColor = new Color3(0, 0, 0);
                     ground.material = mat;
 
                     floorMeshRef.current = ground;
+                    console.log(`[floor] ground created (scene meshes=${scene.meshes.length})`);
                 } catch (e) {
                     console.error("Failed to load textured floor:", e);
                 }
             };
             loadFloor();
-            return () => {
-                isMounted = false;
-                if (objectUrl) URL.revokeObjectURL(objectUrl);
-            };
+            return () => { isMounted = false; };
         }
     }, [scene, floorMode]);
 
@@ -1111,14 +1127,14 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         <div className="model-preview__header-actions">
                             <button className="model-preview__toggle-btn model-preview__toggle-btn--all" onClick={() => toggleAllMaterials(true)} title="Show all materials">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                                    <circle cx="12" cy="12" r="3"/>
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                    <circle cx="12" cy="12" r="3" />
                                 </svg>
                             </button>
                             <button className="model-preview__toggle-btn model-preview__toggle-btn--none" onClick={() => toggleAllMaterials(false)} title="Hide all materials">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-                                    <line x1="1" y1="1" x2="23" y2="23"/>
+                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                                    <line x1="1" y1="1" x2="23" y2="23" />
                                 </svg>
                             </button>
                             <button onClick={() => setActivePopup(null)}>×</button>
@@ -1175,11 +1191,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                                             <span className={`material-toggle__status ${hasTexture ? 'material-toggle__status--loaded' : 'material-toggle__status--missing'}`}>
                                                 {hasTexture ? (
                                                     <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
-                                                        <path d="M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z"/>
+                                                        <path d="M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z" />
                                                     </svg>
                                                 ) : (
                                                     <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
-                                                        <path d="M4.646 4.646a.5.5 0 01.708 0L8 7.293l2.646-2.647a.5.5 0 01.708.708L8.707 8l2.647 2.646a.5.5 0 01-.708.708L8 8.707l-2.646 2.647a.5.5 0 01-.708-.708L7.293 8 4.646 5.354a.5.5 0 010-.708z"/>
+                                                        <path d="M4.646 4.646a.5.5 0 01.708 0L8 7.293l2.646-2.647a.5.5 0 01.708.708L8.707 8l2.647 2.646a.5.5 0 01-.708.708L8 8.707l-2.646 2.647a.5.5 0 01-.708-.708L7.293 8 4.646 5.354a.5.5 0 010-.708z" />
                                                     </svg>
                                                 )}
                                                 {hasTexture ? 'Texture loaded' : 'No texture'}
