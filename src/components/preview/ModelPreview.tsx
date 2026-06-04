@@ -143,6 +143,19 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         if (!canvas) return;
 
         const engine = createEngine(canvas);
+
+        // WebGL context loss is the OTHER way the preview "panics" — the canvas
+        // goes blank without render() throwing. Rapidly creating engines (one per
+        // file when the preview remounts) can exhaust the browser's ~16 live GL
+        // contexts and force the oldest one lost. Log both so we can tell a lost
+        // context apart from a JS throw in the render loop.
+        engine.onContextLostObservable.add(() => {
+            console.error('[render] ⚠ WebGL CONTEXT LOST — canvas will blank until restored');
+        });
+        engine.onContextRestoredObservable.add(() => {
+            console.log('[render] ✓ WebGL context restored');
+        });
+
         const activeScene = new Scene(engine);
         setScene(activeScene);
 
@@ -183,25 +196,43 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         const dirLight3 = new DirectionalLight("dirLight3", new Vector3(0, 1, 0), activeScene);
         dirLight3.intensity = customizeLighting ? directionalIntensity * 0.3 : 0.0;
 
-        // Render loop
+        // Render loop.
+        //
+        // CRITICAL: the whole body is wrapped in try/catch. An uncaught throw
+        // inside a runRenderLoop callback escapes the requestAnimationFrame tick
+        // and PERMANENTLY kills the render loop — the canvas freezes on the last
+        // frame (skybox / no floor / no mesh) until a full reload. That is the
+        // "renderer panics, it's a gamble, need reload" symptom. A frame can throw
+        // transiently when a mesh/material/texture is disposed mid-rebuild while
+        // rapidly switching files (esp. particle SCBs). Catching here turns a
+        // permanent freeze into a single skipped frame; the next frame renders
+        // clean. The throttled log also surfaces the real exception for root-cause.
+        let renderErrCount = 0;
         engine.runRenderLoop(() => {
-            if (animationPlayerRef.current) {
-                const now = performance.now();
-                if (lastTimeRef.current !== 0) {
-                    const dt = (now - lastTimeRef.current) / 1000;
-                    animationPlayerRef.current.tick(dt);
+            try {
+                if (animationPlayerRef.current) {
+                    const now = performance.now();
+                    if (lastTimeRef.current !== 0) {
+                        const dt = (now - lastTimeRef.current) / 1000;
+                        animationPlayerRef.current.tick(dt);
 
-                    // Throttle state update so the React timeline slider moves smoothly without lagging the UI
-                    const curTime = animationPlayerRef.current.time;
-                    const rounded = Math.round(curTime * 100) / 100;
-                    if (Math.abs(rounded - lastReactTimeRef.current) >= 0.05) {
-                        lastReactTimeRef.current = rounded;
-                        setCurrentTime(curTime);
+                        // Throttle state update so the React timeline slider moves smoothly without lagging the UI
+                        const curTime = animationPlayerRef.current.time;
+                        const rounded = Math.round(curTime * 100) / 100;
+                        if (Math.abs(rounded - lastReactTimeRef.current) >= 0.05) {
+                            lastReactTimeRef.current = rounded;
+                            setCurrentTime(curTime);
+                        }
                     }
+                    lastTimeRef.current = now;
                 }
-                lastTimeRef.current = now;
+                activeScene.render();
+            } catch (err) {
+                renderErrCount++;
+                if (renderErrCount <= 5 || renderErrCount % 180 === 0) {
+                    console.error(`[render] frame #${renderErrCount} threw (loop kept alive):`, err);
+                }
             }
-            activeScene.render();
         });
 
         // Resize handler
