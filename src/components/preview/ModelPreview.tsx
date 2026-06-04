@@ -413,7 +413,29 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
         // 3. Build meshes
         const influences = skeletonData?.influences;
-        const { meshes } = buildSknMeshes(meshDto, scene, babylonSkeleton, influences);
+
+        // ── DIAGNOSTIC: dump the exact payload handed to Babylon so a broken
+        // render is visible in the app log (console.* is forwarded to the store).
+        console.log(
+            `[MeshPreview] build ${meshData.kind}: ` +
+            `pos=${meshData.positions?.length}(${(meshData.positions?.length ?? 0) / 3}v) ` +
+            `idx=${meshData.indices?.length} uv=${meshData.uvs?.length} nrm=${meshData.normals?.length} ` +
+            `bbox=${JSON.stringify(meshData.bounding_box)} skel=${!!babylonSkeleton} ` +
+            `submeshes=${meshDto.submeshes.length}[${meshDto.submeshes.map(s => `${s.name}:v${s.start_vertex}+${s.vertex_count}/i${s.start_index}+${s.index_count}`).join('; ')}]`
+        );
+
+        // Guard the geometry build: a throw here used to bubble up and crash the
+        // whole React render → engine teardown → blank canvas. Now it's logged and
+        // contained (old meshes already disposed → scene keeps the floor + error).
+        let meshes: ReturnType<typeof buildSknMeshes>['meshes'];
+        try {
+            meshes = buildSknMeshes(meshDto, scene, babylonSkeleton, influences).meshes;
+            console.log(`[MeshPreview] buildSknMeshes OK → ${meshes.length} mesh(es)`);
+        } catch (err) {
+            console.error(`[MeshPreview] buildSknMeshes THREW (${meshData.kind}):`, err);
+            setError(`Mesh build failed: ${(err as Error)?.message ?? String(err)}`);
+            return;
+        }
         activeMeshesRef.current = meshes;
 
         // 4. Create base64 texture maps
@@ -568,6 +590,10 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         camera.panningSensibility = 8000 / Math.max(camera.radius, 0.001); // guard divide-by-zero
         camera.alpha = Math.PI / 2 + Math.PI / 8; // Face front of model (tilted slightly like Jade)
         camera.beta = Math.PI / 3;
+        console.log(
+            `[MeshPreview] camera: boxValid=${boxValid} size=${size.toFixed(3)} ` +
+            `radius=${camera.radius.toFixed(3)} target=(${center.x.toFixed(2)},${center.y.toFixed(2)},${center.z.toFixed(2)})`
+        );
 
         // 7. Setup SkeletonViewer if active
         if (showSkeleton && babylonSkeleton && meshes.length > 0) {

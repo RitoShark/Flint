@@ -26,6 +26,14 @@ fn decode_texture_blocking(path: &Path) -> Result<String, String> {
 #[tauri::command]
 pub async fn read_scb_mesh(path: String) -> Result<tauri::ipc::Response, String> {
     let mesh = read_scb_mesh_inner(path).await?;
+    tracing::info!(
+        "[mesh-wire] SCB '{}': {} verts, {} idx, {} mats, bbox={:?}",
+        mesh.name,
+        mesh.positions.len(),
+        mesh.indices.len(),
+        mesh.materials.len(),
+        mesh.bounding_box
+    );
     let buf = flint_ltk::mesh::wire::encode_scb_binary(&mesh)?;
     Ok(tauri::ipc::Response::new(buf))
 }
@@ -389,6 +397,15 @@ fn find_ritobin_in_dir(dir: &Path) -> Option<String> {
 #[tauri::command]
 pub async fn read_skn_mesh(path: String) -> Result<tauri::ipc::Response, String> {
     let mesh = read_skn_mesh_inner(path).await?;
+    tracing::info!(
+        "[mesh-wire] SKN: {} verts, {} idx, {} mats, {} bone_idx, {} bone_wt, bbox={:?}",
+        mesh.positions.len(),
+        mesh.indices.len(),
+        mesh.materials.len(),
+        mesh.bone_indices.len(),
+        mesh.bone_weights.len(),
+        mesh.bounding_box
+    );
     let buf = flint_ltk::mesh::wire::encode_skn_binary(&mesh)?;
     Ok(tauri::ipc::Response::new(buf))
 }
