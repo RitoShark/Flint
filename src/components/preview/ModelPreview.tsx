@@ -539,7 +539,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             // ─────────────────────────────────────────────────────────────
             const mat = new PBRMaterial(matName + "_material", scene);
             mat.unlit = true;              // ← MUST stay true. See warning above.
-            mat.backFaceCulling = true;
             mat.twoSidedLighting = true;
             mat.metallic = 0;
             mat.roughness = 1;
@@ -547,13 +546,28 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             mat.needDepthPrePass = false;
             mat.wireframe = wireframe;
 
-            if (texture) {
+            if (!isSkn) {
+                // SCB/SCO static meshes are simple geometry whose base texture is
+                // often one-sided / transparent — a texture that fails to load or
+                // covers only one winding leaves whole faces invisible. By design,
+                // ignore the texture entirely and render an OPAQUE, DOUBLE-SIDED
+                // solid red so the full shape is always visible regardless of
+                // winding or alpha. (User choice: red over a texture gamble.)
+                mat.albedoColor = new Color3(1, 0, 0);
+                mat.albedoTexture = null;
+                mat.backFaceCulling = false;
+                mat.useAlphaFromAlbedoTexture = false;
+                mat.transparencyMode = Material.MATERIAL_OPAQUE;
+                mat.alpha = 1;
+            } else if (texture) {
+                mat.backFaceCulling = true;
                 texture.hasAlpha = false;
                 mat.albedoTexture = texture;
                 mat.albedoColor = new Color3(1, 1, 1);
                 mat.useAlphaFromAlbedoTexture = false;
                 mat.transparencyMode = Material.MATERIAL_OPAQUE;
             } else {
+                mat.backFaceCulling = true;
                 mat.albedoColor = new Color3(1, 0, 1); // magenta — no texture found
             }
 
