@@ -35,7 +35,8 @@ ltk_mesh = { git = "https://github.com/LeagueToolkit/league-toolkit", rev = "613
 ltk_meta = { git = "https://github.com/LeagueToolkit/league-toolkit", rev = "6137083", features = ["serde"] }
 ltk_ritobin = { git = "https://github.com/LeagueToolkit/league-toolkit", rev = "6137083" }
 ltk_anim = { git = "https://github.com/LeagueToolkit/league-toolkit", rev = "6137083" }
-ltk_file = { git = "https://github.com/LeagueToolkit/league-toolkit", rev = "6137083" }
+# ltk_file: direct dep removed (Phase 4, MIGRATED to ritoshark::file). The WAD
+# extractor still reaches league_toolkit::file via the umbrella until WAD migration.
 
 # RitoShark crates (owner's workspace — migrating off league-toolkit onto these).
 # Pinned to main HEAD; bump as the owner pushes (WadBuilder, etc.). Default features = all formats.

@@ -43,8 +43,9 @@ pub mod ltk_types {
     // ltk_mod_project (used by commands/export.rs, commands/ltk_manager.rs)
     pub use ltk_mod_project::{ModProject, ModProjectAuthor, default_layers};
 
-    // ltk_file (used by commands/file.rs)
-    pub use ltk_file::LeagueFileKind;
+    // ltk_file: MIGRATED to ritoshark::file (Phase 4) — re-export removed.
+    // (commands/file.rs now uses ritoshark::file::detect; the extractor's
+    // remaining LeagueFileKind use goes through the league_toolkit umbrella.)
 
     // ltk_texture: MIGRATED to ritoshark::tex (Phase 1) — re-export removed.
 

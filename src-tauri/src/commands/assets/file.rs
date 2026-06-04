@@ -1,5 +1,4 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
-use flint_ltk::ltk_types::LeagueFileKind;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -172,64 +171,136 @@ fn colorize_image_impl(img: &mut RgbaImage, target_hue: f32, preserve_saturation
     }
 }
 
-/// Detect file type from extension and magic bytes using league-toolkit's LeagueFileKind
+/// Detect file type from extension and magic bytes using RitoShark's `rs_file::detect`.
+///
+/// `rs_file` is a League-format detector; it covers the LoL binary formats but does
+/// NOT recognise the generic/auxiliary types the old `ltk_file::LeagueFileKind` did
+/// (PNG, JPEG, TGA, SVG, World Geometry, Light Grid, Preload, LuaObj). Those are
+/// recovered by [`detect_aux_mime_from_magic`] before we fall through to the
+/// extension-based guess, so e.g. embedded PNG previews keep working.
 fn detect_file_type(path: &Path, data: &[u8]) -> (String, String) {
+    use ritoshark::file::FileKind;
+
     let extension = path
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
 
-    // Use league-toolkit's file identification for known LoL formats
-    let ltk_kind = LeagueFileKind::identify_from_bytes(data);
-
-    // Map LeagueFileKind to MIME-like types
-    let file_type = match ltk_kind {
-        LeagueFileKind::PropertyBin | LeagueFileKind::PropertyBinOverride => {
-            "application/x-bin".to_string()
-        }
-        LeagueFileKind::Texture => "image/tex".to_string(),
-        LeagueFileKind::TextureDds => "image/dds".to_string(),
-        LeagueFileKind::SimpleSkin => "model/x-lol-skn".to_string(),
-        LeagueFileKind::Skeleton => "model/x-lol-skl".to_string(),
-        LeagueFileKind::Animation => "animation/x-lol-anm".to_string(),
-        LeagueFileKind::Png => "image/png".to_string(),
-        LeagueFileKind::Jpeg => "image/jpeg".to_string(),
-        LeagueFileKind::WwiseBank => "audio/x-wwise-bnk".to_string(),
-        LeagueFileKind::WwisePackage => "audio/x-wwise-wpk".to_string(),
-        LeagueFileKind::MapGeometry => "model/x-lol-mapgeo".to_string(),
-        LeagueFileKind::WorldGeometry => "model/x-lol-wgeo".to_string(),
-        LeagueFileKind::StaticMeshAscii => "model/x-lol-sco".to_string(),
-        LeagueFileKind::StaticMeshBinary => "model/x-lol-scb".to_string(),
-        LeagueFileKind::RiotStringTable => "text/x-stringtable".to_string(),
-        LeagueFileKind::LightGrid => "application/x-lightgrid".to_string(),
-        LeagueFileKind::Preload => "application/x-preload".to_string(),
-        LeagueFileKind::LuaObj => "application/x-luaobj".to_string(),
-        LeagueFileKind::Tga => "image/tga".to_string(),
-        LeagueFileKind::Svg => "image/svg+xml".to_string(),
-        LeagueFileKind::Unknown => {
-            // Fall back to extension-based detection for unknown formats
-            match extension.as_str() {
-                "dds" => "image/dds".to_string(),
-                "tex" => "image/tex".to_string(),
-                "png" => "image/png".to_string(),
-                "jpg" | "jpeg" => "image/jpeg".to_string(),
-                "webp" => "image/webp".to_string(),
-                "tga" => "image/tga".to_string(),
-                "bmp" => "image/bmp".to_string(),
-                "bin" => "application/x-bin".to_string(),
-                "py" | "ritobin" => "text/x-python".to_string(),
-                "json" => "application/json".to_string(),
-                "txt" => "text/plain".to_string(),
-                "lua" => "text/x-lua".to_string(),
-                "xml" => "application/xml".to_string(),
-                "wav" | "ogg" | "mp3" => "audio".to_string(),
-                "skn" | "skl" | "anm" => "model".to_string(),
-                _ => "application/octet-stream".to_string(),
+    // RitoShark's magic-based detection for known LoL formats.
+    let file_type = match ritoshark::file::detect(data) {
+        FileKind::PropBin | FileKind::PatchBin => "application/x-bin".to_string(),
+        FileKind::Tex => "image/tex".to_string(),
+        FileKind::Dds => "image/dds".to_string(),
+        FileKind::SkinnedMesh => "model/x-lol-skn".to_string(),
+        FileKind::Skeleton => "model/x-lol-skl".to_string(),
+        // ltk mapped both compressed + uncompressed anim to the same MIME.
+        FileKind::AnimUncompressed | FileKind::AnimCompressed => "animation/x-lol-anm".to_string(),
+        FileKind::Bnk => "audio/x-wwise-bnk".to_string(),
+        FileKind::Wpk => "audio/x-wwise-wpk".to_string(),
+        FileKind::MapGeo => "model/x-lol-mapgeo".to_string(),
+        FileKind::StaticMeshText => "model/x-lol-sco".to_string(),
+        FileKind::StaticMeshBinary => "model/x-lol-scb".to_string(),
+        FileKind::Rst => "text/x-stringtable".to_string(),
+        // rs_file detects these but Flint never special-cased them — let them fall
+        // through to the extension/octet-stream path exactly like the old `Unknown` arm.
+        FileKind::Wad | FileKind::Rman | FileKind::Unknown => {
+            // First recover the auxiliary/generic types rs_file doesn't detect but
+            // ltk_file did (PNG/JPEG/TGA/SVG/WGEO/LightGrid/Preload/LuaObj), so we
+            // don't silently downgrade them to octet-stream.
+            if let Some(mime) = detect_aux_mime_from_magic(data) {
+                mime.to_string()
+            } else {
+                // Fall back to extension-based detection for unknown formats
+                match extension.as_str() {
+                    "dds" => "image/dds".to_string(),
+                    "tex" => "image/tex".to_string(),
+                    "png" => "image/png".to_string(),
+                    "jpg" | "jpeg" => "image/jpeg".to_string(),
+                    "webp" => "image/webp".to_string(),
+                    "tga" => "image/tga".to_string(),
+                    "bmp" => "image/bmp".to_string(),
+                    "bin" => "application/x-bin".to_string(),
+                    "py" | "ritobin" => "text/x-python".to_string(),
+                    "json" => "application/json".to_string(),
+                    "txt" => "text/plain".to_string(),
+                    "lua" => "text/x-lua".to_string(),
+                    "xml" => "application/xml".to_string(),
+                    "wav" | "ogg" | "mp3" => "audio".to_string(),
+                    "skn" | "skl" | "anm" => "model".to_string(),
+                    _ => "application/octet-stream".to_string(),
+                }
             }
         }
     };
 
     (file_type, extension)
+}
+
+/// Magic-byte fallback for file types `rs_file::detect` does not recognise but the old
+/// `ltk_file::LeagueFileKind::identify_from_bytes` did. Returns the same MIME string the
+/// old code produced for each, or `None` if no auxiliary type matches.
+///
+/// The byte patterns mirror `ltk_file`'s magic table verbatim:
+/// - PNG  : byte 1..4 == `PNG` (`\x89PNG`)
+/// - JPEG : `FF D8 FF`
+/// - SVG  : `<svg`
+/// - LuaObj: byte 1..5 == `LuaQ`
+/// - World Geometry: `WGEO`
+/// - Preload: `PreLoad`
+/// - Skeleton (head form): `r3d2sklt` — rs_file only checks the offset-4 `0x22FD4FC3`
+///   variant, so the legacy `r3d2sklt`-headed files are recovered here.
+/// - TGA  : byte 1 (color-map type) ∈ {0,1} and byte 2 (image type) ∈ {1,2,3,9,10,11}
+/// - Light Grid: leading `u32` LE == 3
+///
+/// TGA and Light Grid are deliberately last — they are heuristic (no fixed magic) and
+/// the lowest-confidence patterns, matching `ltk_file`'s ordering.
+fn detect_aux_mime_from_magic(data: &[u8]) -> Option<&'static str> {
+    let len = data.len();
+
+    // PNG: \x89 P N G  → ltk checks data[1..4] == b"PNG"
+    if len >= 4 && &data[1..4] == b"PNG" {
+        return Some("image/png");
+    }
+    // JPEG: FF D8 FF (ltk masks the 4th byte off)
+    if len >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF {
+        return Some("image/jpeg");
+    }
+    // SVG: "<svg"
+    if len >= 4 && &data[0..4] == b"<svg" {
+        return Some("image/svg+xml");
+    }
+    // LuaObj: byte 1..5 == "LuaQ"
+    if len >= 5 && &data[1..5] == b"LuaQ" {
+        return Some("application/x-luaobj");
+    }
+    // World Geometry: "WGEO"
+    if len >= 4 && &data[0..4] == b"WGEO" {
+        return Some("model/x-lol-wgeo");
+    }
+    // Preload: "PreLoad"
+    if len >= 7 && &data[0..7] == b"PreLoad" {
+        return Some("application/x-preload");
+    }
+    // Skeleton, head form: "r3d2sklt" (offset-4 variant is handled by rs_file::detect).
+    if len >= 8 && &data[0..8] == b"r3d2sklt" {
+        return Some("model/x-lol-skl");
+    }
+    // TGA (heuristic, no fixed magic): color-map type byte + image-type byte.
+    if len >= 3 {
+        let color_map_type = data[1];
+        let image_type = data[2];
+        if (color_map_type == 0 || color_map_type == 1)
+            && matches!(image_type, 1 | 2 | 3 | 9 | 10 | 11)
+        {
+            return Some("image/tga");
+        }
+    }
+    // Light Grid: leading u32 LE == 3.
+    if len >= 4 && u32::from_le_bytes([data[0], data[1], data[2], data[3]]) == 3 {
+        return Some("application/x-lightgrid");
+    }
+
+    None
 }
 
 /// Read raw file bytes from disk.
@@ -1387,4 +1458,52 @@ pub fn get_bundled_floor_png() -> tauri::ipc::Response {
         }
     }
     tauri::ipc::Response::new(FLOOR_PNG.to_vec())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The auxiliary fallback must keep recognising every generic/LoL type that
+    // rs_file::detect does NOT, so previews (esp. PNG) don't regress to octet-stream.
+    #[test]
+    fn aux_magic_covers_rs_file_gaps() {
+        assert_eq!(detect_aux_mime_from_magic(b"\x89PNG\r\n\x1a\n"), Some("image/png"));
+        assert_eq!(detect_aux_mime_from_magic(&[0xFF, 0xD8, 0xFF, 0xE0]), Some("image/jpeg"));
+        assert_eq!(detect_aux_mime_from_magic(b"<svg xmlns"), Some("image/svg+xml"));
+        assert_eq!(detect_aux_mime_from_magic(b"\x1bLuaQ\x00"), Some("application/x-luaobj"));
+        assert_eq!(detect_aux_mime_from_magic(b"WGEO\x00\x00\x00\x00"), Some("model/x-lol-wgeo"));
+        assert_eq!(detect_aux_mime_from_magic(b"PreLoad\x00"), Some("application/x-preload"));
+        assert_eq!(detect_aux_mime_from_magic(b"r3d2sklt"), Some("model/x-lol-skl"));
+        // Light Grid: leading u32 LE == 3.
+        assert_eq!(detect_aux_mime_from_magic(&[0x03, 0x00, 0x00, 0x00]), Some("application/x-lightgrid"));
+        // TGA heuristic: uncompressed true-color (image type 2, no color map).
+        assert_eq!(detect_aux_mime_from_magic(&[0x00, 0x00, 0x02, 0x00]), Some("image/tga"));
+    }
+
+    #[test]
+    fn aux_magic_none_for_known_lol_and_garbage() {
+        // PROP is an rs_file format, not an aux type — must NOT be claimed here.
+        assert_eq!(detect_aux_mime_from_magic(b"PROP\x01\x00\x00\x00"), None);
+        // Too-short slices never panic and never match.
+        assert_eq!(detect_aux_mime_from_magic(&[]), None);
+        assert_eq!(detect_aux_mime_from_magic(&[0x01]), None);
+    }
+
+    // End-to-end: PNG bytes (which rs_file does not detect) must still yield image/png
+    // through the full detect_file_type path — this is the load-bearing preview case.
+    #[test]
+    fn detect_file_type_recovers_png_by_magic() {
+        let png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0d";
+        let (mime, _ext) = detect_file_type(Path::new("blob"), png);
+        assert_eq!(mime, "image/png");
+    }
+
+    // A known LoL format still maps via rs_file::detect (not the fallback).
+    #[test]
+    fn detect_file_type_maps_tex_via_rs_file() {
+        let tex = [0x54u8, 0x45, 0x58, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
+        let (mime, _ext) = detect_file_type(Path::new("x.tex"), &tex);
+        assert_eq!(mime, "image/tex");
+    }
 }

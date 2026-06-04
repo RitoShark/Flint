@@ -114,11 +114,39 @@ pub async fn read_wad_rst(
         .load_chunk_decompressed(&chunk)
         .map_err(|e| format!("Failed to decompress chunk {:016x}: {}", path_hash, e))?;
 
-    // Parse with ltk_rst and convert to JSON
-    let mut reader = std::io::Cursor::new(&data);
-    let file = ltk_rst::Stringtable::from_rst_reader(&mut reader)
-        .map_err(|e| format!("Failed to parse rst: {}", e))?;
-    
-    serde_json::to_string_pretty(&file)
+    // Parse with RitoShark's rs_rst and convert to JSON.
+    rst_bytes_to_json(&data)
+}
+
+/// Parse RST bytes with `ritoshark::rst` and emit the same JSON shape the old
+/// `ltk_rst::Stringtable` serde output produced: `{ "entries": { "<hash_u64>": "<text>" } }`.
+///
+/// `ltk_rst::Stringtable` derived `Serialize` over a `HashMap<u64, String>` (keys rendered
+/// as decimal strings, arbitrary order). `ritoshark::rst::Rst` instead exposes
+/// `entries: Vec<(u64, RstValue)>`, so we collect into a `BTreeMap<u64, String>` — identical
+/// JSON shape and key encoding, but with a stable (numeric) key order instead of the old
+/// nondeterministic `HashMap` order. Encrypted pre-v5 payloads (which `ltk_rst` never
+/// surfaced) degrade to an empty string, matching the "string value" contract.
+fn rst_bytes_to_json(data: &[u8]) -> Result<String, String> {
+    use ritoshark::prelude::Parse;
+    use serde::Serialize;
+    use std::collections::BTreeMap;
+
+    let mut reader = std::io::Cursor::new(data);
+    let table = ritoshark::rst::Rst::from_reader(&mut reader)
+        .map_err(|e| format!("Failed to parse rst: {:?}", e))?;
+
+    let entries: BTreeMap<u64, String> = table
+        .entries
+        .iter()
+        .map(|(hash, value)| (*hash, value.as_str().unwrap_or("").to_string()))
+        .collect();
+
+    #[derive(Serialize)]
+    struct StringtableJson {
+        entries: BTreeMap<u64, String>,
+    }
+
+    serde_json::to_string_pretty(&StringtableJson { entries })
         .map_err(|e| format!("Failed to serialize rst to JSON: {}", e))
 }
