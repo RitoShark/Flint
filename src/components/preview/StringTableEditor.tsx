@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import * as api from '../../lib/api';
 import type { StringTableData, StringTableRow } from '../../lib/api/legacyFormats';
 import { VirtualList } from './VirtualList';
-import { useNotificationStore } from '../../lib/stores';
+import { useAppMetadataStore, useNotificationStore } from '../../lib/stores';
+import { editorSessionStore } from '../../lib/stores/editorSessionStore';
 
 interface StringTableEditorProps {
     filePath: string;
@@ -16,18 +17,68 @@ export const StringTableEditor: React.FC<StringTableEditorProps> = ({ filePath }
     const [error, setError] = useState<string | null>(null);
     const [dirty, setDirty] = useState(false);
     const [search, setSearch] = useState('');
+    const [initialScrollTop, setInitialScrollTop] = useState(0);
     const showToast = useNotificationStore((s) => s.showToast);
 
+    // Subscribe to file version changes for hot reload (matches Bin/Inibin editors).
+    const fileVersion = useAppMetadataStore((state) => {
+        void state.fileVersionsRev;
+        return state.getFileVersion(filePath);
+    });
+
+    // Baseline JSON (for the unmount session snapshot) and live scroll offset.
+    const originalJsonRef = useRef('');
+    const scrollRef = useRef(0);
+    const dataRef = useRef<StringTableData | null>(null);
+    dataRef.current = data;
+
     useEffect(() => {
+        const cached = editorSessionStore.get(filePath);
+        if (cached && cached.fileVersion === fileVersion) {
+            originalJsonRef.current = cached.originalContent;
+            scrollRef.current = cached.scrollOffset ?? 0;
+            setData(JSON.parse(cached.content) as StringTableData);
+            setDirty(cached.content !== cached.originalContent);
+            setInitialScrollTop(cached.scrollOffset ?? 0);
+            setError(null);
+            setLoading(false);
+            return;
+        }
+
         let cancelled = false;
         setLoading(true);
         setError(null);
         api.readStringTable(filePath)
-            .then((d) => { if (!cancelled) { setData(d); setDirty(false); } })
+            .then((d) => {
+                if (cancelled) return;
+                const json = JSON.stringify(d);
+                originalJsonRef.current = json;
+                scrollRef.current = 0;
+                editorSessionStore.save(filePath, { fileVersion, content: json, originalContent: json, scrollOffset: 0 });
+                setData(d);
+                setDirty(false);
+                setInitialScrollTop(0);
+            })
             .catch((err) => { if (!cancelled) setError((err as Error).message || 'Failed to load string table'); })
             .finally(() => { if (!cancelled) setLoading(false); });
         return () => { cancelled = true; };
-    }, [filePath]);
+    }, [filePath, fileVersion]);
+
+    // Persist the live session (edited rows + scroll) on unmount so a tab-switch
+    // return restores it instead of re-decoding.
+    useEffect(() => {
+        return () => {
+            const d = dataRef.current;
+            if (!d) return;
+            editorSessionStore.save(filePath, {
+                fileVersion,
+                content: JSON.stringify(d),
+                originalContent: originalJsonRef.current,
+                scrollOffset: scrollRef.current,
+            });
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [filePath, fileVersion]);
 
     const filtered = useMemo(() => {
         if (!data) return [];
@@ -61,6 +112,8 @@ export const StringTableEditor: React.FC<StringTableEditorProps> = ({ filePath }
         if (!data) return;
         try {
             await api.saveStringTable(filePath, data);
+            // Saved state is the new baseline -> dirty clears.
+            originalJsonRef.current = JSON.stringify(data);
             setDirty(false);
             showToast('success', 'String table saved');
         } catch (err) {
@@ -92,6 +145,8 @@ export const StringTableEditor: React.FC<StringTableEditorProps> = ({ filePath }
                 <VirtualList
                     items={filtered}
                     rowHeight={ROW_HEIGHT}
+                    initialScrollTop={initialScrollTop}
+                    onScrollChange={(top) => { scrollRef.current = top; }}
                     renderRow={(row: StringTableRow) => (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: ROW_HEIGHT, padding: '0 10px', borderBottom: '1px solid var(--border-subtle, #222)' }}>
                             <code style={{ width: 180, fontSize: 11, opacity: 0.7, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

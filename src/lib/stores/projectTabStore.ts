@@ -5,6 +5,7 @@
 
 import { create } from 'zustand';
 import type { ProjectTab, Project, FileTreeNode } from '../types';
+import { editorSessionStore } from './editorSessionStore';
 
 interface ProjectTabState {
   openTabs: ProjectTab[];
@@ -81,6 +82,9 @@ export const useProjectTabStore = create<ProjectTabState>((set, get) => ({
 
   removeTab: (tabId) => {
     const { openTabs, activeTabId } = get();
+    // Free any preserved editor sessions belonging to the closed project.
+    const closed = openTabs.find(t => t.id === tabId);
+    if (closed?.projectPath) editorSessionStore.pruneByPrefix(closed.projectPath);
     const newTabs = openTabs.filter(t => t.id !== tabId);
     let newActiveId = activeTabId;
 

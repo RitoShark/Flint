@@ -10,6 +10,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
 import { useAppMetadataStore, useNotificationStore } from '../../lib/stores';
+import { editorSessionStore } from '../../lib/stores/editorSessionStore';
 import * as api from '../../lib/api';
 import { deferCleanup } from '../../lib/ui-helpers/deferCleanup';
 
@@ -23,11 +24,13 @@ export const InibinEditor: React.FC<InibinEditorProps> = ({ filePath }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [readOnly, setReadOnly] = useState(false);
-    const [dirty, setDirty] = useState(false);
+    const [content, setContent] = useState('');
+    const [originalContent, setOriginalContent] = useState('');
 
     const containerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
-    const originalRef = useRef('');
+
+    const dirty = content !== originalContent;
 
     // Subscribe to file version changes for hot reload (same pattern as BinEditor)
     const fileVersion = useAppMetadataStore((state) => {
@@ -35,44 +38,32 @@ export const InibinEditor: React.FC<InibinEditorProps> = ({ filePath }) => {
         return state.getFileVersion(filePath);
     });
 
+    // Always-current snapshot, read in the unmount cleanup to persist the session.
+    const latestRef = useRef({ content: '', originalContent: '', fileVersion: 0 });
+    latestRef.current = { content, originalContent, fileVersion };
+
+    // Load: restore a cached session if valid, else decode from disk.
     useEffect(() => {
+        const cached = editorSessionStore.get(filePath);
+        if (cached && cached.fileVersion === fileVersion) {
+            setContent(cached.content);
+            setOriginalContent(cached.originalContent);
+            setReadOnly(cached.originalContent.startsWith('# inibin v1'));
+            setError(null);
+            setLoading(false);
+            return;
+        }
+
         let cancelled = false;
         setLoading(true);
         setError(null);
-        setDirty(false);
-
         api.readInibinText(filePath)
             .then((text) => {
                 if (cancelled) return;
-                originalRef.current = text;
-                const ro = text.startsWith('# inibin v1');
-                setReadOnly(ro);
-
-                if (!containerRef.current) return;
-
-                const ed = monaco.editor.create(containerRef.current, {
-                    value: text,
-                    language: 'ini',
-                    theme: 'vs-dark',
-                    readOnly: ro,
-                    automaticLayout: true,
-                    fontFamily: 'var(--font-mono), "Cascadia Code", "Fira Code", Consolas, "Courier New", monospace',
-                    fontSize: 13,
-                    lineHeight: 20,
-                    minimap: { enabled: false },
-                    scrollBeyondLastLine: false,
-                    contextmenu: false,
-                    quickSuggestions: false,
-                    wordBasedSuggestions: 'off',
-                    tabSize: 4,
-                    insertSpaces: true,
-                });
-
-                editorRef.current = ed;
-
-                ed.getModel()?.onDidChangeContent(() => {
-                    setDirty(ed.getValue() !== originalRef.current);
-                });
+                editorSessionStore.save(filePath, { fileVersion, content: text, originalContent: text });
+                setContent(text);
+                setOriginalContent(text);
+                setReadOnly(text.startsWith('# inibin v1'));
             })
             .catch((err) => {
                 if (!cancelled) setError((err as Error).message || 'Failed to load inibin');
@@ -81,24 +72,65 @@ export const InibinEditor: React.FC<InibinEditorProps> = ({ filePath }) => {
                 if (!cancelled) setLoading(false);
             });
 
-        return () => {
-            cancelled = true;
-            const ed = editorRef.current;
-            editorRef.current = null;
-            if (ed) {
-                deferCleanup(() => ed.dispose());
-            }
-        };
+        return () => { cancelled = true; };
     // fileVersion is intentionally included to trigger reload on hot-reload events
-    }, [filePath, fileVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [filePath, fileVersion]);
+
+    // Create the Monaco editor once content is loaded; restore + snapshot session.
+    useEffect(() => {
+        if (loading || error || !containerRef.current) return;
+
+        const ed = monaco.editor.create(containerRef.current, {
+            value: content,
+            language: 'ini',
+            theme: 'vs-dark',
+            readOnly,
+            automaticLayout: true,
+            fontFamily: 'var(--font-mono), "Cascadia Code", "Fira Code", Consolas, "Courier New", monospace',
+            fontSize: 13,
+            lineHeight: 20,
+            minimap: { enabled: false },
+            scrollBeyondLastLine: false,
+            contextmenu: false,
+            quickSuggestions: false,
+            wordBasedSuggestions: 'off',
+            tabSize: 4,
+            insertSpaces: true,
+        });
+
+        editorRef.current = ed;
+
+        const session = editorSessionStore.get(filePath);
+        if (session?.viewState && session.fileVersion === fileVersion) {
+            ed.restoreViewState(session.viewState);
+            ed.focus();
+        }
+
+        ed.getModel()?.onDidChangeContent(() => {
+            setContent(ed.getValue());
+        });
+
+        return () => {
+            const L = latestRef.current;
+            editorSessionStore.save(filePath, {
+                fileVersion: L.fileVersion,
+                content: L.content,
+                originalContent: L.originalContent,
+                viewState: ed.saveViewState(),
+            });
+            editorRef.current = null;
+            deferCleanup(() => ed.dispose());
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [loading, error]);
 
     const handleSave = useCallback(async () => {
         const ed = editorRef.current;
         if (!ed) return;
         try {
-            await api.saveInibinText(filePath, ed.getValue());
-            originalRef.current = ed.getValue();
-            setDirty(false);
+            const value = ed.getValue();
+            await api.saveInibinText(filePath, value);
+            setOriginalContent(value);
             showToast('success', 'Inibin saved');
         } catch (err) {
             showToast('error', (err as Error).message || 'Failed to save inibin');

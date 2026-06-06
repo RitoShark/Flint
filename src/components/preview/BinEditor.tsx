@@ -18,6 +18,7 @@ import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
 import { useAppMetadataStore, useConfigStore, useFileEditorStore, useNotificationStore } from '../../lib/stores';
 import { useProjectTabStore } from '../../lib/stores/projectTabStore';
+import { editorSessionStore } from '../../lib/stores/editorSessionStore';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { deferCleanup } from '../../lib/ui-helpers/deferCleanup';
@@ -290,7 +291,10 @@ const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     },
     tabSize: 4,
     insertSpaces: true,
-    autoIndent: 'none',
+    // 'brackets': pressing Enter keeps the previous line's indentation, adds one
+    // level after a line ending in '{', and de-indents on '}'. formatOnType/Paste
+    // stay off so only Enter is affected — existing/pasted text is never reflowed.
+    autoIndent: 'brackets',
     formatOnPaste: false,
     formatOnType: false,
     wordWrap: 'off',
@@ -814,9 +818,15 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     });
 
     const useJade = binConverterEngine === 'jade';
+    const variant = useJade ? 'jade' : 'ltk';
 
     const editorContainerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+
+    // Always-current snapshot fields, read in the unmount cleanup to persist
+    // the live session (closures there would otherwise capture stale state).
+    const latestRef = useRef({ content: '', originalContent: '', fileVersion: 0, variant });
+    latestRef.current = { content, originalContent, fileVersion, variant };
 
     // Asset preview tooltip state
     const [previewAsset, setPreviewAsset] = useState<string | null>(null);
@@ -888,27 +898,46 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         }, BRACKET_CHECK_DEBOUNCE_MS);
     }, []);
 
-    // Load BIN file
+    // Load BIN file — restore a cached session if one is valid, else decode.
     useEffect(() => {
+        // Cache hit: restore live (possibly dirty) content without re-decoding.
+        const cached = editorSessionStore.get(filePath);
+        if (cached && cached.fileVersion === fileVersion && cached.variant === variant) {
+            setContent(cached.content);
+            setOriginalContent(cached.originalContent);
+            setLineCount(cached.content.split('\n').length);
+            setBracketStatus(validateBrackets(cached.content));
+            setError(null);
+            setLoading(false);
+            return;
+        }
+
+        let cancelled = false;
         const loadBin = async () => {
             setLoading(true);
             setError(null);
             try {
                 const text = await api.readOrConvertBin(filePath, useJade);
+                if (cancelled) return;
                 setContent(text);
                 setOriginalContent(text);
                 setLineCount(text.split('\n').length);
                 const result = validateBrackets(text);
                 setBracketStatus(result);
+                // Seed the cache baseline so a later tab-switch skips re-decode
+                // even if the user makes no edits.
+                editorSessionStore.save(filePath, { fileVersion, content: text, originalContent: text, variant });
             } catch (err) {
+                if (cancelled) return;
                 console.error('[BinEditor] Error:', err);
                 setError((err as Error).message || 'Failed to load BIN file');
             } finally {
-                setLoading(false);
+                if (!cancelled) setLoading(false);
             }
         };
         loadBin();
-    }, [filePath, fileVersion, useJade]);
+        return () => { cancelled = true; };
+    }, [filePath, fileVersion, useJade, variant]);
 
     // Create Monaco editor
     useEffect(() => {
@@ -922,6 +951,15 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         });
 
         editorRef.current = ed;
+
+        // Restore cursor/selection/scroll from a cached session (tab-switch return).
+        // Only when the session matches the current file version, so we never apply
+        // a stale scroll position onto freshly-decoded content.
+        const restored = editorSessionStore.get(filePath);
+        if (restored?.viewState && restored.fileVersion === fileVersion) {
+            ed.restoreViewState(restored.viewState);
+            ed.focus();
+        }
 
         // Inline completions: bracket auto-close ghost text
         const inlineProvider = monaco.languages.registerInlineCompletionsProvider(RITOBIN_LANGUAGE_ID, {
@@ -973,6 +1011,16 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         }
 
         return () => {
+            // Snapshot the live session (content + cursor/scroll) before disposing
+            // so a remount (tab switch) restores it instead of re-decoding.
+            const L = latestRef.current;
+            editorSessionStore.save(filePath, {
+                fileVersion: L.fileVersion,
+                content: L.content,
+                originalContent: L.originalContent,
+                variant: L.variant,
+                viewState: ed.saveViewState(),
+            });
             editorRef.current = null;
             decorationsRef.current = [];
             emitterDecorationsRef.current = [];
