@@ -75,6 +75,25 @@ fn decode_to_clamped_rgba(data: &[u8]) -> Result<(image::RgbaImage, Texture), St
     Ok((rgba, texture))
 }
 
+/// Decode a DDS or TEX file's top mipmap to full RGBA with NO block-boundary
+/// crop. Used by the map preview, which uploads pixels straight to a Babylon
+/// RawTexture (never re-encodes), so the multiple-of-4 crop that
+/// `decode_to_clamped_rgba` applies for re-encoding is both unnecessary and
+/// would shift UVs. Returns the decoded RGBA image.
+pub(crate) fn decode_full_rgba(data: &[u8]) -> Result<image::RgbaImage, String> {
+    if data.len() < 4 {
+        return Err("File too small to be a valid texture".into());
+    }
+    let texture = if &data[0..4] == b"DDS " {
+        Texture::from_dds_bytes(data).map_err(|e| format!("Failed to parse texture: {:?}", e))?
+    } else {
+        Texture::from_bytes(data).map_err(|e| format!("Failed to parse texture: {:?}", e))?
+    };
+    texture
+        .decode_rgba()
+        .map_err(|e| format!("Failed to decode top mipmap: {:?}", e))
+}
+
 /// Convert a TEX file to a sibling .dds.
 ///
 /// Format selection: RitoShark's `Texture::format` (BC1 / BC3 / RGBA8) is

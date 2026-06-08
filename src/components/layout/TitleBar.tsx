@@ -185,6 +185,23 @@ const ExtractTab: React.FC<ExtractTabProps> = ({ session, isActive, onSwitch, on
     );
 };
 
+/** Text-button styling for the map PSD actions (titlebar__button is icon-sized). */
+const psdBtnStyle = (disabled: boolean): React.CSSProperties => ({
+    height: 26,
+    padding: '0 10px',
+    marginRight: 6,
+    display: 'inline-flex',
+    alignItems: 'center',
+    whiteSpace: 'nowrap',
+    fontSize: 12,
+    borderRadius: 6,
+    border: '1px solid var(--border, #444)',
+    background: 'var(--bg-secondary, #2a2a2a)',
+    color: disabled ? 'var(--text-muted, #888)' : 'var(--text-primary, #ddd)',
+    cursor: disabled ? 'default' : 'pointer',
+    opacity: disabled ? 0.6 : 1,
+});
+
 export const TitleBar: React.FC = () => {
     const activeTabId = useProjectTabStore((s) => s.activeTabId);
     const openTabs = useProjectTabStore((s) => s.openTabs);
@@ -341,6 +358,7 @@ export const TitleBar: React.FC = () => {
             setIsExporting(false);
         }
     }, [currentProject, currentProjectPath, creatorName, showToast]);
+
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -501,6 +519,16 @@ export const TitleBar: React.FC = () => {
             </div>
 
             <div className="titlebar__controls" data-tauri-drag-region="false">
+                {/* Map Textures modal opener — only for map projects. */}
+                {currentView === 'preview' && currentProject?.kind === 'map' && (
+                    <button
+                        style={psdBtnStyle(false)}
+                        onClick={() => openModal('map-textures')}
+                        title="Combine / apply map texture PSDs (ground, walls, camps, …)"
+                        data-tauri-drag-region="false"
+                    >Map Textures</button>
+                )}
+
                 {/* Sync to Launcher button — visible when a project is open and any launcher is configured */}
                 {currentView === 'preview' && currentProject && launcherTarget && (
                     <button

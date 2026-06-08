@@ -15,6 +15,7 @@
  *   - champion       — champion + skin lookups
  *   - project        — project lifecycle (create/open/save/layers)
  *   - map            — map-project lifecycle
+ *   - mapPreview     — separate-window 3D map preview (geometry + textures)
  *   - ltk            — LTK Manager / Celestial / watcher integration
  *   - wad            — WAD read / extract / chunk APIs
  *   - wadEdit        — in-memory WAD edit sessions
@@ -44,6 +45,7 @@ export * from './league';
 export * from './champion';
 export * from './project';
 export * from './map';
+export * from './mapPreview';
 export * from './ltk';
 export * from './wad';
 export * from './wadEdit';

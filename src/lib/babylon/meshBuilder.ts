@@ -9,6 +9,8 @@ export interface SubmeshRange {
     vertex_count: number;
     start_index: number;
     index_count: number;
+    /** Map only: MapModel.layer bitmask encoding the elemental variant. */
+    layer?: number;
 }
 
 export interface MeshDTO {

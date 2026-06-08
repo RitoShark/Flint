@@ -33,13 +33,36 @@ interface LeftPanelProps {
 export const LeftPanel: React.FC<LeftPanelProps> = ({ style }) => {
     const activeTabId = useProjectTabStore((s) => s.activeTabId);
     const openTabs = useProjectTabStore((s) => s.openTabs);
+    const showToast = useNotificationStore((s) => s.showToast);
     const [searchQuery, setSearchQuery] = useState('');
 
     const activeTab = getActiveTab(activeTabId, openTabs);
     if (!activeTab) return null;
 
+    const isMapProject = activeTab.project.kind === 'map';
+    const projectPath = activeTab.projectPath;
+
     return (
         <aside className="left-panel" id="left-panel" style={style}>
+            {isMapProject && (
+                <button
+                    className="btn btn--sm"
+                    style={{ margin: '8px 8px 0', width: 'calc(100% - 16px)', justifyContent: 'center' }}
+                    title="Open a 3D preview of this map in a separate window"
+                    onClick={async () => {
+                        try {
+                            await api.openMapPreviewWindow(projectPath);
+                        } catch (err) {
+                            const msg = (err as Error).message || String(err);
+                            console.error('[LeftPanel] open map preview failed:', msg);
+                            showToast('error', `Failed to open map preview: ${msg}`);
+                        }
+                    }}
+                >
+                    <span dangerouslySetInnerHTML={{ __html: getIcon('image') }} />
+                    <span>Preview Map</span>
+                </button>
+            )}
             <div className="search-box">
                 <input
                     type="text"

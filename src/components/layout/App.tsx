@@ -32,6 +32,7 @@ import { ProjectListModal } from '../modals/ProjectListModal';
 import { ModConfigEditorModal } from '../modals/ModConfigEditorModal';
 import { ThumbnailCropModal } from '../modals/ThumbnailCropModal';
 import { CheckpointModal } from '../modals/CheckpointModal';
+import { MapTexturesModal } from '../modals/MapTexturesModal';
 import { BinSplitModal } from '../modals/BinSplitModal';
 import { FullResImageModal } from '../modals/FullResImageModal';
 import { BrowseWadModal } from '../modals/BrowseWadModal';
@@ -78,6 +79,7 @@ const ActiveModal: React.FC<{ activeModal: string | null }> = React.memo(({ acti
         case 'addLayer':         return <AddLayerModal />;
         case 'chromaPort':       return <ChromaPortModal />;
         case 'whatsNew':         return <WhatsNewModal />;
+        case 'map-textures':     return <MapTexturesModal />;
         default:                 return null;
     }
 });

@@ -34,3 +34,7 @@ dist-ssr
 
 # External dependencies (use git dependencies instead)
 /Hematite-main
+/Ritoshark-Crates/
+
+# Reference clones (read-only, not part of Flint)
+/_reference/

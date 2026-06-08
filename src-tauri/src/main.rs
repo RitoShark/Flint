@@ -270,6 +270,18 @@ fn main() {
             commands::map_project::list_available_maps,
             commands::map_project::list_map_variants,
             commands::map_project::create_map_project,
+            // Map preview commands (separate-window 3D map preview)
+            commands::map_preview::load_map_preview,
+            commands::map_preview::load_map_texture,
+            commands::map_preview::open_map_preview_window,
+            commands::map_preview::resolve_map_texture_path,
+            commands::map_tiles::combine_ground_to_psd,
+            commands::map_tiles::apply_psd_to_textures,
+            commands::map_tiles::ground_psd_exists,
+            commands::map_tiles::combine_category_to_psd,
+            commands::map_tiles::apply_category_psd,
+            commands::map_tiles::category_psd_exists,
+            commands::map_tiles::list_map_texture_sections,
             // Champion discovery commands
             commands::champion::discover_champions,
             commands::champion::get_champion_skins,

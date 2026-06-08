@@ -22,6 +22,7 @@ import { AppProvider } from './lib/stores';
 import { bootUxPrefs } from './lib/stores/uxStore';
 import { App } from './components/layout/App';
 import { DesignLab } from './components/ui/DesignLab';
+import { MapPreviewWindow } from './components/preview/MapPreviewWindow';
 
 // Import styles
 import './styles/index.css';
@@ -63,6 +64,11 @@ const isDesignLab =
     typeof window !== 'undefined' &&
     (window.location.hash === '#design-lab' || window.location.search.includes('lab'));
 
+// Hash bypass: opening with #map-preview mounts the standalone 3D map-preview
+// window (its own React root, no app boot) — see open_map_preview_window (Rust).
+const isMapPreview =
+    typeof window !== 'undefined' && window.location.hash.startsWith('#map-preview');
+
 // eslint-disable-next-line no-console
 console.log(`[startup] imports resolved in ${(performance.now() - __FLINT_JS_START).toFixed(1)}ms`);
 
@@ -90,13 +96,21 @@ const root = createRoot(container);
 // eslint-disable-next-line no-console
 console.log(`[startup] root.render() at +${(performance.now() - __FLINT_JS_START).toFixed(1)}ms from JS entry`);
 root.render(
-    isDesignLab
-        ? React.createElement(React.StrictMode, null, React.createElement(DesignLab))
-        : React.createElement(
-              React.StrictMode,
-              null,
-              React.createElement(AppProvider, null, React.createElement(App))
-          )
+    // NOTE: the map-preview window is intentionally NOT wrapped in StrictMode.
+    // StrictMode double-invokes effects in dev, which double-creates the Babylon
+    // engine/WebGL context and races two scene builds — corrupting GL state
+    // ("no buffer bound", "bindSamplers null") and blanking the window ~half the
+    // time. The single-mount here + the build-generation guards in MapPreview
+    // keep it stable.
+    isMapPreview
+        ? React.createElement(MapPreviewWindow)
+        : isDesignLab
+            ? React.createElement(React.StrictMode, null, React.createElement(DesignLab))
+            : React.createElement(
+                  React.StrictMode,
+                  null,
+                  React.createElement(AppProvider, null, React.createElement(App))
+              )
 );
 
 // Window is now `visible: true` in `tauri.conf.json`, so the boot skeleton in
