@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { blendChannel, falloff, stampDab, uvToTexel, strokeDabs, edgeDilate, type Brush } from './paintEngine';
+import { blendChannel, falloff, stampDab, uvToTexel, strokeDabs, edgeDilate, paintTriangleScreen, type Brush, type PaintTri } from './paintEngine';
 
 describe('blendChannel', () => {
     it('Normal lerps dst toward src by strength', () => {
@@ -59,6 +59,29 @@ describe('strokeDabs', () => {
         expect(pts.length).toBeGreaterThan(5);
         expect(pts[0]).toEqual([0, 0]);
         expect(pts[pts.length - 1]).toEqual([10, 0]);
+    });
+});
+
+describe('paintTriangleScreen', () => {
+    // A UV triangle filling the whole 8x8 texture, projected to a screen region.
+    const W = 8, H = 8;
+    const fullUvTri: PaintTri = {
+        // UV: (0,1),(1,1),(0,0)  -> covers a corner half of the texture
+        u: [0, 1, 0], v: [1, 1, 0],
+        sx: [0, 100, 0], sy: [0, 0, 100], // screen positions
+    };
+    it('paints texels whose SCREEN position is under the brush', () => {
+        const buf = new Uint8Array(W * H * 4); for (let i = 3; i < buf.length; i += 4) buf[i] = 255;
+        // Brush centered at screen (5,5) with big radius covers the near corner.
+        const n = paintTriangleScreen(buf, W, H, fullUvTri, 5, 5, 40,
+            { mode: 'Normal', color: [255, 0, 0], opacity: 1, flow: 1, hardness: 1 });
+        expect(n).toBeGreaterThan(0);
+    });
+    it('paints nothing when the brush is far from the triangle on screen', () => {
+        const buf = new Uint8Array(W * H * 4); for (let i = 3; i < buf.length; i += 4) buf[i] = 255;
+        const n = paintTriangleScreen(buf, W, H, fullUvTri, 5000, 5000, 10,
+            { mode: 'Normal', color: [255, 0, 0], opacity: 1, flow: 1, hardness: 1 });
+        expect(n).toBe(0);
     });
 });
 

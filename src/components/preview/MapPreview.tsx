@@ -43,7 +43,6 @@ import {
     type SubmeshSpan,
 } from '../../lib/babylon/mapMeshBuilder';
 import * as paint from '../../lib/babylon/paintEngine';
-import { buildSeams, mirrorAcrossSeam, type Seam } from '../../lib/babylon/seamMap';
 
 interface MapPreviewProps {
     projectPath: string;
@@ -110,21 +109,18 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     const [brush, setBrush] = useState<paint.Brush>({
         mode: 'Dodge', color: [255, 240, 200], opacity: 0.8, flow: 0.5, hardness: 0.3,
     });
-    const [brushSize, setBrushSize] = useState(64); // radius in texels
+    const [brushSize, setBrushSize] = useState(40); // brush radius in SCREEN px
     const [eyedrop, setEyedrop] = useState(false);
     const [painting, setPainting] = useState(false);
-    const [seamBleed, setSeamBleed] = useState(true);
-    const seamBleedRef = useRef(true);
-    useEffect(() => { seamBleedRef.current = seamBleed; }, [seamBleed]);
-    // Lazily-built seam map per texture path (built on first paint of that tex).
-    const seamCacheRef = useRef<Map<string, Seam[]>>(new Map());
+    // Brush cursor (Blender-style ring) position over the canvas, in CSS px.
+    const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
+    const cursorPosRef = useRef<{ x: number; y: number } | null>(null);
     // Refs so the pointer handler (added once) reads live values.
     const paintModeRef = useRef(false);
     const brushRef = useRef(brush);
     const brushSizeRef = useRef(brushSize);
     const eyedropRef = useRef(false);
     const dirtyTexRef = useRef<Set<string>>(new Set());
-    const lastTexelRef = useRef<{ texPath: string; x: number; y: number } | null>(null);
     // Undo: per-stroke "before" snapshots (texPath -> rgba copy). strokeSnapRef
     // collects the before-state of each texture touched in the current stroke.
     const strokeSnapRef = useRef<Map<string, Uint8Array>>(new Map());
@@ -429,8 +425,12 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
 
         const camera = new ArcRotateCamera('cam', Math.PI / 2, Math.PI / 3, 1000, Vector3.Zero(), scene);
         camera.attachControl(canvas, true);
-        camera.wheelDeltaPercentage = 0.05;
-        camera.panningSensibility = 20;
+        camera.wheelDeltaPercentage = 0.035;     // slower zoom
+        camera.panningSensibility = 40;          // higher = slower pan
+        // Higher angularSensibility = slower rotation (Babylon default ~1000).
+        camera.angularSensibilityX = 2200;
+        camera.angularSensibilityY = 2200;
+        camera.inertia = 0.8;                    // a touch more damping
         cameraRef.current = camera;
 
         const light = new HemisphericLight('ambient', new Vector3(0, 1, 0), scene);
@@ -462,93 +462,123 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             return entry ? { texPath, entry, pick } : null;
         };
 
-        // Collect a texture's global triangle indices (from all meshes/spans that
-        // use it) and build its UV seam list. Cached by caller.
-        const buildSeamsForTexture = (texPath: string): Seam[] => {
+        // Screen-space projection paint at a screen point. Finds the visible
+        // surface under the brush circle and paints each covered texel weighted
+        // by its SCREEN distance to the center — so a round brush on screen is a
+        // round mark on the model (no UV-disc scatter). Acts like a stencil.
+        const paintScreenAt = (px: number, py: number) => {
             const data = dataRef.current;
-            if (!data) return [];
-            const idx: number[] = [];
-            for (const built of builtRef.current) {
-                for (const span of built.spans) {
-                    if (span.texturePath === texPath) {
-                        for (let i = 0; i < span.globalIndexCount; i++) {
-                            idx.push(data.indices[span.globalStartIndex + i]);
-                        }
-                    }
-                }
-            }
-            if (!idx.length) return [];
-            return buildSeams(data.positions, data.uvs, idx);
-        };
+            if (!data) return;
+            // Entry pick gives the mesh + depth reference under the cursor.
+            const pick = scene.pick(px, py);
+            if (!pick?.hit || !pick.pickedMesh) return;
+            const mesh = pick.pickedMesh as Mesh;
+            const built = meshByBabylonRef.current.get(mesh);
+            if (!built) return;
 
-        // Paint (or eyedrop) at the current cursor; interpolate from last texel.
-        const paintAtCursor = () => {
-            const pick = scene.pick(scene.pointerX, scene.pointerY);
-            if (!pick) return;
-            const uv = pick.getTextureCoordinates?.();
-            const res = texEntryForPick(pick);
-            if (!res || !uv) return;
-            const { texPath, entry } = res;
-            const [tx, ty] = paint.uvToTexel(uv.x, uv.y, entry.w, entry.h);
+            const radiusPx = brushSizeRef.current; // brush radius in SCREEN px now
 
-            // Eyedropper: sample the texel color, exit eyedrop mode, don't paint.
+            // Eyedropper: sample the texel under the cursor, don't paint.
             if (eyedropRef.current) {
-                const i = (Math.min(entry.h - 1, Math.max(0, Math.floor(ty))) * entry.w
-                    + Math.min(entry.w - 1, Math.max(0, Math.floor(tx)))) * 4;
-                setBrush(b => ({ ...b, color: [entry.rgba[i], entry.rgba[i + 1], entry.rgba[i + 2]] }));
-                setEyedrop(false);
+                const uv = pick.getTextureCoordinates?.();
+                const res = texEntryForPick(pick);
+                if (uv && res) {
+                    const [tx, ty] = paint.uvToTexel(uv.x, uv.y, res.entry.w, res.entry.h);
+                    const i = (Math.min(res.entry.h - 1, Math.max(0, Math.floor(ty))) * res.entry.w
+                        + Math.min(res.entry.w - 1, Math.max(0, Math.floor(tx)))) * 4;
+                    setBrush(b => ({ ...b, color: [res.entry.rgba[i], res.entry.rgba[i + 1], res.entry.rgba[i + 2]] }));
+                    setEyedrop(false);
+                }
                 return;
             }
 
-            // Snapshot this texture's BEFORE state the first time the stroke
-            // touches it (for undo).
-            if (!strokeSnapRef.current.has(texPath)) {
-                strokeSnapRef.current.set(texPath, new Uint8Array(entry.rgba));
-            }
-
-            const radius = brushSizeRef.current;
+            // Project all of this mesh's vertices to screen once (cheap reuse).
+            // IMPORTANT: project into CSS pixels — the same space as scene.pointerX
+            // and the brush ring. With adaptToDeviceRatio the render buffer is
+            // CSS×DPR; getHardwareScalingLevel() = CSS/render, so CSS dim =
+            // renderDim × hardwareScalingLevel. Using render px here would offset
+            // and scale paint vs the cursor (the bug).
+            const cam = cameraRef.current!;
+            const wm = mesh.getWorldMatrix();
+            const tm = scene.getTransformMatrix();
+            const hsl = engine.getHardwareScalingLevel();
+            const cssW = engine.getRenderWidth() * hsl;
+            const cssH = engine.getRenderHeight() * hsl;
+            const vp = cam.viewport.toGlobal(cssW, cssH);
+            // Per-span (texture) screen-space paint.
             const b = brushRef.current;
+            const touched = new Set<string>();
+            const r2 = (radiusPx + 2) * (radiusPx + 2);
+            const tmpV = new Vector3();
+            const scr = new Map<number, [number, number, number]>(); // vi -> [sx,sy,sz]
+            const project = (vi: number): [number, number, number] => {
+                let p = scr.get(vi);
+                if (p) return p;
+                tmpV.set(data.positions[vi * 3], data.positions[vi * 3 + 1], data.positions[vi * 3 + 2]);
+                const s = Vector3.Project(tmpV, wm, tm, vp);
+                p = [s.x, s.y, s.z];
+                scr.set(vi, p);
+                return p;
+            };
 
-            // Seam bleed: build (once per texture) the seam list so dabs near a
-            // UV-island edge also stamp the mirrored point on the neighbor island.
-            let seams: Seam[] | null = null;
-            if (seamBleedRef.current) {
-                seams = seamCacheRef.current.get(texPath) ?? null;
-                if (!seams) {
-                    seams = buildSeamsForTexture(texPath);
-                    seamCacheRef.current.set(texPath, seams);
-                }
-            }
-            const nearUv = radius / Math.max(entry.w, entry.h); // seam proximity in UV space
-
-            // Stamp spaced dabs from the last texel on this texture to the new one.
-            const last = lastTexelRef.current;
-            const from: [number, number] = (last && last.texPath === texPath) ? [last.x, last.y] : [tx, ty];
-            for (const [dx, dy] of paint.strokeDabs(from, [tx, ty], radius)) {
-                paint.stampDab(entry.rgba, entry.w, entry.h, dx, dy, radius, b);
-                if (seams && seams.length) {
-                    // dab texel -> UV (V flipped back), mirror across nearby seams.
-                    const uvPt: [number, number] = [dx / entry.w, 1 - dy / entry.h];
-                    for (const seam of seams) {
-                        const m = mirrorAcrossSeam(uvPt, seam, nearUv);
-                        if (m) {
-                            const [mx, my] = paint.uvToTexel(m[0], m[1], entry.w, entry.h);
-                            paint.stampDab(entry.rgba, entry.w, entry.h, mx, my, radius, b);
-                        }
+            for (const span of built.spans) {
+                const texPath = span.texturePath ?? built.texturePath;
+                if (!texPath) continue;
+                const entry = paintBufRef.current.get(texPath);
+                if (!entry) continue;
+                let paintedAny = false;
+                const triCount = span.globalIndexCount / 3;
+                for (let t = 0; t < triCount; t++) {
+                    const base = span.globalStartIndex + t * 3;
+                    const i0 = data.indices[base], i1 = data.indices[base + 1], i2 = data.indices[base + 2];
+                    const p0 = project(i0), p1 = project(i1), p2 = project(i2);
+                    // Cull: skip triangles whose screen bbox is outside the brush.
+                    const minx = Math.min(p0[0], p1[0], p2[0]), maxx = Math.max(p0[0], p1[0], p2[0]);
+                    const miny = Math.min(p0[1], p1[1], p2[1]), maxy = Math.max(p0[1], p1[1], p2[1]);
+                    if (maxx < px - radiusPx || minx > px + radiusPx || maxy < py - radiusPx || miny > py + radiusPx) continue;
+                    // Behind camera? z outside [0,1] means clipped.
+                    if (p0[2] < 0 || p0[2] > 1) continue;
+                    void r2;
+                    if (!strokeSnapRef.current.has(texPath)) {
+                        strokeSnapRef.current.set(texPath, new Uint8Array(entry.rgba));
+                    }
+                    const tri: paint.PaintTri = {
+                        sx: [p0[0], p1[0], p2[0]], sy: [p0[1], p1[1], p2[1]],
+                        u: [data.uvs[i0 * 2], data.uvs[i1 * 2], data.uvs[i2 * 2]],
+                        v: [data.uvs[i0 * 2 + 1], data.uvs[i1 * 2 + 1], data.uvs[i2 * 2 + 1]],
+                    };
+                    if (paint.paintTriangleScreen(entry.rgba, entry.w, entry.h, tri, px, py, radiusPx, b) > 0) {
+                        paintedAny = true;
                     }
                 }
+                if (paintedAny) { touched.add(texPath); entry.tex.update(entry.rgba); }
             }
-            lastTexelRef.current = { texPath, x: tx, y: ty };
-            dirtyTexRef.current.add(texPath);
-            entry.tex.update(entry.rgba); // live
+            for (const tp of touched) dirtyTexRef.current.add(tp);
         };
+
+        // Paint along the stroke from the last screen point to the current one.
+        const lastScreenRef = { x: 0, y: 0, has: false };
+        const paintAtCursor = () => {
+            const px = scene.pointerX, py = scene.pointerY;
+            if (eyedropRef.current) { paintScreenAt(px, py); return; }
+            if (!lastScreenRef.has) { lastScreenRef.x = px; lastScreenRef.y = py; lastScreenRef.has = true; }
+            const r = brushSizeRef.current;
+            for (const [sx, sy] of paint.strokeDabs([lastScreenRef.x, lastScreenRef.y], [px, py], r)) {
+                paintScreenAt(sx, sy);
+            }
+            lastScreenRef.x = px; lastScreenRef.y = py;
+        };
+        // Reset stroke continuity on each new press (set in POINTERDOWN below).
+        const resetStroke = () => { lastScreenRef.has = false; };
 
         scene.onPointerObservable.add((pi) => {
             // Paint mode owns the pointer: brush on down + drag, no hover/identify.
             if (paintModeRef.current) {
+                // Ring follows the SAME coords paint uses.
+                cursorPosRef.current = { x: scene.pointerX, y: scene.pointerY };
                 if (pi.type === PointerEventTypes.POINTERDOWN) {
                     paintDown = true;
-                    lastTexelRef.current = null;
+                    resetStroke();
                     strokeSnapRef.current = new Map();
                     setPainting(true);
                     paintAtCursor();
@@ -556,7 +586,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                     if (paintDown) paintAtCursor();
                 } else if (pi.type === PointerEventTypes.POINTERUP) {
                     paintDown = false;
-                    lastTexelRef.current = null;
+                    resetStroke();
                     setPainting(false);
                     // Commit the stroke's before-snapshot to the undo stack.
                     if (strokeSnapRef.current.size) {
@@ -652,7 +682,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             texCacheRef.current.forEach(t => t.dispose());
             texCacheRef.current.clear();
             paintBufRef.current.clear();
-            seamCacheRef.current.clear();
             meshesRef.current.forEach(m => { m.material?.dispose(); m.dispose(); });
             meshesRef.current = [];
             engine.dispose();
@@ -670,6 +699,18 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         if (!cam || !canvas) return;
         if (paintMode) cam.detachControl();
         else cam.attachControl(canvas, true);
+    }, [paintMode]);
+
+    // Track the cursor for the brush ring using the SAME coordinate space as
+    // painting (scene.pointerX/Y, CSS px), so the ring and the paint always
+    // agree. Polled from the render loop via cursorPosRef → state.
+    useEffect(() => {
+        if (!paintMode) { setCursorPos(null); return; }
+        const id = setInterval(() => {
+            const c = cursorPosRef.current;
+            setCursorPos(c ? { x: c.x, y: c.y } : null);
+        }, 16);
+        return () => clearInterval(id);
     }, [paintMode]);
 
     // Swap current buffers with a snapshot map, returning the REPLACED state (for
@@ -840,8 +881,25 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         <div style={{ position: 'absolute', inset: 0, background: '#1b1b1b' }}>
             <canvas
                 ref={canvasRef}
-                style={{ width: '100%', height: '100%', display: 'block', outline: 'none' }}
+                style={{ width: '100%', height: '100%', display: 'block', outline: 'none',
+                         cursor: paintMode ? 'none' : 'default' }}
             />
+
+            {/* Brush ring cursor (Blender-style) — shows size + position. */}
+            {paintMode && cursorPos && (
+                <div style={{
+                    position: 'absolute',
+                    left: cursorPos.x - brushSize,
+                    top: cursorPos.y - brushSize,
+                    width: brushSize * 2,
+                    height: brushSize * 2,
+                    borderRadius: '50%',
+                    border: `1.5px solid ${eyedrop ? '#5cf' : 'rgba(255,255,255,0.9)'}`,
+                    boxShadow: '0 0 0 1px rgba(0,0,0,0.6) inset, 0 0 0 1px rgba(0,0,0,0.6)',
+                    pointerEvents: 'none',
+                    zIndex: 5,
+                }} />
+            )}
 
             {/* Layers button (top-right) */}
             {!loading && !error && (
@@ -892,7 +950,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                             >{eyedrop ? 'Click to pick…' : 'Eyedropper'}</button>
                         </div>
                         {([
-                            ['Size', brushSize, 1, 256, (v: number) => setBrushSize(v)],
+                            ['Size (px)', brushSize, 2, 200, (v: number) => setBrushSize(v)],
                             ['Hardness', Math.round(brush.hardness * 100), 0, 100, (v: number) => setBrush(b => ({ ...b, hardness: v / 100 }))],
                             ['Opacity', Math.round(brush.opacity * 100), 0, 100, (v: number) => setBrush(b => ({ ...b, opacity: v / 100 }))],
                             ['Flow', Math.round(brush.flow * 100), 0, 100, (v: number) => setBrush(b => ({ ...b, flow: v / 100 }))],
@@ -905,10 +963,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                                     onChange={e => set(Number(e.target.value))} />
                             </div>
                         ))}
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginTop: 6, cursor: 'pointer' }}>
-                            <input type="checkbox" checked={seamBleed} onChange={e => setSeamBleed(e.target.checked)} />
-                            Seam bleed (paint across UV seams)
-                        </label>
                         <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
                             <button style={{ ...textBtn, flex: 1, padding: '4px 0', opacity: canUndo ? 1 : 0.4 }}
                                 disabled={!canUndo} onClick={handleUndo} title="Undo (Ctrl+Z)">↶ Undo</button>

@@ -86,6 +86,64 @@ export function strokeDabs(a: [number, number], b: [number, number], radius: num
     return out;
 }
 
+/** A triangle for screen-space painting: 3 screen points (px) + 3 UVs (0..1). */
+export interface PaintTri {
+    sx: [number, number, number]; // screen X of each vertex
+    sy: [number, number, number]; // screen Y of each vertex
+    u: [number, number, number];  // UV u of each vertex
+    v: [number, number, number];  // UV v of each vertex
+}
+
+/**
+ * Screen-space projection paint into one texture: rasterize a triangle's UV
+ * footprint, but weight each texel by its SCREEN distance to the brush center.
+ * A round brush ON SCREEN therefore makes a round mark ON THE MODEL regardless
+ * of how fragmented the UVs are (no UV-disc scatter). This is the core fix.
+ *
+ * @param cx,cy   screen brush center (px)
+ * @param radiusPx screen brush radius (px)
+ * @returns number of texels painted (for debugging/bounds)
+ */
+export function paintTriangleScreen(
+    buf: Uint8Array, w: number, h: number,
+    tri: PaintTri, cx: number, cy: number, radiusPx: number, brush: Brush,
+): number {
+    // UV-space bounding box of the triangle in texels (V flipped).
+    const tx0 = tri.u[0] * w, tx1 = tri.u[1] * w, tx2 = tri.u[2] * w;
+    const ty0 = (1 - tri.v[0]) * h, ty1 = (1 - tri.v[1]) * h, ty2 = (1 - tri.v[2]) * h;
+    const minX = Math.max(0, Math.floor(Math.min(tx0, tx1, tx2)));
+    const maxX = Math.min(w - 1, Math.ceil(Math.max(tx0, tx1, tx2)));
+    const minY = Math.max(0, Math.floor(Math.min(ty0, ty1, ty2)));
+    const maxY = Math.min(h - 1, Math.ceil(Math.max(ty0, ty1, ty2)));
+
+    // Barycentric setup in texel space.
+    const d = (ty1 - ty2) * (tx0 - tx2) + (tx2 - tx1) * (ty0 - ty2);
+    if (Math.abs(d) < 1e-9) return 0;
+    let painted = 0;
+    for (let py = minY; py <= maxY; py++) {
+        for (let px = minX; px <= maxX; px++) {
+            const fx = px + 0.5, fy = py + 0.5;
+            const a = ((ty1 - ty2) * (fx - tx2) + (tx2 - tx1) * (fy - ty2)) / d;
+            const b = ((ty2 - ty0) * (fx - tx2) + (tx0 - tx2) * (fy - ty2)) / d;
+            const c = 1 - a - b;
+            if (a < -0.001 || b < -0.001 || c < -0.001) continue; // outside tri
+            // Interpolate the texel's SCREEN position from the triangle's verts.
+            const ssx = a * tri.sx[0] + b * tri.sx[1] + c * tri.sx[2];
+            const ssy = a * tri.sy[0] + b * tri.sy[1] + c * tri.sy[2];
+            const sd = Math.hypot(ssx - cx, ssy - cy);
+            const f = falloff(sd, radiusPx, brush.hardness);
+            if (f <= 0) continue;
+            const strength = brush.opacity * brush.flow * f;
+            const i = (py * w + px) * 4;
+            buf[i]     = blendChannel(brush.mode, buf[i],     brush.color[0], strength);
+            buf[i + 1] = blendChannel(brush.mode, buf[i + 1], brush.color[1], strength);
+            buf[i + 2] = blendChannel(brush.mode, buf[i + 2], brush.color[2], strength);
+            painted++;
+        }
+    }
+    return painted;
+}
+
 /** Bleed RGB from opaque texels into adjacent transparent ones, `passes` rings.
  *  Mirrors the alpha-bleed fix; keeps paint from cutting off at island edges. */
 export function edgeDilate(buf: Uint8Array, w: number, h: number, passes = 4): void {
