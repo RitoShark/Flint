@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { blendChannel, falloff, stampDab, uvToTexel, strokeDabs, edgeDilate, paintTriangleScreen, type Brush, type PaintTri } from './paintEngine';
+import { blendChannel, falloff, stampDab, stampMask, compositeMask, uvToTexel, strokeDabs, edgeDilate, type Brush } from './paintEngine';
 
 describe('blendChannel', () => {
     it('Normal lerps dst toward src by strength', () => {
@@ -62,26 +62,28 @@ describe('strokeDabs', () => {
     });
 });
 
-describe('paintTriangleScreen', () => {
-    // A UV triangle filling the whole 8x8 texture, projected to a screen region.
-    const W = 8, H = 8;
-    const fullUvTri: PaintTri = {
-        // UV: (0,1),(1,1),(0,0)  -> covers a corner half of the texture
-        u: [0, 1, 0], v: [1, 1, 0],
-        sx: [0, 100, 0], sy: [0, 0, 100], // screen positions
-    };
-    it('paints texels whose SCREEN position is under the brush', () => {
-        const buf = new Uint8Array(W * H * 4); for (let i = 3; i < buf.length; i += 4) buf[i] = 255;
-        // Brush centered at screen (5,5) with big radius covers the near corner.
-        const n = paintTriangleScreen(buf, W, H, fullUvTri, 5, 5, 40,
-            { mode: 'Normal', color: [255, 0, 0], opacity: 1, flow: 1, hardness: 1 });
-        expect(n).toBeGreaterThan(0);
+describe('stampMask + compositeMask', () => {
+    it('overlapping dabs use MAX (no buildup beyond opacity)', () => {
+        const W = 4, H = 4, mask = new Float32Array(W * H);
+        // Two overlapping full-strength dabs at the same spot, opacity 0.6.
+        stampMask(mask, W, H, 2, 2, 1, 1, 0.6, 1);
+        stampMask(mask, W, H, 2, 2, 1, 1, 0.6, 1);
+        // Center coverage is capped at opacity, not summed to 1.2.
+        expect(mask[2 * W + 2]).toBeCloseTo(0.6);
     });
-    it('paints nothing when the brush is far from the triangle on screen', () => {
-        const buf = new Uint8Array(W * H * 4); for (let i = 3; i < buf.length; i += 4) buf[i] = 255;
-        const n = paintTriangleScreen(buf, W, H, fullUvTri, 5000, 5000, 10,
-            { mode: 'Normal', color: [255, 0, 0], opacity: 1, flow: 1, hardness: 1 });
-        expect(n).toBe(0);
+    it('Dodge composite does not blow out past a single application', () => {
+        const W = 2, H = 2;
+        const base = new Uint8Array([100, 100, 100, 255, 100, 100, 100, 255, 100, 100, 100, 255, 100, 100, 100, 255]);
+        const base0 = new Uint8Array(base);
+        const mask = new Float32Array(W * H).fill(0.5); // 50% coverage everywhere
+        compositeMask(base, base0, mask, W, H, 'Dodge', [128, 128, 128]);
+        // compositeMask = lerp(base, fullBlend, coverage): blend fully then lerp.
+        const full = blendChannel('Dodge', 100, 128, 1);
+        const expected = Math.round(100 + (full - 100) * 0.5);
+        expect(base[0]).toBe(expected);
+        // Idempotent: compositing again from base0 gives the same value.
+        compositeMask(base, base0, mask, W, H, 'Dodge', [128, 128, 128]);
+        expect(base[0]).toBe(expected);
     });
 });
 

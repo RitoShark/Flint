@@ -9,6 +9,11 @@
 
 export type BlendMode = 'Normal' | 'Dodge' | 'Multiply';
 
+/** Texels with alpha below this are cutout transparent/edge texels (dark/garbage
+ *  RGB, alpha-tested away by the material) — never paint them, or the black edge
+ *  silhouette bleeds into the stroke. ~0.8 of full leaves only solid interior. */
+const SOLID_ALPHA = 200;
+
 export interface Brush {
     mode: BlendMode;
     color: [number, number, number]; // 0..255 RGB
@@ -26,22 +31,28 @@ export function blendChannel(mode: BlendMode, dst: number, src: number, strength
         const m = (dst * src) / 255;
         out = dst + (m - dst) * strength;
     } else {
-        // Dodge: dst / (1 - src), guarded against divide-by-zero / blowout.
-        const s = (src / 255) * strength;
-        const denom = 1 - s;
-        out = denom <= 1e-4 ? 255 : dst / denom;
+        // Dodge — GIMP legacy formula: comp = 256 * base / (256 - blend),
+        // clamped to 255. (Equivalent to base/(1-blend) but matching GIMP's
+        // exact constants.) `strength` lerps the result toward it.
+        const full = src >= 255 ? 255 : Math.min(255, (256 * dst) / (256 - src));
+        out = dst + (full - dst) * strength;
     }
     return Math.max(0, Math.min(255, Math.round(out)));
 }
 
-/** Brush falloff: dist & radius in same units; hardness 0(soft)..1(hard). 0..1. */
+/** Brush falloff: dist & radius in same units; hardness 0(soft)..1(hard) → 0..1.
+ *  Low hardness = a much more drastic, gradual fade: the soft-band curve is
+ *  raised to a power that grows as hardness drops (≈4 at hardness 0, →1 near 1),
+ *  so a soft brush concentrates strongly at the center and trails far out. */
 export function falloff(dist: number, radius: number, hardness = 0.5): number {
     if (radius <= 0) return dist === 0 ? 1 : 0;
     const t = dist / radius;
     if (t >= 1) return 0;
     if (t <= hardness) return 1;
     const x = (t - hardness) / (1 - hardness); // 0..1 across the soft band
-    return 1 - x * x;                           // smooth fade to 0
+    const base = 1 - x * x;                     // smooth fade to 0
+    const power = 1 + (1 - hardness) * 3;       // 1 (hard) … 4 (very soft)
+    return Math.pow(base, power);
 }
 
 /** Composite a round dab centered at texel (cx,cy), radius in texels. Alpha kept. */
@@ -67,6 +78,82 @@ export function stampDab(
     }
 }
 
+/**
+ * Accumulate a round dab into a per-stroke COVERAGE mask (0..1 per texel) using
+ * MAX, not addition — so overlapping dabs WITHIN one stroke don't compound into
+ * a blow-out (the Dodge-goes-white / blobby-puddle bug). The mask is clamped to
+ * `opacity` (the stroke's ceiling); `flow` scales how strongly each dab builds.
+ */
+export function stampMask(
+    mask: Float32Array, w: number, h: number,
+    cx: number, cy: number, radius: number, hardness: number, opacity: number, flow: number,
+): void {
+    const r = Math.ceil(radius);
+    const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(w - 1, Math.ceil(cx + r));
+    const y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(h - 1, Math.ceil(cy + r));
+    for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++) {
+            const dx = x + 0.5 - cx, dy = y + 0.5 - cy;
+            const f = falloff(Math.sqrt(dx * dx + dy * dy), radius, hardness);
+            if (f <= 0) continue;
+            const cov = Math.min(opacity, f * flow);
+            const i = y * w + x;
+            if (cov > mask[i]) mask[i] = cov; // MAX: no within-stroke buildup
+        }
+    }
+}
+
+/**
+ * Composite a finished stroke: for each texel the mask covers, blend the brush
+ * color over the ORIGINAL (pre-stroke) base by the blend mode, then lerp from
+ * base→blended by the mask coverage. Writing into `out` from `base0` each time
+ * means re-compositing the same stroke is idempotent (safe to call per frame).
+ *   out = lerp(base0, blend(base0, color), coverage)
+ */
+export function compositeMask(
+    out: Uint8Array, base0: Uint8Array, mask: Float32Array, w: number, h: number,
+    mode: BlendMode, color: [number, number, number],
+): void {
+    const n = w * h;
+    for (let i = 0; i < n; i++) {
+        const cov = mask[i];
+        if (cov <= 0) continue;
+        const o = i * 4;
+        // Skip transparent AND semi-transparent EDGE texels of cutouts: those
+        // edge texels have dark/garbage RGB (and the material alpha-tests them
+        // away anyway), so painting them blends black into the silhouette. Only
+        // paint solidly-opaque texels (alpha ≥ threshold).
+        if (base0[o + 3] < SOLID_ALPHA) continue;
+        for (let c = 0; c < 3; c++) {
+            const b = base0[o + c];
+            const blended = blendChannel(mode, b, color[c], 1); // full blend...
+            out[o + c] = Math.round(b + (blended - b) * cov);   // lerp by coverage
+        }
+        // alpha untouched.
+    }
+}
+
+/**
+ * Eraser: lerp each masked texel from the pre-stroke base toward the ORIGINAL
+ * (never-painted) texture by coverage. Composited from base0 each frame so it's
+ * idempotent like compositeMask. coverage 1 = fully back to original.
+ */
+export function compositeErase(
+    out: Uint8Array, base0: Uint8Array, orig: Uint8Array, mask: Float32Array, w: number, h: number,
+): void {
+    const n = w * h;
+    for (let i = 0; i < n; i++) {
+        const cov = mask[i];
+        if (cov <= 0) continue;
+        const o = i * 4;
+        if (base0[o + 3] < SOLID_ALPHA) continue; // skip transparent/edge texels
+        for (let c = 0; c < 3; c++) {
+            const b = base0[o + c];
+            out[o + c] = Math.round(b + (orig[o + c] - b) * cov);
+        }
+    }
+}
+
 /** UV (0..1) → texel (V flipped to match texture top-left origin). */
 export function uvToTexel(u: number, v: number, w: number, h: number): [number, number] {
     return [u * w, (1 - v) * h];
@@ -84,64 +171,6 @@ export function strokeDabs(a: [number, number], b: [number, number], radius: num
         out.push([a[0] + dx * t, a[1] + dy * t]);
     }
     return out;
-}
-
-/** A triangle for screen-space painting: 3 screen points (px) + 3 UVs (0..1). */
-export interface PaintTri {
-    sx: [number, number, number]; // screen X of each vertex
-    sy: [number, number, number]; // screen Y of each vertex
-    u: [number, number, number];  // UV u of each vertex
-    v: [number, number, number];  // UV v of each vertex
-}
-
-/**
- * Screen-space projection paint into one texture: rasterize a triangle's UV
- * footprint, but weight each texel by its SCREEN distance to the brush center.
- * A round brush ON SCREEN therefore makes a round mark ON THE MODEL regardless
- * of how fragmented the UVs are (no UV-disc scatter). This is the core fix.
- *
- * @param cx,cy   screen brush center (px)
- * @param radiusPx screen brush radius (px)
- * @returns number of texels painted (for debugging/bounds)
- */
-export function paintTriangleScreen(
-    buf: Uint8Array, w: number, h: number,
-    tri: PaintTri, cx: number, cy: number, radiusPx: number, brush: Brush,
-): number {
-    // UV-space bounding box of the triangle in texels (V flipped).
-    const tx0 = tri.u[0] * w, tx1 = tri.u[1] * w, tx2 = tri.u[2] * w;
-    const ty0 = (1 - tri.v[0]) * h, ty1 = (1 - tri.v[1]) * h, ty2 = (1 - tri.v[2]) * h;
-    const minX = Math.max(0, Math.floor(Math.min(tx0, tx1, tx2)));
-    const maxX = Math.min(w - 1, Math.ceil(Math.max(tx0, tx1, tx2)));
-    const minY = Math.max(0, Math.floor(Math.min(ty0, ty1, ty2)));
-    const maxY = Math.min(h - 1, Math.ceil(Math.max(ty0, ty1, ty2)));
-
-    // Barycentric setup in texel space.
-    const d = (ty1 - ty2) * (tx0 - tx2) + (tx2 - tx1) * (ty0 - ty2);
-    if (Math.abs(d) < 1e-9) return 0;
-    let painted = 0;
-    for (let py = minY; py <= maxY; py++) {
-        for (let px = minX; px <= maxX; px++) {
-            const fx = px + 0.5, fy = py + 0.5;
-            const a = ((ty1 - ty2) * (fx - tx2) + (tx2 - tx1) * (fy - ty2)) / d;
-            const b = ((ty2 - ty0) * (fx - tx2) + (tx0 - tx2) * (fy - ty2)) / d;
-            const c = 1 - a - b;
-            if (a < -0.001 || b < -0.001 || c < -0.001) continue; // outside tri
-            // Interpolate the texel's SCREEN position from the triangle's verts.
-            const ssx = a * tri.sx[0] + b * tri.sx[1] + c * tri.sx[2];
-            const ssy = a * tri.sy[0] + b * tri.sy[1] + c * tri.sy[2];
-            const sd = Math.hypot(ssx - cx, ssy - cy);
-            const f = falloff(sd, radiusPx, brush.hardness);
-            if (f <= 0) continue;
-            const strength = brush.opacity * brush.flow * f;
-            const i = (py * w + px) * 4;
-            buf[i]     = blendChannel(brush.mode, buf[i],     brush.color[0], strength);
-            buf[i + 1] = blendChannel(brush.mode, buf[i + 1], brush.color[1], strength);
-            buf[i + 2] = blendChannel(brush.mode, buf[i + 2], brush.color[2], strength);
-            painted++;
-        }
-    }
-    return painted;
 }
 
 /** Bleed RGB from opaque texels into adjacent transparent ones, `passes` rings.

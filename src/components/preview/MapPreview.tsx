@@ -43,9 +43,37 @@ import {
     type SubmeshSpan,
 } from '../../lib/babylon/mapMeshBuilder';
 import * as paint from '../../lib/babylon/paintEngine';
+import { createUvPass, type UvPass } from '../../lib/babylon/uvPaintPass';
 
 interface MapPreviewProps {
     projectPath: string;
+}
+
+/** Tiny localStorage persistence (JSON), namespaced under "flint.mappreview". */
+function loadPref<T>(key: string, fallback: T): T {
+    try {
+        const raw = localStorage.getItem(`flint.mappreview.${key}`);
+        return raw == null ? fallback : (JSON.parse(raw) as T);
+    } catch { return fallback; }
+}
+function savePref(key: string, value: unknown): void {
+    try { localStorage.setItem(`flint.mappreview.${key}`, JSON.stringify(value)); } catch { /* ignore */ }
+}
+
+/** Camera speed prefs (sensibilities are DIVISORS: higher = slower). */
+interface CamSpeed { rotate: number; pan: number; zoom: number; }
+const CAM_DEFAULTS: CamSpeed = { rotate: 1500, pan: 15, zoom: 0.04 };
+
+/** A saved brush preset. */
+interface BrushPreset { name: string; brush: paint.Brush; size: number; }
+
+/** RGB[0..255] → #rrggbb (clamped to valid bytes so the color input renders). */
+function rgbToHex(c: [number, number, number]): string {
+    const h = (v: number) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+    return `#${h(c[0])}${h(c[1])}${h(c[2])}`;
+}
+function hexToRgb(hex: string): [number, number, number] {
+    return [parseInt(hex.slice(1, 3), 16) || 0, parseInt(hex.slice(3, 5), 16) || 0, parseInt(hex.slice(5, 7), 16) || 0];
 }
 
 /** What hover/click resolves a piece of geometry to. */
@@ -68,7 +96,40 @@ const badge: React.CSSProperties = {
     background: 'rgba(0,0,0,0.4)', padding: '2px 8px', borderRadius: 4, pointerEvents: 'none',
 };
 
+/** Makes a floating panel draggable by its header. Returns a style override to
+ *  spread onto the panel root and an onMouseDown to put on the header. While
+ *  dragging (pos != null) it overrides the panel's default top/left. */
+function useDraggable() {
+    const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+    const drag = useRef<{ dx: number; dy: number } | null>(null);
+    const onHeaderMouseDown = useCallback((e: React.MouseEvent) => {
+        // Ignore drags that start on a button (e.g. the × close).
+        if ((e.target as HTMLElement).closest('button')) return;
+        const panel = (e.currentTarget as HTMLElement).parentElement;
+        if (!panel) return;
+        const r = panel.getBoundingClientRect();
+        drag.current = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+        const onMove = (m: MouseEvent) => {
+            if (!drag.current) return;
+            setPos({ x: m.clientX - drag.current.dx, y: m.clientY - drag.current.dy });
+        };
+        const onUp = () => { drag.current = null; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+        e.preventDefault();
+    }, []);
+    // When dragged, pin to left/top and clear any right/bottom anchoring.
+    const dragStyle: React.CSSProperties = pos
+        ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' }
+        : {};
+    return { dragStyle, onHeaderMouseDown };
+}
+
 export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
+    // Draggable floating panels (move them out of each other's way).
+    const paintDrag = useDraggable();
+    const cardDrag = useDraggable();
+    const camDrag = useDraggable();
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const engineRef = useRef<Engine | null>(null);
     const sceneRef = useRef<Scene | null>(null);
@@ -78,7 +139,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     const texCacheRef = useRef<Map<string, RawTexture>>(new Map());
     // Mutable paint buffers per texture path: the live RGBA backing each
     // RawTexture, so the paint brush can mutate pixels and update() in place.
-    const paintBufRef = useRef<Map<string, { tex: RawTexture; rgba: Uint8Array; w: number; h: number }>>(new Map());
+    const paintBufRef = useRef<Map<string, { tex: RawTexture; rgba: Uint8Array; orig: Uint8Array; w: number; h: number }>>(new Map());
     const dataRef = useRef<api.MapPreviewData | null>(null);
     const meshByBabylonRef = useRef<Map<Mesh, BuiltMapMesh>>(new Map());
     // The mesh currently shown with a hover tint, and its original emissive so we
@@ -94,23 +155,45 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [status, setStatus] = useState('');
+    // Save progress: {done, total} while saving painted textures, else null.
+    const [saveProgress, setSaveProgress] = useState<{ done: number; total: number } | null>(null);
     const [hoverInfo, setHoverInfo] = useState<IdentifyInfo | null>(null);
     const [pinnedInfo, setPinnedInfo] = useState<IdentifyInfo | null>(null);
     const [pinnedTexPath, setPinnedTexPath] = useState<string | null>(null);
     const [showUv, setShowUv] = useState(false);
     const [uvTris, setUvTris] = useState<Float32Array | null>(null);
-    const [highlightOn, setHighlightOn] = useState(true);
+    const [highlightOn, setHighlightOn] = useState(() => loadPref('highlightOn', true));
     // Mirror highlightOn into a ref so the render-loop pick handler reads the
     // current value without being re-created.
-    const highlightOnRef = useRef(true);
+    const highlightOnRef = useRef(highlightOn);
+
+    // Camera speed (persisted; sliders below). Sensibilities are divisors.
+    const [camSpeed, setCamSpeed] = useState<CamSpeed>(() => loadPref('camSpeed', CAM_DEFAULTS));
+    const camSpeedRef = useRef(camSpeed);
+    const [showCamPanel, setShowCamPanel] = useState(false);
+
+    // Brush presets (persisted).
+    const [presets, setPresets] = useState<BrushPreset[]>(() => loadPref('brushPresets', [] as BrushPreset[]));
+    useEffect(() => { savePref('brushPresets', presets); }, [presets]);
 
     // ── Paint mode ────────────────────────────────────────────────────────────
     const [paintMode, setPaintMode] = useState(false);
     const [brush, setBrush] = useState<paint.Brush>({
-        mode: 'Dodge', color: [255, 240, 200], opacity: 0.8, flow: 0.5, hardness: 0.3,
+        // Dodge with a MID-tone color lightens gently; a near-white color slams
+        // to pure white (that's how Dodge works). Default to a soft warm gray.
+        mode: 'Dodge', color: [120, 110, 80], opacity: 0.7, flow: 0.4, hardness: 0.3,
     });
     const [brushSize, setBrushSize] = useState(40); // brush radius in SCREEN px
     const [eyedrop, setEyedrop] = useState(false);
+    const [eraser, setEraser] = useState(false);
+    const eraserRef = useRef(false);
+    useEffect(() => { eraserRef.current = eraser; }, [eraser]);
+    // When ON, a stroke paints ONLY the mesh/texture under the cursor — so the
+    // brush circle overlapping a different mesh (e.g. ground while painting a
+    // wall) won't paint that other mesh. OFF = paint every texture under the brush.
+    const [onlyThisMesh, setOnlyThisMesh] = useState(true);
+    const onlyThisMeshRef = useRef(true);
+    useEffect(() => { onlyThisMeshRef.current = onlyThisMesh; }, [onlyThisMesh]);
     const [painting, setPainting] = useState(false);
     // Brush cursor (Blender-style ring) position over the canvas, in CSS px.
     const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
@@ -121,9 +204,12 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     const brushSizeRef = useRef(brushSize);
     const eyedropRef = useRef(false);
     const dirtyTexRef = useRef<Set<string>>(new Set());
+    const uvPassRef = useRef<UvPass | null>(null); // GPU "UV under pixel" pass (lazy)
     // Undo: per-stroke "before" snapshots (texPath -> rgba copy). strokeSnapRef
     // collects the before-state of each texture touched in the current stroke.
     const strokeSnapRef = useRef<Map<string, Uint8Array>>(new Map());
+    // Per-stroke coverage mask per texture (reset each pointer-down).
+    const strokeMaskRef = useRef<Map<string, Float32Array>>(new Map());
     const undoStackRef = useRef<Array<Map<string, Uint8Array>>>([]);
     const redoStackRef = useRef<Array<Map<string, Uint8Array>>>([]);
     const [canUndo, setCanUndo] = useState(false);
@@ -180,10 +266,12 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 tex.wrapV = Texture.WRAP_ADDRESSMODE;
                 tex.hasAlpha = true; // sample alpha for cutouts (see below)
                 texCacheRef.current.set(texPath, tex);
-                // Keep a mutable copy of the pixels for in-app painting.
+                // Keep a mutable copy for painting + a pristine copy (`orig`) so
+                // the eraser can restore toward the original texture.
                 paintBufRef.current.set(texPath, {
                     tex,
                     rgba: new Uint8Array(rgba),
+                    orig: new Uint8Array(rgba),
                     w: width,
                     h: height,
                 });
@@ -306,7 +394,15 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             camera.radius = size * 1.5;
             camera.lowerRadiusLimit = size * 0.05;
             camera.upperRadiusLimit = size * 10;
-            camera.panningSensibility = 8000 / Math.max(camera.radius, 0.001);
+            // Camera feel — from the user's saved speed prefs (sliders). In
+            // Babylon 9, RIGHT-drag = PAN, LEFT-drag = ROTATE; both sensibilities
+            // are DIVISORS (higher = slower).
+            const cs = camSpeedRef.current;
+            camera.panningSensibility = cs.pan;
+            camera.angularSensibilityX = cs.rotate;
+            camera.angularSensibilityY = cs.rotate;
+            camera.wheelDeltaPercentage = cs.zoom;
+            camera.inertia = 0.7;
             // Extend ONLY the far plane so the whole map fits in the frustum at
             // radius = size*1.5. Keep the near plane SMALL (a large minZ clips the
             // whole view to black — that was the regression). Default minZ is 1.
@@ -425,13 +521,20 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
 
         const camera = new ArcRotateCamera('cam', Math.PI / 2, Math.PI / 3, 1000, Vector3.Zero(), scene);
         camera.attachControl(canvas, true);
-        camera.wheelDeltaPercentage = 0.035;     // slower zoom
-        camera.panningSensibility = 40;          // higher = slower pan
-        // Higher angularSensibility = slower rotation (Babylon default ~1000).
-        camera.angularSensibilityX = 2200;
-        camera.angularSensibilityY = 2200;
-        camera.inertia = 0.8;                    // a touch more damping
+        // Speed from saved prefs (user-tunable via sliders). RIGHT-drag = pan,
+        // LEFT-drag = rotate; sensibilities are DIVISORS (higher = slower).
+        {
+            const cs = camSpeedRef.current;
+            camera.angularSensibilityX = cs.rotate;
+            camera.angularSensibilityY = cs.rotate;
+            camera.panningSensibility = cs.pan;
+            camera.wheelDeltaPercentage = cs.zoom;
+        }
+        camera.inertia = 0.7;
         cameraRef.current = camera;
+
+        // GPU UV-paint pass (renders "UV under each pixel" for projection paint).
+        uvPassRef.current = createUvPass(scene);
 
         const light = new HemisphericLight('ambient', new Vector3(0, 1, 0), scene);
         light.intensity = 1.2;
@@ -450,110 +553,138 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         let lastHoverKey = '';
         let paintDown = false;
 
-        // Resolve the texture path + buffer entry for a pick.
-        const texEntryForPick = (pick: ReturnType<typeof scene.pick>) => {
-            const mesh = (pick?.hit && pick.pickedMesh) ? (pick.pickedMesh as Mesh) : null;
-            const built = mesh ? meshByBabylonRef.current.get(mesh) : undefined;
-            if (!built || !pick || pick.faceId < 0) return null;
-            const span = resolveFace(built, pick.faceId);
-            const texPath = span?.texturePath ?? built.texturePath;
-            if (!texPath) return null;
-            const entry = paintBufRef.current.get(texPath);
-            return entry ? { texPath, entry, pick } : null;
-        };
-
-        // Screen-space projection paint at a screen point. Finds the visible
-        // surface under the brush circle and paints each covered texel weighted
-        // by its SCREEN distance to the center — so a round brush on screen is a
-        // round mark on the model (no UV-disc scatter). Acts like a stencil.
+        // GPU projection paint at a screen point. Render a UV pass (the visible
+        // surface's UV as color, occlusion handled by the GPU depth test), read
+        // back the brush region, and paint each covered UV into its texture. A
+        // round brush on screen = a round mark on the model, no UV scatter.
         const paintScreenAt = (px: number, py: number) => {
-            const data = dataRef.current;
-            if (!data) return;
-            // Entry pick gives the mesh + depth reference under the cursor.
             const pick = scene.pick(px, py);
             if (!pick?.hit || !pick.pickedMesh) return;
-            const mesh = pick.pickedMesh as Mesh;
-            const built = meshByBabylonRef.current.get(mesh);
-            if (!built) return;
+            const pickedBuilt = meshByBabylonRef.current.get(pick.pickedMesh as Mesh);
 
-            const radiusPx = brushSizeRef.current; // brush radius in SCREEN px now
-
-            // Eyedropper: sample the texel under the cursor, don't paint.
+            // Eyedropper: sample the texel under the cursor.
             if (eyedropRef.current) {
                 const uv = pick.getTextureCoordinates?.();
-                const res = texEntryForPick(pick);
-                if (uv && res) {
-                    const [tx, ty] = paint.uvToTexel(uv.x, uv.y, res.entry.w, res.entry.h);
-                    const i = (Math.min(res.entry.h - 1, Math.max(0, Math.floor(ty))) * res.entry.w
-                        + Math.min(res.entry.w - 1, Math.max(0, Math.floor(tx)))) * 4;
-                    setBrush(b => ({ ...b, color: [res.entry.rgba[i], res.entry.rgba[i + 1], res.entry.rgba[i + 2]] }));
+                const eEntry = pickedBuilt?.texturePath ? paintBufRef.current.get(pickedBuilt.texturePath) : undefined;
+                if (uv && eEntry) {
+                    const tx = uv.x * eEntry.w, ty = uv.y * eEntry.h;
+                    const i = (Math.min(eEntry.h - 1, Math.max(0, Math.floor(ty))) * eEntry.w
+                        + Math.min(eEntry.w - 1, Math.max(0, Math.floor(tx)))) * 4;
+                    setBrush(b => ({ ...b, color: [eEntry.rgba[i], eEntry.rgba[i + 1], eEntry.rgba[i + 2]] }));
                     setEyedrop(false);
                 }
                 return;
             }
 
-            // Project all of this mesh's vertices to screen once (cheap reuse).
-            // IMPORTANT: project into CSS pixels — the same space as scene.pointerX
-            // and the brush ring. With adaptToDeviceRatio the render buffer is
-            // CSS×DPR; getHardwareScalingLevel() = CSS/render, so CSS dim =
-            // renderDim × hardwareScalingLevel. Using render px here would offset
-            // and scale paint vs the cursor (the bug).
-            const cam = cameraRef.current!;
-            const wm = mesh.getWorldMatrix();
-            const tm = scene.getTransformMatrix();
-            const hsl = engine.getHardwareScalingLevel();
-            const cssW = engine.getRenderWidth() * hsl;
-            const cssH = engine.getRenderHeight() * hsl;
-            const vp = cam.viewport.toGlobal(cssW, cssH);
-            // Per-span (texture) screen-space paint.
+            const radiusPx = brushSizeRef.current; // brush radius in RENDER px
             const b = brushRef.current;
-            const touched = new Set<string>();
-            const r2 = (radiusPx + 2) * (radiusPx + 2);
-            const tmpV = new Vector3();
-            const scr = new Map<number, [number, number, number]>(); // vi -> [sx,sy,sz]
-            const project = (vi: number): [number, number, number] => {
-                let p = scr.get(vi);
-                if (p) return p;
-                tmpV.set(data.positions[vi * 3], data.positions[vi * 3 + 1], data.positions[vi * 3 + 2]);
-                const s = Vector3.Project(tmpV, wm, tm, vp);
-                p = [s.x, s.y, s.z];
-                scr.set(vi, p);
-                return p;
+            const hsl = engine.getHardwareScalingLevel();
+            const rpx = px / hsl, rpy = py / hsl, rRad = radiusPx / hsl;
+
+            let pass = uvPassRef.current;
+            if (pass && (pass.width() !== engine.getRenderWidth() || pass.height() !== engine.getRenderHeight())) {
+                pass.dispose();
+                pass = uvPassRef.current = createUvPass(scene);
+            }
+            if (!pass) return;
+
+            // Group paintable meshes by texture. "Only this mesh" (default)
+            // restricts to the texture under the cursor, so the brush circle
+            // overlapping a different mesh (e.g. ground while painting a wall)
+            // does NOT paint that other mesh. Off = every texture under the brush.
+            const onlyTex = onlyThisMeshRef.current ? pickedBuilt?.texturePath ?? null : null;
+            const texPaths: string[] = [];
+            const texIndex = new Map<string, number>();
+            const groups: { texId: number; meshes: Mesh[] }[] = [];
+            for (const bm of builtRef.current) {
+                if (!bm.texturePath || bm.mesh.isDisposed() || !bm.mesh.isEnabled()) continue;
+                if (!paintBufRef.current.has(bm.texturePath)) continue;
+                if (onlyTex && bm.texturePath !== onlyTex) continue; // clip to picked texture
+                let id = texIndex.get(bm.texturePath);
+                if (id === undefined) {
+                    id = texPaths.length; texPaths.push(bm.texturePath); texIndex.set(bm.texturePath, id);
+                    groups.push({ texId: id, meshes: [] });
+                }
+                groups[id].meshes.push(bm.mesh);
+            }
+            if (!groups.length) return;
+            pass.renderGroups(groups);
+
+            const x0 = Math.max(0, Math.floor(rpx - rRad));
+            const y0 = Math.max(0, Math.floor(rpy - rRad));
+            const x1 = Math.min(pass.width() - 1, Math.ceil(rpx + rRad));
+            const y1 = Math.min(pass.height() - 1, Math.ceil(rpy + rRad));
+            const rw = x1 - x0 + 1, rh = y1 - y0 + 1;
+            if (rw <= 0 || rh <= 0) return;
+            const region = pass.read(x0, y0, rw, rh);
+            if (!region) return;
+
+            // Decode a read pixel → {texPath, texelX, texelY} or null (no surface).
+            const decode = (rx: number, ry: number) => {
+                if (rx < 0 || rx >= rw || ry < 0 || ry >= rh) return null;
+                const o = (ry * rw + rx) * 4;
+                if (region[o + 3] <= 0) return null;
+                const id = Math.round(region[o + 2]);
+                const texPath = texPaths[id];
+                if (!texPath) return null;
+                const entry = paintBufRef.current.get(texPath);
+                if (!entry) return null;
+                return { texPath, entry, tx: region[o] * entry.w, ty: (1 - region[o + 1]) * entry.h };
             };
 
-            for (const span of built.spans) {
-                const texPath = span.texturePath ?? built.texturePath;
-                if (!texPath) continue;
-                const entry = paintBufRef.current.get(texPath);
-                if (!entry) continue;
-                let paintedAny = false;
-                const triCount = span.globalIndexCount / 3;
-                for (let t = 0; t < triCount; t++) {
-                    const base = span.globalStartIndex + t * 3;
-                    const i0 = data.indices[base], i1 = data.indices[base + 1], i2 = data.indices[base + 2];
-                    const p0 = project(i0), p1 = project(i1), p2 = project(i2);
-                    // Cull: skip triangles whose screen bbox is outside the brush.
-                    const minx = Math.min(p0[0], p1[0], p2[0]), maxx = Math.max(p0[0], p1[0], p2[0]);
-                    const miny = Math.min(p0[1], p1[1], p2[1]), maxy = Math.max(p0[1], p1[1], p2[1]);
-                    if (maxx < px - radiusPx || minx > px + radiusPx || maxy < py - radiusPx || miny > py + radiusPx) continue;
-                    // Behind camera? z outside [0,1] means clipped.
-                    if (p0[2] < 0 || p0[2] > 1) continue;
-                    void r2;
+            const touched = new Set<string>();
+            for (let ry = 0; ry < rh; ry++) {
+                for (let rx = 0; rx < rw; rx++) {
+                    const d = decode(rx, ry);
+                    if (!d) continue;
+                    const sx = x0 + rx, sy = y0 + ry;
+                    const sd = Math.hypot(sx - rpx, sy - rpy);
+                    if (sd > rRad) continue;
+                    const f = paint.falloff(sd, rRad, b.hardness);
+                    if (f <= 0) continue;
+                    const { texPath, entry } = d;
                     if (!strokeSnapRef.current.has(texPath)) {
                         strokeSnapRef.current.set(texPath, new Uint8Array(entry.rgba));
                     }
-                    const tri: paint.PaintTri = {
-                        sx: [p0[0], p1[0], p2[0]], sy: [p0[1], p1[1], p2[1]],
-                        u: [data.uvs[i0 * 2], data.uvs[i1 * 2], data.uvs[i2 * 2]],
-                        v: [data.uvs[i0 * 2 + 1], data.uvs[i1 * 2 + 1], data.uvs[i2 * 2 + 1]],
-                    };
-                    if (paint.paintTriangleScreen(entry.rgba, entry.w, entry.h, tri, px, py, radiusPx, b) > 0) {
-                        paintedAny = true;
+                    let mask = strokeMaskRef.current.get(texPath);
+                    if (!mask) { mask = new Float32Array(entry.w * entry.h); strokeMaskRef.current.set(texPath, mask); }
+                    // Dab radius = texel gap to the right/down neighbor on the
+                    // SAME surface, so coverage is solid (no stipple). CRITICAL:
+                    // ignore neighbors across a UV SEAM — adjacent screen pixels
+                    // can land on different UV islands (different trees packed in
+                    // the atlas); using that jump as the span makes a giant dab
+                    // that bleeds paint into neighboring islands (other trees lit
+                    // up). A real same-surface gradient is only a few texels, so
+                    // cap the span low and drop large jumps.
+                    const SEAM = 24; // texels: gaps bigger than this are seams
+                    const right = decode(rx + 1, ry), down = decode(rx, ry + 1);
+                    let span = 1.5;
+                    if (right && right.texPath === texPath) {
+                        const g = Math.hypot(right.tx - d.tx, right.ty - d.ty);
+                        if (g <= SEAM) span = Math.max(span, g);
                     }
+                    if (down && down.texPath === texPath) {
+                        const g = Math.hypot(down.tx - d.tx, down.ty - d.ty);
+                        if (g <= SEAM) span = Math.max(span, g);
+                    }
+                    const dabR = Math.min(span * 0.7, SEAM);
+                    paint.stampMask(mask, entry.w, entry.h, d.tx, d.ty, dabR, 1, b.opacity, b.flow * f);
+                    touched.add(texPath);
                 }
-                if (paintedAny) { touched.add(texPath); entry.tex.update(entry.rgba); }
             }
-            for (const tp of touched) dirtyTexRef.current.add(tp);
+            for (const texPath of touched) {
+                const entry = paintBufRef.current.get(texPath)!;
+                const mask = strokeMaskRef.current.get(texPath)!;
+                const base0 = strokeSnapRef.current.get(texPath)!;
+                if (eraserRef.current) {
+                    // Eraser: restore toward the pristine original texture.
+                    paint.compositeErase(entry.rgba, base0, entry.orig, mask, entry.w, entry.h);
+                } else {
+                    paint.compositeMask(entry.rgba, base0, mask, entry.w, entry.h, b.mode, b.color);
+                }
+                entry.tex.update(entry.rgba);
+                dirtyTexRef.current.add(texPath);
+            }
         };
 
         // Paint along the stroke from the last screen point to the current one.
@@ -580,6 +711,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                     paintDown = true;
                     resetStroke();
                     strokeSnapRef.current = new Map();
+                    strokeMaskRef.current = new Map(); // fresh coverage per stroke
                     setPainting(true);
                     paintAtCursor();
                 } else if (pi.type === PointerEventTypes.POINTERMOVE) {
@@ -682,6 +814,8 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             texCacheRef.current.forEach(t => t.dispose());
             texCacheRef.current.clear();
             paintBufRef.current.clear();
+            uvPassRef.current?.dispose();
+            uvPassRef.current = null;
             meshesRef.current.forEach(m => { m.material?.dispose(); m.dispose(); });
             meshesRef.current = [];
             engine.dispose();
@@ -760,25 +894,35 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     // Save all painted textures: edge-dilate then write each dirty .tex.
     const handleSavePaint = useCallback(async () => {
         const dirty = Array.from(dirtyTexRef.current);
-        if (!dirty.length) return;
+        if (!dirty.length || saveProgress) return; // guard re-entry while saving
         let written = 0; const errors: string[] = [];
-        for (const texPath of dirty) {
-            const entry = paintBufRef.current.get(texPath);
-            if (!entry) continue;
-            paint.edgeDilate(entry.rgba, entry.w, entry.h, 4);
-            entry.tex.update(entry.rgba);
-            try {
-                await api.savePaintedTexture(projectPath, texPath, entry.rgba, entry.w, entry.h);
-                written++;
-            } catch (e) {
-                errors.push(`${texPath.split(/[\\/]/).pop()}: ${(e as Error).message || e}`);
+        setSaveProgress({ done: 0, total: dirty.length });
+        try {
+            for (let i = 0; i < dirty.length; i++) {
+                const texPath = dirty[i];
+                const entry = paintBufRef.current.get(texPath);
+                if (entry) {
+                    paint.edgeDilate(entry.rgba, entry.w, entry.h, 4);
+                    entry.tex.update(entry.rgba);
+                    try {
+                        await api.savePaintedTexture(projectPath, texPath, entry.rgba, entry.w, entry.h);
+                        written++;
+                    } catch (e) {
+                        errors.push(`${texPath.split(/[\\/]/).pop()}: ${(e as Error).message || e}`);
+                    }
+                }
+                setSaveProgress({ done: i + 1, total: dirty.length });
+                // Yield so the progress bar repaints between textures.
+                await new Promise(r => requestAnimationFrame(() => r(null)));
             }
+        } finally {
+            setSaveProgress(null);
         }
         dirtyTexRef.current.clear();
         if (errors.length) console.error('[paint] save errors', errors);
         setStatus(`Saved ${written} painted texture${written === 1 ? '' : 's'}` +
             (errors.length ? `, ${errors.length} error(s)` : ''));
-    }, [projectPath]);
+    }, [projectPath, saveProgress]);
 
     // Initial build + rebuild whenever the project changes.
     useEffect(() => { void buildScene(); }, [buildScene]);
@@ -823,6 +967,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     // Keep the render-loop ref in sync; when turned off, clear the active tint.
     useEffect(() => {
         highlightOnRef.current = highlightOn;
+        savePref('highlightOn', highlightOn);
         if (!highlightOn) {
             const prev = hoverTintRef.current;
             if (prev && !prev.mesh.isDisposed()) {
@@ -832,6 +977,19 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             hoverTintRef.current = null;
         }
     }, [highlightOn]);
+
+    // Apply + persist camera speed live (sliders below).
+    useEffect(() => {
+        camSpeedRef.current = camSpeed;
+        savePref('camSpeed', camSpeed);
+        const cam = cameraRef.current;
+        if (cam) {
+            cam.angularSensibilityX = camSpeed.rotate;
+            cam.angularSensibilityY = camSpeed.rotate;
+            cam.panningSensibility = camSpeed.pan;
+            cam.wheelDeltaPercentage = camSpeed.zoom;
+        }
+    }, [camSpeed]);
 
     // ── Live reload via the existing `file-changed` event ────────────────────
     useEffect(() => {
@@ -885,21 +1043,30 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                          cursor: paintMode ? 'none' : 'default' }}
             />
 
-            {/* Brush ring cursor (Blender-style) — shows size + position. */}
-            {paintMode && cursorPos && (
-                <div style={{
-                    position: 'absolute',
-                    left: cursorPos.x - brushSize,
-                    top: cursorPos.y - brushSize,
-                    width: brushSize * 2,
-                    height: brushSize * 2,
-                    borderRadius: '50%',
-                    border: `1.5px solid ${eyedrop ? '#5cf' : 'rgba(255,255,255,0.9)'}`,
-                    boxShadow: '0 0 0 1px rgba(0,0,0,0.6) inset, 0 0 0 1px rgba(0,0,0,0.6)',
-                    pointerEvents: 'none',
-                    zIndex: 5,
-                }} />
-            )}
+            {/* Brush ring cursor (Blender-style) — size, position + actual color.
+                Ring border = the color you'll paint with (cyan=eyedrop, red=erase);
+                a translucent fill of the same color previews the paint. */}
+            {paintMode && cursorPos && (() => {
+                const ringColor = eyedrop ? '#5cf' : eraser ? '#f88'
+                    : `rgb(${brush.color[0]},${brush.color[1]},${brush.color[2]})`;
+                const fill = (eyedrop || eraser) ? 'transparent'
+                    : `rgba(${brush.color[0]},${brush.color[1]},${brush.color[2]},0.28)`;
+                return (
+                    <div style={{
+                        position: 'absolute',
+                        left: cursorPos.x - brushSize,
+                        top: cursorPos.y - brushSize,
+                        width: brushSize * 2,
+                        height: brushSize * 2,
+                        borderRadius: '50%',
+                        border: `2px solid ${ringColor}`,
+                        background: fill,
+                        boxShadow: '0 0 0 1px rgba(0,0,0,0.7) inset, 0 0 0 1px rgba(0,0,0,0.7)',
+                        pointerEvents: 'none',
+                        zIndex: 5,
+                    }} />
+                );
+            })()}
 
             {/* Layers button (top-right) */}
             {!loading && !error && (
@@ -919,18 +1086,74 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 >🖌</button>
             )}
 
+            {/* Camera settings button (below Paint) */}
+            {!loading && !error && (
+                <button
+                    style={{ ...iconBtn, top: 90, ...(showCamPanel ? iconBtnActive : {}) }}
+                    onClick={() => setShowCamPanel(p => !p)}
+                    title="Camera speed settings"
+                >⚙</button>
+            )}
+
+            {/* Camera settings panel (its own, separate from Paint) */}
+            {showCamPanel && !loading && !error && (
+                <div style={{ ...panel, top: 90, right: 50, width: 220, ...camDrag.dragStyle }}>
+                    <div style={{ ...panelHeader, cursor: 'move' }} onMouseDown={camDrag.onHeaderMouseDown}>
+                        <span style={{ fontWeight: 600, fontSize: 13 }}>Camera speed</span>
+                        <button style={{ ...textBtn, padding: '2px 8px' }} onClick={() => setShowCamPanel(false)}>×</button>
+                    </div>
+                    <div style={panelBody}>
+                        {([
+                            // Rotate/Pan are DIVISORS (higher = slower); show an
+                            // intuitive 1..100 "speed" slider and invert it.
+                            ['Rotate', Math.round(20000 / camSpeed.rotate), (v: number) => setCamSpeed(s => ({ ...s, rotate: Math.round(20000 / Math.max(1, v)) }))],
+                            ['Pan', Math.round(300 / camSpeed.pan), (v: number) => setCamSpeed(s => ({ ...s, pan: Math.max(1, Math.round(300 / Math.max(1, v))) }))],
+                            ['Zoom', Math.round(camSpeed.zoom * 1000), (v: number) => setCamSpeed(s => ({ ...s, zoom: Math.max(0.005, v / 1000) }))],
+                        ] as [string, number, (v: number) => void][]).map(([label, val, set]) => (
+                            <div key={label} style={{ marginBottom: 8 }}>
+                                <div style={{ fontSize: 11, color: '#aaa', display: 'flex', justifyContent: 'space-between' }}>
+                                    <span>{label}</span><span>{val}</span>
+                                </div>
+                                <input type="range" min={1} max={100} value={Math.max(1, Math.min(100, val))} style={{ width: '100%' }}
+                                    onChange={e => set(Number(e.target.value))} />
+                            </div>
+                        ))}
+                        <button style={{ ...textBtn, width: '100%', padding: '4px 0' }}
+                            onClick={() => setCamSpeed(CAM_DEFAULTS)}>Reset to defaults</button>
+                        <div style={{ fontSize: 10, color: '#888', marginTop: 6 }}>
+                            Left-drag = rotate · Right-drag = pan · Wheel = zoom. Saved automatically.
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Paint toolbar */}
             {paintMode && !loading && !error && (
-                <div style={{ ...panel, top: undefined, bottom: 12, left: 12, right: 'auto', width: 230 }}>
-                    <div style={panelHeader}>
+                <div style={{ ...panel, top: undefined, bottom: 12, left: 12, right: 'auto', width: 230, ...paintDrag.dragStyle }}>
+                    <div style={{ ...panelHeader, cursor: 'move' }} onMouseDown={paintDrag.onHeaderMouseDown}>
                         <span style={{ fontWeight: 600, fontSize: 13 }}>Paint{painting ? ' …' : ''}</span>
                         <button style={{ ...textBtn, padding: '2px 8px' }} onClick={() => setPaintMode(false)}>×</button>
                     </div>
                     <div style={panelBody}>
-                        <div style={sectionLabel}>Blend</div>
                         <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+                            <button
+                                style={{ ...textBtn, flex: 1, padding: '4px 0', background: !eraser ? '#3a5' : undefined }}
+                                onClick={() => setEraser(false)}
+                            >🖌 Brush</button>
+                            <button
+                                style={{ ...textBtn, flex: 1, padding: '4px 0', background: eraser ? '#a55' : undefined }}
+                                onClick={() => setEraser(true)}
+                                title="Erase painted pixels back to the original texture"
+                            >🧽 Eraser</button>
+                        </div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginBottom: 8, cursor: 'pointer' }}>
+                            <input type="checkbox" checked={onlyThisMesh} onChange={e => setOnlyThisMesh(e.target.checked)} />
+                            Only this mesh (don't paint others under the brush)
+                        </label>
+                        <div style={sectionLabel}>Blend</div>
+                        <div style={{ display: 'flex', gap: 4, marginBottom: 8, opacity: eraser ? 0.4 : 1 }}>
                             {(['Normal', 'Dodge', 'Multiply'] as paint.BlendMode[]).map(m => (
-                                <button key={m}
+                                <button key={m} disabled={eraser}
                                     style={{ ...textBtn, flex: 1, padding: '3px 0', background: brush.mode === m ? '#3a5' : undefined }}
                                     onClick={() => setBrush(b => ({ ...b, mode: m }))}
                                 >{m}</button>
@@ -938,19 +1161,23 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                         </div>
                         <div style={sectionLabel}>Color</div>
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
+                            {/* Big visible swatch of the ACTUAL current brush color. */}
+                            <span style={{
+                                width: 28, height: 28, borderRadius: 4, flexShrink: 0,
+                                background: `rgb(${brush.color[0]},${brush.color[1]},${brush.color[2]})`,
+                                border: '1px solid #666',
+                            }} title={`rgb(${brush.color[0]}, ${brush.color[1]}, ${brush.color[2]})`} />
                             <input type="color"
-                                value={'#' + brush.color.map(c => c.toString(16).padStart(2, '0')).join('')}
-                                onChange={e => {
-                                    const h = e.target.value;
-                                    setBrush(b => ({ ...b, color: [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)] }));
-                                }} />
+                                style={{ width: 28, height: 28, padding: 0, border: '1px solid #666', borderRadius: 4, background: 'none', cursor: 'pointer' }}
+                                value={rgbToHex(brush.color)}
+                                onChange={e => setBrush(b => ({ ...b, color: hexToRgb(e.target.value) }))} />
                             <button style={{ ...textBtn, flex: 1, background: eyedrop ? '#3a5' : undefined }}
                                 onClick={() => setEyedrop(v => !v)}
                                 title="Click the map to sample a color"
                             >{eyedrop ? 'Click to pick…' : 'Eyedropper'}</button>
                         </div>
                         {([
-                            ['Size (px)', brushSize, 2, 200, (v: number) => setBrushSize(v)],
+                            ['Size (px)', brushSize, 2, 300, (v: number) => setBrushSize(v)],
                             ['Hardness', Math.round(brush.hardness * 100), 0, 100, (v: number) => setBrush(b => ({ ...b, hardness: v / 100 }))],
                             ['Opacity', Math.round(brush.opacity * 100), 0, 100, (v: number) => setBrush(b => ({ ...b, opacity: v / 100 }))],
                             ['Flow', Math.round(brush.flow * 100), 0, 100, (v: number) => setBrush(b => ({ ...b, flow: v / 100 }))],
@@ -963,15 +1190,54 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                                     onChange={e => set(Number(e.target.value))} />
                             </div>
                         ))}
+                        {/* Brush presets */}
+                        <div style={{ ...sectionLabel, marginTop: 10 }}>Presets</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginBottom: 6 }}>
+                            {presets.length === 0 && (
+                                <div style={{ fontSize: 10, color: '#777' }}>No presets saved yet.</div>
+                            )}
+                            {presets.map((p, i) => (
+                                <div key={i} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                    <span style={{ width: 14, height: 14, borderRadius: 3, flexShrink: 0,
+                                        background: `rgb(${p.brush.color[0]},${p.brush.color[1]},${p.brush.color[2]})`, border: '1px solid #555' }} />
+                                    <button style={{ ...textBtn, flex: 1, padding: '2px 6px', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                        title={`${p.brush.mode} · size ${p.size}`}
+                                        onClick={() => { setBrush(p.brush); setBrushSize(p.size); setEraser(false); }}
+                                    >{p.name}</button>
+                                    <button style={{ ...textBtn, padding: '2px 6px' }}
+                                        title="Delete preset"
+                                        onClick={() => setPresets(ps => ps.filter((_, j) => j !== i))}
+                                    >×</button>
+                                </div>
+                            ))}
+                        </div>
+                        <button style={{ ...textBtn, width: '100%', padding: '4px 0', marginBottom: 6 }}
+                            onClick={() => {
+                                const name = window.prompt('Preset name:', `${brush.mode} ${brushSize}px`);
+                                if (name) setPresets(ps => [...ps, { name, brush: { ...brush }, size: brushSize }]);
+                            }}
+                        >+ Save current as preset</button>
+
                         <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
                             <button style={{ ...textBtn, flex: 1, padding: '4px 0', opacity: canUndo ? 1 : 0.4 }}
                                 disabled={!canUndo} onClick={handleUndo} title="Undo (Ctrl+Z)">↶ Undo</button>
                             <button style={{ ...textBtn, flex: 1, padding: '4px 0', opacity: canRedo ? 1 : 0.4 }}
                                 disabled={!canRedo} onClick={handleRedo} title="Redo (Ctrl+Y)">↷ Redo</button>
                         </div>
-                        <button style={{ ...textBtn, width: '100%', marginTop: 6, padding: '6px 0', background: '#2a6' }}
+                        <button style={{ ...textBtn, width: '100%', marginTop: 6, padding: '6px 0', background: '#2a6', opacity: saveProgress ? 0.6 : 1 }}
+                            disabled={!!saveProgress}
                             onClick={handleSavePaint}
-                        >Save painted textures</button>
+                        >{saveProgress ? `Saving ${saveProgress.done}/${saveProgress.total}…` : 'Save painted textures'}</button>
+                        {saveProgress && (
+                            <div style={{ marginTop: 6 }}>
+                                <div style={{ height: 6, borderRadius: 3, background: '#333', overflow: 'hidden' }}>
+                                    <div style={{
+                                        height: '100%', width: `${(saveProgress.done / Math.max(1, saveProgress.total)) * 100}%`,
+                                        background: '#2a6', transition: 'width 120ms linear',
+                                    }} />
+                                </div>
+                            </div>
+                        )}
                         <div style={{ fontSize: 10, color: '#888', marginTop: 6 }}>
                             Left-drag to paint. Camera is locked while painting. Ctrl+Z undo.
                         </div>
@@ -1101,8 +1367,8 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
 
             {/* Click info card — thumbnail, path, copy, open in editor */}
             {pinnedInfo && (
-                <div style={infoCard}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <div style={{ ...infoCard, ...cardDrag.dragStyle }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, cursor: 'move' }} onMouseDown={cardDrag.onHeaderMouseDown}>
                         <span style={{ fontWeight: 600, fontSize: 12 }}>Texture</span>
                         <button style={{ ...textBtn, padding: '2px 8px' }} onClick={() => setPinnedInfo(null)}>×</button>
                     </div>

@@ -419,12 +419,13 @@ pub async fn load_map_texture(
         std::fs::read(&resolved).map_err(|e| format!("Failed to read texture '{resolved}': {e}"))?;
     let mut rgba = crate::commands::texture_convert::decode_full_rgba(&data)?;
 
-    // Downscale for preview. Raw RGBA is the memory hog: a 2048² texture is 16 MB
-    // and ~168 of them stay resident on the GPU for the whole session (~2.7 GB).
-    // Cap the longest edge at PREVIEW_MAX_DIM: 1024 keeps detail sharp while
-    // holding RAM to ~1/4 of full res (~680 MB). Many source textures are already
-    // ≤1024 and won't downscale at all. Triangle filter is fast + good for diffuse.
-    const PREVIEW_MAX_DIM: u32 = 1024;
+    // Keep textures at FULL resolution (2048) so in-app painting edits and saves
+    // are 1:1 with the original .tex — downscaling here would force painted
+    // textures to be saved at reduced res (quality loss). Memory cost: a 2048²
+    // texture is 16 MB raw; ~168 resident ≈ 2.7 GB. If that proves too heavy,
+    // the right fix is leaner loading (or full-res only for painted textures),
+    // not silently degrading the textures the user edits.
+    const PREVIEW_MAX_DIM: u32 = 2048;
     let (w, h) = rgba.dimensions();
     if w > PREVIEW_MAX_DIM || h > PREVIEW_MAX_DIM {
         let scale = PREVIEW_MAX_DIM as f32 / w.max(h) as f32;
