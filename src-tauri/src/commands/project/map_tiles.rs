@@ -407,9 +407,12 @@ pub struct ApplyReport {
 }
 
 /// Flatten the PSD's VISIBLE layers into one canvas-sized RGBA buffer, honoring
-/// blend modes + opacity (the `psd` crate composites via blend.rs). This is what
-/// bakes custom layers (e.g. a Dodge "river light") into the result. Falls back
-/// to the stored composite if flattening fails.
+/// blend modes + opacity. INTENDED to bake custom layers (e.g. a Dodge "river
+/// light") into the result — but the psd crate's flatten_layers_rgba returns a
+/// TRANSPARENT buffer on our hand-written PSDs, so Apply does NOT use this yet
+/// (it uses the per-layer .rgba() path instead). Kept for the future
+/// custom-layer-baking feature once writer/flatten compatibility is solved.
+#[allow(dead_code)]
 fn flatten_visible(psd: &psd::Psd) -> Vec<u8> {
     psd.flatten_layers_rgba(&|(_, layer)| layer.visible())
         .unwrap_or_else(|_| psd.rgba())
@@ -461,58 +464,80 @@ pub async fn apply_psd_to_textures(
 ) -> Result<ApplyReport, String> {
     let _guard = PSD_OP_LOCK.lock().await; // serialize heavy PSD ops
     let project = PathBuf::from(&project_path);
+    let by_stem: std::collections::HashMap<String, PathBuf> = find_ground_tiles(&project)
+        .into_iter()
+        .map(|t| (t.stem, t.path))
+        .collect();
 
     let psd_bytes = std::fs::read(&psd_path).map_err(|e| format!("read psd: {e}"))?;
     let psd = psd::Psd::from_bytes(&psd_bytes).map_err(|e| format!("parse psd: {:?}", e))?;
     let canvas_w = psd.width();
     let canvas_h = psd.height();
 
-    // Flatten the VISIBLE layers (blend modes honored) so custom layers — e.g. a
-    // Dodge "river light" — bake into the result. Then slice this single canvas.
-    let canvas = flatten_visible(&psd);
-    if canvas.len() < (canvas_w * canvas_h * 4) as usize {
-        return Err("flattened buffer too small".into());
-    }
-
-    // Which named layers are VISIBLE (controls which tile is written per cell).
-    let visible_names: std::collections::HashSet<String> = psd
-        .layers()
-        .iter()
-        .filter(|l| l.visible())
-        .map(|l| l.name().to_string())
+    // Grid cell -> base tile path, for slicing the merged base layer back.
+    let base_by_cell: std::collections::HashMap<(u32, u32), PathBuf> = find_ground_tiles(&project)
+        .into_iter()
+        .filter(|t| matches!(t.group, TileGroup::Base))
+        .map(|t| ((t.col, t.row), t.path))
         .collect();
-
-    // Resolve, per grid cell, the tile to write: a visible VARIANT (it sits above
-    // base) wins the cell; otherwise the base tile at that cell. Base cells are
-    // always considered written (the Base group / merged layer covers them).
-    let all = find_ground_tiles(&project);
-    let mut cell_tile: std::collections::HashMap<(u32, u32), PathBuf> = std::collections::HashMap::new();
-    for t in &all {
-        if matches!(t.group, TileGroup::Base) {
-            cell_tile.entry((t.col, t.row)).or_insert_with(|| t.path.clone());
-        }
-    }
-    for t in &all {
-        if !matches!(t.group, TileGroup::Base) && visible_names.contains(&t.stem) {
-            cell_tile.insert((t.col, t.row), t.path.clone()); // variant overrides base
-        }
-    }
 
     let mut report = ApplyReport {
         written: 0,
         skipped: vec![],
         errors: vec![],
     };
-    for ((col, row), path) in cell_tile {
-        let (ox, oy) = (col * TILE, row * TILE);
-        if ox + TILE > canvas_w || oy + TILE > canvas_h {
-            report.skipped.push(format!("cell {col},{row}"));
+
+    // Per-layer apply (proven path): read each layer's OWN pixels via .rgba()
+    // (canvas-sized, layer at its position) and crop. The merged base layer is
+    // sliced per grid cell; variant/stage layers are matched by name. NOTE: this
+    // does NOT bake custom (unnamed) layers — that needs working PSD-flatten,
+    // which the psd crate can't do on our PSDs yet (tracked separately).
+    for layer in psd.layers() {
+        let name = layer.name().to_string();
+        if name == "</Layer group>" {
             continue;
         }
-        let tile = crop_tile(&canvas, canvas_w, ox, oy, TILE, TILE);
-        match write_tile_tex(&path, &tile) {
+
+        let canvas = layer.rgba();
+        if canvas.len() < (canvas_w * canvas_h * 4) as usize {
+            report.errors.push(format!("{name}: short rgba buffer"));
+            continue;
+        }
+
+        if name == BASE_LAYER {
+            // Merged base layer: slice each grid cell back to its base .tex.
+            for (&(col, row), path) in &base_by_cell {
+                let (ox, oy) = (col * TILE, row * TILE);
+                if ox + TILE > canvas_w || oy + TILE > canvas_h {
+                    report.skipped.push(format!("cell {col},{row}"));
+                    continue;
+                }
+                let tile = crop_tile(&canvas, canvas_w, ox, oy, TILE, TILE);
+                match write_tile_tex(path, &tile) {
+                    Ok(()) => report.written += 1,
+                    Err(e) => report.errors.push(format!("cell {col},{row}: {e}")),
+                }
+            }
+            continue;
+        }
+
+        // Otherwise it's a base (split mode) or variant/stage tile, by name.
+        let Some(orig) = by_stem.get(&name) else {
+            report.skipped.push(name);
+            continue;
+        };
+        let left = layer.layer_left().max(0) as u32;
+        let top = layer.layer_top().max(0) as u32;
+        let right = layer.layer_right().max(0) as u32;
+        let bottom = layer.layer_bottom().max(0) as u32;
+        if right < left || bottom < top {
+            report.skipped.push(name);
+            continue;
+        }
+        let tile = crop_tile(&canvas, canvas_w, left, top, right - left + 1, bottom - top + 1);
+        match write_tile_tex(orig, &tile) {
             Ok(()) => report.written += 1,
-            Err(e) => report.errors.push(format!("cell {col},{row}: {e}")),
+            Err(e) => report.errors.push(format!("{name}: {e}")),
         }
     }
     Ok(report)
@@ -705,23 +730,21 @@ pub async fn apply_category_psd(
     let canvas_w = psd.width();
     let canvas_h = psd.height();
 
-    // Flatten VISIBLE layers (blend modes honored) so custom layers bake in.
-    let canvas = flatten_visible(&psd);
-    if canvas.len() < (canvas_w * canvas_h * 4) as usize {
-        return Err("flattened buffer too small".into());
-    }
-
     let mut report = ApplyReport {
         written: 0,
         skipped: vec![],
         errors: vec![],
     };
 
-    let is_combined = psd.layers().iter().any(|l| l.name() == BASE_LAYER);
-
-    if is_combined {
-        // Combined atlas: slice each cell back to its tile using the same
-        // deterministic grid layout combine used.
+    // Per-layer apply (proven path). Combined = one merged BASE_LAYER atlas;
+    // Split = one named layer per texture. Read each layer's OWN pixels via
+    // .rgba() (does NOT bake unnamed custom layers — needs working flatten).
+    if let Some(base) = psd.layers().iter().find(|l| l.name() == BASE_LAYER) {
+        // Combined atlas: slice each cell from the merged layer's pixels.
+        let canvas = base.rgba();
+        if canvas.len() < (canvas_w * canvas_h * 4) as usize {
+            return Err("merged layer buffer too small".into());
+        }
         let cols = atlas_cols(ordered.len());
         for (i, (_stem, path)) in ordered.iter().enumerate() {
             let cx = (i as u32 % cols) * CELL;
@@ -746,17 +769,21 @@ pub async fn apply_category_psd(
         return Ok(report);
     }
 
-    // Split: each named tile layer is cropped from the FLATTENED canvas (so
-    // anything painted above it bakes in). Skip hidden layers.
+    // Split: crop each named layer from its OWN rgba().
     for layer in psd.layers() {
         let name = layer.name().to_string();
-        if name == "</Layer group>" || !layer.visible() {
+        if name == "</Layer group>" {
             continue;
         }
         let Some(orig) = by_stem.get(name.as_str()) else {
             report.skipped.push(name);
             continue;
         };
+        let canvas = layer.rgba();
+        if canvas.len() < (canvas_w * canvas_h * 4) as usize {
+            report.errors.push(format!("{name}: short rgba buffer"));
+            continue;
+        }
         let left = layer.layer_left().max(0) as u32;
         let top = layer.layer_top().max(0) as u32;
         let right = layer.layer_right().max(0) as u32;
