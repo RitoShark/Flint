@@ -119,6 +119,13 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     const eyedropRef = useRef(false);
     const dirtyTexRef = useRef<Set<string>>(new Set());
     const lastTexelRef = useRef<{ texPath: string; x: number; y: number } | null>(null);
+    // Undo: per-stroke "before" snapshots (texPath -> rgba copy). strokeSnapRef
+    // collects the before-state of each texture touched in the current stroke.
+    const strokeSnapRef = useRef<Map<string, Uint8Array>>(new Map());
+    const undoStackRef = useRef<Array<Map<string, Uint8Array>>>([]);
+    const redoStackRef = useRef<Array<Map<string, Uint8Array>>>([]);
+    const [canUndo, setCanUndo] = useState(false);
+    const [canRedo, setCanRedo] = useState(false);
     useEffect(() => { paintModeRef.current = paintMode; }, [paintMode]);
     useEffect(() => { brushRef.current = brush; }, [brush]);
     useEffect(() => { brushSizeRef.current = brushSize; }, [brushSize]);
@@ -468,6 +475,12 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 return;
             }
 
+            // Snapshot this texture's BEFORE state the first time the stroke
+            // touches it (for undo).
+            if (!strokeSnapRef.current.has(texPath)) {
+                strokeSnapRef.current.set(texPath, new Uint8Array(entry.rgba));
+            }
+
             const radius = brushSizeRef.current;
             const b = brushRef.current;
             // Stamp spaced dabs from the last texel on this texture to the new one.
@@ -487,6 +500,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 if (pi.type === PointerEventTypes.POINTERDOWN) {
                     paintDown = true;
                     lastTexelRef.current = null;
+                    strokeSnapRef.current = new Map();
                     setPainting(true);
                     paintAtCursor();
                 } else if (pi.type === PointerEventTypes.POINTERMOVE) {
@@ -495,6 +509,15 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                     paintDown = false;
                     lastTexelRef.current = null;
                     setPainting(false);
+                    // Commit the stroke's before-snapshot to the undo stack.
+                    if (strokeSnapRef.current.size) {
+                        undoStackRef.current.push(strokeSnapRef.current);
+                        if (undoStackRef.current.length > 30) undoStackRef.current.shift();
+                        redoStackRef.current = [];
+                        strokeSnapRef.current = new Map();
+                        setCanUndo(true);
+                        setCanRedo(false);
+                    }
                 }
                 return;
             }
@@ -598,6 +621,50 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         if (paintMode) cam.detachControl();
         else cam.attachControl(canvas, true);
     }, [paintMode]);
+
+    // Swap current buffers with a snapshot map, returning the REPLACED state (for
+    // the opposite stack). Updates the live RawTextures + dirty set.
+    const swapSnapshot = useCallback((snap: Map<string, Uint8Array>): Map<string, Uint8Array> => {
+        const replaced = new Map<string, Uint8Array>();
+        for (const [texPath, before] of snap) {
+            const entry = paintBufRef.current.get(texPath);
+            if (!entry) continue;
+            replaced.set(texPath, new Uint8Array(entry.rgba)); // current -> opposite stack
+            entry.rgba.set(before);
+            entry.tex.update(entry.rgba);
+            dirtyTexRef.current.add(texPath);
+        }
+        return replaced;
+    }, []);
+
+    const handleUndo = useCallback(() => {
+        const snap = undoStackRef.current.pop();
+        if (!snap) return;
+        redoStackRef.current.push(swapSnapshot(snap));
+        setCanUndo(undoStackRef.current.length > 0);
+        setCanRedo(true);
+    }, [swapSnapshot]);
+
+    const handleRedo = useCallback(() => {
+        const snap = redoStackRef.current.pop();
+        if (!snap) return;
+        undoStackRef.current.push(swapSnapshot(snap));
+        setCanRedo(redoStackRef.current.length > 0);
+        setCanUndo(true);
+    }, [swapSnapshot]);
+
+    // Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) while in paint mode.
+    useEffect(() => {
+        if (!paintMode) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (!(e.ctrlKey || e.metaKey)) return;
+            const k = e.key.toLowerCase();
+            if (k === 'z' && !e.shiftKey) { e.preventDefault(); handleUndo(); }
+            else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); handleRedo(); }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [paintMode, handleUndo, handleRedo]);
 
     // Save all painted textures: edge-dilate then write each dirty .tex.
     const handleSavePaint = useCallback(async () => {
@@ -788,11 +855,17 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                                     onChange={e => set(Number(e.target.value))} />
                             </div>
                         ))}
+                        <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                            <button style={{ ...textBtn, flex: 1, padding: '4px 0', opacity: canUndo ? 1 : 0.4 }}
+                                disabled={!canUndo} onClick={handleUndo} title="Undo (Ctrl+Z)">↶ Undo</button>
+                            <button style={{ ...textBtn, flex: 1, padding: '4px 0', opacity: canRedo ? 1 : 0.4 }}
+                                disabled={!canRedo} onClick={handleRedo} title="Redo (Ctrl+Y)">↷ Redo</button>
+                        </div>
                         <button style={{ ...textBtn, width: '100%', marginTop: 6, padding: '6px 0', background: '#2a6' }}
                             onClick={handleSavePaint}
                         >Save painted textures</button>
                         <div style={{ fontSize: 10, color: '#888', marginTop: 6 }}>
-                            Left-drag to paint. Camera is locked while painting.
+                            Left-drag to paint. Camera is locked while painting. Ctrl+Z undo.
                         </div>
                     </div>
                 </div>
