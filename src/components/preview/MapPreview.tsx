@@ -43,6 +43,7 @@ import {
     type SubmeshSpan,
 } from '../../lib/babylon/mapMeshBuilder';
 import * as paint from '../../lib/babylon/paintEngine';
+import { buildSeams, mirrorAcrossSeam, type Seam } from '../../lib/babylon/seamMap';
 
 interface MapPreviewProps {
     projectPath: string;
@@ -112,6 +113,11 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     const [brushSize, setBrushSize] = useState(64); // radius in texels
     const [eyedrop, setEyedrop] = useState(false);
     const [painting, setPainting] = useState(false);
+    const [seamBleed, setSeamBleed] = useState(true);
+    const seamBleedRef = useRef(true);
+    useEffect(() => { seamBleedRef.current = seamBleed; }, [seamBleed]);
+    // Lazily-built seam map per texture path (built on first paint of that tex).
+    const seamCacheRef = useRef<Map<string, Seam[]>>(new Map());
     // Refs so the pointer handler (added once) reads live values.
     const paintModeRef = useRef(false);
     const brushRef = useRef(brush);
@@ -456,6 +462,25 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             return entry ? { texPath, entry, pick } : null;
         };
 
+        // Collect a texture's global triangle indices (from all meshes/spans that
+        // use it) and build its UV seam list. Cached by caller.
+        const buildSeamsForTexture = (texPath: string): Seam[] => {
+            const data = dataRef.current;
+            if (!data) return [];
+            const idx: number[] = [];
+            for (const built of builtRef.current) {
+                for (const span of built.spans) {
+                    if (span.texturePath === texPath) {
+                        for (let i = 0; i < span.globalIndexCount; i++) {
+                            idx.push(data.indices[span.globalStartIndex + i]);
+                        }
+                    }
+                }
+            }
+            if (!idx.length) return [];
+            return buildSeams(data.positions, data.uvs, idx);
+        };
+
         // Paint (or eyedrop) at the current cursor; interpolate from last texel.
         const paintAtCursor = () => {
             const pick = scene.pick(scene.pointerX, scene.pointerY);
@@ -483,11 +508,35 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
 
             const radius = brushSizeRef.current;
             const b = brushRef.current;
+
+            // Seam bleed: build (once per texture) the seam list so dabs near a
+            // UV-island edge also stamp the mirrored point on the neighbor island.
+            let seams: Seam[] | null = null;
+            if (seamBleedRef.current) {
+                seams = seamCacheRef.current.get(texPath) ?? null;
+                if (!seams) {
+                    seams = buildSeamsForTexture(texPath);
+                    seamCacheRef.current.set(texPath, seams);
+                }
+            }
+            const nearUv = radius / Math.max(entry.w, entry.h); // seam proximity in UV space
+
             // Stamp spaced dabs from the last texel on this texture to the new one.
             const last = lastTexelRef.current;
             const from: [number, number] = (last && last.texPath === texPath) ? [last.x, last.y] : [tx, ty];
             for (const [dx, dy] of paint.strokeDabs(from, [tx, ty], radius)) {
                 paint.stampDab(entry.rgba, entry.w, entry.h, dx, dy, radius, b);
+                if (seams && seams.length) {
+                    // dab texel -> UV (V flipped back), mirror across nearby seams.
+                    const uvPt: [number, number] = [dx / entry.w, 1 - dy / entry.h];
+                    for (const seam of seams) {
+                        const m = mirrorAcrossSeam(uvPt, seam, nearUv);
+                        if (m) {
+                            const [mx, my] = paint.uvToTexel(m[0], m[1], entry.w, entry.h);
+                            paint.stampDab(entry.rgba, entry.w, entry.h, mx, my, radius, b);
+                        }
+                    }
+                }
             }
             lastTexelRef.current = { texPath, x: tx, y: ty };
             dirtyTexRef.current.add(texPath);
@@ -603,6 +652,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             texCacheRef.current.forEach(t => t.dispose());
             texCacheRef.current.clear();
             paintBufRef.current.clear();
+            seamCacheRef.current.clear();
             meshesRef.current.forEach(m => { m.material?.dispose(); m.dispose(); });
             meshesRef.current = [];
             engine.dispose();
@@ -855,6 +905,10 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                                     onChange={e => set(Number(e.target.value))} />
                             </div>
                         ))}
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginTop: 6, cursor: 'pointer' }}>
+                            <input type="checkbox" checked={seamBleed} onChange={e => setSeamBleed(e.target.checked)} />
+                            Seam bleed (paint across UV seams)
+                        </label>
                         <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
                             <button style={{ ...textBtn, flex: 1, padding: '4px 0', opacity: canUndo ? 1 : 0.4 }}
                                 disabled={!canUndo} onClick={handleUndo} title="Undo (Ctrl+Z)">↶ Undo</button>
