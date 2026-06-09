@@ -455,6 +455,37 @@ fn write_tile_tex(orig: &Path, rgba: &image::RgbaImage) -> Result<(), String> {
     Ok(())
 }
 
+/// Save an in-app painted RGBA buffer back to its `.tex` (re-encoded in the
+/// original format). `texture_path` is the bin path (e.g. ASSETS/.../foo.tex);
+/// it's resolved to the real on-disk file the same way the preview resolves
+/// textures, then written via the shared encoder (which preserves format + the
+/// byte-8 mip flag).
+#[tauri::command]
+pub async fn save_painted_texture(
+    project_path: String,
+    texture_path: String,
+    rgba: Vec<u8>,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    let _guard = PSD_OP_LOCK.lock().await;
+    if rgba.len() != (width as usize) * (height as usize) * 4 {
+        return Err(format!(
+            "rgba size mismatch: {} != {}x{}x4",
+            rgba.len(),
+            width,
+            height
+        ));
+    }
+    let real = crate::commands::map_preview::resolve_map_texture_path(
+        project_path.clone(),
+        texture_path.clone(),
+    )
+    .await?;
+    let img = image::RgbaImage::from_raw(width, height, rgba).ok_or("bad rgba buffer")?;
+    write_tile_tex(Path::new(&real), &img)
+}
+
 /// Apply an edited PSD back to the project's ground .tex files, matching PSD
 /// layers to tiles by layer name (== tile stem).
 #[tauri::command]

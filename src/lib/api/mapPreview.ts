@@ -88,6 +88,23 @@ export async function resolveMapTexturePath(
     return invokeCommand('resolve_map_texture_path', { projectPath, texturePath });
 }
 
+/** Save an in-app painted RGBA buffer back to its .tex (re-encoded in format). */
+export async function savePaintedTexture(
+    projectPath: string,
+    texturePath: string,
+    rgba: Uint8Array,
+    width: number,
+    height: number,
+): Promise<void> {
+    return invokeCommand('save_painted_texture', {
+        projectPath,
+        texturePath,
+        rgba: Array.from(rgba),
+        width,
+        height,
+    });
+}
+
 export interface ApplyPsdReport {
     written: number;
     skipped: string[];

@@ -282,6 +282,7 @@ fn main() {
             commands::map_tiles::apply_category_psd,
             commands::map_tiles::category_psd_exists,
             commands::map_tiles::list_map_texture_sections,
+            commands::map_tiles::save_painted_texture,
             // Champion discovery commands
             commands::champion::discover_champions,
             commands::champion::get_champion_skins,
