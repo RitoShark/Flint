@@ -433,6 +433,7 @@ export const TitleBar: React.FC = () => {
         if (!target) return;
         beginPointerDrag(e, {
             label: target.filePath.split(/[/\\]/).pop() || 'editor',
+            capture: true, // keep receiving events when released outside the window
             onDrop: ({ screenX, screenY }) => {
                 const insideX = screenX >= window.screenX && screenX <= window.screenX + window.outerWidth;
                 const insideY = screenY >= window.screenY && screenY <= window.screenY + window.outerHeight;
