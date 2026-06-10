@@ -1,20 +1,15 @@
 /**
  * TransferModal
  * Opened when the user drags a file/folder from one project's tree and drops it
- * into another project (onto a folder, after spring-loading into that project).
- * The destination is already decided by where they dropped — this dialog only
- * asks Move or Copy. Mounted once in App; driven by `useTransferStore`.
+ * into another project (onto a folder, after spring-loading in). The destination
+ * is already decided by where they dropped — this dialog only asks Move or Copy.
+ *
+ * Styled with the design-lab system (`.dl-*` in styles/design-lab.css), rendered
+ * through a portal like the lab's own modals.
  */
 
-import React, { useState } from 'react';
-import {
-    Modal,
-    ModalHeader,
-    ModalBody,
-    ModalFooter,
-    ModalLoading,
-    Button,
-} from '../ui';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTransferStore, useProjectTabStore, useNotificationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 
@@ -23,13 +18,16 @@ export const TransferModal: React.FC = () => {
     const closeTransfer = useTransferStore((s) => s.closeTransfer);
     const showToast = useNotificationStore((s) => s.showToast);
 
-    const [busy, setBusy] = useState(false);
+    const [runningOp, setRunningOp] = useState<'copy' | 'move' | null>(null);
+    const busy = runningOp !== null;
 
-    const sourceName = pending?.payload.name ?? '';
-    const sourceKind = pending?.payload.isDirectory ? 'folder' : 'file';
-    const destLabel = pending
-        ? `${pending.destProjectName}${pending.destFolder && pending.destFolder !== '.' ? ` / ${pending.destFolder}` : ''}`
-        : '';
+    // Esc closes (unless mid-transfer).
+    useEffect(() => {
+        if (!pending) return;
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) closeTransfer(); };
+        document.addEventListener('keydown', onKey);
+        return () => document.removeEventListener('keydown', onKey);
+    }, [pending, busy, closeTransfer]);
 
     /** Refresh the file tree of any open tab pointing at `projectPath`. */
     const refreshProjectTree = async (projectPath: string) => {
@@ -44,8 +42,9 @@ export const TransferModal: React.FC = () => {
     };
 
     const runTransfer = async (op: 'copy' | 'move') => {
-        if (!pending) return;
-        setBusy(true);
+        if (!pending || busy) return;
+        const sourceName = pending.payload.name;
+        setRunningOp(op);
         try {
             const { payload, destProjectPath, destFolder } = pending;
             const fn = op === 'copy' ? api.copyBetweenProjects : api.moveBetweenProjects;
@@ -61,38 +60,57 @@ export const TransferModal: React.FC = () => {
             const flintError = err as api.FlintError;
             showToast('error', flintError.getUserMessage?.() || `Failed to ${op} ${sourceName}`);
         } finally {
-            setBusy(false);
+            setRunningOp(null);
         }
     };
 
     if (!pending) return null;
 
-    return (
-        <Modal open={!!pending} onClose={busy ? () => {} : closeTransfer}>
-            {busy && <ModalLoading text="Transferring" progress={`${sourceName}…`} />}
+    const kind = pending.payload.isDirectory ? 'folder' : 'file';
+    const destLabel = `${pending.destProjectName}${pending.destFolder && pending.destFolder !== '.' ? ` / ${pending.destFolder}` : ''}`;
 
-            <ModalHeader title="Move or Copy?" onClose={closeTransfer} />
+    return createPortal(
+        <div
+            className="dl-modal-backdrop"
+            onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) closeTransfer(); }}
+        >
+            <div className="dl-modal" role="dialog" aria-modal="true" style={{ maxWidth: 440 }}>
+                <div className="dl-modal__head">
+                    <h3 className="dl-modal__title">Move or copy?</h3>
+                </div>
 
-            <ModalBody>
-                <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
-                    {sourceKind === 'folder' ? 'Folder ' : 'File '}
-                    <strong style={{ color: 'var(--text-primary)' }}>{sourceName}</strong>
-                    {' → '}
-                    <strong style={{ color: 'var(--text-primary)' }}>{destLabel}</strong>
-                </p>
-            </ModalBody>
+                <div className="dl-modal__body">
+                    <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6 }}>
+                        You want to move this {kind}{' '}
+                        <strong style={{ color: 'var(--accent-primary)' }}>{pending.payload.name}</strong>
+                        {' '}to{' '}
+                        <strong style={{ color: 'var(--danger)' }}>{destLabel}</strong>?
+                    </p>
+                </div>
 
-            <ModalFooter>
-                <Button variant="ghost" onClick={closeTransfer} disabled={busy}>
-                    Cancel
-                </Button>
-                <Button variant="secondary" onClick={() => runTransfer('copy')} disabled={busy}>
-                    Copy
-                </Button>
-                <Button variant="primary" onClick={() => runTransfer('move')} disabled={busy}>
-                    Move
-                </Button>
-            </ModalFooter>
-        </Modal>
+                <div className="dl-modal__foot" style={{ justifyContent: 'space-between' }}>
+                    <button className="dl-btn dl-btn--ghost" onClick={closeTransfer} disabled={busy}>
+                        Cancel
+                    </button>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                            className={`dl-btn dl-btn--primary${runningOp === 'move' ? ' dl-btn--loading' : ''}`}
+                            onClick={() => runTransfer('move')}
+                            disabled={busy}
+                        >
+                            Move
+                        </button>
+                        <button
+                            className={`dl-btn dl-btn--secondary${runningOp === 'copy' ? ' dl-btn--loading' : ''}`}
+                            onClick={() => runTransfer('copy')}
+                            disabled={busy}
+                        >
+                            Copy
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>,
+        document.body,
     );
 };
