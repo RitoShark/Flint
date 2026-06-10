@@ -1,35 +1,44 @@
 /**
  * Emitter Palette — left-side panel listing ritobin blocks copied out of a BIN
- * editor. Each row is HTML5-draggable into the Monaco editor of any open BIN;
- * the editor's drop handler reads the block id from the drag payload, resolves
- * it from `emitterPaletteStore`, and splices it in with correct nesting.
+ * editor. Each row is dragged (via pointer-drag, NOT HTML5 — WebView2's native
+ * drag-drop blocks HTML5 DnD) into the Monaco editor of any open BIN. On release
+ * over a `.bin-editor__content`, a `flint:emitter-drop` CustomEvent carrying the
+ * block id + drop coords is dispatched; the BinEditor listens and splices the
+ * block in with correct nesting.
  */
 
 import React from 'react';
 import { Button } from '../ui';
+import { beginPointerDrag } from '../../lib/pointerDrag';
 import { useEmitterPaletteStore, type CopiedBlock } from '../../lib/stores/emitterPaletteStore';
 import '../../styles/emitterPalette.css';
 
-/** MIME type used as the drag payload key for a copied block id. */
-export const EMITTER_DND_MIME = 'application/x-flint-emitter';
+/** DOM event a palette drop dispatches onto the target `.bin-editor__content`. */
+export const EMITTER_DROP_EVENT = 'flint:emitter-drop';
+export interface EmitterDropDetail { blockId: string; clientX: number; clientY: number; }
 
 interface EmitterPaletteProps {
     onClose: () => void;
 }
 
 const PaletteRow: React.FC<{ block: CopiedBlock; onRemove: (id: string) => void }> = ({ block, onRemove }) => {
-    const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
-        e.dataTransfer.setData(EMITTER_DND_MIME, block.id);
-        // Plain-text fallback so the block can also be pasted as text elsewhere.
-        e.dataTransfer.setData('text/plain', block.text);
-        e.dataTransfer.effectAllowed = 'copy';
+    const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+        beginPointerDrag(e, {
+            label: block.label,
+            onDrop: ({ clientX, clientY }) => {
+                const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+                const editorEl = el?.closest('.bin-editor__content') as HTMLElement | null;
+                if (!editorEl) return;
+                const detail: EmitterDropDetail = { blockId: block.id, clientX, clientY };
+                editorEl.dispatchEvent(new CustomEvent(EMITTER_DROP_EVENT, { detail, bubbles: true }));
+            },
+        });
     };
 
     return (
         <div
             className="emitter-palette__item"
-            draggable
-            onDragStart={handleDragStart}
+            onPointerDown={handlePointerDown}
             title={`Drag into a BIN editor to insert\n\n${block.text}`}
         >
             <span className="emitter-palette__drag-handle" aria-hidden>⠿</span>

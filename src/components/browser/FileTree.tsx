@@ -13,7 +13,9 @@ import { getFileIcon, getExpanderIcon, getIcon } from '../../lib/ui-helpers/file
 import { VirtualizedList } from './wad-explorer/VirtualizedList';
 import * as api from '../../lib/api';
 import { buildFileContextMenuOptions } from '../../lib/editor/fileContextMenuOptions';
-import { TREE_DND_MIME, type TreeDragPayload } from '../../lib/dnd';
+import { beginPointerDrag } from '../../lib/pointerDrag';
+import { useTransferStore } from '../../lib/stores/transferStore';
+import type { TreeDragPayload } from '../../lib/dnd';
 import type { FileTreeNode, ProjectTab } from '../../lib/types';
 
 const ROW_HEIGHT = 22;
@@ -471,6 +473,37 @@ interface TreeRowProps {
     onContextMenu: (e: React.MouseEvent, node: FileTreeNode, depth: number) => void;
 }
 
+/** Project tab under the given client point, if any (tabs carry data-project-tab). */
+function projectTabAt(x: number, y: number): HTMLElement | null {
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    return (el?.closest('[data-project-tab]') as HTMLElement | null) ?? null;
+}
+
+function clearTabDropHighlights(): void {
+    document.querySelectorAll('.titlebar__tab--drop-target')
+        .forEach((el) => el.classList.remove('titlebar__tab--drop-target'));
+}
+
+/** Highlight the project tab under the cursor (unless it's the source project). */
+function highlightTabAt(x: number, y: number, sourceProject: string): void {
+    clearTabDropHighlights();
+    const tab = projectTabAt(x, y);
+    if (tab && tab.getAttribute('data-project-tab') !== sourceProject) {
+        tab.classList.add('titlebar__tab--drop-target');
+    }
+}
+
+/** On drop: if released over a DIFFERENT project's tab, open the copy/move dialog. */
+function dropTreeItemOnTab(x: number, y: number, payload: TreeDragPayload): void {
+    const tab = projectTabAt(x, y);
+    clearTabDropHighlights();
+    if (!tab) return;
+    const destProjectPath = tab.getAttribute('data-project-tab');
+    const destProjectName = tab.getAttribute('data-project-name') || 'project';
+    if (!destProjectPath || destProjectPath === payload.projectPath) return;
+    useTransferStore.getState().openTransfer({ payload, destProjectPath, destProjectName });
+}
+
 const TreeRow: React.FC<TreeRowProps> = React.memo(({
     row,
     projectPath,
@@ -488,21 +521,24 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
     const renameInputRef = useRef<HTMLInputElement>(null);
 
     // Drag a file/folder out to another project's tab (cross-project copy/move).
-    // The project root (path ".") isn't draggable.
+    // Uses pointer-drag, NOT HTML5 draggable — WebView2's native drag-drop (kept
+    // on for Explorer file imports) blocks HTML5 DnD. The project root (".") and
+    // a row being renamed aren't draggable.
     const isDraggable = node.path !== '.' && !isRenaming;
-    const handleDragStart = (e: React.DragEvent) => {
-        if (!isDraggable || !projectPath) {
-            e.preventDefault();
-            return;
-        }
+    const handlePointerDown = (e: React.PointerEvent) => {
+        if (!isDraggable || !projectPath) return;
         const payload: TreeDragPayload = {
             projectPath,
             relPath: node.path,
             name: node.name,
             isDirectory: node.isDirectory,
         };
-        e.dataTransfer.setData(TREE_DND_MIME, JSON.stringify(payload));
-        e.dataTransfer.effectAllowed = 'copyMove';
+        beginPointerDrag(e, {
+            label: node.name,
+            onMove: (x, y) => highlightTabAt(x, y, projectPath),
+            onDrop: ({ clientX, clientY }) => dropTreeItemOnTab(clientX, clientY, payload),
+            onEnd: clearTabDropHighlights,
+        });
     };
 
     useEffect(() => {
@@ -555,8 +591,7 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
             <div
                 className={`file-tree__item ${isSelected ? 'file-tree__item--selected' : ''} ${statusClass}${isDropTarget ? ' file-tree__item--drop-target' : ''}`}
                 style={{ paddingLeft: 4 + depth * 12 }}
-                draggable={isDraggable}
-                onDragStart={handleDragStart}
+                onPointerDown={handlePointerDown}
                 onClick={handleClick}
                 onDoubleClick={handleDoubleClick}
                 onContextMenu={(e) => onContextMenu(e, node, depth)}

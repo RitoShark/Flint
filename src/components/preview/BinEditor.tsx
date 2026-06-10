@@ -29,7 +29,7 @@ import {
     registerRitobinTheme
 } from '../../lib/editor/ritobinLanguage';
 import { AssetPreviewTooltip } from './AssetPreviewTooltip';
-import { EmitterPalette, EMITTER_DND_MIME } from './EmitterPalette';
+import { EmitterPalette, EMITTER_DROP_EVENT, type EmitterDropDetail } from './EmitterPalette';
 import { useEmitterPaletteStore } from '../../lib/stores/emitterPaletteStore';
 import {
     findEnclosingBlock,
@@ -1183,25 +1183,17 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         setShowPreview(false);
     }, []);
 
-    // Allow dropping palette blocks onto the editor.
-    const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-        if (e.dataTransfer.types.includes(EMITTER_DND_MIME)) {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'copy';
-        }
-    }, []);
-
-    const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-        const id = e.dataTransfer.getData(EMITTER_DND_MIME);
-        if (!id) return;
-        e.preventDefault();
+    // Insert a palette block at a client point. Driven by the `flint:emitter-drop`
+    // CustomEvent the EmitterPalette dispatches on release over this editor
+    // (pointer-drag, since WebView2's native drag-drop blocks HTML5 DnD).
+    const insertBlockAt = useCallback((id: string, clientX: number, clientY: number) => {
         const block = useEmitterPaletteStore.getState().getById(id);
         const ed = editorRef.current;
         const model = ed?.getModel();
         if (!block || !ed || !model) return;
 
         // Map the drop point to a model line; default to the last line if missed.
-        const target = ed.getTargetAtClientPoint(e.clientX, e.clientY);
+        const target = ed.getTargetAtClientPoint(clientX, clientY);
         const dropLine = target?.position?.lineNumber ?? model.getLineCount();
 
         const fullText = model.getValue();
@@ -1224,6 +1216,18 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         ed.focus();
         showToast('success', `Inserted ${block.label}`);
     }, [showToast]);
+
+    // Receive palette pointer-drops landing on this editor's container.
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        const onEmitterDrop = (e: Event) => {
+            const { blockId, clientX, clientY } = (e as CustomEvent<EmitterDropDetail>).detail;
+            insertBlockAt(blockId, clientX, clientY);
+        };
+        el.addEventListener(EMITTER_DROP_EVENT, onEmitterDrop as EventListener);
+        return () => el.removeEventListener(EMITTER_DROP_EVENT, onEmitterDrop as EventListener);
+    }, [insertBlockAt]);
 
     // Fix first bracket error: insert the missing closing bracket at suggest line
     const handleFixBracket = useCallback(() => {
@@ -1365,8 +1369,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                     onMouseMove={handleMouseMove}
                     onMouseLeave={handleMouseLeave}
                     onClick={handleClick}
-                    onDragOver={handleDragOver}
-                    onDrop={handleDrop}
                     style={{ flex: 1, minWidth: 0 }}
                 >
                     <div ref={editorContainerRef} style={{ width: '100%', height: '100%' }} />
