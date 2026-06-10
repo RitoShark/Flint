@@ -4,7 +4,8 @@
     "description": "Capability for the main window and the map-preview window",
     "windows": [
         "main",
-        "map-preview"
+        "map-preview",
+        "editor-*"
     ],
     "permissions": [
         "core:default",

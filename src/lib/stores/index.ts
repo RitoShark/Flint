@@ -16,6 +16,7 @@ import { useChampionStore } from './championStore';
 import { useModalStore } from './modalStore';
 import { useFileEditorStore } from './fileEditorStore';
 import { useNotificationStore } from './notificationStore';
+import { useTransferStore } from './transferStore';
 import { navigationCoordinator } from './navigationCoordinator';
 import type { AppState } from '../types';
 
@@ -32,6 +33,7 @@ export {
   useModalStore,
   useNotificationStore,
   useFileEditorStore,
+  useTransferStore,
 };
 
 /**

@@ -23,6 +23,7 @@ import { bootUxPrefs } from './lib/stores/uxStore';
 import { App } from './components/layout/App';
 import { DesignLab } from './components/ui/DesignLab';
 import { MapPreviewWindow } from './components/preview/MapPreviewWindow';
+import { EditorWindow } from './components/editor/EditorWindow';
 
 // Import styles
 import './styles/index.css';
@@ -69,6 +70,11 @@ const isDesignLab =
 const isMapPreview =
     typeof window !== 'undefined' && window.location.hash.startsWith('#map-preview');
 
+// Hash bypass: opening with #editor mounts a torn-off file-editor window
+// (its own React root, no app boot) — see open_editor_window (Rust).
+const isEditorWindow =
+    typeof window !== 'undefined' && window.location.hash.startsWith('#editor');
+
 // eslint-disable-next-line no-console
 console.log(`[startup] imports resolved in ${(performance.now() - __FLINT_JS_START).toFixed(1)}ms`);
 
@@ -104,6 +110,8 @@ root.render(
     // keep it stable.
     isMapPreview
         ? React.createElement(MapPreviewWindow)
+        : isEditorWindow
+        ? React.createElement(EditorWindow)
         : isDesignLab
             ? React.createElement(React.StrictMode, null, React.createElement(DesignLab))
             : React.createElement(

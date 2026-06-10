@@ -13,6 +13,7 @@ import { getFileIcon, getExpanderIcon, getIcon } from '../../lib/ui-helpers/file
 import { VirtualizedList } from './wad-explorer/VirtualizedList';
 import * as api from '../../lib/api';
 import { buildFileContextMenuOptions } from '../../lib/editor/fileContextMenuOptions';
+import { TREE_DND_MIME, type TreeDragPayload } from '../../lib/dnd';
 import type { FileTreeNode, ProjectTab } from '../../lib/types';
 
 const ROW_HEIGHT = 22;
@@ -438,6 +439,7 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
                     return (
                         <TreeRow
                             row={row}
+                            projectPath={activeTab?.projectPath || ''}
                             isSelected={selectedFile === row.node.path}
                             isDropTarget={dropTargetPath === row.node.path}
                             onItemClick={handleItemClick}
@@ -457,6 +459,7 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
 
 interface TreeRowProps {
     row: TreeRowData;
+    projectPath: string;
     isSelected: boolean;
     isDropTarget: boolean;
     onItemClick: (path: string) => void;
@@ -470,6 +473,7 @@ interface TreeRowProps {
 
 const TreeRow: React.FC<TreeRowProps> = React.memo(({
     row,
+    projectPath,
     isSelected,
     isDropTarget,
     onItemClick,
@@ -482,6 +486,24 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
 }) => {
     const { node, displayPath, depth, isExpanded, isRenaming, status } = row;
     const renameInputRef = useRef<HTMLInputElement>(null);
+
+    // Drag a file/folder out to another project's tab (cross-project copy/move).
+    // The project root (path ".") isn't draggable.
+    const isDraggable = node.path !== '.' && !isRenaming;
+    const handleDragStart = (e: React.DragEvent) => {
+        if (!isDraggable || !projectPath) {
+            e.preventDefault();
+            return;
+        }
+        const payload: TreeDragPayload = {
+            projectPath,
+            relPath: node.path,
+            name: node.name,
+            isDirectory: node.isDirectory,
+        };
+        e.dataTransfer.setData(TREE_DND_MIME, JSON.stringify(payload));
+        e.dataTransfer.effectAllowed = 'copyMove';
+    };
 
     useEffect(() => {
         if (isRenaming && renameInputRef.current) {
@@ -533,6 +555,8 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
             <div
                 className={`file-tree__item ${isSelected ? 'file-tree__item--selected' : ''} ${statusClass}${isDropTarget ? ' file-tree__item--drop-target' : ''}`}
                 style={{ paddingLeft: 4 + depth * 12 }}
+                draggable={isDraggable}
+                onDragStart={handleDragStart}
                 onClick={handleClick}
                 onDoubleClick={handleDoubleClick}
                 onContextMenu={(e) => onContextMenu(e, node, depth)}

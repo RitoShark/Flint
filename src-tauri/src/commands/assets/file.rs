@@ -1388,27 +1388,9 @@ pub async fn import_external_files(
             .to_string_lossy()
             .to_string();
 
-        let mut dest_full = dest_dir_full.join(&file_name);
+        let dest_full = unique_dest(&dest_dir_full, &file_name);
         if dest_full.exists() {
-            // Disambiguate with " (n)" suffix
-            let stem = Path::new(&file_name)
-                .file_stem()
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_else(|| file_name.clone());
-            let ext = Path::new(&file_name)
-                .extension()
-                .map(|s| format!(".{}", s.to_string_lossy()))
-                .unwrap_or_default();
-            for n in 1..1000 {
-                let candidate = dest_dir_full.join(format!("{} ({}){}", stem, n, ext));
-                if !candidate.exists() {
-                    dest_full = candidate;
-                    break;
-                }
-            }
-            if dest_full.exists() {
-                return Err(format!("'{}' already exists and uniquification failed", file_name));
-            }
+            return Err(format!("'{}' already exists and uniquification failed", file_name));
         }
 
         if src.is_dir() {
@@ -1446,6 +1428,142 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// Resolve a non-colliding path inside `dest_dir` for `file_name`. If the name
+/// is free it's returned as-is; otherwise a `" (n)"` suffix is inserted before
+/// the extension until a free name is found (gives up after 10000 tries and
+/// returns the still-colliding base path so the caller can error).
+fn unique_dest(dest_dir: &Path, file_name: &str) -> PathBuf {
+    let base = dest_dir.join(file_name);
+    if !base.exists() {
+        return base;
+    }
+    let stem = Path::new(file_name)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| file_name.to_string());
+    let ext = Path::new(file_name)
+        .extension()
+        .map(|s| format!(".{}", s.to_string_lossy()))
+        .unwrap_or_default();
+    for n in 1..10000 {
+        let candidate = dest_dir.join(format!("{} ({}){}", stem, n, ext));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    base
+}
+
+/// Copy or move files/folders from one project into a folder of ANOTHER
+/// project. `source_rel_paths` are project-relative (forward slashes) within
+/// `source_project`; `dest_folder` is relative to `dest_project`. Collisions
+/// are auto-uniquified with a `" (n)"` suffix. Moves use `rename` and fall back
+/// to copy-then-delete across volumes. Returns the dest-project-relative paths
+/// created.
+fn transfer_between_projects(
+    source_project: &str,
+    source_rel_paths: &[String],
+    dest_project: &str,
+    dest_folder: &str,
+    do_move: bool,
+) -> Result<Vec<String>, String> {
+    let src_root = PathBuf::from(source_project);
+    let dst_root = PathBuf::from(dest_project);
+    let dst_dir = dst_root.join(dest_folder);
+
+    if !dst_dir.is_dir() {
+        return Err(format!("Destination is not a directory: {}", dest_folder));
+    }
+
+    let canonical_dst_dir = dst_dir
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve destination path: {}", e))?;
+
+    let mut created: Vec<String> = Vec::new();
+
+    for rel in source_rel_paths {
+        let src_full = src_root.join(rel);
+        if !src_full.exists() {
+            return Err(format!("Source does not exist: {}", rel));
+        }
+
+        // Never let a folder land inside itself or its own subtree.
+        if src_full.is_dir() {
+            if let Ok(canonical_src) = src_full.canonicalize() {
+                if canonical_dst_dir.starts_with(&canonical_src) {
+                    return Err("Cannot transfer a folder into itself or its subdirectory".to_string());
+                }
+            }
+        }
+
+        let file_name = src_full
+            .file_name()
+            .ok_or("Cannot get filename from source path")?
+            .to_string_lossy()
+            .to_string();
+
+        let dest_full = unique_dest(&dst_dir, &file_name);
+        if dest_full.exists() {
+            return Err(format!("'{}' already exists and uniquification failed", file_name));
+        }
+
+        if do_move {
+            // rename is atomic on the same volume; across volumes it fails with
+            // an OS error, so fall back to copy-then-delete.
+            if fs::rename(&src_full, &dest_full).is_err() {
+                if src_full.is_dir() {
+                    copy_dir_recursive(&src_full, &dest_full)
+                        .map_err(|e| format!("Failed to move directory '{}': {}", file_name, e))?;
+                    fs::remove_dir_all(&src_full)
+                        .map_err(|e| format!("Failed to remove source directory '{}': {}", file_name, e))?;
+                } else {
+                    fs::copy(&src_full, &dest_full)
+                        .map_err(|e| format!("Failed to move file '{}': {}", file_name, e))?;
+                    fs::remove_file(&src_full)
+                        .map_err(|e| format!("Failed to remove source file '{}': {}", file_name, e))?;
+                }
+            }
+        } else if src_full.is_dir() {
+            copy_dir_recursive(&src_full, &dest_full)
+                .map_err(|e| format!("Failed to copy directory '{}': {}", file_name, e))?;
+        } else {
+            fs::copy(&src_full, &dest_full)
+                .map_err(|e| format!("Failed to copy file '{}': {}", file_name, e))?;
+        }
+
+        let rel_out = dest_full
+            .strip_prefix(&dst_root)
+            .map_err(|_| "Failed to compute relative path")?
+            .to_string_lossy()
+            .replace('\\', "/");
+        created.push(rel_out);
+    }
+
+    Ok(created)
+}
+
+/// Copy files/folders from one project into a folder of another project.
+#[tauri::command]
+pub async fn copy_between_projects(
+    source_project: String,
+    source_rel_paths: Vec<String>,
+    dest_project: String,
+    dest_folder: String,
+) -> Result<Vec<String>, String> {
+    transfer_between_projects(&source_project, &source_rel_paths, &dest_project, &dest_folder, false)
+}
+
+/// Move files/folders from one project into a folder of another project.
+#[tauri::command]
+pub async fn move_between_projects(
+    source_project: String,
+    source_rel_paths: Vec<String>,
+    dest_project: String,
+    dest_folder: String,
+) -> Result<Vec<String>, String> {
+    transfer_between_projects(&source_project, &source_rel_paths, &dest_project, &dest_folder, true)
 }
 
 /// Get floor texture as PNG bytes.

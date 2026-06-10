@@ -5,6 +5,14 @@ export async function readFileBytes(path: string, opts: { silent?: boolean } = {
     return new Uint8Array(buf);
 }
 
+/**
+ * Open (or focus) the file editor for `filePath` in its own OS window.
+ * Used by the titlebar tab tear-off gesture. `kind` is a `FileEditorKind`.
+ */
+export async function openEditorWindow(filePath: string, kind: string, projectPath?: string): Promise<void> {
+    return invokeCommand('open_editor_window', { filePath, kind, projectPath });
+}
+
 export interface FileInfo {
     path: string;
     size: number;
@@ -119,6 +127,26 @@ export async function importExternalFiles(
     sources: string[],
 ): Promise<string[]> {
     return invokeCommand('import_external_files', { projectPath, destFolder, sources });
+}
+
+/** Copy files/folders from one project into a folder of another project. */
+export async function copyBetweenProjects(
+    sourceProject: string,
+    sourceRelPaths: string[],
+    destProject: string,
+    destFolder: string,
+): Promise<string[]> {
+    return invokeCommand('copy_between_projects', { sourceProject, sourceRelPaths, destProject, destFolder });
+}
+
+/** Move files/folders from one project into a folder of another project. */
+export async function moveBetweenProjects(
+    sourceProject: string,
+    sourceRelPaths: string[],
+    destProject: string,
+    destFolder: string,
+): Promise<string[]> {
+    return invokeCommand('move_between_projects', { sourceProject, sourceRelPaths, destProject, destFolder });
 }
 
 // =============================================================================

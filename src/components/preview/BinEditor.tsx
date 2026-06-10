@@ -29,6 +29,14 @@ import {
     registerRitobinTheme
 } from '../../lib/editor/ritobinLanguage';
 import { AssetPreviewTooltip } from './AssetPreviewTooltip';
+import { EmitterPalette, EMITTER_DND_MIME } from './EmitterPalette';
+import { useEmitterPaletteStore } from '../../lib/stores/emitterPaletteStore';
+import {
+    findEnclosingBlock,
+    reindentBlock,
+    renameEmitterIfCollision,
+    computeInsertPosition,
+} from '../../lib/editor/blockExtraction';
 
 // Configure Monaco workers — wrap in try-catch so a broken worker doesn't
 // cascade and break the entire editor (Monarch tokenizer runs on main thread anyway)
@@ -308,7 +316,7 @@ const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     colorDecorators: false,
     codeLens: false,
     inlineSuggest: { enabled: true, mode: 'prefix' },
-    contextmenu: false,
+    contextmenu: true,
     accessibilitySupport: 'off',
 };
 
@@ -803,6 +811,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const [error, setError] = useState<string | null>(null);
     const [lineCount, setLineCount] = useState(0);
     const [sidePanelOpen, setSidePanelOpen] = useState(false);
+    const [paletteOpen, setPaletteOpen] = useState(false);
 
     // Bracket validation state
     const [bracketStatus, setBracketStatus] = useState<BracketValidation>({ valid: true, errors: [] });
@@ -952,6 +961,46 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
 
         editorRef.current = ed;
 
+        // ── Right-click "copy block" context actions ────────────────────────────
+        const copyBlockToPalette = (filter: string[] | undefined, outermost: boolean) => {
+            const m = ed.getModel();
+            const pos = ed.getPosition();
+            if (!m || !pos) return;
+            const text = m.getValue();
+            // Try the requested class filter first; fall back to nearest block of any class.
+            let block = findEnclosingBlock(text, pos.lineNumber, filter, outermost);
+            if (!block) block = findEnclosingBlock(text, pos.lineNumber, undefined, outermost);
+            if (!block) {
+                showToast('info', 'No block found at cursor');
+                return;
+            }
+            const nameMatch = block.blockText.match(/emitterName:\s*string\s*=\s*"([^"]+)"/);
+            const label = nameMatch ? nameMatch[1] : block.className;
+            useEmitterPaletteStore.getState().add({
+                label,
+                className: block.className,
+                text: block.blockText,
+            });
+            setPaletteOpen(true);
+            showToast('success', `Copied ${label} to palette`);
+        };
+
+        const copyEmitterAction = ed.addAction({
+            id: 'flint.copyEmitterBlock',
+            label: 'Copy emitter block',
+            contextMenuGroupId: 'flint',
+            contextMenuOrder: 1,
+            run: () => copyBlockToPalette(['VfxEmitterDefinitionData'], false),
+        });
+
+        const copyFullVfxAction = ed.addAction({
+            id: 'flint.copyFullVfx',
+            label: 'Copy full VfxEmitter / VfxSystem',
+            contextMenuGroupId: 'flint',
+            contextMenuOrder: 2,
+            run: () => copyBlockToPalette(['VfxSystemDefinitionData', 'VfxEmitterDefinitionData'], true),
+        });
+
         // Restore cursor/selection/scroll from a cached session (tab-switch return).
         // Only when the session matches the current file version, so we never apply
         // a stale scroll position onto freshly-decoded content.
@@ -1031,6 +1080,8 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             // tab-close commits for a few hundred ms otherwise.
             deferCleanup(() => {
                 inlineProvider.dispose();
+                copyEmitterAction.dispose();
+                copyFullVfxAction.dispose();
                 ed.dispose();
             });
         };
@@ -1131,6 +1182,48 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null; }
         setShowPreview(false);
     }, []);
+
+    // Allow dropping palette blocks onto the editor.
+    const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+        if (e.dataTransfer.types.includes(EMITTER_DND_MIME)) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+        }
+    }, []);
+
+    const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+        const id = e.dataTransfer.getData(EMITTER_DND_MIME);
+        if (!id) return;
+        e.preventDefault();
+        const block = useEmitterPaletteStore.getState().getById(id);
+        const ed = editorRef.current;
+        const model = ed?.getModel();
+        if (!block || !ed || !model) return;
+
+        // Map the drop point to a model line; default to the last line if missed.
+        const target = ed.getTargetAtClientPoint(e.clientX, e.clientY);
+        const dropLine = target?.position?.lineNumber ?? model.getLineCount();
+
+        const fullText = model.getValue();
+        const { line, indent } = computeInsertPosition(fullText, dropLine, getBracketStackAtLine);
+
+        // Re-indent the copied block to the insert position, then rename its
+        // emitterName if it would collide with one already in this document.
+        let blockText = reindentBlock(block.text, indent);
+        blockText = renameEmitterIfCollision(blockText, fullText);
+
+        // Splice as a new line after `line` (single undoable edit).
+        const insertCol = model.getLineMaxColumn(line);
+        model.pushEditOperations(
+            [],
+            [{ range: new monaco.Range(line, insertCol, line, insertCol), text: '\n' + blockText }],
+            () => null,
+        );
+        // onDidChangeContent re-runs bracket validation automatically.
+        ed.revealLineInCenter(line + 1);
+        ed.focus();
+        showToast('success', `Inserted ${block.label}`);
+    }, [showToast]);
 
     // Fix first bracket error: insert the missing closing bracket at suggest line
     const handleFixBracket = useCallback(() => {
@@ -1234,6 +1327,15 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                             Fix {'}'}
                         </button>
                     )}
+                    {/* Block palette toggle */}
+                    <button
+                        className={`btn btn--sm${paletteOpen ? ' btn--primary' : ''}`}
+                        style={!paletteOpen ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
+                        onClick={() => setPaletteOpen(!paletteOpen)}
+                        title="Toggle copied-block palette (drag emitter/VFX blocks into any BIN)"
+                    >
+                        ▤
+                    </button>
                     {/* BIN Tools side panel toggle */}
                     <button
                         className={`btn btn--sm${sidePanelOpen ? ' btn--primary' : ''}`}
@@ -1256,12 +1358,15 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
 
             {/* Editor + side panel wrapper */}
             <div style={{ flex: 1, display: 'flex', minHeight: 0, position: 'relative' }}>
+                {paletteOpen && <EmitterPalette onClose={() => setPaletteOpen(false)} />}
                 <div
                     className="bin-editor__content"
                     ref={containerRef}
                     onMouseMove={handleMouseMove}
                     onMouseLeave={handleMouseLeave}
                     onClick={handleClick}
+                    onDragOver={handleDragOver}
+                    onDrop={handleDrop}
                     style={{ flex: 1, minWidth: 0 }}
                 >
                     <div ref={editorContainerRef} style={{ width: '100%', height: '100%' }} />

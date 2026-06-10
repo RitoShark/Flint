@@ -769,6 +769,12 @@ textarea:focus {
   background-color: color-mix(in oklab, var(--accent-primary) 18%, transparent);
 }
 
+/* Highlight when a file/folder is dragged over from another project's tree. */
+.titlebar__tab--drop-target {
+  background-color: color-mix(in oklab, var(--accent-primary) 22%, transparent);
+  box-shadow: inset 0 0 0 1px var(--accent-primary);
+}
+
 .titlebar__tab-icon {
   display: flex;
   align-items: center;

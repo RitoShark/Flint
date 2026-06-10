@@ -275,6 +275,8 @@ fn main() {
             commands::map_preview::load_map_texture,
             commands::map_preview::open_map_preview_window,
             commands::map_preview::resolve_map_texture_path,
+            // Editor tear-off (separate OS window for a file editor)
+            commands::editor_window::open_editor_window,
             commands::map_tiles::combine_ground_to_psd,
             commands::map_tiles::apply_psd_to_textures,
             commands::map_tiles::ground_psd_exists,
@@ -309,6 +311,8 @@ fn main() {
             commands::file::duplicate_file,
             commands::file::move_file,
             commands::file::import_external_files,
+            commands::file::copy_between_projects,
+            commands::file::move_between_projects,
             commands::file::is_directory,
             commands::file::list_folder_contents,
             commands::bin_split::analyze_bin_for_split,

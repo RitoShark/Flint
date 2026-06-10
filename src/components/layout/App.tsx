@@ -21,6 +21,7 @@ import { CenterPanel } from './CenterPanel';
 import { StatusBar } from './StatusBar';
 import { ContextMenu } from '../overlays/ContextMenu';
 import { ConfirmDialog } from '../overlays/ConfirmDialog';
+import { TransferModal } from '../overlays/TransferModal';
 import { NewProjectModal } from '../modals/NewProjectModal';
 import { SettingsModal } from '../modals/SettingsModal';
 import { ExportModal } from '../modals/ExportModal';
@@ -687,6 +688,9 @@ export const App: React.FC = () => {
 
             {/* Confirm Dialog */}
             <ConfirmDialog />
+
+            {/* Cross-project file copy/move */}
+            <TransferModal />
 
             {/* First-run tutorial */}
             {showTutorial && <TutorialOverlay onDone={() => setShowTutorial(false)} />}

@@ -10,6 +10,8 @@ import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import * as api from '../../lib/api';
 import { sanitizeChampionName } from '../../lib/util/utils';
+import { TREE_DND_MIME, readTreeDragPayload } from '../../lib/dnd';
+import { useTransferStore } from '../../lib/stores/transferStore';
 import type { ProjectTab, ExtractSession } from '../../lib/types';
 
 // Window control icons as inline SVGs
@@ -73,6 +75,7 @@ const TAB_CLOSE_MS = 180;
 
 const Tab: React.FC<TabProps> = ({ tab, isActive, onSwitch, onClose }) => {
     const [closing, setClosing] = useState(false);
+    const [dropTarget, setDropTarget] = useState(false);
 
     const triggerClose = useCallback((e: React.MouseEvent) => {
         e.stopPropagation();
@@ -91,11 +94,38 @@ const Tab: React.FC<TabProps> = ({ tab, isActive, onSwitch, onClose }) => {
 
     const projectName = tab.project.display_name || tab.project.name;
 
+    // Accept file/folder drags from another project's tree → copy/move dialog.
+    const handleDragOver = useCallback((e: React.DragEvent) => {
+        if (!e.dataTransfer.types.includes(TREE_DND_MIME)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        setDropTarget(true);
+    }, []);
+
+    const handleDragLeave = useCallback(() => setDropTarget(false), []);
+
+    const handleDrop = useCallback((e: React.DragEvent) => {
+        const payload = readTreeDragPayload(e);
+        setDropTarget(false);
+        if (!payload) return;
+        e.preventDefault();
+        // Same project — nothing to transfer.
+        if (payload.projectPath === tab.projectPath) return;
+        useTransferStore.getState().openTransfer({
+            payload,
+            destProjectPath: tab.projectPath,
+            destProjectName: projectName,
+        });
+    }, [tab.projectPath, projectName]);
+
     return (
         <div
-            className={`titlebar__tab ${isActive ? 'titlebar__tab--active' : ''}${closing ? ' titlebar__tab--closing' : ''}`}
+            className={`titlebar__tab ${isActive ? 'titlebar__tab--active' : ''}${closing ? ' titlebar__tab--closing' : ''}${dropTarget ? ' titlebar__tab--drop-target' : ''}`}
             onClick={closing ? undefined : onSwitch}
             onMouseDown={handleMiddleClick}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
             title={`${projectName}\n${tab.projectPath}`}
             data-tauri-drag-region="false"
         >
@@ -416,6 +446,33 @@ export const TitleBar: React.FC = () => {
         }
     }, [fileEditorDirty, openConfirmDialog]);
 
+    // Tab tear-off: dragging the file-editor tab OUT of the window (release
+    // outside the window bounds, measured in screen coordinates) pops the
+    // editor into its own OS window and closes the in-app tab. The file is
+    // already on disk, so the new window re-derives everything from URL + disk.
+    const handleFileEditorTabDragStart = useCallback((e: React.DragEvent) => {
+        e.dataTransfer.effectAllowed = 'move';
+    }, []);
+
+    const handleFileEditorTabDragEnd = useCallback((e: React.DragEvent) => {
+        const target = useFileEditorStore.getState().target;
+        if (!target) return;
+        const insideX = e.screenX >= window.screenX && e.screenX <= window.screenX + window.outerWidth;
+        const insideY = e.screenY >= window.screenY && e.screenY <= window.screenY + window.outerHeight;
+        // screenX/Y can be 0,0 on a cancelled drag — treat that as "inside".
+        if ((insideX && insideY) || (e.screenX === 0 && e.screenY === 0)) return;
+
+        api.openEditorWindow(target.filePath, target.kind, target.projectPath)
+            .then(() => {
+                useFileEditorStore.getState().closeTarget();
+                useNavigationStore.getState().setView('preview');
+            })
+            .catch((err) => {
+                console.error('Failed to tear off editor window:', err);
+                showToast('error', 'Failed to open editor in a new window');
+            });
+    }, [showToast]);
+
     const hasTabs = openTabs.length > 0 || extractSessions.length > 0 || isWadExplorerOpen || !!fileEditorTarget;
 
     return (
@@ -476,7 +533,10 @@ export const TitleBar: React.FC = () => {
                                 className={`titlebar__tab ${isFileEditorActive ? 'titlebar__tab--active' : ''}`}
                                 onClick={() => useNavigationStore.getState().setView('file-editor')}
                                 onMouseDown={(e) => { if (e.button === 1) handleCloseFileEditor(e); }}
-                                title={fileEditorTarget.filePath}
+                                draggable
+                                onDragStart={handleFileEditorTabDragStart}
+                                onDragEnd={handleFileEditorTabDragEnd}
+                                title={`${fileEditorTarget.filePath}\nDrag out of the window to open in a separate window`}
                                 data-tauri-drag-region="false"
                             >
                                 <span className="titlebar__tab-icon" dangerouslySetInnerHTML={{ __html: getIcon('bin') }} />
