@@ -156,6 +156,29 @@ export async function saveProject(project: Project): Promise<void> {
     return invokeCommand('save_project', { project });
 }
 
+export interface HardRenameResult {
+    new_project_path: string;
+    project: Project;
+    bins_changed: number;
+    strings_changed: number;
+    folders_renamed: number;
+    skipped_bins: string[];
+}
+
+/**
+ * Hard-rename a project everywhere: rewrite the asset prefix in every BIN,
+ * rename the on-disk asset folders, update mod.config.json + flint.json, and
+ * rename the project directory itself. Irreversible. Returns the new on-disk
+ * path + updated project; the caller should reopen the project at that path.
+ */
+export async function hardRenameProject(
+    project: Project,
+    projectPath: string,
+    newName: string,
+): Promise<HardRenameResult> {
+    return invokeCommand('hard_rename_project', { project, projectPath, newName });
+}
+
 export async function deleteProject(projectPath: string): Promise<void> {
     return invokeCommand('delete_project', { projectPath });
 }

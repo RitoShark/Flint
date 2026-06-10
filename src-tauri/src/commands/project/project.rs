@@ -9,7 +9,7 @@ use flint_ltk::project::{
     save_project as core_save_project,
     Project,
 };
-use flint_ltk::repath::{organize_project, OrganizerConfig};
+use flint_ltk::repath::{organize_project, rename_project_asset_prefix, OrganizerConfig, RenameResult};
 use flint_ltk::bin::{classify_bin, BinCategory};
 use flint_ltk::wad::extractor::{
     find_champion_wad, extract_skin_assets, extract_skin_assets_selective, wad_contains_skin_bin,
@@ -1023,6 +1023,112 @@ pub async fn save_project(project: Project) -> Result<(), String> {
         .await
         .map_err(|e| format!("Task failed: {}", e))?
         .map_err(|e| e.to_string())
+}
+
+/// Result of a hard rename — the new on-disk location plus what changed.
+#[derive(Debug, Serialize)]
+pub struct HardRenameResult {
+    pub new_project_path: String,
+    pub project: Project,
+    pub bins_changed: usize,
+    pub strings_changed: usize,
+    pub folders_renamed: usize,
+    pub skipped_bins: Vec<String>,
+}
+
+/// Hard-rename a project everywhere: rewrite the asset prefix
+/// (`ASSETS/{creator}/{old}` → `…/{new}`) inside every BIN, rename the matching
+/// on-disk asset folders, update `mod.config.json` + `flint.json`, and finally
+/// rename the project directory itself. Returns the new path + updated project.
+///
+/// Irreversible — the frontend warns before calling.
+#[tauri::command]
+pub async fn hard_rename_project(
+    project: Project,
+    project_path: String,
+    new_name: String,
+) -> Result<HardRenameResult, String> {
+    let _t = ipc_trace::enter("hard_rename_project");
+    let new_name = new_name.trim().to_string();
+    if new_name.is_empty() {
+        return Err("Project name cannot be empty".to_string());
+    }
+    tokio::task::spawn_blocking(move || hard_rename_inner(project, project_path, new_name))
+        .await
+        .map_err(|e| format!("Task failed: {}", e))?
+}
+
+fn hard_rename_inner(mut project: Project, project_path: String, new_name: String) -> Result<HardRenameResult, String> {
+    let root = PathBuf::from(&project_path);
+    if !root.is_dir() {
+        return Err(format!("Project folder not found: {}", project_path));
+    }
+
+    // Old project segment as it appears in asset paths = the current slug `name`.
+    let old_name = project.name.clone();
+    let new_slug = sanitize_project_slug(&new_name);
+    let content_base = root.join("content");
+
+    // 1. Rewrite asset prefix in BINs + rename on-disk asset folders.
+    let rename_result: RenameResult = if content_base.is_dir() {
+        rename_project_asset_prefix(&content_base, &old_name, &new_slug)
+            .map_err(|e| format!("Failed to rewrite asset paths: {}", e))?
+    } else {
+        RenameResult::default()
+    };
+
+    // 2. Update name + display_name and persist config (mod.config.json +
+    //    flint.json) at the CURRENT path, before moving the directory.
+    project.name = new_slug.clone();
+    project.display_name = new_name.clone();
+    project.project_path = root.clone();
+    core_save_project(&project).map_err(|e| format!("Failed to save project config: {}", e))?;
+
+    // 3. Rename the project directory itself.
+    let parent = root.parent().ok_or("Project has no parent directory")?;
+    let new_root = parent.join(&new_slug);
+    let new_project_path = if new_root == root {
+        project_path.clone()
+    } else if new_root.exists() {
+        return Err(format!("A folder named '{}' already exists next to the project", new_slug));
+    } else {
+        std::fs::rename(&root, &new_root).map_err(|e| format!("Failed to rename project folder: {}", e))?;
+        new_root.to_string_lossy().replace('\\', "/")
+    };
+
+    project.project_path = PathBuf::from(&new_project_path);
+    // The frontend reopens the project at the new path, which re-registers it
+    // in the index and refreshes the recent-projects list.
+
+    Ok(HardRenameResult {
+        new_project_path,
+        project,
+        bins_changed: rename_result.bins_changed,
+        strings_changed: rename_result.strings_changed,
+        folders_renamed: rename_result.folders_renamed,
+        skipped_bins: rename_result.skipped_bins,
+    })
+}
+
+/// Filesystem- and asset-path-safe project slug: trim, spaces→hyphens, drop
+/// characters illegal in Windows paths, and strip trailing dots/spaces.
+fn sanitize_project_slug(name: &str) -> String {
+    let mut s: String = name
+        .trim()
+        .chars()
+        .map(|c| match c {
+            ' ' => '-',
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            c => c,
+        })
+        .collect();
+    while s.ends_with('.') || s.ends_with(' ') {
+        s.pop();
+    }
+    if s.is_empty() {
+        s.push_str("project");
+    }
+    s
 }
 
 /// Batched existence check for a list of project directories.

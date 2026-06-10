@@ -9,5 +9,7 @@
 
 pub mod refather;
 pub mod organizer;
+pub mod rename;
 
 pub use organizer::{organize_project, OrganizerConfig};
+pub use rename::{rename_project_asset_prefix, RenameResult};

@@ -260,6 +260,7 @@ fn main() {
             commands::project::discover_projects,
             commands::project::forget_project,
             commands::project::save_project,
+            commands::project::hard_rename_project,
             commands::project::delete_project,
             commands::project::list_project_files,
             commands::project::projects_path_valid,

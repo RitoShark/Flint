@@ -8,7 +8,8 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useModalStore, useProjectTabStore, useConfigStore, useNotificationStore } from '../../lib/stores';
+import { useModalStore, useProjectTabStore, useConfigStore, useNotificationStore, useNavigationStore } from '../../lib/stores';
+import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
 import * as api from '../../lib/api';
 
 export const RenameProjectModal: React.FC = () => {
@@ -37,17 +38,35 @@ export const RenameProjectModal: React.FC = () => {
 
     const save = async () => {
         if (!tab || !canSave) return;
+        const oldTabId = tab.id;
         setBusy(true);
         try {
-            const updated = { ...tab.project, display_name: trimmed };
-            await api.saveProject(updated);
-            // Reflect the new name in the open tab + the recent-projects list.
-            useProjectTabStore.getState().updateTab(tab.id, { project: updated });
+            // Hard rename everywhere: BIN asset paths, asset folders, config
+            // files, and the project directory itself.
+            const result = await api.hardRenameProject(tab.project, projectPath, trimmed);
+
+            // The folder moved — reopen the project at its new path and drop the
+            // stale tab.
+            const { project, fileTree } = await api.openProjectWithTree(result.new_project_path);
+            useProjectTabStore.getState().addTab(project, result.new_project_path);
+            const newTabId = useProjectTabStore.getState().activeTabId;
+            if (newTabId) useProjectTabStore.getState().setFileTree(newTabId, fileTree);
+            useNavigationStore.getState().setView('preview');
+            navigationCoordinator.removeTabWithFallback(oldTabId);
+
+            // Repoint the recent-projects entry to the new path + name.
             const cfg = useConfigStore.getState();
             cfg.setSavedProjects(cfg.savedProjects.map((p) =>
-                p.path === projectPath ? { ...p, name: trimmed } : p,
+                p.path === projectPath ? { ...p, path: result.new_project_path, name: trimmed } : p,
             ));
-            showToast('success', `Renamed project to “${trimmed}”`);
+
+            showToast(
+                'success',
+                `Renamed to “${trimmed}” — ${result.strings_changed} path${result.strings_changed === 1 ? '' : 's'} in ${result.bins_changed} bin${result.bins_changed === 1 ? '' : 's'}, ${result.folders_renamed} folder${result.folders_renamed === 1 ? '' : 's'}`,
+            );
+            if (result.skipped_bins.length > 0) {
+                showToast('warning', `${result.skipped_bins.length} BIN(s) couldn’t be parsed and were left unchanged`);
+            }
             closeModal();
         } catch (err) {
             const fe = err as api.FlintError;
@@ -85,6 +104,12 @@ export const RenameProjectModal: React.FC = () => {
                             disabled={busy}
                         />
                     </label>
+
+                    <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: 'var(--text-muted)' }}>
+                        This rewrites asset paths in every BIN, renames the asset folders and the
+                        project folder, and updates the config files. <strong style={{ color: 'var(--danger)' }}>It can’t be undone</strong> —
+                        the project reopens at its new location.
+                    </p>
                 </div>
 
                 <div className="dl-modal__foot" style={{ justifyContent: 'flex-end' }}>
