@@ -5,7 +5,8 @@
     "windows": [
         "main",
         "map-preview",
-        "editor-*"
+        "editor-*",
+        "project-*"
     ],
     "permissions": [
         "core:default",

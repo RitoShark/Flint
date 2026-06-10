@@ -4,6 +4,7 @@ import {
     reindentBlock,
     renameEmitterIfCollision,
     computeInsertPosition,
+    extractAssetPaths,
 } from './blockExtraction';
 
 const EMITTER_DOC = [
@@ -148,5 +149,53 @@ describe('computeInsertPosition', () => {
         const pos = computeInsertPosition(doc, 2);
         expect(pos.indent).toBe('');
         expect(pos.line).toBe(2);
+    });
+});
+
+describe('extractAssetPaths', () => {
+    const VFX_BLOCK = [
+        'VfxEmitterDefinitionData {',
+        '    emitterName: string = "Smoke"',
+        '    particleColorTexture: string = "ASSETS/Characters/Aatrox/Skins/Skin0/Particles/smoke.dds"',
+        '    birthScale0: vec3 = { 1, 1, 1 }',
+        '    mTexture: string = "ASSETS/Characters/Aatrox/Skins/Skin0/Particles/mask.tex"',
+        '    mesh: string = "ASSETS/Characters/Aatrox/Skins/Skin0/aatrox.scb"',
+        '    soundOnPlay: string = "ASSETS/Sounds/Wwise2016/SFX/Characters/Aatrox/skin0_sfx_audio.bnk"',
+        '    label: string = "no slash so not a path"',
+        '    plainName: string = "JustAName"',
+        '}',
+    ].join('\n');
+
+    it('extracts texture / mesh / sound paths in order', () => {
+        expect(extractAssetPaths(VFX_BLOCK)).toEqual([
+            'ASSETS/Characters/Aatrox/Skins/Skin0/Particles/smoke.dds',
+            'ASSETS/Characters/Aatrox/Skins/Skin0/Particles/mask.tex',
+            'ASSETS/Characters/Aatrox/Skins/Skin0/aatrox.scb',
+            'ASSETS/Sounds/Wwise2016/SFX/Characters/Aatrox/skin0_sfx_audio.bnk',
+        ]);
+    });
+
+    it('ignores non-asset strings and bare names', () => {
+        const out = extractAssetPaths(VFX_BLOCK);
+        expect(out).not.toContain('no slash so not a path');
+        expect(out).not.toContain('JustAName');
+    });
+
+    it('de-duplicates repeated references', () => {
+        const doc = [
+            'a: string = "ASSETS/x/foo.dds"',
+            'b: string = "ASSETS/x/foo.dds"',
+            'c: string = "ASSETS/x/bar.tex"',
+        ].join('\n');
+        expect(extractAssetPaths(doc)).toEqual(['ASSETS/x/foo.dds', 'ASSETS/x/bar.tex']);
+    });
+
+    it('returns empty array for a block with no asset paths', () => {
+        const doc = 'VfxEmitterDefinitionData {\n    rate: f32 = 1.0\n}';
+        expect(extractAssetPaths(doc)).toEqual([]);
+    });
+
+    it('accepts uppercase extensions', () => {
+        expect(extractAssetPaths('t: string = "ASSETS/X/Y.DDS"')).toEqual(['ASSETS/X/Y.DDS']);
     });
 });

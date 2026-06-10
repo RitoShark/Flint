@@ -6,6 +6,7 @@
 pub mod project;
 pub mod map_project;
 pub mod map_preview;
+pub mod project_window;
 pub mod map_tiles;
 pub mod project_watcher;
 pub mod checkpoint;

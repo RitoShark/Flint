@@ -30,12 +30,13 @@ import {
 } from '../../lib/editor/ritobinLanguage';
 import { AssetPreviewTooltip } from './AssetPreviewTooltip';
 import { EmitterPalette, EMITTER_DROP_EVENT, type EmitterDropDetail } from './EmitterPalette';
-import { useEmitterPaletteStore } from '../../lib/stores/emitterPaletteStore';
+import { useEmitterPaletteStore, type CopiedBlock } from '../../lib/stores/emitterPaletteStore';
 import {
     findEnclosingBlock,
     reindentBlock,
     renameEmitterIfCollision,
     computeInsertPosition,
+    extractAssetPaths,
 } from '../../lib/editor/blockExtraction';
 
 // Configure Monaco workers — wrap in try-catch so a broken worker doesn't
@@ -89,6 +90,104 @@ function extractStringAtPosition(line: string, column: number): string | null {
         if (column >= startCol && column <= endCol) return match[1];
     }
     return null;
+}
+
+/**
+ * Derive the absolute project-root path that an editor's `filePath` belongs to.
+ *
+ * Primary strategy: match the file against the `projectPath` of an open tab
+ * (the file lives under `<projectPath>/...`). This is the authoritative root and
+ * works regardless of which tab is currently active. Fallback: the ancestor
+ * directory that directly contains `content/` (project files live under
+ * `<root>/content/...`). Returns null if neither resolves.
+ */
+function deriveProjectPath(filePath: string): string | null {
+    const norm = filePath.replace(/\\/g, '/');
+    const tabs = useProjectTabStore.getState().openTabs;
+    let best: string | null = null;
+    for (const tab of tabs) {
+        if (!tab.projectPath) continue;
+        const proj = tab.projectPath.replace(/\\/g, '/');
+        if (norm === proj || norm.startsWith(proj + '/')) {
+            // Prefer the longest (most specific) matching project root.
+            if (!best || proj.length > best.length) best = tab.projectPath;
+        }
+    }
+    if (best) return best;
+
+    // Fallback: the segment before `/content/`.
+    const idx = norm.toLowerCase().indexOf('/content/');
+    if (idx > 0) return filePath.slice(0, idx);
+    return null;
+}
+
+/** Result of a cross-project asset copy. */
+interface AssetCopyResult {
+    copied: number;
+    /** Assets that could not be resolved to a real file in the source project. */
+    missing: number;
+}
+
+/**
+ * Copy a copied block's referenced asset files from `sourceProject` into
+ * `destProject`, preserving each asset's project-relative location so the
+ * block's (unchanged) asset path strings still resolve in the destination.
+ *
+ * For each asset: resolve the bin path → absolute file in the source project
+ * (via the existing `resolve_asset_path` command, using the block's source BIN
+ * as the base), convert to a source-project-relative path, ensure the dest
+ * parent folder exists, then copy the file across. Resilient — a single asset
+ * failure is counted, not thrown.
+ */
+async function copyBlockAssets(
+    block: CopiedBlock,
+    sourceProject: string,
+    destProject: string,
+): Promise<AssetCopyResult> {
+    const assets = block.assets ?? [];
+    const srcRoot = sourceProject.replace(/\\/g, '/').replace(/\/+$/, '');
+    const baseBinPath = block.sourceBinPath ?? sourceProject;
+
+    let copied = 0;
+    let missing = 0;
+
+    for (const assetPath of assets) {
+        let absolute: string;
+        try {
+            absolute = await api.resolveAssetPath(assetPath, baseBinPath);
+        } catch {
+            missing += 1;
+            continue;
+        }
+        if (!absolute) {
+            missing += 1;
+            continue;
+        }
+
+        // Must resolve to a file that actually lives inside the source project.
+        const absNorm = absolute.replace(/\\/g, '/');
+        const prefix = srcRoot + '/';
+        if (!absNorm.toLowerCase().startsWith(prefix.toLowerCase())) {
+            missing += 1;
+            continue;
+        }
+        const relPath = absNorm.slice(prefix.length); // forward-slash project-relative
+        const parentFolder = relPath.includes('/') ? relPath.slice(0, relPath.lastIndexOf('/')) : '';
+
+        try {
+            if (parentFolder) {
+                // Ignore "already exists" — createDirectory is idempotent enough.
+                await api.createDirectory(destProject, parentFolder).catch(() => {});
+            }
+            await api.copyBetweenProjects(sourceProject, [relPath], destProject, parentFolder);
+            copied += 1;
+        } catch {
+            // Copy failed (collision/IO) — count as missing so the toast is honest.
+            missing += 1;
+        }
+    }
+
+    return { copied, missing };
 }
 
 // =============================================================================
@@ -976,13 +1075,18 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             }
             const nameMatch = block.blockText.match(/emitterName:\s*string\s*=\s*"([^"]+)"/);
             const label = nameMatch ? nameMatch[1] : block.className;
+            const assets = extractAssetPaths(block.blockText);
             useEmitterPaletteStore.getState().add({
                 label,
                 className: block.className,
                 text: block.blockText,
+                sourceProject: deriveProjectPath(filePath) ?? undefined,
+                sourceBinPath: filePath,
+                assets,
             });
             setPaletteOpen(true);
-            showToast('success', `Copied ${label} to palette`);
+            const assetSuffix = assets.length ? ` (${assets.length} asset${assets.length === 1 ? '' : 's'})` : '';
+            showToast('success', `Copied ${label} to palette${assetSuffix}`);
         };
 
         const copyEmitterAction = ed.addAction({
@@ -1214,8 +1318,33 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         // onDidChangeContent re-runs bracket validation automatically.
         ed.revealLineInCenter(line + 1);
         ed.focus();
-        showToast('success', `Inserted ${block.label}`);
-    }, [showToast]);
+
+        // Cross-project drop: copy the block's referenced asset files into THIS
+        // project so the (unchanged) asset paths resolve here too. Same-project
+        // drops need nothing. Failures must never break the block insertion.
+        const destProject = deriveProjectPath(filePath);
+        const sourceProject = block.sourceProject;
+        const assets = block.assets ?? [];
+        const crossProject =
+            !!destProject && !!sourceProject &&
+            destProject.replace(/\\/g, '/').toLowerCase() !== sourceProject.replace(/\\/g, '/').toLowerCase();
+
+        if (crossProject && assets.length > 0) {
+            void copyBlockAssets(block, sourceProject!, destProject!).then((res) => {
+                if (res.copied > 0 && res.missing === 0) {
+                    showToast('success', `Inserted ${block.label} (+${res.copied} asset${res.copied === 1 ? '' : 's'})`);
+                } else if (res.copied > 0) {
+                    showToast('warning', `Inserted ${block.label} — copied ${res.copied}/${assets.length} assets, ${res.missing} unresolved`);
+                } else {
+                    showToast('warning', `Inserted ${block.label} — could not copy ${assets.length} asset${assets.length === 1 ? '' : 's'} (unresolved)`);
+                }
+            }).catch(() => {
+                showToast('warning', `Inserted ${block.label} — asset copy failed`);
+            });
+        } else {
+            showToast('success', `Inserted ${block.label}`);
+        }
+    }, [showToast, filePath]);
 
     // Receive palette pointer-drops landing on this editor's container.
     useEffect(() => {

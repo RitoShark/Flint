@@ -24,6 +24,7 @@ import { App } from './components/layout/App';
 import { DesignLab } from './components/ui/DesignLab';
 import { MapPreviewWindow } from './components/preview/MapPreviewWindow';
 import { EditorWindow } from './components/editor/EditorWindow';
+import { ProjectWindow } from './components/preview/ProjectWindow';
 
 // Import styles
 import './styles/index.css';
@@ -75,6 +76,11 @@ const isMapPreview =
 const isEditorWindow =
     typeof window !== 'undefined' && window.location.hash.startsWith('#editor');
 
+// Hash bypass: opening with #project mounts a torn-off whole-project window
+// (its own React root, no app boot) — see open_project_window (Rust).
+const isProjectWindow =
+    typeof window !== 'undefined' && window.location.hash.startsWith('#project');
+
 // eslint-disable-next-line no-console
 console.log(`[startup] imports resolved in ${(performance.now() - __FLINT_JS_START).toFixed(1)}ms`);
 
@@ -112,6 +118,8 @@ root.render(
         ? React.createElement(MapPreviewWindow)
         : isEditorWindow
         ? React.createElement(EditorWindow)
+        : isProjectWindow
+        ? React.createElement(ProjectWindow)
         : isDesignLab
             ? React.createElement(React.StrictMode, null, React.createElement(DesignLab))
             : React.createElement(

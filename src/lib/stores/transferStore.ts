@@ -16,6 +16,10 @@ export interface PendingTransfer {
     destProjectPath: string;
     /** Display name of the destination project. */
     destProjectName: string;
+    /** Destination folder to pre-select (project-relative). When the item was
+     *  dropped directly onto a folder row, this is that folder; otherwise the
+     *  modal defaults to `content`. */
+    initialFolder?: string;
 }
 
 interface TransferState {

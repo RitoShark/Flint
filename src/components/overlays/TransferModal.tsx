@@ -59,8 +59,12 @@ export const TransferModal: React.FC = () => {
                 if (cancelled) return;
                 const dirs = collectDirectories(tree);
                 setFolders(dirs);
-                // Default to `content` if it exists, else the project root.
-                setDestFolder(dirs.includes('content') ? 'content' : '.');
+                // Prefer the folder the item was dropped on, else `content`, else root.
+                if (pending.initialFolder && dirs.includes(pending.initialFolder)) {
+                    setDestFolder(pending.initialFolder);
+                } else {
+                    setDestFolder(dirs.includes('content') ? 'content' : '.');
+                }
             })
             .catch(() => {
                 if (cancelled) return;

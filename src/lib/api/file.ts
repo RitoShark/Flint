@@ -13,6 +13,15 @@ export async function openEditorWindow(filePath: string, kind: string, projectPa
     return invokeCommand('open_editor_window', { filePath, kind, projectPath });
 }
 
+/**
+ * Open (or focus) the whole project at `projectPath` in its own OS window.
+ * Used by the titlebar project-tab tear-off gesture. The new window re-derives
+ * its file tree + preview from the project path on disk.
+ */
+export async function openProjectWindow(projectPath: string): Promise<void> {
+    return invokeCommand('open_project_window', { projectPath });
+}
+
 export interface FileInfo {
     path: string;
     size: number;

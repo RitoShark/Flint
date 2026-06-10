@@ -90,6 +90,33 @@ const Tab: React.FC<TabProps> = ({ tab, isActive, onSwitch, onClose }) => {
         }
     }, [triggerClose]);
 
+    // Tab tear-off: dragging the project tab OUT of the window (release outside
+    // the window bounds, measured in screen coordinates) pops the whole project
+    // into its own OS window and closes the in-app tab. The project is on disk,
+    // so the new window re-derives its tree + preview from the path. Uses
+    // pointer-drag, not HTML5 — WebView2's native drag-drop blocks HTML5 DnD.
+    // A plain click still switches tabs (beginPointerDrag only starts past 5px).
+    const handleTearOff = useCallback((e: React.PointerEvent) => {
+        // Don't start a tear-off when pressing the close button (let it click).
+        if ((e.target as Element).closest('.titlebar__tab-close')) return;
+        beginPointerDrag(e, {
+            label: tab.project.display_name || tab.project.name,
+            capture: true, // keep receiving events when released outside the window
+            onDrop: ({ screenX, screenY }) => {
+                const insideX = screenX >= window.screenX && screenX <= window.screenX + window.outerWidth;
+                const insideY = screenY >= window.screenY && screenY <= window.screenY + window.outerHeight;
+                if (insideX && insideY) return; // released inside the window — not a tear-off
+                api.openProjectWindow(tab.projectPath)
+                    .then(() => {
+                        navigationCoordinator.removeTabWithFallback(tab.id);
+                    })
+                    .catch((err) => {
+                        console.error('Failed to tear off project window:', err);
+                    });
+            },
+        });
+    }, [tab.project, tab.projectPath, tab.id]);
+
     const projectName = tab.project.display_name || tab.project.name;
 
     // Cross-project file drops land here: the file tree's pointer-drag hit-tests
@@ -101,7 +128,8 @@ const Tab: React.FC<TabProps> = ({ tab, isActive, onSwitch, onClose }) => {
             className={`titlebar__tab ${isActive ? 'titlebar__tab--active' : ''}${closing ? ' titlebar__tab--closing' : ''}`}
             onClick={closing ? undefined : onSwitch}
             onMouseDown={handleMiddleClick}
-            title={`${projectName}\n${tab.projectPath}`}
+            onPointerDown={handleTearOff}
+            title={`${projectName}\n${tab.projectPath}\nDrag out of the window to open in a separate window`}
             data-tauri-drag-region="false"
             data-project-tab={tab.projectPath}
             data-project-name={projectName}
@@ -429,6 +457,8 @@ export const TitleBar: React.FC = () => {
     // disk, so the new window re-derives everything from URL + disk. Uses
     // pointer-drag, not HTML5 — WebView2's native drag-drop blocks HTML5 DnD.
     const handleFileEditorTabPointerDown = useCallback((e: React.PointerEvent) => {
+        // Don't start a tear-off when pressing the close button (let it click).
+        if ((e.target as Element).closest('.titlebar__tab-close')) return;
         const target = useFileEditorStore.getState().target;
         if (!target) return;
         beginPointerDrag(e, {

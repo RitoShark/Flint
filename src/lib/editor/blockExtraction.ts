@@ -206,6 +206,49 @@ export function renameEmitterIfCollision(blockText: string, targetText: string):
     return blockText.replace(nameRe, `$1${candidate}$3`);
 }
 
+/**
+ * Asset file extensions that, when a quoted string ends in one and contains a
+ * `/`, mark that string as a reference to an on-disk asset file. Kept in sync
+ * with the editor's hover-preview list plus the audio/extra formats a VFX block
+ * can reference (sounds, meshes).
+ */
+export const ASSET_PATH_EXTENSIONS = [
+    'dds', 'tex', 'scb', 'skn', 'sco', 'bnk', 'wpk', 'wem', 'anm', 'png', 'tga',
+] as const;
+
+const ASSET_EXT_SET = new Set<string>(ASSET_PATH_EXTENSIONS);
+
+/**
+ * Extract the distinct asset-file path strings referenced inside a ritobin
+ * block. An asset reference is any double-quoted string value that contains a
+ * `/` (a path) and ends in a known asset extension (e.g.
+ * `particleColorTexture: string = "ASSETS/.../foo.dds"`, a mesh `.scb`/`.skn`,
+ * a sound `.bnk`/`.wpk`). The property name is intentionally NOT matched —
+ * League uses many different property names for asset paths across VFX classes,
+ * so we key purely off the string's shape.
+ *
+ * Returns paths in first-seen order, de-duplicated (case-insensitively on the
+ * extension, exact on the path).
+ */
+export function extractAssetPaths(blockText: string): string[] {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    const stringRe = /"([^"\\]*(?:\\.[^"\\]*)*)"/g;
+    let m: RegExpExecArray | null;
+    while ((m = stringRe.exec(blockText)) !== null) {
+        const value = m[1];
+        if (!value.includes('/') && !value.includes('\\')) continue;
+        const dot = value.lastIndexOf('.');
+        if (dot === -1) continue;
+        const ext = value.slice(dot + 1).toLowerCase();
+        if (!ASSET_EXT_SET.has(ext)) continue;
+        if (seen.has(value)) continue;
+        seen.add(value);
+        out.push(value);
+    }
+    return out;
+}
+
 export interface InsertPosition {
     /** 1-based line AFTER which the block should be spliced (insert a newline + block). */
     line: number;

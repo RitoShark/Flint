@@ -16,7 +16,11 @@
 
 import { create } from 'zustand';
 
-const STORAGE_KEY = 'flint_emitter_palette_v1';
+// v2 added `sourceProject`, `sourceBinPath`, `assets` (used to copy referenced
+// asset files when a block is dropped into a different project). Reading the old
+// v1 entries would still work (the new fields are optional), but bumping the key
+// keeps the persisted shape unambiguous.
+const STORAGE_KEY = 'flint_emitter_palette_v2';
 
 /** A single copied ritobin block sitting in the palette. */
 export interface CopiedBlock {
@@ -30,6 +34,19 @@ export interface CopiedBlock {
     text: string;
     /** Epoch millis when it was copied. */
     createdAt: number;
+    /**
+     * Absolute path of the project the block was copied FROM. Used to copy the
+     * referenced asset files when the block is dropped into a different project.
+     * Optional for backward-compat / blocks copied outside a known project.
+     */
+    sourceProject?: string;
+    /**
+     * Absolute path of the BIN file the block was copied from. Used as the base
+     * when resolving the block's relative asset paths to real files on disk.
+     */
+    sourceBinPath?: string;
+    /** Asset path strings referenced by the block (textures/meshes/sounds). */
+    assets?: string[];
 }
 
 interface EmitterPaletteState {
