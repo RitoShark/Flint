@@ -11,7 +11,45 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTransferStore, useProjectTabStore, useNotificationStore } from '../../lib/stores';
+import { getFileIcon, getIcon } from '../../lib/ui-helpers/fileIcons';
 import * as api from '../../lib/api';
+
+const cardStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    padding: '12px 14px',
+    background: 'var(--bg-tertiary)',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--dl-radius, 10px)',
+    minWidth: 0,
+};
+const iconBoxStyle: React.CSSProperties = {
+    width: 34,
+    height: 34,
+    flex: 'none',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    background: 'color-mix(in oklab, var(--bg-secondary) 70%, transparent)',
+    border: '1px solid var(--border)',
+};
+const labelStyle: React.CSSProperties = {
+    fontSize: 10.5,
+    fontWeight: 600,
+    letterSpacing: '.05em',
+    textTransform: 'uppercase',
+    color: 'var(--text-muted)',
+    marginBottom: 2,
+};
+const valueStyle: React.CSSProperties = {
+    fontSize: 14,
+    fontWeight: 600,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+};
 
 export const TransferModal: React.FC = () => {
     const pending = useTransferStore((s) => s.pending);
@@ -66,26 +104,51 @@ export const TransferModal: React.FC = () => {
 
     if (!pending) return null;
 
-    const kind = pending.payload.isDirectory ? 'folder' : 'file';
-    const destLabel = `${pending.destProjectName}${pending.destFolder && pending.destFolder !== '.' ? ` / ${pending.destFolder}` : ''}`;
+    const isDir = pending.payload.isDirectory;
+    const folderText = !pending.destFolder || pending.destFolder === '.' ? 'Project root' : pending.destFolder;
 
     return createPortal(
         <div
             className="dl-modal-backdrop"
             onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) closeTransfer(); }}
         >
-            <div className="dl-modal" role="dialog" aria-modal="true" style={{ maxWidth: 440 }}>
+            <div className="dl-modal" role="dialog" aria-modal="true" style={{ maxWidth: 430 }}>
                 <div className="dl-modal__head">
-                    <h3 className="dl-modal__title">Move or copy?</h3>
+                    <h3 className="dl-modal__title">Move or copy {isDir ? 'folder' : 'file'}?</h3>
                 </div>
 
-                <div className="dl-modal__body">
-                    <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6 }}>
-                        You want to move this {kind}{' '}
-                        <strong style={{ color: 'var(--accent-primary)' }}>{pending.payload.name}</strong>
-                        {' '}to{' '}
-                        <strong style={{ color: 'var(--danger)' }}>{destLabel}</strong>?
-                    </p>
+                <div className="dl-modal__body" style={{ gap: 4 }}>
+                    {/* The item being transferred */}
+                    <div style={cardStyle}>
+                        <span
+                            style={iconBoxStyle}
+                            dangerouslySetInnerHTML={{ __html: getFileIcon(pending.payload.name, isDir, false) }}
+                        />
+                        <div style={{ minWidth: 0 }}>
+                            <div style={labelStyle}>{isDir ? 'Folder' : 'File'}</div>
+                            <div style={valueStyle} title={pending.payload.name}>{pending.payload.name}</div>
+                        </div>
+                    </div>
+
+                    {/* Connector — neutral down arrow (works for both move and copy) */}
+                    <div style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        color: 'var(--text-muted)', padding: '2px 0',
+                    }}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+                            <path d="M12 5v14M6 13l6 6 6-6" stroke="currentColor" strokeWidth="2"
+                                strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                    </div>
+
+                    {/* Destination */}
+                    <div style={{ ...cardStyle, borderColor: 'color-mix(in oklab, var(--danger) 45%, var(--border))' }}>
+                        <span style={iconBoxStyle} dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
+                        <div style={{ minWidth: 0 }}>
+                            <div style={labelStyle}>Destination · {pending.destProjectName}</div>
+                            <div style={{ ...valueStyle, color: 'var(--danger)' }} title={folderText}>{folderText}</div>
+                        </div>
+                    </div>
                 </div>
 
                 <div className="dl-modal__foot" style={{ justifyContent: 'space-between' }}>
