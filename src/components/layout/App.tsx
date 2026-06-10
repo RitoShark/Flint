@@ -39,6 +39,7 @@ import { FullResImageModal } from '../modals/FullResImageModal';
 import { BrowseWadModal } from '../modals/BrowseWadModal';
 import { FileCompareModal } from '../modals/FileCompareModal';
 import { AddLayerModal } from '../modals/AddLayerModal';
+import { RenameProjectModal } from '../modals/RenameProjectModal';
 import { ChromaPortModal } from '../modals/ChromaPortModal';
 import { WhatsNewModal } from '../modals/WhatsNewModal';
 import { ToastContainer } from '../overlays/Toast';
@@ -71,6 +72,7 @@ const ActiveModal: React.FC<{ activeModal: string | null }> = React.memo(({ acti
         case 'fixer':            return <FixerModal />;
         case 'projectList':      return <ProjectListModal />;
         case 'modConfig':        return <ModConfigEditorModal />;
+        case 'renameProject':    return <RenameProjectModal />;
         case 'thumbnail':        return <ThumbnailCropModal />;
         case 'checkpoint':       return <CheckpointModal />;
         case 'binSplit':         return <BinSplitModal />;

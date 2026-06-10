@@ -65,6 +65,11 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                 separator: true,
                 submenu: [
                     {
+                        label: 'Rename Project…',
+                        icon: getIcon('text'),
+                        onClick: () => openModal('renameProject', { projectPath }),
+                    },
+                    {
                         label: 'Edit Project Info',
                         icon: getIcon('code'),
                         onClick: () => {
