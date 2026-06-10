@@ -55,7 +55,7 @@ fn w_pascal(out: &mut Vec<u8>, s: &str, pad_to: usize) {
     out.push(bytes.len() as u8);
     out.extend_from_slice(&bytes);
     let mut total = 1 + bytes.len();
-    while total % pad_to != 0 {
+    while !total.is_multiple_of(pad_to) {
         out.push(0);
         total += 1;
     }
@@ -80,7 +80,7 @@ fn w_section(out: &mut Vec<u8>, round: usize, len_incl_pad: bool, body: impl FnO
     body(out);
     let unpadded = out.len() - start;
     let mut padded = unpadded;
-    while padded % round != 0 {
+    while !padded.is_multiple_of(round) {
         out.push(0);
         padded += 1;
     }

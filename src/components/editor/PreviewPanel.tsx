@@ -8,7 +8,6 @@ import { useConfigStore, useProjectTabStore, useModalStore, useNotificationStore
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { ImagePreview } from '../preview/ImagePreview';
-import { HexViewer } from '../preview/HexViewer';
 import { TextPreview } from '../preview/TextPreview';
 import { BinEditor } from '../preview/BinEditor';
 import { ModelPreview } from '../preview/ModelPreview';

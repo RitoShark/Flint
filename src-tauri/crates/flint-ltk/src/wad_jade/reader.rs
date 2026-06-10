@@ -104,7 +104,6 @@ fn read_chunk_v3_1<R: Read>(reader: &mut R) -> Result<WadChunk> {
     let uncompressed_size = reader.read_i32::<LittleEndian>()?.max(0) as u64;
 
     let type_frame_count = reader.read_u8()?;
-    let frame_count = type_frame_count >> 4;
     let compression_byte = type_frame_count & 0x0F;
     let compression = WadCompression::from_u8(compression_byte).ok_or_else(|| {
         Error::Wad {
@@ -113,9 +112,11 @@ fn read_chunk_v3_1<R: Read>(reader: &mut R) -> Result<WadChunk> {
         }
     })?;
 
-    let is_duplicated = reader.read_u8()? == 1;
-    let start_frame = reader.read_u16::<LittleEndian>()? as u32;
-    let checksum = reader.read_u64::<LittleEndian>()?;
+    // Read past is_duplicated (u8), start_frame (u16), checksum (u64) — the
+    // extractor doesn't use them but the cursor must advance over them.
+    reader.read_u8()?;
+    reader.read_u16::<LittleEndian>()?;
+    reader.read_u64::<LittleEndian>()?;
 
     Ok(WadChunk {
         path_hash,
@@ -123,10 +124,6 @@ fn read_chunk_v3_1<R: Read>(reader: &mut R) -> Result<WadChunk> {
         compressed_size,
         uncompressed_size,
         compression,
-        frame_count,
-        start_frame,
-        is_duplicated,
-        checksum,
     })
 }
 
@@ -137,7 +134,6 @@ fn read_chunk_v3_4<R: Read>(reader: &mut R) -> Result<WadChunk> {
     let uncompressed_size = reader.read_u32::<LittleEndian>()? as u64;
 
     let type_frame_count = reader.read_u8()?;
-    let frame_count = type_frame_count >> 4;
     let compression_byte = type_frame_count & 0x0F;
     let compression = WadCompression::from_u8(compression_byte).ok_or_else(|| {
         Error::Wad {
@@ -146,13 +142,12 @@ fn read_chunk_v3_4<R: Read>(reader: &mut R) -> Result<WadChunk> {
         }
     })?;
 
-    // 24-bit start_frame, oddly ordered: hi, lo, mi (matches Riot's writer).
-    let hi = reader.read_u8()? as u32;
-    let lo = reader.read_u8()? as u32;
-    let mi = reader.read_u8()? as u32;
-    let start_frame = (hi << 16) | (mi << 8) | lo;
-
-    let checksum = reader.read_u64::<LittleEndian>()?;
+    // Read past the 24-bit start_frame (3 bytes) and checksum (u64) — unused by
+    // the extractor, but the cursor must advance over them.
+    reader.read_u8()?;
+    reader.read_u8()?;
+    reader.read_u8()?;
+    reader.read_u64::<LittleEndian>()?;
 
     Ok(WadChunk {
         path_hash,
@@ -160,9 +155,5 @@ fn read_chunk_v3_4<R: Read>(reader: &mut R) -> Result<WadChunk> {
         compressed_size,
         uncompressed_size,
         compression,
-        frame_count,
-        start_frame,
-        is_duplicated: false,
-        checksum,
     })
 }

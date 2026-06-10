@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { blendChannel, falloff, stampDab, stampMask, compositeMask, uvToTexel, strokeDabs, edgeDilate, type Brush } from './paintEngine';
+import { blendChannel, falloff, stampMask, compositeMask, strokeDabs, edgeDilate } from './paintEngine';
 
 describe('blendChannel', () => {
     it('Normal lerps dst toward src by strength', () => {
@@ -19,38 +19,6 @@ describe('falloff', () => {
     it('is 0 at/after radius', () => expect(falloff(1, 1)).toBeCloseTo(0));
     it('hardness=1 is flat (1 until edge)', () => expect(falloff(0.9, 1, 1)).toBeCloseTo(1));
     it('soft (hardness 0) fades before edge', () => expect(falloff(0.5, 1, 0)).toBeLessThan(1));
-});
-
-const opaque = (w: number, h: number): Uint8Array => {
-    const buf = new Uint8Array(w * h * 4);
-    for (let i = 3; i < buf.length; i += 4) buf[i] = 255;
-    return buf;
-};
-const brush = (over: Partial<Brush> = {}): Brush =>
-    ({ mode: 'Normal', color: [255, 0, 0], opacity: 1, flow: 1, hardness: 1, ...over });
-
-describe('stampDab', () => {
-    it('paints the center texel toward the color', () => {
-        const W = 4, H = 4, buf = opaque(W, H);
-        stampDab(buf, W, H, 2, 2, 1.5, brush());
-        const ci = (2 * W + 2) * 4;
-        expect(buf[ci]).toBe(255);
-        expect(buf[ci + 1]).toBe(0);
-    });
-    it('leaves far texels untouched', () => {
-        const W = 8, H = 8, buf = opaque(W, H);
-        stampDab(buf, W, H, 1, 1, 1, brush({ color: [255, 255, 255] }));
-        expect(buf[(6 * W + 6) * 4]).toBe(0);
-    });
-    it('preserves alpha', () => {
-        const W = 4, H = 4, buf = opaque(W, H);
-        stampDab(buf, W, H, 2, 2, 2, brush());
-        expect(buf[(2 * W + 2) * 4 + 3]).toBe(255);
-    });
-});
-
-describe('uvToTexel', () => {
-    it('flips V', () => expect(uvToTexel(0.5, 1.0, 100, 100)).toEqual([50, 0]));
 });
 
 describe('strokeDabs', () => {

@@ -406,18 +406,6 @@ pub struct ApplyReport {
     pub errors: Vec<String>,
 }
 
-/// Flatten the PSD's VISIBLE layers into one canvas-sized RGBA buffer, honoring
-/// blend modes + opacity. INTENDED to bake custom layers (e.g. a Dodge "river
-/// light") into the result — but the psd crate's flatten_layers_rgba returns a
-/// TRANSPARENT buffer on our hand-written PSDs, so Apply does NOT use this yet
-/// (it uses the per-layer .rgba() path instead). Kept for the future
-/// custom-layer-baking feature once writer/flatten compatibility is solved.
-#[allow(dead_code)]
-fn flatten_visible(psd: &psd::Psd) -> Vec<u8> {
-    psd.flatten_layers_rgba(&|(_, layer)| layer.visible())
-        .unwrap_or_else(|_| psd.rgba())
-}
-
 /// Crop a tile rectangle out of a canvas-sized RGBA buffer (row-major, 4 bpp).
 fn crop_tile(canvas: &[u8], canvas_w: u32, left: u32, top: u32, tw: u32, th: u32) -> image::RgbaImage {
     let mut tile = image::RgbaImage::new(tw, th);
@@ -697,7 +685,7 @@ pub async fn combine_category_to_psd(
         CombineMode::Combined => {
             // Pack into a grid on one canvas, flattened to a single layer.
             let cols = atlas_cols(imgs.len());
-            let rows = ((imgs.len() as u32) + cols - 1) / cols;
+            let rows = (imgs.len() as u32).div_ceil(cols);
             let mut canvas = image::RgbaImage::new(cols * CELL, rows * CELL);
             for (i, (_, img)) in imgs.iter().enumerate() {
                 let cx = (i as u32 % cols) * CELL;
@@ -895,49 +883,6 @@ mod tests {
         assert!(t("ground_c2_chaosred_02.tex").is_none()); // numeric variant suffix
         // ...while the real base tile still classifies.
         assert!(t("ground_d3_chaosbase_a.tex").is_some());
-    }
-
-    /// A custom layer on top must BAKE INTO the tile on apply: flatten_visible +
-    /// crop should return the TOP layer's pixels, not the base's.
-    ///
-    /// KNOWN ISSUE (WIP, 2026-06-08): the `psd` crate's flatten_layers_rgba()
-    /// returns a TRANSPARENT result on our hand-written PSDs (per-layer .rgba()
-    /// works fine, but the flatten renderer needs layer metadata our writer
-    /// doesn't emit). Flatten-on-Apply is NOT functional yet — must fix the
-    /// writer/flatten compatibility (or composite ourselves) before relying on it.
-    #[test]
-    #[ignore = "flatten_layers_rgba returns transparent on our PSDs — see note; WIP"]
-    fn flatten_bakes_top_layer_into_tile() {
-        use crate::core::psd_write::{write_psd, PsdDoc, PsdGroup, PsdLayer};
-        use image::{Rgba, RgbaImage};
-
-        // 8×8 canvas. Base = blue, full-canvas. Top = opaque red, full-canvas.
-        let mk = |c: [u8; 4]| {
-            let mut img = RgbaImage::new(8, 8);
-            for p in img.pixels_mut() {
-                *p = Rgba(c);
-            }
-            img
-        };
-        let doc = PsdDoc {
-            width: 8,
-            height: 8,
-            groups: vec![PsdGroup {
-                name: "G".into(),
-                visible: true,
-                // Writer emits bottom-to-top; put base first, custom red last (on top).
-                layers: vec![
-                    PsdLayer { name: "base".into(), x: 0, y: 0, image: mk([0, 0, 255, 255]), visible: true },
-                    PsdLayer { name: "custom".into(), x: 0, y: 0, image: mk([255, 0, 0, 255]), visible: true },
-                ],
-            }],
-        };
-        let bytes = write_psd(&doc);
-        let psd = psd::Psd::from_bytes(&bytes).expect("parse");
-        let flat = flatten_visible(&psd);
-        let tile = crop_tile(&flat, psd.width(), 0, 0, 8, 8);
-        // The visible top (red) layer must win.
-        assert_eq!(tile.get_pixel(4, 4).0, [255, 0, 0, 255], "top layer should bake in");
     }
 
     /// The bug that nuked textures: writer → psd-crate read → crop must return

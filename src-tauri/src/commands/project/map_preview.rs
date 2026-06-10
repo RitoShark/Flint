@@ -299,9 +299,9 @@ pub fn decode_geometry(geo: &MapGeometry) -> Result<DecodedGeometry, String> {
         for v in 0..model.vertex_count as usize {
             let vbase = v * stride;
             let p = read_f32x3(&vbuf.data, vbase + pos_off);
-            for i in 0..3 {
-                out.bbox_min[i] = out.bbox_min[i].min(p[i]);
-                out.bbox_max[i] = out.bbox_max[i].max(p[i]);
+            for (i, &pi) in p.iter().enumerate() {
+                out.bbox_min[i] = out.bbox_min[i].min(pi);
+                out.bbox_max[i] = out.bbox_max[i].max(pi);
             }
             out.positions.extend_from_slice(&p);
             let uv = match uv_off {
@@ -376,7 +376,7 @@ pub async fn load_map_preview(project_path: String) -> Result<tauri::ipc::Respon
     let mut out: Vec<u8> = Vec::new();
     out.extend_from_slice(&(meta_json.len() as u32).to_le_bytes());
     out.extend_from_slice(&meta_json);
-    while out.len() % 4 != 0 {
+    while !out.len().is_multiple_of(4) {
         out.push(0);
     }
     for f in &decoded.positions {

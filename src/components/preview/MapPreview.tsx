@@ -25,9 +25,6 @@ import { PointerEventTypes } from '@babylonjs/core/Events/pointerEvents';
 // Side-effect import: scene.pick() silently no-ops ("Ray needs to be imported
 // before…") unless the Ray module is registered. Required for hover/click picking.
 import '@babylonjs/core/Culling/ray';
-// Side-effect import: scene.pick() needs the Ray module registered or it no-ops
-// ("Ray needs to be imported before…"). Required for hover/click picking.
-import '@babylonjs/core/Culling/ray';
 
 import * as api from '../../lib/api';
 import { createEngine } from '../../lib/babylon/engine';

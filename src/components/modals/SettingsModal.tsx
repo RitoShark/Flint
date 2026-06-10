@@ -16,7 +16,6 @@ import {
     Button,
     Checkbox,
     Icon,
-    ProgressBar,
     type IconName,
     Modal,
     ModalBody,

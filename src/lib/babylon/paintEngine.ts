@@ -55,29 +55,6 @@ export function falloff(dist: number, radius: number, hardness = 0.5): number {
     return Math.pow(base, power);
 }
 
-/** Composite a round dab centered at texel (cx,cy), radius in texels. Alpha kept. */
-export function stampDab(
-    buf: Uint8Array, w: number, h: number,
-    cx: number, cy: number, radius: number, brush: Brush,
-): void {
-    const r = Math.ceil(radius);
-    const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(w - 1, Math.ceil(cx + r));
-    const y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(h - 1, Math.ceil(cy + r));
-    for (let y = y0; y <= y1; y++) {
-        for (let x = x0; x <= x1; x++) {
-            const dx = x + 0.5 - cx, dy = y + 0.5 - cy;
-            const f = falloff(Math.sqrt(dx * dx + dy * dy), radius, brush.hardness);
-            if (f <= 0) continue;
-            const strength = brush.opacity * brush.flow * f;
-            const i = (y * w + x) * 4;
-            buf[i]     = blendChannel(brush.mode, buf[i],     brush.color[0], strength);
-            buf[i + 1] = blendChannel(brush.mode, buf[i + 1], brush.color[1], strength);
-            buf[i + 2] = blendChannel(brush.mode, buf[i + 2], brush.color[2], strength);
-            // alpha untouched — don't punch holes in cutouts.
-        }
-    }
-}
-
 /**
  * Accumulate a round dab into a per-stroke COVERAGE mask (0..1 per texel) using
  * MAX, not addition — so overlapping dabs WITHIN one stroke don't compound into
@@ -152,11 +129,6 @@ export function compositeErase(
             out[o + c] = Math.round(b + (orig[o + c] - b) * cov);
         }
     }
-}
-
-/** UV (0..1) → texel (V flipped to match texture top-left origin). */
-export function uvToTexel(u: number, v: number, w: number, h: number): [number, number] {
-    return [u * w, (1 - v) * h];
 }
 
 /** Points from a..b spaced ~radius/4 apart (both ends inclusive). */
