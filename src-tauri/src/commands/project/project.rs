@@ -1067,9 +1067,27 @@ fn hard_rename_inner(mut project: Project, project_path: String, new_name: Strin
     // Old project segment as it appears in asset paths = the current slug `name`.
     let old_name = project.name.clone();
     let new_slug = sanitize_project_slug(&new_name);
-    let content_base = root.join("content");
 
-    // 1. Rewrite asset prefix in BINs + rename on-disk asset folders.
+    // 1. Rename the project DIRECTORY first. This is the step most likely to
+    //    fail (e.g. a watcher still holding the folder handle on Windows →
+    //    "Access is denied"), so doing it first means a failure leaves the
+    //    project completely untouched instead of half-renamed. The frontend
+    //    stops the preview watcher before calling; the retry covers any lag in
+    //    the OS releasing the handle.
+    let parent = root.parent().ok_or("Project has no parent directory")?;
+    let new_root = parent.join(&new_slug);
+    let work_root = if new_root == root {
+        root.clone()
+    } else if new_root.exists() {
+        return Err(format!("A folder named '{}' already exists next to the project", new_slug));
+    } else {
+        rename_dir_with_retry(&root, &new_root)?;
+        new_root.clone()
+    };
+    let new_project_path = work_root.to_string_lossy().replace('\\', "/");
+
+    // 2. Rewrite asset prefix in BINs + rename on-disk asset folders (new root).
+    let content_base = work_root.join("content");
     let rename_result: RenameResult = if content_base.is_dir() {
         rename_project_asset_prefix(&content_base, &old_name, &new_slug)
             .map_err(|e| format!("Failed to rewrite asset paths: {}", e))?
@@ -1077,26 +1095,13 @@ fn hard_rename_inner(mut project: Project, project_path: String, new_name: Strin
         RenameResult::default()
     };
 
-    // 2. Update name + display_name and persist config (mod.config.json +
-    //    flint.json) at the CURRENT path, before moving the directory.
+    // 3. Update name + display_name and persist config (mod.config.json +
+    //    flint.json) at the new path.
     project.name = new_slug.clone();
     project.display_name = new_name.clone();
-    project.project_path = root.clone();
+    project.project_path = work_root;
     core_save_project(&project).map_err(|e| format!("Failed to save project config: {}", e))?;
 
-    // 3. Rename the project directory itself.
-    let parent = root.parent().ok_or("Project has no parent directory")?;
-    let new_root = parent.join(&new_slug);
-    let new_project_path = if new_root == root {
-        project_path.clone()
-    } else if new_root.exists() {
-        return Err(format!("A folder named '{}' already exists next to the project", new_slug));
-    } else {
-        std::fs::rename(&root, &new_root).map_err(|e| format!("Failed to rename project folder: {}", e))?;
-        new_root.to_string_lossy().replace('\\', "/")
-    };
-
-    project.project_path = PathBuf::from(&new_project_path);
     // The frontend reopens the project at the new path, which re-registers it
     // in the index and refreshes the recent-projects list.
 
@@ -1108,6 +1113,25 @@ fn hard_rename_inner(mut project: Project, project_path: String, new_name: Strin
         folders_renamed: rename_result.folders_renamed,
         skipped_bins: rename_result.skipped_bins,
     })
+}
+
+/// `fs::rename` a directory, retrying briefly on Windows "access denied" — a
+/// just-stopped folder watcher can take a moment to release its handle.
+fn rename_dir_with_retry(src: &Path, dst: &Path) -> Result<(), String> {
+    let mut last_err = String::new();
+    for attempt in 0..10 {
+        match std::fs::rename(src, dst) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                last_err = e.to_string();
+                std::thread::sleep(std::time::Duration::from_millis(100 * (attempt + 1)));
+            }
+        }
+    }
+    Err(format!(
+        "Failed to rename project folder: {}. Close anything using the project folder (editors, Explorer windows) and try again.",
+        last_err
+    ))
 }
 
 /// Filesystem- and asset-path-safe project slug: trim, spaces→hyphens, drop

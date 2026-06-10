@@ -41,6 +41,10 @@ export const RenameProjectModal: React.FC = () => {
         const oldTabId = tab.id;
         setBusy(true);
         try {
+            // The preview watcher holds a handle on the project folder — Windows
+            // refuses to rename a watched directory. Stop it first.
+            await api.stopPreviewWatcher().catch(() => {});
+
             // Hard rename everywhere: BIN asset paths, asset folders, config
             // files, and the project directory itself.
             const result = await api.hardRenameProject(tab.project, projectPath, trimmed);
@@ -69,6 +73,9 @@ export const RenameProjectModal: React.FC = () => {
             }
             closeModal();
         } catch (err) {
+            // Rename failed — the project is untouched at its original path.
+            // Restore its preview watcher (we stopped it above).
+            api.startPreviewWatcher(projectPath).catch(() => {});
             const fe = err as api.FlintError;
             showToast('error', fe.getUserMessage?.() || 'Failed to rename project');
         } finally {
