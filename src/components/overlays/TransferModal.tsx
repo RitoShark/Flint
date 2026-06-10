@@ -14,6 +14,18 @@ import { useTransferStore, useProjectTabStore, useNotificationStore } from '../.
 import { getFileIcon, getIcon } from '../../lib/ui-helpers/fileIcons';
 import * as api from '../../lib/api';
 
+/** Prettify a project-relative folder path for display: drop the noise segments
+ *  (`content`, `base`, and the `*.wad.client` container) so only the meaningful
+ *  folders show. Display-only — the real path is still used for the transfer. */
+function cleanFolderForDisplay(folder: string): string {
+    if (!folder || folder === '.') return 'Project root';
+    const segs = folder.split('/').filter(Boolean).filter((s) => {
+        const low = s.toLowerCase();
+        return low !== 'content' && low !== 'base' && !low.endsWith('.wad.client');
+    });
+    return segs.join('/') || 'Project root';
+}
+
 const cardStyle: React.CSSProperties = {
     display: 'flex',
     alignItems: 'center',
@@ -105,7 +117,7 @@ export const TransferModal: React.FC = () => {
     if (!pending) return null;
 
     const isDir = pending.payload.isDirectory;
-    const folderText = !pending.destFolder || pending.destFolder === '.' ? 'Project root' : pending.destFolder;
+    const folderText = cleanFolderForDisplay(pending.destFolder);
 
     return createPortal(
         <div
