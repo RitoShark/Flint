@@ -10,7 +10,6 @@ import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import * as api from '../../lib/api';
 import { sanitizeChampionName } from '../../lib/util/utils';
-import { beginPointerDrag } from '../../lib/pointerDrag';
 import type { ProjectTab, ExtractSession } from '../../lib/types';
 
 // Window control icons as inline SVGs
@@ -90,46 +89,17 @@ const Tab: React.FC<TabProps> = ({ tab, isActive, onSwitch, onClose }) => {
         }
     }, [triggerClose]);
 
-    // Tab tear-off: dragging the project tab OUT of the window (release outside
-    // the window bounds, measured in screen coordinates) pops the whole project
-    // into its own OS window and closes the in-app tab. The project is on disk,
-    // so the new window re-derives its tree + preview from the path. Uses
-    // pointer-drag, not HTML5 — WebView2's native drag-drop blocks HTML5 DnD.
-    // A plain click still switches tabs (beginPointerDrag only starts past 5px).
-    const handleTearOff = useCallback((e: React.PointerEvent) => {
-        // Don't start a tear-off when pressing the close button (let it click).
-        if ((e.target as Element).closest('.titlebar__tab-close')) return;
-        beginPointerDrag(e, {
-            label: tab.project.display_name || tab.project.name,
-            capture: true, // keep receiving events when released outside the window
-            onDrop: ({ screenX, screenY }) => {
-                const insideX = screenX >= window.screenX && screenX <= window.screenX + window.outerWidth;
-                const insideY = screenY >= window.screenY && screenY <= window.screenY + window.outerHeight;
-                if (insideX && insideY) return; // released inside the window — not a tear-off
-                api.openProjectWindow(tab.projectPath)
-                    .then(() => {
-                        navigationCoordinator.removeTabWithFallback(tab.id);
-                    })
-                    .catch((err) => {
-                        console.error('Failed to tear off project window:', err);
-                    });
-            },
-        });
-    }, [tab.project, tab.projectPath, tab.id]);
-
     const projectName = tab.project.display_name || tab.project.name;
 
     // Cross-project file drops land here: the file tree's pointer-drag hit-tests
     // `data-project-tab` and toggles `.titlebar__tab--drop-target` directly, then
-    // opens the copy/move dialog on release. (HTML5 dragover/drop don't fire —
-    // WebView2's native drag-drop, kept on for Explorer imports, blocks them.)
+    // (after spring-loading into the project) lets the user drop into a folder.
     return (
         <div
             className={`titlebar__tab ${isActive ? 'titlebar__tab--active' : ''}${closing ? ' titlebar__tab--closing' : ''}`}
             onClick={closing ? undefined : onSwitch}
             onMouseDown={handleMiddleClick}
-            onPointerDown={handleTearOff}
-            title={`${projectName}\n${tab.projectPath}\nDrag out of the window to open in a separate window`}
+            title={`${projectName}\n${tab.projectPath}`}
             data-tauri-drag-region="false"
             data-project-tab={tab.projectPath}
             data-project-name={projectName}
@@ -451,36 +421,6 @@ export const TitleBar: React.FC = () => {
         }
     }, [fileEditorDirty, openConfirmDialog]);
 
-    // Tab tear-off: dragging the file-editor tab OUT of the window (release
-    // outside the window bounds, measured in screen coordinates) pops the editor
-    // into its own OS window and closes the in-app tab. The file is already on
-    // disk, so the new window re-derives everything from URL + disk. Uses
-    // pointer-drag, not HTML5 — WebView2's native drag-drop blocks HTML5 DnD.
-    const handleFileEditorTabPointerDown = useCallback((e: React.PointerEvent) => {
-        // Don't start a tear-off when pressing the close button (let it click).
-        if ((e.target as Element).closest('.titlebar__tab-close')) return;
-        const target = useFileEditorStore.getState().target;
-        if (!target) return;
-        beginPointerDrag(e, {
-            label: target.filePath.split(/[/\\]/).pop() || 'editor',
-            capture: true, // keep receiving events when released outside the window
-            onDrop: ({ screenX, screenY }) => {
-                const insideX = screenX >= window.screenX && screenX <= window.screenX + window.outerWidth;
-                const insideY = screenY >= window.screenY && screenY <= window.screenY + window.outerHeight;
-                if (insideX && insideY) return; // released inside the window — not a tear-off
-                api.openEditorWindow(target.filePath, target.kind, target.projectPath)
-                    .then(() => {
-                        useFileEditorStore.getState().closeTarget();
-                        useNavigationStore.getState().setView('preview');
-                    })
-                    .catch((err) => {
-                        console.error('Failed to tear off editor window:', err);
-                        showToast('error', 'Failed to open editor in a new window');
-                    });
-            },
-        });
-    }, [showToast]);
-
     const hasTabs = openTabs.length > 0 || extractSessions.length > 0 || isWadExplorerOpen || !!fileEditorTarget;
 
     return (
@@ -541,8 +481,7 @@ export const TitleBar: React.FC = () => {
                                 className={`titlebar__tab ${isFileEditorActive ? 'titlebar__tab--active' : ''}`}
                                 onClick={() => useNavigationStore.getState().setView('file-editor')}
                                 onMouseDown={(e) => { if (e.button === 1) handleCloseFileEditor(e); }}
-                                onPointerDown={handleFileEditorTabPointerDown}
-                                title={`${fileEditorTarget.filePath}\nDrag out of the window to open in a separate window`}
+                                title={fileEditorTarget.filePath}
                                 data-tauri-drag-region="false"
                             >
                                 <span className="titlebar__tab-icon" dangerouslySetInnerHTML={{ __html: getIcon('bin') }} />

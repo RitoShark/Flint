@@ -275,10 +275,6 @@ fn main() {
             commands::map_preview::load_map_texture,
             commands::map_preview::open_map_preview_window,
             commands::map_preview::resolve_map_texture_path,
-            // Editor tear-off (separate OS window for a file editor)
-            commands::editor_window::open_editor_window,
-            // Project tear-off (separate OS window for a whole project)
-            commands::project_window::open_project_window,
             commands::map_tiles::combine_ground_to_psd,
             commands::map_tiles::apply_psd_to_textures,
             commands::map_tiles::ground_psd_exists,

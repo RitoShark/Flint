@@ -2,4 +2,3 @@
 
 pub mod hud;
 pub mod fixer;
-pub mod editor_window;

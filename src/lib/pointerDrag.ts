@@ -31,13 +31,6 @@ export interface PointerDragOptions extends PointerDragHandlers {
     label: string;
     /** Pixels of movement before the gesture counts as a drag. Default 5. */
     threshold?: number;
-    /**
-     * Capture the pointer to the source element so events keep firing even when
-     * released OUTSIDE the window — needed for tab tear-off (detect release
-     * outside the window bounds). Leave off for in-window drops where the source
-     * element may unmount mid-drag (e.g. a virtualized tree row).
-     */
-    capture?: boolean;
 }
 
 let activeGhost: HTMLElement | null = null;
@@ -73,13 +66,6 @@ export function beginPointerDrag(
     const threshold = opts.threshold ?? 5;
     let dragging = false;
 
-    // Optional pointer capture so events fire even outside the window bounds.
-    const captureEl = opts.capture ? (e.currentTarget as Element) : null;
-    const pointerId = e.pointerId;
-    if (captureEl) {
-        try { captureEl.setPointerCapture(pointerId); } catch { /* capture is best-effort */ }
-    }
-
     const move = (ev: PointerEvent) => {
         if (!dragging) {
             const dx = ev.clientX - startX;
@@ -98,9 +84,6 @@ export function beginPointerDrag(
     const up = (ev: PointerEvent) => {
         document.removeEventListener('pointermove', move, true);
         document.removeEventListener('pointerup', up, true);
-        if (captureEl) {
-            try { captureEl.releasePointerCapture(pointerId); } catch { /* already released */ }
-        }
         removeGhost();
 
         if (dragging) {

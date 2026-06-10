@@ -1,86 +1,35 @@
 /**
  * TransferModal
- * Opened when the user drags a file/folder from one project's tree onto another
- * project's tab. Lets them pick a destination folder in the target project and
- * choose Copy or Move. Mounted once in App; driven by `useTransferStore`.
+ * Opened when the user drags a file/folder from one project's tree and drops it
+ * into another project (onto a folder, after spring-loading into that project).
+ * The destination is already decided by where they dropped — this dialog only
+ * asks Move or Copy. Mounted once in App; driven by `useTransferStore`.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import {
     Modal,
     ModalHeader,
     ModalBody,
     ModalFooter,
     ModalLoading,
-    FormGroup,
-    FormLabel,
-    FormHint,
-    Select,
     Button,
 } from '../ui';
 import { useTransferStore, useProjectTabStore, useNotificationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
-import type { FileTreeNode } from '../../lib/types';
-
-/** Collect every directory path (project-relative, forward slashes) in the tree,
- *  sorted, with the project root represented as ".". */
-function collectDirectories(root: FileTreeNode | null): string[] {
-    if (!root) return ['.'];
-    const dirs: string[] = [];
-    const walk = (node: FileTreeNode) => {
-        if (node.isDirectory) {
-            dirs.push(node.path);
-            for (const child of node.children ?? []) walk(child);
-        }
-    };
-    walk(root);
-    // Ensure the root (".") is first; sort the rest alphabetically.
-    const rest = dirs.filter((d) => d !== '.').sort((a, b) => a.localeCompare(b));
-    return ['.', ...rest];
-}
 
 export const TransferModal: React.FC = () => {
     const pending = useTransferStore((s) => s.pending);
     const closeTransfer = useTransferStore((s) => s.closeTransfer);
     const showToast = useNotificationStore((s) => s.showToast);
 
-    const [folders, setFolders] = useState<string[]>(['.']);
-    const [destFolder, setDestFolder] = useState<string>('content');
-    const [loadingFolders, setLoadingFolders] = useState(false);
     const [busy, setBusy] = useState(false);
-
-    // Load the destination project's directory list whenever a transfer opens.
-    useEffect(() => {
-        if (!pending) return;
-        let cancelled = false;
-        setLoadingFolders(true);
-        api.listProjectFiles(pending.destProjectPath)
-            .then((tree) => {
-                if (cancelled) return;
-                const dirs = collectDirectories(tree);
-                setFolders(dirs);
-                // Prefer the folder the item was dropped on, else `content`, else root.
-                if (pending.initialFolder && dirs.includes(pending.initialFolder)) {
-                    setDestFolder(pending.initialFolder);
-                } else {
-                    setDestFolder(dirs.includes('content') ? 'content' : '.');
-                }
-            })
-            .catch(() => {
-                if (cancelled) return;
-                setFolders(['.']);
-                setDestFolder('.');
-            })
-            .finally(() => {
-                if (!cancelled) setLoadingFolders(false);
-            });
-        return () => { cancelled = true; };
-    }, [pending]);
-
-    const folderLabel = (dir: string) => (dir === '.' ? '(project root)' : dir);
 
     const sourceName = pending?.payload.name ?? '';
     const sourceKind = pending?.payload.isDirectory ? 'folder' : 'file';
+    const destLabel = pending
+        ? `${pending.destProjectName}${pending.destFolder && pending.destFolder !== '.' ? ` / ${pending.destFolder}` : ''}`
+        : '';
 
     /** Refresh the file tree of any open tab pointing at `projectPath`. */
     const refreshProjectTree = async (projectPath: string) => {
@@ -98,7 +47,7 @@ export const TransferModal: React.FC = () => {
         if (!pending) return;
         setBusy(true);
         try {
-            const { payload, destProjectPath } = pending;
+            const { payload, destProjectPath, destFolder } = pending;
             const fn = op === 'copy' ? api.copyBetweenProjects : api.moveBetweenProjects;
             const created = await fn(payload.projectPath, [payload.relPath], destProjectPath, destFolder);
             await refreshProjectTree(destProjectPath);
@@ -116,53 +65,31 @@ export const TransferModal: React.FC = () => {
         }
     };
 
-    const folderOptions = useMemo(() => folders, [folders]);
-
     if (!pending) return null;
 
     return (
         <Modal open={!!pending} onClose={busy ? () => {} : closeTransfer}>
             {busy && <ModalLoading text="Transferring" progress={`${sourceName}…`} />}
 
-            <ModalHeader title="Copy or Move?" onClose={closeTransfer} />
+            <ModalHeader title="Move or Copy?" onClose={closeTransfer} />
 
             <ModalBody>
-                <p style={{ margin: '0 0 12px', color: 'var(--text-secondary)' }}>
+                <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
                     {sourceKind === 'folder' ? 'Folder ' : 'File '}
                     <strong style={{ color: 'var(--text-primary)' }}>{sourceName}</strong>
                     {' → '}
-                    <strong style={{ color: 'var(--text-primary)' }}>{pending.destProjectName}</strong>
+                    <strong style={{ color: 'var(--text-primary)' }}>{destLabel}</strong>
                 </p>
-
-                <FormGroup>
-                    <FormLabel>Destination folder</FormLabel>
-                    <Select
-                        value={destFolder}
-                        onChange={(e) => setDestFolder(e.target.value)}
-                        disabled={busy || loadingFolders}
-                    >
-                        {folderOptions.map((dir) => (
-                            <option key={dir} value={dir}>
-                                {folderLabel(dir)}
-                            </option>
-                        ))}
-                    </Select>
-                    <FormHint>
-                        {loadingFolders
-                            ? 'Loading folders…'
-                            : 'Where the item lands in the destination project.'}
-                    </FormHint>
-                </FormGroup>
             </ModalBody>
 
             <ModalFooter>
                 <Button variant="ghost" onClick={closeTransfer} disabled={busy}>
                     Cancel
                 </Button>
-                <Button variant="secondary" onClick={() => runTransfer('copy')} disabled={busy || loadingFolders}>
+                <Button variant="secondary" onClick={() => runTransfer('copy')} disabled={busy}>
                     Copy
                 </Button>
-                <Button variant="primary" onClick={() => runTransfer('move')} disabled={busy || loadingFolders}>
+                <Button variant="primary" onClick={() => runTransfer('move')} disabled={busy}>
                     Move
                 </Button>
             </ModalFooter>

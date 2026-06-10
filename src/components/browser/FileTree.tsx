@@ -482,10 +482,17 @@ interface TreeRowProps {
 const SPRING_LOAD_MS = 600;
 let springTimer: number | null = null;
 let springTargetProject: string | null = null;
+let folderExpandTimer: number | null = null;
+let folderExpandTarget: string | null = null;
 
 function clearSpringLoad(): void {
     if (springTimer !== null) { clearTimeout(springTimer); springTimer = null; }
     springTargetProject = null;
+}
+
+function clearFolderExpand(): void {
+    if (folderExpandTimer !== null) { clearTimeout(folderExpandTimer); folderExpandTimer = null; }
+    folderExpandTarget = null;
 }
 
 /** Project tab under the given client point, if any (tabs carry data-project-tab). */
@@ -513,12 +520,17 @@ function activeProjectInfo(): { path: string; name: string } | null {
     return { path: tab.projectPath, name: tab.project.display_name || tab.project.name };
 }
 
-/** During-drag: highlight the tab/folder under the cursor, and spring-load a tab on hover. */
+/**
+ * During-drag: highlight the tab/folder under the cursor, and spring-load on
+ * hover. Holding over a project TAB switches to that project; holding over a
+ * FOLDER expands it so you can drill deeper before dropping.
+ */
 function onTreeDragMove(x: number, y: number, sourceProject: string): void {
     clearDragHighlights();
 
     const tab = projectTabAt(x, y);
     if (tab) {
+        clearFolderExpand();
         const pp = tab.getAttribute('data-project-tab');
         if (pp && pp !== sourceProject) {
             tab.classList.add('titlebar__tab--drop-target');
@@ -540,19 +552,39 @@ function onTreeDragMove(x: number, y: number, sourceProject: string): void {
         return;
     }
 
-    // Not over a tab → cancel any pending spring-load. Once spring-loaded into a
-    // DIFFERENT project, highlight the folder row under the cursor as a target.
+    // Not over a tab → cancel any pending tab spring-load. Once spring-loaded into
+    // a DIFFERENT project, highlight the folder under the cursor and, on hover,
+    // expand it so the user can navigate into subfolders and drop deeper.
     clearSpringLoad();
     const active = activeProjectInfo();
     if (active && active.path !== sourceProject) {
         const folder = folderRowAt(x, y);
-        if (folder) folder.classList.add('file-tree__node--drop-target');
+        if (folder) {
+            folder.classList.add('file-tree__node--drop-target');
+            const folderPath = folder.getAttribute('data-drop-path');
+            if (folderPath && folderPath !== '.' && folderExpandTarget !== folderPath) {
+                clearFolderExpand();
+                folderExpandTarget = folderPath;
+                folderExpandTimer = window.setTimeout(() => {
+                    const st = useProjectTabStore.getState();
+                    if (st.activeTabId) st.bulkSetFolders(st.activeTabId, [folderPath], true);
+                    folderExpandTimer = null;
+                }, SPRING_LOAD_MS);
+            }
+        } else {
+            clearFolderExpand();
+        }
     }
 }
 
-/** On release: drop onto a specific folder (preferred) or a project tab. */
+/**
+ * On release: open the Move/Copy dialog with the destination fixed to where the
+ * item was dropped — a specific FOLDER in the (spring-loaded) active project, or
+ * the project root when dropped on the tab itself.
+ */
 function onTreeDrop(x: number, y: number, payload: TreeDragPayload): void {
     clearSpringLoad();
+    clearFolderExpand();
     clearDragHighlights();
 
     // 1) Dropped on a folder in the (possibly spring-loaded) active project.
@@ -565,20 +597,19 @@ function onTreeDrop(x: number, y: number, payload: TreeDragPayload): void {
                 payload,
                 destProjectPath: active.path,
                 destProjectName: active.name,
-                initialFolder: destFolder,
+                destFolder,
             });
-            return;
         }
-        return; // same-project folder drop — nothing to do
+        return; // same-project / invalid folder drop — nothing to do
     }
 
-    // 2) Dropped on a project tab → dialog with its default folder.
+    // 2) Dropped on a project tab (no specific folder) → project root.
     const tab = projectTabAt(x, y);
     if (!tab) return;
     const destProjectPath = tab.getAttribute('data-project-tab');
     const destProjectName = tab.getAttribute('data-project-name') || 'project';
     if (!destProjectPath || destProjectPath === payload.projectPath) return;
-    useTransferStore.getState().openTransfer({ payload, destProjectPath, destProjectName });
+    useTransferStore.getState().openTransfer({ payload, destProjectPath, destProjectName, destFolder: '.' });
 }
 
 const TreeRow: React.FC<TreeRowProps> = React.memo(({
@@ -614,7 +645,7 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
             label: node.name,
             onMove: (x, y) => onTreeDragMove(x, y, projectPath),
             onDrop: ({ clientX, clientY }) => onTreeDrop(clientX, clientY, payload),
-            onEnd: () => { clearSpringLoad(); clearDragHighlights(); },
+            onEnd: () => { clearSpringLoad(); clearFolderExpand(); clearDragHighlights(); },
         });
     };
 
