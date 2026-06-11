@@ -559,7 +559,19 @@ pub async fn save_ritobin_to_bin(
     // Convert text to binary using selected engine
     let binary_data = if use_jade {
         tracing::info!("Using Jade Custom converter");
-        flint_ltk::bin::jade::convert_text_to_bin(&content)?
+        match flint_ltk::bin::jade::convert_text_to_bin(&content) {
+            Ok(data) => data,
+            Err(e) => {
+                // The Jade writer fails on some bins ("Missing 'type' section").
+                // The LTK engine handles the same ritobin text, so fall back to
+                // it rather than blocking the save.
+                tracing::warn!("Jade write failed ({}); falling back to LTK engine", e);
+                let bin = flint_ltk::bin::text_to_tree(&content)
+                    .map_err(|e| format!("Failed to parse text content: {}", e))?;
+                flint_ltk::bin::write_bin_ltk(&bin)
+                    .map_err(|e| format!("Failed to convert to binary: {}", e))?
+            }
+        }
     } else {
         tracing::info!("Using LTK converter");
         // Parse the text content back to BIN structure
@@ -602,7 +614,16 @@ pub async fn compile_ritobin_text_to_bytes(
     let _t = ipc_trace::enter("compile_ritobin_text_to_bytes");
     let use_jade = use_jade.unwrap_or(false);
     let binary_data = if use_jade {
-        flint_ltk::bin::jade::convert_text_to_bin(&content)?
+        match flint_ltk::bin::jade::convert_text_to_bin(&content) {
+            Ok(data) => data,
+            Err(e) => {
+                tracing::warn!("Jade write failed ({}); falling back to LTK engine", e);
+                let bin = flint_ltk::bin::text_to_tree(&content)
+                    .map_err(|e| format!("Failed to parse text content: {}", e))?;
+                flint_ltk::bin::write_bin_ltk(&bin)
+                    .map_err(|e| format!("Failed to convert to binary: {}", e))?
+            }
+        }
     } else {
         let bin = flint_ltk::bin::text_to_tree(&content)
             .map_err(|e| format!("Failed to parse text content: {}", e))?;

@@ -615,11 +615,20 @@ fn repath_bin_file(bin_path: &Path, existing_paths: &HashSet<String>, prefix: &s
 
     if modified_count > 0 {
         let new_data = if config.use_jade_engine {
-            // Use Jade engine to write
+            // Use Jade engine to write, falling back to LTK when the Jade writer
+            // fails (e.g. "Missing 'type' section" — type/version sections are
+            // lost in the text round-trip). Without the fallback the bin is left
+            // un-repathed while its assets get relocated → broken project.
             let text = crate::bin::tree_to_text_cached(&bin)
                 .map_err(|e| Error::InvalidInput(format!("Failed to convert to text: {}", e)))?;
-            crate::bin::jade::convert_text_to_bin(&text)
-                .map_err(|e| Error::InvalidInput(format!("Jade write failed: {}", e)))?
+            match crate::bin::jade::convert_text_to_bin(&text) {
+                Ok(data) => data,
+                Err(e) => {
+                    tracing::warn!("Jade write failed for {} ({}); falling back to LTK", bin_path.display(), e);
+                    write_bin(&bin)
+                        .map_err(|e| Error::InvalidInput(format!("Failed to write BIN: {}", e)))?
+                }
+            }
         } else {
             // Use LTK engine to write
             write_bin(&bin)

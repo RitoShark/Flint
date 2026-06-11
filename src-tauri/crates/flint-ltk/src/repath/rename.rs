@@ -82,16 +82,18 @@ fn read_bin_any(data: &[u8]) -> Result<(ritoshark::bin::Bin, bool)> {
     }
 }
 
-/// Serialize a BIN tree back to bytes with the engine it was read with.
+/// Serialize a BIN tree back to bytes. Tries the engine it was read with; if the
+/// Jade writer fails ("Missing 'type' section"), falls back to LTK — the same
+/// tree writes fine via LTK and a valid bin is better than a skipped one.
 fn write_bin_any(bin: &ritoshark::bin::Bin, used_jade: bool) -> Result<Vec<u8>> {
     if used_jade {
         let text = crate::bin::tree_to_text_cached(bin)
             .map_err(|e| Error::InvalidInput(format!("Failed to convert to text: {}", e)))?;
-        crate::bin::jade::convert_text_to_bin(&text)
-            .map_err(|e| Error::InvalidInput(format!("Jade write failed: {}", e)))
-    } else {
-        write_bin(bin).map_err(|e| Error::InvalidInput(format!("Failed to write BIN: {}", e)))
+        if let Ok(data) = crate::bin::jade::convert_text_to_bin(&text) {
+            return Ok(data);
+        }
     }
+    write_bin(bin).map_err(|e| Error::InvalidInput(format!("Failed to write BIN: {}", e)))
 }
 
 /// Rewrite every `.bin` under `content_base`, applying the prefix regex.
