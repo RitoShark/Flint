@@ -202,8 +202,10 @@ export const useConfigStore = create<ConfigState>()((set) => ({
   celestialModPath: __cached?.celestialModPath ?? null,
   preferredLauncher: (__cached?.preferredLauncher === 'celestial' ? 'celestial' : __cached?.preferredLauncher === 'ltk' ? 'ltk' : null) as 'ltk' | 'celestial' | null,
   savedProjects: (__cached?.savedProjects as SavedProject[] | undefined) ?? [],
-  // Jade is now the only engine — old 'ltk' values silently upgrade.
-  binConverterEngine: 'jade' as 'ltk' | 'jade',
+  // RitoShark (the `ltk` engine — ltk_bridge wraps ritoshark's rs_bin) is the
+  // only engine now. The custom Jade writer is broken on some bins ("Missing
+  // 'type' section"), so old 'jade' values are pinned back to ritoshark.
+  binConverterEngine: 'ltk' as 'ltk' | 'jade',
   jadePath: __cached?.jadePath ?? null,
   quartzPath: __cached?.quartzPath ?? null,
   selectedTheme: __cached?.selectedTheme ?? null,
@@ -304,8 +306,8 @@ export const useConfigStore = create<ConfigState>()((set) => ({
         autoSyncToLauncher: s.autoSyncToLauncher,
         celestialModPath: s.celestialModPath ?? null,
         preferredLauncher: (s.preferredLauncher === 'celestial' ? 'celestial' : s.preferredLauncher === 'ltk' ? 'ltk' : null) as 'ltk' | 'celestial' | null,
-        // Pinned to 'jade' regardless of disk value — see configStore default.
-        binConverterEngine: 'jade' as 'ltk' | 'jade',
+        // Pinned to 'ltk' (RitoShark) regardless of disk value — see default.
+        binConverterEngine: 'ltk' as 'ltk' | 'jade',
         jadePath: s.jadePath,
         quartzPath: s.quartzPath,
         selectedTheme: s.selectedTheme ?? null,

@@ -113,7 +113,7 @@ export const SettingsModal: React.FC = () => {
         setAutoSyncToLauncher(configStore.autoSyncToLauncher);
         setCelestialPath(configStore.celestialModPath || '');
         setPreferredLauncher(configStore.preferredLauncher);
-        // binConverterEngine no longer user-controlled — pinned to 'jade'.
+        // binConverterEngine no longer user-controlled — pinned to 'ltk' (RitoShark).
         setJadePath(configStore.jadePath || '');
         setQuartzPath(configStore.quartzPath || '');
         getVersion().then(setCurrentVersion).catch(() => setCurrentVersion('0.0.0'));
@@ -419,7 +419,7 @@ export const SettingsModal: React.FC = () => {
         configStore.setPreferredLauncher(preferredLauncher);
         useAppMetadataStore.getState().setVerboseLogging(verboseLogging);
 
-        // BIN engine is pinned to 'jade' — no save needed.
+        // BIN engine is pinned to 'ltk' (RitoShark) — no save needed.
         configStore.setJadePath(jadePath || null);
         configStore.setQuartzPath(quartzPath || null);
         // selectedTheme is committed live by the preset cards — no need to re-save here.
