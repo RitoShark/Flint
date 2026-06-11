@@ -54,7 +54,6 @@ pub async fn repath_project_cmd(
     project_path: String,
     creator_name: Option<String>,
     project_name: Option<String>,
-    use_jade: Option<bool>,
     app: tauri::AppHandle,
 ) -> Result<RepathResultDto, String> {
     tracing::info!("Frontend requested repathing for: {}", project_path);
@@ -79,7 +78,6 @@ pub async fn repath_project_cmd(
         champion: String::new(), // Champion not provided in direct repath call
         target_skin_id: 0,
         cleanup_unused: true,
-        use_jade_engine: use_jade.unwrap_or(false),
         wad_folder_override: None,
     };
 

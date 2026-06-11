@@ -29,8 +29,6 @@ pub struct OrganizerConfig {
     pub target_skin_id: u32,
     /// Clean up unused/orphaned files after processing
     pub cleanup_unused: bool,
-    /// Use Jade engine for BIN parsing (instead of LTK)
-    pub use_jade_engine: bool,
     /// Override the WAD folder name (e.g. "Companions.wad.client" for TFT).
     /// When None, defaults to "{champion}.wad.client".
     pub wad_folder_override: Option<String>,
@@ -139,7 +137,6 @@ pub fn organize_project(
             champion: champion_sanitized.clone(),
             target_skin_id: config.target_skin_id,
             cleanup_unused: config.cleanup_unused,
-            use_jade_engine: config.use_jade_engine,
         };
 
         match repath_project(content_base, &repath_config, path_mappings) {
@@ -259,7 +256,6 @@ mod tests {
             champion: "Kayn".to_string(),
             target_skin_id: 8,
             cleanup_unused: true,
-            use_jade_engine: false,
             wad_folder_override: None,
         }
     }

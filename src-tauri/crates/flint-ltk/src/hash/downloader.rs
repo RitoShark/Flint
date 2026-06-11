@@ -189,11 +189,10 @@ pub async fn download_hashes(output_dir: impl AsRef<Path>, force: bool) -> Resul
         meta.release_tag = Some(latest_tag);
         meta.updated_at = Some(now_iso());
 
-        // Reload both in-process hash caches so new data is live immediately
+        // Reload the in-process hash cache so new data is live immediately
         // without requiring an app restart.
         crate::bin::ltk_bridge::reload_bin_hash_cache();
-        crate::bin::jade::hash_manager::reload_jade_hashes();
-        tracing::info!("BIN hash caches reloaded after successful download");
+        tracing::info!("BIN hash cache reloaded after successful download");
     }
     meta.last_checked_at = Some(now_iso());
     write_meta(output_dir, &meta).await;

@@ -29,13 +29,13 @@ export async function parseBinFileToText(path: string): Promise<string> {
     return utf8Decoder.decode(buf);
 }
 
-export async function readOrConvertBin(binPath: string, useJade?: boolean): Promise<string> {
-    const buf = await invokeCommand<ArrayBuffer>('read_or_convert_bin', { binPath, useJade });
+export async function readOrConvertBin(binPath: string): Promise<string> {
+    const buf = await invokeCommand<ArrayBuffer>('read_or_convert_bin', { binPath });
     return utf8Decoder.decode(buf);
 }
 
-export async function saveRitobinToBin(binPath: string, content: string, useJade?: boolean): Promise<void> {
-    return invokeCommand('save_ritobin_to_bin', { binPath, content, useJade });
+export async function saveRitobinToBin(binPath: string, content: string): Promise<void> {
+    return invokeCommand('save_ritobin_to_bin', { binPath, content });
 }
 
 export async function parseBinToTree(binPath: string): Promise<unknown[]> {
@@ -46,7 +46,7 @@ export async function getBinPaths(binPath: string): Promise<unknown[]> {
     return invokeCommand('get_bin_paths', { binPath });
 }
 
-export async function compileRitobinTextToBytes(content: string, useJade?: boolean): Promise<Uint8Array> {
-    const buf = await invokeCommand<ArrayBuffer>('compile_ritobin_text_to_bytes', { content, useJade });
+export async function compileRitobinTextToBytes(content: string): Promise<Uint8Array> {
+    const buf = await invokeCommand<ArrayBuffer>('compile_ritobin_text_to_bytes', { content });
     return new Uint8Array(buf);
 }

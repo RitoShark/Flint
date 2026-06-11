@@ -88,8 +88,6 @@ pub struct ImportOptions {
     pub match_from_league: bool,
     /// Path to League installation (for file matching)
     pub league_path: Option<String>,
-    /// Use Jade engine for BIN parsing (instead of LTK)
-    pub use_jade: Option<bool>,
 }
 
 // =============================================================================
@@ -482,7 +480,6 @@ fn apply_refathering(
     champion: &str,
     target_skin_id: u32,
     path_mappings: &HashMap<String, String>,
-    use_jade: bool,
 ) -> Result<(), String> {
     use flint_ltk::repath::organizer::{organize_project, OrganizerConfig};
 
@@ -497,7 +494,6 @@ fn apply_refathering(
         target_skin_id,
         // DON'T cleanup for imports - pre-repathed VFX/particles won't be in BIN references
         cleanup_unused: false,
-        use_jade_engine: use_jade,
         wad_folder_override: None,
     };
 
@@ -829,7 +825,6 @@ fn import_fantome_internal(
             &champion,
             target_skin_id,
             &path_mappings,
-            options.use_jade.unwrap_or(false),
         ).map_err(|e| format!("Failed to apply refathering: {}", e))?;
     }
 

@@ -66,7 +66,6 @@ pub async fn create_project(
     league_path: String,
     output_path: String,
     creator_name: Option<String>,
-    use_jade: Option<bool>,
     is_pbe: Option<bool>,
     is_tft: Option<bool>,
     lmdb: tauri::State<'_, LmdbCacheState>,
@@ -297,7 +296,6 @@ pub async fn create_project(
             champion: champion.clone(),
             target_skin_id: skin_id,
             cleanup_unused: false,
-            use_jade_engine: use_jade.unwrap_or(false),
             wad_folder_override: Some("Companions.wad.client".to_string()),
         };
 
@@ -337,7 +335,6 @@ pub async fn create_project(
                 champion: champion.clone(),
                 target_skin_id: skin_id,
                 cleanup_unused: true,
-                use_jade_engine: use_jade.unwrap_or(false),
                 wad_folder_override: None,
             };
 

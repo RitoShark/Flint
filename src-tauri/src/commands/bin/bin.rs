@@ -428,9 +428,8 @@ pub async fn parse_bin_file_to_text(
 #[tauri::command]
 pub async fn read_or_convert_bin(
     bin_path: String,
-    use_jade: Option<bool>,
 ) -> Result<tauri::ipc::Response, String> {
-    let text = read_or_convert_bin_inner(bin_path, use_jade).await?;
+    let text = read_or_convert_bin_inner(bin_path).await?;
     // Multi-MB ritobin text used to JSON-encode as `"..."` with backslash-
     // escapes — both serde and JSON.parse spent O(n) over the whole string.
     // Raw UTF-8 over the binary IPC path skips that entirely.
@@ -439,13 +438,10 @@ pub async fn read_or_convert_bin(
 
 async fn read_or_convert_bin_inner(
     bin_path: String,
-    use_jade: Option<bool>,
 ) -> Result<String, String> {
     let _t = ipc_trace::enter("read_or_convert_bin");
-    let use_jade = use_jade.unwrap_or(false);
-    let engine_name = if use_jade { "Jade" } else { "LTK" };
 
-    tracing::info!("[BIN_READ] Starting read_or_convert_bin ({}) for {}", engine_name, bin_path);
+    tracing::info!("[BIN_READ] Starting read_or_convert_bin (RitoShark) for {}", bin_path);
 
     if bin_path.is_empty() {
         return Err("Path cannot be empty".to_string());
@@ -505,16 +501,14 @@ async fn read_or_convert_bin_inner(
     }
 
     // Cache miss or stale - need to convert
-    tracing::info!("[BIN_READ] Cache miss: converting BIN with {} engine", engine_name);
+    tracing::info!("[BIN_READ] Cache miss: converting BIN with RitoShark engine");
 
     // Read binary file
     let data = fs::read(bin_file)
         .map_err(|e| format!("Failed to read file: {}", e))?;
 
-    // Convert binary to text using selected engine
-    let text = if use_jade {
-        flint_ltk::bin::jade::convert_bin_to_text(&data)?
-    } else {
+    // Convert binary to text
+    let text = {
         let bin = flint_ltk::bin::read_bin_ltk(&data)
             .map_err(|e| format!("Failed to parse bin file: {}", e))?;
         flint_ltk::bin::tree_to_text_cached(&bin)
@@ -544,36 +538,17 @@ async fn read_or_convert_bin_inner(
 pub async fn save_ritobin_to_bin(
     bin_path: String,
     content: String,
-    use_jade: Option<bool>,
 ) -> Result<(), String> {
     let _t = ipc_trace::enter("save_ritobin_to_bin");
-    let use_jade = use_jade.unwrap_or(false); // Default to LTK for backward compatibility
-    let engine_name = if use_jade { "Jade" } else { "LTK" };
 
-    tracing::info!("Saving ritobin content to: {} (using {} engine)", bin_path, engine_name);
+    tracing::info!("Saving ritobin content to: {} (using RitoShark engine)", bin_path);
 
     if bin_path.is_empty() {
         return Err("Path cannot be empty".to_string());
     }
 
-    // Convert text to binary using selected engine
-    let binary_data = if use_jade {
-        tracing::info!("Using Jade Custom converter");
-        match flint_ltk::bin::jade::convert_text_to_bin(&content) {
-            Ok(data) => data,
-            Err(e) => {
-                // The Jade writer fails on some bins ("Missing 'type' section").
-                // The LTK engine handles the same ritobin text, so fall back to
-                // it rather than blocking the save.
-                tracing::warn!("Jade write failed ({}); falling back to LTK engine", e);
-                let bin = flint_ltk::bin::text_to_tree(&content)
-                    .map_err(|e| format!("Failed to parse text content: {}", e))?;
-                flint_ltk::bin::write_bin_ltk(&bin)
-                    .map_err(|e| format!("Failed to convert to binary: {}", e))?
-            }
-        }
-    } else {
-        tracing::info!("Using LTK converter");
+    // Convert text to binary
+    let binary_data = {
         // Parse the text content back to BIN structure
         let bin = flint_ltk::bin::text_to_tree(&content)
             .map_err(|e| format!("Failed to parse text content: {}", e))?;
@@ -609,22 +584,9 @@ pub async fn save_ritobin_to_bin(
 #[tauri::command]
 pub async fn compile_ritobin_text_to_bytes(
     content: String,
-    use_jade: Option<bool>,
 ) -> Result<tauri::ipc::Response, String> {
     let _t = ipc_trace::enter("compile_ritobin_text_to_bytes");
-    let use_jade = use_jade.unwrap_or(false);
-    let binary_data = if use_jade {
-        match flint_ltk::bin::jade::convert_text_to_bin(&content) {
-            Ok(data) => data,
-            Err(e) => {
-                tracing::warn!("Jade write failed ({}); falling back to LTK engine", e);
-                let bin = flint_ltk::bin::text_to_tree(&content)
-                    .map_err(|e| format!("Failed to parse text content: {}", e))?;
-                flint_ltk::bin::write_bin_ltk(&bin)
-                    .map_err(|e| format!("Failed to convert to binary: {}", e))?
-            }
-        }
-    } else {
+    let binary_data = {
         let bin = flint_ltk::bin::text_to_tree(&content)
             .map_err(|e| format!("Failed to parse text content: {}", e))?;
         flint_ltk::bin::write_bin_ltk(&bin)

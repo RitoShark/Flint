@@ -306,7 +306,6 @@ export const ProjectListModal: React.FC = () => {
     const savedProjects = useConfigStore((s) => s.savedProjects);
     const recentProjects = useConfigStore((s) => s.recentProjects);
     const leaguePath = useConfigStore((s) => s.leaguePath);
-    const binConverterEngine = useConfigStore((s) => s.binConverterEngine);
     const creatorName = useConfigStore((s) => s.creatorName);
     const defaultProjectPath = useConfigStore((s) => s.defaultProjectPath);
     const setSavedProjects = useConfigStore((s) => s.setSavedProjects);
@@ -534,7 +533,6 @@ export const ProjectListModal: React.FC = () => {
                 cleanup_unused: false,
                 match_from_league: !isModpkg,
                 league_path: leaguePath || null,
-                use_jade: binConverterEngine === 'jade',
             };
 
             const project = isModpkg
@@ -580,7 +578,7 @@ export const ProjectListModal: React.FC = () => {
             closeModal();
             setError(flintError.getUserMessage?.() || 'Failed to import mod');
         }
-    }, [leaguePath, creatorName, recentProjects, binConverterEngine, closeModal, setWorking, setReady, setError]);
+    }, [leaguePath, creatorName, recentProjects, closeModal, setWorking, setReady, setError]);
 
     // Filtered + sorted view
     const visibleProjects = useMemo(() => {

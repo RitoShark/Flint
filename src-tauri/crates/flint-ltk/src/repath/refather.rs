@@ -246,7 +246,6 @@ pub struct RepathConfig {
     pub champion: String,
     pub target_skin_id: u32,
     pub cleanup_unused: bool,
-    pub use_jade_engine: bool,
 }
 
 impl RepathConfig {
@@ -365,9 +364,8 @@ pub fn repath_project(
 
     // Step 2: Scan BINs to collect referenced asset paths (PARALLEL)
     let all_asset_paths_set: DashSet<String> = DashSet::new();
-    let use_jade = config.use_jade_engine;
     bin_files.par_iter().for_each(|bin_path| {
-        if let Ok(paths) = scan_bin_for_paths(bin_path, use_jade) {
+        if let Ok(paths) = scan_bin_for_paths(bin_path) {
             for path in paths {
                 all_asset_paths_set.insert(path);
             }
@@ -487,22 +485,11 @@ pub fn repath_project(
 }
 
 /// Scan a BIN file for asset path references
-fn scan_bin_for_paths(bin_path: &Path, use_jade: bool) -> Result<Vec<String>> {
+fn scan_bin_for_paths(bin_path: &Path) -> Result<Vec<String>> {
     let data = fs::read(bin_path).map_err(|e| Error::io_with_path(e, bin_path))?;
 
-    let bin = if use_jade {
-        // Use Jade engine
-        crate::bin::jade::convert_bin_to_text(&data)
-            .map_err(|e| Error::InvalidInput(format!("Jade parse failed: {}", e)))
-            .and_then(|text| {
-                crate::bin::text_to_tree(&text)
-                    .map_err(|e| Error::InvalidInput(format!("Failed to parse Jade text: {}", e)))
-            })?
-    } else {
-        // Use LTK engine
-        read_bin(&data)
-            .map_err(|e| Error::InvalidInput(format!("Failed to parse BIN: {}", e)))?
-    };
+    let bin = read_bin(&data)
+        .map_err(|e| Error::InvalidInput(format!("Failed to parse BIN: {}", e)))?;
 
     let mut paths = Vec::new();
 
@@ -579,19 +566,8 @@ fn apply_prefix_to_path(path: &str, _prefix: &str, config: &RepathConfig) -> Str
 fn repath_bin_file(bin_path: &Path, existing_paths: &HashSet<String>, prefix: &str, config: &RepathConfig) -> Result<usize> {
     let data = fs::read(bin_path).map_err(|e| Error::io_with_path(e, bin_path))?;
 
-    let mut bin = if config.use_jade_engine {
-        // Use Jade engine
-        crate::bin::jade::convert_bin_to_text(&data)
-            .map_err(|e| Error::InvalidInput(format!("Jade parse failed: {}", e)))
-            .and_then(|text| {
-                crate::bin::text_to_tree(&text)
-                    .map_err(|e| Error::InvalidInput(format!("Failed to parse Jade text: {}", e)))
-            })?
-    } else {
-        // Use LTK engine
-        read_bin(&data)
-            .map_err(|e| Error::InvalidInput(format!("Failed to parse BIN: {}", e)))?
-    };
+    let mut bin = read_bin(&data)
+        .map_err(|e| Error::InvalidInput(format!("Failed to parse BIN: {}", e)))?;
 
     let mut modified_count = 0;
 
@@ -614,26 +590,8 @@ fn repath_bin_file(bin_path: &Path, existing_paths: &HashSet<String>, prefix: &s
     }
 
     if modified_count > 0 {
-        let new_data = if config.use_jade_engine {
-            // Use Jade engine to write, falling back to LTK when the Jade writer
-            // fails (e.g. "Missing 'type' section" — type/version sections are
-            // lost in the text round-trip). Without the fallback the bin is left
-            // un-repathed while its assets get relocated → broken project.
-            let text = crate::bin::tree_to_text_cached(&bin)
-                .map_err(|e| Error::InvalidInput(format!("Failed to convert to text: {}", e)))?;
-            match crate::bin::jade::convert_text_to_bin(&text) {
-                Ok(data) => data,
-                Err(e) => {
-                    tracing::warn!("Jade write failed for {} ({}); falling back to LTK", bin_path.display(), e);
-                    write_bin(&bin)
-                        .map_err(|e| Error::InvalidInput(format!("Failed to write BIN: {}", e)))?
-                }
-            }
-        } else {
-            // Use LTK engine to write
-            write_bin(&bin)
-                .map_err(|e| Error::InvalidInput(format!("Failed to write BIN: {}", e)))?
-        };
+        let new_data = write_bin(&bin)
+            .map_err(|e| Error::InvalidInput(format!("Failed to write BIN: {}", e)))?;
 
         fs::write(bin_path, new_data).map_err(|e| Error::io_with_path(e, bin_path))?;
         tracing::debug!("Repathed {} paths in {}", modified_count, bin_path.display());
@@ -1133,7 +1091,6 @@ mod tests {
             champion: "Renekton".to_string(),
             target_skin_id: 42,
             cleanup_unused: true,
-            use_jade_engine: false,
         };
 
         // Target champion: strip characters/, champion/, skins/, and skin{ID}/ folder
@@ -1177,7 +1134,6 @@ mod tests {
             champion: "Renekton".to_string(),
             target_skin_id: 42,
             cleanup_unused: true,
-            use_jade_engine: false,
         };
 
         // Other champion → shared-champion folder at CREATOR level, flattened (no skinN folders)
@@ -1211,7 +1167,6 @@ mod tests {
             champion: "Renekton".to_string(),
             target_skin_id: 42,
             cleanup_unused: true,
-            use_jade_engine: false,
         };
 
         // Non-champion assets → shared folder at CREATOR level (not project level)
@@ -1255,7 +1210,6 @@ mod tests {
             champion: "Kayn".to_string(),
             target_skin_id: 20,
             cleanup_unused: true,
-            use_jade_engine: false,
         };
 
         // SFX files: Repath to audio/sfx/ with ONLY filename (strip all path components)
@@ -1321,7 +1275,6 @@ mod tests {
             champion: "Renekton".to_string(),
             target_skin_id: 42,
             cleanup_unused: true,
-            use_jade_engine: false,
         };
 
         // HUD files go to project level (not creator level)
@@ -1460,7 +1413,6 @@ mod tests {
             champion: "Kayn".to_string(),
             target_skin_id: 20,
             cleanup_unused: true,
-            use_jade_engine: false,
         };
 
         let asset_path = AssetPath::SoundSfx {
@@ -1481,7 +1433,6 @@ mod tests {
             champion: "Kayn".to_string(),
             target_skin_id: 20,
             cleanup_unused: true,
-            use_jade_engine: false,
         };
 
         let original = "assets/sounds/wwise2016/vo/en_us/kayn_vo.wpk";

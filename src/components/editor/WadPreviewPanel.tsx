@@ -17,7 +17,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useConfigStore, useWadExtractStore, useNotificationStore } from '../../lib/stores';
+import { useWadExtractStore, useNotificationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
@@ -516,9 +516,7 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
         setIsSavingChunk(true);
         try {
             // 1. Compile ritobin text back to binary bytes
-            const binConverterEngine = useConfigStore.getState().binConverterEngine;
-            const useJade = binConverterEngine === 'jade';
-            const binBytes = await api.compileRitobinTextToBytes(editedContent, useJade);
+            const binBytes = await api.compileRitobinTextToBytes(editedContent);
 
             // 2. Write binary bytes to the edit session
             await api.writeSessionChunk(session.editSessionId, chunk.hash, binBytes);

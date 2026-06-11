@@ -113,7 +113,7 @@ export const SettingsModal: React.FC = () => {
         setAutoSyncToLauncher(configStore.autoSyncToLauncher);
         setCelestialPath(configStore.celestialModPath || '');
         setPreferredLauncher(configStore.preferredLauncher);
-        // binConverterEngine no longer user-controlled — pinned to 'ltk' (RitoShark).
+        // BIN engine is always RitoShark now — no engine selection.
         setJadePath(configStore.jadePath || '');
         setQuartzPath(configStore.quartzPath || '');
         getVersion().then(setCurrentVersion).catch(() => setCurrentVersion('0.0.0'));

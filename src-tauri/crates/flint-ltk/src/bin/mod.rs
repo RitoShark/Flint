@@ -1,6 +1,5 @@
 // Bin module exports
 pub mod ltk_bridge;
-pub mod jade;
 pub mod converter;
 pub mod bin_json;
 pub mod concat;

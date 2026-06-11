@@ -25,7 +25,6 @@ interface ConfigState {
   celestialModPath: string | null;
   preferredLauncher: 'ltk' | 'celestial' | null;
   savedProjects: SavedProject[];
-  binConverterEngine: 'ltk' | 'jade';
   jadePath: string | null;
   quartzPath: string | null;
   selectedTheme: string | null;
@@ -51,7 +50,6 @@ interface ConfigState {
   setSavedProjects: (projects: SavedProject[]) => void;
   addSavedProject: (project: SavedProject) => void;
   removeSavedProject: (projectId: string) => void;
-  setBinConverterEngine: (engine: 'ltk' | 'jade') => void;
   setJadePath: (path: string | null) => void;
   setQuartzPath: (path: string | null) => void;
   setSelectedTheme: (themeId: string | null) => void;
@@ -112,7 +110,6 @@ function snapshotSettings(): FlintSettings {
     autoSyncToLauncher: s.autoSyncToLauncher,
     celestialModPath: s.celestialModPath,
     preferredLauncher: s.preferredLauncher,
-    binConverterEngine: s.binConverterEngine,
     jadePath: s.jadePath,
     quartzPath: s.quartzPath,
     selectedTheme: s.selectedTheme,
@@ -202,10 +199,6 @@ export const useConfigStore = create<ConfigState>()((set) => ({
   celestialModPath: __cached?.celestialModPath ?? null,
   preferredLauncher: (__cached?.preferredLauncher === 'celestial' ? 'celestial' : __cached?.preferredLauncher === 'ltk' ? 'ltk' : null) as 'ltk' | 'celestial' | null,
   savedProjects: (__cached?.savedProjects as SavedProject[] | undefined) ?? [],
-  // RitoShark (the `ltk` engine — ltk_bridge wraps ritoshark's rs_bin) is the
-  // only engine now. The custom Jade writer is broken on some bins ("Missing
-  // 'type' section"), so old 'jade' values are pinned back to ritoshark.
-  binConverterEngine: 'ltk' as 'ltk' | 'jade',
   jadePath: __cached?.jadePath ?? null,
   quartzPath: __cached?.quartzPath ?? null,
   selectedTheme: __cached?.selectedTheme ?? null,
@@ -229,7 +222,6 @@ export const useConfigStore = create<ConfigState>()((set) => ({
   setAutoSyncToLauncher: (enabled) => { set({ autoSyncToLauncher: enabled }); persistToDisk(); },
   setCelestialModPath: (path) => { set({ celestialModPath: path }); persistToDisk(); },
   setPreferredLauncher: (l) => { set({ preferredLauncher: l }); persistToDisk(); },
-  setBinConverterEngine: (engine) => { set({ binConverterEngine: engine }); persistToDisk(); },
   setJadePath: (path) => { set({ jadePath: path }); persistToDisk(); },
   setQuartzPath: (path) => { set({ quartzPath: path }); persistToDisk(); },
   setSavedProjects: (projects) => { set({ savedProjects: projects }); persistToDisk(); },
@@ -306,8 +298,6 @@ export const useConfigStore = create<ConfigState>()((set) => ({
         autoSyncToLauncher: s.autoSyncToLauncher,
         celestialModPath: s.celestialModPath ?? null,
         preferredLauncher: (s.preferredLauncher === 'celestial' ? 'celestial' : s.preferredLauncher === 'ltk' ? 'ltk' : null) as 'ltk' | 'celestial' | null,
-        // Pinned to 'ltk' (RitoShark) regardless of disk value — see default.
-        binConverterEngine: 'ltk' as 'ltk' | 'jade',
         jadePath: s.jadePath,
         quartzPath: s.quartzPath,
         selectedTheme: s.selectedTheme ?? null,
@@ -332,7 +322,6 @@ export const useConfigStore = create<ConfigState>()((set) => ({
         autoSyncToLauncher: s.autoSyncToLauncher,
         celestialModPath: s.celestialModPath ?? null,
         preferredLauncher: (s.preferredLauncher === 'celestial' ? 'celestial' : s.preferredLauncher === 'ltk' ? 'ltk' : null) as 'ltk' | 'celestial' | null,
-        binConverterEngine: s.binConverterEngine,
         jadePath: s.jadePath,
         quartzPath: s.quartzPath,
         selectedTheme: s.selectedTheme ?? null,

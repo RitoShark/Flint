@@ -16,7 +16,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
-import { useAppMetadataStore, useConfigStore, useFileEditorStore, useNotificationStore } from '../../lib/stores';
+import { useAppMetadataStore, useFileEditorStore, useNotificationStore } from '../../lib/stores';
 import { useProjectTabStore } from '../../lib/stores/projectTabStore';
 import { editorSessionStore } from '../../lib/stores/editorSessionStore';
 import * as api from '../../lib/api';
@@ -902,7 +902,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const showToast = useNotificationStore((s) => s.showToast);
     const setWorking = useAppMetadataStore((s) => s.setWorking);
     const setReady = useAppMetadataStore((s) => s.setReady);
-    const binConverterEngine = useConfigStore((state) => state.binConverterEngine);
 
     const [content, setContent] = useState<string>('');
     const [originalContent, setOriginalContent] = useState<string>('');
@@ -925,8 +924,8 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         return state.getFileVersion(filePath);
     });
 
-    const useJade = binConverterEngine === 'jade';
-    const variant = useJade ? 'jade' : 'ltk';
+    // Single BIN engine now (RitoShark). `variant` keys the editor session cache.
+    const variant = 'ritoshark';
 
     const editorContainerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -1025,7 +1024,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             setLoading(true);
             setError(null);
             try {
-                const text = await api.readOrConvertBin(filePath, useJade);
+                const text = await api.readOrConvertBin(filePath);
                 if (cancelled) return;
                 setContent(text);
                 setOriginalContent(text);
@@ -1045,7 +1044,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         };
         loadBin();
         return () => { cancelled = true; };
-    }, [filePath, fileVersion, useJade, variant]);
+    }, [filePath, fileVersion, variant]);
 
     // Create Monaco editor
     useEffect(() => {
@@ -1210,7 +1209,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
 
         try {
             setWorking('Saving BIN file...');
-            await api.saveRitobinToBin(filePath, content, useJade);
+            await api.saveRitobinToBin(filePath, content);
             setOriginalContent(content);
             setReady('Saved');
             showToast('success', 'BIN file saved successfully');
@@ -1233,7 +1232,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             const flintError = err as api.FlintError;
             showToast('error', flintError.getUserMessage?.() || 'Failed to save');
         }
-    }, [filePath, content, useJade, setWorking, setReady, showToast, bracketStatus]);
+    }, [filePath, content, setWorking, setReady, showToast, bracketStatus]);
 
     useEffect(() => { return () => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); }; }, []);
 

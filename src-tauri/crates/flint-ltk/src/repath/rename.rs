@@ -7,8 +7,8 @@
 //! regex rather than assuming a creator, because the creator segment comes from
 //! the global creator setting at refather time (not a per-project field) and may
 //! have drifted. This makes the rename robust to whatever creator the project
-//! was actually refathered with. The BIN read+write mirrors refather's
-//! dual-engine (LTK / Jade) handling.
+//! was actually refathered with. BIN read+write goes through the RitoShark
+//! engine (`ltk_bridge`).
 
 use crate::bin::ltk_bridge::{read_bin, write_bin};
 use crate::error::{Error, Result};
@@ -68,31 +68,13 @@ pub struct RenameResult {
     pub skipped_bins: Vec<String>,
 }
 
-/// Read a BIN as a tree using the LTK engine, falling back to Jade.
-fn read_bin_any(data: &[u8]) -> Result<(ritoshark::bin::Bin, bool)> {
-    match read_bin(data) {
-        Ok(bin) => Ok((bin, false)),
-        Err(_) => {
-            let text = crate::bin::jade::convert_bin_to_text(data)
-                .map_err(|e| Error::InvalidInput(format!("Jade parse failed: {}", e)))?;
-            let bin = crate::bin::text_to_tree(&text)
-                .map_err(|e| Error::InvalidInput(format!("Failed to parse Jade text: {}", e)))?;
-            Ok((bin, true))
-        }
-    }
+/// Read a BIN as a tree using the RitoShark engine.
+fn read_bin_any(data: &[u8]) -> Result<ritoshark::bin::Bin> {
+    read_bin(data).map_err(|e| Error::InvalidInput(format!("Failed to parse BIN: {}", e)))
 }
 
-/// Serialize a BIN tree back to bytes. Tries the engine it was read with; if the
-/// Jade writer fails ("Missing 'type' section"), falls back to LTK — the same
-/// tree writes fine via LTK and a valid bin is better than a skipped one.
-fn write_bin_any(bin: &ritoshark::bin::Bin, used_jade: bool) -> Result<Vec<u8>> {
-    if used_jade {
-        let text = crate::bin::tree_to_text_cached(bin)
-            .map_err(|e| Error::InvalidInput(format!("Failed to convert to text: {}", e)))?;
-        if let Ok(data) = crate::bin::jade::convert_text_to_bin(&text) {
-            return Ok(data);
-        }
-    }
+/// Serialize a BIN tree back to bytes using the RitoShark engine.
+fn write_bin_any(bin: &ritoshark::bin::Bin) -> Result<Vec<u8>> {
     write_bin(bin).map_err(|e| Error::InvalidInput(format!("Failed to write BIN: {}", e)))
 }
 
@@ -107,7 +89,7 @@ fn rename_bin_prefix(content_base: &Path, re: &Regex, replacement: &str, result:
             Ok(d) => d,
             Err(_) => continue,
         };
-        let (mut bin, used_jade) = match read_bin_any(&data) {
+        let mut bin = match read_bin_any(&data) {
             Ok(v) => v,
             Err(_) => {
                 result.skipped_bins.push(path.to_string_lossy().into_owned());
@@ -123,7 +105,7 @@ fn rename_bin_prefix(content_base: &Path, re: &Regex, replacement: &str, result:
         }
 
         if n > 0 {
-            let out = write_bin_any(&bin, used_jade)?;
+            let out = write_bin_any(&bin)?;
             fs::write(path, out).map_err(|e| Error::io_with_path(e, path))?;
             result.bins_changed += 1;
             result.strings_changed += n;

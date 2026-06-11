@@ -8,7 +8,6 @@ interface CreateProjectParams {
     projectPath: string;
     leaguePath: string;
     creatorName?: string;
-    useJade?: boolean;
     isPbe?: boolean;
     isTft?: boolean;
 }
@@ -21,7 +20,6 @@ export async function createProject(params: CreateProjectParams): Promise<Projec
         outputPath: params.projectPath,
         leaguePath: params.leaguePath,
         creatorName: params.creatorName,
-        useJade: params.useJade,
         isPbe: params.isPbe,
         isTft: params.isTft,
     });

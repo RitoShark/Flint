@@ -25,7 +25,6 @@ export interface ImportOptions {
     cleanup_unused: boolean;
     match_from_league: boolean;
     league_path: string | null;
-    use_jade: boolean | null;
 }
 
 export async function analyzeFantome(wadPath: string): Promise<FantomeAnalysis> {

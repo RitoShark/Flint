@@ -47,7 +47,6 @@ export const NewProjectModal: React.FC = () => {
     const configStore = useConfigStore(
         useShallow((s) => ({
             leaguePathPbe: s.leaguePathPbe,
-            binConverterEngine: s.binConverterEngine,
         })),
     );
 
@@ -782,7 +781,6 @@ export const NewProjectModal: React.FC = () => {
                 projectPath,
                 leaguePath: effectiveLeaguePath,
                 creatorName: creatorName || undefined,
-                useJade: configStore.binConverterEngine === 'jade',
                 isPbe: usePbe,
             });
 
@@ -932,7 +930,6 @@ export const NewProjectModal: React.FC = () => {
                 projectPath,
                 leaguePath: effectiveLeaguePath,
                 creatorName: creatorName || undefined,
-                useJade: configStore.binConverterEngine === 'jade',
                 isPbe: usePbe,
                 isTft: true,
             });
