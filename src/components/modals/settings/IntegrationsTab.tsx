@@ -45,9 +45,12 @@ export const IntegrationsTab: React.FC<{
 }> = ({ integrations, onConnect, autoSync, onAutoSyncChange, ltkConfigured, preferredLauncher, onPreferredLauncherChange }) => {
     const launchers = integrations.filter((i) => i.kind === 'launcher');
     const apps = integrations.filter((i) => i.kind !== 'launcher');
+    // Celestial is the priority launcher: when there's no explicit preference,
+    // default to whichever connected launcher comes first in `launchers` (the
+    // array is ordered Celestial-first), and fall back to Celestial outright.
     const effective = preferredLauncher
         ?? (launchers.find((l) => l.path.trim().length > 0)?.id as 'ltk' | 'celestial' | undefined)
-        ?? 'ltk';
+        ?? 'celestial';
 
     const renderCard = (i: IntegrationDisplay, isLauncher: boolean) => {
         const connected = i.path.trim().length > 0;

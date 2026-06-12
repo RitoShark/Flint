@@ -26,9 +26,30 @@ export async function syncProjectToLauncher(projectPath: string, ltkStoragePath:
     return invokeCommand('sync_project_to_launcher', { projectPath, ltkStoragePath });
 }
 
-/** Start watching a project directory for changes (auto-sync). */
-export async function startProjectWatcher(projectPath: string, ltkStoragePath: string): Promise<void> {
-    return invokeCommand('start_project_watcher', { projectPath, ltkStoragePath });
+/**
+ * Sync a Flint project to the Celestial launcher.
+ *
+ * Celestial reads the raw project folder directly (keyed on flint.json), so
+ * this just hands it the project path via a `celestial://import-flint` deep
+ * link — no packaging. Returns the absolute project path handed over.
+ */
+export async function syncProjectToCelestial(projectPath: string): Promise<string> {
+    return invokeCommand('sync_project_to_celestial', { projectPath });
+}
+
+/**
+ * Start watching a project directory for changes (auto-sync).
+ *
+ * `launcherKind` selects the sync path on change: 'celestial' fires a
+ * `celestial://import-flint` deep link; 'ltk' (default) packages and installs a
+ * fantome into LTK Manager. `ltkStoragePath` is only used by the LTK path.
+ */
+export async function startProjectWatcher(
+    projectPath: string,
+    ltkStoragePath: string,
+    launcherKind: 'ltk' | 'celestial' = 'ltk',
+): Promise<void> {
+    return invokeCommand('start_project_watcher', { projectPath, ltkStoragePath, launcherKind });
 }
 
 /** Stop the active project watcher. */

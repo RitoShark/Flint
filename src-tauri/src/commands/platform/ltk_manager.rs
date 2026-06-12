@@ -134,6 +134,65 @@ pub async fn get_celestial_mod_path(app: tauri::AppHandle) -> Result<Option<Stri
     Ok(None)
 }
 
+/// Sync a Flint project to the Celestial launcher.
+///
+/// Celestial reads a raw Flint project folder directly (it keys on `flint.json`
+/// and walks `content/<layer>/*.wad.client` itself via its Creator Hub
+/// importer). So instead of packaging anything, Flint just hands Celestial the
+/// project path through a `celestial://import-flint?path=...` deep link, which
+/// Celestial's deep-link handler turns into an import.
+///
+/// Returns the absolute project path that was handed over (for the success toast).
+#[tauri::command]
+pub async fn sync_project_to_celestial(project_path: String) -> Result<String, String> {
+    let project_buf = PathBuf::from(&project_path);
+
+    // Celestial identifies a Flint project by `flint.json` at the root — bail
+    // early with a clear message if this isn't one, rather than launching a
+    // deep link Celestial would just reject.
+    if !project_buf.join("flint.json").is_file() {
+        return Err(format!(
+            "Not a Flint project (no flint.json found at {})",
+            project_path
+        ));
+    }
+
+    // Build `celestial://import-flint?path=<url-encoded absolute path>`.
+    let abs = project_buf
+        .canonicalize()
+        .unwrap_or(project_buf)
+        .to_string_lossy()
+        .to_string();
+    // Strip the Windows `\\?\` verbatim prefix `canonicalize` adds — Celestial
+    // (and the shell) want a plain path.
+    let abs = abs.strip_prefix(r"\\?\").map(str::to_string).unwrap_or(abs);
+    let encoded = encode_path_component(&abs);
+    let deep_link = format!("celestial://import-flint?path={}", encoded);
+
+    tracing::info!("Launching Celestial deep link: {}", deep_link);
+    opener::open(&deep_link)
+        .map_err(|e| format!("Failed to launch Celestial. Is it installed? ({})", e))?;
+
+    Ok(abs)
+}
+
+/// Percent-encode a filesystem path for use as a URL query value. Mirrors
+/// JavaScript's `encodeURIComponent` for the byte set we care about — anything
+/// outside the unreserved set (`A-Z a-z 0-9 - _ . ~`) is `%XX`-escaped. The
+/// matching decoder lives in Celestial's `percent_decode_path`.
+fn encode_path_component(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for &b in input.as_bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
+}
+
 /// Package a Flint project and install it to LTK Manager
 ///
 /// This command:

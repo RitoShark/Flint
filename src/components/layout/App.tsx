@@ -236,11 +236,11 @@ export const App: React.FC = () => {
 
     // Resolve which launcher auto-sync should target. Mirrors the same
     // preference→fallback logic used by the manual Sync button in TitleBar.
-    const autoSyncTarget = React.useMemo<{ name: string; path: string } | null>(() => {
-        if (preferredLauncher === 'celestial' && celestialModPath) return { name: 'Celestial', path: celestialModPath };
-        if (preferredLauncher === 'ltk' && ltkManagerModPath) return { name: 'LTK Manager', path: ltkManagerModPath };
-        if (celestialModPath) return { name: 'Celestial', path: celestialModPath };
-        if (ltkManagerModPath) return { name: 'LTK Manager', path: ltkManagerModPath };
+    const autoSyncTarget = React.useMemo<{ name: string; path: string; kind: 'ltk' | 'celestial' } | null>(() => {
+        if (preferredLauncher === 'celestial' && celestialModPath) return { name: 'Celestial', path: celestialModPath, kind: 'celestial' };
+        if (preferredLauncher === 'ltk' && ltkManagerModPath) return { name: 'LTK Manager', path: ltkManagerModPath, kind: 'ltk' };
+        if (celestialModPath) return { name: 'Celestial', path: celestialModPath, kind: 'celestial' };
+        if (ltkManagerModPath) return { name: 'LTK Manager', path: ltkManagerModPath, kind: 'ltk' };
         return null;
     }, [preferredLauncher, ltkManagerModPath, celestialModPath]);
     const autoSyncNameRef = React.useRef<string>(autoSyncTarget?.name ?? 'launcher');
@@ -252,7 +252,7 @@ export const App: React.FC = () => {
         if (shouldWatch) {
             isWatchingRef.current = true;
             console.log('[Auto-sync] Starting watcher for:', currentProjectPath);
-            api.startProjectWatcher(currentProjectPath, autoSyncTarget!.path)
+            api.startProjectWatcher(currentProjectPath, autoSyncTarget!.path, autoSyncTarget!.kind)
                 .catch(err => {
                     isWatchingRef.current = false;
                     console.error('[Auto-sync] Failed to start watcher:', err);

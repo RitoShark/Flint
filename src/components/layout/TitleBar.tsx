@@ -279,12 +279,15 @@ export const TitleBar: React.FC = () => {
     }, []);
 
     // Resolve which launcher to sync to based on the user's preference, with
-    // graceful fallback if the preferred one isn't configured.
-    const launcherTarget = useMemo<{ name: string; path: string } | null>(() => {
-        if (preferredLauncher === 'celestial' && celestialModPath) return { name: 'Celestial', path: celestialModPath };
-        if (preferredLauncher === 'ltk' && ltkManagerModPath) return { name: 'LTK Manager', path: ltkManagerModPath };
-        if (celestialModPath) return { name: 'Celestial', path: celestialModPath };
-        if (ltkManagerModPath) return { name: 'LTK Manager', path: ltkManagerModPath };
+    // graceful fallback if the preferred one isn't configured. Celestial is the
+    // priority launcher, so it wins the fallback when no explicit preference is
+    // set. `kind` drives which sync path runs (Celestial = deep-link import,
+    // LTK = fantome install).
+    const launcherTarget = useMemo<{ name: string; path: string; kind: 'ltk' | 'celestial' } | null>(() => {
+        if (preferredLauncher === 'celestial' && celestialModPath) return { name: 'Celestial', path: celestialModPath, kind: 'celestial' };
+        if (preferredLauncher === 'ltk' && ltkManagerModPath) return { name: 'LTK Manager', path: ltkManagerModPath, kind: 'ltk' };
+        if (celestialModPath) return { name: 'Celestial', path: celestialModPath, kind: 'celestial' };
+        if (ltkManagerModPath) return { name: 'LTK Manager', path: ltkManagerModPath, kind: 'ltk' };
         return null;
     }, [preferredLauncher, ltkManagerModPath, celestialModPath]);
 
@@ -298,8 +301,15 @@ export const TitleBar: React.FC = () => {
         setIsSyncing(true);
 
         try {
-            const modId = await api.syncProjectToLauncher(currentProjectPath, launcherTarget.path);
-            showToast('success', `Synced to ${launcherTarget.name}! Mod ID: ${modId}`);
+            if (launcherTarget.kind === 'celestial') {
+                // Celestial reads the project folder directly — hand it the path
+                // via a deep link instead of packaging a fantome.
+                await api.syncProjectToCelestial(currentProjectPath);
+                showToast('success', 'Sent to Celestial — check its Creator Hub.');
+            } else {
+                const modId = await api.syncProjectToLauncher(currentProjectPath, launcherTarget.path);
+                showToast('success', `Synced to ${launcherTarget.name}! Mod ID: ${modId}`);
+            }
 
             // Auto-checkpoint after sync
             api.createCheckpoint(currentProjectPath, `Auto-checkpoint: Synced to ${launcherTarget.name}`).catch(e => {

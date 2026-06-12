@@ -493,6 +493,20 @@ export const SettingsModal: React.FC = () => {
         kind?: 'launcher' | 'app';
     }
     const integrations: Integration[] = [
+        // Celestial first — it's our priority launcher, so it leads the list and
+        // is the default sync target. LTK Manager follows.
+        {
+            id: 'celestial',
+            name: 'Celestial',
+            tagline: "Divine Skins' all-in-one launcher. Detect or point Flint at its mod storage to sync from here.",
+            accent: '#A05CF6',
+            path: celestialPath,
+            setPath: setCelestialPath,
+            onDetect: handleDetectCelestial,
+            browseTitle: 'Select Celestial Mod Storage Folder',
+            directory: true,
+            kind: 'launcher',
+        },
         {
             id: 'ltk',
             name: 'LTK Manager',
@@ -504,18 +518,6 @@ export const SettingsModal: React.FC = () => {
             browseTitle: 'Select LTK Manager Mod Storage Folder',
             directory: true,
             helpUrl: 'https://github.com/LeagueToolkit/ltk-manager',
-            kind: 'launcher',
-        },
-        {
-            id: 'celestial',
-            name: 'Celestial',
-            tagline: "Divine Skins' all-in-one launcher. Detect or point Flint at its mod storage to sync from here.",
-            accent: '#A05CF6',
-            path: celestialPath,
-            setPath: setCelestialPath,
-            onDetect: handleDetectCelestial,
-            browseTitle: 'Select Celestial Mod Storage Folder',
-            directory: true,
             kind: 'launcher',
         },
         {

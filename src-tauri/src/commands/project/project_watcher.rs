@@ -63,8 +63,12 @@ pub async fn start_project_watcher(
     app: tauri::AppHandle,
     project_path: String,
     ltk_storage_path: String,
+    // Which launcher auto-sync targets: "celestial" (deep-link import) or
+    // "ltk" (fantome install). Defaults to LTK when omitted for back-compat.
+    launcher_kind: Option<String>,
 ) -> std::result::Result<(), String> {
     tracing::info!("Starting project watcher for: {}", project_path);
+    let is_celestial = launcher_kind.as_deref() == Some("celestial");
 
     let watcher_state = app.state::<WatcherState>();
     let mut watcher_guard = watcher_state.watcher.lock().unwrap();
@@ -137,15 +141,24 @@ pub async fn start_project_watcher(
         loop {
             tokio::select! {
                 Some(_) = rx.recv() => {
-                    tracing::info!("Debounce complete! Starting auto-sync to LTK Manager...");
+                    tracing::info!("Debounce complete! Starting auto-sync...");
 
-                    // Call the sync command
-                    match crate::commands::ltk_manager::sync_project_to_launcher(
-                        project_path_clone.clone(),
-                        ltk_storage_clone.clone(),
-                    )
-                    .await
-                    {
+                    // Celestial reads the project folder directly via a deep
+                    // link; LTK Manager gets a packaged fantome install.
+                    let sync_result = if is_celestial {
+                        crate::commands::ltk_manager::sync_project_to_celestial(
+                            project_path_clone.clone(),
+                        )
+                        .await
+                    } else {
+                        crate::commands::ltk_manager::sync_project_to_launcher(
+                            project_path_clone.clone(),
+                            ltk_storage_clone.clone(),
+                        )
+                        .await
+                    };
+
+                    match sync_result {
                         Ok(mod_id) => {
                             tracing::info!("✓ Auto-sync completed successfully: {}", mod_id);
                             // Emit event to frontend

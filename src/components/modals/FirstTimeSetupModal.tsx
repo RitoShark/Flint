@@ -182,8 +182,9 @@ export const FirstTimeSetupModal: React.FC = () => {
                 setCelestialPath(celFound);
                 results.push('Celestial');
             }
-            // Pick a default launcher: prefer the existing choice; else first one we found.
-            setPreferredLauncher((prev) => prev ?? (ltkFound ? 'ltk' : celFound ? 'celestial' : null));
+            // Pick a default launcher: keep the existing choice; else prefer
+            // Celestial (our priority launcher) when found, then LTK.
+            setPreferredLauncher((prev) => prev ?? (celFound ? 'celestial' : ltkFound ? 'ltk' : null));
 
             if (results.length === 0) {
                 showToast('warning', 'Nothing was auto-detected — fill paths manually.');
@@ -818,18 +819,9 @@ const LauncherPicker: React.FC<{
     onBrowseLtk: () => void;
     onBrowseCelestial: () => void;
 }> = ({ ltk, celestial, preferred, onPreferredChange, onLtk, onCelestial, onBrowseLtk, onBrowseCelestial }) => {
+    // Celestial first — it's the priority launcher, so it leads the picker and
+    // LTK Manager sits to its right.
     const launchers = [
-        {
-            id: 'ltk' as const,
-            name: 'LTK Manager',
-            logo: '/ltk-manager-logo.svg',
-            color: '#22D3EE',
-            tagline: "Open-source League toolkit's mod manager.",
-            value: ltk,
-            onChange: onLtk,
-            onBrowse: onBrowseLtk,
-            placeholder: 'Path to LTK Manager mod storage',
-        },
         {
             id: 'celestial' as const,
             name: 'Celestial',
@@ -841,8 +833,19 @@ const LauncherPicker: React.FC<{
             onBrowse: onBrowseCelestial,
             placeholder: 'Path to Celestial mod storage',
         },
+        {
+            id: 'ltk' as const,
+            name: 'LTK Manager',
+            logo: '/ltk-manager-logo.svg',
+            color: '#22D3EE',
+            tagline: "Open-source League toolkit's mod manager.",
+            value: ltk,
+            onChange: onLtk,
+            onBrowse: onBrowseLtk,
+            placeholder: 'Path to LTK Manager mod storage',
+        },
     ];
-    const effective = preferred ?? (ltk ? 'ltk' : celestial ? 'celestial' : 'ltk');
+    const effective = preferred ?? (celestial ? 'celestial' : ltk ? 'ltk' : 'celestial');
     return (
         <div className="fwiz-launcher">
             <div className="fwiz-launcher__head">

@@ -383,6 +383,7 @@ fn main() {
             commands::ltk_manager::get_ltk_manager_mod_path,
             commands::ltk_manager::get_celestial_mod_path,
             commands::ltk_manager::sync_project_to_launcher,
+            commands::ltk_manager::sync_project_to_celestial,
             // Project watcher commands (auto-sync + preview hot reload)
             commands::project_watcher::start_project_watcher,
             commands::project_watcher::stop_project_watcher,
