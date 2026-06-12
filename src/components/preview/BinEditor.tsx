@@ -934,6 +934,9 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     // the live session (closures there would otherwise capture stale state).
     const latestRef = useRef({ content: '', originalContent: '', fileVersion: 0, variant });
     latestRef.current = { content, originalContent, fileVersion, variant };
+    // Latest save handler, called by the Ctrl/Cmd+S Monaco keybinding (the
+    // command is registered once but must invoke the current closure).
+    const saveRef = useRef<() => void>(() => {});
 
     // Asset preview tooltip state
     const [previewAsset, setPreviewAsset] = useState<string | null>(null);
@@ -1058,6 +1061,9 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         });
 
         editorRef.current = ed;
+
+        // Ctrl/Cmd+S → save (active while the editor is focused).
+        ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => { saveRef.current(); });
 
         // ── Right-click "copy block" context actions ────────────────────────────
         const copyBlockToPalette = (filter: string[] | undefined, outermost: boolean) => {
@@ -1233,6 +1239,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             showToast('error', flintError.getUserMessage?.() || 'Failed to save');
         }
     }, [filePath, content, setWorking, setReady, showToast, bracketStatus]);
+    saveRef.current = handleSave;
 
     useEffect(() => { return () => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); }; }, []);
 

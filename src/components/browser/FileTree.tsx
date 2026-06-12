@@ -344,6 +344,48 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         setFileTree(activeTab.id, files);
     }, [activeTab, setFileTree]);
 
+    // F2 = rename selected file, Delete = delete selected file (with confirm).
+    // Active only in the project preview, and never while typing in an input or
+    // a Monaco editor (so Delete in the bin editor doesn't nuke the file).
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key !== 'F2' && e.key !== 'Delete') return;
+            if (useNavigationStore.getState().currentView !== 'preview') return;
+            if (renamingPath) return;
+            const ae = document.activeElement as HTMLElement | null;
+            if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable || ae.closest('.monaco-editor'))) return;
+            const tab = activeTabRef.current;
+            const sel = tab?.selectedFile;
+            if (!tab || !sel || sel === '.') return;
+
+            if (e.key === 'F2') {
+                e.preventDefault();
+                setRenamingPath(sel);
+            } else {
+                e.preventDefault();
+                const name = sel.split('/').pop() || sel;
+                openConfirmDialog({
+                    title: 'Delete',
+                    message: `Are you sure you want to delete "${name}"? This cannot be undone.`,
+                    confirmLabel: 'Delete',
+                    danger: true,
+                    onConfirm: async () => {
+                        try {
+                            await api.deleteFile(tab.projectPath, sel);
+                            await refreshFileTree();
+                            showToastRef.current('success', 'Deleted');
+                        } catch (err) {
+                            const fe = err as api.FlintError;
+                            showToastRef.current('error', fe.getUserMessage?.() || 'Failed to delete');
+                        }
+                    },
+                });
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [renamingPath, openConfirmDialog, refreshFileTree]);
+
     const handleItemClick = useCallback((path: string) => {
         if (!activeTab) return;
         setSelectedFile(activeTab.id, path);

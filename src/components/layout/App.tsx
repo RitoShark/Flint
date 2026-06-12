@@ -600,6 +600,9 @@ export const App: React.FC = () => {
     // Use currentView as the single source of truth for what's displayed
     const isWadExplorer = currentView === 'wad-explorer';
     const isExtractMode = currentView === 'extract';
+    // The standalone file editor (desktop "open with", Edit Project Info) is
+    // full-page — no project file tree alongside it.
+    const isFileEditor = currentView === 'file-editor';
     // Show a left panel for any view that isn't the welcome screen or WAD Explorer
     const hasProject = !isWadExplorer && currentView !== 'welcome';
 
@@ -659,7 +662,7 @@ export const App: React.FC = () => {
                 )}
                 {!isWadExplorer && (
                     <>
-                        {hasProject && !isExtractMode && (
+                        {hasProject && !isExtractMode && !isFileEditor && (
                             <>
                                 <LeftPanel style={{ width: leftPanelWidth }} />
                                 <div

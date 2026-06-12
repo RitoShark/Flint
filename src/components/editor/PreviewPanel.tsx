@@ -278,6 +278,18 @@ export const PreviewPanel: React.FC = () => {
             );
         }
 
+        // WAD archives (.wad / .wad.client) must NEVER reach the BIN editor — a
+        // WAD's magic can mis-detect as `application/x-bin`, and feeding an
+        // archive to the ritobin parser produces garbage. They aren't previewable
+        // inline (use the WAD Explorer), so route them to the Unknown view.
+        const lowerPath = (selectedFile || filePath || '').toLowerCase();
+        if (
+            lowerPath.endsWith('.wad') || lowerPath.endsWith('.wad.client') ||
+            fileInfo.extension === 'wad' || fileInfo.extension === 'client'
+        ) {
+            return <UnknownPreview key={filePath} filePath={filePath} />;
+        }
+
         // Choose preview component based on file type
         // IMPORTANT: Use filePath as key to force full unmount/remount when switching files
         // This ensures proper cleanup of WebGL contexts and other resources
