@@ -7,6 +7,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useConfigStore, useProjectTabStore, useModalStore, useNotificationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
+import { openWadInExtract, isWadPath } from '../../lib/openWad';
 import { ImagePreview } from '../preview/ImagePreview';
 import { TextPreview } from '../preview/TextPreview';
 import { BinEditor } from '../preview/BinEditor';
@@ -38,6 +39,21 @@ const EmptyState: React.FC = () => (
             dangerouslySetInnerHTML={{ __html: getIcon('document') }}
         />
         <div className="preview-panel__empty-text">Select a file to preview</div>
+    </div>
+);
+
+/** A WAD archive can't be previewed inline — offer to open the WAD viewer. */
+const WadArchiveNotice: React.FC<{ filePath: string }> = ({ filePath }) => (
+    <div className="preview-panel__empty">
+        <div className="preview-panel__empty-icon" dangerouslySetInnerHTML={{ __html: getIcon('wad') }} />
+        <div className="preview-panel__empty-text">This is a WAD archive.</div>
+        <button
+            className="dl-btn dl-btn--primary"
+            style={{ marginTop: 12 }}
+            onClick={() => { openWadInExtract(filePath).catch(() => {}); }}
+        >
+            Open in WAD viewer
+        </button>
     </div>
 );
 
@@ -278,16 +294,10 @@ export const PreviewPanel: React.FC = () => {
             );
         }
 
-        // WAD archives (.wad / .wad.client) must NEVER reach the BIN editor — a
-        // WAD's magic can mis-detect as `application/x-bin`, and feeding an
-        // archive to the ritobin parser produces garbage. They aren't previewable
-        // inline (use the WAD Explorer), so route them to the Unknown view.
-        const lowerPath = (selectedFile || filePath || '').toLowerCase();
-        if (
-            lowerPath.endsWith('.wad') || lowerPath.endsWith('.wad.client') ||
-            fileInfo.extension === 'wad' || fileInfo.extension === 'client'
-        ) {
-            return <UnknownPreview key={filePath} filePath={filePath} />;
+        // WAD archives (.wad / .wad.client / .client) are NOT previewable inline
+        // and must NEVER reach the BIN editor — they open in the WAD viewer.
+        if (isWadPath(selectedFile || filePath || '') || fileInfo.extension === 'wad' || fileInfo.extension === 'client') {
+            return <WadArchiveNotice filePath={filePath} />;
         }
 
         // Choose preview component based on file type

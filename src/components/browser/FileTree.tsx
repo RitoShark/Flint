@@ -9,6 +9,7 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect, CSSProperties } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useAppMetadataStore, useProjectTabStore, useModalStore, useNotificationStore, useConfigStore, useNavigationStore } from '../../lib/stores';
+import { openWadInExtract, isWadPath } from '../../lib/openWad';
 import { getFileIcon, getExpanderIcon, getIcon } from '../../lib/ui-helpers/fileIcons';
 import { VirtualizedList } from './wad-explorer/VirtualizedList';
 import * as api from '../../lib/api';
@@ -464,6 +465,14 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         bulkSetFolders(activeTab.id, collectAllFolderPaths(node), expand);
     }, [activeTab, bulkSetFolders]);
 
+    const openWad = useCallback((fullFilePath: string) => {
+        showToastRef.current('info', 'Opening WAD…');
+        openWadInExtract(fullFilePath).catch((err) => {
+            const fe = err as api.FlintError;
+            showToastRef.current('error', fe.getUserMessage?.() || 'Failed to open WAD');
+        });
+    }, []);
+
     const handleDoubleClick = useCallback((node: FileTreeNode) => {
         if (node.isDirectory) return;
         const path = node.path;
@@ -471,7 +480,9 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         const fullFilePath = `${projectPath}/${path}`;
         const nav = useNavigationStore.getState();
 
-        if (node.name === 'mod.config.json') {
+        if (isWadPath(lower)) {
+            openWad(fullFilePath);
+        } else if (node.name === 'mod.config.json') {
             nav.navigateToFileEditor({ filePath: fullFilePath, kind: 'modConfig', projectPath });
         } else if (BIN_TEXT_EXTS.some(ext => lower.endsWith(ext))) {
             nav.navigateToFileEditor({ filePath: fullFilePath, kind: 'binText', projectPath });
@@ -480,7 +491,7 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         } else if (lower.endsWith('.json') || lower.endsWith('.txt') || lower.endsWith('.lua') || lower.endsWith('.py')) {
             nav.navigateToFileEditor({ filePath: fullFilePath, kind: 'raw', projectPath });
         }
-    }, [projectPath]);
+    }, [projectPath, openWad]);
 
     const handleRenameSubmit = useCallback(async (path: string, newName: string) => {
         setRenamingPath(null);

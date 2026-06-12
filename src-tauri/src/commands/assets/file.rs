@@ -349,7 +349,22 @@ pub async fn read_file_info(path: String) -> Result<FileInfo, String> {
 /// Shared file-info reader — extracted so `inspect_path` can reuse it.
 fn read_file_info_inner(path: String, path_buf: &std::path::Path) -> Result<FileInfo, String> {
     let metadata = fs::metadata(path_buf).map_err(|e| format!("Failed to read metadata: {}", e))?;
-    let data = fs::read(path_buf).map_err(|e| format!("Failed to read file: {}", e))?;
+
+    // Only read a header chunk for type/dimension detection — NEVER the whole
+    // file. Reading a multi-hundred-MB / GB file (e.g. a `.wad.client`) in full
+    // can exceed available memory, and Rust ABORTS the process on allocation
+    // failure (taking the whole app down). Every detector here keys off the
+    // header (magic bytes + texture header), so 64 KB is plenty.
+    const HEADER_BYTES: u64 = 64 * 1024;
+    let data = {
+        use std::io::Read;
+        let f = fs::File::open(path_buf).map_err(|e| format!("Failed to open file: {}", e))?;
+        let mut buf = Vec::new();
+        f.take(HEADER_BYTES)
+            .read_to_end(&mut buf)
+            .map_err(|e| format!("Failed to read file: {}", e))?;
+        buf
+    };
 
     let (file_type, extension) = detect_file_type(path_buf, &data);
 

@@ -7,6 +7,7 @@ import { useAppMetadataStore, useConfigStore, useProjectTabStore, useNavigationS
 import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
 import { initShortcuts, registerShortcut } from '../../lib/util/utils';
 import * as api from '../../lib/api';
+import { openWadInExtract, isWadPath } from '../../lib/openWad';
 import * as updater from '../../lib/util/updater';
 import { getVersion } from '@tauri-apps/api/app';
 import { CHANGELOG } from '../../lib/data/changelog';
@@ -320,14 +321,10 @@ export const App: React.FC = () => {
             if (!filePath) return;
             const lower = filePath.toLowerCase();
 
-            if (lower.endsWith('.wad') || lower.endsWith('.wad.client')) {
+            if (isWadPath(lower)) {
                 try {
                     setWorking('Opening WAD...');
-                    const chunks = await api.getWadChunks(filePath);
-                    const sessionId = `extract-${Date.now()}`;
-                    useWadExtractStore.getState().openSession(sessionId, filePath);
-                    useNavigationStore.getState().setView('extract');
-                    useWadExtractStore.getState().setChunks(sessionId, chunks);
+                    await openWadInExtract(filePath);
                     setReady('WAD opened');
                 } catch (err) {
                     console.error('Failed to open WAD:', err);
