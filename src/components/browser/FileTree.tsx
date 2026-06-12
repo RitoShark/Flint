@@ -15,7 +15,7 @@ import * as api from '../../lib/api';
 import { buildFileContextMenuOptions } from '../../lib/editor/fileContextMenuOptions';
 import { beginPointerDrag } from '../../lib/pointerDrag';
 import { useTransferStore } from '../../lib/stores/transferStore';
-import type { TreeDragPayload } from '../../lib/dnd';
+import type { TreeDragPayload, TreeDragItem } from '../../lib/dnd';
 import type { FileTreeNode, ProjectTab } from '../../lib/types';
 
 const ROW_HEIGHT = 22;
@@ -338,6 +338,17 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
 
     const projectPath = activeTab?.projectPath || '';
 
+    // Multi-selection (Ctrl = toggle, Shift = range over visible rows). The
+    // primary (last-clicked) still drives the preview via `selectedFile`. Reset
+    // when switching project tabs.
+    const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+    const anchorRef = useRef<string | null>(null);
+    const rowsRef = useRef(rows);
+    rowsRef.current = rows;
+    const selectedPathsRef = useRef(selectedPaths);
+    selectedPathsRef.current = selectedPaths;
+    useEffect(() => { setSelectedPaths(new Set()); anchorRef.current = null; }, [activeTabId]);
+
     const refreshFileTree = useCallback(async () => {
         if (!activeTab) return;
         const files = await api.listProjectFiles(activeTab.projectPath);
@@ -363,17 +374,24 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
                 setRenamingPath(sel);
             } else {
                 e.preventDefault();
-                const name = sel.split('/').pop() || sel;
+                // Delete the whole selection (or the primary file if no multi-select).
+                const selPaths = selectedPathsRef.current;
+                const targets = (selPaths.size > 0 ? [...selPaths] : [sel]).filter((p) => p && p !== '.');
+                if (!targets.length) return;
+                const label = targets.length === 1
+                    ? `"${targets[0].split('/').pop()}"`
+                    : `${targets.length} items`;
                 openConfirmDialog({
                     title: 'Delete',
-                    message: `Are you sure you want to delete "${name}"? This cannot be undone.`,
+                    message: `Are you sure you want to delete ${label}? This cannot be undone.`,
                     confirmLabel: 'Delete',
                     danger: true,
                     onConfirm: async () => {
                         try {
-                            await api.deleteFile(tab.projectPath, sel);
+                            for (const p of targets) await api.deleteFile(tab.projectPath, p);
                             await refreshFileTree();
-                            showToastRef.current('success', 'Deleted');
+                            setSelectedPaths(new Set());
+                            showToastRef.current('success', targets.length === 1 ? 'Deleted' : `Deleted ${targets.length} items`);
                         } catch (err) {
                             const fe = err as api.FlintError;
                             showToastRef.current('error', fe.getUserMessage?.() || 'Failed to delete');
@@ -386,11 +404,56 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         return () => window.removeEventListener('keydown', onKey);
     }, [renamingPath, openConfirmDialog, refreshFileTree]);
 
-    const handleItemClick = useCallback((path: string) => {
+    const handleItemClick = useCallback((path: string, mods?: { ctrl: boolean; shift: boolean }) => {
         if (!activeTab) return;
+        if (mods?.shift && anchorRef.current) {
+            // Range-select from the anchor to this row over the visible rows.
+            const paths = rowsRef.current.map((r) => r.node.path);
+            const i = paths.indexOf(anchorRef.current);
+            const j = paths.indexOf(path);
+            if (i >= 0 && j >= 0) {
+                const [lo, hi] = i <= j ? [i, j] : [j, i];
+                setSelectedPaths(new Set(paths.slice(lo, hi + 1)));
+            }
+        } else if (mods?.ctrl) {
+            setSelectedPaths((prev) => {
+                const next = new Set(prev);
+                if (next.has(path)) next.delete(path); else next.add(path);
+                return next;
+            });
+            anchorRef.current = path;
+        } else {
+            setSelectedPaths(new Set([path]));
+            anchorRef.current = path;
+        }
         setSelectedFile(activeTab.id, path);
         useNavigationStore.getState().setView('preview');
     }, [activeTab, setSelectedFile]);
+
+    // Start a cross-project drag. Drags the whole selection if the pressed row is
+    // part of a multi-selection, otherwise just that row. (Pointer-drag, not
+    // HTML5 — WebView2's native drag-drop blocks HTML5 DnD.)
+    const handleRowPointerDown = useCallback((node: FileTreeNode, e: React.PointerEvent) => {
+        if (node.path === '.' || !projectPath || renamingPath) return;
+        const sel = selectedPathsRef.current;
+        let items: TreeDragItem[];
+        if (sel.has(node.path) && sel.size > 1) {
+            items = rowsRef.current
+                .filter((r) => sel.has(r.node.path) && r.node.path !== '.')
+                .map((r) => ({ relPath: r.node.path, name: r.node.name, isDirectory: r.node.isDirectory }));
+        } else {
+            items = [{ relPath: node.path, name: node.name, isDirectory: node.isDirectory }];
+        }
+        if (!items.length) return;
+        const payload: TreeDragPayload = { projectPath, items };
+        const label = items.length === 1 ? items[0].name : `${items.length} items`;
+        beginPointerDrag(e, {
+            label,
+            onMove: (x, y) => onTreeDragMove(x, y, projectPath),
+            onDrop: ({ clientX, clientY }) => onTreeDrop(clientX, clientY, payload),
+            onEnd: () => { clearSpringLoad(); clearFolderExpand(); clearDragHighlights(); },
+        });
+    }, [projectPath, renamingPath]);
 
     const handleExpanderClick = useCallback((path: string) => {
         if (activeTab) toggleFolder(activeTab.id, path);
@@ -468,7 +531,7 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
 
     // renderEpoch bumps whenever the rows array identity changes (selection,
     // expand, rename, drop target, file status).
-    const renderEpoch = rows.length + (selectedFile?.length ?? 0) + (dropTargetPath?.length ?? 0);
+    const renderEpoch = rows.length + (selectedFile?.length ?? 0) + (dropTargetPath?.length ?? 0) + selectedPaths.size;
 
     return (
         <div className="file-tree">
@@ -484,9 +547,10 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
                         <TreeRow
                             row={row}
                             projectPath={activeTab?.projectPath || ''}
-                            isSelected={selectedFile === row.node.path}
+                            isSelected={selectedPaths.has(row.node.path) || selectedFile === row.node.path}
                             isDropTarget={dropTargetPath === row.node.path}
                             onItemClick={handleItemClick}
+                            onRowPointerDown={handleRowPointerDown}
                             onExpanderClick={handleExpanderClick}
                             onDeepToggle={handleDeepToggle}
                             onDoubleClick={handleDoubleClick}
@@ -506,7 +570,8 @@ interface TreeRowProps {
     projectPath: string;
     isSelected: boolean;
     isDropTarget: boolean;
-    onItemClick: (path: string) => void;
+    onItemClick: (path: string, mods?: { ctrl: boolean; shift: boolean }) => void;
+    onRowPointerDown: (node: FileTreeNode, e: React.PointerEvent) => void;
     onExpanderClick: (path: string) => void;
     onDeepToggle: (node: FileTreeNode, expand: boolean) => void;
     onDoubleClick: (node: FileTreeNode) => void;
@@ -660,6 +725,7 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
     isSelected,
     isDropTarget,
     onItemClick,
+    onRowPointerDown,
     onExpanderClick,
     onDeepToggle,
     onDoubleClick,
@@ -670,25 +736,11 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
     const { node, displayPath, depth, isExpanded, isRenaming, status } = row;
     const renameInputRef = useRef<HTMLInputElement>(null);
 
-    // Drag a file/folder out to another project's tab (cross-project copy/move).
-    // Uses pointer-drag, NOT HTML5 draggable — WebView2's native drag-drop (kept
-    // on for Explorer file imports) blocks HTML5 DnD. The project root (".") and
-    // a row being renamed aren't draggable.
-    const isDraggable = node.path !== '.' && !isRenaming;
+    // Drag a file/folder (or the whole multi-selection) out to another project's
+    // tab — handled by the parent so it has the live selection.
+    void projectPath;
     const handlePointerDown = (e: React.PointerEvent) => {
-        if (!isDraggable || !projectPath) return;
-        const payload: TreeDragPayload = {
-            projectPath,
-            relPath: node.path,
-            name: node.name,
-            isDirectory: node.isDirectory,
-        };
-        beginPointerDrag(e, {
-            label: node.name,
-            onMove: (x, y) => onTreeDragMove(x, y, projectPath),
-            onDrop: ({ clientX, clientY }) => onTreeDrop(clientX, clientY, payload),
-            onEnd: () => { clearSpringLoad(); clearFolderExpand(); clearDragHighlights(); },
-        });
+        onRowPointerDown(node, e);
     };
 
     useEffect(() => {
@@ -708,11 +760,9 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
     const handleClick = (e: React.MouseEvent) => {
         e.stopPropagation();
         if (isRenaming) return;
-        if (e.shiftKey && node.isDirectory) {
-            onDeepToggle(node, !isExpanded);
-        } else {
-            onItemClick(node.path);
-        }
+        // Ctrl = toggle, Shift = range select (handled by the parent). Shift+click
+        // the CHEVRON still deep-expands a folder.
+        onItemClick(node.path, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey });
     };
 
     const handleDoubleClick = (e: React.MouseEvent) => {
@@ -750,10 +800,12 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
                     <span
                         className="file-tree__expander"
                         onClick={(e) => {
-                            // Chevron only toggles expansion; clicking the row
-                            // body is what opens the folder grid view.
+                            // Chevron toggles expansion; Shift+chevron deep-expands
+                            // the whole subtree. Clicking the row body opens the
+                            // folder grid view / selects.
                             e.stopPropagation();
-                            onExpanderClick(node.path);
+                            if (e.shiftKey) onDeepToggle(node, !isExpanded);
+                            else onExpanderClick(node.path);
                         }}
                         style={{ cursor: 'pointer' }}
                         dangerouslySetInnerHTML={{ __html: expanderIcon }}

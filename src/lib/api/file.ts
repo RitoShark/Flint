@@ -121,24 +121,39 @@ export async function importExternalFiles(
     return invokeCommand('import_external_files', { projectPath, destFolder, sources });
 }
 
-/** Copy files/folders from one project into a folder of another project. */
+export type TransferConflictPolicy = 'rename' | 'replace';
+
+/** Copy files/folders from one project into a folder of another project.
+ *  `onConflict`: 'rename' (keep both, default) or 'replace' (overwrite). */
 export async function copyBetweenProjects(
     sourceProject: string,
     sourceRelPaths: string[],
     destProject: string,
     destFolder: string,
+    onConflict: TransferConflictPolicy = 'rename',
 ): Promise<string[]> {
-    return invokeCommand('copy_between_projects', { sourceProject, sourceRelPaths, destProject, destFolder });
+    return invokeCommand('copy_between_projects', { sourceProject, sourceRelPaths, destProject, destFolder, onConflict });
 }
 
-/** Move files/folders from one project into a folder of another project. */
+/** Move files/folders from one project into a folder of another project.
+ *  `onConflict`: 'rename' (keep both, default) or 'replace' (overwrite). */
 export async function moveBetweenProjects(
     sourceProject: string,
     sourceRelPaths: string[],
     destProject: string,
     destFolder: string,
+    onConflict: TransferConflictPolicy = 'rename',
 ): Promise<string[]> {
-    return invokeCommand('move_between_projects', { sourceProject, sourceRelPaths, destProject, destFolder });
+    return invokeCommand('move_between_projects', { sourceProject, sourceRelPaths, destProject, destFolder, onConflict });
+}
+
+/** Filenames in `destFolder` of `destProject` that would collide with the transfer. */
+export async function checkTransferConflicts(
+    sourceRelPaths: string[],
+    destProject: string,
+    destFolder: string,
+): Promise<string[]> {
+    return invokeCommand('check_transfer_conflicts', { sourceRelPaths, destProject, destFolder });
 }
 
 // =============================================================================

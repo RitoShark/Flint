@@ -1468,6 +1468,7 @@ fn transfer_between_projects(
     dest_project: &str,
     dest_folder: &str,
     do_move: bool,
+    on_conflict: &str,
 ) -> Result<Vec<String>, String> {
     let src_root = PathBuf::from(source_project);
     let dst_root = PathBuf::from(dest_project);
@@ -1504,9 +1505,25 @@ fn transfer_between_projects(
             .to_string_lossy()
             .to_string();
 
-        let dest_full = unique_dest(&dst_dir, &file_name);
+        // Resolve the destination per the conflict policy:
+        //   "replace" → overwrite the existing entry; "rename" (default) → " (n)".
+        let dest_full = if on_conflict == "replace" {
+            let target = dst_dir.join(&file_name);
+            if target.exists() {
+                if target.is_dir() {
+                    fs::remove_dir_all(&target)
+                        .map_err(|e| format!("Failed to replace directory '{}': {}", file_name, e))?;
+                } else {
+                    fs::remove_file(&target)
+                        .map_err(|e| format!("Failed to replace file '{}': {}", file_name, e))?;
+                }
+            }
+            target
+        } else {
+            unique_dest(&dst_dir, &file_name)
+        };
         if dest_full.exists() {
-            return Err(format!("'{}' already exists and uniquification failed", file_name));
+            return Err(format!("'{}' already exists and could not be resolved", file_name));
         }
 
         if do_move {
@@ -1545,25 +1562,51 @@ fn transfer_between_projects(
 }
 
 /// Copy files/folders from one project into a folder of another project.
+/// `on_conflict` is `"rename"` (keep both, default) or `"replace"` (overwrite).
 #[tauri::command]
 pub async fn copy_between_projects(
     source_project: String,
     source_rel_paths: Vec<String>,
     dest_project: String,
     dest_folder: String,
+    on_conflict: Option<String>,
 ) -> Result<Vec<String>, String> {
-    transfer_between_projects(&source_project, &source_rel_paths, &dest_project, &dest_folder, false)
+    let policy = on_conflict.unwrap_or_else(|| "rename".to_string());
+    transfer_between_projects(&source_project, &source_rel_paths, &dest_project, &dest_folder, false, &policy)
 }
 
 /// Move files/folders from one project into a folder of another project.
+/// `on_conflict` is `"rename"` (keep both, default) or `"replace"` (overwrite).
 #[tauri::command]
 pub async fn move_between_projects(
     source_project: String,
     source_rel_paths: Vec<String>,
     dest_project: String,
     dest_folder: String,
+    on_conflict: Option<String>,
 ) -> Result<Vec<String>, String> {
-    transfer_between_projects(&source_project, &source_rel_paths, &dest_project, &dest_folder, true)
+    let policy = on_conflict.unwrap_or_else(|| "rename".to_string());
+    transfer_between_projects(&source_project, &source_rel_paths, &dest_project, &dest_folder, true, &policy)
+}
+
+/// Return the filenames that would collide if `source_rel_paths` were
+/// transferred into `dest_folder` of `dest_project` (i.e. already exist there).
+#[tauri::command]
+pub async fn check_transfer_conflicts(
+    source_rel_paths: Vec<String>,
+    dest_project: String,
+    dest_folder: String,
+) -> Result<Vec<String>, String> {
+    let dst_dir = PathBuf::from(&dest_project).join(&dest_folder);
+    let mut conflicts = Vec::new();
+    for rel in &source_rel_paths {
+        if let Some(name) = Path::new(rel).file_name().map(|n| n.to_string_lossy().into_owned()) {
+            if dst_dir.join(&name).exists() {
+                conflicts.push(name);
+            }
+        }
+    }
+    Ok(conflicts)
 }
 
 /// Get floor texture as PNG bytes.

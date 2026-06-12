@@ -312,6 +312,7 @@ fn main() {
             commands::file::import_external_files,
             commands::file::copy_between_projects,
             commands::file::move_between_projects,
+            commands::file::check_transfer_conflicts,
             commands::file::is_directory,
             commands::file::list_folder_contents,
             commands::bin_split::analyze_bin_for_split,
