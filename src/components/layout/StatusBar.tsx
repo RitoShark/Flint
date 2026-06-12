@@ -21,7 +21,7 @@ type FilterLevel = 'all' | LogLevel;
 // the CSS/inline style enforces; OVERSCAN renders a few extra rows above/below
 // for smooth scrolling. Copy All / range-copy read from the store, so off-screen
 // (un-rendered) lines copy fine.
-const ROW_H = 26;        // px, single-line row height (must match logger-polish.css row sizing)
+const ROW_H = 34;        // px, single-line row height (must match logger-polish.css row sizing)
 const OVERSCAN = 12;     // rows rendered beyond the viewport on each side
 
 const LEVEL_LABEL: Record<LogLevel, string> = {
