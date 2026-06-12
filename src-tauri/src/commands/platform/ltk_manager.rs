@@ -170,7 +170,7 @@ pub async fn sync_project_to_celestial(project_path: String) -> Result<String, S
     let deep_link = format!("celestial://import-flint?path={}", encoded);
 
     tracing::info!("Launching Celestial deep link: {}", deep_link);
-    opener::open(&deep_link)
+    launch_url(&deep_link)
         .map_err(|e| format!("Failed to launch Celestial. Is it installed? ({})", e))?;
 
     Ok(abs)
@@ -191,6 +191,51 @@ fn encode_path_component(input: &str) -> String {
         }
     }
     out
+}
+
+/// Launch a URL (or protocol deep link) through the OS shell.
+///
+/// On Windows we call `ShellExecuteW` directly instead of `opener::open` — the
+/// latter shells out via `cmd /c start`, which flashes a console window every
+/// time. `ShellExecuteW` resolves the protocol handler with no console window.
+#[cfg(windows)]
+fn launch_url(url: &str) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    let to_wide = |s: &str| -> Vec<u16> {
+        std::ffi::OsStr::new(s)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    };
+    let verb = to_wide("open");
+    let file = to_wide(url);
+
+    // SAFETY: all PCWSTRs point at null-terminated buffers that outlive the call.
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            PCWSTR(verb.as_ptr()),
+            PCWSTR(file.as_ptr()),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    // ShellExecuteW returns an HINSTANCE > 32 on success; <= 32 is an error code.
+    if result.0 as usize > 32 {
+        Ok(())
+    } else {
+        Err(format!("ShellExecuteW failed (code {})", result.0 as usize))
+    }
+}
+
+#[cfg(not(windows))]
+fn launch_url(url: &str) -> Result<(), String> {
+    opener::open(url).map_err(|e| e.to_string())
 }
 
 /// Package a Flint project and install it to LTK Manager
