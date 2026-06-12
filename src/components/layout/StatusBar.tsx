@@ -21,7 +21,7 @@ type FilterLevel = 'all' | LogLevel;
 // the CSS/inline style enforces; OVERSCAN renders a few extra rows above/below
 // for smooth scrolling. Copy All / range-copy read from the store, so off-screen
 // (un-rendered) lines copy fine.
-const ROW_H = 22;        // px, single-line row height
+const ROW_H = 26;        // px, single-line row height (must match logger-polish.css row sizing)
 const OVERSCAN = 12;     // rows rendered beyond the viewport on each side
 
 const LEVEL_LABEL: Record<LogLevel, string> = {
@@ -326,9 +326,7 @@ export const LogPanel: React.FC = () => {
                                                 left: 0,
                                                 right: 0,
                                                 height: ROW_H,
-                                                padding: '0 12px',
-                                                alignItems: 'center',
-                                                cursor: 'pointer',
+                                                padding: '0 14px',
                                                 background: selected
                                                     ? 'color-mix(in oklab, var(--accent-primary) 24%, transparent)'
                                                     : undefined,

@@ -341,20 +341,28 @@ input.log-panel__search-input,
 /* --------------------------------------------------------------------------
    Log entry row — selectable, with hover copy button
    -------------------------------------------------------------------------- */
+/* Each row is rendered by the virtualizer at a FIXED height (ROW_H in
+   StatusBar.tsx) and absolutely positioned, so the row must be a single,
+   vertically-centered line with NO vertical padding — otherwise padding +
+   line-height push the content past the fixed slot and rows look squashed and
+   overlap. Horizontal padding/height come from the inline style; we only style
+   the column layout, separator, and typography here. */
 .log-panel__entry {
     position: relative;
     display: grid !important;
-    grid-template-columns: 80px 56px 1fr 28px;
-    align-items: start;
-    gap: 12px !important;
-    padding: 6px 12px !important;
-    border-bottom: 1px solid color-mix(in oklab, var(--border) 50%, transparent) !important;
-    line-height: 1.45;
+    grid-template-columns: 76px 52px 1fr 24px;
+    align-items: center;
+    gap: 10px !important;
+    /* Border drawn as an inset box-shadow so it never adds to the row's box
+       height (a real border-bottom would, breaking the fixed-height math). */
+    box-shadow: inset 0 -1px 0 color-mix(in oklab, var(--border) 45%, transparent);
+    line-height: 1;
     font-family: var(--font-mono);
     font-size: 12px;
+    white-space: nowrap;
     user-select: text;
     -webkit-user-select: text;
-    cursor: text;
+    cursor: pointer;
     transition: background var(--motion-fast);
 }
 .log-panel__entry:hover {
