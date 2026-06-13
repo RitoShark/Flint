@@ -32,12 +32,18 @@ export async function getLoadscreenBannerInfo(projectPath: string): Promise<Load
     return invokeCommand('get_loadscreen_banner_info', { projectPath });
 }
 
-/** Inject the StaticMaterialDef + link and ensure a mask .tex exists. */
+/**
+ * Inject the StaticMaterialDef + link and build the mask .tex.
+ * `rebuildMask` (default true) regenerates the mask's R/G scroll pattern while
+ * keeping any existing painted blue — pass false for a params-only save so the
+ * mask the user is actively painting isn't touched.
+ */
 export async function applyLoadscreenBanner(
     projectPath: string,
     params?: BannerParams,
+    rebuildMask = true,
 ): Promise<ApplyBannerResult> {
-    return invokeCommand('apply_loadscreen_banner', { projectPath, params: params ?? null });
+    return invokeCommand('apply_loadscreen_banner', { projectPath, params: params ?? null, rebuildMask });
 }
 
 /** Save painted blue-channel RGBA into the mask .tex (raw-bytes IPC). */

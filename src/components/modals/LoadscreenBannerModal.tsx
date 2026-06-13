@@ -27,6 +27,17 @@ interface ModalOpts {
 
 type Tool = 'brush' | 'eraser';
 
+/** Tiny localStorage persistence for the brush, namespaced under the editor. */
+function loadPref<T>(key: string, fallback: T): T {
+    try {
+        const raw = localStorage.getItem(`flint.loadscreenbanner.${key}`);
+        return raw == null ? fallback : (JSON.parse(raw) as T);
+    } catch { return fallback; }
+}
+function savePref(key: string, value: unknown): void {
+    try { localStorage.setItem(`flint.loadscreenbanner.${key}`, JSON.stringify(value)); } catch { /* ignore */ }
+}
+
 /** Decode a .tex/.dds file to an ImageData via the base64-PNG backend path. */
 async function decodeTexToImageData(path: string): Promise<{ data: ImageData; width: number; height: number }> {
     const decoded = await api.decodeDdsToPng(path);
@@ -55,11 +66,14 @@ export const LoadscreenBannerModal: React.FC = () => {
     const [dims, setDims] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
     const [maskPath, setMaskPath] = useState('');
 
-    // Tool state
+    // Tool state — brush params persist across sessions (localStorage).
     const [tool, setTool] = useState<Tool>('brush');
-    const [brushSize, setBrushSize] = useState(48);
-    const [hardness, setHardness] = useState(0.5);
-    const [opacity, setOpacity] = useState(1);
+    const [brushSize, setBrushSize] = useState(() => loadPref('brushSize', 48));
+    const [hardness, setHardness] = useState(() => loadPref('hardness', 0.5));
+    const [opacity, setOpacity] = useState(() => loadPref('opacity', 1));
+    useEffect(() => { savePref('brushSize', brushSize); }, [brushSize]);
+    useEffect(() => { savePref('hardness', hardness); }, [hardness]);
+    useEffect(() => { savePref('opacity', opacity); }, [opacity]);
 
     // Preset sliders (sent to the backend on save / apply).
     const [shineStrength, setShineStrength] = useState(0.02);
@@ -398,13 +412,14 @@ export const LoadscreenBannerModal: React.FC = () => {
         if (!rgba || !maskPath) return;
         setSaving(true);
         try {
-            // 1. Persist preset slider values into the BIN (params only).
+            // 1. Persist preset slider values into the BIN (params only) — do
+            //    NOT rebuild the mask (we're about to save the painted one).
             await api.applyLoadscreenBanner(projectPath, {
                 shineStrength,
                 scrollSpeedX,
                 glowPulse,
                 tint,
-            });
+            }, false);
             // 2. Save the mask. R/G/A are the existing texture's channels
             //    (the scroll pattern); only the BLUE channel was edited by the
             //    brush — send the buffer as-is, do NOT zero R/G.
@@ -524,8 +539,8 @@ export const LoadscreenBannerModal: React.FC = () => {
                             </div>
                         </Section>
                         <Section title="Brush">
-                            <Slider label="Size" value={brushSize} min={2} max={300} step={1} onChange={setBrushSize} display={`${brushSize}px`} />
-                            <Slider label="Hardness" value={hardness} min={0} max={1} step={0.01} onChange={setHardness} display={`${Math.round(hardness * 100)}%`} />
+                            <Slider label="Size" hint="Alt + drag" value={brushSize} min={2} max={300} step={1} onChange={setBrushSize} display={`${brushSize}px`} />
+                            <Slider label="Hardness" hint="Right-drag" value={hardness} min={0} max={1} step={0.01} onChange={setHardness} display={`${Math.round(hardness * 100)}%`} />
                             <Slider label="Opacity" value={opacity} min={0.05} max={1} step={0.01} onChange={setOpacity} display={`${Math.round(opacity * 100)}%`} />
                         </Section>
                         <Section title="Effect">
@@ -577,10 +592,20 @@ const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title
     </div>
 );
 
-const Slider: React.FC<{ label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void; display: string }> = ({ label, value, min, max, step, onChange, display }) => (
+const Slider: React.FC<{ label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void; display: string; hint?: string }> = ({ label, value, min, max, step, onChange, display, hint }) => (
     <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 2 }}>
-            <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, marginBottom: 2, gap: 6 }}>
+            <span style={{ color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                {label}
+                {hint && (
+                    <span style={{
+                        fontSize: 9, fontWeight: 600, letterSpacing: '.02em',
+                        color: 'var(--text-muted)', background: 'var(--bg-secondary)',
+                        border: '1px solid var(--border)', borderRadius: 4,
+                        padding: '0 4px', lineHeight: '14px', whiteSpace: 'nowrap',
+                    }}>{hint}</span>
+                )}
+            </span>
             <span style={{ color: 'var(--text-muted)' }}>{display}</span>
         </div>
         <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(parseFloat(e.target.value))} style={{ width: '100%' }} />

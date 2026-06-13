@@ -198,9 +198,14 @@ pub async fn get_loadscreen_banner_info(
 pub async fn apply_loadscreen_banner(
     project_path: String,
     params: Option<BannerParamsDto>,
+    rebuild_mask: Option<bool>,
 ) -> Result<ApplyBannerResult, String> {
     let mut r = resolve(&project_path)?;
     let params = params.unwrap_or_default().into_params();
+    // Default true: "Add"/"Re-apply" rebuild the mask (R/G pattern, keep blue).
+    // The editor's params-only save passes false so it never touches the mask
+    // the user is actively painting.
+    let rebuild_mask = rebuild_mask.unwrap_or(true);
 
     // 1. Apply the material + link to the BIN.
     banner::apply_banner_to_bin(&mut r.bin, &r.material_name, &r.mask_asset, &params)?;
@@ -220,9 +225,15 @@ pub async fn apply_loadscreen_banner(
     };
     let _ = std::fs::remove_file(&ritobin_cache);
 
-    // 3. Ensure a mask .tex exists — create an empty black one sized to the
-    //    loadscreen if missing.
-    let (width, height) = ensure_mask_exists(&r.loadscreen_disk, &r.mask_disk)?;
+    // 3. Build/rebuild the mask (bundled R/G pattern resized to the loadscreen,
+    //    preserving any existing painted blue) — or just read its dims if this
+    //    is a params-only save.
+    let (width, height) = if rebuild_mask || !r.mask_disk.exists() {
+        build_mask(&r.loadscreen_disk, &r.mask_disk)?
+    } else {
+        let data = std::fs::read(&r.mask_disk).map_err(|e| format!("Failed to read mask: {e}"))?;
+        tex_dimensions(&data)?
+    };
 
     Ok(ApplyBannerResult {
         mask_path: r.mask_disk.to_string_lossy().to_string(),
@@ -324,20 +335,69 @@ fn encode_mask_tex(
     Ok(buf)
 }
 
-/// Ensure a mask `.tex` exists. If missing, drop in the bundled base mask (BC7,
-/// with the real R/G scroll pattern + a starter blue channel). Returns its dims.
-fn ensure_mask_exists(_loadscreen_disk: &Path, mask_disk: &Path) -> Result<(u32, u32), String> {
+/// Decode a `.tex`/`.dds` byte buffer to an `RgbaImage`.
+fn decode_tex_rgba(data: &[u8]) -> Result<image::RgbaImage, String> {
+    let tex = Texture::from_bytes(data)
+        .or_else(|_| Texture::from_dds_bytes(data))
+        .map_err(|e| format!("Failed to parse texture: {e:?}"))?;
+    tex.decode_rgba()
+        .map_err(|e| format!("Failed to decode texture: {e:?}"))
+}
+
+/// Build (or rebuild) the mask `.tex` so its R/G/B carries the bundled scroll
+/// pattern resized to the loadscreen dimensions, while PRESERVING the blue mask
+/// channel of any existing mask (so re-applying the preset keeps the painting).
+///
+/// * Fresh apply → mask = bundled pattern resized to the loadscreen (R/G/B from
+///   the pattern, ready for the user to paint blue).
+/// * Re-apply over an existing mask → same resized R/G, but the BLUE channel is
+///   taken from the current mask (resized to match) so the user's painted mask
+///   survives.
+///
+/// Returns the mask's `(width, height)`.
+fn build_mask(loadscreen_disk: &Path, mask_disk: &Path) -> Result<(u32, u32), String> {
+    // Target size = the loadscreen's, so the mask UV-maps onto the banner. Fall
+    // back to the bundled base's own size if the loadscreen can't be read.
+    let (tw, th) = if loadscreen_disk.exists() {
+        let ls = std::fs::read(loadscreen_disk)
+            .map_err(|e| format!("Failed to read loadscreen: {e}"))?;
+        tex_dimensions(&ls).or_else(|_| tex_dimensions(BASE_MASK_TEX))?
+    } else {
+        tex_dimensions(BASE_MASK_TEX)?
+    };
+
+    // Bundled pattern resized to the target — this is the R/G/B base.
+    let base = decode_tex_rgba(BASE_MASK_TEX)?;
+    let mut resized = image::imageops::resize(&base, tw, th, image::imageops::FilterType::Triangle);
+
+    // Preserve the existing mask's BLUE channel (the painted region), resized to
+    // match. If there's no existing mask, the bundled pattern's blue is the
+    // starter mask.
     if mask_disk.exists() {
-        let data = std::fs::read(mask_disk).map_err(|e| format!("Failed to read mask: {e}"))?;
-        return tex_dimensions(&data);
+        if let Ok(existing_bytes) = std::fs::read(mask_disk) {
+            if let Ok(existing) = decode_tex_rgba(&existing_bytes) {
+                let existing_blue = if existing.width() == tw && existing.height() == th {
+                    existing
+                } else {
+                    image::imageops::resize(&existing, tw, th, image::imageops::FilterType::Triangle)
+                };
+                for (dst, src) in resized.pixels_mut().zip(existing_blue.pixels()) {
+                    dst.0[2] = src.0[2]; // copy blue
+                    dst.0[3] = 255; // opaque
+                }
+            }
+        }
     }
+
+    let rgba = resized.into_raw();
+    let tex_bytes = encode_mask_tex(&rgba, tw, th, TexFormat::Bc7)?;
 
     if let Some(parent) = mask_disk.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create mask directory: {e}"))?;
     }
-    write_atomic(mask_disk, BASE_MASK_TEX)?;
-    tex_dimensions(BASE_MASK_TEX)
+    write_atomic(mask_disk, &tex_bytes)?;
+    Ok((tw, th))
 }
 
 /// Read the width/height from a `.tex` or `.dds` header.
