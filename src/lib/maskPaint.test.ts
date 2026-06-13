@@ -12,15 +12,15 @@ function buf(values: number[][]): Uint8Array {
     return out;
 }
 
-describe('compositeMaskBlue', () => {
-    it('writes coverage into blue, leaves R/G/A untouched, builds with MAX', () => {
-        const base = buf([[10, 20, 30, 255], [10, 20, 40, 255]]);
+describe('compositeMaskBlue (brush = mask out, drives blue DOWN)', () => {
+    it('carves blue toward 0 by coverage, leaves R/G/A untouched, builds with MIN', () => {
+        const base = buf([[10, 20, 255, 255], [10, 20, 220, 255]]);
         const out = new Uint8Array(base);
         const mask = new Float32Array([1, 0.5]);
         compositeMaskBlue(out, base, mask, 2, 1);
-        // px0: cov 1 -> blue 255
-        expect(out[2]).toBe(255);
-        // px1: cov 0.5 -> 128, but base blue 40 is lower, so MAX keeps 128
+        // px0: cov 1 -> (1-1)*255 = 0 (fully masked out)
+        expect(out[2]).toBe(0);
+        // px1: cov 0.5 -> (1-0.5)*255 = 128, base blue 220 is higher, MIN keeps 128
         expect(out[6]).toBe(128);
         // R/G/A unchanged
         expect(out[0]).toBe(10);
@@ -28,12 +28,12 @@ describe('compositeMaskBlue', () => {
         expect(out[3]).toBe(255);
     });
 
-    it('never reduces existing blue (MAX)', () => {
-        const base = buf([[0, 0, 200, 255]]);
+    it('never raises existing blue (MIN) — only carves down', () => {
+        const base = buf([[0, 0, 50, 255]]);
         const out = new Uint8Array(base);
-        const mask = new Float32Array([0.1]); // 0.1*255 = 26 < 200
+        const mask = new Float32Array([0.1]); // (1-0.1)*255 = 229 > 50, MIN keeps 50
         compositeMaskBlue(out, base, mask, 1, 1);
-        expect(out[2]).toBe(200);
+        expect(out[2]).toBe(50);
     });
 
     it('zero coverage copies base blue through', () => {
@@ -44,22 +44,30 @@ describe('compositeMaskBlue', () => {
     });
 });
 
-describe('compositeEraseBlue', () => {
-    it('drives blue toward 0 by coverage', () => {
-        const base = buf([[0, 0, 200, 255], [0, 0, 200, 255]]);
+describe('compositeEraseBlue (eraser = restore VFX, drives blue UP)', () => {
+    it('raises blue toward 255 by coverage, MAX', () => {
+        const base = buf([[0, 0, 50, 255], [0, 0, 50, 255]]);
         const out = new Uint8Array(base);
         const mask = new Float32Array([1, 0.5]);
         compositeEraseBlue(out, base, mask, 2, 1);
-        expect(out[2]).toBe(0); // fully erased
-        expect(out[6]).toBe(100); // 200 * (1 - 0.5)
+        expect(out[2]).toBe(255); // fully restored
+        expect(out[6]).toBe(128); // 0.5*255 = 128 > base 50, MAX
+    });
+
+    it('never lowers existing blue (MAX)', () => {
+        const base = buf([[0, 0, 200, 255]]);
+        const out = new Uint8Array(base);
+        const mask = new Float32Array([0.1]); // 0.1*255 = 26 < 200, MAX keeps 200
+        compositeEraseBlue(out, base, mask, 1, 1);
+        expect(out[2]).toBe(200);
     });
 });
 
-describe('maskToDisplayRgba', () => {
-    it('maps blue intensity to overlay alpha', () => {
-        const src = buf([[0, 0, 0, 255], [0, 0, 200, 255]]);
+describe('maskToDisplayRgba (highlights the PROTECTED region)', () => {
+    it('maps inverse-blue to overlay alpha — protected (low blue) is opaque', () => {
+        const src = buf([[0, 0, 255, 255], [0, 0, 55, 255]]);
         const out = maskToDisplayRgba(src);
-        expect(out[3]).toBe(0); // unpainted -> transparent
-        expect(out[7]).toBe(200); // painted -> alpha follows blue
+        expect(out[3]).toBe(0); // full VFX (blue 255) -> transparent overlay
+        expect(out[7]).toBe(200); // protected (blue 55) -> alpha 255-55 = 200
     });
 });

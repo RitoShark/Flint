@@ -5,20 +5,27 @@
  * Reuses the channel-agnostic brush math from `babylon/paintEngine.ts`
  * (`falloff`, `stampMask`, `strokeDabs`) and adds flat-2D composites that write
  * ONLY the blue channel of an RGBA buffer — the mask the banner shader reads.
- * R and G stay 0, A stays 255, so the saved `.tex` is a clean blue mask.
+ * R/G (the scroll pattern) and A are untouched.
  *
- *   paint:  blue = max(blue, coverage*255)   (build up, never reduce)
- *   erase:  blue = blue * (1 - coverage)     (reduce toward 0)
+ * CONVENTION (Photoshop-style "paint to protect"):
+ *   In the shader, blue HIGH = animated VFX shows there. The artist authors the
+ *   mask by painting the CHAMPION to keep it CLEAN, so the brush MASKS OUT:
+ *
+ *   brush:  blue = min(blue, (1-coverage)*255)   (drive DOWN to 0 — protect)
+ *   eraser: blue = max(blue, coverage*255)       (drive UP to 255 — restore VFX)
+ *
+ *   A fresh mask starts blue=255 everywhere (whole banner glows); you paint the
+ *   champion to carve it out of the effect.
  */
 
 export { falloff, stampMask, strokeDabs } from './babylon/paintEngine';
 
 /**
- * Composite a finished paint stroke into the blue channel. For each masked
- * texel, raise blue toward `coverage*255` (MAX, so re-compositing the same
- * stroke is idempotent and overlapping dabs don't compound past the ceiling).
- * Works from `base0` (the pre-stroke buffer) so it can be re-run every frame.
- *   out.B = max(base0.B, coverage*255)
+ * Brush stroke = MASK OUT (protect). Drive the blue channel DOWN toward 0 where
+ * painted, so the painted region (the champion) gets NO VFX. MIN keeps it
+ * idempotent and stops overlapping dabs from carving past the floor.
+ * Works from `base0` (pre-stroke buffer) so it can be re-run every frame.
+ *   out.B = min(base0.B, (1-coverage)*255)
  */
 export function compositeMaskBlue(
     out: Uint8Array,
@@ -36,15 +43,15 @@ export function compositeMaskBlue(
             out[o + 2] = b0;
             continue;
         }
-        const painted = Math.round(cov * 255);
-        out[o + 2] = painted > b0 ? painted : b0;
+        const carved = Math.round((1 - cov) * 255);
+        out[o + 2] = carved < b0 ? carved : b0;
     }
 }
 
 /**
- * Eraser: reduce the blue channel toward 0 by coverage. Idempotent from
- * `base0`. coverage 1 = fully erased to 0.
- *   out.B = round(base0.B * (1 - coverage))
+ * Eraser = RESTORE VFX. Drive the blue channel UP toward 255 by coverage, so an
+ * over-masked region gets the effect back. Idempotent from `base0`.
+ *   out.B = max(base0.B, round(coverage*255))
  */
 export function compositeEraseBlue(
     out: Uint8Array,
@@ -62,24 +69,26 @@ export function compositeEraseBlue(
             out[o + 2] = b0;
             continue;
         }
-        out[o + 2] = Math.round(b0 * (1 - cov));
+        const restored = Math.round(cov * 255);
+        out[o + 2] = restored > b0 ? restored : b0;
     }
 }
 
 /**
- * Build a display RGBA (for the on-canvas overlay) from the mask buffer: show
- * the blue channel as a soft cyan tint so the user sees what they've painted
- * over the dimmed loadscreen. Alpha follows the blue intensity.
+ * Build a display RGBA (for the on-canvas overlay) from the mask buffer. The
+ * user paints the PROTECTED region (blue LOW), so highlight where blue is LOW
+ * with a soft red tint — that's "this stays clean / no VFX". Where blue is high
+ * (VFX), the overlay is transparent so the loadscreen shows through.
  */
 export function maskToDisplayRgba(rgba: Uint8Array): Uint8ClampedArray {
     const out = new Uint8ClampedArray(rgba.length);
     for (let o = 0; o < rgba.length; o += 4) {
         const b = rgba[o + 2];
-        // Cyan-ish highlight where painted; transparent where not.
-        out[o] = 40;
-        out[o + 1] = 200;
-        out[o + 2] = 255;
-        out[o + 3] = b; // intensity = painted blue
+        // Red-ish highlight where PROTECTED (blue low); transparent where VFX.
+        out[o] = 255;
+        out[o + 1] = 70;
+        out[o + 2] = 70;
+        out[o + 3] = 255 - b; // intensity = how protected (inverse of blue)
     }
     return out;
 }

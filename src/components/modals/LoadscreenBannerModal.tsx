@@ -182,8 +182,10 @@ export const LoadscreenBannerModal: React.FC = () => {
     }, [saving]);
 
     function emptyMask(w: number, h: number): Uint8Array {
+        // Fresh mask = VFX everywhere (blue 255); the user paints the champion to
+        // carve it OUT of the effect. Opaque alpha.
         const a = new Uint8Array(w * h * 4);
-        for (let o = 3; o < a.length; o += 4) a[o] = 255; // opaque, blue=0
+        for (let o = 0; o < a.length; o += 4) { a[o + 2] = 255; a[o + 3] = 255; }
         return a;
     }
 
@@ -502,12 +504,13 @@ export const LoadscreenBannerModal: React.FC = () => {
                                     onPointerLeave={() => { onPointerUp(); if (!adjustRef.current) setCursor(null); }}
                                     onContextMenu={(e) => e.preventDefault()}
                                 />
-                                {/* Brush ring — pinned + red while resizing. */}
+                                {/* Brush ring. Brush (mask-out) = red, eraser
+                                    (restore VFX) = accent; red+fill while resizing. */}
                                 {cursor && (
                                     <div style={{
                                         position: 'absolute', left: cursor.x, top: cursor.y,
                                         width: brushSize, height: brushSize, marginLeft: -brushSize / 2, marginTop: -brushSize / 2,
-                                        border: `1.5px solid ${adjusting ? 'var(--danger)' : (tool === 'eraser' ? 'var(--danger)' : 'var(--accent-primary)')}`,
+                                        border: `1.5px solid ${adjusting ? 'var(--danger)' : (tool === 'brush' ? 'var(--danger)' : 'var(--accent-primary)')}`,
                                         background: adjusting ? 'color-mix(in oklab, var(--danger) 28%, transparent)' : 'transparent',
                                         borderRadius: '50%', pointerEvents: 'none',
                                         boxShadow: '0 0 0 1px rgba(0,0,0,.4)',
@@ -536,8 +539,8 @@ export const LoadscreenBannerModal: React.FC = () => {
                     <div style={{ width: 240, flex: 'none', display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto' }}>
                         <Section title="Tool">
                             <div style={{ display: 'flex', gap: 8 }}>
-                                <button className={`dl-btn dl-btn--sm ${tool === 'brush' ? 'dl-btn--primary' : 'dl-btn--secondary'}`} style={{ flex: 1 }} onClick={() => setTool('brush')}>Brush</button>
-                                <button className={`dl-btn dl-btn--sm ${tool === 'eraser' ? 'dl-btn--primary' : 'dl-btn--secondary'}`} style={{ flex: 1 }} onClick={() => setTool('eraser')}>Eraser</button>
+                                <button className={`dl-btn dl-btn--sm ${tool === 'brush' ? 'dl-btn--primary' : 'dl-btn--secondary'}`} style={{ flex: 1 }} onClick={() => setTool('brush')} title="Paint over what should stay clean (no VFX) — e.g. the champion">Mask out</button>
+                                <button className={`dl-btn dl-btn--sm ${tool === 'eraser' ? 'dl-btn--primary' : 'dl-btn--secondary'}`} style={{ flex: 1 }} onClick={() => setTool('eraser')} title="Bring the VFX back to a masked-out area">Restore</button>
                             </div>
                         </Section>
                         <Section title="Brush">
@@ -566,7 +569,7 @@ export const LoadscreenBannerModal: React.FC = () => {
                             </div>
                         </Section>
                         <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                            Paint where the animated VFX should show — the brush writes the blue-channel mask.
+                            The whole banner is animated by default. <strong>Paint over what should stay clean</strong> (e.g. the champion) to mask it out — the red highlight is the protected area. Use <strong>Restore</strong> to bring the effect back.
                             <br /><br />
                             <strong>Alt + drag</strong> = brush size · <strong>Right-click drag</strong> = hardness.
                         </div>

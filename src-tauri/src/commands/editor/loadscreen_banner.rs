@@ -375,8 +375,9 @@ fn decode_tex_rgba(data: &[u8]) -> Result<image::RgbaImage, String> {
 /// resize) so it is pixel-identical to the Evelynn reference. Only the blue
 /// channel — the actual editable mask — varies:
 ///
-/// * Fresh apply → blue = 0 (a clean, unpainted mask; the bundle's own blue is
-///   Evelynn's silhouette and must NOT be seeded).
+/// * Fresh apply → blue = 255 everywhere (VFX over the whole banner; the user
+///   paints the champion to MASK IT OUT). The bundle's own blue is Evelynn's
+///   authored mask and must NOT be seeded.
 /// * Re-apply over an existing mask → the existing painted blue is preserved
 ///   (resized to the native size if the old mask was a different resolution).
 ///
@@ -403,8 +404,10 @@ fn build_mask(_loadscreen_disk: &Path, mask_disk: &Path) -> Result<(u32, u32), S
     } else {
         None
     };
+    // Blue convention: 255 = VFX shows, 0 = protected (masked out). A fresh mask
+    // is VFX-everywhere (255); the user paints the champion to carve it out.
     for (i, px) in base.pixels_mut().enumerate() {
-        px.0[2] = existing_blue.as_ref().map_or(0, |b| b.as_raw()[i * 4 + 2]);
+        px.0[2] = existing_blue.as_ref().map_or(255, |b| b.as_raw()[i * 4 + 2]);
         px.0[3] = 255; // opaque
     }
 
@@ -468,10 +471,11 @@ mod tests {
 
     /// A fresh apply produces a mask at the bundle's NATIVE size, with the
     /// bundle's R/G copied verbatim (so it matches the Evelynn reference) and a
-    /// BLANK blue channel (the bundle's own blue is Evelynn's silhouette, which
-    /// must not be seeded).
+    /// FULL blue channel (255 = VFX everywhere; the user paints the champion to
+    /// mask it out). The bundle's own blue is Evelynn's authored mask, NOT
+    /// seeded.
     #[test]
-    fn fresh_mask_is_bundle_rg_with_blank_blue() {
+    fn fresh_mask_is_bundle_rg_with_full_blue() {
         let bundle = decode_tex_rgba(BASE_MASK_TEX).unwrap();
         let (bw, bh) = (bundle.width(), bundle.height());
         let bundle_avg = channel_avgs(&bundle);
@@ -489,8 +493,8 @@ mod tests {
         // R/G match the bundle within BC7 noise.
         assert!(out_avg[0].abs_diff(bundle_avg[0]) <= 4, "R drifted: {out_avg:?} vs {bundle_avg:?}");
         assert!(out_avg[1].abs_diff(bundle_avg[1]) <= 4, "G drifted");
-        // Blue is blank.
-        assert!(out_avg[2] <= 1, "fresh blue must be ~0, got {}", out_avg[2]);
+        // Blue is FULL (VFX everywhere) on a fresh apply.
+        assert!(out_avg[2] >= 254, "fresh blue must be ~255, got {}", out_avg[2]);
 
         let _ = std::fs::remove_dir_all(&dir);
     }
