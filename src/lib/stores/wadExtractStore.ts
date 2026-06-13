@@ -25,6 +25,7 @@ interface WadExtractState {
   setCurrentDir: (sessionId: string, dir: string) => void;
   navigateHistory: (sessionId: string, direction: 'back' | 'forward' | 'up') => void;
   stageChunkEdit: (sessionId: string, hash: string, newSize: number) => void;
+  stageChunkDelete: (sessionId: string, hash: string) => void;
   setSessionDirty: (sessionId: string, isDirty: boolean) => void;
 }
 
@@ -268,6 +269,25 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
         return {
           ...s,
           chunks: newChunks,
+          isDirty: true,
+        };
+      }),
+    }));
+  },
+
+  stageChunkDelete: (sessionId, hash) => {
+    set((state) => ({
+      extractSessions: state.extractSessions.map(s => {
+        if (s.id !== sessionId) return s;
+        // Drop the chunk from the list, clear it from selection/preview, and
+        // mark the session dirty so the delete is persisted on the next WAD save.
+        const newSelected = new Set(s.selectedHashes);
+        newSelected.delete(hash);
+        return {
+          ...s,
+          chunks: s.chunks.filter(c => c.hash !== hash),
+          selectedHashes: newSelected,
+          previewHash: s.previewHash === hash ? null : s.previewHash,
           isDirty: true,
         };
       }),

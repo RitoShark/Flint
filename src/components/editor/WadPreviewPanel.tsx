@@ -17,7 +17,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useWadExtractStore, useNotificationStore } from '../../lib/stores';
+import { useWadExtractStore, useNotificationStore, useModalStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
@@ -539,6 +539,54 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
     };
 
     // -------------------------------------------------------------------------
+    // Delete the previewed file from the WAD (staged; persisted on WAD save)
+    // -------------------------------------------------------------------------
+    const handleDeleteFromWad = () => {
+        if (!session || !chunk || !session.editSessionId) return;
+        const editSessionId = session.editSessionId;
+        const sessionId = session.id;
+        const hash = chunk.hash;
+        const label = chunk.path ? (chunk.path.split(/[\\/]/).pop() ?? chunk.path) : chunk.hash;
+        useModalStore.getState().openConfirmDialog({
+            title: 'Delete from WAD?',
+            message: `Remove "${label}" from this WAD? The deletion is staged in memory and applied when you save the WAD.`,
+            confirmLabel: 'Delete',
+            danger: true,
+            onConfirm: async () => {
+                try {
+                    await api.removeSessionChunk(editSessionId, hash);
+                    useWadExtractStore.getState().stageChunkDelete(sessionId, hash);
+                    useWadExtractStore.getState().setPreview(sessionId, null);
+                    showToast('success', 'File removed. Save the WAD to persist the deletion.');
+                } catch (err) {
+                    const msg = err instanceof api.FlintError ? err.getUserMessage() : String(err);
+                    showToast('error', `Failed to delete: ${msg}`);
+                }
+            },
+        });
+    };
+
+    // Ctrl/Cmd+S saves the current chunk edit (same staging as the "Save File"
+    // button). A ref keeps the listener calling the latest handler/state without
+    // re-binding every render.
+    const saveChunkRef = useRef<() => void>(() => {});
+    saveChunkRef.current = () => {
+        if (session?.editSessionId && isContentDirty && editedContent !== null && !isSavingChunk) {
+            void handleSaveChunk();
+        }
+    };
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+                e.preventDefault();
+                saveChunkRef.current();
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, []);
+
+    // -------------------------------------------------------------------------
     // Early returns
     // -------------------------------------------------------------------------
     if (!session || !chunk) {
@@ -818,6 +866,17 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                         <span dangerouslySetInnerHTML={{ __html: getIcon('export') }} />
                         <span>{isExtracting ? 'Extracting…' : 'Extract File'}</span>
                     </button>
+                    {session.editSessionId && (
+                        <button
+                            className="btn btn--sm btn--danger"
+                            onClick={handleDeleteFromWad}
+                            title="Delete this file from the WAD (applied when you save the WAD)"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                        >
+                            <span dangerouslySetInnerHTML={{ __html: getIcon('trash') || '🗑' }} />
+                            <span>Delete</span>
+                        </button>
+                    )}
                     <button
                         className="btn btn--sm"
                         onClick={() => {
