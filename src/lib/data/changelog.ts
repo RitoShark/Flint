@@ -54,7 +54,7 @@ export const CHANGELOG: VersionChangelog[] = [
                 icon: 'picture',
                 tag: 'feature',
                 title: 'Animated Loadscreen Banner',
-                description: 'Turn a static loadscreen into an animated VFX banner in one click — Flint injects the shader material and opens a mask editor where you paint the effect right over the loading screen. Brush/eraser with size, hardness, and opacity (Alt-drag to resize and right-drag for hardness, Photoshop-style), plus effect sliders for shine, scroll, glow, and tint.',
+                description: 'Turn a static loadscreen into an animated VFX banner in one click — Flint injects the shader material and opens a mask editor right over the loading screen. The whole banner animates by default; you paint over the champion (or anything that should stay clean) to mask it out, and Restore brings the effect back. Photoshop-style controls: Alt-drag to resize the brush, right-drag for hardness, plus sliders for shine, scroll, glow, and tint.',
             },
             {
                 icon: 'code',

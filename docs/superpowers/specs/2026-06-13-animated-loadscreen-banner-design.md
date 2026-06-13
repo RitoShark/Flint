@@ -1,7 +1,42 @@
 # Animated Loadscreen Banner — Design
 
 **Date:** 2026-06-13
-**Status:** Approved (design)
+**Status:** Shipped — see **As-built deviations** below; this doc is the original
+design and several decisions changed during implementation.
+
+## As-built deviations (2026-06-14)
+
+The authoritative current behavior lives in `CLAUDE.md` (Animated Loadscreen
+Banner + the two Mask sections). Key differences from this original design:
+
+- **Mask convention is "paint to protect", not "paint = VFX".** In the shader,
+  blue HIGH = VFX shows. The artist authors by painting the CHAMPION to keep it
+  clean, so the editor's brush **masks out** (drives blue DOWN to 0) and the
+  eraser **restores** (drives blue UP to 255). A fresh mask starts **blue = 255
+  everywhere** (whole banner glows), not black. Tool buttons are **"Mask out" /
+  "Restore"**; the overlay highlights the protected (low-blue) region in red. The
+  loadscreen backdrop is shown at **full** opacity, the paint overlay at 40%.
+- **Mask is the bundled base's NATIVE size (616×1120) with R/G copied VERBATIM**
+  from the bundle (the secondary-VFX scroll pattern), NOT resized to the
+  loadscreen. Only the blue channel varies. It's a tiling/pattern texture, not
+  pixel-aligned to the loadscreen. A real reference mask is bundled at
+  `src-tauri/resources/banner-mask-base.tex`.
+- **Mask format is BC7**, not uncompressed `Bgra8` (the reference masks ship as
+  BC7; `encode_mask_tex` preserves the existing file's format).
+- **BIN injection builds the `StaticMaterialDef` directly as a `BinEntry` tree**
+  (`prop(name, value)` + `fnv1a_32`), NOT a ritobin-text template + `text_to_tree`
+  merge. Same approach as `inject_animation_block`.
+- **The link is inserted after the LAST loadscreen variant field** (`loadScreen`/
+  `loadScreenVintage`/`loadScreenShade`/`loadScreenExalted`) so it lands before
+  `skinAudioProperties`.
+- **The "Re-apply Banner Preset" menu item was removed** — it only existed to
+  upgrade black masks made by pre-fix builds, which won't exist in prod. Clicking
+  "Add Animated Loadscreen Banner" when already applied just opens the editor.
+- `apply_loadscreen_banner` takes a `rebuild_mask: bool` flag (default true);
+  the editor's params-only save passes `false` so it never clobbers the mask
+  being painted.
+- Brush size / hardness / opacity persist in localStorage; quick-adjust uses a
+  pinned red ring (no Pointer Lock, to avoid the WebView "press Esc" banner).
 
 ## Summary
 
