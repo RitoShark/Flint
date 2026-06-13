@@ -71,6 +71,8 @@ export const LoadscreenBannerModal: React.FC = () => {
     const dispCanvasRef = useRef<HTMLCanvasElement>(null);
     const backdropRef = useRef<HTMLCanvasElement>(null);
     const wrapRef = useRef<HTMLDivElement>(null);
+    // Decoded loadscreen pixels, stashed until the canvases mount.
+    const backdropImageRef = useRef<ImageData | null>(null);
 
     // Mask pixel buffers (mask resolution). `rgba` = live; `base0` = pre-stroke
     // snapshot for idempotent compositing during a stroke.
@@ -117,18 +119,14 @@ export const LoadscreenBannerModal: React.FC = () => {
                 }
                 if (cancelled) return;
 
-                setDims({ w: ls.width, h: ls.height });
-                setMaskPath(info.mask_path);
+                // Stash the decoded loadscreen; a separate effect seeds the
+                // canvases once they're actually mounted (they're hidden behind
+                // the `loading` gate, so their refs are null right now).
+                backdropImageRef.current = ls.data;
                 rgbaRef.current = maskRgba;
                 strokeMaskRef.current = new Float32Array(ls.width * ls.height);
-
-                // Paint the backdrop canvas with the dimmed loadscreen.
-                const bd = backdropRef.current!;
-                bd.width = ls.width; bd.height = ls.height;
-                bd.getContext('2d')!.putImageData(ls.data, 0, 0);
-
-                // Composite + show the mask overlay.
-                redraw();
+                setMaskPath(info.mask_path);
+                setDims({ w: ls.width, h: ls.height });
                 setLoading(false);
             } catch (e) {
                 if (!cancelled) {
@@ -176,11 +174,21 @@ export const LoadscreenBannerModal: React.FC = () => {
         ctx.putImageData(imgData, 0, 0);
     }, []);
 
-    // Keep the display canvas sized to the mask once dims known.
+    // Seed both canvases once they're actually mounted (after `loading` clears
+    // the spinner gate) and dims are known: size them and paint the backdrop +
+    // mask overlay. Runs whenever loading/error/dims change.
     useEffect(() => {
+        if (loading || error || dims.w === 0) return;
         const disp = dispCanvasRef.current;
-        if (disp && dims.w > 0) { disp.width = dims.w; disp.height = dims.h; redraw(); }
-    }, [dims, redraw]);
+        const bd = backdropRef.current;
+        const ls = backdropImageRef.current;
+        if (bd && ls) {
+            bd.width = dims.w; bd.height = dims.h;
+            bd.getContext('2d')?.putImageData(ls, 0, 0);
+        }
+        if (disp) { disp.width = dims.w; disp.height = dims.h; redraw(); }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [loading, error, dims.w, dims.h]);
 
     // ── Painting ─────────────────────────────────────────────────────────────
     const pushUndo = () => {
