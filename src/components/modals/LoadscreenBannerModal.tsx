@@ -285,22 +285,33 @@ export const LoadscreenBannerModal: React.FC = () => {
 
     // Photoshop-style quick-adjust gestures: Alt+left-drag = brush size,
     // right-drag = hardness. Horizontal drag from the press point scales the
-    // value (right = bigger/harder). While adjusting we don't paint.
+    // value (right = bigger/harder). While adjusting the ring PINS at the press
+    // point (doesn't follow the cursor), the OS cursor hides, and the ring shows
+    // a red fill so the gesture reads as "resizing", not painting.
     const adjustRef = useRef<{ kind: 'size' | 'hardness'; startX: number; startVal: number } | null>(null);
+    const [adjusting, setAdjusting] = useState<'size' | 'hardness' | null>(null);
 
     const onPointerDown = (e: React.PointerEvent) => {
         if (loading || error) return;
         (e.target as HTMLElement).setPointerCapture(e.pointerId);
 
+        // Pin the ring where the gesture starts (canvas-relative).
+        const rect = dispCanvasRef.current?.getBoundingClientRect();
+        const pin = rect ? { x: e.clientX - rect.left, y: e.clientY - rect.top } : cursor;
+
         // Right-click drag → hardness. Alt + left-click drag → size.
         if (e.button === 2) {
             e.preventDefault();
             adjustRef.current = { kind: 'hardness', startX: e.clientX, startVal: hardness };
+            setAdjusting('hardness');
+            if (pin) setCursor(pin);
             return;
         }
         if (e.altKey && e.button === 0) {
             e.preventDefault();
             adjustRef.current = { kind: 'size', startX: e.clientX, startVal: brushSize };
+            setAdjusting('size');
+            if (pin) setCursor(pin);
             return;
         }
 
@@ -316,10 +327,8 @@ export const LoadscreenBannerModal: React.FC = () => {
     };
 
     const onPointerMove = (e: React.PointerEvent) => {
-        const rect = dispCanvasRef.current?.getBoundingClientRect();
-        if (rect) setCursor({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-
-        // Quick-adjust drag takes priority over painting.
+        // Quick-adjust drag takes priority over painting. While adjusting we do
+        // NOT update the ring position — it stays pinned at the press point.
         const adj = adjustRef.current;
         if (adj) {
             const dx = e.clientX - adj.startX;
@@ -333,6 +342,9 @@ export const LoadscreenBannerModal: React.FC = () => {
             return;
         }
 
+        const rect = dispCanvasRef.current?.getBoundingClientRect();
+        if (rect) setCursor({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+
         if (!paintingRef.current) return;
         const p = toMaskCoords(e);
         const last = lastPtRef.current ?? p;
@@ -343,6 +355,7 @@ export const LoadscreenBannerModal: React.FC = () => {
 
     const onPointerUp = () => {
         adjustRef.current = null;
+        setAdjusting(null);
         if (!paintingRef.current) return;
         paintingRef.current = false;
         lastPtRef.current = null;
@@ -430,25 +443,42 @@ export const LoadscreenBannerModal: React.FC = () => {
                             >
                                 {/* Dimmed loadscreen backdrop */}
                                 <canvas ref={backdropRef} style={{ ...canvasStyle, opacity: 0.35, pointerEvents: 'none' }} />
-                                {/* Mask overlay + pointer surface */}
+                                {/* Mask overlay + pointer surface. Hide the OS
+                                    cursor while resizing so only the ring shows. */}
                                 <canvas
                                     ref={dispCanvasRef}
-                                    style={{ ...canvasStyle, cursor: 'crosshair' }}
+                                    style={{ ...canvasStyle, cursor: adjusting ? 'none' : 'crosshair' }}
                                     onPointerDown={onPointerDown}
                                     onPointerMove={onPointerMove}
                                     onPointerUp={onPointerUp}
-                                    onPointerLeave={() => { onPointerUp(); setCursor(null); }}
+                                    onPointerLeave={() => { onPointerUp(); if (!adjustRef.current) setCursor(null); }}
                                     onContextMenu={(e) => e.preventDefault()}
                                 />
-                                {/* Brush ring */}
+                                {/* Brush ring — pinned + red while resizing. */}
                                 {cursor && (
                                     <div style={{
                                         position: 'absolute', left: cursor.x, top: cursor.y,
                                         width: brushSize, height: brushSize, marginLeft: -brushSize / 2, marginTop: -brushSize / 2,
-                                        border: `1.5px solid ${tool === 'eraser' ? 'var(--danger)' : 'var(--accent-primary)'}`,
+                                        border: `1.5px solid ${adjusting ? 'var(--danger)' : (tool === 'eraser' ? 'var(--danger)' : 'var(--accent-primary)')}`,
+                                        background: adjusting ? 'color-mix(in oklab, var(--danger) 28%, transparent)' : 'transparent',
                                         borderRadius: '50%', pointerEvents: 'none',
                                         boxShadow: '0 0 0 1px rgba(0,0,0,.4)',
+                                        transition: adjusting ? 'none' : 'background .1s',
                                     }} />
+                                )}
+                                {/* Live size / hardness readout while resizing. */}
+                                {cursor && adjusting && (
+                                    <div style={{
+                                        position: 'absolute',
+                                        left: cursor.x, top: cursor.y - brushSize / 2 - 22,
+                                        transform: 'translateX(-50%)', pointerEvents: 'none',
+                                        background: 'var(--danger)', color: '#fff',
+                                        fontSize: 11, fontWeight: 600, padding: '2px 6px',
+                                        borderRadius: 5, whiteSpace: 'nowrap',
+                                        boxShadow: '0 1px 4px rgba(0,0,0,.4)',
+                                    }}>
+                                        {adjusting === 'size' ? `${brushSize}px` : `Hardness ${Math.round(hardness * 100)}%`}
+                                    </div>
                                 )}
                             </div>
                         )}
