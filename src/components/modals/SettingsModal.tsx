@@ -86,6 +86,10 @@ export const SettingsModal: React.FC = () => {
     const [championSchemaProgress, setChampionSchemaProgress] = useState<SchemaProgress | null>(null);
     const [championSchemaResult, setChampionSchemaResult] = useState<api.ChampionSchemaStats | null>(null);
 
+    const [isAggregatingTft, setIsAggregatingTft] = useState(false);
+    const [tftSchemaProgress, setTftSchemaProgress] = useState<SchemaProgress | null>(null);
+    const [tftSchemaResult, setTftSchemaResult] = useState<api.TftSchemaStats | null>(null);
+
     const [isAggregatingLuabins, setIsAggregatingLuabins] = useState(false);
     const [luabinSchemaProgress, setLuabinSchemaProgress] = useState<SchemaProgress | null>(null);
     const [luabinSchemaResult, setLuabinSchemaResult] = useState<api.LuabinExtractStats | null>(null);
@@ -131,6 +135,13 @@ export const SettingsModal: React.FC = () => {
     useEffect(() => {
         const unlisten = listen<SchemaProgress>('champion-schema-progress', (event) => {
             setChampionSchemaProgress(event.payload);
+        });
+        return () => { unlisten.then((fn) => fn()); };
+    }, []);
+
+    useEffect(() => {
+        const unlisten = listen<SchemaProgress>('tft-schema-progress', (event) => {
+            setTftSchemaProgress(event.payload);
         });
         return () => { unlisten.then((fn) => fn()); };
     }, []);
@@ -344,6 +355,26 @@ export const SettingsModal: React.FC = () => {
             showToast('error', 'Champion schema aggregation failed. Check the log for details.');
         } finally {
             setIsAggregatingChampion(false);
+        }
+    };
+
+    const handleAggregateTftSchema = async () => {
+        if (!leaguePath) {
+            showToast('error', 'League path not configured. Set it in the Paths tab first.');
+            return;
+        }
+        setIsAggregatingTft(true);
+        setTftSchemaProgress(null);
+        setTftSchemaResult(null);
+        try {
+            const stats = await api.aggregateTftBinSchema(leaguePath);
+            setTftSchemaResult(stats);
+            showToast('success', `TFT schema built: ${stats.classes_found.toLocaleString()} classes, ${stats.total_fields.toLocaleString()} fields`);
+        } catch (error) {
+            console.error('TFT schema aggregation failed:', error);
+            showToast('error', 'TFT schema aggregation failed. Check the log for details.');
+        } finally {
+            setIsAggregatingTft(false);
         }
     };
 
@@ -1029,6 +1060,49 @@ export const SettingsModal: React.FC = () => {
                                     wads={championSchemaResult.wads_scanned}
                                     outputPath={championSchemaResult.output_path}
                                     label="LinkedData BINs"
+                                />
+                            )}
+
+                            <div
+                                className="settings-item"
+                                style={{ marginTop: 16 }}
+                            >
+                                <label className="settings-item__label">TFT BIN Schema Creator</label>
+                                <div className="settings-item__hint" style={{ marginBottom: 8 }}>
+                                    Scans only the Teamfight Tactics WADs — Companions.wad.client
+                                    (Little Legends / Tacticians) and the TFT game-mode map WADs
+                                    (Maps/Shipping/Map22) holding traits, items, augments, and unit
+                                    data. Parses every BIN, merges every property of every class
+                                    globally, and emits ONE synthetic ritobin file in real block
+                                    syntax (with brackets). Copy any block straight into a .ritobin file.
+                                </div>
+                                <Button
+                                    size="sm"
+                                    icon="download"
+                                    onClick={handleAggregateTftSchema}
+                                    disabled={isAggregatingTft || !leaguePath}
+                                >
+                                    {isAggregatingTft ? 'Building...' : 'Build TFT Schema'}
+                                </Button>
+                                {!leaguePath && (
+                                    <div className="settings-item__hint" style={{ color: 'var(--color-warning)', marginTop: 4 }}>
+                                        Configure League path in the Paths tab first
+                                    </div>
+                                )}
+                            </div>
+
+                            {isAggregatingTft && tftSchemaProgress && (
+                                <SchemaProgressView progress={tftSchemaProgress} />
+                            )}
+                            {tftSchemaResult && !isAggregatingTft && (
+                                <SchemaResultView
+                                    classes={tftSchemaResult.classes_found}
+                                    fields={tftSchemaResult.total_fields}
+                                    binsParsed={tftSchemaResult.bins_parsed}
+                                    binsFailed={tftSchemaResult.bins_failed}
+                                    wads={tftSchemaResult.wads_scanned}
+                                    outputPath={tftSchemaResult.output_path}
+                                    label="TFT BINs"
                                 />
                             )}
 
