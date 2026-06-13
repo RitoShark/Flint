@@ -88,6 +88,11 @@ export const LoadscreenBannerModal: React.FC = () => {
     const lastPtRef = useRef<[number, number] | null>(null);
     const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
 
+    // Displayed stage size in CSS px — the loadscreen fitted (contain) inside the
+    // available wrapper box, preserving aspect ratio. Measured, not CSS-derived,
+    // so a wide flex box never stretches the image.
+    const [stageSize, setStageSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+
     // ── Load loadscreen + mask, seed the canvases ───────────────────────────
     useEffect(() => {
         let cancelled = false;
@@ -188,6 +193,25 @@ export const LoadscreenBannerModal: React.FC = () => {
         }
         if (disp) { disp.width = dims.w; disp.height = dims.h; redraw(); }
         // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [loading, error, dims.w, dims.h]);
+
+    // Fit the stage (contain) inside the wrapper, preserving the image ratio.
+    // Recomputes on wrapper resize and once the image dims arrive.
+    useEffect(() => {
+        if (loading || error || dims.w === 0) return;
+        const wrap = wrapRef.current;
+        if (!wrap) return;
+        const fit = () => {
+            const bw = wrap.clientWidth;
+            const bh = wrap.clientHeight;
+            if (bw === 0 || bh === 0) return;
+            const scale = Math.min(bw / dims.w, bh / dims.h);
+            setStageSize({ w: Math.round(dims.w * scale), h: Math.round(dims.h * scale) });
+        };
+        fit();
+        const ro = new ResizeObserver(fit);
+        ro.observe(wrap);
+        return () => ro.disconnect();
     }, [loading, error, dims.w, dims.h]);
 
     // ── Painting ─────────────────────────────────────────────────────────────
@@ -344,21 +368,31 @@ export const LoadscreenBannerModal: React.FC = () => {
                 </div>
 
                 <div className="dl-modal__body" style={{ display: 'flex', gap: 16, minHeight: 420 }}>
-                    {/* Canvas area */}
+                    {/* Canvas area — outer box just centers the stage; it must NOT
+                        carry the aspect ratio (it's a flex item that stretches to
+                        fill, which would override aspect-ratio and stretch the
+                        image). The inner `stage` keeps the loadscreen's ratio. */}
                     <div
                         ref={wrapRef}
                         style={{
-                            flex: 1, minWidth: 0, position: 'relative',
+                            flex: 1, minWidth: 0, minHeight: 0, position: 'relative',
                             background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
                             borderRadius: 10, overflow: 'hidden',
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            aspectRatio: dims.w > 0 ? `${dims.w} / ${dims.h}` : '16 / 9',
                         }}
                     >
                         {loading && <div className="dl-spinner" style={{ color: 'var(--text-muted)' }}>Loading…</div>}
                         {error && <div style={{ color: 'var(--danger)', padding: 24, textAlign: 'center', fontSize: 13 }}>{error}</div>}
                         {!loading && !error && (
-                            <div style={{ position: 'absolute', inset: 0 }}>
+                            <div
+                                style={{
+                                    position: 'relative',
+                                    // Measured contain-fit (px) — preserves the image ratio
+                                    // regardless of the flex box's shape.
+                                    width: stageSize.w > 0 ? stageSize.w : undefined,
+                                    height: stageSize.h > 0 ? stageSize.h : undefined,
+                                }}
+                            >
                                 {/* Dimmed loadscreen backdrop */}
                                 <canvas ref={backdropRef} style={{ ...canvasStyle, opacity: 0.35, pointerEvents: 'none' }} />
                                 {/* Mask overlay + pointer surface */}
