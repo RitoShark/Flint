@@ -353,6 +353,25 @@ pub fn banner_status(bin: &Bin) -> BannerStatus {
     }
 }
 
+/// Known `SkinCharacterDataProperties` loadscreen-variant field names, in the
+/// order League declares them. The material link goes right after whichever of
+/// these is LAST present, so it sits before `skinAudioProperties`.
+const LOADSCREEN_FIELD_NAMES: &[&str] = &[
+    "loadScreen",
+    "loadScreenVintage",
+    "loadScreenShade",
+    "loadScreenExalted",
+];
+
+/// Index (in the entry's field order) of the LAST loadscreen-variant field that
+/// is present, if any.
+fn last_loadscreen_field_index(fields: &IndexMap<u32, BinValue>) -> Option<usize> {
+    LOADSCREEN_FIELD_NAMES
+        .iter()
+        .filter_map(|name| fields.get_index_of(&fnv1a_32(name)))
+        .max()
+}
+
 /// Read `samplerValues[0].texturePath` out of a `StaticMaterialDef` entry.
 fn read_sampler_mask_path(entry: &BinEntry) -> Option<String> {
     let samplers = entry.fields.get(&fnv1a_32("samplerValues"))?;
@@ -395,18 +414,18 @@ pub fn apply_banner_to_bin(
     })?;
 
     // 1. Link the loadscreen field on the skin entry, placed immediately AFTER
-    //    the `loadScreen` block (matching the convention League/authors use), not
-    //    appended to the end of the fields. Field order is cosmetic to the engine
-    //    but the readable .bin should read loadScreen → material link.
+    //    the LAST loadscreen-variant block (loadScreen / loadScreenVintage /
+    //    loadScreenShade / …), so it lands right before skinAudioProperties — the
+    //    convention League/authors use. Field order is cosmetic to the engine but
+    //    keeps the readable .bin tidy.
     {
         let fields = &mut bin.entries[skin_idx].fields;
         let link = BinValue::Link(material_hash);
         if let Some(existing) = fields.get_mut(&LOADSCREEN_MATERIAL_FIELD) {
             // Already present — just refresh the target, keep its position.
             *existing = link;
-        } else if let Some(ls_idx) = fields.get_index_of(&fnv1a_32("loadScreen")) {
-            // Insert right after loadScreen.
-            fields.shift_insert(ls_idx + 1, LOADSCREEN_MATERIAL_FIELD, link);
+        } else if let Some(last_ls_idx) = last_loadscreen_field_index(fields) {
+            fields.shift_insert(last_ls_idx + 1, LOADSCREEN_MATERIAL_FIELD, link);
         } else {
             // No loadScreen field (shouldn't happen — we read it earlier) → append.
             fields.insert(LOADSCREEN_MATERIAL_FIELD, link);
@@ -565,6 +584,47 @@ mod tests {
             ls_idx + 1,
             "material link must be inserted right after loadScreen"
         );
+    }
+
+    #[test]
+    fn link_lands_after_last_loadscreen_variant() {
+        // A skin with loadScreen + loadScreenVintage, then skinAudioProperties.
+        // The material link must go AFTER vintage (the last loadscreen variant)
+        // and BEFORE skinAudioProperties.
+        let censored = |img: &str| BinValue::Embed {
+            class: fnv1a_32("CensoredImage"),
+            fields: vec![prop("image", BinValue::String(img.to_string()))]
+                .into_iter()
+                .collect(),
+        };
+        let entry = BinEntry {
+            path_hash: fnv1a_32("Characters/Test/Skins/Skin0"),
+            class_hash: skin_character_class_hash(),
+            fields: vec![
+                prop("championSkinName", BinValue::String("test".to_string())),
+                prop("loadScreen", censored("ASSETS/X/p/load.tex")),
+                prop("loadScreenVintage", censored("ASSETS/X/p/load_LE.tex")),
+                prop(
+                    "skinAudioProperties",
+                    BinValue::Embed { class: fnv1a_32("skinAudioProperties"), fields: Default::default() },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        };
+        let mut bin = Bin::new();
+        bin.entries.push(entry);
+
+        let name = material_name("Test", "Proj");
+        let mask = mask_path_from_loadscreen("ASSETS/X/p/load.tex");
+        apply_banner_to_bin(&mut bin, &name, &mask, &BannerParams::default()).unwrap();
+
+        let skin = &bin.entries[0];
+        let vintage_idx = skin.fields.get_index_of(&fnv1a_32("loadScreenVintage")).unwrap();
+        let link_idx = skin.fields.get_index_of(&LOADSCREEN_MATERIAL_FIELD).unwrap();
+        let audio_idx = skin.fields.get_index_of(&fnv1a_32("skinAudioProperties")).unwrap();
+        assert_eq!(link_idx, vintage_idx + 1, "link must follow the LAST loadscreen variant");
+        assert!(link_idx < audio_idx, "link must come before skinAudioProperties");
     }
 
     #[test]

@@ -101,37 +101,48 @@ export const LoadscreenBannerModal: React.FC = () => {
             setLoading(true); setError(null);
             try {
                 const info = await api.getLoadscreenBannerInfo(projectPath);
-                if (!info.loadscreen_exists) {
-                    throw new Error('Loadscreen image not found on disk for this project.');
-                }
-                // Backdrop = the loadscreen.
-                const ls = await decodeTexToImageData(info.loadscreen_image_path);
-                if (cancelled) return;
-
-                // Mask: decode existing if present, else start empty (black).
+                // The MASK owns the canvas resolution (it carries the R/G scroll
+                // pattern + the editable blue channel). The loadscreen is just a
+                // backdrop reference and may be a different size — it's scaled to
+                // fit the mask's aspect, never pixel-aligned. (Previously we sized
+                // the canvas to the loadscreen and discarded the mask's pixels when
+                // the two differed → the R/G pattern was lost and it came out black.)
                 let maskRgba: Uint8Array;
+                let maskW: number;
+                let maskH: number;
                 if (info.mask_exists) {
                     const m = await decodeTexToImageData(info.mask_path);
-                    // Resize-tolerant: if mask dims differ, just take its raw buffer
-                    // when sizes match; otherwise start fresh at loadscreen size.
-                    if (m.width === ls.width && m.height === ls.height) {
-                        maskRgba = new Uint8Array(m.data.data.buffer.slice(0));
-                    } else {
-                        maskRgba = emptyMask(ls.width, ls.height);
-                    }
+                    if (cancelled) return;
+                    maskRgba = new Uint8Array(m.data.data.buffer.slice(0));
+                    maskW = m.width;
+                    maskH = m.height;
+                } else if (info.loadscreen_exists) {
+                    // No mask yet (e.g. re-edit before apply) — start empty at the
+                    // loadscreen size.
+                    const ls0 = await decodeTexToImageData(info.loadscreen_image_path);
+                    if (cancelled) return;
+                    maskW = ls0.width; maskH = ls0.height;
+                    maskRgba = emptyMask(maskW, maskH);
                 } else {
-                    maskRgba = emptyMask(ls.width, ls.height);
+                    throw new Error('No mask or loadscreen found for this project.');
                 }
-                if (cancelled) return;
 
-                // Stash the decoded loadscreen; a separate effect seeds the
-                // canvases once they're actually mounted (they're hidden behind
-                // the `loading` gate, so their refs are null right now).
-                backdropImageRef.current = ls.data;
+                // Backdrop = the loadscreen, decoded for the on-canvas reference.
+                let backdrop: ImageData | null = null;
+                if (info.loadscreen_exists) {
+                    try {
+                        const ls = await decodeTexToImageData(info.loadscreen_image_path);
+                        if (cancelled) return;
+                        backdrop = ls.data;
+                    } catch { /* backdrop is optional */ }
+                }
+
+                // Stash for the seeding effect (canvases aren't mounted yet).
+                backdropImageRef.current = backdrop;
                 rgbaRef.current = maskRgba;
-                strokeMaskRef.current = new Float32Array(ls.width * ls.height);
+                strokeMaskRef.current = new Float32Array(maskW * maskH);
                 setMaskPath(info.mask_path);
-                setDims({ w: ls.width, h: ls.height });
+                setDims({ w: maskW, h: maskH });
                 setLoading(false);
             } catch (e) {
                 if (!cancelled) {
@@ -187,9 +198,22 @@ export const LoadscreenBannerModal: React.FC = () => {
         const disp = dispCanvasRef.current;
         const bd = backdropRef.current;
         const ls = backdropImageRef.current;
-        if (bd && ls) {
+        if (bd) {
             bd.width = dims.w; bd.height = dims.h;
-            bd.getContext('2d')?.putImageData(ls, 0, 0);
+            const ctx = bd.getContext('2d');
+            if (ctx && ls) {
+                // The loadscreen may differ in size from the mask — draw it
+                // scaled to fill the mask canvas (putImageData can't scale, so go
+                // via an offscreen canvas + drawImage).
+                if (ls.width === dims.w && ls.height === dims.h) {
+                    ctx.putImageData(ls, 0, 0);
+                } else {
+                    const off = document.createElement('canvas');
+                    off.width = ls.width; off.height = ls.height;
+                    off.getContext('2d')?.putImageData(ls, 0, 0);
+                    ctx.drawImage(off, 0, 0, ls.width, ls.height, 0, 0, dims.w, dims.h);
+                }
+            }
         }
         if (disp) { disp.width = dims.w; disp.height = dims.h; redraw(); }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -284,28 +308,23 @@ export const LoadscreenBannerModal: React.FC = () => {
     };
 
     // Photoshop-style quick-adjust gestures: Alt+left-drag = brush size,
-    // right-drag = hardness. While adjusting we engage the Pointer Lock API so
-    // the OS cursor PHYSICALLY stops moving (and snaps back to where it started
-    // on release) — we read relative `movementX` instead of absolute position.
-    // The ring pins at the press point and turns red so it reads as "resizing".
-    // `accum` accumulates movementX (clientX is frozen under lock); `startVal` is
-    // the value at gesture start.
-    const adjustRef = useRef<{ kind: 'size' | 'hardness'; accum: number; startVal: number } | null>(null);
+    // right-drag = hardness. The ring PINS at the press point (doesn't follow the
+    // cursor), the OS cursor hides, and the ring turns red so the gesture reads as
+    // "resizing", not painting. `startX` is the press X; the value scales with the
+    // horizontal drag from there. (We deliberately don't use Pointer Lock — it
+    // triggers the browser's unavoidable "press Esc" banner.)
+    const adjustRef = useRef<{ kind: 'size' | 'hardness'; startX: number; startVal: number } | null>(null);
     const [adjusting, setAdjusting] = useState<'size' | 'hardness' | null>(null);
 
-    const beginAdjust = (kind: 'size' | 'hardness') => {
-        adjustRef.current = { kind, accum: 0, startVal: kind === 'size' ? brushSize : hardness };
+    const beginAdjust = (kind: 'size' | 'hardness', startX: number) => {
+        adjustRef.current = { kind, startX, startVal: kind === 'size' ? brushSize : hardness };
         setAdjusting(kind);
-        // Lock the cursor in place. Errors (e.g. not user-activated) are non-fatal
-        // — we still pin the ring and read movementX, just without the hard lock.
-        dispCanvasRef.current?.requestPointerLock?.();
     };
 
     const endAdjust = () => {
         if (!adjustRef.current) return;
         adjustRef.current = null;
         setAdjusting(null);
-        if (document.pointerLockElement) document.exitPointerLock();
     };
 
     const onPointerDown = (e: React.PointerEvent) => {
@@ -320,13 +339,13 @@ export const LoadscreenBannerModal: React.FC = () => {
         if (e.button === 2) {
             e.preventDefault();
             if (pin) setCursor(pin);
-            beginAdjust('hardness');
+            beginAdjust('hardness', e.clientX);
             return;
         }
         if (e.altKey && e.button === 0) {
             e.preventDefault();
             if (pin) setCursor(pin);
-            beginAdjust('size');
+            beginAdjust('size', e.clientX);
             return;
         }
 
@@ -342,10 +361,18 @@ export const LoadscreenBannerModal: React.FC = () => {
     };
 
     const onPointerMove = (e: React.PointerEvent) => {
-        // While resizing, the document-level mousemove listener owns the movement
-        // accumulation (it keeps firing under pointer lock) — just don't paint or
-        // move the pinned ring here.
-        if (adjustRef.current) return;
+        // Quick-adjust drag takes priority over painting. The ring stays pinned;
+        // the value scales with horizontal drag from the press point.
+        const adj = adjustRef.current;
+        if (adj) {
+            const dx = e.clientX - adj.startX;
+            if (adj.kind === 'size') {
+                setBrushSize(Math.round(Math.max(2, Math.min(300, adj.startVal + dx))));
+            } else {
+                setHardness(Math.max(0, Math.min(1, adj.startVal + dx / 200)));
+            }
+            return;
+        }
 
         const rect = dispCanvasRef.current?.getBoundingClientRect();
         if (rect) setCursor({ x: e.clientX - rect.left, y: e.clientY - rect.top });
@@ -364,35 +391,6 @@ export const LoadscreenBannerModal: React.FC = () => {
         paintingRef.current = false;
         lastPtRef.current = null;
     };
-
-    // While a resize gesture is active, read relative movement and the release
-    // from the DOCUMENT — under pointer lock the canvas's own pointer events stop
-    // tracking position, but `mousemove`'s `movementX` keeps flowing on document.
-    // Also ends the gesture if the lock is lost (Esc) or the mouse is released.
-    useEffect(() => {
-        if (!adjusting) return;
-        const onMove = (e: MouseEvent) => {
-            const adj = adjustRef.current;
-            if (!adj) return;
-            adj.accum += e.movementX;
-            if (adj.kind === 'size') {
-                setBrushSize(Math.round(Math.max(2, Math.min(300, adj.startVal + adj.accum))));
-            } else {
-                setHardness(Math.max(0, Math.min(1, adj.startVal + adj.accum / 200)));
-            }
-        };
-        const onUp = () => endAdjust();
-        const onLockChange = () => { if (!document.pointerLockElement) endAdjust(); };
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseup', onUp);
-        document.addEventListener('pointerlockchange', onLockChange);
-        return () => {
-            document.removeEventListener('mousemove', onMove);
-            document.removeEventListener('mouseup', onUp);
-            document.removeEventListener('pointerlockchange', onLockChange);
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [adjusting]);
 
     // ── Save ─────────────────────────────────────────────────────────────────
     const handleSave = async () => {
