@@ -278,22 +278,31 @@ pub async fn save_banner_mask(
         ));
     }
 
-    // The R/G scroll pattern is authoritative data that must NEVER round-trip
-    // through the editor (TEX→PNG→canvas→re-encode degrades it, and a stale/black
-    // mask would get faithfully re-saved as black). So we IGNORE the incoming
-    // R/G/A and rebuild R/G/B from the bundled base pattern resized to the mask
-    // size — only the BLUE channel (the actual mask the user paints) comes from
-    // the incoming buffer. This guarantees the saved mask always carries the
-    // correct pattern, no matter what the on-disk file looked like before.
-    let base = decode_tex_rgba(BASE_MASK_TEX)?;
-    let mut out = image::imageops::resize(
-        &base,
-        width,
-        height,
-        image::imageops::FilterType::Triangle,
-    );
+    // The R/G scroll pattern is authoritative and must NEVER round-trip through
+    // the editor (TEX→PNG→canvas→re-encode degrades it). We IGNORE the incoming
+    // R/G/A entirely and take R/G VERBATIM from the bundled base at its NATIVE
+    // size, so the saved pattern is pixel-identical to the Evelynn reference.
+    // Only the BLUE channel (the painted mask) comes from the incoming buffer.
+    let mut out = decode_tex_rgba(BASE_MASK_TEX)?;
+    let (nw, nh) = (out.width(), out.height());
+
+    // Incoming blue → native size. The editor sizes its canvas to the mask
+    // (= native), so this is usually a 1:1 copy; resize only if they differ.
+    let blue: Vec<u8> = if width == nw && height == nh {
+        (0..(nw * nh) as usize).map(|i| rgba[i * 4 + 2]).collect()
+    } else {
+        // Build a single-channel-in-RGBA image from the incoming blue, resize.
+        let mut tmp = image::RgbaImage::new(width, height);
+        for (i, px) in tmp.pixels_mut().enumerate() {
+            let b = rgba[i * 4 + 2];
+            *px = image::Rgba([b, b, b, 255]);
+        }
+        let r = image::imageops::resize(&tmp, nw, nh, image::imageops::FilterType::Triangle);
+        r.as_raw().chunks_exact(4).map(|p| p[2]).collect()
+    };
+
     for (i, px) in out.pixels_mut().enumerate() {
-        px.0[2] = rgba[i * 4 + 2]; // painted blue
+        px.0[2] = blue[i]; // painted blue at native size
         px.0[3] = 255; // opaque
     }
 
@@ -304,7 +313,7 @@ pub async fn save_banner_mask(
         .map(|t| t.format)
         .unwrap_or(TexFormat::Bc7);
 
-    let tex_bytes = encode_mask_tex(&out.into_raw(), width, height, format)?;
+    let tex_bytes = encode_mask_tex(&out.into_raw(), nw, nh, format)?;
     write_atomic(Path::new(&path), &tex_bytes)?;
     Ok(())
 }
@@ -361,37 +370,25 @@ fn decode_tex_rgba(data: &[u8]) -> Result<image::RgbaImage, String> {
         .map_err(|e| format!("Failed to decode texture: {e:?}"))
 }
 
-/// Build (or rebuild) the mask `.tex` so its R/G/B carries the bundled scroll
-/// pattern resized to the loadscreen dimensions, while PRESERVING the blue mask
-/// channel of any existing mask (so re-applying the preset keeps the painting).
+/// Build (or rebuild) the mask `.tex`. The mask always uses the bundled base's
+/// NATIVE dimensions and copies the bundle's R/G scroll pattern VERBATIM (no
+/// resize) so it is pixel-identical to the Evelynn reference. Only the blue
+/// channel — the actual editable mask — varies:
 ///
-/// * Fresh apply → mask = bundled pattern resized to the loadscreen (R/G/B from
-///   the pattern, ready for the user to paint blue).
-/// * Re-apply over an existing mask → same resized R/G, but the BLUE channel is
-///   taken from the current mask (resized to match) so the user's painted mask
-///   survives.
+/// * Fresh apply → blue = 0 (a clean, unpainted mask; the bundle's own blue is
+///   Evelynn's silhouette and must NOT be seeded).
+/// * Re-apply over an existing mask → the existing painted blue is preserved
+///   (resized to the native size if the old mask was a different resolution).
 ///
-/// Returns the mask's `(width, height)`.
-fn build_mask(loadscreen_disk: &Path, mask_disk: &Path) -> Result<(u32, u32), String> {
-    // Target size = the loadscreen's, so the mask UV-maps onto the banner. Fall
-    // back to the bundled base's own size if the loadscreen can't be read.
-    let (tw, th) = if loadscreen_disk.exists() {
-        let ls = std::fs::read(loadscreen_disk)
-            .map_err(|e| format!("Failed to read loadscreen: {e}"))?;
-        tex_dimensions(&ls).or_else(|_| tex_dimensions(BASE_MASK_TEX))?
-    } else {
-        tex_dimensions(BASE_MASK_TEX)?
-    };
+/// `loadscreen_disk` is unused for sizing now — the mask is a tiling/pattern
+/// texture, not pixel-aligned to the loadscreen — but kept for signature
+/// stability with the caller.
+fn build_mask(_loadscreen_disk: &Path, mask_disk: &Path) -> Result<(u32, u32), String> {
+    // Bundle defines the canonical R/G pattern AND the canonical size.
+    let mut base = decode_tex_rgba(BASE_MASK_TEX)?;
+    let (tw, th) = (base.width(), base.height());
 
-    // Bundled pattern resized to the target — we use its R/G (the scroll
-    // pattern) only. The bundled base's OWN blue channel is Evelynn's painted
-    // mask, NOT a clean slate, so we must NOT seed it on a fresh apply.
-    let base = decode_tex_rgba(BASE_MASK_TEX)?;
-    let mut resized = image::imageops::resize(&base, tw, th, image::imageops::FilterType::Triangle);
-
-    // Set the BLUE channel: from the existing mask if there is one (preserve the
-    // user's painting across re-apply), otherwise ZERO (a clean, unpainted mask —
-    // never Evelynn's bundled blue).
+    // Blue: preserved from an existing mask (resized to native), else 0.
     let existing_blue: Option<image::RgbaImage> = if mask_disk.exists() {
         std::fs::read(mask_disk)
             .ok()
@@ -406,12 +403,12 @@ fn build_mask(loadscreen_disk: &Path, mask_disk: &Path) -> Result<(u32, u32), St
     } else {
         None
     };
-    for (i, dst) in resized.pixels_mut().enumerate() {
-        dst.0[2] = existing_blue.as_ref().map_or(0, |b| b.as_raw()[i * 4 + 2]);
-        dst.0[3] = 255; // opaque
+    for (i, px) in base.pixels_mut().enumerate() {
+        px.0[2] = existing_blue.as_ref().map_or(0, |b| b.as_raw()[i * 4 + 2]);
+        px.0[3] = 255; // opaque
     }
 
-    let rgba = resized.into_raw();
+    let rgba = base.into_raw();
     let tex_bytes = encode_mask_tex(&rgba, tw, th, TexFormat::Bc7)?;
 
     if let Some(parent) = mask_disk.parent() {
@@ -452,4 +449,79 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
         format!("Failed to finalize {}: {e}", path.display())
     })?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn channel_avgs(img: &image::RgbaImage) -> [u64; 4] {
+        let mut s = [0u64; 4];
+        let n = (img.width() * img.height()) as u64;
+        for px in img.as_raw().chunks_exact(4) {
+            for c in 0..4 {
+                s[c] += px[c] as u64;
+            }
+        }
+        [s[0] / n, s[1] / n, s[2] / n, s[3] / n]
+    }
+
+    /// A fresh apply produces a mask at the bundle's NATIVE size, with the
+    /// bundle's R/G copied verbatim (so it matches the Evelynn reference) and a
+    /// BLANK blue channel (the bundle's own blue is Evelynn's silhouette, which
+    /// must not be seeded).
+    #[test]
+    fn fresh_mask_is_bundle_rg_with_blank_blue() {
+        let bundle = decode_tex_rgba(BASE_MASK_TEX).unwrap();
+        let (bw, bh) = (bundle.width(), bundle.height());
+        let bundle_avg = channel_avgs(&bundle);
+
+        let dir = std::env::temp_dir().join("flint_banner_test_fresh");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mask = dir.join("foo-mask.tex");
+
+        // No loadscreen on disk — sizing comes from the bundle.
+        let (w, h) = build_mask(Path::new("does-not-exist.tex"), &mask).unwrap();
+        assert_eq!((w, h), (bw, bh), "mask must be the bundle's native size");
+
+        let out = decode_tex_rgba(&std::fs::read(&mask).unwrap()).unwrap();
+        let out_avg = channel_avgs(&out);
+        // R/G match the bundle within BC7 noise.
+        assert!(out_avg[0].abs_diff(bundle_avg[0]) <= 4, "R drifted: {out_avg:?} vs {bundle_avg:?}");
+        assert!(out_avg[1].abs_diff(bundle_avg[1]) <= 4, "G drifted");
+        // Blue is blank.
+        assert!(out_avg[2] <= 1, "fresh blue must be ~0, got {}", out_avg[2]);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Re-applying over an existing mask keeps the painted blue but refreshes
+    /// R/G from the bundle.
+    #[test]
+    fn reapply_preserves_blue() {
+        let bundle = decode_tex_rgba(BASE_MASK_TEX).unwrap();
+        let (bw, bh) = (bundle.width(), bundle.height());
+
+        let dir = std::env::temp_dir().join("flint_banner_test_reapply");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mask = dir.join("foo-mask.tex");
+
+        // Write an existing mask with a known blue value (200) at native size.
+        let mut existing = image::RgbaImage::new(bw, bh);
+        for px in existing.pixels_mut() {
+            *px = image::Rgba([0, 0, 200, 255]);
+        }
+        let bytes = encode_mask_tex(existing.as_raw(), bw, bh, TexFormat::Bc7).unwrap();
+        std::fs::write(&mask, &bytes).unwrap();
+
+        build_mask(Path::new("does-not-exist.tex"), &mask).unwrap();
+
+        let out = decode_tex_rgba(&std::fs::read(&mask).unwrap()).unwrap();
+        let blue_avg = channel_avgs(&out)[2];
+        // Painted blue (200) survived (BC7 noise tolerance).
+        assert!((180..=220).contains(&blue_avg), "blue not preserved: {blue_avg}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
