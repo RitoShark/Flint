@@ -101,6 +101,65 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                         icon: getIcon('texture'),
                         onClick: () => openModal('chromaPort'),
                     },
+                    {
+                        label: 'Add Animated Loadscreen Banner',
+                        icon: getIcon('picture'),
+                        separator: true,
+                        onClick: () => {
+                            void (async () => {
+                                try {
+                                    const info = await api.getLoadscreenBannerInfo(projectPath);
+                                    if (!info.loadscreen_exists) {
+                                        showToast('error', 'This project has no loadscreen image to build a banner on.');
+                                        return;
+                                    }
+                                    const open = () => openModal('loadscreenBanner', { projectPath });
+                                    if (info.applied) {
+                                        // Already applied — re-editing the mask is the common,
+                                        // non-destructive path, so open the editor straight away.
+                                        // (The separate "Re-apply preset" item resets the shader.)
+                                        open();
+                                        return;
+                                    }
+                                    // First time — inject the material + create the mask, then edit.
+                                    await api.applyLoadscreenBanner(projectPath);
+                                    await refreshFileTree();
+                                    open();
+                                } catch (e) {
+                                    const fe = e as api.FlintError;
+                                    showToast('error', fe.getUserMessage?.() || (e instanceof Error ? e.message : 'Failed to add loadscreen banner'));
+                                }
+                            })();
+                        },
+                    },
+                    {
+                        label: 'Re-apply Banner Preset',
+                        icon: getIcon('texture'),
+                        onClick: () => {
+                            openConfirmDialog({
+                                title: 'Re-apply banner preset?',
+                                message: 'This rewrites the animated banner material to preset defaults (resets effect settings). Your painted mask is kept. Continue?',
+                                confirmLabel: 'Re-apply',
+                                onConfirm: () => {
+                                    void (async () => {
+                                        try {
+                                            const info = await api.getLoadscreenBannerInfo(projectPath);
+                                            if (!info.loadscreen_exists) {
+                                                showToast('error', 'This project has no loadscreen image.');
+                                                return;
+                                            }
+                                            await api.applyLoadscreenBanner(projectPath);
+                                            await refreshFileTree();
+                                            showToast('success', 'Banner preset re-applied');
+                                        } catch (e) {
+                                            const fe = e as api.FlintError;
+                                            showToast('error', fe.getUserMessage?.() || (e instanceof Error ? e.message : 'Failed to re-apply preset'));
+                                        }
+                                    })();
+                                },
+                            });
+                        },
+                    },
                 ],
             });
 
@@ -409,6 +468,17 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
     });
 
     if (ext === 'dds' || ext === 'tex') {
+        // Animated-banner mask files get a dedicated "edit the mask" entry that
+        // opens the paint editor (over the loadscreen) instead of a raw view.
+        if (projectPath && fileName.toLowerCase().endsWith('-mask.tex')) {
+            options.push({
+                label: 'Edit Loadscreen Banner Mask',
+                icon: getIcon('picture'),
+                separator: true,
+                onClick: () => openModal('loadscreenBanner', { projectPath, maskPath: fullPath }),
+            });
+        }
+
         options.push({
             label: 'Recolor',
             icon: getIcon('texture'),

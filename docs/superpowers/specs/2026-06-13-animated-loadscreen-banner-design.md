@@ -22,8 +22,13 @@ Two entry points:
 
 1. **Project root → right-click → "Add Animated Loadscreen Banner"**
    - If the project has no loadscreen image → blocked with a toast.
-   - If the banner is already applied → a **design-lab confirm dialog**:
-     *Re-edit mask* / *Re-apply preset* / *Cancel*.
+   - If the banner is already applied → opens the mask editor directly
+     (re-editing is the common, non-destructive path). A **separate**
+     "Re-apply Banner Preset" menu item (confirm-gated) resets the shader
+     params to defaults while keeping the painted mask. *(Implementation note:
+     the shared `ConfirmDialog` only supports one `onConfirm` action — cancel
+     just closes — so the spec's single three-button dialog became
+     "open-editor by default" + a separate confirm-gated re-apply item.)*
    - Otherwise: injects the material into the main BIN, creates an empty
      (all-black) mask `.tex` the same size as the loadscreen, then opens the
      mask editor modal.

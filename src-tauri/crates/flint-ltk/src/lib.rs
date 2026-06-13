@@ -17,6 +17,7 @@ pub mod checkpoint;
 pub mod hud;
 pub mod luabin;
 pub mod troybin;
+pub mod loadscreen_banner;
 pub mod inibin_text;
 pub mod stringtable;
 pub mod manifest;

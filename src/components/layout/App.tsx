@@ -43,6 +43,7 @@ import { AddLayerModal } from '../modals/AddLayerModal';
 import { RenameProjectModal } from '../modals/RenameProjectModal';
 import { ChromaPortModal } from '../modals/ChromaPortModal';
 import { WhatsNewModal } from '../modals/WhatsNewModal';
+import { LoadscreenBannerModal } from '../modals/LoadscreenBannerModal';
 import { ToastContainer } from '../overlays/Toast';
 import { TutorialOverlay, isOnboardingDone, TUTORIAL_REPLAY_EVENT } from '../overlays/TutorialOverlay';
 import { TooltipProvider } from '../overlays/TooltipProvider';
@@ -84,6 +85,7 @@ const ActiveModal: React.FC<{ activeModal: string | null }> = React.memo(({ acti
         case 'chromaPort':       return <ChromaPortModal />;
         case 'whatsNew':         return <WhatsNewModal />;
         case 'map-textures':     return <MapTexturesModal />;
+        case 'loadscreenBanner': return <LoadscreenBannerModal />;
         default:                 return null;
     }
 });

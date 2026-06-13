@@ -400,6 +400,10 @@ fn main() {
             commands::hud::save_hud_ritobin_file,
             commands::hud::create_hud_project,
             commands::hud::get_hud_file_stats,
+            // Animated loadscreen banner
+            commands::loadscreen_banner::get_loadscreen_banner_info,
+            commands::loadscreen_banner::apply_loadscreen_banner,
+            commands::loadscreen_banner::save_banner_mask,
             // Format converter commands (luabin, troybin)
             commands::format_converters::convert_luabin_to_text,
             commands::format_converters::read_luabin_text,

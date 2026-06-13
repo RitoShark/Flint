@@ -65,6 +65,7 @@ export * from './legacyFormats';
 export * from './settings';
 export * from './updater';
 export * from './fixer';
+export * from './loadscreenBanner';
 export * from './compare';
 export * from './chroma';
 export * from './taskbar';
