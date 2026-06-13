@@ -312,23 +312,28 @@ pub async fn save_session_to_path(
     // Heavy: decompress every untouched chunk + run zstd over the edited
     // ones. Pin to the blocking pool.
     let result: Result<(Vec<u8>, usize), String> = tokio::task::spawn_blocking(move || {
-        let mut entries: Vec<EntryToWrite> = Vec::with_capacity(original_chunks.len());
+        use rayon::prelude::*;
 
-        // Originals — except those shadowed by a Delete.
-        for chunk in &original_chunks {
-            match deltas.get(&chunk.path_hash) {
-                Some(WadEditDelta::Delete) => continue,
-                Some(WadEditDelta::Write(_)) => continue, // overwritten below
-                None => {
-                    let bytes = read_chunk_decompressed_bytes(&source_path, chunk)
-                        .map_err(|e| format!(
-                            "Failed to decompress original chunk {:016x}: {}",
-                            chunk.path_hash, e
-                        ))?;
-                    entries.push(EntryToWrite::new(chunk.path_hash, bytes));
-                }
-            }
-        }
+        // Untouched originals (not shadowed by a Delete/Write) are streamed
+        // from disk and decompressed. Each opens its own file handle, so fan
+        // the decompression out across rayon — for a full champion WAD this is
+        // thousands of independent reads. Order is irrelevant: write_wad dedups
+        // + sorts by hash internally.
+        let originals: Vec<EntryToWrite> = original_chunks
+            .par_iter()
+            .filter(|chunk| !deltas.contains_key(&chunk.path_hash))
+            .map(|chunk| {
+                read_chunk_decompressed_bytes(&source_path, chunk)
+                    .map(|bytes| EntryToWrite::new(chunk.path_hash, bytes))
+                    .map_err(|e| format!(
+                        "Failed to decompress original chunk {:016x}: {}",
+                        chunk.path_hash, e
+                    ))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+
+        let mut entries = originals;
+        entries.reserve(deltas.len());
 
         // Edits (Write deltas). Includes both replacements of existing
         // hashes and brand-new ones.

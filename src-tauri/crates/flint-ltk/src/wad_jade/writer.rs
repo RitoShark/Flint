@@ -99,13 +99,18 @@ pub fn write_wad(entries: Vec<EntryToWrite>) -> Result<(Vec<u8>, WriteStats)> {
     let data_start = HEADER_SIZE + toc_bytes;
 
     // Pre-encode every chunk so we know its compressed size before we
-    // write the TOC. Memory: roughly 2× total chunk bytes (raw + zstd
-    // buffer) during this step. For typical champion WADs (~200 MB) that
-    // peaks at ~400 MB resident — acceptable for an interactive editor.
-    let mut encoded: Vec<EncodedEntry> = Vec::with_capacity(entries.len());
-    for entry in entries {
-        encoded.push(encode_one(entry)?);
-    }
+    // write the TOC. zstd level 17 over hundreds of chunks is the dominant
+    // cost of a save, and each chunk encodes independently, so fan it out
+    // across rayon. The collect preserves input order (which is already
+    // sorted by path_hash above), so the TOC stays hash-ascending.
+    // Memory: roughly 2× total chunk bytes (raw + zstd buffer) during this
+    // step. For typical champion WADs (~200 MB) that peaks at ~400 MB
+    // resident — acceptable for an interactive editor.
+    use rayon::prelude::*;
+    let encoded: Vec<EncodedEntry> = entries
+        .into_par_iter()
+        .map(encode_one)
+        .collect::<Result<Vec<_>>>()?;
 
     let data_total: u64 = encoded.iter().map(|e| e.compressed.len() as u64).sum();
     let total_size = data_start as u64 + data_total;
