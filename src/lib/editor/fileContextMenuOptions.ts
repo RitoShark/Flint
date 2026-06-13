@@ -115,13 +115,13 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                                     }
                                     const open = () => openModal('loadscreenBanner', { projectPath });
                                     if (info.applied) {
-                                        // Already applied — re-editing the mask is the common,
-                                        // non-destructive path, so open the editor straight away.
-                                        // (The separate "Re-apply preset" item resets the shader.)
+                                        // Already applied — just open the mask editor (re-editing
+                                        // the mask is non-destructive). We don't re-inject the
+                                        // material so manual BIN tweaks survive.
                                         open();
                                         return;
                                     }
-                                    // First time — inject the material + create the mask, then edit.
+                                    // First time — inject the material + build the mask, then edit.
                                     await api.applyLoadscreenBanner(projectPath);
                                     await refreshFileTree();
                                     open();
@@ -130,34 +130,6 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                                     showToast('error', fe.getUserMessage?.() || (e instanceof Error ? e.message : 'Failed to add loadscreen banner'));
                                 }
                             })();
-                        },
-                    },
-                    {
-                        label: 'Re-apply Banner Preset',
-                        icon: getIcon('texture'),
-                        onClick: () => {
-                            openConfirmDialog({
-                                title: 'Re-apply banner preset?',
-                                message: 'This rewrites the animated banner material to preset defaults (resets effect settings). Your painted mask is kept. Continue?',
-                                confirmLabel: 'Re-apply',
-                                onConfirm: () => {
-                                    void (async () => {
-                                        try {
-                                            const info = await api.getLoadscreenBannerInfo(projectPath);
-                                            if (!info.loadscreen_exists) {
-                                                showToast('error', 'This project has no loadscreen image.');
-                                                return;
-                                            }
-                                            await api.applyLoadscreenBanner(projectPath);
-                                            await refreshFileTree();
-                                            showToast('success', 'Banner preset re-applied');
-                                        } catch (e) {
-                                            const fe = e as api.FlintError;
-                                            showToast('error', fe.getUserMessage?.() || (e instanceof Error ? e.message : 'Failed to re-apply preset'));
-                                        }
-                                    })();
-                                },
-                            });
                         },
                     },
                 ],
