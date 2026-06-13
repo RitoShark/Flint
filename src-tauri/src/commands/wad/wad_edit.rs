@@ -374,6 +374,36 @@ pub async fn save_session_to_path(
         format!("Failed to rename tmp WAD into place: {}", e)
     })?;
 
+    // The saved file is now the session's new baseline. Re-parse its TOC and
+    // clear the (now-committed) deltas, then re-point the session at the output.
+    //
+    // WHY: writing re-lays-out the WAD — chunks get recompressed (new sizes) and
+    // re-sorted by hash (new offsets). The session still cached the OLD TOC, so
+    // any later read of an UNTOUCHED chunk would seek to a stale offset in the
+    // freshly-written file and pull garbage (manifesting as "Zstd: Unknown frame
+    // descriptor" / texture InvalidMagic in the preview). Refreshing here keeps
+    // the open session consistent with what's on disk after an in-place save.
+    match read_wad_toc(&out) {
+        Ok(toc) => {
+            let mut s = session.write();
+            s.original_chunks = toc.chunks;
+            s.deltas.clear();
+            s.source_path = out.clone();
+        }
+        Err(e) => {
+            // The file is written and valid (we just produced it); a TOC re-read
+            // failure here is unexpected. Don't fail the save — the bytes are on
+            // disk — but warn, and drop stale deltas so we don't serve bad reads.
+            tracing::warn!(
+                "Saved WAD but failed to refresh session TOC ({}); clearing deltas to avoid stale reads",
+                e
+            );
+            let mut s = session.write();
+            s.deltas.clear();
+            s.source_path = out.clone();
+        }
+    }
+
     tracing::info!(
         "WAD session saved: id={} chunks={} bytes={} → {}",
         session_id, chunk_count, total_bytes, out.display()
