@@ -17,7 +17,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom';
 import { useModalStore, useNotificationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
-import { falloff, strokeDabs, compositeMaskBlue, compositeEraseBlue, normalizeMaskRgba, maskToDisplayRgba } from '../../lib/maskPaint';
+import { falloff, strokeDabs, compositeMaskBlue, compositeEraseBlue, maskToDisplayRgba } from '../../lib/maskPaint';
 
 interface ModalOpts {
     projectPath?: string;
@@ -283,9 +283,27 @@ export const LoadscreenBannerModal: React.FC = () => {
         redraw();
     };
 
+    // Photoshop-style quick-adjust gestures: Alt+left-drag = brush size,
+    // right-drag = hardness. Horizontal drag from the press point scales the
+    // value (right = bigger/harder). While adjusting we don't paint.
+    const adjustRef = useRef<{ kind: 'size' | 'hardness'; startX: number; startVal: number } | null>(null);
+
     const onPointerDown = (e: React.PointerEvent) => {
         if (loading || error) return;
         (e.target as HTMLElement).setPointerCapture(e.pointerId);
+
+        // Right-click drag → hardness. Alt + left-click drag → size.
+        if (e.button === 2) {
+            e.preventDefault();
+            adjustRef.current = { kind: 'hardness', startX: e.clientX, startVal: hardness };
+            return;
+        }
+        if (e.altKey && e.button === 0) {
+            e.preventDefault();
+            adjustRef.current = { kind: 'size', startX: e.clientX, startVal: brushSize };
+            return;
+        }
+
         pushUndo();
         paintingRef.current = true;
         base0Ref.current = new Uint8Array(rgbaRef.current!);
@@ -300,6 +318,21 @@ export const LoadscreenBannerModal: React.FC = () => {
     const onPointerMove = (e: React.PointerEvent) => {
         const rect = dispCanvasRef.current?.getBoundingClientRect();
         if (rect) setCursor({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+
+        // Quick-adjust drag takes priority over painting.
+        const adj = adjustRef.current;
+        if (adj) {
+            const dx = e.clientX - adj.startX;
+            if (adj.kind === 'size') {
+                // ~1px brush per 1px drag, clamped to the slider range.
+                setBrushSize(Math.round(Math.max(2, Math.min(300, adj.startVal + dx))));
+            } else {
+                // Full hardness sweep over ~200px of drag.
+                setHardness(Math.max(0, Math.min(1, adj.startVal + dx / 200)));
+            }
+            return;
+        }
+
         if (!paintingRef.current) return;
         const p = toMaskCoords(e);
         const last = lastPtRef.current ?? p;
@@ -309,6 +342,7 @@ export const LoadscreenBannerModal: React.FC = () => {
     };
 
     const onPointerUp = () => {
+        adjustRef.current = null;
         if (!paintingRef.current) return;
         paintingRef.current = false;
         lastPtRef.current = null;
@@ -327,9 +361,10 @@ export const LoadscreenBannerModal: React.FC = () => {
                 glowPulse,
                 tint,
             });
-            // 2. Save the painted mask (blue-only).
-            const clean = normalizeMaskRgba(rgba);
-            await api.saveBannerMask(maskPath, clean, dims.w, dims.h);
+            // 2. Save the mask. R/G/A are the existing texture's channels
+            //    (the scroll pattern); only the BLUE channel was edited by the
+            //    brush — send the buffer as-is, do NOT zero R/G.
+            await api.saveBannerMask(maskPath, rgba, dims.w, dims.h);
             showToast('success', 'Loadscreen banner mask saved');
             setDirty(false);
             closeModal();
@@ -403,6 +438,7 @@ export const LoadscreenBannerModal: React.FC = () => {
                                     onPointerMove={onPointerMove}
                                     onPointerUp={onPointerUp}
                                     onPointerLeave={() => { onPointerUp(); setCursor(null); }}
+                                    onContextMenu={(e) => e.preventDefault()}
                                 />
                                 {/* Brush ring */}
                                 {cursor && (
@@ -452,7 +488,9 @@ export const LoadscreenBannerModal: React.FC = () => {
                             </div>
                         </Section>
                         <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                            Paint where the animated VFX should show. The brush writes the blue-channel mask.
+                            Paint where the animated VFX should show — the brush writes the blue-channel mask.
+                            <br /><br />
+                            <strong>Alt + drag</strong> = brush size · <strong>Right-click drag</strong> = hardness.
                         </div>
                     </div>
                 </div>

@@ -4,10 +4,11 @@
 //! * `get_loadscreen_banner_info` — inspect the project: where is the loadscreen
 //!   image on disk, where will the mask live, is the banner already applied.
 //! * `apply_loadscreen_banner` — inject the `StaticMaterialDef` + link into the
-//!   main skin BIN, and create an empty (all-black) mask `.tex` sized to the
-//!   loadscreen if one doesn't exist yet.
-//! * `save_banner_mask` — encode painted blue-channel RGBA into the mask `.tex`
-//!   (raw-bytes IPC, mirrors `save_painted_texture`).
+//!   main skin BIN, and drop in the bundled base mask `.tex` (BC7, with the real
+//!   R/G scroll pattern) if one doesn't exist yet.
+//! * `save_banner_mask` — re-encode the edited mask RGBA back into the mask
+//!   `.tex` in its existing format (R/G/A preserved, only blue edited by the UI;
+//!   raw-bytes IPC, mirrors `save_painted_texture`).
 
 use std::path::{Path, PathBuf};
 
@@ -16,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use flint_ltk::loadscreen_banner as banner;
 use flint_ltk::project::open_project;
 
-use ritoshark::tex::Texture;
+use ritoshark::tex::{TexFormat, Texture};
 // `.to_bytes()` lives on rs_io's `Serialize` trait; `Texture::from_bytes` on
 // `Parse`. Both come from the ritoshark prelude.
 use ritoshark::prelude::{Parse as _, Serialize as _};
@@ -256,7 +257,16 @@ pub async fn save_banner_mask(
         ));
     }
 
-    let tex_bytes = encode_mask_tex(rgba, width, height)?;
+    // Preserve the existing file's format (the reference masks ship as BC7).
+    // The incoming buffer already carries the existing R/G/A with only the blue
+    // channel edited — the frontend reads the current mask and overwrites blue.
+    let format = std::fs::read(&path)
+        .ok()
+        .and_then(|d| Texture::from_bytes(&d).ok())
+        .map(|t| t.format)
+        .unwrap_or(TexFormat::Bc7);
+
+    let tex_bytes = encode_mask_tex(rgba, width, height, format)?;
     write_atomic(Path::new(&path), &tex_bytes)?;
     Ok(())
 }
@@ -265,52 +275,59 @@ pub async fn save_banner_mask(
 // Texture / file helpers
 // =============================================================================
 
-/// Encode an RGBA buffer into uncompressed (Bgra8) `.tex` bytes, patching the
-/// header byte the same way `convert_dds_bytes_to_tex` does (0x00 = uncompressed).
-fn encode_mask_tex(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
+/// Bundled base mask `.tex` (BC7) shipped with Flint. Its R/G channels carry the
+/// secondary-VFX scroll pattern; the blue channel is the editable mask. Copied
+/// verbatim when a project gets its first banner so R/G aren't blank.
+static BASE_MASK_TEX: &[u8] = include_bytes!("../../../resources/banner-mask-base.tex");
+
+/// Encode an RGBA buffer into `.tex` bytes in `format`, patching header byte 8
+/// (0x01 for block-compressed, 0x00 for uncompressed) like `convert_*` does.
+fn encode_mask_tex(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    format: TexFormat,
+) -> Result<Vec<u8>, String> {
     let image = image::RgbaImage::from_raw(width, height, rgba.to_vec())
         .ok_or("failed to build RGBA image from buffer")?;
-    let tex = Texture::from_rgba_bgra8(&image);
+    let tex = match format {
+        TexFormat::Bgra8 => Texture::from_rgba_bgra8(&image),
+        // BC7 keeps full RGBA at high quality — the right default for a mask
+        // that carries an RGB pattern plus a blue mask channel.
+        TexFormat::Bc1 | TexFormat::Bc1Alt | TexFormat::Bc3 | TexFormat::Bc5 | TexFormat::Bc7 => {
+            Texture::encode(&image, format, false)
+                .map_err(|e| format!("Failed to encode mask TEX ({format:?}): {e:?}"))?
+        }
+        // Etc / Rgba16 aren't expected for masks — fall back to BC7.
+        _ => Texture::encode(&image, TexFormat::Bc7, false)
+            .map_err(|e| format!("Failed to encode mask TEX (BC7 fallback): {e:?}"))?,
+    };
     let mut buf = tex
         .to_bytes()
         .map_err(|e| format!("Failed to serialize mask TEX: {e:?}"))?;
     if buf.len() >= 9 {
-        buf[8] = 0x00; // uncompressed surface
+        buf[8] = match format {
+            TexFormat::Bgra8 | TexFormat::Rgba16Snorm => 0x00,
+            _ => 0x01,
+        };
     }
     Ok(buf)
 }
 
-/// Create an all-black (blue=0) mask `.tex` sized to the loadscreen, if the mask
-/// doesn't already exist. Returns the (width, height) of the mask.
-fn ensure_mask_exists(loadscreen_disk: &Path, mask_disk: &Path) -> Result<(u32, u32), String> {
+/// Ensure a mask `.tex` exists. If missing, drop in the bundled base mask (BC7,
+/// with the real R/G scroll pattern + a starter blue channel). Returns its dims.
+fn ensure_mask_exists(_loadscreen_disk: &Path, mask_disk: &Path) -> Result<(u32, u32), String> {
     if mask_disk.exists() {
-        // Read existing dimensions from the .tex header.
         let data = std::fs::read(mask_disk).map_err(|e| format!("Failed to read mask: {e}"))?;
         return tex_dimensions(&data);
     }
-
-    // Size to the loadscreen if we can decode it; otherwise fall back to 1024².
-    let (w, h) = if loadscreen_disk.exists() {
-        let data =
-            std::fs::read(loadscreen_disk).map_err(|e| format!("Failed to read loadscreen: {e}"))?;
-        tex_dimensions(&data).unwrap_or((1024, 1024))
-    } else {
-        (1024, 1024)
-    };
-
-    // All-black, fully opaque RGBA (blue = 0 → nothing showing).
-    let mut rgba = vec![0u8; (w as usize) * (h as usize) * 4];
-    for px in rgba.chunks_exact_mut(4) {
-        px[3] = 255; // alpha
-    }
-    let tex_bytes = encode_mask_tex(&rgba, w, h)?;
 
     if let Some(parent) = mask_disk.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create mask directory: {e}"))?;
     }
-    write_atomic(mask_disk, &tex_bytes)?;
-    Ok((w, h))
+    write_atomic(mask_disk, BASE_MASK_TEX)?;
+    tex_dimensions(BASE_MASK_TEX)
 }
 
 /// Read the width/height from a `.tex` or `.dds` header.
