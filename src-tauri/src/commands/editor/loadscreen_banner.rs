@@ -210,6 +210,16 @@ pub async fn apply_loadscreen_banner(
         flint_ltk::bin::write_bin_ltk(&r.bin).map_err(|e| format!("Failed to write BIN: {e}"))?;
     write_atomic(&r.main_bin, &bytes)?;
 
+    // 2b. Invalidate the cached `.ritobin` sidecar so the editor re-converts
+    //     from the freshly-written BIN (otherwise it serves the pre-banner text
+    //     and the new material/link don't show up).
+    let ritobin_cache = {
+        let mut p = r.main_bin.clone().into_os_string();
+        p.push(".ritobin");
+        std::path::PathBuf::from(p)
+    };
+    let _ = std::fs::remove_file(&ritobin_cache);
+
     // 3. Ensure a mask .tex exists — create an empty black one sized to the
     //    loadscreen if missing.
     let (width, height) = ensure_mask_exists(&r.loadscreen_disk, &r.mask_disk)?;

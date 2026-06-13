@@ -394,10 +394,24 @@ pub fn apply_banner_to_bin(
         "No SkinCharacterDataProperties entry found in the main skin BIN — cannot attach a loadscreen banner.".to_string()
     })?;
 
-    // 1. Link the loadscreen field on the skin entry.
-    bin.entries[skin_idx]
-        .fields
-        .insert(LOADSCREEN_MATERIAL_FIELD, BinValue::Link(material_hash));
+    // 1. Link the loadscreen field on the skin entry, placed immediately AFTER
+    //    the `loadScreen` block (matching the convention League/authors use), not
+    //    appended to the end of the fields. Field order is cosmetic to the engine
+    //    but the readable .bin should read loadScreen → material link.
+    {
+        let fields = &mut bin.entries[skin_idx].fields;
+        let link = BinValue::Link(material_hash);
+        if let Some(existing) = fields.get_mut(&LOADSCREEN_MATERIAL_FIELD) {
+            // Already present — just refresh the target, keep its position.
+            *existing = link;
+        } else if let Some(ls_idx) = fields.get_index_of(&fnv1a_32("loadScreen")) {
+            // Insert right after loadScreen.
+            fields.shift_insert(ls_idx + 1, LOADSCREEN_MATERIAL_FIELD, link);
+        } else {
+            // No loadScreen field (shouldn't happen — we read it earlier) → append.
+            fields.insert(LOADSCREEN_MATERIAL_FIELD, link);
+        }
+    }
 
     // 2. Replace any existing material entry with the freshly built one.
     let new_entry = build_material_entry(material_name, mask_asset_path, params);
@@ -542,6 +556,15 @@ mod tests {
             skin.fields.get(&LOADSCREEN_MATERIAL_FIELD),
             Some(BinValue::Link(_))
         ));
+
+        // ...and it sits immediately AFTER the loadScreen field (not at the end).
+        let ls_idx = skin.fields.get_index_of(&fnv1a_32("loadScreen")).unwrap();
+        let link_idx = skin.fields.get_index_of(&LOADSCREEN_MATERIAL_FIELD).unwrap();
+        assert_eq!(
+            link_idx,
+            ls_idx + 1,
+            "material link must be inserted right after loadScreen"
+        );
     }
 
     #[test]

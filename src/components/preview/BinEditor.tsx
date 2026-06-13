@@ -1236,7 +1236,26 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         } catch (err) {
             console.error('[BinEditor] Save error:', err);
             const flintError = err as api.FlintError;
-            showToast('error', flintError.getUserMessage?.() || 'Failed to save');
+            const msg = flintError.getUserMessage?.() || String(err) || 'Failed to save';
+
+            // The backend ritobin parser reports failures as "...at line N: <why>".
+            // Surface that line in the editor so the user can jump straight to the
+            // broken edit (e.g. a deleted value leaving `value: vec4 =`), instead
+            // of a context-free toast.
+            const lineMatch = /line\s+(\d+)/i.exec(msg);
+            if (lineMatch && editorRef.current) {
+                const line = parseInt(lineMatch[1], 10);
+                const ed = editorRef.current;
+                const maxLine = ed.getModel()?.getLineCount() ?? line;
+                const target = Math.min(Math.max(line, 1), maxLine);
+                ed.revealLineInCenter(target);
+                ed.setPosition({ lineNumber: target, column: 1 });
+                ed.focus();
+                showToast('error', `Save failed at line ${line}: ${msg.replace(/^.*?at line \d+:\s*/i, '')}`);
+            } else {
+                showToast('error', msg);
+            }
+            setReady('Save failed');
         }
     }, [filePath, content, setWorking, setReady, showToast, bracketStatus]);
     saveRef.current = handleSave;
