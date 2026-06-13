@@ -487,13 +487,15 @@ export const LoadscreenBannerModal: React.FC = () => {
                                     height: stageSize.h > 0 ? stageSize.h : undefined,
                                 }}
                             >
-                                {/* Dimmed loadscreen backdrop */}
-                                <canvas ref={backdropRef} style={{ ...canvasStyle, opacity: 0.35, pointerEvents: 'none' }} />
-                                {/* Mask overlay + pointer surface. Hide the OS
-                                    cursor while resizing so only the ring shows. */}
+                                {/* Loadscreen backdrop at full opacity for clarity. */}
+                                <canvas ref={backdropRef} style={{ ...canvasStyle, opacity: 1, pointerEvents: 'none' }} />
+                                {/* Mask overlay (the painting) at 40% so the
+                                    loadscreen stays readable underneath. + pointer
+                                    surface; hide the OS cursor while resizing so
+                                    only the ring shows. */}
                                 <canvas
                                     ref={dispCanvasRef}
-                                    style={{ ...canvasStyle, cursor: adjusting ? 'none' : 'crosshair' }}
+                                    style={{ ...canvasStyle, opacity: 0.4, cursor: adjusting ? 'none' : 'crosshair' }}
                                     onPointerDown={onPointerDown}
                                     onPointerMove={onPointerMove}
                                     onPointerUp={onPointerUp}

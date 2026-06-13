@@ -67,22 +67,6 @@ export function compositeEraseBlue(
 }
 
 /**
- * Normalize an arbitrary RGBA buffer into clean mask form: keep the blue
- * channel, zero R and G, set A to 255. Used right before saving so the `.tex`
- * is a pure blue mask regardless of what the source texture carried.
- */
-export function normalizeMaskRgba(rgba: Uint8Array): Uint8Array {
-    const out = new Uint8Array(rgba.length);
-    for (let o = 0; o < rgba.length; o += 4) {
-        out[o] = 0;
-        out[o + 1] = 0;
-        out[o + 2] = rgba[o + 2];
-        out[o + 3] = 255;
-    }
-    return out;
-}
-
-/**
  * Build a display RGBA (for the on-canvas overlay) from the mask buffer: show
  * the blue channel as a soft cyan tint so the user sees what they've painted
  * over the dimmed loadscreen. Alpha follows the blue intensity.

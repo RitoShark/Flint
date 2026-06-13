@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
     compositeMaskBlue,
     compositeEraseBlue,
-    normalizeMaskRgba,
     maskToDisplayRgba,
 } from './maskPaint';
 
@@ -53,14 +52,6 @@ describe('compositeEraseBlue', () => {
         compositeEraseBlue(out, base, mask, 2, 1);
         expect(out[2]).toBe(0); // fully erased
         expect(out[6]).toBe(100); // 200 * (1 - 0.5)
-    });
-});
-
-describe('normalizeMaskRgba', () => {
-    it('keeps blue, zeros R/G, forces A=255', () => {
-        const src = buf([[99, 88, 123, 7]]);
-        const out = normalizeMaskRgba(src);
-        expect(Array.from(out)).toEqual([0, 0, 123, 255]);
     });
 });
 
