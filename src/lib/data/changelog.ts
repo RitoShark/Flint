@@ -53,6 +53,24 @@ export const CHANGELOG: VersionChangelog[] = [
             {
                 icon: 'picture',
                 tag: 'feature',
+                title: 'Animated Loadscreen Banner',
+                description: 'Turn a static loadscreen into an animated VFX banner in one click — Flint injects the shader material and opens a mask editor where you paint the effect right over the loading screen. Brush/eraser with size, hardness, and opacity (Alt-drag to resize and right-drag for hardness, Photoshop-style), plus effect sliders for shine, scroll, glow, and tint.',
+            },
+            {
+                icon: 'code',
+                tag: 'feature',
+                title: 'TFT BIN Schema Creator',
+                description: 'Generate a copy-pasteable ritobin reference of every Teamfight Tactics class, field, and sample value — scanned straight from the Companions and TFT map WADs. Find it in Settings → Dev.',
+            },
+            {
+                icon: 'wrench',
+                tag: 'improvement',
+                title: 'Faster WAD Editor: Save Shortcut, Delete & Parallel Saving',
+                description: 'Saving an edited WAD now compresses every chunk in parallel across all your CPU cores — a big speedup on full champion WADs. Press Ctrl/Cmd+S to save a file inside a WAD, and use the new Delete button to remove files from a WAD.',
+            },
+            {
+                icon: 'picture',
+                tag: 'feature',
                 title: 'Map Preview & Texture Painting',
                 description: 'Preview map geometry in 3D and paint textures directly onto meshes with a Blender-style projection brush — blend modes, falloff, seam-aware bleed, and per-stroke undo/redo, saved straight back to the asset.',
             },
@@ -91,6 +109,12 @@ export const CHANGELOG: VersionChangelog[] = [
                 tag: 'improvement',
                 title: 'Unsaved Edits Survive Remounts',
                 description: 'Switching tabs, files, or views no longer drops your unsaved edits, cursor, or scroll position — text editors restore their session from an in-memory cache.',
+            },
+            {
+                icon: 'wrench',
+                tag: 'fix',
+                title: 'BIN & WAD Saving Fixes',
+                description: 'Fixed a parser bug that made saving any BIN with a transform matrix fail with “invalid number”, and fixed stale texture previews after saving a WAD in place. Save errors now jump straight to the offending line.',
             },
             {
                 icon: 'info',

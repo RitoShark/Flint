@@ -284,12 +284,29 @@ export const LoadscreenBannerModal: React.FC = () => {
     };
 
     // Photoshop-style quick-adjust gestures: Alt+left-drag = brush size,
-    // right-drag = hardness. Horizontal drag from the press point scales the
-    // value (right = bigger/harder). While adjusting the ring PINS at the press
-    // point (doesn't follow the cursor), the OS cursor hides, and the ring shows
-    // a red fill so the gesture reads as "resizing", not painting.
-    const adjustRef = useRef<{ kind: 'size' | 'hardness'; startX: number; startVal: number } | null>(null);
+    // right-drag = hardness. While adjusting we engage the Pointer Lock API so
+    // the OS cursor PHYSICALLY stops moving (and snaps back to where it started
+    // on release) — we read relative `movementX` instead of absolute position.
+    // The ring pins at the press point and turns red so it reads as "resizing".
+    // `accum` accumulates movementX (clientX is frozen under lock); `startVal` is
+    // the value at gesture start.
+    const adjustRef = useRef<{ kind: 'size' | 'hardness'; accum: number; startVal: number } | null>(null);
     const [adjusting, setAdjusting] = useState<'size' | 'hardness' | null>(null);
+
+    const beginAdjust = (kind: 'size' | 'hardness') => {
+        adjustRef.current = { kind, accum: 0, startVal: kind === 'size' ? brushSize : hardness };
+        setAdjusting(kind);
+        // Lock the cursor in place. Errors (e.g. not user-activated) are non-fatal
+        // — we still pin the ring and read movementX, just without the hard lock.
+        dispCanvasRef.current?.requestPointerLock?.();
+    };
+
+    const endAdjust = () => {
+        if (!adjustRef.current) return;
+        adjustRef.current = null;
+        setAdjusting(null);
+        if (document.pointerLockElement) document.exitPointerLock();
+    };
 
     const onPointerDown = (e: React.PointerEvent) => {
         if (loading || error) return;
@@ -302,16 +319,14 @@ export const LoadscreenBannerModal: React.FC = () => {
         // Right-click drag → hardness. Alt + left-click drag → size.
         if (e.button === 2) {
             e.preventDefault();
-            adjustRef.current = { kind: 'hardness', startX: e.clientX, startVal: hardness };
-            setAdjusting('hardness');
             if (pin) setCursor(pin);
+            beginAdjust('hardness');
             return;
         }
         if (e.altKey && e.button === 0) {
             e.preventDefault();
-            adjustRef.current = { kind: 'size', startX: e.clientX, startVal: brushSize };
-            setAdjusting('size');
             if (pin) setCursor(pin);
+            beginAdjust('size');
             return;
         }
 
@@ -327,20 +342,10 @@ export const LoadscreenBannerModal: React.FC = () => {
     };
 
     const onPointerMove = (e: React.PointerEvent) => {
-        // Quick-adjust drag takes priority over painting. While adjusting we do
-        // NOT update the ring position — it stays pinned at the press point.
-        const adj = adjustRef.current;
-        if (adj) {
-            const dx = e.clientX - adj.startX;
-            if (adj.kind === 'size') {
-                // ~1px brush per 1px drag, clamped to the slider range.
-                setBrushSize(Math.round(Math.max(2, Math.min(300, adj.startVal + dx))));
-            } else {
-                // Full hardness sweep over ~200px of drag.
-                setHardness(Math.max(0, Math.min(1, adj.startVal + dx / 200)));
-            }
-            return;
-        }
+        // While resizing, the document-level mousemove listener owns the movement
+        // accumulation (it keeps firing under pointer lock) — just don't paint or
+        // move the pinned ring here.
+        if (adjustRef.current) return;
 
         const rect = dispCanvasRef.current?.getBoundingClientRect();
         if (rect) setCursor({ x: e.clientX - rect.left, y: e.clientY - rect.top });
@@ -354,12 +359,40 @@ export const LoadscreenBannerModal: React.FC = () => {
     };
 
     const onPointerUp = () => {
-        adjustRef.current = null;
-        setAdjusting(null);
+        endAdjust();
         if (!paintingRef.current) return;
         paintingRef.current = false;
         lastPtRef.current = null;
     };
+
+    // While a resize gesture is active, read relative movement and the release
+    // from the DOCUMENT — under pointer lock the canvas's own pointer events stop
+    // tracking position, but `mousemove`'s `movementX` keeps flowing on document.
+    // Also ends the gesture if the lock is lost (Esc) or the mouse is released.
+    useEffect(() => {
+        if (!adjusting) return;
+        const onMove = (e: MouseEvent) => {
+            const adj = adjustRef.current;
+            if (!adj) return;
+            adj.accum += e.movementX;
+            if (adj.kind === 'size') {
+                setBrushSize(Math.round(Math.max(2, Math.min(300, adj.startVal + adj.accum))));
+            } else {
+                setHardness(Math.max(0, Math.min(1, adj.startVal + adj.accum / 200)));
+            }
+        };
+        const onUp = () => endAdjust();
+        const onLockChange = () => { if (!document.pointerLockElement) endAdjust(); };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+        document.addEventListener('pointerlockchange', onLockChange);
+        return () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            document.removeEventListener('pointerlockchange', onLockChange);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [adjusting]);
 
     // ── Save ─────────────────────────────────────────────────────────────────
     const handleSave = async () => {
