@@ -125,3 +125,30 @@ impl WadEditState {
             .collect()
     }
 }
+
+/// In-memory store of parsed CDN manifests, keyed by a generated session id.
+/// Mirrors `WadEditState`: one entry per open manifest tab. The `Manifest` is
+/// read-only after parse, so it's stored as a plain `Arc` (no inner lock).
+#[derive(Clone, Default)]
+pub struct CdnSessionState(Arc<RwLock<HashMap<String, Arc<flint_ltk::cdn::manifest::Manifest>>>>);
+
+impl CdnSessionState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Store a manifest, returning its new session id.
+    pub fn insert(&self, manifest: flint_ltk::cdn::manifest::Manifest) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        self.0.write().insert(id.clone(), Arc::new(manifest));
+        id
+    }
+
+    pub fn get(&self, session_id: &str) -> Option<Arc<flint_ltk::cdn::manifest::Manifest>> {
+        self.0.read().get(session_id).cloned()
+    }
+
+    pub fn remove(&self, session_id: &str) -> bool {
+        self.0.write().remove(session_id).is_some()
+    }
+}
