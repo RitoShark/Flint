@@ -29,7 +29,7 @@ ltk_inibin = { path = "crates/ltk_inibin", features = ["serde"] }
 # ltk_rst: MIGRATED to ritoshark::rst (Phase 4) — direct dep removed.
 # RitoShark crates — migration target. Binary-crate commands use ritoshark types directly;
 # same git rev as flint-ltk's dep, so cargo compiles ONE shared copy (identical types across crates).
-ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "d0fd6b1" }
+ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "b775b0c", features = ["rman-verify"] }
 intel_tex_2 = "0.5"
 flate2 = "1.0"
 
