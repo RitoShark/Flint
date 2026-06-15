@@ -1,11 +1,3 @@
-/**
- * RenameProjectModal
- * Renames a project's display name. Opened from the project root context menu
- * ("Project ▸ Rename Project…"). Persists via `save_project` (writes the new
- * display_name), updates the open tab and the recent-projects list so the new
- * name shows everywhere immediately. Styled with the design-lab system.
- */
-
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useModalStore, useProjectTabStore, useConfigStore, useNotificationStore, useNavigationStore } from '../../lib/stores';
@@ -41,16 +33,11 @@ export const RenameProjectModal: React.FC = () => {
         const oldTabId = tab.id;
         setBusy(true);
         try {
-            // The preview watcher holds a handle on the project folder — Windows
-            // refuses to rename a watched directory. Stop it first.
+            // Windows refuses to rename a directory the preview watcher holds open.
             await api.stopPreviewWatcher().catch(() => {});
 
-            // Hard rename everywhere: BIN asset paths, asset folders, config
-            // files, and the project directory itself.
             const result = await api.hardRenameProject(tab.project, projectPath, trimmed);
 
-            // The folder moved — reopen the project at its new path and drop the
-            // stale tab.
             const { project, fileTree } = await api.openProjectWithTree(result.new_project_path);
             useProjectTabStore.getState().addTab(project, result.new_project_path);
             const newTabId = useProjectTabStore.getState().activeTabId;
@@ -58,7 +45,6 @@ export const RenameProjectModal: React.FC = () => {
             useNavigationStore.getState().setView('preview');
             navigationCoordinator.removeTabWithFallback(oldTabId);
 
-            // Repoint the recent-projects entry to the new path + name.
             const cfg = useConfigStore.getState();
             cfg.setSavedProjects(cfg.savedProjects.map((p) =>
                 p.path === projectPath ? { ...p, path: result.new_project_path, name: trimmed } : p,
@@ -73,8 +59,7 @@ export const RenameProjectModal: React.FC = () => {
             }
             closeModal();
         } catch (err) {
-            // Rename failed — the project is untouched at its original path.
-            // Restore its preview watcher (we stopped it above).
+            // Rename failed — restore the preview watcher stopped above.
             api.startPreviewWatcher(projectPath).catch(() => {});
             const fe = err as api.FlintError;
             showToast('error', fe.getUserMessage?.() || 'Failed to rename project');

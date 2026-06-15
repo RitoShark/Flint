@@ -1,14 +1,7 @@
-/**
- * Flint - Utility Functions
- */
-
 // =============================================================================
 // Formatting Utilities
 // =============================================================================
 
-/**
- * Format bytes to human readable size
- */
 export function formatBytes(bytes: number): string {
     if (bytes === 0) return '0 B';
     const k = 1024;
@@ -17,17 +10,11 @@ export function formatBytes(bytes: number): string {
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
-/**
- * Format a number with locale separators
- */
 export function formatNumber(num: number | null | undefined): string {
     if (num == null || isNaN(num)) return '0';
     return num.toLocaleString();
 }
 
-/**
- * Format relative time (e.g., "2 days ago")
- */
 export function formatRelativeTime(date: string | Date): string {
     const d = typeof date === 'string' ? new Date(date) : date;
     const now = new Date();
@@ -46,18 +33,11 @@ export function formatRelativeTime(date: string | Date): string {
     return 'Just now';
 }
 
-/**
- * Sanitize champion name for use in paths and file names
- * Converts to lowercase and replaces spaces with hyphens
- * Example: "Miss Fortune" → "miss-fortune"
- */
+/** "Miss Fortune" → "miss-fortune" */
 export function sanitizeChampionName(name: string): string {
     return name.toLowerCase().replace(/\s+/g, '-');
 }
 
-/**
- * Truncate path for display, keeping filename visible
- */
 export function truncatePath(path: string, maxLength = 40): string {
     if (path.length <= maxLength) return path;
 
@@ -82,9 +62,6 @@ export function truncatePath(path: string, maxLength = 40): string {
 // Async Utilities
 // =============================================================================
 
-/**
- * Debounce a function
- */
 export function debounce<T extends (...args: unknown[]) => unknown>(
     fn: T,
     wait: number
@@ -96,9 +73,6 @@ export function debounce<T extends (...args: unknown[]) => unknown>(
     };
 }
 
-/**
- * Throttle a function
- */
 export function throttle<T extends (...args: unknown[]) => unknown>(
     fn: T,
     limit: number
@@ -113,9 +87,6 @@ export function throttle<T extends (...args: unknown[]) => unknown>(
     };
 }
 
-/**
- * Sleep for a number of milliseconds
- */
 export function sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -124,7 +95,6 @@ export function sleep(ms: number): Promise<void> {
 // File Icons
 // =============================================================================
 
-// Hoisted to module level — allocated once, never recreated per call
 const FILE_ICON_MAP: Record<string, string> = {
     // Documents
     'md': '📄',
@@ -172,9 +142,6 @@ const FILE_ICON_MAP: Record<string, string> = {
     '7z': '📦',
 };
 
-/**
- * Get file icon based on extension
- */
 export function getFileIcon(name: string, isFolder: boolean, isExpanded = false): string {
     if (isFolder) {
         return isExpanded ? '📂' : '📁';
@@ -191,17 +158,11 @@ export function getFileIcon(name: string, isFolder: boolean, isExpanded = false)
 type ShortcutHandler = (e: KeyboardEvent) => void;
 const shortcuts = new Map<string, ShortcutHandler>();
 
-/**
- * Register a keyboard shortcut
- */
 export function registerShortcut(key: string, handler: ShortcutHandler): () => void {
     shortcuts.set(key.toLowerCase(), handler);
     return () => shortcuts.delete(key.toLowerCase());
 }
 
-/**
- * Initialize keyboard shortcut listener
- */
 export function initShortcuts(): void {
     document.addEventListener('keydown', (e) => {
         if (!e.key) return;

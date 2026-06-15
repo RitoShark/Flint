@@ -1,15 +1,12 @@
 //! Hash database downloader.
 //!
-//! Mirrors Quartz's approach: downloads pre-built LMDB databases from
-//! [LeagueToolkit/lmdb-hashes](https://github.com/LeagueToolkit/lmdb-hashes)
-//! GitHub releases instead of building from CommunityDragon text files.
+//! Downloads pre-built LMDB databases from `lmdb-hashes` GitHub releases.
 //!
 //! Two separate LMDBs:
 //! - `hashes-wad.lmdb` — 64-bit xxh64 WAD path hashes (named DB `"wad"`)
 //! - `hashes-bin.lmdb` — 32-bit FNV1a BIN hashes (named DB `"bin"`)
 //!
-//! Hash dir: `%APPDATA%/RitoShark/Requirements/Hashes/` — shared with other
-//! RitoShark tools.
+//! Hash dir: `%APPDATA%/RitoShark/Requirements/Hashes/`.
 
 use crate::error::{Error, Result};
 use reqwest::Client;
@@ -25,7 +22,6 @@ const RELEASE_API_URL: &str =
 const META_FILE_NAME: &str = "hashes-meta.json";
 const USER_AGENT: &str = "flint-hash-manager";
 
-/// A single LMDB asset published by lmdb-hashes.
 struct Asset {
     /// Release asset filename, e.g. `lol-hashes-wad.zst`.
     release_name: &'static str,
@@ -40,7 +36,6 @@ const ASSETS: &[Asset] = &[
     Asset { release_name: "lol-hashes-bin.zst", lmdb_dir: "hashes-bin.lmdb", label: "BIN hashes" },
 ];
 
-/// Statistics about a hash download operation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadStats {
     pub downloaded: usize,
@@ -48,7 +43,6 @@ pub struct DownloadStats {
     pub errors: usize,
 }
 
-/// GitHub release JSON — only the fields we need.
 #[derive(Debug, Deserialize)]
 struct GitHubRelease {
     tag_name: Option<String>,
@@ -61,8 +55,6 @@ struct GitHubReleaseAsset {
     browser_download_url: String,
 }
 
-/// Meta file written next to the LMDBs. Same shape as Quartz's `hashes-meta.json`
-/// so both tools can share the hash cache.
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct HashesMeta {
     #[serde(rename = "releaseTag", skip_serializing_if = "Option::is_none")]
@@ -83,12 +75,10 @@ pub fn get_hash_dir() -> Result<PathBuf> {
     Ok(PathBuf::from(appdata).join("RitoShark").join("Requirements").join("Hashes"))
 }
 
-/// Legacy alias for [`get_hash_dir`]. Kept for compatibility with existing callers.
 pub fn get_ritoshark_hash_dir() -> Result<PathBuf> {
     get_hash_dir()
 }
 
-/// Check whether both LMDB `data.mdb` files are already present on disk.
 pub fn hashes_present(hash_dir: &Path) -> bool {
     ASSETS.iter().all(|a| hash_dir.join(a.lmdb_dir).join("data.mdb").exists())
 }
@@ -116,9 +106,6 @@ pub async fn download_hashes(output_dir: impl AsRef<Path>, force: bool) -> Resul
         e
     })?;
 
-    // Clean up any leftover .tmp files from a previous interrupted download.
-    // On Windows the LMDB env holds a file lock on data.mdb, so the rename
-    // of data.mdb.tmp -> data.mdb can fail and leave a stale .tmp behind.
     for asset in ASSETS {
         let tmp = output_dir.join(asset.lmdb_dir).join("data.mdb.tmp");
         if tmp.exists() {
@@ -129,9 +116,6 @@ pub async fn download_hashes(output_dir: impl AsRef<Path>, force: bool) -> Resul
 
     let mut stats = DownloadStats { downloaded: 0, skipped: 0, errors: 0 };
 
-    // Fast path: LMDBs already on disk and caller didn't force a refresh.
-    // Skip the GitHub API entirely — a startup that finds its hashes should
-    // not hit the network. Users can re-check via the reload commands.
     if !force && hashes_present(output_dir) {
         tracing::info!("Hash databases already present — skipping check");
         stats.skipped = ASSETS.len();
@@ -144,14 +128,12 @@ pub async fn download_hashes(output_dir: impl AsRef<Path>, force: bool) -> Resul
         .build()
         .map_err(Error::Network)?;
 
-    // 1. Fetch latest release info.
     let release = fetch_latest_release(&client).await?;
     let latest_tag = release.tag_name.clone().unwrap_or_default();
 
     let mut meta = read_meta(output_dir).await;
     let stored_tag = meta.release_tag.clone().unwrap_or_default();
 
-    // 2. Download each asset.
     for asset in ASSETS {
         let lmdb_dir = output_dir.join(asset.lmdb_dir);
         let data_mdb = lmdb_dir.join("data.mdb");
@@ -165,7 +147,6 @@ pub async fn download_hashes(output_dir: impl AsRef<Path>, force: bool) -> Resul
             }
         };
 
-        // Skip if already up-to-date.
         if !force && data_mdb.exists() && !latest_tag.is_empty() && latest_tag == stored_tag {
             tracing::debug!("{} up-to-date (tag {})", asset.label, latest_tag);
             stats.skipped += 1;
@@ -184,13 +165,10 @@ pub async fn download_hashes(output_dir: impl AsRef<Path>, force: bool) -> Resul
         }
     }
 
-    // 3. Update meta.
     if !latest_tag.is_empty() && stats.errors == 0 {
         meta.release_tag = Some(latest_tag);
         meta.updated_at = Some(now_iso());
 
-        // Reload the in-process hash cache so new data is live immediately
-        // without requiring an app restart.
         crate::bin::ltk_bridge::reload_bin_hash_cache();
         tracing::info!("BIN hash cache reloaded after successful download");
     }
@@ -232,7 +210,6 @@ async fn download_and_extract(
 ) -> Result<()> {
     fs::create_dir_all(lmdb_dir).await?;
 
-    // Download .zst into memory (~50-80 MB, well within budget).
     let response = client
         .get(&release_asset.browser_download_url)
         .send()
@@ -248,7 +225,6 @@ async fn download_and_extract(
 
     let compressed = response.bytes().await.map_err(Error::Network)?;
 
-    // Decompress in a blocking task — zstd is CPU-bound.
     let decompressed = tokio::task::spawn_blocking(move || {
         zstd::stream::decode_all(Cursor::new(compressed.as_ref()))
     })
@@ -256,12 +232,6 @@ async fn download_and_extract(
     .map_err(|e| Error::Hash(format!("Zstd task join failed: {}", e)))?
     .map_err(|e| Error::Hash(format!("Zstd decode failed: {}", e)))?;
 
-    // Atomically replace data.mdb: write to .tmp, then rename over.
-    //
-    // WINDOWS NOTE: LMDB memory-maps data.mdb, which holds an open file handle.
-    // fs::rename over a locked file fails with ERROR_ACCESS_DENIED (os error 5).
-    // We must drop the cached env *before* attempting the rename so Windows
-    // releases its handle on data.mdb.
     let data_mdb = lmdb_dir.join("data.mdb");
     let tmp_path = lmdb_dir.join("data.mdb.tmp");
 
@@ -270,14 +240,10 @@ async fn download_and_extract(
     f.flush().await?;
     drop(f);
 
-    // Drop the cached LMDB envs so Windows releases its handle on data.mdb.
     crate::hash::lmdb_cache::drop_lmdb_cache();
 
-    // Remove LMDB's lock file so a future open starts clean.
     let _ = fs::remove_file(lmdb_dir.join("lock.mdb")).await;
 
-    // Explicitly delete the old data.mdb first — Windows may refuse to
-    // rename over a file that recently had open handles even after drop.
     if data_mdb.exists() {
         if let Err(e) = fs::remove_file(&data_mdb).await {
             tracing::warn!("Could not remove old data.mdb (will attempt rename anyway): {}", e);

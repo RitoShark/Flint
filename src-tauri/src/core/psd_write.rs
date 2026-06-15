@@ -1,11 +1,9 @@
 //! Minimal Adobe PSD writer: 8-bit RGBA layers organised into groups, RAW
-//! (uncompressed) channel data. Ported from ag-psd's write path (see the
-//! ground-tile stitcher plan / spec). Big-endian throughout. Only what we emit
-//! is implemented — no masks, effects, text, RLE.
+//! (uncompressed) channel data, big-endian throughout. No masks, effects,
+//! text, or RLE.
 
 use image::RgbaImage;
 
-/// A single image layer placed at (x, y) on the canvas.
 pub struct PsdLayer {
     pub name: String,
     pub x: u32,
@@ -21,7 +19,6 @@ pub struct PsdGroup {
     pub layers: Vec<PsdLayer>,
 }
 
-/// The document: canvas size + a flat list of top-level groups.
 pub struct PsdDoc {
     pub width: u32,
     pub height: u32,
@@ -72,7 +69,7 @@ fn w_unicode(out: &mut Vec<u8>, s: &str) {
 
 /// Write a length-prefixed section: reserve u32, run `body`, pad the body to
 /// `round`, then back-patch. `len_incl_pad` controls whether the patched length
-/// counts the padding (matches ag-psd's writeTotalLength).
+/// counts the padding.
 fn w_section(out: &mut Vec<u8>, round: usize, len_incl_pad: bool, body: impl FnOnce(&mut Vec<u8>)) {
     let len_pos = out.len();
     w_u32(out, 0);
@@ -106,7 +103,7 @@ struct FileLayer<'a> {
 
 /// Extract one 8-bit plane (offset 0=R,1=G,2=B,3=A) from an RGBA image, row-major.
 fn plane(img: &RgbaImage, offset: usize) -> Vec<u8> {
-    let raw = img.as_raw(); // RGBA8 interleaved
+    let raw = img.as_raw();
     let mut out = Vec::with_capacity((img.width() * img.height()) as usize);
     let mut i = offset;
     while i < raw.len() {
@@ -116,7 +113,7 @@ fn plane(img: &RgbaImage, offset: usize) -> Vec<u8> {
     out
 }
 
-/// Flatten the document's groups into the bottom-to-top file order ag-psd uses:
+/// Flatten the document's groups into bottom-to-top file order:
 /// for each group -> [bounding divider (lsct 3)] ++ children ++ [folder marker].
 fn flatten(doc: &PsdDoc) -> Vec<FileLayer<'_>> {
     let mut out = Vec::new();
@@ -169,11 +166,9 @@ fn layer_channels(fl: &FileLayer) -> Vec<(i16, Option<Vec<u8>>)> {
 }
 
 fn w_additional_info(out: &mut Vec<u8>, fl: &FileLayer) {
-    // luni (round 4, length incl pad): unicode name
     w_sig(out, b"8BIM");
     w_sig(out, b"luni");
     w_section(out, 4, true, |o| w_unicode(o, &fl.name));
-    // lsct (round 2) for divider/marker layers
     if let Some(t) = fl.lsct {
         w_sig(out, b"8BIM");
         w_sig(out, b"lsct");
@@ -182,8 +177,8 @@ fn w_additional_info(out: &mut Vec<u8>, fl: &FileLayer) {
             w_u32(o, t);
             if has_key {
                 w_sig(o, b"8BIM");
-                w_sig(o, b"pass"); // pass-through blend for the folder
-                w_u32(o, 0); // subType
+                w_sig(o, b"pass");
+                w_u32(o, 0);
             }
         });
     }
@@ -272,8 +267,7 @@ pub fn write_psd(doc: &PsdDoc) -> Vec<u8> {
         // Global layer mask info
         w_u32(lm, 0);
     });
-    // Composite image data (to EOF): RAW, R,G,B,A planes. A blank composite is
-    // structurally valid; editors regenerate it from the layers anyway.
+    // Composite image data (to EOF): RAW, R,G,B,A planes, left blank.
     w_u16(&mut out, 0); // RAW
     let blank = vec![0u8; (w * h) as usize];
     for _ in 0..4 {
@@ -289,7 +283,7 @@ mod tests {
     #[test]
     fn pascal_pads_to_4() {
         let mut o = Vec::new();
-        w_pascal(&mut o, "ab", 4); // 1 len + 2 + pad -> 4
+        w_pascal(&mut o, "ab", 4);
         assert_eq!(o.len(), 4);
         assert_eq!(o[0], 2);
     }
@@ -298,7 +292,7 @@ mod tests {
     fn unicode_be_count() {
         let mut o = Vec::new();
         w_unicode(&mut o, "Hi");
-        assert_eq!(&o[0..4], &[0, 0, 0, 2]); // count = 2
+        assert_eq!(&o[0..4], &[0, 0, 0, 2]);
         assert_eq!(&o[4..8], &[0, b'H', 0, b'i']);
     }
 

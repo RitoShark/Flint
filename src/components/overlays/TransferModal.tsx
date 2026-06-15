@@ -1,20 +1,9 @@
-/**
- * TransferModal
- * Opened when the user drags file-tree item(s) from one project and drops them
- * into another. The destination is already decided by where they dropped — this
- * dialog asks Move or Copy, and (Windows-style) on a name clash asks Replace or
- * Keep both. Styled with the design-lab system, rendered through a portal.
- */
-
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTransferStore, useProjectTabStore, useNotificationStore } from '../../lib/stores';
 import { getFileIcon, getIcon } from '../../lib/ui-helpers/fileIcons';
 import * as api from '../../lib/api';
 
-/** Prettify a project-relative folder path for display: drop the noise segments
- *  (`content`, `base`, and the `*.wad.client` container) so only the meaningful
- *  folders show. Display-only — the real path is still used for the transfer. */
 function cleanFolderForDisplay(folder: string): string {
     if (!folder || folder === '.') return 'Project root';
     const segs = folder.split('/').filter(Boolean).filter((s) => {
@@ -43,8 +32,6 @@ const valueStyle: React.CSSProperties = {
     fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
 };
 
-/** Design-lab modal shell. Module-scoped so it isn't remounted (which would
- *  replay the open animation) on every parent render. */
 const Shell: React.FC<{ title: string; busy: boolean; onClose: () => void; children: React.ReactNode; foot: React.ReactNode }> = ({ title, busy, onClose, children, foot }) => (
     <div className="dl-modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
         <div className="dl-modal" role="dialog" aria-modal="true" style={{ maxWidth: 440 }}>
@@ -77,10 +64,9 @@ export const TransferModal: React.FC = () => {
         try {
             const files = await api.listProjectFiles(projectPath);
             useProjectTabStore.getState().setFileTree(tab.id, files);
-        } catch { /* watcher will catch up */ }
+        } catch {}
     };
 
-    /** Run the actual transfer with the chosen conflict policy. */
     const execute = async (op: 'copy' | 'move', policy: api.TransferConflictPolicy) => {
         if (!pending) return;
         setConflict(null);
@@ -102,7 +88,6 @@ export const TransferModal: React.FC = () => {
         }
     };
 
-    /** Move/Copy clicked — check for name clashes first; ask if any. */
     const start = async (op: 'copy' | 'move') => {
         if (!pending || busy) return;
         setRunningOp(op);

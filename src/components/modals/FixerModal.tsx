@@ -1,10 +1,3 @@
-/**
- * Flint - Fixer Modal (Hematite Integration)
- *
- * Provides "Fix Project" and "Batch Fix" functionality.
- * Scans BIN files for known issues and applies config-driven fixes.
- */
-
 import React, { useState, useCallback, useEffect } from 'react';
 import { useModalStore, useNotificationStore, useProjectTabStore, useConfigStore } from '../../lib/stores';
 import * as api from '../../lib/api';
@@ -46,27 +39,21 @@ export const FixerModal: React.FC = () => {
 
     const isVisible = activeModal === 'fixer';
 
-    // Current tab
     const [tab, setTab] = useState<FixerTab>('single');
 
-    // Config
     const [config, setConfig] = useState<FixConfig | null>(null);
 
-    // Single project state
     const [projectPath, setProjectPath] = useState('');
     const [analysis, setAnalysis] = useState<ProjectAnalysis | null>(null);
     const [fixResult, setFixResult] = useState<ProjectFixResult | null>(null);
     const [selectedFixes, setSelectedFixes] = useState<Set<string>>(new Set());
 
-    // Batch state
     const [batchPaths, setBatchPaths] = useState<string[]>([]);
     const [batchResult, setBatchResult] = useState<BatchFixResult | null>(null);
 
-    // Phase
     const [phase, setPhase] = useState<FixerPhase>('idle');
     const [statusMessage, setStatusMessage] = useState('');
 
-    // Auto-fill project path from active tab
     useEffect(() => {
         if (isVisible) {
             const activeTab = openTabs.find(t => t.id === activeTabId);
@@ -76,7 +63,6 @@ export const FixerModal: React.FC = () => {
         }
     }, [isVisible, activeTabId, openTabs]);
 
-    // Reset state when modal closes
     useEffect(() => {
         if (!isVisible) {
             setPhase('idle');
@@ -106,7 +92,6 @@ export const FixerModal: React.FC = () => {
         setFixResult(null);
 
         try {
-            // Load config if not cached
             if (!config) {
                 setPhase('loading-config');
                 setStatusMessage('Fetching fix config…');
@@ -119,7 +104,6 @@ export const FixerModal: React.FC = () => {
             const result = await api.analyzeProject(projectPath);
             setAnalysis(result);
 
-            // Select all detected fixes by default
             const allFixIds = new Set<string>();
             for (const scan of result.results) {
                 for (const issue of scan.detected_issues) {
@@ -391,7 +375,6 @@ const SingleFixTab: React.FC<SingleFixTabProps> = ({
 
         <StatusBanner phase={phase} message={statusMessage} isWorking={isWorking} />
 
-        {/* Scan results */}
         {analysis && phase === 'results' && analysis.issues_found > 0 && (
             <div className="fx-results">
                 <div className="fx-results__head">
@@ -437,7 +420,6 @@ const SingleFixTab: React.FC<SingleFixTabProps> = ({
             </div>
         )}
 
-        {/* Fix results */}
         {fixResult && phase === 'done' && (
             <div className="fx-results">
                 <div className="fx-results__head">
@@ -553,7 +535,6 @@ const BatchFixTab: React.FC<BatchFixTabProps> = ({
                 </div>
             </FormGroup>
 
-            {/* Project list with checkboxes */}
             {projects.length > 0 && (
                 <div className="fx-batch-list">
                     <div className="fx-batch-row fx-batch-row--head">
@@ -602,7 +583,6 @@ const BatchFixTab: React.FC<BatchFixTabProps> = ({
                 </div>
             )}
 
-            {/* Externally-added project folders that aren't in savedProjects */}
             {(() => {
                 const known = new Set(projects.map((p) => p.folderPath));
                 const extras = batchPaths.filter((bp) => !known.has(bp));
@@ -645,7 +625,6 @@ const BatchFixTab: React.FC<BatchFixTabProps> = ({
                 </Button>
             )}
 
-            {/* Batch results */}
             {batchResult && phase === 'done' && (
                 <div className="fx-results">
                     <div className="fx-results__head">

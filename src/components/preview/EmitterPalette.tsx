@@ -1,12 +1,3 @@
-/**
- * Emitter Palette — left-side panel listing ritobin blocks copied out of a BIN
- * editor. Each row is dragged (via pointer-drag, NOT HTML5 — WebView2's native
- * drag-drop blocks HTML5 DnD) into the Monaco editor of any open BIN. On release
- * over a `.bin-editor__content`, a `flint:emitter-drop` CustomEvent carrying the
- * block id + drop coords is dispatched; the BinEditor listens and splices the
- * block in with correct nesting.
- */
-
 import React from 'react';
 import { Button } from '../ui';
 import { beginPointerDrag } from '../../lib/pointerDrag';

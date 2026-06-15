@@ -5,18 +5,14 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 use image::{RgbaImage, Rgba};
 use ritoshark::prelude::*;
-// Explicit: `serde::Serialize` in this file suppresses the glob's rs_io `Serialize`,
-// which provides `.to_bytes()`.
 use ritoshark::prelude::Serialize as _;
 use ritoshark::tex::{TexFormat, Texture};
 use std::io::Cursor;
 use std::process::Command;
 use crate::core::ipc_trace;
 
-/// Bundled floor texture from MindCorpViewer (PNG)
 static FLOOR_PNG: &[u8] = include_bytes!("../../../resources/floor.png");
 
-/// Information about a file
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileInfo {
     pub path: String,
@@ -27,7 +23,6 @@ pub struct FileInfo {
     pub dimensions: Option<(u32, u32)>,
 }
 
-/// Result of decoding a DDS file
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DecodedImage {
     /// Base64-encoded PNG data
@@ -99,25 +94,20 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
 fn apply_hsl_to_image(img: &mut RgbaImage, hue_shift: f32, sat_mult: f32, bri_mult: f32) {
     for pixel in img.pixels_mut() {
         let Rgba([r, g, b, a]) = *pixel;
-        
-        // Convert to normalized float
+
         let rf = r as f32 / 255.0;
         let gf = g as f32 / 255.0;
         let bf = b as f32 / 255.0;
-        
-        // Convert to HSL
+
         let (h, s, l) = rgb_to_hsl(rf, gf, bf);
-        
-        // Apply shifts/multipliers
+
         let new_h = (h + hue_shift) % 360.0;
         let new_h = if new_h < 0.0 { new_h + 360.0 } else { new_h };
         let new_s = (s * sat_mult).clamp(0.0, 1.0);
         let new_l = (l * bri_mult).clamp(0.0, 1.0);
-        
-        // Convert back to RGB
+
         let (nr, ng, nb) = hsl_to_rgb(new_h, new_s, new_l);
-        
-        // Update pixel
+
         *pixel = Rgba([
             (nr * 255.0).round() as u8,
             (ng * 255.0).round() as u8,
@@ -127,41 +117,31 @@ fn apply_hsl_to_image(img: &mut RgbaImage, hue_shift: f32, sat_mult: f32, bri_mu
     }
 }
 
-/// Colorize mode: Set all pixels to a target hue while preserving lightness
-/// This makes everything "one color" while keeping the original shading
-/// Skips transparent pixels and very dark/black pixels to preserve backgrounds
+/// Set all pixels to a target hue while preserving lightness. Skips
+/// transparent and very dark pixels to preserve backgrounds.
 fn colorize_image_impl(img: &mut RgbaImage, target_hue: f32, preserve_saturation: bool) {
     for pixel in img.pixels_mut() {
         let Rgba([r, g, b, a]) = *pixel;
-        
-        // Skip fully transparent pixels (preserve alpha)
+
         if a == 0 {
             continue;
         }
-        
-        // Convert to normalized float
+
         let rf = r as f32 / 255.0;
         let gf = g as f32 / 255.0;
         let bf = b as f32 / 255.0;
-        
-        // Convert to HSL
+
         let (_h, s, l) = rgb_to_hsl(rf, gf, bf);
-        
-        // Skip very dark pixels (black backgrounds) - threshold at ~10% lightness
+
+        // Skip very dark pixels (black backgrounds) at ~10% lightness.
         if l < 0.10 {
             continue;
         }
-        
-        // Skip very light pixels (pure white areas) - optional, keep for now
-        // if l > 0.95 { continue; }
-        
-        // Set to target hue, optionally preserve original saturation
+
         let new_s = if preserve_saturation { s } else { 0.7_f32.min(s.max(0.3)) };
-        
-        // Convert back to RGB with target hue
+
         let (nr, ng, nb) = hsl_to_rgb(target_hue, new_s, l);
-        
-        // Update pixel (alpha is preserved)
+
         *pixel = Rgba([
             (nr * 255.0).round() as u8,
             (ng * 255.0).round() as u8,
@@ -171,13 +151,10 @@ fn colorize_image_impl(img: &mut RgbaImage, target_hue: f32, preserve_saturation
     }
 }
 
-/// Detect file type from extension and magic bytes using RitoShark's `rs_file::detect`.
-///
-/// `rs_file` is a League-format detector; it covers the LoL binary formats but does
-/// NOT recognise the generic/auxiliary types the old `ltk_file::LeagueFileKind` did
-/// (PNG, JPEG, TGA, SVG, World Geometry, Light Grid, Preload, LuaObj). Those are
-/// recovered by [`detect_aux_mime_from_magic`] before we fall through to the
-/// extension-based guess, so e.g. embedded PNG previews keep working.
+/// Detect file type from extension and magic bytes. Generic/auxiliary
+/// types `rs_file::detect` doesn't recognise (PNG, JPEG, TGA, SVG, WGEO,
+/// Light Grid, Preload, LuaObj) are recovered by [`detect_aux_mime_from_magic`]
+/// before falling through to the extension-based guess.
 fn detect_file_type(path: &Path, data: &[u8]) -> (String, String) {
     use ritoshark::file::FileKind;
 
@@ -186,14 +163,12 @@ fn detect_file_type(path: &Path, data: &[u8]) -> (String, String) {
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
 
-    // RitoShark's magic-based detection for known LoL formats.
     let file_type = match ritoshark::file::detect(data) {
         FileKind::PropBin | FileKind::PatchBin => "application/x-bin".to_string(),
         FileKind::Tex => "image/tex".to_string(),
         FileKind::Dds => "image/dds".to_string(),
         FileKind::SkinnedMesh => "model/x-lol-skn".to_string(),
         FileKind::Skeleton => "model/x-lol-skl".to_string(),
-        // ltk mapped both compressed + uncompressed anim to the same MIME.
         FileKind::AnimUncompressed | FileKind::AnimCompressed => "animation/x-lol-anm".to_string(),
         FileKind::Bnk => "audio/x-wwise-bnk".to_string(),
         FileKind::Wpk => "audio/x-wwise-wpk".to_string(),
@@ -201,16 +176,10 @@ fn detect_file_type(path: &Path, data: &[u8]) -> (String, String) {
         FileKind::StaticMeshText => "model/x-lol-sco".to_string(),
         FileKind::StaticMeshBinary => "model/x-lol-scb".to_string(),
         FileKind::Rst => "application/x-stringtable".to_string(),
-        // rs_file detects these but Flint never special-cased them — let them fall
-        // through to the extension/octet-stream path exactly like the old `Unknown` arm.
         FileKind::Wad | FileKind::Rman | FileKind::Unknown => {
-            // First recover the auxiliary/generic types rs_file doesn't detect but
-            // ltk_file did (PNG/JPEG/TGA/SVG/WGEO/LightGrid/Preload/LuaObj), so we
-            // don't silently downgrade them to octet-stream.
             if let Some(mime) = detect_aux_mime_from_magic(data) {
                 mime.to_string()
             } else {
-                // Fall back to extension-based detection for unknown formats
                 match extension.as_str() {
                     "dds" => "image/dds".to_string(),
                     "tex" => "image/tex".to_string(),
@@ -241,56 +210,34 @@ fn detect_file_type(path: &Path, data: &[u8]) -> (String, String) {
     (file_type, extension)
 }
 
-/// Magic-byte fallback for file types `rs_file::detect` does not recognise but the old
-/// `ltk_file::LeagueFileKind::identify_from_bytes` did. Returns the same MIME string the
-/// old code produced for each, or `None` if no auxiliary type matches.
-///
-/// The byte patterns mirror `ltk_file`'s magic table verbatim:
-/// - PNG  : byte 1..4 == `PNG` (`\x89PNG`)
-/// - JPEG : `FF D8 FF`
-/// - SVG  : `<svg`
-/// - LuaObj: byte 1..5 == `LuaQ`
-/// - World Geometry: `WGEO`
-/// - Preload: `PreLoad`
-/// - Skeleton (head form): `r3d2sklt` — rs_file only checks the offset-4 `0x22FD4FC3`
-///   variant, so the legacy `r3d2sklt`-headed files are recovered here.
-/// - TGA  : byte 1 (color-map type) ∈ {0,1} and byte 2 (image type) ∈ {1,2,3,9,10,11}
-/// - Light Grid: leading `u32` LE == 3
-///
-/// TGA and Light Grid are deliberately last — they are heuristic (no fixed magic) and
-/// the lowest-confidence patterns, matching `ltk_file`'s ordering.
+/// Magic-byte fallback for file types `rs_file::detect` does not recognise.
+/// Returns the matching MIME string, or `None`. TGA and Light Grid are last
+/// because they're heuristic (no fixed magic) and lowest-confidence.
 fn detect_aux_mime_from_magic(data: &[u8]) -> Option<&'static str> {
     let len = data.len();
 
-    // PNG: \x89 P N G  → ltk checks data[1..4] == b"PNG"
     if len >= 4 && &data[1..4] == b"PNG" {
         return Some("image/png");
     }
-    // JPEG: FF D8 FF (ltk masks the 4th byte off)
     if len >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF {
         return Some("image/jpeg");
     }
-    // SVG: "<svg"
     if len >= 4 && &data[0..4] == b"<svg" {
         return Some("image/svg+xml");
     }
-    // LuaObj: byte 1..5 == "LuaQ"
     if len >= 5 && &data[1..5] == b"LuaQ" {
         return Some("application/x-luaobj");
     }
-    // World Geometry: "WGEO"
     if len >= 4 && &data[0..4] == b"WGEO" {
         return Some("model/x-lol-wgeo");
     }
-    // Preload: "PreLoad"
     if len >= 7 && &data[0..7] == b"PreLoad" {
         return Some("application/x-preload");
     }
-    // Skeleton, head form: "r3d2sklt" (offset-4 variant is handled by rs_file::detect).
     if len >= 8 && &data[0..8] == b"r3d2sklt" {
         return Some("model/x-lol-skl");
     }
-    // TGA (heuristic, no fixed magic): color-map type byte + image-type byte.
+    // TGA heuristic: color-map type byte ∈ {0,1} + image-type byte ∈ {1,2,3,9,10,11}.
     if len >= 3 {
         let color_map_type = data[1];
         let image_type = data[2];
@@ -308,11 +255,7 @@ fn detect_aux_mime_from_magic(data: &[u8]) -> Option<&'static str> {
     None
 }
 
-/// Read raw file bytes from disk.
-///
-/// Returns a `tauri::ipc::Response` so the bytes travel over IPC as raw
-/// ArrayBuffer instead of a JSON `[1,2,3,…]` array — the JSON path was costing
-/// us ~3-4× the wire size and a full encode/decode round-trip on both sides.
+/// Read raw file bytes from disk as a raw-byte IPC response.
 #[tauri::command]
 pub async fn read_file_bytes(path: String) -> Result<tauri::ipc::Response, String> {
     let _t = ipc_trace::enter("read_file_bytes");
@@ -326,14 +269,6 @@ pub async fn read_file_bytes(path: String) -> Result<tauri::ipc::Response, Strin
     Ok(tauri::ipc::Response::new(bytes))
 }
 
-/// Get file metadata and type information
-///
-/// # Arguments
-/// * `path` - Path to the file
-///
-/// # Returns
-/// * `Ok(FileInfo)` - File metadata
-/// * `Err(String)` - Error message
 #[tauri::command]
 pub async fn read_file_info(path: String) -> Result<FileInfo, String> {
     let _t = ipc_trace::enter("read_file_info");
@@ -350,11 +285,8 @@ pub async fn read_file_info(path: String) -> Result<FileInfo, String> {
 fn read_file_info_inner(path: String, path_buf: &std::path::Path) -> Result<FileInfo, String> {
     let metadata = fs::metadata(path_buf).map_err(|e| format!("Failed to read metadata: {}", e))?;
 
-    // Only read a header chunk for type/dimension detection — NEVER the whole
-    // file. Reading a multi-hundred-MB / GB file (e.g. a `.wad.client`) in full
-    // can exceed available memory, and Rust ABORTS the process on allocation
-    // failure (taking the whole app down). Every detector here keys off the
-    // header (magic bytes + texture header), so 64 KB is plenty.
+    // Only read a header chunk for detection — NEVER the whole file (a GB-sized
+    // `.wad.client` read in full can abort the process on allocation failure).
     const HEADER_BYTES: u64 = 64 * 1024;
     let data = {
         use std::io::Read;
@@ -455,8 +387,7 @@ fn decode_texture_bytes_impl(data: &[u8]) -> Result<DecodedImage, String> {
         _ => "Unknown",
     };
 
-    // Use actual dimensions from the image buffer, not from texture metadata
-    // Some textures report different dimensions than the actual decoded buffer size
+    // Use dimensions from the decoded buffer, not texture metadata (they can differ).
     let actual_width = rgba_image.width();
     let actual_height = rgba_image.height();
 
@@ -477,14 +408,7 @@ fn decode_texture_bytes_impl(data: &[u8]) -> Result<DecodedImage, String> {
     })
 }
 
-/// Decode a DDS or TEX texture file to base64-encoded PNG
-///
-/// # Arguments
-/// * `path` - Path to the texture file (DDS or TEX)
-///
-/// # Returns
-/// * `Ok(DecodedImage)` - Base64 PNG data with dimensions
-/// * `Err(String)` - Error message
+/// Decode a DDS or TEX texture file to base64-encoded PNG.
 #[tauri::command]
 pub async fn decode_dds_to_png(path: String) -> Result<DecodedImage, String> {
     let _t = ipc_trace::enter("decode_dds_to_png");
@@ -493,15 +417,6 @@ pub async fn decode_dds_to_png(path: String) -> Result<DecodedImage, String> {
 }
 
 /// Decode raw DDS/TEX bytes (already in memory) to base64-encoded PNG.
-///
-/// Used by the WAD browser for in-memory preview — no intermediate disk file needed.
-///
-/// # Arguments
-/// * `data` - Raw decompressed DDS or TEX bytes
-///
-/// # Returns
-/// * `Ok(DecodedImage)` - Base64 PNG data with width/height
-/// * `Err(String)` - Error message
 #[tauri::command]
 pub async fn decode_bytes_to_png(request: tauri::ipc::Request<'_>) -> Result<DecodedImage, String> {
     let data = match request.body() {
@@ -515,14 +430,7 @@ pub async fn decode_bytes_to_png(request: tauri::ipc::Request<'_>) -> Result<Dec
 
 
 
-/// Read text file content with encoding detection
-///
-/// # Arguments
-/// * `path` - Path to the text file
-///
-/// # Returns
-/// * `Ok(String)` - File content as string
-/// * `Err(String)` - Error message
+/// Read a text file and return its raw UTF-8 bytes as an IPC response.
 #[tauri::command]
 pub async fn read_text_file(path: String) -> Result<tauri::ipc::Response, String> {
     let _t = ipc_trace::enter("read_text_file");
@@ -532,18 +440,14 @@ pub async fn read_text_file(path: String) -> Result<tauri::ipc::Response, String
         return Err(format!("File not found: {}", path.display()));
     }
 
-    // Send the file as raw UTF-8 bytes — JSON-encoding a multi-MB string just
-    // to transport it costs O(n) in escape-sequence handling on both sides.
     let bytes = fs::read(path).map_err(|e| format!("Failed to read file: {}", e))?;
     Ok(tauri::ipc::Response::new(bytes))
 }
 
-/// Write text content to a file
 #[tauri::command]
 pub async fn write_text_file(path: String, content: String) -> Result<(), String> {
     let path = Path::new(&path);
 
-    // Create parent directories if they don't exist
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create parent directories: {}", e))?;
@@ -581,7 +485,6 @@ pub async fn save_file_bytes(request: tauri::ipc::Request<'_>) -> Result<(), Str
     fs::write(path, data).map_err(|e| format!("Failed to write file: {}", e))
 }
 
-/// Recolor a single texture file (DDS or TEX)
 #[tauri::command]
 pub async fn recolor_image(
     path: String,
@@ -592,7 +495,6 @@ pub async fn recolor_image(
     recolor_single_file(&path, hue, saturation, brightness).await
 }
 
-/// Helper to recolor a single file
 async fn recolor_single_file(
     path: &str,
     hue: f32,
@@ -616,16 +518,14 @@ async fn recolor_single_file(
         return Err("Not a supported texture format (DDS or TEX)".into());
     }
 
-    // Decode using RitoShark's rs_tex
     let texture = parse_texture_any(&data)?;
     let source_format = texture.format;
 
     let mut rgba_img = texture.decode_rgba()
         .map_err(|e| format!("Failed to decode mipmap: {:?}", e))?;
 
-    // BC1/BC3 block compression requires dimensions that are multiples of 4.
-    // Clamp to the nearest lower multiple of 4 to avoid corrupt output or panics
-    // inside intel-tex's compress_blocks when the source texture is oddly sized.
+    // BC1/BC3 block compression requires dimensions that are multiples of 4;
+    // clamp down to avoid corrupt output / panics on oddly-sized textures.
     let (orig_w, orig_h) = rgba_img.dimensions();
     let clamped_w = (orig_w / 4) * 4;
     let clamped_h = (orig_h / 4) * 4;
@@ -633,44 +533,34 @@ async fn recolor_single_file(
         rgba_img = image::imageops::crop_imm(&rgba_img, 0, 0, clamped_w.max(4), clamped_h.max(4)).to_image();
     }
 
-    // Apply HSL transform
     apply_hsl_to_image(&mut rgba_img, hue, saturation, brightness);
 
-    // Save back to original file (re-encode in the same container the source
-    // came from — branch on the input magic).
     if is_tex {
         let new_tex = encode_tex_same_format(&rgba_img, source_format)?;
 
-        // RitoShark's writer emits the ext_format byte (header offset +8) as 1,
-        // but League's original TEX files use 0x01 for BC1/BC3 textures.
-        // Changing it from 0x01 to 0x00 can cause a crash. Preserve the
-        // original value by patching byte 8 from the source after serializing.
+        // Preserve the source ext_format byte (header offset +8); changing
+        // BC1/BC3's 0x01 to 0x00 can crash the client.
         let mut tex_bytes: Vec<u8> = new_tex.to_bytes()
             .map_err(|e| format!("Failed to encode TEX to buffer: {:?}", e))?;
         if tex_bytes.len() >= 9 && data.len() >= 9 {
-            tex_bytes[8] = data[8]; // restore original ext_format byte
+            tex_bytes[8] = data[8];
         }
         fs::write(&path_buf, &tex_bytes).map_err(|e| format!("Failed to write TEX: {}", e))?;
     } else {
-        // Re-parse with ddsfile to get header info and encode with image_dds
         let mut cursor = Cursor::new(&data);
         let dds = ddsfile::Dds::read(&mut cursor).map_err(|e| format!("Failed to parse DDS: {}", e))?;
 
-        // Try to match format
         let format = if let Some(fourcc) = dds.header.spf.fourcc {
             if fourcc.0 == u32::from_le_bytes(*b"DXT1") {
                 image_dds::ImageFormat::BC1RgbaUnorm
             } else {
-                // DXT5 and other formats default to BC3
                 image_dds::ImageFormat::BC3RgbaUnorm
             }
         } else {
             image_dds::ImageFormat::Bgra8Unorm
         };
 
-        // Mipmaps are disabled — generating them for DDS causes League to crash
-        // (the client expects either 0 or a complete standard mip chain; partial
-        // chains from GeneratedAutomatic can disagree with the header counts).
+        // Mipmaps disabled — League crashes on partial mip chains.
         let new_dds = image_dds::dds_from_image(
             &rgba_img,
             format,
@@ -686,17 +576,9 @@ async fn recolor_single_file(
 }
 
 /// Re-encode an RGBA image into a TEX, matching the source texture's format.
-///
-/// Mipmaps are intentionally OFF (the `false` arg). League rejects partial mip
-/// chains and the encoder's sub-block-size mips can under-encode — single-mip
-/// TEX renders correctly in-game and round-trips cleanly through the preview.
-///
-/// RitoShark's `Texture::encode` only handles the block-compressed formats, so:
-/// - `Bgra8` is built directly via `from_rgba_bgra8` (uncompressed, lossless);
-/// - the ETC mobile formats and `Rgba16Snorm` (which the PC client never ships,
-///   and which `encode` can't produce) fall back to BC3 — preserves alpha, like
-///   the TEX↔DDS converter's ETC fallback;
-/// - everything else (`Bc1/Bc1Alt/Bc3/Bc5/Bc7`) encodes to its own format.
+/// Mipmaps are OFF (League rejects partial mip chains). `Bgra8` is built
+/// uncompressed; ETC formats and `Rgba16Snorm` fall back to BC3; the rest
+/// encode to their own format.
 fn encode_tex_same_format(rgba: &RgbaImage, format: TexFormat) -> Result<Texture, String> {
     match format {
         TexFormat::Bgra8 => Ok(Texture::from_rgba_bgra8(rgba)),
@@ -713,7 +595,6 @@ fn encode_tex_same_format(rgba: &RgbaImage, format: TexFormat) -> Result<Texture
     }
 }
 
-/// Recolor all texture files in a folder recursively
 #[tauri::command]
 pub async fn recolor_folder(
     path: String,
@@ -758,7 +639,6 @@ pub async fn recolor_folder(
     Ok(RecolorFolderResult { processed, failed })
 }
 
-/// Colorize a single texture file - set all pixels to target hue
 #[tauri::command]
 pub async fn colorize_image(
     path: String,
@@ -768,7 +648,6 @@ pub async fn colorize_image(
     colorize_single_file(&path, target_hue, preserve_saturation).await
 }
 
-/// Helper to colorize a single file
 async fn colorize_single_file(
     path: &str,
     target_hue: f32,
@@ -791,15 +670,14 @@ async fn colorize_single_file(
         return Err("Not a supported texture format (DDS or TEX)".into());
     }
 
-    // Decode using RitoShark's rs_tex
     let texture = parse_texture_any(&data)?;
     let source_format = texture.format;
 
     let mut rgba_img = texture.decode_rgba()
         .map_err(|e| format!("Failed to decode mipmap: {:?}", e))?;
 
-    // BC1/BC3 block compression requires dimensions that are multiples of 4.
-    // Clamp to the nearest lower multiple of 4 to avoid corrupt output or panics.
+    // BC1/BC3 block compression requires dimensions that are multiples of 4;
+    // clamp down to avoid corrupt output / panics.
     let (orig_w, orig_h) = rgba_img.dimensions();
     let clamped_w = (orig_w / 4) * 4;
     let clamped_h = (orig_h / 4) * 4;
@@ -807,40 +685,34 @@ async fn colorize_single_file(
         rgba_img = image::imageops::crop_imm(&rgba_img, 0, 0, clamped_w.max(4), clamped_h.max(4)).to_image();
     }
 
-    // Apply colorize transform
     colorize_image_impl(&mut rgba_img, target_hue, preserve_saturation);
 
-    // Save back to original file (re-encode in the source container).
     if is_tex {
-        // See note in encode_tex_same_format -- mipmaps disabled, source
-        // format preserved (with ETC/snorm → BC3 fallback).
         let new_tex = encode_tex_same_format(&rgba_img, source_format)?;
 
-        // Preserve original ext_format byte -- see note in recolor_single_file.
+        // Preserve the source ext_format byte (offset +8); changing
+        // BC1/BC3's 0x01 to 0x00 can crash the client.
         let mut tex_bytes: Vec<u8> = new_tex.to_bytes()
             .map_err(|e| format!("Failed to encode TEX to buffer: {:?}", e))?;
         if tex_bytes.len() >= 9 && data.len() >= 9 {
-            tex_bytes[8] = data[8]; // restore original ext_format byte
+            tex_bytes[8] = data[8];
         }
         fs::write(&path_buf, &tex_bytes).map_err(|e| format!("Failed to write TEX: {}", e))?;
     } else {
-        // Re-parse with ddsfile to get header info and encode with image_dds
         let mut cursor = Cursor::new(&data);
         let dds = ddsfile::Dds::read(&mut cursor).map_err(|e| format!("Failed to parse DDS: {}", e))?;
 
-        // Try to match format
         let format = if let Some(fourcc) = dds.header.spf.fourcc {
             if fourcc.0 == u32::from_le_bytes(*b"DXT1") {
                 image_dds::ImageFormat::BC1RgbaUnorm
             } else {
-                // DXT5 and other formats default to BC3
                 image_dds::ImageFormat::BC3RgbaUnorm
             }
         } else {
             image_dds::ImageFormat::Bgra8Unorm
         };
 
-        // Mipmaps are disabled — see note in recolor_single_file.
+        // Mipmaps disabled — League crashes on partial mip chains.
         let new_dds = image_dds::dds_from_image(
             &rgba_img,
             format,
@@ -855,7 +727,6 @@ async fn colorize_single_file(
     Ok(())
 }
 
-/// Colorize all texture files in a folder recursively
 #[tauri::command]
 pub async fn colorize_folder(
     path: String,
@@ -910,7 +781,7 @@ pub struct RenameResult {
     pub bin_updates: u32,
 }
 
-/// Rename a file or directory, optionally updating references in .bin files
+/// Rename a file or directory, updating references in .bin files when inside `content/`.
 #[tauri::command]
 pub async fn rename_file(
     project_path: String,
@@ -929,7 +800,6 @@ pub async fn rename_file(
         return Err(format!("A file or folder named '{}' already exists", new_name));
     }
 
-    // Compute new relative path
     let project_root = PathBuf::from(&project_path);
     let new_rel_path = new_full_path
         .strip_prefix(&project_root)
@@ -937,11 +807,9 @@ pub async fn rename_file(
         .to_string_lossy()
         .replace('\\', "/");
 
-    // Rename on disk
     fs::rename(&full_path, &new_full_path)
         .map_err(|e| format!("Failed to rename: {}", e))?;
 
-    // Update references in .bin files if the renamed item is inside content/
     let bin_updates = if file_path.starts_with("content/") || file_path.starts_with("content\\") {
         update_bin_references(&project_root, &file_path, &new_rel_path)
     } else {
@@ -983,8 +851,7 @@ fn replace_filename_in_paths(text: &str, old_name: &str, new_name: &str) -> Stri
 fn update_bin_references(project_root: &Path, old_rel: &str, new_rel: &str) -> u32 {
     use flint_ltk::bin::{read_bin_ltk, write_bin_ltk, tree_to_text_cached, text_to_tree};
 
-    // Extract just the filename — BIN text paths have different casing/prefixes than
-    // the project structure, so matching the full path would miss everything.
+    // Match by filename only — BIN text paths have different casing/prefixes.
     let old_name = match Path::new(old_rel).file_name().and_then(|n| n.to_str()) {
         Some(n) => n.to_string(),
         None => return 0,
@@ -995,7 +862,7 @@ fn update_bin_references(project_root: &Path, old_rel: &str, new_rel: &str) -> u
     };
 
     if old_name.eq_ignore_ascii_case(&new_name) {
-        return 0; // filename didn't change (only directory moved)
+        return 0;
     }
 
     let old_name_lower = old_name.to_lowercase();
@@ -1016,14 +883,13 @@ fn update_bin_references(project_root: &Path, old_rel: &str, new_rel: &str) -> u
             Err(_) => continue,
         };
 
-        // Quick byte-level check: skip BIN files that don't contain the old filename at all
+        // Skip BIN files that don't contain the old filename at all.
         let old_bytes = old_name_lower.as_bytes();
         let data_lower: Vec<u8> = data.iter().map(|b| b.to_ascii_lowercase()).collect();
         if !data_lower.windows(old_bytes.len()).any(|w| w == old_bytes) {
             continue;
         }
 
-        // Parse BIN → text
         let tree = match read_bin_ltk(&data) {
             Ok(t) => t,
             Err(e) => {
@@ -1040,14 +906,11 @@ fn update_bin_references(project_root: &Path, old_rel: &str, new_rel: &str) -> u
             }
         };
 
-        // Case-insensitive replacement of old filename → new filename in the text,
-        // only matching complete filenames (not substrings like dark_white.tex)
         let modified_text = replace_filename_in_paths(&text, &old_name, &new_name);
         if modified_text == text {
-            continue; // byte-scan was a false positive
+            continue;
         }
 
-        // Text → BIN tree → binary
         let new_tree = match text_to_tree(&modified_text) {
             Ok(t) => t,
             Err(e) => {
@@ -1069,7 +932,6 @@ fn update_bin_references(project_root: &Path, old_rel: &str, new_rel: &str) -> u
             continue;
         }
 
-        // Also update the .ritobin cache if it exists
         let ritobin_path = format!("{}.ritobin", path.display());
         if Path::new(&ritobin_path).exists() {
             let _ = fs::write(&ritobin_path, &modified_text);
@@ -1081,7 +943,6 @@ fn update_bin_references(project_root: &Path, old_rel: &str, new_rel: &str) -> u
     count
 }
 
-/// Delete a file or directory
 #[tauri::command]
 pub async fn delete_file(
     project_path: String,
@@ -1103,7 +964,7 @@ pub async fn delete_file(
     Ok(())
 }
 
-/// Open a path in the system file explorer (Windows Explorer)
+/// Open a path in the system file explorer (Windows Explorer).
 #[tauri::command]
 pub async fn open_in_explorer(path: String) -> Result<(), String> {
     let p = PathBuf::from(&path);
@@ -1111,7 +972,6 @@ pub async fn open_in_explorer(path: String) -> Result<(), String> {
         return Err(format!("Path does not exist: {}", path));
     }
 
-    // On Windows, use explorer /select to highlight the file
     if p.is_file() {
         Command::new("explorer")
             .arg("/select,")
@@ -1128,8 +988,7 @@ pub async fn open_in_explorer(path: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Open a file with the system's preferred/default application
-/// Uses the opener crate for clean, no-cmd-window opening
+/// Open a file with the system's default application.
 #[tauri::command]
 pub async fn open_with_default_app(path: String) -> Result<(), String> {
     let p = PathBuf::from(&path);
@@ -1141,7 +1000,6 @@ pub async fn open_with_default_app(path: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Create a new directory inside the project
 #[tauri::command]
 pub async fn create_directory(
     project_path: String,
@@ -1158,7 +1016,7 @@ pub async fn create_directory(
     Ok(dir_path)
 }
 
-/// Duplicate a file (copy to same directory with " (copy)" suffix)
+/// Copy a file to the same directory with a " (copy)" suffix.
 #[tauri::command]
 pub async fn duplicate_file(
     project_path: String,
@@ -1256,27 +1114,21 @@ pub async fn move_file(
     Ok(new_rel)
 }
 
-/// One entry in a folder listing produced by [`list_folder_contents`].
-/// The frontend uses this to render the folder thumbnail grid.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FolderEntry {
     /// Filename only (no parent path).
     pub name: String,
-    /// Project-relative path (forward slashes), useful for the frontend's
-    /// VFS state so the user can navigate back into the file tree.
+    /// Project-relative path (forward slashes).
     pub relative_path: String,
-    /// Absolute path on disk — what the preview pipeline reads.
     pub absolute_path: String,
     pub is_directory: bool,
     /// Size in bytes. 0 for directories.
     pub size: u64,
-    /// Lowercase extension without dot (e.g. `"dds"`). Empty for
-    /// directories and extensionless files.
+    /// Lowercase extension without dot. Empty for directories and
+    /// extensionless files.
     pub extension: String,
 }
 
-/// Cheap directory check used by the preview panel to decide whether to
-/// route a selection to the folder grid view or the file preview pipeline.
 #[tauri::command]
 pub async fn is_directory(path: String) -> bool {
     let _t = ipc_trace::enter("is_directory");
@@ -1317,8 +1169,7 @@ pub async fn list_folder_contents(
         };
         let lower = name.to_lowercase();
 
-        // Skip ritobin sidecars — they're cache artifacts of the BIN editor,
-        // not user-editable content.
+        // Skip ritobin sidecars — BIN-editor cache artifacts, not content.
         if lower.ends_with(".ritobin") {
             continue;
         }
@@ -1349,8 +1200,7 @@ pub async fn list_folder_contents(
         });
     }
 
-    // Directories first, then files; within each group, sorted by name
-    // case-insensitively for a stable, expected order.
+    // Directories first, then files; each group sorted case-insensitively.
     entries.sort_by(|a, b| match (a.is_directory, b.is_directory) {
         (true, false) => std::cmp::Ordering::Less,
         (false, true) => std::cmp::Ordering::Greater,
@@ -1389,8 +1239,7 @@ pub async fn import_external_files(
             return Err(format!("Source does not exist: {}", src_str));
         }
 
-        // Refuse to import something that's already inside the project (would
-        // be ambiguous — that's what move is for).
+        // Refuse a source already inside the project — that's what move is for.
         if let Ok(canonical_src) = src.canonicalize() {
             if canonical_src.starts_with(&canonical_project) {
                 continue;
@@ -1505,7 +1354,6 @@ fn transfer_between_projects(
             return Err(format!("Source does not exist: {}", rel));
         }
 
-        // Never let a folder land inside itself or its own subtree.
         if src_full.is_dir() {
             if let Ok(canonical_src) = src_full.canonicalize() {
                 if canonical_dst_dir.starts_with(&canonical_src) {
@@ -1520,8 +1368,6 @@ fn transfer_between_projects(
             .to_string_lossy()
             .to_string();
 
-        // Resolve the destination per the conflict policy:
-        //   "replace" → overwrite the existing entry; "rename" (default) → " (n)".
         let dest_full = if on_conflict == "replace" {
             let target = dst_dir.join(&file_name);
             if target.exists() {
@@ -1542,8 +1388,7 @@ fn transfer_between_projects(
         }
 
         if do_move {
-            // rename is atomic on the same volume; across volumes it fails with
-            // an OS error, so fall back to copy-then-delete.
+            // rename fails across volumes; fall back to copy-then-delete.
             if fs::rename(&src_full, &dest_full).is_err() {
                 if src_full.is_dir() {
                     copy_dir_recursive(&src_full, &dest_full)
@@ -1624,10 +1469,8 @@ pub async fn check_transfer_conflicts(
     Ok(conflicts)
 }
 
-/// Get floor texture as PNG bytes.
-/// Checks `%APPDATA%/Flint/themes/floor.png` first for user customization,
-/// falls back to the bundled default. Returned as a raw byte response so the
-/// PNG doesn't get JSON-encoded.
+/// Get floor texture as PNG bytes. Checks `%APPDATA%/Flint/themes/floor.png`
+/// first for user customization, falls back to the bundled default.
 #[tauri::command]
 pub fn get_bundled_floor_png() -> tauri::ipc::Response {
     if let Ok(home) = crate::commands::settings::get_flint_home() {
@@ -1645,8 +1488,6 @@ pub fn get_bundled_floor_png() -> tauri::ipc::Response {
 mod tests {
     use super::*;
 
-    // The auxiliary fallback must keep recognising every generic/LoL type that
-    // rs_file::detect does NOT, so previews (esp. PNG) don't regress to octet-stream.
     #[test]
     fn aux_magic_covers_rs_file_gaps() {
         assert_eq!(detect_aux_mime_from_magic(b"\x89PNG\r\n\x1a\n"), Some("image/png"));
@@ -1664,15 +1505,11 @@ mod tests {
 
     #[test]
     fn aux_magic_none_for_known_lol_and_garbage() {
-        // PROP is an rs_file format, not an aux type — must NOT be claimed here.
         assert_eq!(detect_aux_mime_from_magic(b"PROP\x01\x00\x00\x00"), None);
-        // Too-short slices never panic and never match.
         assert_eq!(detect_aux_mime_from_magic(&[]), None);
         assert_eq!(detect_aux_mime_from_magic(&[0x01]), None);
     }
 
-    // End-to-end: PNG bytes (which rs_file does not detect) must still yield image/png
-    // through the full detect_file_type path — this is the load-bearing preview case.
     #[test]
     fn detect_file_type_recovers_png_by_magic() {
         let png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0d";
@@ -1680,7 +1517,6 @@ mod tests {
         assert_eq!(mime, "image/png");
     }
 
-    // A known LoL format still maps via rs_file::detect (not the fallback).
     #[test]
     fn detect_file_type_maps_tex_via_rs_file() {
         let tex = [0x54u8, 0x45, 0x58, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];

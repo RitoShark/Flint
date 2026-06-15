@@ -1,7 +1,4 @@
-//! Project Organizer - Orchestrates concat and refather workflows
-//!
-//! This module provides a central entry point for project organization tasks,
-//! allowing independent control over concat and repathing operations.
+//! Orchestrates concat and refather workflows with independent control.
 
 use crate::bin::concat::{
     concatenate_linked_bins, ConcatResult,
@@ -12,48 +9,31 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-/// Configuration for project organization operations
 #[derive(Debug, Clone)]
 pub struct OrganizerConfig {
-    /// Enable BIN concatenation (merges linked Type 3 BINs into a single file)
+    /// Merges linked Type 3 BINs into a single file.
     pub enable_concat: bool,
-    /// Enable asset repathing (prefixes paths with creator/project)
+    /// Prefixes paths with creator/project.
     pub enable_repath: bool,
-    /// Creator name for path prefix
     pub creator_name: String,
-    /// Project name for path prefix
     pub project_name: String,
-    /// Champion internal name (e.g., "Kayn")
+    /// Champion internal name (e.g., "Kayn").
     pub champion: String,
-    /// Target skin ID being modified
     pub target_skin_id: u32,
-    /// Clean up unused/orphaned files after processing
     pub cleanup_unused: bool,
     /// Override the WAD folder name (e.g. "Companions.wad.client" for TFT).
     /// When None, defaults to "{champion}.wad.client".
     pub wad_folder_override: Option<String>,
 }
 
-/// Result of a complete project organization operation
 #[derive(Debug, Clone)]
 pub struct OrganizerResult {
-    /// Result of concatenation operation (if enabled)
     pub concat_result: Option<ConcatResult>,
-    /// Result of repathing operation (if enabled)
     pub repath_result: Option<RepathResult>,
 }
 
-/// Main entry point for project organization
-///
-/// Orchestrates concat and repath operations based on the provided config.
-/// Operations are run in the following order:
-/// 1. Concat (if enabled) - Merge linked Type 3 BINs
-/// 2. Repath (if enabled) - Prefix asset paths
-///
-/// # Arguments
-/// * `content_base` - Path to the content/base directory of the project
-/// * `config` - Configuration controlling which operations to run
-/// * `path_mappings` - Mappings from original paths to actual paths (for hash-named files)
+/// Runs concat (if enabled) then repath (if enabled). `path_mappings` maps
+/// original paths to actual paths (for hash-named files).
 pub fn organize_project(
     content_base: &Path,
     config: &OrganizerConfig,
@@ -70,17 +50,13 @@ pub fn organize_project(
         repath_result: None,
     };
 
-    // Sanitize champion name: lowercase + replace spaces with hyphens
-    // (e.g., "Miss Fortune" -> "miss-fortune")
-    // League doesn't support spaces in asset paths or folder names
+    // League doesn't support spaces in asset paths or folder names.
     let champion_sanitized = config.champion.to_lowercase().replace(' ', "-");
 
     let wad_folder_name = config.wad_folder_override.clone()
         .unwrap_or_else(|| format!("{}.wad.client", champion_sanitized));
     let wad_base = content_base.join(&wad_folder_name);
 
-    // Determine which base to use for file operations
-    // Use WAD folder if it exists (new structure), otherwise fall back to content_base (legacy)
     let file_base = if wad_base.exists() {
         tracing::info!("Using WAD folder structure: {}", wad_base.display());
         wad_base.clone()
@@ -89,14 +65,12 @@ pub fn organize_project(
         content_base.to_path_buf()
     };
 
-    // Step 1: Find the main skin BIN (needed for both concat and repath)
     let main_bin_path = if !champion_sanitized.is_empty() {
         find_main_skin_bin(&file_base, &champion_sanitized, config.target_skin_id)
     } else {
         None
     };
 
-    // Step 2: Run concat if enabled
     if config.enable_concat {
         if let Some(ref main_path) = main_bin_path {
             tracing::info!("Running BIN concatenation...");
@@ -118,7 +92,6 @@ pub fn organize_project(
                 }
                 Err(e) => {
                     tracing::warn!("Concatenation failed: {}", e);
-                    // Continue with repath even if concat fails
                 }
             }
         } else {
@@ -126,11 +99,9 @@ pub fn organize_project(
         }
     }
 
-    // Step 3: Run repath if enabled
     if config.enable_repath {
         tracing::info!("Running asset repathing...");
 
-        // Build RepathConfig from OrganizerConfig
         let repath_config = RepathConfig {
             creator_name: config.creator_name.clone(),
             project_name: config.project_name.clone(),
@@ -158,21 +129,17 @@ pub fn organize_project(
     Ok(result)
 }
 
-/// Find the main skin BIN file for a champion
-/// Now searches inside {champion}.wad.client/ folder for league-mod compatibility
 fn find_main_skin_bin(content_base: &Path, champion: &str, skin_id: u32) -> Option<PathBuf> {
     let champion_lower = champion.to_lowercase();
-    
-    // WAD folder path: content/base/{champion}.wad.client/
+
     let wad_folder = format!("{}.wad.client", champion_lower);
     let wad_path = content_base.join(&wad_folder);
-    
+
     let patterns = vec![
         format!("data/characters/{}/skins/skin{}.bin", champion_lower, skin_id),
         format!("data/characters/{}/skins/skin{:02}.bin", champion_lower, skin_id),
     ];
-    
-    // First, try searching inside the WAD folder (new structure)
+
     if wad_path.exists() {
         for pattern in &patterns {
             let direct_path = wad_path.join(pattern);
@@ -181,8 +148,7 @@ fn find_main_skin_bin(content_base: &Path, champion: &str, skin_id: u32) -> Opti
                 return Some(direct_path);
             }
         }
-        
-        // Fallback: search recursively inside WAD folder
+
         for entry in WalkDir::new(&wad_path)
             .into_iter()
             .filter_map(|e| e.ok())
@@ -205,8 +171,7 @@ fn find_main_skin_bin(content_base: &Path, champion: &str, skin_id: u32) -> Opti
             }
         }
     }
-    
-    // Legacy fallback: try direct paths (old structure without WAD folder)
+
     for pattern in &patterns {
         let direct_path = content_base.join(pattern);
         if direct_path.exists() {
@@ -215,7 +180,6 @@ fn find_main_skin_bin(content_base: &Path, champion: &str, skin_id: u32) -> Opti
         }
     }
 
-    // Final fallback: search anywhere in content_base
     for entry in WalkDir::new(content_base)
         .into_iter()
         .filter_map(|e| e.ok())
@@ -229,7 +193,6 @@ fn find_main_skin_bin(content_base: &Path, champion: &str, skin_id: u32) -> Opti
         let path = entry.path();
         if let Ok(rel_path) = path.strip_prefix(content_base) {
             let rel_str = rel_path.to_string_lossy().to_lowercase().replace('\\', "/");
-            // Check if the path ends with the pattern (ignoring WAD folder prefix)
             for pattern in &patterns {
                 if rel_str.ends_with(pattern) {
                     tracing::debug!("Found main skin BIN (fallback): {}", path.display());

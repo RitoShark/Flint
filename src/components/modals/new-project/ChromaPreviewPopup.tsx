@@ -1,8 +1,3 @@
-/**
- * ChromaPreviewPopup - small hover-card that floats above a chroma swatch
- * in the skin step of the New Project wizard. Position auto-flips to fit
- * the viewport.
- */
 import React from 'react';
 
 export interface ChromaPreviewData {

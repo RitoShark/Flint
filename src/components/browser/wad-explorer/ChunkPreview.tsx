@@ -1,14 +1,6 @@
-/**
- * Inline preview shown in the right pane when the user selects a chunk in
- * the WAD Explorer tree. Self-contained — no ExtractSession needed.
- *
- * Handles textures (DDS / TEX), images (PNG / JPEG), BIN (Monaco + ritobin),
- * luabin / troybin (Monaco), plain text, an on-demand SKN 3D preview, and a
- * hex dump fallback.
- *
- * Note: SVG icons are inlined via React's dangerouslySetInnerHTML escape
- * hatch. The string source is always `getIcon()` from our local fileIcons
- * module — never untrusted input — so XSS isn't a concern here.
+/*
+ * SVG icons are inlined via dangerouslySetInnerHTML. The string source is
+ * always `getIcon()` from our local fileIcons module — never untrusted input.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -192,8 +184,7 @@ export const ChunkPreview: React.FC<{
                         if (fileType === 'application/x-rst') {
                             return <MonacoTextViewer text={text} language="json" />;
                         }
-                        
-                        // Fallback: try to guess language from extension or fileType, default to plaintext
+
                         let lang = 'plaintext';
                         if (fileType === 'application/json' || fileName.endsWith('.json')) lang = 'json';
                         else if (fileType === 'application/xml' || fileName.endsWith('.xml')) lang = 'xml';

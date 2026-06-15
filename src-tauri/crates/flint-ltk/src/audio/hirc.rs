@@ -97,7 +97,7 @@ pub struct DecisionNode {
     pub audio_id: u32,
 }
 
-/// Helper to read a u8, returning default on EOF.
+/// Returns 0 on EOF.
 fn read_u8(c: &mut Cursor<&[u8]>) -> u8 {
     c.read_u8().unwrap_or(0)
 }
@@ -342,7 +342,6 @@ fn read_music_track(c: &mut Cursor<&[u8]>, version: u32) -> HircMusicTrack {
     let count2 = read_u32(c);
 
     let start = c.position();
-    // Skip source info
     skip(c, count2 as u64 * 44);
     let track_count = read_u32(c);
     c.set_position(start);
@@ -360,7 +359,6 @@ fn read_music_track(c: &mut Cursor<&[u8]>, version: u32) -> HircMusicTrack {
 
     let _ = read_u32(c); // track_count again
 
-    // Skip clip automation
     let num_clip_auto = read_u32(c);
     for _ in 0..num_clip_auto {
         skip(c, 8);
@@ -458,16 +456,13 @@ fn read_music_switch(c: &mut Cursor<&[u8]>, version: u32) -> HircMusicSwitch {
 // Public API
 // ---------------------------------------------------------------------------
 
-/// Parse the HIRC section from a full BNK file's raw bytes.
 /// Returns None if no HIRC section is found.
 pub fn parse_hirc_from_bnk(bnk_data: &[u8]) -> Result<Option<HircData>, String> {
-    // Find the BNK version
     if bnk_data.len() < 12 || &bnk_data[0..4] != b"BKHD" {
         return Err("Not a valid BNK file".into());
     }
     let version = u32::from_le_bytes([bnk_data[8], bnk_data[9], bnk_data[10], bnk_data[11]]);
 
-    // Find HIRC section
     let mut offset = 0usize;
     while offset + 8 <= bnk_data.len() {
         let magic = &bnk_data[offset..offset + 4];
@@ -485,7 +480,7 @@ pub fn parse_hirc_from_bnk(bnk_data: &[u8]) -> Result<Option<HircData>, String> 
     Ok(None)
 }
 
-/// Parse HIRC section content (without the magic+length header).
+/// Input is the section content without the magic+length header.
 pub fn parse_hirc_section(hirc_data: &[u8], version: u32) -> Result<HircData, String> {
     let mut c = Cursor::new(hirc_data);
     let num_objects = read_u32(&mut c);
@@ -515,7 +510,6 @@ pub fn parse_hirc_section(hirc_data: &[u8], version: u32) -> Result<HircData, St
             _ => {}
         }
 
-        // Always advance to the end of this object
         c.set_position(obj_start + obj_length);
     }
 

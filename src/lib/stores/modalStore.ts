@@ -1,8 +1,3 @@
-/**
- * Modal Store
- * Manages modals, dialogs, and context menus
- */
-
 import { create } from 'zustand';
 import type { ModalType, ConfirmDialogState, ContextMenuState, ContextMenuOption } from '../types';
 
@@ -12,7 +7,6 @@ interface ModalState {
   confirmDialog: ConfirmDialogState | null;
   contextMenu: ContextMenuState | null;
 
-  // Actions
   openModal: (modal: ModalType, options?: Record<string, unknown>) => void;
   closeModal: () => void;
   openConfirmDialog: (dialog: ConfirmDialogState) => void;

@@ -46,13 +46,11 @@ pub struct MapVariant {
 /// one of these per supported language carrying audio/text bundles only — they
 /// are useless for asset modding.
 fn is_locale_wad_name(lower_name: &str) -> bool {
-    // Strip the WAD suffix first so we look at just the stem.
     let stem = lower_name
         .strip_suffix(".wad.client")
         .or_else(|| lower_name.strip_suffix(".wad"))
         .unwrap_or(lower_name);
-    // After the map id, a `.xx_yy` locale dot-segment is a clear signal.
-    // Example stems: "map11.en_us", "map11.de_de", "common.fr_fr"
+    // A trailing `.xx_yy` dot-segment (e.g. "map11.en_us") is the locale signal.
     if let Some(dot_idx) = stem.rfind('.') {
         let suffix = &stem[dot_idx + 1..];
         if is_locale_token(suffix) { return true; }
@@ -136,10 +134,6 @@ pub fn list_available_maps(league_path: &Path) -> Result<Vec<MapEntry>> {
         if !path.is_file() { continue; }
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
         if !name.ends_with(".wad.client") && !name.ends_with(".wad") { continue; }
-        // Skip language-specific WADs (Map11.en_US.wad.client, Map11.de_DE.wad.client, …).
-        // Their stem after stripping the WAD suffix matches `<id>.<locale>` where the
-        // locale is two lowercase letters + underscore + two uppercase letters in the
-        // original filename. Working in lowercase so we just match `_xx`.
         if is_locale_wad_name(&name) { continue; }
         by_name.insert(name, path);
     }
@@ -147,7 +141,6 @@ pub fn list_available_maps(league_path: &Path) -> Result<Vec<MapEntry>> {
     let mut maps: HashMap<String, MapEntry> = HashMap::new();
 
     for (name, path) in &by_name {
-        // Strip .wad.client / .wad
         let stem = name
             .strip_suffix(".wad.client")
             .or_else(|| name.strip_suffix(".wad"))
@@ -156,7 +149,6 @@ pub fn list_available_maps(league_path: &Path) -> Result<Vec<MapEntry>> {
         // Skip LEVELS WADs in the main pass — they're paired below.
         if stem.ends_with("levels") { continue; }
 
-        // Accept "common" or anything that starts with "map".
         let id = if stem == "common" { "common".to_string() }
                  else if stem.starts_with("map") { stem.to_string() }
                  else { continue };
@@ -291,16 +283,12 @@ pub fn create_map_project(
         )))?;
 
     progress("create", "Creating project structure...");
-    // Map projects don't have a champion — flint.json carries `kind: "map"`
-    // and `map_id: "<id>"` instead. We still go through core_create_project
-    // so the on-disk layout matches skin projects (mod.config.json + content/
-    // + output/), then convert the runtime struct to the Map shape and
-    // re-save flint.json so the legacy `champion: "map-<id>"` tag never
-    // touches disk for newly-created projects.
+    // Map projects carry `kind: "map"` + `map_id` instead of a champion. Go
+    // through core_create_project for the on-disk layout, then convert to the
+    // Map shape and re-save so the legacy `champion: "map-<id>"` tag never lands.
     let project = core_create_project(name, "", 0, league_path, output_dir, author)?;
     let project = project.into_map(entry.id.clone());
     save_project(&project)?;
-    // Re-register so the index reflects the cleared champion / new fields.
     if let Err(e) = register_in_index(output_dir, &project) {
         tracing::warn!("Failed to refresh projects.json for map project {}: {}", project.pid, e);
     }

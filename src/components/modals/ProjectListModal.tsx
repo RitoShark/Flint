@@ -1,12 +1,3 @@
-/**
- * Flint - Project List Modal
- *
- * Modernized "open existing project" view: searchable, sortable, card-based.
- * Each row shows a champion monogram tile, project + path, relative time, and
- * a trash control. Footer hosts "Open from disk" and the green "Import Mod"
- * primary action.
- */
-
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useModalStore, useAppMetadataStore, useProjectTabStore, useConfigStore, useNavigationStore } from '../../lib/stores';
 import { formatRelativeTime } from '../../lib/util/utils';
@@ -25,9 +16,6 @@ const SORT_OPTIONS = [
     { value: 'champion', label: 'Champion (A–Z)' },
 ] as const;
 
-/** What kind of label / tile we should render for a saved project. The list
- *  modal mixes skin / map / loading-screen rows so each card needs a
- *  type-specific subtitle and fallback artwork. */
 function projectSubtitle(p: SavedProject): string {
     if (p.kind === 'tft') return p.champion ? `TFT · ${p.champion}` : 'TFT';
     if (p.kind === 'map') return p.mapId ? `Map · ${p.mapId}` : 'Map';
@@ -35,8 +23,6 @@ function projectSubtitle(p: SavedProject): string {
     return p.champion || 'Project';
 }
 
-/** Two-letter monogram for the tile. For maps and loading-screens we don't
- *  have a champion name, so derive something readable from the project kind. */
 function monogram(p: SavedProject): string {
     if (p.kind === 'tft') return 'TF';
     if (p.kind === 'map') return 'M';
@@ -47,34 +33,28 @@ function monogram(p: SavedProject): string {
     return (c[0] + c[1]).toUpperCase();
 }
 
-/** Stable hue 0–360 derived from a string. */
 function hueFor(s: string): number {
     let h = 0;
     for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
     return h % 360;
 }
 
-/** DDragon centered loading splash for the base skin (skin 0). Only valid for
- *  skin projects with a real champion alias; map / loading-screen projects
- *  fall back to the monogram tile. */
+/** Only valid for skin projects with a real champion alias; map /
+ *  loading-screen projects fall back to the monogram tile. */
 function championSplashUrl(alias: string): string {
     return `https://ddragon.leagueoflegends.com/cdn/img/champion/loading/${alias}_0.jpg`;
 }
 
-/** Module-level memo for thumbnail blob URLs — avoids re-reading bytes
- *  every time the modal reopens. Keyed by absolute project path. */
+/** Keyed by absolute project path. */
 const thumbnailCache = new Map<string, string | null>();
 
-/** Module-level memo for extracted dominant colors. Keyed by image URL. */
+/** Keyed by image URL. */
 const colorCache = new Map<string, [number, number, number]>();
 
 /**
- * Extract a dominant, vibrant color from an HTMLImageElement.
- *
- * Samples a 32×32 thumbnail of the image, weights each pixel by saturation
- * (so vibrant pixels dominate over the background), and averages the result.
- * Skips near-black/near-white pixels so murky backgrounds don't drag the
- * result toward gray.
+ * Samples a 32×32 thumbnail, weights each pixel by saturation (so vibrant
+ * pixels dominate over the background), and averages the result. Skips
+ * near-black/near-white pixels so murky backgrounds don't drag toward gray.
  */
 function extractDominantColor(img: HTMLImageElement): [number, number, number] | null {
     try {
@@ -96,11 +76,9 @@ function extractDominantColor(img: HTMLImageElement): [number, number, number] |
 
             const max = Math.max(r, g, b);
             const min = Math.min(r, g, b);
-            // Skip near-black and near-white
             if (max < 40 || min > 220) continue;
             const sat = max === 0 ? 0 : (max - min) / max;       // 0–1
             const lum = (r + g + b) / 3;
-            // Heavily favour saturated, mid-bright pixels
             const weight = sat * sat * (lum > 30 && lum < 230 ? 1 : 0.3);
 
             totalR += r * weight;
@@ -121,19 +99,12 @@ function extractDominantColor(img: HTMLImageElement): [number, number, number] |
 
 /**
  * Resolve a project's tile artwork URL:
- *   1. Try `{project.path}/thumbnail.webp` via Tauri read — only when the
- *      caller has flagged the card as visible (lazy load via IntersectionObserver).
- *   2. Fall back to the champion's centered splash from DDragon (skin only —
- *      maps and loading-screens go straight to the monogram tile).
- *   3. null → caller should render the monogram fallback.
- *
- * Returns `{ url, isLoading, splashFailed }`. When `splashFailed` flips true
- * the consumer should render the monogram instead of trying another image.
- *
- * Skipping the read entirely until the card is visible is the perf win: a
- * 50-project list used to fire 50 readFileBytes invokes the moment the modal
- * opened, which is why the modal felt sluggish to launch. Now we only read
- * for what the user is actually looking at.
+ *   1. `{project.path}/thumbnail.webp` via Tauri read — only when `visible`
+ *      (lazy load via IntersectionObserver, so a big list doesn't fire a
+ *      readFileBytes per card on open).
+ *   2. Champion's centered DDragon splash (skin only — maps/loading-screens
+ *      go straight to the monogram tile).
+ *   3. null → caller renders the monogram fallback.
  */
 function useProjectArtUrl(project: SavedProject, visible: boolean) {
     const [thumb, setThumb] = useState<string | null>(() => project.thumbnail ?? thumbnailCache.get(project.path) ?? null);
@@ -167,9 +138,6 @@ function useProjectArtUrl(project: SavedProject, visible: boolean) {
         return () => { cancelled.current = true; };
     }, [project.path, visible, project.thumbnail]);
 
-    // Only skin projects have a meaningful DDragon splash fallback. Maps and
-    // loading-screens go directly to the monogram tile when no thumbnail is
-    // on disk — there's no public champion-shaped art for them.
     const hasSplashFallback = project.kind === 'skin' && !!project.champion;
     return {
         url: thumb ?? (thumbFailed && hasSplashFallback ? championSplashUrl(project.champion) : null),
@@ -178,12 +146,6 @@ function useProjectArtUrl(project: SavedProject, visible: boolean) {
     };
 }
 
-/** Card row — owns the URL state and dominant-color extraction so the
- *  whole card (border, hover halo, label text, monogram fallback) is
- *  tinted to match the tile artwork.
- *
- *  Tile artwork is fetched lazily on first intersection via IntersectionObserver
- *  so we only readFileBytes for thumbnails the user can actually see. */
 const ProjectCard: React.FC<{
     project: SavedProject;
     index: number;
@@ -218,7 +180,6 @@ const ProjectCard: React.FC<{
 
     const showMonogram = splashFailed || (!url && !isLoading);
 
-    // Try cached color when URL changes
     useEffect(() => {
         if (!url) return;
         const cached = colorCache.get(url);
@@ -236,7 +197,6 @@ const ProjectCard: React.FC<{
         }
     };
 
-    // CSS vars for the per-card tint
     const [r, g, b] = tint ?? [120, 130, 150];
     const subtitle = projectSubtitle(project);
     const cssVars: React.CSSProperties = {
@@ -315,7 +275,6 @@ export const ProjectListModal: React.FC = () => {
 
     const isVisible = activeModal === 'projectList';
 
-    // Reset search when modal opens
     useEffect(() => {
         if (isVisible) {
             setSearch('');
@@ -323,12 +282,9 @@ export const ProjectListModal: React.FC = () => {
         }
     }, [isVisible]);
 
-    // Discover-and-merge: each time the modal opens, walk the configured
-    // projects root and rebuild the saved-projects list from disk. This
-    // lets users recover their projects after a clean reinstall (the
-    // backend reads each project's flint.json/mod.config.json directly,
-    // and reconciles with projects.json so renamed/relocated folders still
-    // show under the right pid).
+    // Rebuild saved-projects from disk on open so a clean reinstall recovers
+    // projects (backend reads each project's flint.json/mod.config.json and
+    // reconciles with projects.json under the right pid).
     useEffect(() => {
         if (!isVisible || !defaultProjectPath) return;
         let cancelled = false;
@@ -337,8 +293,6 @@ export const ProjectListModal: React.FC = () => {
                 const listings = await api.discoverProjects(defaultProjectPath);
                 if (cancelled) return;
                 const mapped: SavedProject[] = listings
-                    // Prefer rows that exist on disk; missing entries still
-                    // render so users can re-locate or remove them.
                     .map((l) => ({
                         id: l.pid,
                         name: l.display_name || l.name || 'Unnamed',
@@ -357,7 +311,6 @@ export const ProjectListModal: React.FC = () => {
         return () => { cancelled = true; };
     }, [isVisible, defaultProjectPath, setSavedProjects]);
 
-    // Listen for import progress events
     useEffect(() => {
         const unlistenFantome = listen<{ status: string; message: string }>('fantome-import-progress', (event) => {
             const { status, message } = event.payload;
@@ -580,11 +533,8 @@ export const ProjectListModal: React.FC = () => {
         }
     }, [leaguePath, creatorName, recentProjects, closeModal, setWorking, setReady, setError]);
 
-    // Filtered + sorted view
     const visibleProjects = useMemo(() => {
         const q = search.trim().toLowerCase();
-        // Build a per-project search haystack that includes the kind label
-        // (e.g. "map · map11") so typing "map" matches map projects.
         const haystack = (p: SavedProject) =>
             `${p.kind} ${p.champion} ${p.mapId ?? ''} ${p.name} ${p.path}`.toLowerCase();
         let list = q
@@ -596,8 +546,7 @@ export const ProjectListModal: React.FC = () => {
                 list.sort((a, b) => a.name.localeCompare(b.name));
                 break;
             case 'champion':
-                // Group by kind first (skin, map, loading-screen) then by champion / map id
-                // so the "Champion A–Z" sort isn't a meaningless mash of map/skin rows.
+                // Group by kind first, then champion / map id.
                 list.sort((a, b) => {
                     if (a.kind !== b.kind) return a.kind.localeCompare(b.kind);
                     const aKey = a.kind === 'map' ? (a.mapId || '') : (a.champion || '');

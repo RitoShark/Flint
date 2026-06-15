@@ -9,9 +9,6 @@ export async function readWad(wadPath: string): Promise<{ version: string; chunk
 export async function getWadChunks(
     wadPath: string,
 ): Promise<Array<{ hash: string; path: string | null; size: number }>> {
-    // Route through the binary-wire `load_all_wad_chunks` so a typical
-    // 1500-chunk WAD doesn't pay the JSON encode/decode cost. Same shape as
-    // before — only the transport changes.
     const batches = await loadAllWadChunks([wadPath]);
     const batch = batches[0];
     if (batch?.error) {
@@ -27,16 +24,6 @@ export interface WadChunkBatch {
 }
 
 /**
- * Wire format for `load_all_wad_chunks` is raw bytes via `tauri::ipc::Response`,
- * NOT JSON. JSON encode + transit + decode of an 820K-row payload was running
- * at ~7 seconds in dev — the bulk of which was serde/JSON.parse CPU on both
- * sides. The binary path goes:
- *
- *   Rust packs structs → ArrayBuffer → `new DataView()` walk in JS
- *
- * which is essentially free at this scale (~50 MB of memcpy + a tight
- * decoder loop, no JSON tokenizer involved).
- *
  * Wire layout (little-endian):
  *
  *   [u32 wad_count]
@@ -44,7 +31,7 @@ export interface WadChunkBatch {
  *     [u32 path_len] [path_bytes utf-8]
  *     [u32 error_len] [error_bytes utf-8]    // 0 when no error
  *     [u32 chunk_count]
- *     [chunk_count × u64 path_hash]          // raw — JS hex-formats on demand
+ *     [chunk_count × u64 path_hash]
  *     [chunk_count × u32 size]
  *     [chunk_count × u16 resolved_path_len]  // 0xFFFF = null/unresolved
  *     [packed resolved-path utf-8 bytes ...]
@@ -57,8 +44,6 @@ function decodeWadChunkPayload(bytes: Uint8Array): WadChunkBatch[] {
     const wadCount = view.getUint32(off, true); off += 4;
     const out: WadChunkBatch[] = new Array(wadCount);
 
-    // Hex lookup table — building 820K hashes via toString(16) + padStart was
-    // measurable in profiles. A 256-entry "00".."ff" lookup is faster.
     const HEX = new Array<string>(256);
     for (let i = 0; i < 256; i++) HEX[i] = i.toString(16).padStart(2, '0');
 
@@ -81,11 +66,6 @@ function decodeWadChunkPayload(bytes: Uint8Array): WadChunkBatch[] {
         const lensOff   = off;          off += chunkCount * 2;
         let stringsOff = off;
 
-        // Haystack (lowercased path) is computed lazily by matchChunk only for
-        // chunks that the user actually searches over. Pre-lowercasing 820K
-        // strings during decode used to allocate ~50MB and cost ~1.5s on a
-        // full-game scan, almost entirely wasted since the user typically
-        // searches a small subset.
         const chunks = new Array(chunkCount);
         for (let i = 0; i < chunkCount; i++) {
             const hbase = hashesOff + i * 8;
@@ -133,10 +113,6 @@ export interface ExtractHashesResult {
     output_files: string[];
 }
 
-/**
- * Scan a WAD's BIN/SKN chunks for path hashes and merge results into the user
- * hash directory.
- */
 export async function extractHashesFromWad(wadPath: string): Promise<ExtractHashesResult> {
     return invokeCommand('extract_hashes_from_wad', { wadPath });
 }
@@ -149,31 +125,24 @@ export async function extractWad(
     return invokeCommand('extract_wad', { wadPath, outputDir, chunkHashes });
 }
 
-/**
- * Read a single WAD chunk into memory without writing to disk.
- * Returns the decompressed raw bytes of the chunk.
- */
+/** Read a single WAD chunk into memory as decompressed raw bytes. */
 export async function readWadChunkData(wadPath: string, hash: string): Promise<Uint8Array> {
     const buf = await invokeCommand<ArrayBuffer>('read_wad_chunk_data', { wadPath, hash });
     return new Uint8Array(buf);
 }
 
-/** Scan a League Game/ directory for all .wad.client files, grouped by category. */
 export async function scanGameWads(gamePath: string): Promise<GameWadInfo[]> {
     return invokeCommand('scan_game_wads', { gamePath });
 }
 
-/** Invalidate a WAD entry from the metadata cache so the next read re-parses it. */
 export async function invalidateWadCache(wadPath: string): Promise<void> {
     return invokeCommand('invalidate_wad_cache', { path: wadPath });
 }
 
-/** Read and convert a luabin (Lua bytecode) chunk from a WAD to Lua source text. */
 export async function readWadLuabin(wadPath: string, hash: string): Promise<string> {
     return invokeCommand('read_wad_luabin', { wadPath, hash });
 }
 
-/** Read and convert a troybin chunk from a WAD to INI-like text. */
 export async function readWadTroybin(wadPath: string, hash: string): Promise<string> {
     return invokeCommand('read_wad_troybin', { wadPath, hash });
 }
@@ -186,17 +155,14 @@ export async function readWadRst(wadPath: string, hash: string): Promise<string>
     return invokeCommand('read_wad_rst', { wadPath, hash });
 }
 
-/** Convert luabin (Lua bytecode) data to Lua source text. */
 export async function convertLuabinToText(data: Uint8Array): Promise<string> {
     return invokeCommand('convert_luabin_to_text', { data: Array.from(data) });
 }
 
-/** Convert troybin data to INI-like text. */
 export async function convertTroybinToText(data: Uint8Array): Promise<string> {
     return invokeCommand('convert_troybin_to_text', { data: Array.from(data) });
 }
 
-/** Extract an SKN chunk + companion files from a WAD to a temp directory for 3D preview. */
 export async function extractWadModelPreview(
     wadPath: string,
     sknHash: string
@@ -204,7 +170,6 @@ export async function extractWadModelPreview(
     return invokeCommand('extract_wad_model_preview', { wadPath, sknHash });
 }
 
-/** Clean up a temporary WAD model preview directory. */
 export async function cleanupWadModelPreview(tempDir: string): Promise<void> {
     return invokeCommand('cleanup_wad_model_preview', { tempDir });
 }

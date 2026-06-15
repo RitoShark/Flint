@@ -1,19 +1,3 @@
-/**
- * Global tooltip system.
- *
- * Hijacks the browser's native `title` tooltip (the ugly OS-styled one that
- * appears after ~700ms) and replaces it with a custom Flint-styled tooltip.
- *
- * On first hover of any element with a `title` attribute we:
- *   1. Move the text from `title` → `data-tooltip`.
- *   2. Remove `title` so the browser will never render its native tooltip.
- *   3. After 500ms, render our own styled tooltip positioned against the
- *      element's bounding rect (flips above/below to stay in the viewport).
- *
- * Skips elements with `data-tooltip-skip` if a caller wants the native tip
- * (e.g. drag regions where we never want a popup).
- */
-
 import React, { useEffect, useRef, useState } from 'react';
 
 const SHOW_DELAY_MS = 500;
@@ -23,9 +7,7 @@ const GAP = 8;
 
 interface TipState {
     text: string;
-    /** Element's bounding rect at the time the tooltip was triggered. */
     rect: DOMRect;
-    /** Above the element if there's room, otherwise below. */
     placement: 'top' | 'bottom';
 }
 
@@ -46,7 +28,7 @@ function readTooltipText(el: HTMLElement): string | null {
         if (t == null) return null;
         text = t;
         el.setAttribute('data-tooltip', t);
-        el.removeAttribute('title'); // suppress native browser tooltip forever
+        el.removeAttribute('title');
     }
     return text && text.trim() ? text : null;
 }
@@ -107,13 +89,11 @@ export const TooltipProvider: React.FC = () => {
 
     if (!tip) return null;
 
-    // Position: centered horizontally on the host, above (preferred) or below.
     const vpW = window.innerWidth;
     const vpH = window.innerHeight;
     const centerX = tip.rect.left + tip.rect.width / 2;
     const anchorY = tip.placement === 'top' ? tip.rect.top - GAP : tip.rect.bottom + GAP;
 
-    // Use translate(-50%, ...) to anchor by center; clamp later via maxWidth.
     const style: React.CSSProperties = {
         left: Math.max(VIEWPORT_PAD, Math.min(vpW - VIEWPORT_PAD, centerX)),
         top: Math.max(VIEWPORT_PAD, Math.min(vpH - VIEWPORT_PAD, anchorY)),

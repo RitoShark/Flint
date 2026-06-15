@@ -1,26 +1,15 @@
-/**
- * Shared right-click menu builder used by both FileTree and FolderGridView.
- * Keeps the two surfaces in sync — anything you wire up here shows up in
- * both places.
- */
-
 import * as api from '../api';
 import { getIcon } from '../ui-helpers/fileIcons';
 import { useNavigationStore } from '../stores/navigationStore';
 import type { ContextMenuOption, ModalType } from '../types';
 
 interface BuildOptionsArgs {
-    /** The node being right-clicked. */
     node: { path: string; name: string; isDirectory: boolean };
-    /** Project root absolute path. */
     projectPath: string;
     /** Tree depth — used to show root-only options like "Set Thumbnail". */
     depth: number;
-    /** Refresh the project file tree after a mutation. */
     refreshFileTree: () => Promise<void>;
-    /** Open the named modal with the given options. */
     openModal: (modal: ModalType, options?: Record<string, unknown>) => void;
-    /** Open the confirmation dialog (Delete, Organize, etc). */
     openConfirmDialog: (dialog: {
         title: string;
         message: string;
@@ -28,13 +17,10 @@ interface BuildOptionsArgs {
         danger?: boolean;
         onConfirm: () => void;
     }) => void;
-    /** Toast notifications. */
     showToast: (type: 'info' | 'success' | 'warning' | 'error', message: string) => void;
-    /** Optional rename trigger — when present, the menu shows "Rename".
-     *  FileTree passes its inline-rename setter; grid views can omit it. */
+    /** When present, the menu shows "Rename"; grid views can omit it. */
     onRename?: (path: string) => void;
-    /** League installation path — needed by "Restore from Original".
-     *  When omitted, the action toasts a "set League path" hint instead. */
+    /** Needed by "Restore from Original"; when omitted, the action toasts a hint. */
     leaguePath?: string | null;
 }
 
@@ -55,10 +41,6 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
     if (node.isDirectory) {
         if (depth === 0 && projectPath) {
-            // All root-level project actions live under one "Project ▸"
-            // umbrella so the top of the menu stays focused on the folder
-            // itself (new folder, rename, copy path, delete) instead of
-            // mixing in project-meta concerns.
             options.push({
                 label: 'Project',
                 icon: getIcon('code'),
@@ -73,10 +55,6 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                         label: 'Edit Project Info',
                         icon: getIcon('code'),
                         onClick: () => {
-                            // Route to the dedicated File Editor page rather
-                            // than the old modConfig modal. The modal still
-                            // exists for keyboard-shortcut callsites; new UI
-                            // flows go through the page.
                             const configPath = `${projectPath.replace(/\\/g, '/')}/mod.config.json`;
                             useNavigationStore.getState().navigateToFileEditor({
                                 filePath: configPath,
@@ -115,13 +93,9 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                                     }
                                     const open = () => openModal('loadscreenBanner', { projectPath });
                                     if (info.applied) {
-                                        // Already applied — just open the mask editor (re-editing
-                                        // the mask is non-destructive). We don't re-inject the
-                                        // material so manual BIN tweaks survive.
                                         open();
                                         return;
                                     }
-                                    // First time — inject the material + build the mask, then edit.
                                     await api.applyLoadscreenBanner(projectPath);
                                     await refreshFileTree();
                                     open();
@@ -135,10 +109,6 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                 ],
             });
 
-            // Export ▸ — direct shortcuts to package the current project as
-            // .fantome or .modpkg. Both items reuse the existing ExportModal
-            // by pre-selecting the format via `modalOptions.format`; the
-            // modal's save dialog still asks for the output path.
             options.push({
                 label: 'Export',
                 icon: getIcon('package'),
@@ -203,9 +173,6 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
         }
 
         if (fileName.toLowerCase() === 'data') {
-            // BIN-folder tooling lives under "BIN Tools ▸" so the data folder's
-            // top-level menu doesn't drown the common "rename / copy / delete"
-            // actions in specialist tooling.
             const binTools: ContextMenuOption[] = [];
             binTools.push({
                 label: 'Split BINs by Class…',
@@ -440,8 +407,6 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
     });
 
     if (ext === 'dds' || ext === 'tex') {
-        // Animated-banner mask files get a dedicated "edit the mask" entry that
-        // opens the paint editor (over the loadscreen) instead of a raw view.
         if (projectPath && fileName.toLowerCase().endsWith('-mask.tex')) {
             options.push({
                 label: 'Edit Loadscreen Banner Mask',
@@ -458,10 +423,6 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             onClick: () => openModal('recolor', { filePath: node.path, isFolder: false }),
         });
 
-        // File Transformation ▸ — bidirectional .tex ↔ .dds, plus PNG export.
-        // The active extension's reverse target is the primary item; the
-        // other direction is omitted (would be a no-op). PNG is always
-        // available as a quick "give me something I can open in Photoshop".
         const transformItems: ContextMenuOption[] = [];
 
         if (ext === 'tex') {
@@ -520,23 +481,12 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
     }
 
     // ── Compare / Backup ──────────────────────────────────────────────
-    // Only meaningful for files that came from a WAD — i.e. live under
-    // `content/<name>.wad.client/...`. The Rust side will return a clean
-    // "not in a WAD folder" error otherwise, but we hide the items entirely
-    // to keep the menu short for things like mod.config.json or thumbnails.
     const normalizedRel = node.path.replace(/\\/g, '/');
-    // Project layouts: `content/<wad>.wad.client/...` (legacy) or
-    // `content/<layer>/<wad>.wad.client/...` (current — `base` is the default
-    // layer). Accept any segment after `content/` ending in `.wad.client`.
     const isWadAsset =
         normalizedRel.startsWith('content/') &&
         normalizedRel.split('/').some(seg => seg.toLowerCase().endsWith('.wad.client'));
 
     if (isWadAsset) {
-        // ── Compare ▸ submenu ──────────────────────────────────────────
-        // Both compare actions live under one parent. Compare-with-backup
-        // checks backup existence on click and toasts a helpful hint if
-        // the backup hasn't been created yet.
         const compareSubmenu: ContextMenuOption[] = [
             {
                 label: 'Original (from WAD)',
@@ -622,10 +572,6 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             });
         };
 
-        // ── Backup ▸ submenu ───────────────────────────────────────────
-        // All backup lifecycle actions live here (Create, Restore, Delete).
-        // Compare-with-backup intentionally lives under Compare ▸ instead so
-        // both compare flavours are next to each other.
         const backupSubmenu: ContextMenuOption[] = [
             {
                 label: 'Create / Update',
@@ -764,8 +710,6 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
         ],
     });
 
-    // ── Open ▸ submenu — reveal in explorer + open with default app
-    // collapsed into a single parent so the top-level menu stays compact.
     options.push({
         label: 'Open',
         icon: getIcon('folderOpen2'),

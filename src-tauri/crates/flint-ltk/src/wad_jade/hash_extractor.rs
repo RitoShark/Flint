@@ -1,10 +1,7 @@
 //! Drive the per-WAD hash scan: decompress every chunk, scan for paths
 //! and submesh names, merge results into the on-disk overlay files.
 //!
-//! Triggered by the `wad_extract_hashes` Tauri command (separate UI
-//! action — does not piggyback on regular extraction). Same shape as
-//! Quartz's `extractHashesFromWad` so the resulting `hashes.extracted.txt`
-//! stays interoperable with the two apps.
+//! Triggered by the `wad_extract_hashes` Tauri command.
 
 use crate::wad_jade::extracted_overlay::{merge_and_write, MergeStats};
 use crate::wad_jade::extractor::chunk_io::decompress;
@@ -97,8 +94,8 @@ pub fn extract_hashes(
         action_id, phase: "scanning", current: 0, total, message: "Scanning chunks for hashes...",
     });
 
-    // Each worker scans into its own (HashMap, HashMap) — fold then reduce
-    // merges them at the end. Same shape Quartz uses.
+    // Each worker scans into its own (HashMap, HashMap); fold then reduce
+    // merges them at the end.
     type WadMap = HashMap<u64, Arc<str>>;
     type BinMap = HashMap<u32, Arc<str>>;
 
@@ -154,9 +151,8 @@ pub fn extract_hashes(
         action_id, phase: "merging", current: total, total, message: "Filtering known hashes...",
     });
 
-    // De-dup against LMDB — overlay should only carry hashes upstream
-    // doesn't already know. Cheap because both lookup_* keep the env
-    // mmap'd; an unknown hash returns None on a single B-tree probe.
+    // De-dup against LMDB — the overlay should only carry hashes upstream
+    // doesn't already know.
     let wad_unknown: WadMap = wad_found
         .into_iter()
         .filter(|(h, _)| lookup_wad(*h, hash_dir).is_none())
@@ -168,14 +164,12 @@ pub fn extract_hashes(
 
     let stats: MergeStats = merge_and_write(hash_dir, &wad_unknown, &bin_unknown)?;
 
-    // Re-resolve this mount's chunks against the freshly-merged overlay
-    // so the next `wad_list_entries` call returns real names where the
-    // scan recovered them. Without this the in-memory `resolved` map
-    // captured at mount time still holds the hex fallbacks.
+    // Re-resolve this mount's chunks against the freshly-merged overlay so
+    // the next `wad_list_entries` returns real names where the scan recovered
+    // them.
     refresh_resolved(mount_id);
-    // The refresh wipes any magic-sniffed extensions back to bare hex
-    // for chunks the overlay didn't cover — re-run the sniff so those
-    // entries keep showing real types in the file list.
+    // refresh_resolved wipes magic-sniffed extensions back to bare hex for
+    // uncovered chunks — re-run the sniff so they keep real types.
     let _ = crate::wad_jade::sniff::sniff_unknown_in_mount(mount_id);
 
     let elapsed_ms = started.elapsed().as_millis() as u64;

@@ -1,8 +1,3 @@
-/**
- * PathSettingItem - row in the Settings 'Paths' tab. Renders an Input
- * with a Browse button, an optional detect button, and a filled/empty
- * pill. Used by both directory and file pickers (see `setting.file`).
- */
 import React from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Button, Icon, type IconName, Input } from '../../ui';

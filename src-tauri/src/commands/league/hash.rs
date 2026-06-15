@@ -5,18 +5,12 @@ use crate::state::LmdbCacheState;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-/// Status information about the loaded hash databases.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HashStatus {
-    /// Approximate entry count across both LMDBs (via file size heuristic).
     pub loaded_count: usize,
     pub last_updated: Option<String>,
 }
 
-/// Download pre-built LMDB hash databases from the `lmdb-hashes` GitHub releases.
-///
-/// Replaces the old per-file CommunityDragon download. Two zstd-compressed LMDBs
-/// are pulled and decompressed: `hashes-wad.lmdb` and `hashes-bin.lmdb`.
 #[tauri::command]
 pub async fn download_hashes(force: bool) -> Result<DownloadStats, String> {
     let hash_dir = get_hash_dir()
@@ -27,13 +21,11 @@ pub async fn download_hashes(force: bool) -> Result<DownloadStats, String> {
     Ok(stats)
 }
 
-/// Returns information about the currently-open LMDB hash databases.
 #[tauri::command]
 pub async fn get_hash_status(lmdb: State<'_, LmdbCacheState>) -> Result<HashStatus, String> {
     let hash_dir = get_hash_dir()
         .map_err(|e| format!("Failed to get hash directory: {}", e))?;
 
-    // Approximate: combined data.mdb sizes / ~40 bytes per entry.
     let wad_bytes = std::fs::metadata(hash_dir.join("hashes-wad.lmdb").join("data.mdb"))
         .map(|m| m.len())
         .unwrap_or(0);
@@ -57,28 +49,24 @@ pub async fn get_hash_status(lmdb: State<'_, LmdbCacheState>) -> Result<HashStat
             })
         });
 
-    // Warm the WAD env (open if not already open).
     let hash_dir_str = hash_dir.to_string_lossy().into_owned();
     let _ = lmdb.get_wad_env(&hash_dir_str);
 
     Ok(HashStatus { loaded_count, last_updated })
 }
 
-/// Re-sync hash LMDBs from the GitHub release, replacing local files if needed.
 #[tauri::command]
 pub async fn reload_hashes(lmdb: State<'_, LmdbCacheState>) -> Result<(), String> {
     let hash_dir = get_hash_dir()
         .map_err(|e| format!("Failed to get hash directory: {}", e))?;
     let hash_dir_str = hash_dir.to_string_lossy().into_owned();
 
-    // Drop open envs first — Windows won't let us overwrite mmap'd data.mdb.
     lmdb.clear();
 
     core_download_hashes(&hash_dir, false)
         .await
         .map_err(|e| format!("Failed to download hashes: {}", e))?;
 
-    // Reload the in-memory BIN hash cache too.
     flint_ltk::bin::reload_bin_hash_cache();
 
     if lmdb.prime(&hash_dir_str).is_some() {
@@ -89,7 +77,6 @@ pub async fn reload_hashes(lmdb: State<'_, LmdbCacheState>) -> Result<(), String
     }
 }
 
-/// Force re-download of hash LMDBs regardless of local release-tag cache.
 #[tauri::command]
 pub async fn force_rebuild_hashes(lmdb: State<'_, LmdbCacheState>) -> Result<(), String> {
     let hash_dir = get_hash_dir()

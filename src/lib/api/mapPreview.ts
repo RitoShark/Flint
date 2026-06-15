@@ -21,7 +21,6 @@ export interface MapTexture {
 /**
  * Decode the binary payload from `load_map_preview`:
  * `[u32 meta_len][meta json utf-8][pad to 4][positions f32][uvs f32][indices u32]`.
- * Same wire-format shape as `mesh.ts` `decodeMeshPayload`.
  */
 function decodeMapPayload(buf: ArrayBuffer): MapPreviewData {
     const view = new DataView(buf);
@@ -52,18 +51,15 @@ function decodeMapPayload(buf: ArrayBuffer): MapPreviewData {
     };
 }
 
-/** Open (or focus) the separate 3D map-preview window for a map project. */
 export async function openMapPreviewWindow(projectPath: string): Promise<void> {
     return invokeCommand('open_map_preview_window', { projectPath });
 }
 
-/** Load + decode a map project's geometry and material→texture table. */
 export async function loadMapPreview(projectPath: string): Promise<MapPreviewData> {
     const buf = await invokeCommand<ArrayBuffer>('load_map_preview', { projectPath });
     return decodeMapPayload(buf);
 }
 
-/** Decode one texture (by its bin texturePath) to raw RGBA pixels. */
 export async function loadMapTexture(
     projectPath: string,
     texturePath: string,
@@ -80,7 +76,6 @@ export async function loadMapTexture(
     return { width, height, rgba };
 }
 
-/** Resolve a bin texture path to its real on-disk path in the open project. */
 export async function resolveMapTexturePath(
     projectPath: string,
     texturePath: string,
@@ -88,7 +83,6 @@ export async function resolveMapTexturePath(
     return invokeCommand('resolve_map_texture_path', { projectPath, texturePath });
 }
 
-/** Save an in-app painted RGBA buffer back to its .tex (re-encoded in format). */
 export async function savePaintedTexture(
     projectPath: string,
     texturePath: string,
@@ -122,12 +116,10 @@ export interface MapTextureSection {
     supports_mode: boolean; // only Ground (it has a grid) toggles Combined/Split
 }
 
-/** All sections with tile counts + whether each PSD exists (drives the modal). */
 export async function listMapTextureSections(projectPath: string): Promise<MapTextureSection[]> {
     return invokeCommand('list_map_texture_sections', { projectPath });
 }
 
-/** On-disk path of a section's PSD. */
 export function sectionPsdPath(projectPath: string, section: string): string {
     const file = section === 'Ground' ? 'ground_map.psd' : `${section.toLowerCase()}.psd`;
     return `${projectPath}/textures-psd/${file}`;
@@ -145,7 +137,6 @@ export async function combineSection(
     return invokeCommand('combine_category_to_psd', { projectPath, category: section, mode });
 }
 
-/** Apply a section's edited PSD back to its .tex files. */
 export async function applySection(projectPath: string, section: string): Promise<ApplyPsdReport> {
     if (section === 'Ground') {
         return invokeCommand('apply_psd_to_textures', {

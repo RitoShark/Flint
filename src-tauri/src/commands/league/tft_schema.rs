@@ -1,16 +1,7 @@
 //! TFT BIN Schema Aggregator
 //!
-//! Walks only the WADs that ship Teamfight Tactics data — `Companions.wad.client`
-//! (Little Legends / companions / Tacticians) and the TFT game-mode map WADs
-//! (`Maps/Shipping/Map22*.wad.client`: traits, items, augments, unit/mode data) —
-//! parses every `.bin` chunk in them, merges every property of every class
-//! globally, then emits ONE synthetic ritobin file containing every entry /
-//! class / field / sample value TFT ships.
-//!
 //! Output is real ritobin syntax (block style with `{ }`) so users can copy-paste
-//! values straight into their own BINs. This mirrors `champion_schema.rs`; the
-//! only differences are which WADs get scanned and that every `.bin` chunk is
-//! parsed (TFT has no LinkedData/ChampionRoot split worth filtering on).
+//! values straight into their own BINs.
 
 use std::collections::{HashMap, HashSet};
 
@@ -68,8 +59,6 @@ struct FieldSchema {
     sample_limit: usize,
 }
 
-/// One root-level entry sample: the entry key (resolved string or hex). Up to
-/// N keys per class are kept (class hash is the map key in `entries_by_class`).
 struct EntrySample {
     key_repr: String,
 }
@@ -186,11 +175,9 @@ fn process_class(
             sample_limit: limit,
         });
 
-        // Prefer a non-empty type_str in case the first sample was uninformative.
         if field.type_str.is_empty() {
             field.type_str = type_str;
         }
-        // Bump the limit if a complex value is later seen for what was assumed scalar.
         if limit > field.sample_limit {
             field.sample_limit = limit;
         }
@@ -199,7 +186,6 @@ fn process_class(
         }
     }
 
-    // Recurse into nested classes (collect first to avoid borrow conflicts).
     let mut nested: Vec<(u32, IndexMap<u32, BinValue>)> = Vec::new();
     for value in fields.values() {
         collect_nested(value, &mut nested);
@@ -275,9 +261,6 @@ fn indent_str(level: usize) -> String {
     "    ".repeat(level)
 }
 
-/// Renders a single value into ritobin syntax. For struct/embed it dispatches
-/// to `render_class_block` which uses the merged global schema (so nested classes
-/// always show every field they ever had, not just what this sample carried).
 fn render_value(
     value: &BinValue,
     schema: &HashMap<u32, ClassSchema>,
@@ -372,7 +355,6 @@ fn render_container(
 ) {
     use std::fmt::Write;
 
-    // Take up to N samples from this container.
     let limit = SAMPLE_LIMIT_COMPLEX;
     let items: Vec<&BinValue> = items.iter().take(limit).collect();
 
@@ -381,7 +363,6 @@ fn render_container(
         return;
     }
 
-    // Inline-format scalar containers (short).
     let all_scalar = items.iter().all(|it| is_scalar_value(it));
     if all_scalar && items.len() <= 4 {
         out.push_str("{ ");
@@ -395,7 +376,6 @@ fn render_container(
         return;
     }
 
-    // Multi-line block format.
     out.push_str("{\n");
     let inner_indent = indent_str(indent + 1);
     for it in items.iter() {
@@ -434,8 +414,6 @@ fn render_map(
     write!(out, "{}}}", indent_str(indent)).unwrap();
 }
 
-/// Renders the body `{ field: type = value ... }` for a class hash, looking up
-/// fields in the global merged schema. Cycle-safe via `visited`.
 fn render_class_block(
     class_hash: u32,
     schema: &HashMap<u32, ClassSchema>,
@@ -447,8 +425,6 @@ fn render_class_block(
     use std::fmt::Write;
 
     if !visited.insert(class_hash) {
-        // Already expanding this class on the current path → emit empty body
-        // with a comment so the file stays valid ritobin and copy-paste safe.
         out.push_str("{ /* recursive */ }");
         return;
     }
@@ -477,7 +453,6 @@ fn render_class_block(
         if let Some(sample) = field.samples.first() {
             render_value(sample, schema, provider, visited, indent + 1, out);
         } else {
-            // Fallback when no sample was captured (shouldn't usually happen).
             out.push_str("...");
         }
         out.push('\n');
@@ -491,18 +466,10 @@ fn render_class_block(
 // TFT WAD discovery
 // =============================================================================
 
-/// Collect every WAD that ships TFT data:
-///   - `DATA/FINAL/Companions.wad.client` (also the `Companions/` subfolder
-///     and the no-`Game` layout) — Little Legends / Tacticians / arenas.
-///   - `DATA/FINAL/Maps/Shipping/Map22*.wad.client` — the TFT game-mode data
-///     (traits, items, augments, unit/mode bins). Locale variants
-///     (`Map22.en_US.wad.client`) are skipped — they only hold localized strings
-///     and would just bloat the schema.
 fn collect_tft_wads(league_path: &std::path::Path) -> Vec<std::path::PathBuf> {
     let mut wads: Vec<std::path::PathBuf> = Vec::new();
     let final_dir = league_path.join("Game").join("DATA").join("FINAL");
 
-    // Companions WAD — try the known layouts.
     let companions_candidates = [
         final_dir.join("Companions.wad.client"),
         final_dir.join("Companions").join("Companions.wad.client"),
@@ -518,7 +485,6 @@ fn collect_tft_wads(league_path: &std::path::Path) -> Vec<std::path::PathBuf> {
         }
     }
 
-    // TFT map WADs under Maps/Shipping (flat files, not a subfolder).
     let shipping = final_dir.join("Maps").join("Shipping");
     if let Ok(entries) = std::fs::read_dir(&shipping) {
         for entry in entries.flatten() {
@@ -534,8 +500,6 @@ fn collect_tft_wads(league_path: &std::path::Path) -> Vec<std::path::PathBuf> {
             if !name.ends_with(".wad.client") && !name.ends_with(".wad") {
                 continue;
             }
-            // Match `map22.wad.client` / `map22levels.wad.client` but skip
-            // localized variants like `map22.en_us.wad.client`.
             let stem = name
                 .trim_end_matches(".wad.client")
                 .trim_end_matches(".wad");
@@ -561,7 +525,6 @@ pub async fn aggregate_tft_bin_schema(
 ) -> Result<TftSchemaStats, String> {
     let league_dir = std::path::Path::new(&league_path);
 
-    // 1. Find every TFT WAD.
     let wad_paths = collect_tft_wads(league_dir);
     if wad_paths.is_empty() {
         return Err(format!(
@@ -573,17 +536,13 @@ pub async fn aggregate_tft_bin_schema(
     let total_wads = wad_paths.len();
     tracing::info!("TFT schema: scanning {} WADs", total_wads);
 
-    // 2. Hash resolution resources.
     let hash_dir = get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
     let env_opt = lmdb.get_env(&hash_dir);
 
-    // 3. Walk every TFT WAD, parse every .bin chunk, merge into the schema.
     let mut schema: HashMap<u32, ClassSchema> = HashMap::new();
-    // class_hash -> sample entry keys (root-level entries that map to this class)
     let mut entries_by_class: HashMap<u32, Vec<EntrySample>> = HashMap::new();
-    // Order in which root classes were first seen — keeps output deterministic.
     let mut root_class_order: Vec<u32> = Vec::new();
     let mut linked_samples: Vec<String> = Vec::new();
     let mut bins_parsed: usize = 0;
@@ -622,20 +581,13 @@ pub async fn aggregate_tft_bin_schema(
         for chunk in &chunks {
             let path_hash = chunk.path_hash;
 
-            // Decide whether this chunk is a .bin. Prefer the resolved path;
-            // for unresolved hashes fall back to BIN magic detection so we
-            // still cover TFT chunks the hash DB doesn't know yet.
             let is_resolved_bin = resolved_map
                 .get(&path_hash)
                 .map(|p| p.to_lowercase().ends_with(".bin"))
                 .unwrap_or(false);
 
-            if !is_resolved_bin {
-                // Resolved to a non-.bin path → skip.
-                if resolved_map.contains_key(&path_hash) {
-                    continue;
-                }
-                // Unresolved → magic-sniff below after decompress.
+            if !is_resolved_bin && resolved_map.contains_key(&path_hash) {
+                continue;
             }
 
             let data = match reader.wad_mut().load_chunk_decompressed(chunk) {
@@ -669,7 +621,6 @@ pub async fn aggregate_tft_bin_schema(
                 }
             };
 
-            // Sample a few linked-paths from the first BINs we successfully parse.
             if linked_samples.len() < LINKED_PATH_SAMPLE_LIMIT {
                 for dep in &bin.linked {
                     if linked_samples.len() >= LINKED_PATH_SAMPLE_LIMIT {
@@ -681,7 +632,6 @@ pub async fn aggregate_tft_bin_schema(
                 }
             }
 
-            // Each top-level entry becomes a root entry.
             for entry in &bin.entries {
                 let entries_list = entries_by_class.entry(entry.class_hash).or_default();
                 if !root_class_order.contains(&entry.class_hash) {
@@ -702,7 +652,6 @@ pub async fn aggregate_tft_bin_schema(
         }
     }
 
-    // 4. Build the synthetic ritobin file.
     let provider = get_cached_bin_hashes().read();
     let total_fields: usize = schema.values().map(|c| c.fields.len()).sum();
 
@@ -738,19 +687,16 @@ pub async fn aggregate_tft_bin_schema(
     );
     let _ = writeln!(output);
 
-    // Header lines (matches what real ritobin emits).
     let _ = writeln!(output, "#PROP_text");
     let _ = writeln!(output, "type: string = \"PROP\"");
     let _ = writeln!(output, "version: u32 = 3");
 
-    // linked: list[string] — sample dependencies seen across BINs.
     let _ = writeln!(output, "linked: list[string] = {{");
     for path in &linked_samples {
         let _ = writeln!(output, "    \"{}\"", escape_str(path));
     }
     let _ = writeln!(output, "}}");
 
-    // entries: map[hash, embed] — every unique root class with up to N sample keys.
     let _ = writeln!(output, "entries: map[hash,embed] = {{");
     for class_hash in &root_class_order {
         let class_name =
@@ -768,7 +714,6 @@ pub async fn aggregate_tft_bin_schema(
     }
     let _ = writeln!(output, "}}");
 
-    // 5. Write the file alongside the other schema reference files.
     let output_path = get_hash_dir()
         .map(|p| {
             p.parent()

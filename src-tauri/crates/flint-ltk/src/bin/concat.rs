@@ -50,11 +50,9 @@ pub fn classify_bin(path: &str) -> BinCategory {
     let normalized = path.replace('\\', "/");
     let lower = normalized.to_lowercase();
 
-    // Extract just the filename for pattern matching
     let filename = lower.split('/').next_back().unwrap_or("");
 
-    // Type 1: Champion Root BIN - detect by path pattern
-    // e.g., data/characters/kayn/kayn.bin
+    // e.g. data/characters/kayn/kayn.bin
     if lower.starts_with("data/characters/") && !lower.contains("/animations/") {
         let parts: Vec<&str> = normalized.split('/').collect();
         if parts.len() == 4 && parts[3].to_lowercase().ends_with(".bin") {
@@ -66,48 +64,36 @@ pub fn classify_bin(path: &str) -> BinCategory {
         }
     }
 
-    // Also detect "root.bin" anywhere as ChampionRoot (should be removed)
     if filename == "root.bin" {
         return BinCategory::ChampionRoot;
     }
 
-    // Type 2: Animation BINs - in the animations folder
-    // e.g., data/characters/kayn/animations/skin2.bin
     if lower.starts_with("data/characters/") && lower.contains("/animations/") {
         return BinCategory::Animation;
     }
 
-    // Type 3: Everything else is LinkedData
-    // This includes all the skin data BINs like:
-    // - data/kayn_skins_skin0_skins_skin1_....bin (combined skin data)
-    // - data/characters/kayn/skins/skin2.bin (main skin BIN)
-    // We don't judge by filename - only by whether the file can be parsed
     BinCategory::LinkedData
 }
 
-/// Get the linked paths from a Bin (uses the `linked` field)
 pub fn get_linked_paths(bin: &Bin) -> Vec<String> {
     bin.linked.clone()
 }
 
-/// Set the linked paths in a Bin
 pub fn set_linked_paths(bin: &mut Bin, paths: Vec<String>) {
     bin.linked = paths;
 }
 
-/// Create a concatenated BIN from all Type 3 (LinkedData) BINs
+/// Concatenates all Type 3 (LinkedData) BINs.
 pub fn create_concat_bin(
     main_bin: &Bin,
     project_name: &str,
     creator_name: &str,
-    _champion: &str,  // No longer used in path generation but kept for API compatibility
+    _champion: &str,
     content_base: &Path,
     path_mappings: &HashMap<String, String>,
 ) -> Result<ConcatResult> {
-    // 1. Get linked paths from main BIN
     let linked_paths = get_linked_paths(main_bin);
 
-    // 2. Filter to only Type 3 (LinkedData) BINs
     let type3_paths: Vec<String> = linked_paths
         .iter()
         .filter(|path| {
@@ -131,7 +117,6 @@ pub fn create_concat_bin(
         ));
     }
 
-    // 3. Create new concat BIN - objects will be merged, linked list empty
     let mut all_objects: HashMap<u32, BinEntry> = HashMap::new();
     let mut collision_count = 0;
     let mut source_count = 0;
@@ -139,11 +124,11 @@ pub fn create_concat_bin(
 
     for bin_path in &type3_paths {
         let normalized_path = bin_path.to_lowercase().replace('\\', "/");
-        
+
         let actual_path = path_mappings.get(&normalized_path)
             .cloned()
             .unwrap_or_else(|| normalized_path.clone());
-        
+
         let full_path = content_base.join(&actual_path);
 
         if !full_path.exists() {
@@ -151,7 +136,6 @@ pub fn create_concat_bin(
             continue;
         }
 
-        // Load the source BIN
         let data = fs::read(&full_path).map_err(|e| Error::io_with_path(e, &full_path))?;
 
         let magic = if data.len() >= 4 {
@@ -182,7 +166,6 @@ pub fn create_concat_bin(
             }
         };
 
-        // Validate that source is indeed a linked BIN (should have empty linked list)
         if !source_bin.linked.is_empty() {
             tracing::warn!(
                 "Type 3 BIN has non-empty linked list ({}), may cause issues: {}",
@@ -191,7 +174,6 @@ pub fn create_concat_bin(
             );
         }
 
-        // Merge objects from source into all_objects
         for entry in source_bin.entries {
             let path_hash = entry.path_hash;
             if all_objects.contains_key(&path_hash) {
@@ -205,17 +187,13 @@ pub fn create_concat_bin(
         processed_paths.push(actual_path.clone());
     }
 
-    // 4. Create the concat Bin from the merged entries. rs_bin has no
-    //    builder — construct with a struct literal over an empty v3 doc.
+    /* rs_bin has no builder — construct with a struct literal over an empty v3 doc. */
     let concat_bin = Bin {
         entries: all_objects.into_values().collect(),
         ..Bin::new()
     };
     let object_count = concat_bin.entries.len();
 
-    // 5. Generate concat path (sanitize names: replace spaces with dashes)
-    // New naming: data/{creator}_{project}_Concat.bin
-    // Champion is no longer in the folder hierarchy, so omit from filename for consistency
     let creator_sanitized = creator_name.replace(' ', "-");
     let project_sanitized = project_name.replace(' ', "-");
     let concat_path = format!(
@@ -223,7 +201,6 @@ pub fn create_concat_bin(
         creator_sanitized, project_sanitized
     );
 
-    // 6. Save the concat BIN immediately
     let concat_full_path = content_base.join(&concat_path);
     if let Some(parent) = concat_full_path.parent() {
         fs::create_dir_all(parent).map_err(|e| Error::io_with_path(e, parent))?;
@@ -235,9 +212,7 @@ pub fn create_concat_bin(
     fs::write(&concat_full_path, &concat_data)
         .map_err(|e| Error::io_with_path(e, &concat_full_path))?;
 
-    // Verify the written BIN can be read back
     if let Err(e) = read_bin(&concat_data) {
-        // Try to cleanup the bad file
         let _ = fs::remove_file(&concat_full_path);
         return Err(Error::InvalidInput(format!(
             "Generated concat BIN is corrupt and cannot be read back: {}", 
@@ -259,23 +234,20 @@ pub fn create_concat_bin(
     })
 }
 
-/// Update the main BIN's linked list to use the concat BIN
 pub fn update_main_bin_links(main_bin: &mut Bin, concat_path: String) -> Result<()> {
     let current_links = get_linked_paths(main_bin);
 
-    // Find Type 1 (ChampionRoot)
     let type1_path = current_links
         .iter()
         .find(|path| classify_bin(path) == BinCategory::ChampionRoot)
         .cloned();
 
-    // Find Type 2 (Animation)
     let type2_path = current_links
         .iter()
         .find(|path| classify_bin(path) == BinCategory::Animation)
         .cloned();
 
-    // Build new linked list: concat first, then type1, then type2
+    // concat first, then type1, then type2
     let mut new_links = vec![concat_path];
 
     if let Some(path) = type1_path {
@@ -293,7 +265,6 @@ pub fn update_main_bin_links(main_bin: &mut Bin, concat_path: String) -> Result<
     Ok(())
 }
 
-/// Complete linked BIN concatenation workflow
 pub fn concatenate_linked_bins(
     main_bin_path: &Path,
     project_name: &str,
@@ -307,34 +278,26 @@ pub fn concatenate_linked_bins(
         main_bin_path.display()
     );
 
-    // 1. Load + parse main BIN ONCE. The previous code parsed it twice —
-    // once here, then again before the linked-list update (step 4) — for
-    // no reason: create_concat_bin writes a NEW file, it doesn't mutate
-    // the main BIN. We just keep the parsed struct and update it in place.
     let data = fs::read(main_bin_path).map_err(|e| Error::io_with_path(e, main_bin_path))?;
     let mut main_bin = read_bin(&data)
         .map_err(|e| Error::InvalidInput(format!("Failed to parse main BIN: {}", e)))?;
-    drop(data); // free the raw bytes — we'll re-encode from the parsed struct
+    drop(data);
 
     tracing::debug!("Original linked paths:");
     for (i, path) in main_bin.linked.iter().enumerate() {
         tracing::debug!("  [{}] {} - {:?}", i, path, classify_bin(path));
     }
 
-    // 2. Create and save concat BIN (create_concat_bin only reads main_bin,
-    // doesn't mutate it).
     let result = create_concat_bin(&main_bin, project_name, creator_name, champion, content_base, path_mappings)?;
 
     tracing::info!("Created concat BIN: {}", result.concat_path);
 
-    // 3. Update main BIN's linked list and re-write — no second disk read.
     update_main_bin_links(&mut main_bin, result.concat_path.clone())?;
     let updated_data = write_bin(&main_bin)
         .map_err(|e| Error::InvalidInput(format!("Failed to write updated BIN: {}", e)))?;
     fs::write(main_bin_path, updated_data).map_err(|e| Error::io_with_path(e, main_bin_path))?;
     tracing::info!("Updated main BIN linked list: {}", main_bin_path.display());
 
-    // 5. Delete the original Type 3 BINs that were concatenated
     let mut deleted_count = 0;
     for source_path in &result.source_paths {
         let full_path = content_base.join(source_path);

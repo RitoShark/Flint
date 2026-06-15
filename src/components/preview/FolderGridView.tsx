@@ -1,19 +1,3 @@
-/**
- * Flint - Folder Grid View
- *
- * The "custom file explorer". When a folder is selected in the project
- * tree (left panel), this is what renders in the right-hand preview
- * panel: a grid of cards for the immediate children of that folder.
- *
- * - Texture children (.dds / .tex / .png / .jpg) get a small thumbnail
- *   decoded once and cached in the existing image cache.
- * - Other files show their type icon.
- * - Single click on a child = select it (drives the rest of the preview
- *   pipeline). Folders navigate "into" by updating the active tab's
- *   selectedFile to the child's relative path.
- * - Double click on a texture opens the full-resolution image modal.
- */
-
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useProjectTabStore, useAppMetadataStore, useModalStore, useNotificationStore, useConfigStore, useNavigationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
@@ -22,13 +6,8 @@ import { getCachedImage, cacheImage } from '../../lib/ui-helpers/imageCache';
 import { buildFileContextMenuOptions } from '../../lib/editor/fileContextMenuOptions';
 
 interface FolderGridViewProps {
-    /** Absolute path of the folder being shown. */
     folderAbsPath: string;
-    /** Project root (absolute) used to compute relative paths for the VFS. */
     projectPath: string;
-    /** Project-relative form of `folderAbsPath` — what's stored in the
-     *  active tab's `selectedFile` field. Used to compute the parent
-     *  folder for the "up" button. */
     folderRelPath: string;
 }
 
@@ -40,10 +19,6 @@ const formatBytes = (bytes: number): string => {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-/**
- * Card sizing — bumped up from the original 120px so the icons aren't
- * tiny. Ctrl+scroll inside the grid scales this between MIN and MAX.
- */
 const CARD_SIZE_DEFAULT = 160;
 const CARD_SIZE_MIN = 96;
 const CARD_SIZE_MAX = 320;
@@ -57,7 +32,6 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
     const [entries, setEntries] = useState<api.FolderEntry[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    /** Card minimum width in CSS px. Drives the grid template + thumbnail size. */
     const [cardSize, setCardSize] = useState(CARD_SIZE_DEFAULT);
 
     const activeTabId = useProjectTabStore((s) => s.activeTabId);
@@ -86,22 +60,16 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
                 isDirectory: entry.is_directory,
             },
             projectPath,
-            // FolderGridView always shows children of a folder, so the
-            // displayed entries are never the project root — depth 1+.
             depth: 1,
             refreshFileTree,
             openModal,
             openConfirmDialog,
             showToast,
             leaguePath,
-            // Inline rename isn't wired up in the grid yet; omit so the
-            // option doesn't show up as a no-op.
         });
         openContextMenu(e.clientX, e.clientY, options);
     };
 
-    // Ctrl+scroll → resize cards. Stays within MIN/MAX. Plain scroll
-    // (no Ctrl) falls through to the container's normal scroll.
     const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
         if (!e.ctrlKey && !e.metaKey) return;
         e.preventDefault();
@@ -111,8 +79,6 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
         });
     };
 
-    // Refetch when the folder changes or the watcher signals a tree-level
-    // change (file added / removed under this directory).
     useEffect(() => {
         let cancelled = false;
         setLoading(true);
@@ -139,7 +105,6 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
         setSelectedFile(activeTabId, relPath);
     };
 
-    // Parent folder for the "up" button. Empty string = no parent.
     const parentRel = useMemo(() => {
         if (!folderRelPath) return null;
         const idx = folderRelPath.replace(/\\/g, '/').lastIndexOf('/');
@@ -149,7 +114,6 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-            {/* Breadcrumb / up nav */}
             <div
                 style={{
                     display: 'flex',
@@ -198,7 +162,6 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
                 </span>
             </div>
 
-            {/* Grid — Ctrl+scroll resizes cards. */}
             <div
                 style={{ flex: 1, overflow: 'auto', padding: '12px' }}
                 onWheel={handleWheel}
@@ -291,18 +254,12 @@ const FolderGridCard: React.FC<FolderGridCardProps> = ({ entry, cardSize, onClic
     const cardRef = useRef<HTMLButtonElement>(null);
     const [inView, setInView] = useState(false);
 
-    // Cache hit short-circuits before any observer setup — visible or not,
-    // if the data is already there we render it immediately.
     useEffect(() => {
         if (!isTexture) return;
         const cached = getCachedImage(entry.absolute_path);
         if (cached) setThumbnail(cached as string);
     }, [isTexture, entry.absolute_path]);
 
-    // IntersectionObserver — only fire decode IPC for textures actually
-    // scrolled into view. Folders with hundreds of textures used to kick
-    // off every decode at once on mount; this caps work to what the user
-    // is looking at, plus a 200px rootMargin so scrolling stays smooth.
     useEffect(() => {
         if (!isTexture || thumbnail) return;
         const el = cardRef.current;
@@ -323,8 +280,6 @@ const FolderGridCard: React.FC<FolderGridCardProps> = ({ entry, cardSize, onClic
         return () => obs.disconnect();
     }, [isTexture, thumbnail]);
 
-    // Decode once the card has been seen. Cache the result so revisits +
-    // adjacent components share work.
     useEffect(() => {
         if (!isTexture || !inView || thumbnail) return;
         let cancelled = false;
@@ -343,8 +298,7 @@ const FolderGridCard: React.FC<FolderGridCardProps> = ({ entry, cardSize, onClic
                 cacheImage(entry.absolute_path, url);
                 setThumbnail(url);
             } catch {
-                // Decode failure → falls back to icon. No toast — would be
-                // noisy in folders with many bad/unsupported textures.
+                // Decode failure falls back to the icon.
             }
         })();
         return () => { cancelled = true; };
@@ -397,11 +351,6 @@ const FolderGridCard: React.FC<FolderGridCardProps> = ({ entry, cardSize, onClic
                         }}
                     />
                 ) : (
-                    // Icon size scales with the card so the SVG is
-                    // readable at every zoom level. The CSS rule
-                    // `.file-tree__icon svg` constrains size by default;
-                    // bypass it here by writing dimensions directly into
-                    // the wrapper and letting the inner SVG inherit.
                     <span
                         style={{
                             width: `${Math.round(cardSize * 0.55)}px`,
@@ -411,10 +360,6 @@ const FolderGridCard: React.FC<FolderGridCardProps> = ({ entry, cardSize, onClic
                             justifyContent: 'center',
                         }}
                         ref={(el) => {
-                            // Force the embedded SVG to fill the wrapper.
-                            // dangerouslySetInnerHTML with size attrs on
-                            // the SVG would override these; ref-based
-                            // post-mutate dodges that.
                             if (!el) return;
                             const svg = el.querySelector('svg');
                             if (svg) {

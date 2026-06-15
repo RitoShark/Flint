@@ -1,12 +1,3 @@
-/**
- * paintEngine.ts — pure projection-painting math (no Babylon/DOM deps).
- *
- * Composites brush dabs into per-texture RGBA buffers: blend modes, soft brush
- * falloff, round-dab stamping, stroke interpolation, UV→texel mapping, and
- * edge-dilation (paint bled past UV-island edges so seams don't leave a line).
- * MapPreview wires pointer picks (→ texture + UV) to these.
- */
-
 export type BlendMode = 'Normal' | 'Dodge' | 'Multiply';
 
 /** Texels with alpha below this are cutout transparent/edge texels (dark/garbage
@@ -58,8 +49,8 @@ export function falloff(dist: number, radius: number, hardness = 0.5): number {
 /**
  * Accumulate a round dab into a per-stroke COVERAGE mask (0..1 per texel) using
  * MAX, not addition — so overlapping dabs WITHIN one stroke don't compound into
- * a blow-out (the Dodge-goes-white / blobby-puddle bug). The mask is clamped to
- * `opacity` (the stroke's ceiling); `flow` scales how strongly each dab builds.
+ * a blow-out. The mask is clamped to `opacity` (the stroke's ceiling); `flow`
+ * scales how strongly each dab builds.
  */
 export function stampMask(
     mask: Float32Array, w: number, h: number,
@@ -103,10 +94,9 @@ export function compositeMask(
         if (base0[o + 3] < SOLID_ALPHA) continue;
         for (let c = 0; c < 3; c++) {
             const b = base0[o + c];
-            const blended = blendChannel(mode, b, color[c], 1); // full blend...
-            out[o + c] = Math.round(b + (blended - b) * cov);   // lerp by coverage
+            const blended = blendChannel(mode, b, color[c], 1);
+            out[o + c] = Math.round(b + (blended - b) * cov);
         }
-        // alpha untouched.
     }
 }
 
@@ -145,8 +135,8 @@ export function strokeDabs(a: [number, number], b: [number, number], radius: num
     return out;
 }
 
-/** Bleed RGB from opaque texels into adjacent transparent ones, `passes` rings.
- *  Mirrors the alpha-bleed fix; keeps paint from cutting off at island edges. */
+/** Bleed RGB from opaque texels into adjacent transparent ones, `passes` rings,
+ *  so paint doesn't cut off at UV-island edges. */
 export function edgeDilate(buf: Uint8Array, w: number, h: number, passes = 4): void {
     const N = w * h;
     const filled = new Uint8Array(N);

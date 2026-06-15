@@ -1,13 +1,6 @@
 /**
- * Shared helpers and constants used across NewProjectModal's wizard steps.
- */
-
-/**
- * Deflate compression using the browser's native CompressionStream.
- *
- * IMPORTANT: use 'deflate-raw' (RFC 1951, no header/trailer), NOT 'deflate'
- * (which outputs zlib format / RFC 1950 with a 2-byte header + Adler-32).
- * Rust's flate2::read::DeflateDecoder expects raw deflate.
+ * Use 'deflate-raw' (RFC 1951, no header/trailer), NOT 'deflate' (zlib / RFC 1950
+ * with a 2-byte header + Adler-32). Rust's flate2::read::DeflateDecoder expects raw deflate.
  */
 export async function compressDeflate(data: Uint8Array): Promise<Uint8Array> {
     const stream = new Response(data as any).body!

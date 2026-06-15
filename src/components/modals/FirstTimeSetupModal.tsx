@@ -1,11 +1,3 @@
-/**
- * Flint — First-Time Setup Wizard
- * --------------------------------
- * Full-screen onboarding flow with animated background, the real Flint
- * flame mark, and a multi-step wizard that captures the same data the
- * Settings → Paths tab does so the user lands ready to mod.
- */
-
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useModalStore, useNotificationStore, useConfigStore, useUxStore } from '../../lib/stores';
 import * as api from '../../lib/api';
@@ -23,9 +15,6 @@ interface Step {
     short: string;
 }
 
-/* Splash is rendered as a full-bleed pre-step (no stepper, no nav). The
-   visible stepper begins at Theme, so the user feels like step 1 of 4 starts
-   *after* they hit "Get Started" — same pattern as celestial. */
 const STEPS: Step[] = [
     { id: 'splash',   short: '',         title: '',                              subtitle: '' },
     { id: 'theme',    short: 'Theme',    title: 'Pick a vibe',                   subtitle: 'Choose an accent and surface style. Tweakable later in Settings.' },
@@ -81,7 +70,6 @@ export const FirstTimeSetupModal: React.FC = () => {
     const step = STEPS[stepIndex];
     const isLast = stepIndex === STEPS.length - 1;
 
-    // Live-apply accent + glass so the user sees the choice on the wizard itself.
     useEffect(() => {
         if (!isVisible) return;
         ux.setAccentPrimary(accentChoice);
@@ -95,22 +83,16 @@ export const FirstTimeSetupModal: React.FC = () => {
     const advance = () => { setDirection(1); setStepIndex((i) => Math.min(STEPS.length - 1, i + 1)); };
     const back    = () => { setDirection(-1); setStepIndex((i) => Math.max(0, i - 1)); };
 
-    /* Resolve Flint's app-home folder once and use it as the default project
-       path placeholder if the user hasn't set one. Lets the user see exactly
-       where their mods will land before they hit Continue. */
     useEffect(() => {
         if (!isVisible || flintHome) return;
         api.getAppHome().then((home) => {
             const sep = home.includes('\\') ? '\\' : '/';
             const guess = `${home.replace(/[\\/]+$/, '')}${sep}projects`;
             setFlintHome(guess);
-            // Pre-fill the project path field if the user hasn't set one yet.
             setDefaultProjectPath((prev) => prev || guess);
         }).catch(() => { /* non-fatal */ });
     }, [isVisible, flintHome]);
 
-    /* Seed the 5 built-in preset themes on disk so the theme picker can bind
-       to real `themes/<id>.json` files via the existing setSelectedTheme path. */
     useEffect(() => {
         if (!isVisible) return;
         api.seedBuiltinThemes().catch((err) => {
@@ -118,15 +100,11 @@ export const FirstTimeSetupModal: React.FC = () => {
         });
     }, [isVisible]);
 
-    /* ONE global "Auto-detect everything" — fires League, PBE (parented to the
-       newly-detected live install), and LTK Manager in parallel. Shows a
-       single combined toast at the end. */
     const detectAll = async () => {
         setDetectingAll(true);
         const results: string[] = [];
         const failures: string[] = [];
         try {
-            // 1) League first — needed to seed PBE candidates
             let detectedLeague = leaguePath;
             try {
                 const r = await api.detectLeague();
@@ -139,7 +117,6 @@ export const FirstTimeSetupModal: React.FC = () => {
                 }
             } catch { failures.push('League'); }
 
-            // 2) PBE next to whichever League path we know about
             if (detectedLeague) {
                 const parent = detectedLeague.replace(/[\\/][^\\/]+$/, '');
                 const candidates = [
@@ -164,9 +141,6 @@ export const FirstTimeSetupModal: React.FC = () => {
                 failures.push('PBE');
             }
 
-            // 3) Launchers — single IPC call probes both in parallel on the
-            //    Rust side (and also fills jade/quartz which the modal
-            //    surfaces elsewhere).
             const ext = await api.detectExternalApps().catch(() => ({
                 jade: null, quartz: null, ltk_manager: null, celestial: null,
             }));
@@ -182,8 +156,6 @@ export const FirstTimeSetupModal: React.FC = () => {
                 setCelestialPath(celFound);
                 results.push('Celestial');
             }
-            // Pick a default launcher: keep the existing choice; else prefer
-            // Celestial (our priority launcher) when found, then LTK.
             setPreferredLauncher((prev) => prev ?? (celFound ? 'celestial' : ltkFound ? 'ltk' : null));
 
             if (results.length === 0) {
@@ -224,7 +196,6 @@ export const FirstTimeSetupModal: React.FC = () => {
             }
         }
 
-        // Persist paths via direct store calls.
         config.setCreatorName(creatorName.trim());
         config.setCreatorDescription(creatorDescription.trim() || null);
         config.setLeaguePath(leaguePath || null);
@@ -249,17 +220,12 @@ export const FirstTimeSetupModal: React.FC = () => {
 
     if (!isVisible) return null;
 
-    /* Stepper navigation: let users jump back to any visited step (current or
-       earlier). Going forward stays gated by the Continue button so we don't
-       skip required validation. */
     const goToStep = (i: number) => {
         if (i > stepIndex) return;
         setDirection(i > stepIndex ? 1 : -1);
         setStepIndex(i);
     };
 
-    /* Splash takes over the whole shell — no stepper, no nav, just the logo
-       and a single CTA. Mirrors celestial's intro pattern. */
     if (step.id === 'splash') {
         return (
             <div className="fwiz" role="dialog" aria-modal="true" aria-label="First-time setup">
@@ -270,7 +236,6 @@ export const FirstTimeSetupModal: React.FC = () => {
         );
     }
 
-    /* Real steps start at index 1 (Theme). Stepper excludes the splash. */
     const visibleSteps = STEPS.slice(1);
     const visibleIndex = stepIndex - 1;
     const visibleTotal = visibleSteps.length;
@@ -357,7 +322,6 @@ export const FirstTimeSetupModal: React.FC = () => {
                         Back
                     </Button>
                     <div className="fwiz__nav-spacer" />
-                    {/* Step counter — small, monospace, sits next to CTA */}
                     <span className="fwiz__nav-counter">
                         {String(visibleIndex + 1).padStart(2, '0')}<span> / {visibleTotal}</span>
                     </span>
@@ -390,9 +354,9 @@ export const FirstTimeSetupModal: React.FC = () => {
 const SplashPane: React.FC<{ onStart: () => void }> = ({ onStart }) => {
     const [stage, setStage] = useState<'in' | 'hold' | 'out'>('in');
     useEffect(() => {
-        const t1 = setTimeout(() => setStage('hold'), 1100);   // logo + text settled
-        const t2 = setTimeout(() => setStage('out'),  3000);   // begin zoom-fade
-        const t3 = setTimeout(() => onStart(),        3700);   // hand off when fade finishes
+        const t1 = setTimeout(() => setStage('hold'), 1100);
+        const t2 = setTimeout(() => setStage('out'),  3000);
+        const t3 = setTimeout(() => onStart(),        3700);
         return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
     }, [onStart]);
 
@@ -408,9 +372,6 @@ const SplashPane: React.FC<{ onStart: () => void }> = ({ onStart }) => {
         >
             <div className="fwiz-splash__logo" aria-hidden="true">
                 <span className="fwiz-splash__logo-glow" />
-                {/* Single-tone silhouette flame — currentColor everywhere, with
-                    the inner cut-out at lower alpha so it reads as depth rather
-                    than a hole. No white core. */}
                 <svg width="118" height="118" viewBox="0 0 24 24">
                     <path
                         d="M12 2C8.5 6 8 10 8 12c0 3.5 1.5 6 4 8 2.5-2 4-4.5 4-8 0-2-.5-6-4-10z"
@@ -629,9 +590,7 @@ const IdentityPane: React.FC<{
 
 interface PathRowProps {
     icon: IconName;
-    /** Optional image asset path; when set, renders instead of the named Icon. */
     logoSrc?: string;
-    /** Optional brand color for the logo frame glow + connected glow. */
     logoColor?: string;
     badge?: string;
     label: string;
@@ -732,7 +691,6 @@ const PathsPane: React.FC<{
     const progress = (filledCount / 4) * 100;
     return (
     <div className="fwiz-paths">
-        {/* One global auto-detect — fills League, PBE, LTK Manager, and Celestial. */}
         <div className="fwiz-paths__bar">
             <div className="fwiz-paths__bar-text">
                 <strong>Find everything for me</strong>
@@ -790,8 +748,6 @@ const PathsPane: React.FC<{
             hint="Lets Flint pull pre-release champion BINs and assets."
         />
 
-        {/* Launcher picker — LTK Manager or Celestial. The user can keep both
-            paths set and swap their preferred sync target. */}
         <LauncherPicker
             ltk={p.ltk}
             celestial={p.celestial}
@@ -819,8 +775,6 @@ const LauncherPicker: React.FC<{
     onBrowseLtk: () => void;
     onBrowseCelestial: () => void;
 }> = ({ ltk, celestial, preferred, onPreferredChange, onLtk, onCelestial, onBrowseLtk, onBrowseCelestial }) => {
-    // Celestial first — it's the priority launcher, so it leads the picker and
-    // LTK Manager sits to its right.
     const launchers = [
         {
             id: 'celestial' as const,
@@ -912,11 +866,8 @@ const LauncherPicker: React.FC<{
     );
 };
 
-/* The 5 built-in theme presets. Flint is the *default* — it lives in
-   `index.css :root`, no JSON file exists for it. Picking the Flint card
-   calls `setSelectedTheme(null)` which clears any override and lets the
-   defaults take over. The other 4 bind to real `themes/<id>.json` files
-   seeded by `seed_builtin_themes` in src-tauri settings.rs. */
+/* Flint (id: null) is the default in `index.css :root`; selecting it clears
+   the override. The other 4 bind to `themes/<id>.json` files. */
 type ThemePreset = { id: string | null; name: string; bg: string; raised: string; accent: string };
 const THEME_PRESETS: ThemePreset[] = [
     { id: null,        name: 'Flint',     bg: '#0c0c10', raised: '#15151b', accent: '#EF4444' },
@@ -1090,7 +1041,6 @@ const FinishPane: React.FC<{
 
     return (
         <div className="fwiz-finish">
-            {/* Left — confirmed hero. Right — info grid. */}
             <div className="fwiz-finish__hero">
                 <div className="fwiz-finish__halo" aria-hidden="true">
                     <div className="fwiz-finish__check">

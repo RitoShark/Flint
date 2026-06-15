@@ -1,15 +1,9 @@
-/**
- * Notification Store
- * Manages toast notifications
- */
-
 import { create } from 'zustand';
 import type { Toast } from '../types';
 
 interface NotificationState {
   toasts: Toast[];
 
-  // Actions
   showToast: (type: Toast['type'], message: string, options?: { suggestion?: string; duration?: number }) => number;
   dismissToast: (id: number) => void;
 }
@@ -31,7 +25,6 @@ export const useNotificationStore = create<NotificationState>((set) => ({
 
     set((state) => ({ toasts: [...state.toasts, toast] }));
 
-    // Auto-dismiss. Errors stick around longer so users can actually read them.
     const defaultDuration = type === 'error' ? 12000 : type === 'warning' ? 8000 : 5000;
     const duration = options.duration !== undefined ? options.duration : defaultDuration;
     if (duration > 0) {

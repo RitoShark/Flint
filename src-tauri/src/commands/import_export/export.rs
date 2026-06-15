@@ -1,8 +1,3 @@
-//! Tauri commands for export operations
-//!
-//! These commands expose export and repathing functionality to the frontend.
-//! Builds proper WAD binary files for fantome export.
-
 use flint_ltk::repath::{organize_project, OrganizerConfig};
 use flint_ltk::ltk_types::{ModProject, ModProjectAuthor};
 use serde::{Deserialize, Serialize};
@@ -11,7 +6,6 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use tauri::Emitter;
 
-/// Metadata for export operations (received from frontend)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportMetadata {
     pub name: String,
@@ -20,7 +14,6 @@ pub struct ExportMetadata {
     pub description: String,
 }
 
-/// Result of export operation (sent to frontend)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportResult {
     pub success: bool,
@@ -30,7 +23,6 @@ pub struct ExportResult {
     pub message: String,
 }
 
-/// Result of repath operation (sent to frontend)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepathResultDto {
     pub success: bool,
@@ -41,14 +33,6 @@ pub struct RepathResultDto {
     pub message: String,
 }
 
-/// Repath a project's assets with a unique prefix
-///
-/// This modifies BIN file paths and relocates asset files to prevent conflicts.
-///
-/// # Arguments
-/// * `project_path` - Path to the project directory
-/// * `creator_name` - Creator name for prefix (e.g., "SirDexal")
-/// * `project_name` - Project name for prefix (e.g., "MyMod")
 #[tauri::command]
 pub async fn repath_project_cmd(
     project_path: String,
@@ -64,7 +48,6 @@ pub async fn repath_project_cmd(
     let creator = creator_name.unwrap_or_else(|| "bum".to_string());
     let project = project_name.unwrap_or_else(|| "mod".to_string());
 
-    // Emit start event
     let _ = app.emit("repath-progress", serde_json::json!({
         "status": "starting",
         "message": "Starting repathing..."
@@ -75,14 +58,13 @@ pub async fn repath_project_cmd(
         enable_repath: true,
         creator_name: creator.clone(),
         project_name: project.clone(),
-        champion: String::new(), // Champion not provided in direct repath call
+        champion: String::new(),
         target_skin_id: 0,
         cleanup_unused: true,
         wad_folder_override: None,
     };
 
     let result = tokio::task::spawn_blocking(move || {
-        // Empty mappings since this is a manual repath, not from extraction
         let path_mappings: HashMap<String, String> = HashMap::new();
         organize_project(&content_base, &config, &path_mappings)
     })
@@ -125,14 +107,6 @@ pub async fn repath_project_cmd(
     }
 }
 
-/// Export a project as a .fantome mod package (read-only, does NOT modify project)
-///
-/// # Arguments
-/// * `project_path` - Path to the project directory
-/// * `output_path` - Path where the .fantome file will be created
-/// * `champion` - Kept for API compat
-/// * `metadata` - Mod metadata
-/// * `auto_repath` - Ignored (kept for API compat, repathing is a separate operation)
 #[tauri::command]
 pub async fn export_fantome(
     project_path: String,
@@ -157,7 +131,6 @@ pub async fn export_fantome(
         "message": "Creating fantome package..."
     }));
 
-    // Read ModProject from mod.config.json (contains author from project creation)
     let mod_config_path = path.join("mod.config.json");
     let mod_project = if mod_config_path.exists() {
         let config_data = std::fs::read_to_string(&mod_config_path)
@@ -165,7 +138,6 @@ pub async fn export_fantome(
         serde_json::from_str::<ModProject>(&config_data)
             .map_err(|e| format!("Failed to parse mod.config.json: {}", e))?
     } else {
-        // Fallback: create from metadata if mod.config.json doesn't exist
         ModProject {
             name: slugify(&metadata.name),
             display_name: metadata.name.clone(),
@@ -219,7 +191,6 @@ pub async fn export_fantome(
     }
 }
 
-/// Helper function to export as a fantome package with proper WAD binaries
 fn export_with_ltk_fantome(
     project_path: &Path,
     output_path: &Path,
@@ -236,7 +207,6 @@ fn export_with_ltk_fantome(
     let content_base = project_path.join("content").join("base");
     let mut total_files = 0;
 
-    // Find all .wad.client directories and build proper WAD binaries for each
     for entry in std::fs::read_dir(&content_base)
         .map_err(|e| format!("Failed to read content/base: {}", e))?
     {
@@ -251,7 +221,6 @@ fn export_with_ltk_fantome(
         {
             let wad_name = path.file_name().unwrap().to_string_lossy().to_string();
 
-            // Count files for this WAD
             let file_count = walkdir::WalkDir::new(&path)
                 .into_iter()
                 .filter_map(|e| e.ok())
@@ -264,10 +233,8 @@ fn export_with_ltk_fantome(
                 .count();
             total_files += file_count;
 
-            // Build WAD binary from directory contents
             let wad_bytes = flint_ltk::export::build_wad_from_directory(&path)?;
 
-            // Write WAD binary into ZIP at WAD/{name}.wad.client
             let options = SimpleFileOptions::default()
                 .compression_method(zip::CompressionMethod::Stored);
             zip.start_file(format!("WAD/{}", wad_name), options)
@@ -279,7 +246,6 @@ fn export_with_ltk_fantome(
         }
     }
 
-    // Write META/info.json
     let info = serde_json::json!({
         "Name": mod_project.display_name,
         "Author": format_authors(&mod_project.authors),
@@ -298,11 +264,9 @@ fn export_with_ltk_fantome(
     )
     .map_err(|e| format!("Failed to write info.json: {}", e))?;
 
-    // Embed thumbnail as META/image.png if thumbnail.webp exists in project root
     let thumbnail_path = project_path.join("thumbnail.webp");
     if thumbnail_path.exists() {
         if let Ok(thumb_bytes) = std::fs::read(&thumbnail_path) {
-            // Decode webp and re-encode as PNG for fantome compatibility
             match image::load_from_memory(&thumb_bytes) {
                 Ok(img) => {
                     let mut png_buf = Vec::new();
@@ -317,7 +281,6 @@ fn export_with_ltk_fantome(
                     }
                 }
                 Err(_) => {
-                    // If not decodable as webp, try writing raw (might already be png)
                     let img_options = SimpleFileOptions::default()
                         .compression_method(zip::CompressionMethod::Deflated);
                     if zip.start_file("META/image.png", img_options).is_ok() {
@@ -339,7 +302,6 @@ fn export_with_ltk_fantome(
     Ok((total_files, total_size))
 }
 
-/// Format authors list to a single string
 fn format_authors(authors: &[ModProjectAuthor]) -> String {
     if authors.is_empty() {
         return "Unknown".to_string();
@@ -354,7 +316,6 @@ fn format_authors(authors: &[ModProjectAuthor]) -> String {
         .join(", ")
 }
 
-/// Get export preview (list of files that would be exported)
 #[tauri::command]
 pub async fn get_export_preview(project_path: String) -> Result<Vec<String>, String> {
     let path = PathBuf::from(&project_path);
@@ -368,7 +329,6 @@ pub async fn get_export_preview(project_path: String) -> Result<Vec<String>, Str
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| {
-            // Exclude testcuberenderer folders
             let path_str = e.path().to_string_lossy().to_lowercase();
             !path_str.contains("testcuberenderer") && e.path().is_file()
         })
@@ -383,11 +343,6 @@ pub async fn get_export_preview(project_path: String) -> Result<Vec<String>, Str
     Ok(files)
 }
 
-/// Export a project as a .modpkg mod package using ltk_modpkg
-///
-/// # Arguments
-/// * `project_path` - Path to the project directory
-/// * `output_path` - Path where the .modpkg file will be created
 #[tauri::command]
 pub async fn export_modpkg(
     project_path: String,
@@ -409,7 +364,6 @@ pub async fn export_modpkg(
         "message": "Creating modpkg package..."
     }));
 
-    // Read ModProject from mod.config.json
     let mod_config_path = path.join("mod.config.json");
     let mod_project = if mod_config_path.exists() {
         let config_data = std::fs::read_to_string(&mod_config_path)
@@ -460,12 +414,6 @@ pub async fn export_modpkg(
     }
 }
 
-/// Helper function to export using ltk_modpkg
-///
-/// Optimized: files are read on-demand during build (not pre-loaded into memory).
-/// Filters out `.ritobin` cache files and `testcuberenderer` debug assets.
-/// Embeds thumbnail if `thumbnail.webp` exists in project root.
-/// Reads champion info from `flint.json` for metadata.
 fn export_with_ltk_modpkg(
     project_path: &Path,
     output_path: &Path,
@@ -477,7 +425,6 @@ fn export_with_ltk_modpkg(
 
     let content_base = project_path.join("content").join("base");
 
-    // Collect file paths only (on-demand loading saves memory for large projects)
     let mut file_paths: HashMap<String, PathBuf> = HashMap::new();
 
     for entry in walkdir::WalkDir::new(&content_base)
@@ -501,11 +448,9 @@ fn export_with_ltk_modpkg(
 
     let file_count = file_paths.len();
 
-    // Parse version from string to semver::Version
     let version = semver::Version::parse(&mod_project.version)
         .unwrap_or_else(|_| semver::Version::new(1, 0, 0));
 
-    // Create metadata with correct field types
     let metadata = ModpkgMetadata {
         name: mod_project.name.clone(),
         display_name: mod_project.display_name.clone(),
@@ -524,13 +469,11 @@ fn export_with_ltk_modpkg(
         ..Default::default()
     };
 
-    // Build the modpkg - add base layer and chunks
     let mut builder = ModpkgBuilder::default()
         .with_metadata(metadata)
         .map_err(|e| format!("Failed to set metadata: {}", e))?
         .with_layer(ModpkgLayerBuilder::base());
 
-    // Embed thumbnail if it exists in project root
     let thumbnail_path = project_path.join("thumbnail.webp");
     if thumbnail_path.exists() {
         if let Ok(thumb_bytes) = std::fs::read(&thumbnail_path) {
@@ -541,7 +484,6 @@ fn export_with_ltk_modpkg(
         }
     }
 
-    // Add all files as chunks
     for path in file_paths.keys() {
         let chunk = ModpkgChunkBuilder::new()
             .with_path(path)
@@ -550,11 +492,9 @@ fn export_with_ltk_modpkg(
         builder = builder.with_chunk(chunk);
     }
 
-    // Create output file
     let mut output_file = File::create(output_path)
         .map_err(|e| format!("Failed to create output file: {}", e))?;
 
-    // Build to writer — files are read on-demand to minimize memory usage
     builder.build_to_writer(&mut output_file, |chunk_builder, cursor| {
         if let Some(file_path) = file_paths.get(&chunk_builder.path) {
             let data = std::fs::read(file_path).map_err(|e| {
@@ -574,7 +514,6 @@ fn export_with_ltk_modpkg(
     Ok((file_count, total_size))
 }
 
-/// Simple slugify function
 fn slugify(name: &str) -> String {
     name.chars()
         .map(|c| {

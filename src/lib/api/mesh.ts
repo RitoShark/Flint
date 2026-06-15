@@ -146,7 +146,6 @@ function decodeMeshPayload(buf: ArrayBuffer): SknMeshData | ScbMeshData {
     return scb;
 }
 
-/** Read and parse an SKN (skinned mesh) file for 3D preview. */
 export async function readSknMesh(path: string): Promise<SknMeshData> {
     const buf = await invokeCommand<ArrayBuffer>('read_skn_mesh', { path });
     const mesh = decodeMeshPayload(buf);
@@ -154,7 +153,6 @@ export async function readSknMesh(path: string): Promise<SknMeshData> {
     return mesh;
 }
 
-/** Read and parse an SCB/SCO (static mesh) file for 3D preview. */
 export async function readScbMesh(path: string): Promise<ScbMeshData> {
     const buf = await invokeCommand<ArrayBuffer>('read_scb_mesh', { path });
     const mesh = decodeMeshPayload(buf);
@@ -184,7 +182,6 @@ interface SklData {
     influences: number[];
 }
 
-/** Read and parse an SKL (skeleton) file for 3D preview. */
 export async function readSklSkeleton(path: string): Promise<SklData> {
     return invokeCommand('read_skl_skeleton', { path });
 }
@@ -217,17 +214,14 @@ export interface AnimationPose {
     joints: Record<number, JointTransform>;
 }
 
-/** Get list of available animations for a model. */
 export async function readAnimationList(sknPath: string): Promise<AnimationList> {
     return invokeCommand('read_animation_list', { sknPath });
 }
 
-/** Read and parse an animation file. */
 export async function readAnimation(path: string, basePath?: string): Promise<AnimationData> {
     return invokeCommand('read_animation', { path, basePath });
 }
 
-/** Resolve an asset path from a BIN file to an actual file path. */
 export async function resolveAssetPath(assetPath: string, binPath: string): Promise<string> {
     return invokeCommand('resolve_asset_path', { assetPath, binPath });
 }

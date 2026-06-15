@@ -1,15 +1,3 @@
-/**
- * UX Preferences Store
- * --------------------
- * Frontend-only UI preferences that don't need to round-trip through the
- * Rust settings file: glassmorphism toggle, FPS mode (kills animations),
- * custom accent color. Persists via localStorage so it survives reloads
- * but doesn't bloat FlintSettings.
- *
- * The store also owns the side effect that toggles `data-*` attributes on
- * <html>, so any consumer just needs to call the setter.
- */
-
 import { create } from 'zustand';
 
 const STORAGE_KEY = 'flint_ux_prefs_v1';
@@ -49,7 +37,7 @@ function readStorage(): Partial<UxPrefs> {
 function writeStorage(prefs: UxPrefs) {
     try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
-    } catch { /* quota exceeded — non-fatal */ }
+    } catch { /* non-fatal */ }
 }
 
 interface UxState extends UxPrefs {
@@ -82,7 +70,6 @@ export const useUxStore = create<UxState>()((set, get) => {
     };
 });
 
-/** Apply the prefs to the live document — toggles classes/attrs and CSS vars. */
 export function applyUxPrefs(prefs: UxPrefs) {
     const root = document.documentElement;
     root.dataset.glass = prefs.glassmorphism ? 'on' : 'off';
@@ -99,12 +86,11 @@ export function applyUxPrefs(prefs: UxPrefs) {
     }
 }
 
-/** Apply once at startup before React paints. */
 export function bootUxPrefs() {
     applyUxPrefs(useUxStore.getState());
 }
 
-/** Lighten/darken a hex by a percent (-100..100). Tiny, no deps. */
+/** Lighten/darken a hex by a percent (-100..100). */
 function shadeHex(hex: string, percent: number): string {
     const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
     if (!m) return hex;

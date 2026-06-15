@@ -10,7 +10,7 @@ describe('blendChannel', () => {
     });
     it('Dodge lightens and clamps to 255', () => {
         expect(blendChannel('Dodge', 200, 255, 1)).toBe(255);
-        expect(blendChannel('Dodge', 100, 0, 1)).toBe(100); // src 0 -> no change
+        expect(blendChannel('Dodge', 100, 0, 1)).toBe(100);
     });
 });
 
@@ -33,7 +33,6 @@ describe('strokeDabs', () => {
 describe('stampMask + compositeMask', () => {
     it('overlapping dabs use MAX (no buildup beyond opacity)', () => {
         const W = 4, H = 4, mask = new Float32Array(W * H);
-        // Two overlapping full-strength dabs at the same spot, opacity 0.6.
         stampMask(mask, W, H, 2, 2, 1, 1, 0.6, 1);
         stampMask(mask, W, H, 2, 2, 1, 1, 0.6, 1);
         // Center coverage is capped at opacity, not summed to 1.2.
@@ -43,13 +42,11 @@ describe('stampMask + compositeMask', () => {
         const W = 2, H = 2;
         const base = new Uint8Array([100, 100, 100, 255, 100, 100, 100, 255, 100, 100, 100, 255, 100, 100, 100, 255]);
         const base0 = new Uint8Array(base);
-        const mask = new Float32Array(W * H).fill(0.5); // 50% coverage everywhere
+        const mask = new Float32Array(W * H).fill(0.5);
         compositeMask(base, base0, mask, W, H, 'Dodge', [128, 128, 128]);
-        // compositeMask = lerp(base, fullBlend, coverage): blend fully then lerp.
         const full = blendChannel('Dodge', 100, 128, 1);
         const expected = Math.round(100 + (full - 100) * 0.5);
         expect(base[0]).toBe(expected);
-        // Idempotent: compositing again from base0 gives the same value.
         compositeMask(base, base0, mask, W, H, 'Dodge', [128, 128, 128]);
         expect(base[0]).toBe(expected);
     });
@@ -58,8 +55,8 @@ describe('stampMask + compositeMask', () => {
 describe('edgeDilate', () => {
     it('bleeds opaque RGB into adjacent transparent texels, alpha kept', () => {
         const W = 3, H = 1, buf = new Uint8Array(W * H * 4);
-        buf[0] = 10; buf[1] = 200; buf[2] = 40; buf[3] = 255; // (0,0) opaque green
-        buf[4] = 255; buf[5] = 255; buf[6] = 255; buf[7] = 0; // (1,0) transparent white
+        buf[0] = 10; buf[1] = 200; buf[2] = 40; buf[3] = 255;
+        buf[4] = 255; buf[5] = 255; buf[6] = 255; buf[7] = 0;
         buf[8] = 255; buf[9] = 255; buf[10] = 255; buf[11] = 0;
         edgeDilate(buf, W, H, 1);
         expect(buf[4]).toBe(10);

@@ -192,7 +192,6 @@ export async function forgetProject(projectsRoot: string, pid: string): Promise<
     return invokeCommand('forget_project', { projectsRoot, pid });
 }
 
-// Backend file tree entry format
 interface BackendFileEntry {
     path: string;
     size?: number;
@@ -252,10 +251,7 @@ export async function listProjectFiles(projectPath: string): Promise<FileTreeNod
     return transformFileTree(rawTree, 'Project');
 }
 
-/**
- * Batched existence check for project directories. Used by `cleanStaleProjects`
- * at startup — replaces N IPC calls with one.
- */
+/** Batched existence check for project directories. */
 export async function projectsPathValid(projectPaths: string[]): Promise<boolean[]> {
     if (projectPaths.length === 0) return [];
     return invokeCommand('projects_path_valid', { projectPaths });
@@ -287,10 +283,6 @@ export async function listProjectLayers(projectPath: string): Promise<string[]> 
     return invokeCommand('list_project_layers', { projectPath });
 }
 
-/**
- * Combined "open + list" — single IPC call replacing the prior
- * openProject() + listProjectFiles() sequence in FileTree.handleOpenProject.
- */
 export interface OpenProjectWithTreeResult {
     project: Project;
     fileTree: FileTreeNode;

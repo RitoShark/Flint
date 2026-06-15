@@ -6,19 +6,13 @@
 //!   DDS → decode top mipmap to RGBA → encode as TEX (format matched from
 //!         the source DDS FourCC) → write `<basename>.tex` alongside.
 //!
-//! Mipmaps are intentionally disabled in both output paths — matches the
-//! existing recolor pipeline. See `commands::file::recolor_single_file`
-//! for the in-depth reasoning (League rejects partial mip chains; encoder
-//! mip walkers also under-encode sub-block sizes).
+//! Mipmaps are disabled in both output paths — League rejects partial mip
+//! chains.
 //!
-//! Both commands return the absolute path of the new file. They never
-//! delete the source — caller (frontend or fixer) decides whether to
-//! remove the original after the conversion is verified.
+//! Both commands return the absolute path of the new file and never delete
+//! the source.
 
 use ritoshark::prelude::*;
-// rs_io's `Serialize` (provides `.to_bytes()`) must be imported explicitly: the glob
-// above is suppressed by the `serde::Serialize` import below, so without this the
-// trait method isn't in scope.
 use ritoshark::prelude::Serialize as _;
 use ritoshark::tex::{TexFormat, Texture};
 use serde::{Deserialize, Serialize};
@@ -47,8 +41,7 @@ fn decode_to_clamped_rgba(data: &[u8]) -> Result<(image::RgbaImage, Texture), St
     if data.len() < 4 {
         return Err("File too small to be a valid texture".into());
     }
-    // RitoShark's `Texture` is a single struct with two constructors; branch on
-    // the 4-byte magic to pick the right one (TEX = b"TEX\0", DDS = b"DDS ").
+    // Branch on the 4-byte magic (TEX = b"TEX\0", DDS = b"DDS ").
     let texture = if &data[0..4] == b"DDS " {
         Texture::from_dds_bytes(data)
             .map_err(|e| format!("Failed to parse texture: {:?}", e))?
@@ -61,9 +54,7 @@ fn decode_to_clamped_rgba(data: &[u8]) -> Result<(image::RgbaImage, Texture), St
         .decode_rgba()
         .map_err(|e| format!("Failed to decode top mipmap: {:?}", e))?;
 
-    // Block-compression formats need dims divisible by 4. The recolor path
-    // does the same trim (see commands::file::recolor_single_file). We must
-    // do it here too so the destination encoder doesn't panic.
+    // Block-compression formats need dims divisible by 4 or the encoder panics.
     let (w, h) = rgba.dimensions();
     let cw = (w / 4) * 4;
     let ch = (h / 4) * 4;
@@ -76,10 +67,8 @@ fn decode_to_clamped_rgba(data: &[u8]) -> Result<(image::RgbaImage, Texture), St
 }
 
 /// Decode a DDS or TEX file's top mipmap to full RGBA with NO block-boundary
-/// crop. Used by the map preview, which uploads pixels straight to a Babylon
-/// RawTexture (never re-encodes), so the multiple-of-4 crop that
-/// `decode_to_clamped_rgba` applies for re-encoding is both unnecessary and
-/// would shift UVs. Returns the decoded RGBA image.
+/// crop (the map preview uploads pixels straight to a RawTexture, where the
+/// multiple-of-4 crop would shift UVs).
 pub(crate) fn decode_full_rgba(data: &[u8]) -> Result<image::RgbaImage, String> {
     if data.len() < 4 {
         return Err("File too small to be a valid texture".into());
@@ -114,12 +103,7 @@ pub async fn convert_tex_to_dds(path: String) -> Result<ConversionResult, String
 
     let (rgba, texture) = decode_to_clamped_rgba(&data)?;
 
-    // Pick a DDS format that matches the source TEX. We use whatever
-    // RitoShark parsed as its on-disk format — that's the most truthful
-    // mapping (BC1 source → BC1 destination, BC3 → BC3, etc.). Any format
-    // image_dds can't encode (ETC mobile formats, BC5/BC7, the alt/snorm
-    // variants) falls back to BC3, which preserves alpha and is widely
-    // supported.
+    // Match the source TEX format; anything image_dds can't encode falls back to BC3.
     let (dds_format, label) = match texture.format {
         TexFormat::Bc1 => (image_dds::ImageFormat::BC1RgbaUnorm, "BC1 (DXT1)"),
         TexFormat::Bc3 => (image_dds::ImageFormat::BC3RgbaUnorm, "BC3 (DXT5)"),
@@ -170,9 +154,7 @@ pub async fn convert_dds_to_tex(path: String) -> Result<ConversionResult, String
 
     let (rgba, _) = decode_to_clamped_rgba(&data)?;
 
-    // Read the DDS header again with ddsfile to look up the FourCC. We
-    // need the FourCC to pick the matching TEX format; the decoded RGBA
-    // image alone doesn't tell us the original on-disk format.
+    // The FourCC picks the matching TEX format; the RGBA buffer alone doesn't carry it.
     let mut cursor = Cursor::new(&data);
     let dds = ddsfile::Dds::read(&mut cursor)
         .map_err(|e| format!("Failed to parse DDS header: {}", e))?;
@@ -186,24 +168,17 @@ pub async fn convert_dds_to_tex(path: String) -> Result<ConversionResult, String
             (TexFormat::Bc3, "BC3 (default)")
         }
     } else {
-        // Uncompressed DDS — pick RGBA8 if we have alpha bits, else BC3
-        // for size. Headers without FourCC are rare for skin textures so
-        // we don't bend over backwards here.
         (TexFormat::Bgra8, "RGBA8")
     };
 
-    // RitoShark's `Texture::encode` only handles the block-compressed formats;
-    // build the uncompressed Bgra8 surface directly via `from_rgba_bgra8`.
+    // Texture::encode handles only block-compressed formats; build Bgra8 directly.
     let new_tex = match tex_format {
         TexFormat::Bgra8 => Texture::from_rgba_bgra8(&rgba),
         _ => Texture::encode(&rgba, tex_format, false)
             .map_err(|e| format!("Failed to encode TEX: {:?}", e))?,
     };
 
-    // RitoShark's writer emits `unknown1` (header byte 8) as 1; League's
-    // original TEX files use 0x01 for BC1/BC3. The recolor path patches this
-    // from the *source* TEX byte 8, but we don't have a source TEX here. Set
-    // it to 0x01 for BC1/BC3 (matches Riot's pattern) and 0x00 for RGBA8.
+    // Header byte 8: 0x01 for BC1/BC3 (Riot's pattern), 0x00 for RGBA8.
     let mut tex_bytes: Vec<u8> = new_tex
         .to_bytes()
         .map_err(|e| format!("Failed to encode TEX to buffer: {:?}", e))?;
@@ -333,8 +308,7 @@ pub async fn convert_dds_bytes_to_tex(
         TexFormat::Bgra8
     };
 
-    // RitoShark's `Texture::encode` only handles block-compressed formats;
-    // build the uncompressed Bgra8 surface directly via `from_rgba_bgra8`.
+    // Texture::encode handles only block-compressed formats; build Bgra8 directly.
     let new_tex = match tex_format {
         TexFormat::Bgra8 => Texture::from_rgba_bgra8(&rgba),
         _ => Texture::encode(&rgba, tex_format, false)

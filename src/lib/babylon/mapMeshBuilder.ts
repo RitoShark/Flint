@@ -3,21 +3,6 @@ import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
 import type { Scene } from '@babylonjs/core/scene';
 import type { SubmeshRange } from './meshBuilder';
 
-/**
- * Map geometry is huge — a full Summoner's Rift mapgeo decodes to ~2M verts
- * across ~600 submeshes. Building one Babylon Mesh per submesh (as the SKN
- * path does) creates 600 meshes / 600 ComputeNormals passes / 600 GPU buffers,
- * which on this scale spikes memory into the multiple-GB range and freezes the
- * window.
- *
- * Submeshes that share a texture are visually identical material-wise, so we
- * MERGE them: one Babylon Mesh per unique texture path (~180 instead of 600).
- * Each merged mesh gets its own compact, re-based vertex pool so GPU upload
- * stays small and ComputeNormals runs ~180 times, not 600.
- *
- * Returns the meshes plus, for each, the texture path it needs (or null when
- * the submesh had no material entry — rendered as a solid colour by the caller).
- */
 export interface MapGeometryInput {
     positions: Float32Array; // global pool, len = vertexCount*3
     uvs: Float32Array;       // global pool, len = vertexCount*2
@@ -200,7 +185,6 @@ function groupKey(materials: Record<string, string>, sm: SubmeshRange): string {
 export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapMesh[] {
     const { positions, uvs, indices, submeshes, materials } = input;
 
-    // Group submeshes by (layer, texture).
     const groups = new Map<string, SubmeshRange[]>();
     for (const sm of submeshes) {
         const key = groupKey(materials, sm);
@@ -212,7 +196,6 @@ export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapM
     const out: BuiltMapMesh[] = [];
 
     for (const [key, group] of groups) {
-        // Total sizes for this group.
         let totalVerts = 0;
         let totalIdx = 0;
         for (const sm of group) {
@@ -233,7 +216,6 @@ export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapM
             const vCount = sm.vertex_count;
             const iStart = sm.start_index;
             const iCount = sm.index_count;
-            // Span: this submesh's triangles occupy [iWrite/3, (iWrite+iCount)/3).
             spans.push({
                 name: sm.name,
                 texturePath: materials[sm.name] ?? null,
@@ -243,15 +225,13 @@ export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapM
                 globalIndexCount: iCount,
             });
 
-            // Copy this submesh's vertices into the group pool.
             for (let i = 0; i < vCount * 3; i++) gPos[vWrite * 3 + i] = positions[vStart * 3 + i];
             // UVs with V flipped (matches RawTexture invertY=true downstream).
             for (let i = 0; i < vCount * 2; i++) {
                 gUv[vWrite * 2 + i] =
                     i % 2 === 1 ? 1.0 - uvs[vStart * 2 + i] : uvs[vStart * 2 + i];
             }
-            // Re-base indices: global -> this submesh's local range, then offset
-            // by where the submesh landed in the group pool (vWrite).
+            // Re-base indices: global -> submesh-local range, then offset by vWrite.
             for (let i = 0; i < iCount; i++) {
                 gIdx[iWrite + i] = indices[iStart + i] - vStart + vWrite;
             }
@@ -269,7 +249,6 @@ export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapM
         vd.normals = normals;
         vd.uvs = gUv;
 
-        // key is "<layer>::<texturePath-or-__notex__name>".
         const sep = key.indexOf('::');
         const layer = parseInt(key.slice(0, sep), 10);
         const texPart = key.slice(sep + 2);

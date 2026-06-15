@@ -1,8 +1,3 @@
-/**
- * Champion Store
- * Manages cached champion data from Data Dragon
- */
-
 import { create } from 'zustand';
 import type { Champion } from '../types';
 
@@ -10,7 +5,6 @@ interface ChampionState {
   champions: Champion[];
   championsLoaded: boolean;
 
-  // Actions
   setChampions: (champions: Champion[]) => void;
   clearChampions: () => void;
 }

@@ -1,14 +1,7 @@
-/**
- * Virtualized list — renders only the rows visible in the scroll viewport.
- * Used by WadExplorer for both the main category/WAD/VFS tree and the
- * search-results view.
- *
- * The `renderEpoch` prop bumps whenever state that affects row visuals
- * (selection, checkboxes, expanded sets, highlights, …) changes. The memo'd
- * outer wrapper uses it as a cache-buster so visible rows re-render in
- * place — without this, `renderRow` is held in a ref and props look
- * identical, so React skips the update until a scroll mutates the list's
- * own state.
+/*
+ * The `renderEpoch` prop is a cache-buster for the memo'd wrapper: when row
+ * visuals change but `renderRow` is held in a ref (so props look identical),
+ * bumping the epoch forces visible rows to re-render in place.
  */
 
 import React from 'react';

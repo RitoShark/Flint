@@ -1,16 +1,3 @@
-/**
- * Flint — Audio Cutter Modal
- *
- * Real audio cutter with:
- *  - Draggable red bars on the waveform (direct manipulation, no sliders)
- *  - Playback cursor that animates during playback
- *  - Zoom (Ctrl+wheel or +/- buttons) with cursor-anchored zoom
- *  - Horizontal pan (wheel / drag empty space / scrollbar)
- *  - Time ruler
- *  - Play / Pause / Play selection
- *  - Apply trim: replaces the WEM with the selected range as PCM WAV
- */
-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as api from '../../lib/api';
 import type { AudioEntryInfo } from '../../lib/types';
@@ -69,7 +56,7 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
     // -----------------------------------------------------------------------
     // View state
     // -----------------------------------------------------------------------
-    const [zoom, setZoom] = useState(1);         // 1 = full fit
+    const [zoom, setZoom] = useState(1);
     const [scrollT, setScrollT] = useState(0);   // time at left edge, seconds
     const [canvasSize, setCanvasSize] = useState({ w: 800, h: 180 });
     const [cursorStyle, setCursorStyle] = useState<string>('default');
@@ -89,8 +76,6 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
 
     const duration = buffer?.duration ?? 0;
 
-    // Refs that mirror state values the keyboard handler reads — avoids
-    // stale-closure bugs where rapid Space presses miss state updates.
     const selectionRef = useRef(selection);
     const playheadRef = useRef(playhead);
     const durationRef = useRef(duration);
@@ -146,7 +131,6 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
         };
     }, [entry.id, filePath, bankBytes]);
 
-    // Invalidate peak cache when view changes (not currently used — kept for future LOD)
     useEffect(() => {
         peaksRef.current = null;
     }, [buffer, canvasSize.w, zoom, layout.clampedScrollT]);
@@ -193,23 +177,19 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, w, h);
 
-        // Background
         ctx.fillStyle = 'rgba(255,255,255,0.02)';
         ctx.fillRect(0, 0, w, h);
 
-        // Mid line
         ctx.strokeStyle = 'rgba(255,255,255,0.06)';
         ctx.beginPath();
         ctx.moveTo(0, h / 2);
         ctx.lineTo(w, h / 2);
         ctx.stroke();
 
-        // Accent color from theme
         const accent =
             getComputedStyle(document.documentElement).getPropertyValue('--accent-primary').trim() ||
             '#EF4444';
 
-        // Compute peaks for visible window only
         const visibleStartFrame = Math.max(0, Math.floor(layout.clampedScrollT * buffer.sampleRate));
         const visibleEndFrame = Math.min(
             buffer.length,
@@ -243,7 +223,6 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
         }
         ctx.globalAlpha = 1;
 
-        // Selection overlay
         const xStart = timeToX(selection.start);
         const xEnd = timeToX(selection.end);
         if (xEnd > 0 && xStart < w) {
@@ -253,11 +232,9 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
             ctx.fillRect(ox, 0, ow, h);
         }
 
-        // Edge handles (red bars) — always drawn if the selection exists, clamped to canvas
         drawHandle(ctx, xStart, h, w, accent, 'start');
         drawHandle(ctx, xEnd, h, w, accent, 'end');
 
-        // User anchor (white flagged line) — always visible, never moves during playback
         const pxAnchor = timeToX(playhead);
         if (pxAnchor >= 0 && pxAnchor <= w) {
             ctx.strokeStyle = 'rgba(255,255,255,0.85)';
@@ -275,7 +252,6 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
             ctx.fill();
         }
 
-        // Live playback indicator — only rendered while playing, doesn't affect anchor
         if (isPlaying) {
             const pxLive = timeToX(playbackPos);
             if (pxLive >= 0 && pxLive <= w) {
@@ -313,7 +289,6 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
         ctx.fillStyle = 'rgba(255,255,255,0.03)';
         ctx.fillRect(0, 0, w, RULER_HEIGHT);
 
-        // Pick a tick interval that gives ~60-120px between ticks
         const targetPx = 80;
         const targetSec = targetPx / layout.pxPerSec;
         const intervals = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60];
@@ -383,15 +358,10 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                 kind = 'pan';
             }
 
-            // Any waveform interaction (except pan) stops playback — so the
-            // user can place / drag the playhead without fighting the audio.
             if (kind !== 'pan' && sourceRef.current) {
                 stopPlayback();
             }
 
-            // For 'new' mode we DON'T touch the selection on mousedown — only
-            // on the first meaningful move. That way a plain click places the
-            // playhead instead of destroying the existing selection.
             dragRef.current = {
                 kind,
                 startClientX: e.clientX,
@@ -412,7 +382,6 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
         [buffer, selection, hitTest, xToTime, layout.clampedScrollT],
     );
 
-    // Global mousemove/up while dragging
     useEffect(() => {
         const CLICK_THRESHOLD = 6;
         const onMove = (e: MouseEvent) => {
@@ -435,7 +404,7 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
             } else if (drag.kind === 'cursor') {
                 setPlayhead(Math.max(0, Math.min(duration, t)));
             } else if (drag.kind === 'new') {
-                if (!drag.moved) return; // wait until we pass threshold
+                if (!drag.moved) return;
                 const a = Math.min(drag.startTime, t);
                 const b = Math.max(drag.startTime, t);
                 setSelection({
@@ -457,7 +426,6 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
         const onUp = () => {
             const drag = dragRef.current;
             if (!drag) return;
-            // Pure click (no drag) inside the waveform → place the playhead there
             if ((drag.kind === 'new' || drag.kind === 'selection' || drag.kind === 'cursor') && !drag.moved) {
                 const t = Math.max(0, Math.min(duration, drag.startTime));
                 setPlayhead(t);
@@ -488,17 +456,14 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
             if (e.ctrlKey || e.metaKey) {
                 const factor = e.deltaY > 0 ? 1 / 1.15 : 1.15;
                 const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * factor));
-                // Anchor zoom on cursor: keep t under cursor stable
                 const tUnder = xToTime(x);
                 setZoom(newZoom);
-                // After zoom, solve for scrollT that keeps tUnder at x
                 const newViewDuration = duration / newZoom;
                 const newPxPerSec = canvasSize.w / newViewDuration;
                 const newScroll = tUnder - x / newPxPerSec;
                 const maxScroll = Math.max(0, duration - newViewDuration);
                 setScrollT(Math.min(Math.max(newScroll, 0), maxScroll));
             } else {
-                // Horizontal pan
                 const delta = (e.deltaY + e.deltaX) / layout.pxPerSec;
                 const maxScroll = Math.max(0, duration - layout.viewDuration);
                 setScrollT((prev) => Math.min(Math.max(prev + delta, 0), maxScroll));
@@ -570,7 +535,6 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
         [buffer, duration, stopPlayback],
     );
 
-    // Unmount cleanup
     useEffect(() => () => stopPlayback(), [stopPlayback]);
 
     // -----------------------------------------------------------------------
@@ -625,8 +589,6 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
             } else if (e.code === 'Space') {
                 e.preventDefault();
                 e.stopPropagation();
-                // Critical: stop the parent BnkPreview keydown handler from
-                // ALSO running (both are on window; both would play audio).
                 e.stopImmediatePropagation();
                 if (document.activeElement && document.activeElement !== document.body) {
                     (document.activeElement as HTMLElement).blur();
@@ -645,9 +607,6 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                 setScrollT(0);
             }
         };
-        // Capture phase so this handler runs BEFORE BnkPreview's keydown
-        // handler (both live on window); stopImmediatePropagation then cuts
-        // the parent off for the same event.
         window.addEventListener('keydown', onKey, true);
         return () => window.removeEventListener('keydown', onKey, true);
     }, [toggleSpace, toggleShiftSpace, applying, onClose]);
@@ -720,7 +679,6 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
         const trackW = rect.width;
         const mode = scrollbarHitTest(startX);
 
-        // Clicking outside thumb: recenter thumb at click, stay in pan mode
         if (mode === 'track') {
             const targetX = Math.max(0, Math.min(trackW - origThumbW, startX - origThumbW / 2));
             const ratio = trackW - origThumbW > 0 ? targetX / (trackW - origThumbW) : 0;
@@ -758,7 +716,6 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                 const newView = (newW / trackW) * duration;
                 const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, duration / newView));
                 setZoom(newZoom);
-                // scrollT unchanged on right-edge drag
             }
         };
         const onUp = () => {
@@ -789,9 +746,6 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
     // -----------------------------------------------------------------------
     // Render
     // -----------------------------------------------------------------------
-    // Only close on a pure click ON the overlay — not a drag that started
-    // inside the modal (e.g. dragging the playhead) and released over the
-    // overlay. Track where the mousedown landed.
     const overlayDownRef = useRef(false);
 
     return (
@@ -886,7 +840,6 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                                     onDoubleClick={selectAll}
                                 />
                             </div>
-                            {/* Always-visible zoom scrollbar (Premiere-style) */}
                             <div
                                 style={{ ...styles.scrollbarTrack, cursor: sbCursor }}
                                 onMouseDown={onScrollbarMouseDown}
@@ -971,7 +924,6 @@ function drawHandle(
     _kind: 'start' | 'end',
 ) {
     ctx.save();
-    // Keep the grip fully visible: clamp draw x so 6-px grip never clips
     const gripX = Math.max(3, Math.min(w - 3, x));
     ctx.strokeStyle = accent;
     ctx.lineWidth = 2;
@@ -980,7 +932,6 @@ function drawHandle(
     ctx.lineTo(gripX + 0.5, h);
     ctx.stroke();
 
-    // Grab grip: two small squares at top/bottom
     ctx.fillStyle = accent;
     ctx.fillRect(gripX - 3, 0, 6, 10);
     ctx.fillRect(gripX - 3, h - 10, 6, 10);

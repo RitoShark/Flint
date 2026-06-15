@@ -1,11 +1,10 @@
 //! Download + decompress `lol-hashes-combined.zst` into the FrogTools
 //! hash directory shared with Quartz.
 //!
-//! Detection is layout-aware: if Quartz's split layout
-//! (`hashes-wad.lmdb` + `hashes-bin.lmdb`) is already populated in
-//! `%APPDATA%/FrogTools/hashes`, we keep using it and skip the download —
-//! both layouts contain identical named-DB content. Only when neither
-//! layout is present (or `force == true`) do we hit GitHub.
+//! If the split layout (`hashes-wad.lmdb` + `hashes-bin.lmdb`) is already
+//! populated in `%APPDATA%/FrogTools/hashes`, it's reused and the download is
+//! skipped. Only when neither layout is present (or `force == true`) does this
+//! hit GitHub.
 
 use crate::wad_jade::lmdb_hashes::unload_envs;
 use crate::error::{Error, Result};
@@ -23,9 +22,8 @@ const SPLIT_WAD_DIR: &str = "hashes-wad.lmdb";
 const SPLIT_BIN_DIR: &str = "hashes-bin.lmdb";
 const META_FILE_NAME: &str = "hashes-meta.json";
 
-/// Subset of `hashes-meta.json` we care about. Quartz writes the same
-/// shape and we deliberately leave unknown fields untouched on rewrite,
-/// so the two tools stay interoperable.
+/// Subset of `hashes-meta.json`. Unknown fields are preserved on rewrite
+/// (via `extra`) so other tools' state stays intact.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 struct HashesMeta {
     #[serde(rename = "releaseTag", skip_serializing_if = "Option::is_none")]
@@ -34,8 +32,7 @@ struct HashesMeta {
     updated_at: Option<String>,
     #[serde(rename = "lastCheckedAt", skip_serializing_if = "Option::is_none")]
     last_checked_at: Option<String>,
-    /// Captures any extra fields Quartz/other tools wrote so we round-trip
-    /// without nuking their state.
+    /// Captures any extra fields other tools wrote, to round-trip them.
     #[serde(flatten)]
     extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -79,10 +76,8 @@ pub struct HashUpdateStatus {
     pub layout_present: bool,
 }
 
-/// Fetch the latest release tag from `lmdb-hashes` and compare with the
-/// tag stored in our local `hashes-meta.json`. The "every-launch" auto-
-/// update mode runs this and only triggers a download when the tags
-/// differ — same fingerprint pattern Quartz uses.
+/// Fetch the latest release tag from `lmdb-hashes` and compare with the tag
+/// stored in the local `hashes-meta.json`.
 pub async fn check_for_hash_update(hash_dir: &Path) -> Result<HashUpdateStatus> {
     let meta = read_meta(hash_dir);
     let current_tag = meta.release_tag.clone().unwrap_or_default();
@@ -116,8 +111,6 @@ pub async fn check_for_hash_update(hash_dir: &Path) -> Result<HashUpdateStatus> 
         && !current_tag.is_empty()
         && latest_tag == current_tag;
 
-    // Persist the check timestamp so the UI can show "last checked" without
-    // forcing a second round-trip.
     let mut updated_meta = meta;
     updated_meta.last_checked_at = Some(now_iso());
     write_meta(hash_dir, &updated_meta);
@@ -134,10 +127,9 @@ pub async fn check_for_hash_update(hash_dir: &Path) -> Result<HashUpdateStatus> 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HashLayout {
     /// `hashes-wad.lmdb/data.mdb` AND `hashes-bin.lmdb/data.mdb` exist.
-    /// What Quartz writes — Jade reuses without downloading.
     Split,
-    /// `hashes-combined.lmdb/data.mdb` exists. What `lol-hashes-combined.zst`
-    /// decompresses to.
+    /// `hashes-combined.lmdb/data.mdb` exists (what `lol-hashes-combined.zst`
+    /// decompresses to).
     Combined,
     /// Neither layout has the required `data.mdb` file(s).
     Missing,
@@ -214,10 +206,9 @@ pub async fn download_combined_hashes(
 
     emit_progress(app, "downloading", "Downloading WAD+BIN hashes...", 0, 0);
 
-    // Resolve the release tag we're about to fetch in the same shot, so
-    // we can stamp it into hashes-meta.json after a successful download
-    // and let future fingerprint checks short-circuit. Falls back to "" if
-    // the API hiccups — the download still proceeds on the static URL.
+    // Resolve the release tag to stamp into hashes-meta.json after a
+    // successful download. Falls back to "" if the API hiccups — the download
+    // still proceeds on the static URL.
     let client = reqwest::Client::builder()
         .user_agent("Jade-WadHashes/1.0")
         .timeout(std::time::Duration::from_secs(120))
@@ -298,8 +289,6 @@ pub async fn download_combined_hashes(
     .await
     .map_err(|e| Error::Hash(format!("Decompress task failed: {}", e)))??;
 
-    // Record the new tag + timestamps so the every-launch fingerprint check
-    // skips re-download on the next start.
     let mut meta = read_meta(hash_dir);
     if !release_tag.is_empty() {
         meta.release_tag = Some(release_tag);

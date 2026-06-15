@@ -1,10 +1,3 @@
-/**
- * Flint - Checkpoint Timeline Component
- *
- * Shows project history with auto-diff on select, file change preview,
- * and progress tracking during checkpoint creation.
- */
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { useProjectTabStore, useAppMetadataStore, useNotificationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
@@ -12,13 +5,11 @@ import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { listen } from '@tauri-apps/api/event';
 import type { Checkpoint, CheckpointDiff, CheckpointProgress, CheckpointFileContent } from '../../lib/types';
 
-/** Helper to extract just the filename from a path */
 function getFileName(path: string): string {
     const parts = path.split('/');
     return parts[parts.length - 1] || path;
 }
 
-/** Format file size in human-readable form */
 function formatSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -38,17 +29,14 @@ export const CheckpointTimeline: React.FC = () => {
     const [diff, setDiff] = useState<CheckpointDiff | null>(null);
     const [isComparing, setIsComparing] = useState(false);
 
-    // Creation progress
     const [isCreating, setIsCreating] = useState(false);
     const [createProgress, setCreateProgress] = useState<CheckpointProgress | null>(null);
 
-    // File preview comparison
     const [previewFile, setPreviewFile] = useState<{ path: string; oldHash?: string; newHash?: string } | null>(null);
     const [previewOld, setPreviewOld] = useState<CheckpointFileContent | null>(null);
     const [previewNew, setPreviewNew] = useState<CheckpointFileContent | null>(null);
     const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
-    // Cache diffs per checkpoint ID so we can show summary on cards
     const [diffCache, setDiffCache] = useState<Record<string, CheckpointDiff>>({});
 
     const activeTab = activeTabId
@@ -56,7 +44,6 @@ export const CheckpointTimeline: React.FC = () => {
         : null;
     const currentProjectPath = activeTab?.projectPath || null;
 
-    // Listen for checkpoint progress events
     useEffect(() => {
         let unlisten: (() => void) | null = null;
         listen<CheckpointProgress>('checkpoint-progress', (event) => {
@@ -87,7 +74,6 @@ export const CheckpointTimeline: React.FC = () => {
         loadCheckpoints();
     }, [loadCheckpoints]);
 
-    // Auto-diff when a checkpoint is selected
     useEffect(() => {
         if (!selectedCheckpoint || !currentProjectPath) {
             setDiff(null);
@@ -110,13 +96,11 @@ export const CheckpointTimeline: React.FC = () => {
             return;
         }
 
-        // Use cached diff if available
         if (diffCache[selectedCheckpoint]) {
             setDiff(diffCache[selectedCheckpoint]);
             return;
         }
 
-        // Compute diff from previous checkpoint
         const prevId = checkpoints[idx + 1].id;
         setIsComparing(true);
         api.compareCheckpoints(currentProjectPath, prevId, selectedCheckpoint)
@@ -187,7 +171,6 @@ export const CheckpointTimeline: React.FC = () => {
         }
     };
 
-    // Load file preview for comparison
     const handleFileClick = async (filePath: string, oldHash?: string, newHash?: string) => {
         if (!currentProjectPath) return;
 
@@ -247,7 +230,6 @@ export const CheckpointTimeline: React.FC = () => {
                 </form>
             </div>
 
-            {/* Progress bar during creation */}
             {isCreating && createProgress && (
                 <div className="checkpoint-progress">
                     <div className="checkpoint-progress__info">
@@ -292,7 +274,6 @@ export const CheckpointTimeline: React.FC = () => {
                                             </span>
                                         </div>
 
-                                        {/* Tags */}
                                         {cp.tags.length > 0 && (
                                             <div className="checkpoint-item__tags">
                                                 {cp.tags.map(tag => (
@@ -301,7 +282,6 @@ export const CheckpointTimeline: React.FC = () => {
                                             </div>
                                         )}
 
-                                        {/* Change summary on card */}
                                         <div className="checkpoint-item__summary">
                                             {isInitial ? (
                                                 <span className="checkpoint-summary__initial">
@@ -414,7 +394,6 @@ export const CheckpointTimeline: React.FC = () => {
                                         )}
                                     </div>
 
-                                    {/* File preview comparison */}
                                     {previewFile && (
                                         <div className="checkpoint-preview">
                                             <div className="checkpoint-preview__header">
@@ -431,14 +410,12 @@ export const CheckpointTimeline: React.FC = () => {
                                                 <div className="checkpoint-preview__loading">Loading preview...</div>
                                             ) : (
                                                 <div className="checkpoint-preview__compare">
-                                                    {/* Old version */}
                                                     {previewFile.oldHash && (
                                                         <div className="checkpoint-preview__side">
                                                             <div className="checkpoint-preview__label checkpoint-preview__label--old">Before</div>
                                                             <PreviewContent content={previewOld} />
                                                         </div>
                                                     )}
-                                                    {/* New version */}
                                                     {previewFile.newHash && (
                                                         <div className="checkpoint-preview__side">
                                                             <div className="checkpoint-preview__label checkpoint-preview__label--new">After</div>
@@ -467,7 +444,6 @@ export const CheckpointTimeline: React.FC = () => {
     );
 };
 
-/** Render preview content based on type */
 const PreviewContent: React.FC<{ content: CheckpointFileContent | null }> = ({ content }) => {
     if (!content) {
         return <div className="checkpoint-preview__empty">Not available</div>;

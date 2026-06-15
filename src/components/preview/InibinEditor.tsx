@@ -1,11 +1,3 @@
-/**
- * Flint - Inibin Editor Component (Monaco Editor)
- *
- * Editable view for `.inibin` / `.cfgbin` files rendered as INI-style text.
- * v1 files are shown read-only with a banner; v2 files are fully editable
- * and can be saved back to binary via the Rust `save_inibin_text` command.
- */
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
@@ -32,17 +24,14 @@ export const InibinEditor: React.FC<InibinEditorProps> = ({ filePath }) => {
 
     const dirty = content !== originalContent;
 
-    // Subscribe to file version changes for hot reload (same pattern as BinEditor)
     const fileVersion = useAppMetadataStore((state) => {
         void state.fileVersionsRev;
         return state.getFileVersion(filePath);
     });
 
-    // Always-current snapshot, read in the unmount cleanup to persist the session.
     const latestRef = useRef({ content: '', originalContent: '', fileVersion: 0 });
     latestRef.current = { content, originalContent, fileVersion };
 
-    // Load: restore a cached session if valid, else decode from disk.
     useEffect(() => {
         const cached = editorSessionStore.get(filePath);
         if (cached && cached.fileVersion === fileVersion) {
@@ -73,10 +62,8 @@ export const InibinEditor: React.FC<InibinEditorProps> = ({ filePath }) => {
             });
 
         return () => { cancelled = true; };
-    // fileVersion is intentionally included to trigger reload on hot-reload events
     }, [filePath, fileVersion]);
 
-    // Create the Monaco editor once content is loaded; restore + snapshot session.
     useEffect(() => {
         if (loading || error || !containerRef.current) return;
 
@@ -167,7 +154,6 @@ export const InibinEditor: React.FC<InibinEditorProps> = ({ filePath }) => {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            {/* Toolbar */}
             <div style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -204,7 +190,6 @@ export const InibinEditor: React.FC<InibinEditorProps> = ({ filePath }) => {
                 )}
             </div>
 
-            {/* Monaco editor container */}
             <div ref={containerRef} style={{ flex: 1, minHeight: 0 }} />
         </div>
     );

@@ -1,13 +1,5 @@
-/**
- * Lazy-loaded BinEditor Component
- *
- * This component lazy-loads the Monaco Editor to reduce initial bundle size.
- * Monaco Editor is ~300KB and only needed when editing BIN files.
- */
-
 import { lazy, Suspense } from 'react';
 
-// Lazy load the BinEditor component (named export)
 const BinEditor = lazy(() => import('./BinEditor').then(module => ({ default: module.BinEditor })));
 
 interface LazyBinEditorProps {

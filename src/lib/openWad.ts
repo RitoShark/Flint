@@ -1,13 +1,6 @@
-/**
- * Open a WAD archive (`.wad` / `.wad.client` / `.client`) in the WAD extract
- * view. WADs are NOT previewable inline and must never reach the BIN editor —
- * the WAD reader handles the format and reads the table of contents instead of
- * loading the whole (often huge) archive into one allocation.
- */
 import * as api from './api';
 import { useWadExtractStore, useNavigationStore } from './stores';
 
-/** True if the path is a WAD archive file. */
 export function isWadPath(path: string): boolean {
     const p = path.toLowerCase();
     return p.endsWith('.wad') || p.endsWith('.wad.client') || p.endsWith('.client');

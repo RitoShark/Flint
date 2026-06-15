@@ -1,10 +1,3 @@
-/**
- * Flint - New Project Modal Component
- *
- * Uses DataDragon/CommunityDragon API for champion/skin selection.
- * Supports Skin Projects and Animated Loading Screen projects.
- */
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
@@ -26,7 +19,6 @@ import {
 } from '../../lib/data/spritesheet';
 import { Button, Icon, Picker } from '../ui';
 
-// Extracted small subcomponents and helpers - see ./new-project/ folder.
 import { compressDeflate, type ProjectType, SCALE_OPTIONS, FPS_OPTIONS } from './new-project/helpers';
 import { NameAndPathRow } from './new-project/NameAndPathRow';
 import { ChromaPreviewPopup } from './new-project/ChromaPreviewPopup';
@@ -40,10 +32,6 @@ export const NewProjectModal: React.FC = () => {
     const creatorName = useConfigStore((s) => s.creatorName);
     const leaguePath = useConfigStore((s) => s.leaguePath);
     const recentProjects = useConfigStore((s) => s.recentProjects);
-    // Subscribe to only the three config fields actually read in this file.
-    // `useConfigStore()` (no selector) re-rendered the modal on every config
-    // change anywhere — including unrelated fields like recentProjects that
-    // fire automatically after project creation completes.
     const configStore = useConfigStore(
         useShallow((s) => ({
             leaguePathPbe: s.leaguePathPbe,
@@ -56,22 +44,11 @@ export const NewProjectModal: React.FC = () => {
     const [projectPath, setProjectPath] = useState('');
     const [isCreating, setIsCreating] = useState(false);
     const [progress, setProgress] = useState('');
-    /** After project creation finishes, the modal plays a "zoom into the
-     *  skeleton" outro: the modal scales up + fades out while the workspace
-     *  behind it crossfades in. This state drives that handoff. See
-     *  `.np-zooming` styles in index.css. */
     const [transitioning, setTransitioning] = useState(false);
 
-    // Subscribe to Rust-side `project-create-progress` events. Without this
-    // listener the modal sat on a single static "Creating project..." string
-    // for the full 36+ seconds of work, which made the whole flow feel like
-    // a frozen frontend even though Rust was busy. Now phase transitions
-    // (init → create → extract → repath → complete) update the modal text
-    // in real time.
     useEffect(() => {
         if (!isCreating) return;
-        // Light up the Windows taskbar icon while the (30s+) create/extract
-        // work runs — phases carry no count, so use the indeterminate marquee.
+        // Phases carry no count, so use the indeterminate marquee.
         api.setTaskbarProgress('indeterminate');
         const unlistenP = listen<{ phase: string; message: string }>(
             'project-create-progress',
@@ -90,9 +67,8 @@ export const NewProjectModal: React.FC = () => {
     const [selectedChampion, setSelectedChampion] = useState<DDragonChampion | null>(null);
     const [selectedSkin, setSelectedSkin] = useState<DDragonSkin | null>(null);
     const [selectedChroma, setSelectedChroma] = useState<DDragonChroma | null>(null);
-    // When a chroma dot is clicked it calls setSelectedSkin + setSelectedChroma together.
-    // The effect below would reset selectedChroma on every skin change, so this ref
-    // tells it to skip the reset for that one render cycle.
+    // Tells the skin-change effect to skip its selectedChroma reset for one
+    // render when a chroma dot sets skin + chroma together.
     const skipChromaResetRef = useRef(false);
     const [champions, setChampions] = useState<DDragonChampion[]>([]);
     const [skins, setSkins] = useState<DDragonSkin[]>([]);
@@ -100,7 +76,7 @@ export const NewProjectModal: React.FC = () => {
     const [skinSearch, setSkinSearch] = useState('');
     const [splashLoaded, setSplashLoaded] = useState(false);
     const [skinPickerOpen, setSkinPickerOpen] = useState(false);
-    const [cacheReady, setCacheReady] = useState(0); // bumped when preload batches finish
+    const [cacheReady, setCacheReady] = useState(0);
 
     // ─── Chroma hover preview (1.5s delay → big popup) ──────────────────
     const [chromaPreview, setChromaPreview] = useState<{
@@ -270,7 +246,6 @@ export const NewProjectModal: React.FC = () => {
                 const maps = await api.listAvailableMaps(effectiveLeaguePath);
                 if (cancelled) return;
                 setAvailableMaps(maps);
-                // Default to the first map (usually map11 / Summoner's Rift) if nothing selected
                 if (maps.length > 0 && !selectedMapId) {
                     setSelectedMapId(maps[0].id);
                 }
@@ -285,9 +260,6 @@ export const NewProjectModal: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isVisible, projectType, effectiveLeaguePath, usePbe]);
 
-    // Fetch the variant list whenever the selected map changes. Variants
-    // come from the WAD's resolved-paths scan (mapgeo + materials.bin pairs
-    // grouped by base name), so this requires a hash db + ~1s WAD scan.
     useEffect(() => {
         if (!isVisible || projectType !== 'map' || !effectiveLeaguePath || !selectedMapId) {
             setMapVariants([]);
@@ -301,8 +273,6 @@ export const NewProjectModal: React.FC = () => {
                 const variants = await api.listMapVariants(effectiveLeaguePath, selectedMapId);
                 if (cancelled) return;
                 setMapVariants(variants);
-                // Pick the first variant by default — "room" on Summoner's Rift,
-                // sorted alphabetically across all maps.
                 setSelectedVariant(variants[0]?.name ?? '');
             } catch (err) {
                 console.error('[NewProject] listMapVariants failed:', err);
@@ -317,7 +287,6 @@ export const NewProjectModal: React.FC = () => {
         return () => { cancelled = true; };
     }, [isVisible, projectType, effectiveLeaguePath, selectedMapId]);
 
-    // Recalculate budget whenever video params change
     useEffect(() => {
         if (!videoMeta) {
             setBudget(null);
@@ -334,7 +303,6 @@ export const NewProjectModal: React.FC = () => {
         setBudget(result);
     }, [videoMeta, scaleFactor, customFps, trimStart, trimEnd]);
 
-    // Keep loadVideoFromPathRef updated with latest handlers and state
     useEffect(() => {
         loadVideoFromPathRef.current = async (path: string) => {
             try {
@@ -364,7 +332,6 @@ export const NewProjectModal: React.FC = () => {
         };
     });
 
-    // Tauri-level drag-drop listener for the video upload zone
     useEffect(() => {
         if (!isVisible || projectType !== 'loading-screen') return;
         let unlisten: (() => void) | null = null;
@@ -377,11 +344,9 @@ export const NewProjectModal: React.FC = () => {
                 return false;
             }
             const r = el.getBoundingClientRect();
-            
-            // Check logical coordinates (directly matching DOM API rect)
+
             const insideLogical = pos.x >= r.left && pos.x <= r.right && pos.y >= r.top && pos.y <= r.bottom;
-            
-            // Check physical coordinates (dividing by devicePixelRatio)
+
             const physicalX = pos.x / window.devicePixelRatio;
             const physicalY = pos.y / window.devicePixelRatio;
             const insidePhysical = physicalX >= r.left && physicalX <= r.right && physicalY >= r.top && physicalY <= r.bottom;
@@ -765,8 +730,6 @@ export const NewProjectModal: React.FC = () => {
         setIsCreating(true);
         setProgress(usePbe ? 'Creating project from PBE...' : 'Creating project...');
 
-        // Log context up-front so the panel reads top-down: context → error.
-        // The error itself is logged automatically by invokeCommand in api.ts.
         const effectiveSkinNum = selectedChroma?.skinNum ?? selectedSkin.num;
 
         console.info(
@@ -983,26 +946,14 @@ export const NewProjectModal: React.FC = () => {
         });
         useConfigStore.getState().setRecentProjects(recent.slice(0, 10));
 
-        // Play the zoom-into-workspace outro before unmounting the modal.
-        // SET_PROJECT above already rendered the workspace behind us — we're
-        // just trading visual hand-off here so it doesn't snap. Matches the
-        // `npModalZoom` keyframe duration in index.css.
-        //
-        // The DOM event lets App.tsx apply a matching subtle scale-up + fade
-        // on `.main-content` so both halves of the hand-off feel like one
-        // continuous motion.
+        // The DOM event lets App.tsx apply a matching scale-up + fade on
+        // `.main-content` so the modal-to-workspace hand-off feels continuous.
         window.dispatchEvent(new CustomEvent('flint:project-intro'));
         setTransitioning(true);
         await new Promise((r) => setTimeout(r, 650));
 
         closeModal();
         showToast('success', 'Project created successfully!');
-
-        // No auto-checkpoint on project creation. The "initial state" of a
-        // brand-new project IS the on-disk state — there's nothing to roll
-        // back to that's different from the file tree the user sees. This
-        // was costing ~2.8s of wall time after every create_project for a
-        // checkpoint nobody asked for.
     };
 
     // ─── Computed values ─────────────────────────────────────────────────
@@ -1045,8 +996,6 @@ export const NewProjectModal: React.FC = () => {
             return selectedTftSkin?.centeredSplashPath || '';
         }
         if (!selectedChampion || !selectedSkin) return '';
-        // Prefer the centered loading-screen splash from CDragon's per-champion JSON.
-        // (Pattern from preyneyv/lol-skin-explorer — see Skin-Explorer/data/helpers.js `asset()`.)
         const centered = datadragon.getSkinCenteredSplashUrl(selectedSkin, cdragonBranch);
         if (centered) return cachedUrl(centered);
         // No splashPath in the JSON (rare) → uncentered CDragon art as a last resort.
@@ -1056,8 +1005,6 @@ export const NewProjectModal: React.FC = () => {
     const getHeroSplashFallback = () => {
         if (projectType === 'tft') return '';
         if (!selectedChampion || !selectedSkin) return '';
-        // First fallback: uncentered CDragon splash (still on the selected branch).
-        // Second fallback (DDragon, live only) handled below if both fail.
         return cachedUrl(datadragon.getSkinSplashCDragonUrl(selectedChampion.id, selectedSkin.id, cdragonBranch));
     };
 
@@ -1071,12 +1018,11 @@ export const NewProjectModal: React.FC = () => {
     if (!isVisible) return null;
 
     return (
-        // Custom modal shell — has nested np-skin-picker-overlay / np-video-editor-overlay
-        // siblings that depend on .modal-overlay being the nearest positioned ancestor.
-        // Don't migrate to <Modal> — it would change the containing block.
+        // Nested np-skin-picker-overlay / np-video-editor-overlay siblings depend
+        // on .modal-overlay being the nearest positioned ancestor — don't migrate
+        // to <Modal> (it would change the containing block).
         <div className={`modal-overlay modal-overlay--visible${transitioning ? ' modal-overlay--zooming' : ''}`}>
             <div className={`modal modal--new-project${transitioning ? ' modal--zooming' : ''}`}>
-                {/* Loading overlay — skeleton workspace preview */}
                 {isCreating && (
                     <div className="np-loading-overlay">
                         <div className="np-skel">
@@ -1127,15 +1073,12 @@ export const NewProjectModal: React.FC = () => {
                     </div>
                 )}
 
-                {/* Header — compact: title left, subtitle on the right */}
                 <div className="np-header">
                     <h2 className="np-header__title">New Project</h2>
                     <span className="np-header__subtitle">Choose a project type and configure it</span>
                 </div>
 
-                {/* Body */}
                 <div className="np-body">
-                    {/* ─── Project Type Cards ─── */}
                     <div className="np-type-selector">
                         <button
                             className={`np-type-card${projectType === 'skin' ? ' np-type-card--active' : ''}`}
@@ -1196,7 +1139,6 @@ export const NewProjectModal: React.FC = () => {
 
                     {/* ════════════ Skin Project Form ════════════ */}
                     <div className={`np-form${projectType === 'skin' ? ' np-form--active' : ''}`}>
-                        {/* Hero splash preview with splash-tinted glow behind it */}
                         {selectedChampion && selectedSkin && (
                             <div className="np-hero-wrap">
                                 <div
@@ -1252,7 +1194,6 @@ export const NewProjectModal: React.FC = () => {
                             </div>
                         )}
 
-                        {/* Project details row */}
                         <NameAndPathRow
                             namePlaceholder="e.g., Ahri Base Rework"
                             name={projectName}
@@ -1262,7 +1203,6 @@ export const NewProjectModal: React.FC = () => {
                             onBrowse={handleBrowsePath}
                         />
 
-                        {/* Champion Selection */}
                         <div className="np-section">
                             <div className="np-section__header">
                                 <label className="np-label">Champion</label>
@@ -1303,7 +1243,6 @@ export const NewProjectModal: React.FC = () => {
 
                     {/* ════════════ TFT Project Form ════════════ */}
                     <div className={`np-form${projectType === 'tft' ? ' np-form--active' : ''}`}>
-                        {/* Card + fields side-by-side row */}
                         <div className="np-tft-top-row">
                             <div className="np-tft-top-row__fields">
                                 <NameAndPathRow
@@ -1344,7 +1283,6 @@ export const NewProjectModal: React.FC = () => {
                             )}
                         </div>
 
-                        {/* Tactician Selection */}
                         <div className="np-section">
                             <div className="np-section__header">
                                 <label className="np-label">Tactician Species</label>
@@ -1395,7 +1333,6 @@ export const NewProjectModal: React.FC = () => {
                             onBrowse={handleBrowsePath}
                         />
 
-                        {/* Video Selection */}
                         <input
                             ref={videoInputRef}
                             type="file"
@@ -1493,7 +1430,6 @@ export const NewProjectModal: React.FC = () => {
                             onBrowse={handleBrowsePath}
                         />
 
-                        {/* Source — map + variant grouped in a card */}
                         <section className="np-map-section">
                             <header className="np-map-section__head">
                                 <span className="np-map-section__step">1</span>
@@ -1558,7 +1494,6 @@ export const NewProjectModal: React.FC = () => {
                             </div>
                         </section>
 
-                        {/* Extraction strategy — two big cards */}
                         <section className="np-map-section">
                             <header className="np-map-section__head">
                                 <span className="np-map-section__step">2</span>
@@ -1649,7 +1584,6 @@ export const NewProjectModal: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Footer */}
                 <div className="np-footer">
                     {(projectType === 'skin' || projectType === 'loading-screen' || projectType === 'tft') && (
                         <label
@@ -1704,7 +1638,6 @@ export const NewProjectModal: React.FC = () => {
                         onMouseUp={() => { draggingHandle.current = null; }}
                         onMouseLeave={() => { draggingHandle.current = null; }}
                     >
-                        {/* Header */}
                         <div className="np-ve-header">
                             <span className="np-ve-header__title">Edit Video</span>
                             <button className="modal__close" onClick={() => setVideoEditorOpen(false)} aria-label="Close">
@@ -1712,9 +1645,7 @@ export const NewProjectModal: React.FC = () => {
                             </button>
                         </div>
 
-                        {/* Content */}
                         <div className="np-ve-content">
-                            {/* Left: Video player */}
                             <div className="np-ve-player">
                                 <div className="np-ve-player__viewport">
                                     <video
@@ -1762,9 +1693,7 @@ export const NewProjectModal: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Right: Controls */}
                             <div className="np-ve-controls">
-                                {/* Trim timeline */}
                                 <div className="np-ve-section">
                                     <label className="np-label">Trim</label>
                                     <div
@@ -1772,7 +1701,6 @@ export const NewProjectModal: React.FC = () => {
                                         className="np-ve-timeline"
                                         onClick={handleTimelineClick}
                                     >
-                                        {/* Dimmed regions outside trim */}
                                         <div className="np-ve-timeline__bg" />
                                         <div
                                             className="np-ve-timeline__range"
@@ -1781,18 +1709,15 @@ export const NewProjectModal: React.FC = () => {
                                                 width: `${((trimEnd - trimStart) / videoMeta.duration) * 100}%`,
                                             }}
                                         />
-                                        {/* Playhead */}
                                         <div
                                             className="np-ve-timeline__playhead"
                                             style={{ left: `${(editorCurrentTime / videoMeta.duration) * 100}%` }}
                                         />
-                                        {/* Start handle */}
                                         <div
                                             className="np-ve-timeline__handle np-ve-timeline__handle--start"
                                             style={{ left: `${(trimStart / videoMeta.duration) * 100}%` }}
                                             onMouseDown={(e) => { e.stopPropagation(); draggingHandle.current = 'start'; }}
                                         />
-                                        {/* End handle */}
                                         <div
                                             className="np-ve-timeline__handle np-ve-timeline__handle--end"
                                             style={{ left: `${(trimEnd / videoMeta.duration) * 100}%` }}
@@ -1806,7 +1731,6 @@ export const NewProjectModal: React.FC = () => {
                                     </div>
                                 </div>
 
-                                {/* Resolution + FPS */}
                                 <div className="np-ve-row">
                                     <div className="np-field np-field--grow">
                                         <label className="np-label">Resolution</label>
@@ -1835,7 +1759,6 @@ export const NewProjectModal: React.FC = () => {
                                     </div>
                                 </div>
 
-                                {/* Spritesheet budget */}
                                 <div className="np-ve-section">
                                     <label className="np-label">Spritesheet Budget</label>
                                     <div className={`budget-indicator ${budget?.fits ? 'budget-indicator--ok' : 'budget-indicator--exceeded'}`}>
@@ -1877,7 +1800,6 @@ export const NewProjectModal: React.FC = () => {
                                     </div>
                                 </div>
 
-                                {/* Preview */}
                                 {previewUrl && (
                                     <div className="video-preview-player">
                                         <video
@@ -1891,7 +1813,6 @@ export const NewProjectModal: React.FC = () => {
                             </div>
                         </div>
 
-                        {/* Footer */}
                         <div className="np-ve-footer">
                             <Button
                                 size="sm"
@@ -1918,7 +1839,6 @@ export const NewProjectModal: React.FC = () => {
                 <div className="np-skin-picker-overlay" onClick={() => { dismissChromaPreview(); setSkinPickerOpen(false); }}>
                     <div className="np-skin-picker" onClick={(e) => e.stopPropagation()}>
 
-                        {/* Header */}
                         <div className="np-skin-picker__header">
                             <h3 className="np-skin-picker__title">Choose Skin</h3>
                             <div className="dl-search np-skin-picker__search">
@@ -1947,7 +1867,6 @@ export const NewProjectModal: React.FC = () => {
                             </button>
                         </div>
 
-                        {/* Skin grid */}
                         <div className="np-skin-picker__grid">
                             {filteredSkins.map((skin, i) => {
                                 const isActiveSkin = selectedSkin?.id === skin.id;
@@ -1987,7 +1906,6 @@ export const NewProjectModal: React.FC = () => {
                                         </div>
                                         <span className="np-skin-card__name">{skin.name}</span>
 
-                                        {/* Chroma swatches — plain color dots; hover 1.5s for a big preview */}
                                         {skin.chromas && skin.chromas.length > 0 && (
                                             <div className="np-skin-card__chromas" onClick={(e) => e.stopPropagation()}>
                                                 {skin.chromas.map(chroma => {

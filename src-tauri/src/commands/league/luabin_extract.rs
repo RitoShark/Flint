@@ -1,11 +1,3 @@
-//! Luabin64 Extractor
-//!
-//! Walks every WAD under the League installation's `DATA/FINAL/` directory,
-//! finds `.luabin` / `.luabin64` chunks (by resolved path extension or magic
-//! byte detection), decompresses them, converts to readable Lua source via
-//! `flint_ltk::luabin::convert_luabin`, and writes `.lua` files preserving
-//! the original WAD-internal directory structure.
-
 use std::collections::HashMap;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -43,8 +35,6 @@ pub struct LuabinExtractStats {
 // Helpers
 // =============================================================================
 
-/// Returns `true` when the resolved path ends with `.luabin` or `.luabin64`
-/// (case-insensitive).
 fn is_luabin_path(resolved: &str) -> bool {
     let lower = resolved.to_lowercase();
     lower.ends_with(".luabin") || lower.ends_with(".luabin64")
@@ -77,7 +67,6 @@ pub async fn extract_all_luabins(
 
     let output_path = output_path_buf.to_string_lossy().into_owned();
 
-    // 1. Find every WAD under DATA/FINAL.
     let wad_paths: Vec<String> = WalkDir::new(&data_path)
         .max_depth(5)
         .into_iter()
@@ -93,17 +82,14 @@ pub async fn extract_all_luabins(
     let total_wads = wad_paths.len();
     tracing::info!("Luabin aggregator: scanning {} WADs", total_wads);
 
-    // 2. Hash resolution resources.
     let hash_dir = get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
     let env_opt = lmdb.get_env(&hash_dir);
 
-    // 3. Walk every WAD, find luabin chunks, parse globals & merge.
     let mut bins_parsed: usize = 0;
     let mut bins_failed: usize = 0;
-    
-    // The master schema
+
     let mut global_schema: HashMap<String, flint_ltk::luabin::LuaValue> = HashMap::new();
 
     for (wad_idx, wad_path) in wad_paths.iter().enumerate() {
@@ -147,7 +133,6 @@ pub async fn extract_all_luabins(
                 continue;
             }
 
-            // Decompress the chunk.
             let data = match reader.wad_mut().load_chunk_decompressed(chunk) {
                 Ok(d) => d,
                 Err(_) => {
@@ -156,7 +141,6 @@ pub async fn extract_all_luabins(
                 }
             };
 
-            // Parse globals.
             let globals = match flint_ltk::luabin::parse_luabin_globals(&data) {
                 Ok(g) => g,
                 Err(e) => {
@@ -170,7 +154,6 @@ pub async fn extract_all_luabins(
                 }
             };
 
-            // Merge into global schema.
             for (name, val) in globals {
                 if let Some(existing) = global_schema.get_mut(&name) {
                     existing.merge(val);
@@ -183,18 +166,15 @@ pub async fn extract_all_luabins(
         }
     }
 
-    // 4. Format and write the schema file.
     let mut output = String::new();
     let mut total_fields = 0;
-    
-    // Sort keys so output is deterministic
+
     let mut keys: Vec<_> = global_schema.keys().collect();
     keys.sort();
-    
+
     for key in keys {
         let val = &global_schema[key];
-        
-        // Count fields loosely for stats
+
         if let flint_ltk::luabin::LuaValue::Table(entries) = val {
             total_fields += entries.len();
         } else {

@@ -413,26 +413,20 @@ pub fn apply_banner_to_bin(
         "No SkinCharacterDataProperties entry found in the main skin BIN — cannot attach a loadscreen banner.".to_string()
     })?;
 
-    // 1. Link the loadscreen field on the skin entry, placed immediately AFTER
-    //    the LAST loadscreen-variant block (loadScreen / loadScreenVintage /
-    //    loadScreenShade / …), so it lands right before skinAudioProperties — the
-    //    convention League/authors use. Field order is cosmetic to the engine but
-    //    keeps the readable .bin tidy.
+    // Link the loadscreen field right after the LAST loadscreen-variant block,
+    // so it lands before skinAudioProperties.
     {
         let fields = &mut bin.entries[skin_idx].fields;
         let link = BinValue::Link(material_hash);
         if let Some(existing) = fields.get_mut(&LOADSCREEN_MATERIAL_FIELD) {
-            // Already present — just refresh the target, keep its position.
             *existing = link;
         } else if let Some(last_ls_idx) = last_loadscreen_field_index(fields) {
             fields.shift_insert(last_ls_idx + 1, LOADSCREEN_MATERIAL_FIELD, link);
         } else {
-            // No loadScreen field (shouldn't happen — we read it earlier) → append.
             fields.insert(LOADSCREEN_MATERIAL_FIELD, link);
         }
     }
 
-    // 2. Replace any existing material entry with the freshly built one.
     let new_entry = build_material_entry(material_name, mask_asset_path, params);
     if let Some(existing) = bin
         .entries
@@ -478,10 +472,7 @@ mod tests {
 
     #[test]
     fn fnv1a_matches_known_values() {
-        // StaticMaterialDef is a well-known League class; lock the algorithm.
-        // (Value verified against ritobin tooling conventions.)
         assert_eq!(fnv1a_32("StaticMaterialDef"), fnv1a_32("staticmaterialdef"));
-        // Determinism + lowercasing.
         assert_eq!(fnv1a_32("ABC"), fnv1a_32("abc"));
         assert_ne!(fnv1a_32("a"), fnv1a_32("b"));
     }
@@ -547,7 +538,6 @@ mod tests {
         let mask = mask_path_from_loadscreen("ASSETS/X/p/load.tex");
         let params = BannerParams::default();
 
-        // Not applied initially.
         assert!(!banner_status(&bin).applied);
 
         let out1 = apply_banner_to_bin(&mut bin, &name, &mask, &params).unwrap();
@@ -561,7 +551,6 @@ mod tests {
         assert_eq!(status.material_hash, Some(out1.material_hash));
         assert_eq!(status.mask_asset_path.as_deref(), Some(mask.as_str()));
 
-        // Apply again → no duplicate entry, no duplicate field.
         apply_banner_to_bin(&mut bin, &name, &mask, &params).unwrap();
         assert_eq!(bin.entries.len(), entries_after_first);
 
@@ -629,7 +618,7 @@ mod tests {
 
     #[test]
     fn apply_errors_without_skin_entry() {
-        let mut bin = Bin::new(); // no entries
+        let mut bin = Bin::new();
         let err = apply_banner_to_bin(
             &mut bin,
             "X/Y/Materials/Y_Animated_Banner",
@@ -641,7 +630,6 @@ mod tests {
 
     #[test]
     fn material_entry_round_trips_through_bytes() {
-        // The built entry must survive a real BIN write→read cycle.
         let mut bin = skin_bin_with_loadscreen("ASSETS/X/p/load.tex");
         let name = material_name("Test", "Proj");
         let mask = mask_path_from_loadscreen("ASSETS/X/p/load.tex");

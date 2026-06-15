@@ -37,7 +37,6 @@ pub struct SchemaStats {
     pub output_path: String,
 }
 
-/// Internal representation during aggregation
 struct ClassSchema {
     class_hash: u32,
     fields: HashMap<u32, FieldSchema>,
@@ -168,9 +167,6 @@ fn kind_str(kind: BinType) -> &'static str {
 }
 
 /// Returns (ritobin-style type_string, optional nested class_hash).
-///
-/// For embed/pointer: type_str is "embed" or "pointer", nested class from the struct itself.
-/// For list/list2/map/option containing embed/pointer: nested class from first item with a class.
 fn describe_value(value: &BinValue) -> (String, Option<u32>) {
     match value {
         BinValue::Pointer { class, .. } => ("pointer".to_string(), Some(*class)),
@@ -207,7 +203,6 @@ fn describe_value(value: &BinValue) -> (String, Option<u32>) {
     }
 }
 
-/// Returns the class hash if `v` is a `Pointer`/`Embed` with a nonzero class.
 fn nested_class_of(v: &BinValue) -> Option<u32> {
     match v {
         BinValue::Pointer { class, .. } | BinValue::Embed { class, .. } if *class != 0 => {
@@ -217,7 +212,6 @@ fn nested_class_of(v: &BinValue) -> Option<u32> {
     }
 }
 
-/// Helper to find the first nested class hash among a container's items.
 fn find_nested_class_in_container(items: &[BinValue]) -> Option<u32> {
     items.iter().find_map(nested_class_of)
 }
@@ -257,7 +251,6 @@ fn process_properties(
             field.nested_class_hash = nested_class_hash;
         }
 
-        // Merge value range (expand min/max bounds)
         if matches!(field.value_range, ValueRange::None) {
             field.value_range = range;
         } else {
@@ -267,7 +260,6 @@ fn process_properties(
         field.occurrences += 1;
     }
 
-    // Second pass: recurse into complex types (separate to avoid borrow conflict)
     let recurse_targets: Vec<_> = fields
         .values()
         .filter_map(|value| match value {
@@ -284,7 +276,6 @@ fn process_properties(
         process_properties(ch, &props, schema);
     }
 
-    // Recurse into List/Map/Option container items
     for value in fields.values() {
         recurse_container_items(value, schema);
     }
@@ -307,7 +298,6 @@ fn recurse_container_items(value: &BinValue, schema: &mut HashMap<u32, ClassSche
     }
 }
 
-/// Processes each `Pointer`/`Embed` (with nonzero class) in an iterator of values.
 fn process_nested_struct_items<'a, I>(items: I, schema: &mut HashMap<u32, ClassSchema>)
 where
     I: Iterator<Item = &'a BinValue>,
@@ -333,7 +323,6 @@ fn resolve_hash_name(hash: u32, bin_hashes: &HashMapper) -> Option<String> {
 // =============================================================================
 
 fn fmt_f(v: f64) -> String {
-    // Show up to 3 decimal places, trimming trailing zeros but keeping at least one
     let s = format!("{:.3}", v);
     let s = s.trim_end_matches('0');
     let s = s.trim_end_matches('.');
@@ -379,7 +368,6 @@ fn format_range(range: &ValueRange, type_str: &str) -> String {
             format!("{{ {}, {}, {}, {} }}", fmt(0), fmt(1), fmt(2), fmt(3))
         }
         ValueRange::None => {
-            // Fallback based on type
             if type_str == "string" { "\"...\"".to_string() }
             else if type_str == "hash" || type_str == "link" || type_str == "file" { "0x...".to_string() }
             else if type_str.starts_with("list") || type_str.starts_with("map") || type_str.starts_with("option") { "{}".to_string() }
@@ -408,7 +396,6 @@ pub async fn aggregate_bin_schema(
         ));
     }
 
-    // 1. Scan all WAD files
     let wad_paths: Vec<String> = WalkDir::new(&data_path)
         .max_depth(5)
         .into_iter()
@@ -424,19 +411,16 @@ pub async fn aggregate_bin_schema(
     let total_wads = wad_paths.len();
     tracing::info!("Schema aggregator: found {} WADs to scan", total_wads);
 
-    // 2. Get hash resolution resources
     let hash_dir = get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
     let env_opt = lmdb.get_env(&hash_dir);
 
-    // 3. Process all WADs
     let mut schema: HashMap<u32, ClassSchema> = HashMap::new();
     let mut bins_parsed: usize = 0;
     let mut bins_failed: usize = 0;
 
     for (wad_idx, wad_path) in wad_paths.iter().enumerate() {
-        // Emit progress every WAD
         let _ = app.emit("schema-progress", SchemaProgress {
             phase: "scanning".to_string(),
             current: wad_idx + 1,
@@ -446,7 +430,6 @@ pub async fn aggregate_bin_schema(
             classes_found: schema.len(),
         });
 
-        // Open WAD
         let mut reader = match WadReader::open(wad_path) {
             Ok(r) => r,
             Err(e) => {
@@ -455,7 +438,6 @@ pub async fn aggregate_bin_schema(
             }
         };
 
-        // Resolve chunk hashes to find .bin files
         let chunks: Vec<_> = reader.chunks().iter().cloned().collect();
         let hash_u64s: Vec<u64> = chunks.iter().map(|c| c.path_hash).collect();
 
@@ -465,20 +447,17 @@ pub async fn aggregate_bin_schema(
             ResolvedHashes::default()
         };
 
-        // Process each chunk
         for chunk in &chunks {
             let path_hash = chunk.path_hash;
 
-            // Check if this chunk is a .bin file
             let is_bin = resolved_map
                 .get(&path_hash)
                 .map(|p| p.to_lowercase().ends_with(".bin"))
                 .unwrap_or(false);
 
             if !is_bin {
-                // For unresolved hashes, try magic byte detection
                 if resolved_map.contains_key(&path_hash) {
-                    continue; // resolved but not .bin
+                    continue;
                 }
 
                 let data = match reader.wad_mut().load_chunk_decompressed(chunk) {
@@ -490,7 +469,6 @@ pub async fn aggregate_bin_schema(
                     continue;
                 }
 
-                // It has BIN magic — parse it
                 if data.len() <= MAX_BIN_SIZE {
                     match read_bin(&data) {
                         Ok(bin) => {
@@ -507,7 +485,6 @@ pub async fn aggregate_bin_schema(
                 continue;
             }
 
-            // Decompress and parse the known .bin chunk
             let data = match reader.wad_mut().load_chunk_decompressed(chunk) {
                 Ok(d) => d,
                 Err(_) => {
@@ -540,17 +517,14 @@ pub async fn aggregate_bin_schema(
         }
     }
 
-    // 4. Build ritobin-style text output
     let bin_hashes = get_cached_bin_hashes().read();
     let total_fields: usize = schema.values().map(|c| c.fields.len()).sum();
 
-    // Sort classes by field count (most fields first)
     let mut classes: Vec<&ClassSchema> = schema.values().collect();
     classes.sort_by(|a, b| b.fields.len().cmp(&a.fields.len()));
 
     let mut output = String::with_capacity(2 * 1024 * 1024);
 
-    // Header
     use std::fmt::Write;
     let _ = writeln!(output, "// BIN Schema Reference — Flint");
     let _ = writeln!(output, "// Generated: {}", chrono::Utc::now().to_rfc3339());
@@ -573,7 +547,6 @@ pub async fn aggregate_bin_schema(
         let _ = writeln!(output, "// {} (0x{:08X})", class_name, class.class_hash);
         let _ = writeln!(output, "{} {{", class_name);
 
-        // Sort fields by occurrences (most common first)
         let mut fields: Vec<&FieldSchema> = class.fields.values().collect();
         fields.sort_by(|a, b| b.occurrences.cmp(&a.occurrences));
 
@@ -595,7 +568,6 @@ pub async fn aggregate_bin_schema(
                     let _ = writeln!(output, "    {}: {} = {{}}", field_name, type_str);
                 }
             } else {
-                // Format with value range
                 let val = format_range(&field.value_range, type_str);
                 let _ = writeln!(output, "    {}: {} = {}", field_name, type_str, val);
             }

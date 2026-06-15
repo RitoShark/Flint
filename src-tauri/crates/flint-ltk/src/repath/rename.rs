@@ -1,14 +1,9 @@
-//! Hard-rename support: when a project is renamed, its asset prefix
-//! `ASSETS/{creator}/{project}` changes its `{project}` segment everywhere — in
-//! the path strings inside every BIN and in the on-disk asset folders. This
-//! module does both.
+//! Hard-rename support: rewrites the `{project}` segment of the asset prefix
+//! `ASSETS/{creator}/{project}` in every BIN string and on-disk asset folder.
 //!
-//! The `{project}` segment is matched in context (`ASSETS/<creator>/<old>/`) via
-//! regex rather than assuming a creator, because the creator segment comes from
-//! the global creator setting at refather time (not a per-project field) and may
-//! have drifted. This makes the rename robust to whatever creator the project
-//! was actually refathered with. BIN read+write goes through the RitoShark
-//! engine (`ltk_bridge`).
+//! The segment is matched in context (`ASSETS/<creator>/<old>/`) via regex
+//! rather than assuming a creator, since the creator comes from the global
+//! setting at refather time (not a per-project field) and may have drifted.
 
 use crate::bin::ltk_bridge::{read_bin, write_bin};
 use crate::error::{Error, Result};
@@ -18,9 +13,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-/// Recursively apply `re` (which rewrites `ASSETS/<creator>/<old>/` →
-/// `ASSETS/<creator>/<new>/`) to every string value of a BIN value tree.
-/// Mirrors the variant coverage of `refather::repath_value`.
+/// Applies `re` to every string value of a BIN value tree.
 fn replace_in_value(value: &mut BinValue, re: &Regex, replacement: &str) -> usize {
     let mut count = 0;
     match value {
@@ -57,28 +50,23 @@ fn replace_in_value(value: &mut BinValue, re: &Regex, replacement: &str) -> usiz
     count
 }
 
-/// Outcome of a hard rename.
 #[derive(Debug, Default, Clone)]
 pub struct RenameResult {
     pub bins_changed: usize,
     pub strings_changed: usize,
     pub folders_renamed: usize,
-    /// BIN files that couldn't be parsed and were skipped (may still reference
-    /// the old name — surfaced so the caller can warn).
+    /// BIN files that couldn't be parsed and were skipped (may still reference the old name).
     pub skipped_bins: Vec<String>,
 }
 
-/// Read a BIN as a tree using the RitoShark engine.
 fn read_bin_any(data: &[u8]) -> Result<ritoshark::bin::Bin> {
     read_bin(data).map_err(|e| Error::InvalidInput(format!("Failed to parse BIN: {}", e)))
 }
 
-/// Serialize a BIN tree back to bytes using the RitoShark engine.
 fn write_bin_any(bin: &ritoshark::bin::Bin) -> Result<Vec<u8>> {
     write_bin(bin).map_err(|e| Error::InvalidInput(format!("Failed to write BIN: {}", e)))
 }
 
-/// Rewrite every `.bin` under `content_base`, applying the prefix regex.
 fn rename_bin_prefix(content_base: &Path, re: &Regex, replacement: &str, result: &mut RenameResult) -> Result<()> {
     for entry in WalkDir::new(content_base).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
@@ -114,8 +102,8 @@ fn rename_bin_prefix(content_base: &Path, re: &Regex, replacement: &str, result:
     Ok(())
 }
 
-/// Rename on-disk asset folders: any directory whose path matches
-/// `.../ASSETS/<creator>/<old_seg>` (creator optional) → sibling `<new_seg>`.
+/// Renames any directory matching `.../ASSETS/<creator>/<old_seg>` (creator
+/// optional) to sibling `<new_seg>`.
 fn rename_asset_folders(content_base: &Path, dir_re: &Regex, new_seg: &str, result: &mut RenameResult) -> Result<()> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     for entry in WalkDir::new(content_base).into_iter().filter_map(|e| e.ok()) {
@@ -138,10 +126,9 @@ fn rename_asset_folders(content_base: &Path, dir_re: &Regex, new_seg: &str, resu
     Ok(())
 }
 
-/// Rewrite a project's asset prefix `ASSETS/{creator}/{old_project}` →
-/// `ASSETS/{creator}/{new_project}` inside every BIN under `content_base` and on
-/// disk. Spaces in the names are converted to hyphens to match the refather
-/// prefix convention; the creator segment is auto-detected.
+/// Rewrites `ASSETS/{creator}/{old_project}` → `ASSETS/{creator}/{new_project}`
+/// in every BIN under `content_base` and on disk. Spaces become hyphens to match
+/// the refather prefix convention; the creator segment is auto-detected.
 pub fn rename_project_asset_prefix(content_base: &Path, old_project: &str, new_project: &str) -> Result<RenameResult> {
     let old_seg = old_project.replace(' ', "-");
     let new_seg = new_project.replace(' ', "-");
@@ -152,11 +139,10 @@ pub fn rename_project_asset_prefix(content_base: &Path, old_project: &str, new_p
     }
 
     let esc = regex::escape(&old_seg);
-    // String form: ASSETS/<creator?>/<old>/  →  capture the prefix up to <old>.
     let str_re = Regex::new(&format!(r"(?i)(ASSETS/(?:[^/]+/)?){}/", esc))
         .map_err(|e| Error::InvalidInput(format!("regex build failed: {}", e)))?;
     let replacement = format!("${{1}}{}/", new_seg);
-    // Directory form: same, anchored at the path end (no trailing slash).
+    // Directory form: anchored at the path end (no trailing slash).
     let dir_re = Regex::new(&format!(r"(?i)/ASSETS/(?:[^/]+/)?{}$", esc))
         .map_err(|e| Error::InvalidInput(format!("regex build failed: {}", e)))?;
 

@@ -16,7 +16,6 @@ fn fnv1a32(s: &str) -> u32 {
 }
 
 /// Replace every occurrence of `old` (4-byte LE u32) with `new` in `data`.
-/// Advances by 4 after a match, by 1 otherwise — safe and fast enough for BIN files.
 fn replace_u32_le(data: &mut [u8], old: u32, new: u32) {
     if old == new {
         return;
@@ -161,7 +160,6 @@ pub async fn port_project_to_chromas(
             let base_data = fs::read(base_bin)
                 .map_err(|e| format!("Failed to read {}: {}", base_bin.display(), e))?;
 
-            // Derive the chroma BIN path by replacing the skin directory name
             let base_str = base_bin.to_string_lossy().replace('\\', "/");
             let old_seg = format!("skin{}", base_skin_num);
             let new_seg = format!("skin{}", chroma_num);
@@ -181,7 +179,6 @@ pub async fn port_project_to_chromas(
             fs::write(&chroma_str, &chroma_data)
                 .map_err(|e| format!("Failed to write {}: {}", chroma_str, e))?;
 
-            // Relative paths for the manifest (project-root-relative, forward slashes)
             let project_str = project.to_string_lossy().replace('\\', "/");
             let rel_base = base_str
                 .strip_prefix(&format!("{}/", project_str))
@@ -192,7 +189,6 @@ pub async fn port_project_to_chromas(
                 .unwrap_or(&chroma_str)
                 .to_string();
 
-            // Update the manifest
             if let Some(link) = manifest.links.iter_mut().find(|l| l.base_bin == rel_base) {
                 if !link.chroma_bins.iter().any(|e| e.skin_num == *chroma_num) {
                     link.chroma_bins.push(ChromaBinEntry {
@@ -237,7 +233,6 @@ pub async fn sync_chroma_bins(
     let project = Path::new(&project_path);
     let manifest = read_chroma_links(project);
 
-    // Normalise the incoming base_bin_path to forward slashes
     let rel_base = base_bin_path.replace('\\', "/");
 
     let Some(link) = manifest.links.iter().find(|l| l.base_bin == rel_base) else {

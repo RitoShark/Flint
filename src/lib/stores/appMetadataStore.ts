@@ -1,16 +1,6 @@
-/**
- * App Metadata Store
- * Manages app status, hash info, logs, and verbose logging settings
- */
-
 import { create } from 'zustand';
 import type { LogEntry } from '../types';
 
-// File version / status maps live OUTSIDE zustand state so we can mutate in
-// place. Subscribers read via the version-counter selectors below — comparing
-// an integer is O(1), versus the old approach of spreading the entire Record
-// on every file watcher event (which forced every subscriber on this store
-// to re-run its selector).
 const fileVersionsMap = new Map<string, number>();
 const fileStatusesMap = new Map<string, 'new' | 'modified'>();
 
@@ -22,15 +12,10 @@ interface AppMetadataState {
   verboseLogging: boolean;
   logs: LogEntry[];
   logPanelExpanded: boolean;
-  // Bumped whenever a per-file version changes. Components that care about
-  // a specific file watch this counter + read getFileVersion(path) at use.
   fileVersionsRev: number;
-  // Bumped whenever the file tree structure changes (create/remove).
   fileTreeVersion: number;
-  // Bumped whenever a file's VFS status (new/modified) changes.
   fileStatusesRev: number;
 
-  // Actions
   setStatus: (status: AppMetadataState['status'], message: string) => void;
   setWorking: (message?: string) => void;
   setReady: (message?: string) => void;
@@ -41,20 +26,13 @@ interface AppMetadataState {
   addLogsBatch: (entries: Array<{ level: LogEntry['level']; message: string }>) => void;
   clearLogs: () => void;
   toggleLogPanel: () => void;
-  // File version helpers (mutate underlying Map, bump rev counter)
   incrementFileVersion: (filePath: string) => void;
   getFileVersion: (filePath: string) => number;
   incrementFileTreeVersion: () => void;
-  // File status helpers (mutate underlying Map, bump rev counter)
   setFileStatus: (filePath: string, status: 'new' | 'modified' | null) => void;
   getFileStatus: (filePath: string) => 'new' | 'modified' | undefined;
-  // Snapshot helper for consumers that want to scan all current status keys.
-  // Cheap to call — just iterates the underlying Map.
   getFileStatusKeys: () => string[];
   clearFileStatuses: () => void;
-  // Bulk helper for the file watcher in App.tsx — applies all updates and
-  // bumps each rev counter at most once, so a single watcher event triggers
-  // exactly one re-render cycle per affected store slice.
   applyFileEvent: (input: {
     versionBumps?: string[];
     statusSets?: Array<{ key: string; status: 'new' | 'modified' }>;
@@ -85,10 +63,6 @@ export const useAppMetadataStore = create<AppMetadataState>((set) => ({
   setError: (message) => set({ status: 'error', statusMessage: message }),
   setHashInfo: (loaded, count) => set({ hashesLoaded: loaded, hashCount: count }),
   setVerboseLogging: (enabled) => set({ verboseLogging: enabled }),
-  // No retention cap — keep every log line for the whole session so nothing
-  // gets truncated when copying. The log panel windows the DOM render (see
-  // LOG_RENDER_WINDOW in StatusBar) so unbounded retention never freezes the UI.
-  // Use clearLogs to reset.
   addLog: (level, message) => set((state) => ({
     logs: [...state.logs, {
       id: ++logIdCounter,

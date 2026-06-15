@@ -97,7 +97,6 @@ fn type_from_tag(tag: &str) -> Result<BinType> {
 // Encode: Bin -> JSON
 // ---------------------------------------------------------------------------
 
-/// Serialize a `Bin` to a pretty JSON string.
 pub fn to_json(bin: &Bin) -> Result<String> {
     let value = encode_bin(bin);
     serde_json::to_string_pretty(&value)

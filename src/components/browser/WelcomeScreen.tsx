@@ -1,7 +1,3 @@
-/**
- * Flint - Welcome Screen Component
- */
-
 import React, { useState, useEffect } from 'react';
 import { useConfigStore, useProjectTabStore, useNavigationStore, useModalStore, useAppMetadataStore } from '../../lib/stores';
 import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
@@ -10,9 +6,6 @@ import * as api from '../../lib/api';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import type { RecentProject } from '../../lib/types';
 
-/**
- * Clock icon for recent projects
- */
 const ClockIcon: React.FC = () => (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
         <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
@@ -38,7 +31,6 @@ export const WelcomeScreen: React.FC = () => {
     const [greeting, setGreeting] = useState('');
     const [showAllRecent, setShowAllRecent] = useState(false);
 
-    // Calculate time-based greeting
     useEffect(() => {
         const getGreeting = () => {
             const hour = new Date().getHours();
@@ -49,7 +41,6 @@ export const WelcomeScreen: React.FC = () => {
         };
         setGreeting(getGreeting());
 
-        // Update greeting if app stays open across time boundaries
         const interval = setInterval(() => setGreeting(getGreeting()), 60000);
         return () => clearInterval(interval);
     }, []);
@@ -58,7 +49,6 @@ export const WelcomeScreen: React.FC = () => {
         try {
             setWorking('Opening project...');
 
-            // Determine project directory
             let projectDir = projectPath;
             if (projectDir.endsWith('project.json')) {
                 projectDir = projectDir.replace(/[\\/]project\.json$/, '');
@@ -82,7 +72,6 @@ export const WelcomeScreen: React.FC = () => {
 
             setReady();
 
-            // Update recent projects
             const recent = recentProjects.filter(p => p.path !== projectPath);
             recent.unshift({
                 name: project.display_name || project.name,
@@ -104,7 +93,6 @@ export const WelcomeScreen: React.FC = () => {
         openModal('projectList');
     };
 
-    /** Remove a recent project from the list */
     const handleRemoveRecent = (e: React.MouseEvent, projectPath: string) => {
         e.stopPropagation();
         useConfigStore.getState().setRecentProjects(
@@ -112,14 +100,12 @@ export const WelcomeScreen: React.FC = () => {
         );
     };
 
-    /** Open the WAD Explorer workspace */
     const handleOpenWadExplorer = () => {
         navigationCoordinator.openWadExplorer();
     };
 
     return (
         <div className="welcome">
-            {/* Header Section with Dynamic Greeting */}
             <div className="welcome__header">
                 <h1 className="welcome__greeting">
                     {greeting}, <span className="welcome__creator-name">{creatorName}</span>
@@ -127,9 +113,7 @@ export const WelcomeScreen: React.FC = () => {
                 <p className="welcome__subtitle">Create what you imagine</p>
             </div>
 
-            {/* Two Column Layout */}
             <div className="welcome__columns">
-                {/* Left Column: Create Workspace */}
                 <div className="welcome__column welcome__column--left">
                     <h2 className="welcome__column-title">Folders</h2>
  
@@ -145,9 +129,6 @@ export const WelcomeScreen: React.FC = () => {
                         </button>
                     </div>
  
-                    {/* Recent Projects sub-section — capped to RECENT_DEFAULT_LIMIT
-                        unless the user expands. Avoids overwhelming the welcome
-                        screen when the list grows. */}
                     {recentProjects.length > 0 && (() => {
                         const total = recentProjects.length;
                         const limit = showAllRecent ? total : RECENT_DEFAULT_LIMIT;
@@ -209,10 +190,8 @@ export const WelcomeScreen: React.FC = () => {
                     })()}
                 </div>
  
-                {/* Vertical Divider */}
                 <div className="welcome__divider"></div>
- 
-                {/* Right Column: Explore Files */}
+
                 <div className="welcome__column welcome__column--right">
                     <h2 className="welcome__column-title">Explore Files</h2>
  

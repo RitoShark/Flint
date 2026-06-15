@@ -75,7 +75,7 @@ describe('findEnclosingBlock', () => {
         ].join('\n');
         const block = findEnclosingBlock(doc, 3, ['VfxEmitterDefinitionData']);
         expect(block!.startLine).toBe(1);
-        expect(block!.endLine).toBe(4); // not line 2 despite the `}` in the string
+        expect(block!.endLine).toBe(4);
     });
 
     it('is not fooled by a closing brace inside a comment', () => {
@@ -119,7 +119,6 @@ describe('renameEmitterIfCollision', () => {
     it('renames on collision', () => {
         const block = 'VfxEmitterDefinitionData {\n    emitterName: string = "EmitterA"\n}';
         const out = renameEmitterIfCollision(block, target);
-        // EmitterA and EmitterA_copy both exist -> next free is EmitterA_copy2
         expect(out).toContain('emitterName: string = "EmitterA_copy2"');
     });
 
@@ -137,9 +136,7 @@ describe('renameEmitterIfCollision', () => {
 
 describe('computeInsertPosition', () => {
     it('finds the enclosing list[embed] body and indents one level deeper', () => {
-        // dropping at line 6 (inside EmitterA, inside the list at line 3)
         const pos = computeInsertPosition(EMITTER_DOC, 6);
-        // list header indent is 4 spaces -> items at 8 spaces
         expect(pos.indent).toBe('        ');
         expect(pos.line).toBe(6);
     });

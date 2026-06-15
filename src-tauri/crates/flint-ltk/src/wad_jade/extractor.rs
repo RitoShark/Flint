@@ -1,27 +1,12 @@
 //! Decompress and write WAD chunks to disk.
 //!
-//! Decompression layer
-//! -------------------
-//! - **None**: passthrough.
-//! - **GZip**: `flate2`.
-//! - **Zstd / ZstdMulti**: `zstd::stream::decode_all` handles both single-
-//!   and multi-frame streams (the loop in zstd-rs concatenates frames
-//!   automatically), so we don't need separate code paths.
-//! - **Satellite**: Riot's old subchunk-table format. Not extracted — chunk
-//!   is skipped with a logged warning.
+//! Decompression: None = passthrough, GZip = `flate2`, Zstd/ZstdMulti =
+//! `zstd::stream::decode_all` (handles single- and multi-frame), Satellite =
+//! skipped with a logged warning.
 //!
-//! Concurrency
-//! -----------
-//! `extract_to_dir` slices the chunk plan across rayon threads. Each
-//! worker opens its own `File` handle on the WAD (cheap on Windows since
-//! the OS keeps the file's pages cached after the TOC parse) and seeks
-//! independently. No mutex on the source.
-//!
-//! Progress
-//! --------
-//! Workers emit `wad-extract-progress` Tauri events tagged with an
-//! `action_id` UUID-ish string supplied by the caller. The frontend
-//! filters by `action_id` so multiple concurrent extractions don't bleed.
+//! `extract_to_dir` fans the chunk plan across rayon, mmapping the WAD once.
+//! Workers emit `wad-extract-progress` Tauri events tagged with the caller's
+//! `action_id` so concurrent extractions don't bleed.
 
 use crate::wad_jade::format::{WadChunk, WadCompression};
 use crate::wad_jade::mount::with_mount;
@@ -102,12 +87,9 @@ pub fn cancel_extraction(action_id: &str) -> bool {
 /// or every chunk if `selected` is empty. Writes go under `output_dir`,
 /// preserving the resolved directory layout.
 ///
-/// `use_rename`: when true (default), each chunk is written to
-/// `<path>.jdtmp` then renamed over the target — fast even when the
-/// destination already exists, since NTFS doesn't have to truncate +
-/// re-allocate the existing file's extents. When false, falls back to
-/// a direct `File::create` + write (slower in-place overwrite, but
-/// leaves no temp files behind on cancel).
+/// `use_rename`: when true, each chunk is written to `<path>.jdtmp` then
+/// renamed over the target; when false, a direct `File::create` + write is
+/// used (leaves no temp files behind on cancel).
 pub fn extract_to_dir(
     app: &tauri::AppHandle<tauri::Wry>,
     mount_id: u64,
@@ -134,10 +116,8 @@ fn extract_inner(
     cancel: &Arc<AtomicBool>,
     use_rename: bool,
 ) -> Result<ExtractResult> {
-    // Snapshot the chunks + resolved paths under the read lock so workers
-    // can run without blocking other commands. We copy chunk metadata
-    // (28 bytes each) and clone path strings — for a 20k-chunk WAD that's
-    // ~2 MB of allocation, cheap relative to extraction itself.
+    // Snapshot chunks + resolved paths under the read lock so workers run
+    // without blocking other commands.
     let plan = with_mount(mount_id, |m| {
         let wad_path = m.path.clone();
         let mut entries: Vec<PlanEntry> = m
@@ -181,20 +161,13 @@ fn extract_inner(
 
     std::fs::create_dir_all(output_dir).map_err(|e| Error::io_with_path(e, output_dir))?;
 
-    // Memory-map the WAD once and share the byte slice across rayon
-    // workers. The previous per-chunk `File::open` was paying a Windows
-    // CreateFile syscall ~5–20k times per extraction; mmap fronts the
-    // file with a single mapping that the OS pages in lazily as workers
-    // slice into it. Same approach Flint and Quartz use.
     let mmap = {
         let file = File::open(&wad_path).map_err(|e| Error::io_with_path(e, &wad_path))?;
         unsafe { Mmap::map(&file).map_err(|e| Error::io_with_path(e, &wad_path))? }
     };
     let mmap = Arc::new(mmap);
 
-    // Pre-create every directory once (sequential — it's I/O bound but
-    // tiny relative to extraction). Avoids races between workers and a
-    // mountain of redundant `create_dir_all` calls.
+    // Pre-create every directory once to avoid races between workers.
     let mut prepared_dirs: HashSet<PathBuf> = HashSet::new();
     for entry in &plan {
         if let Some(parent) = resolve_output_path(output_dir, &entry.path).parent() {
@@ -216,8 +189,6 @@ fn extract_inner(
     let progress_counter = AtomicU64::new(0);
     let last_emit = Mutex::new(Instant::now());
 
-    // Slice the work and let rayon dispatch — its default thread pool
-    // sizes itself to the available cores.
     plan.par_iter().for_each(|entry| {
         if cancel.load(Ordering::SeqCst) {
             return;
@@ -309,14 +280,10 @@ fn extract_one(
     use_rename: bool,
 ) -> Result<ExtractOutcome> {
     if matches!(entry.chunk.compression, WadCompression::Satellite) {
-        // The Satellite format isn't moddable today; skip with a log.
         eprintln!("[WadExtract] Skipping Satellite-compressed chunk {}", entry.hex);
         return Ok(ExtractOutcome::Skipped);
     }
 
-    // Slice the compressed bytes straight out of the mmap'd WAD. No
-    // per-chunk file open, no seek + read_exact — the OS will page in
-    // the underlying file region on first touch.
     let start = entry.chunk.data_offset as usize;
     let end = start
         .checked_add(entry.chunk.compressed_size as usize)
@@ -336,8 +303,6 @@ fn extract_one(
     let raw = &mmap[start..end];
     let decompressed = decompress_(raw, entry.chunk.compression, entry.chunk.uncompressed_size)?;
 
-    // If the resolved path lacks an extension (i.e. it's a hex fallback),
-    // sniff the magic bytes to add one. Keeps unknown buckets organised.
     let final_path = augment_path_with_extension(&entry.path, &decompressed);
     let mut out_path = resolve_output_path(output_dir, &final_path);
 
@@ -349,15 +314,6 @@ fn extract_one(
     }
 
     if use_rename {
-        // Write-then-rename pattern. `File::create` on Windows treats
-        // an existing target as a truncate, which on NTFS deallocates
-        // every extent of the old file + journals each step — that's
-        // the ~3× slowdown users see when re-extracting into a
-        // populated folder. Writing to a fresh `.jdtmp` and renaming
-        // over the final path skips that dance: the rename is one MFT
-        // pointer flip with `MOVEFILE_REPLACE_EXISTING` semantics
-        // (Rust std default on Windows), so overwrite is ~as fast as
-        // a fresh create.
         let original_name = out_path
             .file_name()
             .and_then(|n| n.to_str())
@@ -388,9 +344,6 @@ fn extract_one(
             Error::io_with_path(e, &out_path)
         })?;
     } else {
-        // Classic in-place overwrite. Slower on NTFS for re-extracts
-        // (truncate + extent dance) but never leaves `.jdtmp` files
-        // behind on cancel.
         let mut file = match File::create(&out_path) {
             Ok(f) => f,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -408,8 +361,6 @@ fn extract_one(
 }
 
 /// Chunk I/O helpers shared by extraction and the on-demand preview command.
-/// Public-but-pub(super) so they're reachable from `wad_commands` without
-/// turning into general API surface.
 pub(crate) mod chunk_io {
     use super::*;
 
@@ -452,9 +403,8 @@ pub(crate) mod chunk_io {
         }
     }
 
-    /// One-shot read + decompress, used by the preview command. Heavy enough
-    /// (TEX/DDS files reach a few MB) to warrant the caller running it on
-    /// the blocking pool.
+    /// One-shot read + decompress. Heavy enough to warrant running on the
+    /// blocking pool.
     pub fn read_chunk_decompressed_bytes(wad_path: &Path, chunk: &WadChunk) -> Result<Vec<u8>> {
         let raw = read_chunk_raw(wad_path, chunk)?;
         decompress(&raw, chunk.compression, chunk.uncompressed_size)
@@ -495,33 +445,18 @@ fn augment_path_with_extension(path: &str, data: &[u8]) -> String {
     path.to_string()
 }
 
-/// Cheap magic-byte sniffer for the formats League ships. Returns the
-/// extension *with* the leading dot, or `None` when we don't recognise
-/// the data — caller leaves the file extensionless in that case.
-///
-/// Visible to the rest of the crate so the WAD-list view can run the
-/// same sniff against a streamed peek of each compressed chunk and
-/// surface a real extension on hash-named entries (instead of the user
-/// seeing every unknown file as just `aabbccddeeff0011`).
+/// Magic-byte sniffer for the formats League ships. Returns the extension
+/// *with* the leading dot, or `None` when the data isn't recognised.
 pub(crate) fn sniff_magic(data: &[u8]) -> Option<&'static str> {
     sniff_extension(data)
 }
-///
-/// This runs on **every** chunk written when the resolved path lacks an
-/// extension (typically: hash-named files where the WAD path-hash isn't
-/// in any hashtable). Quartz writes hashed files with the same magic-
-/// derived extensions so users can still tell at a glance whether
-/// `aabbccddeeff0011.dds` is a texture or
-/// `aabbccddeeff0011.bin` is a property file — Jade matches the
-/// behaviour here.
+
 fn sniff_extension(data: &[u8]) -> Option<&'static str> {
     if data.len() < 4 {
         return None;
     }
 
-    // Eight-byte r3d2-family magics first — these would otherwise be
-    // shadowed by the four-byte `r3d2` catch-all and we'd mis-tag every
-    // SKL/ANM/SCB as one common type.
+    // Eight-byte r3d2-family magics before the four-byte `r3d2` catch-all.
     if data.len() >= 8 && &data[0..4] == b"r3d2" {
         return Some(match &data[0..8] {
             b"r3d2sklt" => ".skl",

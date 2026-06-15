@@ -1,19 +1,7 @@
-/**
- * Ritobin block extraction & insertion helpers.
- *
- * Pure, unit-testable functions used by the BIN editor's "copy emitter block"
- * context actions and the left-side palette's drag-drop insertion.
- *
- * The brace scanning here is string/comment-aware (lifted from the editor's
- * `validateBrackets`) — a naive `{`/`}` counter would wrongly open/close blocks
- * on braces that live inside quoted strings or `#` / `//` comments.
- */
-
 const BRACKET_PAIRS: Record<string, string> = { '{': '}', '[': ']', '(': ')' };
 const CLOSING_BRACKETS = new Set(['}', ']', ')']);
 const OPEN_FOR_CLOSE: Record<string, string> = { '}': '{', ']': '[', ')': '(' };
 
-/** Header line that opens a (optionally path/hash-keyed) class block: `… ClassName {`. */
 const HEADER_RE = /^\s*(?:"[^"]*"\s*=\s*|0x[0-9a-fA-F]+\s*=\s*|[A-Za-z_]\w*\s*:\s*(?:embed|pointer)\s*=\s*)?([A-Za-z_]\w*)\s*\{/;
 
 export interface EnclosingBlock {
@@ -21,9 +9,7 @@ export interface EnclosingBlock {
     startLine: number;
     /** 1-based line of the matching closing `}`. */
     endLine: number;
-    /** Raw header line text. */
     headerText: string;
-    /** The matched class name. */
     className: string;
     /** Full block text from header line through the closing `}` line (inclusive). */
     blockText: string;
@@ -33,10 +19,6 @@ interface BraceCursor {
     inString: boolean;
 }
 
-/**
- * Walk a single line's characters, toggling string state and invoking `onBrace`
- * for each real (non-string, non-comment) bracket. Returns updated cursor.
- */
 function scanLineBraces(
     line: string,
     cursor: BraceCursor,
@@ -65,13 +47,6 @@ function scanLineBraces(
     return { inString };
 }
 
-/**
- * Forward-match the `{` opened on `headerLineIdx` (0-based) to its closing `}`.
- * String/comment-aware. Returns the 0-based line index of the closing brace, or
- * -1 if unbalanced.
- *
- * Assumes the header line's first real `{` is the one to match.
- */
 function matchClosingBrace(lines: string[], headerLineIdx: number): number {
     let depth = 0;
     let started = false;
@@ -87,9 +62,6 @@ function matchClosingBrace(lines: string[], headerLineIdx: number): number {
                 depth--;
                 if (started && depth === 0 && closedAt === -1) closedAt = i;
             }
-            // We only care about curly nesting for block matching; '[' / '(' don't
-            // affect the curly depth and are tracked purely by the depth counter
-            // above (they never decrement curly depth).
         });
         if (started && depth === 0) return closedAt === -1 ? i : closedAt;
     }
@@ -97,14 +69,9 @@ function matchClosingBrace(lines: string[], headerLineIdx: number): number {
 }
 
 /**
- * Scan UP from `line` (1-based) for the nearest header that ENCLOSES the cursor,
- * optionally restricted to `classFilter`. Returns the enclosing block, or null.
- *
- * "Encloses" = the header's matching `}` is at or after `line`.
- *
- * When `outermost` is true, keep walking up past the first match to find the
- * outermost enclosing header that still satisfies `classFilter` (used by
- * "copy full VfxEmitter / VfxSystem").
+ * Scan UP from `line` (1-based) for the nearest header that ENCLOSES the cursor.
+ * When `outermost` is true, keep walking up to find the outermost enclosing
+ * header that still satisfies `classFilter`.
  */
 export function findEnclosingBlock(
     text: string,
@@ -126,7 +93,6 @@ export function findEnclosingBlock(
 
         const closeIdx = matchClosingBrace(lines, i);
         if (closeIdx === -1) continue;
-        // Must actually enclose the cursor line.
         if (closeIdx < cursorIdx) continue;
 
         const block: EnclosingBlock = {
@@ -138,7 +104,6 @@ export function findEnclosingBlock(
         };
 
         if (!outermost) return block;
-        // Keep the outermost: remember this one and continue scanning up.
         best = block;
     }
 
@@ -148,13 +113,11 @@ export function findEnclosingBlock(
 /**
  * Strip the block's common leading indentation and re-prefix each line with
  * `targetIndent`. The first (header) line is treated as the indent baseline.
- * Blank lines stay blank.
  */
 export function reindentBlock(blockText: string, targetIndent: string): string {
     const lines = blockText.split('\n');
     if (lines.length === 0) return blockText;
 
-    // Baseline = leading whitespace of the first non-blank line (the header).
     let baseIndent = '';
     for (const l of lines) {
         if (l.trim() === '') continue;
@@ -172,12 +135,9 @@ export function reindentBlock(blockText: string, targetIndent: string): string {
 }
 
 /**
- * If the block declares an `emitterName: string = "X"` that already appears as
- * an emitterName in `targetText`, rename it to `"X_copy"`, `"X_copy2"`, … so the
- * inserted block doesn't collide.
- *
- * Only rewrites the FIRST emitterName assignment in the block (the emitter's own
- * name) — nested references stay untouched.
+ * If the block declares an `emitterName: string = "X"` that already appears in
+ * `targetText`, rename it to `"X_copy"`, `"X_copy2"`, … so it doesn't collide.
+ * Only the FIRST emitterName assignment in the block is rewritten.
  */
 export function renameEmitterIfCollision(blockText: string, targetText: string): string {
     const nameRe = /(emitterName:\s*string\s*=\s*")([^"]*)(")/;
@@ -185,7 +145,6 @@ export function renameEmitterIfCollision(blockText: string, targetText: string):
     if (!m) return blockText;
     const original = m[2];
 
-    // Collect every emitterName already present in the target.
     const existing = new Set<string>();
     const allNamesRe = /emitterName:\s*string\s*=\s*"([^"]*)"/g;
     let nm: RegExpExecArray | null;
@@ -202,15 +161,12 @@ export function renameEmitterIfCollision(blockText: string, targetText: string):
         n++;
     }
 
-    // Replace only the first occurrence (the emitter's own name).
     return blockText.replace(nameRe, `$1${candidate}$3`);
 }
 
 /**
  * Asset file extensions that, when a quoted string ends in one and contains a
- * `/`, mark that string as a reference to an on-disk asset file. Kept in sync
- * with the editor's hover-preview list plus the audio/extra formats a VFX block
- * can reference (sounds, meshes).
+ * `/`, mark that string as a reference to an on-disk asset file.
  */
 export const ASSET_PATH_EXTENSIONS = [
     'dds', 'tex', 'scb', 'skn', 'sco', 'bnk', 'wpk', 'wem', 'anm', 'png', 'tga',
@@ -220,15 +176,8 @@ const ASSET_EXT_SET = new Set<string>(ASSET_PATH_EXTENSIONS);
 
 /**
  * Extract the distinct asset-file path strings referenced inside a ritobin
- * block. An asset reference is any double-quoted string value that contains a
- * `/` (a path) and ends in a known asset extension (e.g.
- * `particleColorTexture: string = "ASSETS/.../foo.dds"`, a mesh `.scb`/`.skn`,
- * a sound `.bnk`/`.wpk`). The property name is intentionally NOT matched —
- * League uses many different property names for asset paths across VFX classes,
- * so we key purely off the string's shape.
- *
- * Returns paths in first-seen order, de-duplicated (case-insensitively on the
- * extension, exact on the path).
+ * block: any double-quoted string value containing a `/` and ending in a known
+ * asset extension. Returns paths in first-seen order, de-duplicated.
  */
 export function extractAssetPaths(blockText: string): string[] {
     const seen = new Set<string>();
@@ -252,21 +201,13 @@ export function extractAssetPaths(blockText: string): string[] {
 export interface InsertPosition {
     /** 1-based line AFTER which the block should be spliced (insert a newline + block). */
     line: number;
-    /** Indentation to apply to the inserted block's header line. */
     indent: string;
 }
 
 /**
  * Decide where to splice a copied block when dropped near `dropLine` (1-based).
- *
- * Walks the curly-brace stack down to `dropLine` and finds the nearest enclosing
- * `list[embed] = { … }` body (the canonical container for anonymous
- * `ClassName {` items, e.g. an emitter list). If found, the block is inserted as
- * a new list item indented one level inside that list; if not, it's inserted at
- * the drop line at top-level (zero) indent.
- *
- * `getStack` mirrors the editor's `getBracketStackAtLine` so callers can pass the
- * real scanner; a built-in fallback is provided for tests.
+ * Finds the nearest enclosing `list[embed] = { … }` body and inserts one indent
+ * level inside it; if none, inserts at the drop line with its own indent.
  */
 export function computeInsertPosition(
     text: string,
@@ -277,23 +218,19 @@ export function computeInsertPosition(
     const clampedDrop = Math.min(Math.max(dropLine, 1), lines.length);
     const stack = getStack(text, clampedDrop);
 
-    // Find the innermost open `{` whose header line is a `list[embed] = {`.
     for (let i = stack.length - 1; i >= 0; i--) {
         const entry = stack[i];
         if (entry.char !== '{') continue;
         const headerLine = lines[entry.line - 1] ?? '';
         if (/list\s*\[\s*(?:embed|pointer)\s*\]\s*=\s*\{/.test(headerLine)) {
-            // Insert inside this list body, one indent level deeper than the list header.
             return { line: clampedDrop, indent: entry.indent + '    ' };
         }
     }
 
-    // No enclosing list — drop at top level with the drop line's own indent.
     const dropIndent = lines[clampedDrop - 1]?.match(/^(\s*)/)?.[1] ?? '';
     return { line: clampedDrop, indent: dropIndent };
 }
 
-/** Fallback bracket-stack scanner (string/comment-aware), mirrors the editor's. */
 function defaultBracketStack(
     text: string,
     upToLine: number,

@@ -27,7 +27,6 @@ export interface ApplyBannerResult {
     height: number;
 }
 
-/** Inspect the project: loadscreen/mask disk paths, whether applied. */
 export async function getLoadscreenBannerInfo(projectPath: string): Promise<LoadscreenBannerInfo> {
     return invokeCommand('get_loadscreen_banner_info', { projectPath });
 }
@@ -46,7 +45,6 @@ export async function applyLoadscreenBanner(
     return invokeCommand('apply_loadscreen_banner', { projectPath, params: params ?? null, rebuildMask });
 }
 
-/** Save painted blue-channel RGBA into the mask .tex (raw-bytes IPC). */
 export async function saveBannerMask(
     maskPath: string,
     rgba: Uint8Array,

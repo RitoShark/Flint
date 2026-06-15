@@ -120,10 +120,6 @@ export const Range: React.FC<RangeProps> = ({ hue = false, className = '', ...re
     />
 );
 
-/**
- * One-stop wrapper: label + input + optional hint/error in a FormGroup.
- * Use the lower-level building blocks above when you need custom layouts.
- */
 export interface FieldProps extends Omit<InputProps, 'id'> {
     id?: string;
     label?: React.ReactNode;

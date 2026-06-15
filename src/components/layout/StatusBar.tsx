@@ -1,12 +1,3 @@
-/**
- * Flint - Log Panel Component
- * Displays application logs captured by the logger service.
- *
- * Polished version: selectable text, per-line copy on hover, level pills
- * (no emoji), filter input, level chips, copy/clear actions via the shared
- * Button primitive.
- */
-
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppMetadataStore, useNotificationStore } from '../../lib/stores';
 import { setLogStore } from '../../lib/util/logger';
@@ -15,12 +6,6 @@ import { Button, Icon } from '../ui';
 type LogLevel = 'info' | 'warning' | 'error';
 type FilterLevel = 'all' | LogLevel;
 
-// Virtualized log list. Retention is unbounded in the store; only the rows in
-// (and just around) the viewport are ever in the DOM — so memory/DOM stay tiny
-// no matter how many heavy lines pile up. ROW_H must match the fixed row height
-// the CSS/inline style enforces; OVERSCAN renders a few extra rows above/below
-// for smooth scrolling. Copy All / range-copy read from the store, so off-screen
-// (un-rendered) lines copy fine.
 const ROW_H = 34;        // px, single-line row height (must match logger-polish.css row sizing)
 const OVERSCAN = 12;     // rows rendered beyond the viewport on each side
 
@@ -63,14 +48,12 @@ export const LogPanel: React.FC = () => {
     const [filter, setFilter] = useState('');
     const [levelFilter, setLevelFilter] = useState<FilterLevel>('all');
 
-    // Connect the logger to the store on mount
     useEffect(() => {
         if (hasConnectedRef.current) return;
         hasConnectedRef.current = true;
         setLogStore(addLog, addLogsBatch);
     }, [addLog, addLogsBatch]);
 
-    // Counts per level (compute before filtering)
     const counts = useMemo(() => {
         let info = 0, warning = 0, error = 0;
         for (const l of logs) {
@@ -81,7 +64,6 @@ export const LogPanel: React.FC = () => {
         return { info, warning, error };
     }, [logs]);
 
-    // Filtered logs (level + text)
     const filteredLogs = useMemo(() => {
         const q = filter.trim().toLowerCase();
         return logs.filter((l) => {
@@ -97,8 +79,6 @@ export const LogPanel: React.FC = () => {
     const stickToBottomRef = useRef(true);
 
     // ── Range selection (click → anchor, shift-click → extend) ──────────────
-    // Indices are into filteredLogs. Copy reads from the store array, so it
-    // works across rows that aren't currently rendered.
     const [selAnchor, setSelAnchor] = useState<number | null>(null);
     const [selFocus, setSelFocus] = useState<number | null>(null);
     const selLo = selAnchor === null || selFocus === null ? -1 : Math.min(selAnchor, selFocus);
@@ -111,9 +91,6 @@ export const LogPanel: React.FC = () => {
     const endIndex = Math.min(total, Math.ceil((scrollTop + viewportH) / ROW_H) + OVERSCAN);
     const windowRows = filteredLogs.slice(startIndex, endIndex);
 
-    // Auto-scroll to bottom when new logs appear — but ONLY if the user is
-    // already pinned to the bottom. If they scrolled up (to read/select older
-    // lines), incoming logs must not yank them back down.
     useEffect(() => {
         const el = contentRef.current;
         if (el && logPanelExpanded && stickToBottomRef.current) {
@@ -122,7 +99,6 @@ export const LogPanel: React.FC = () => {
         }
     }, [filteredLogs, logPanelExpanded]);
 
-    // Measure viewport height (drives how many rows are virtualized)
     useEffect(() => {
         if (!logPanelExpanded) return;
         const el = contentRef.current;
@@ -137,15 +113,12 @@ export const LogPanel: React.FC = () => {
     const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
         const el = e.currentTarget;
         setScrollTop(el.scrollTop);
-        // Pinned-to-bottom if within ~2 rows of the end.
         stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < ROW_H * 2;
     };
 
-    // Click selects a single line; Shift-click extends the range from the anchor.
     const handleRowClick = (index: number, e: React.MouseEvent) => {
         if (e.shiftKey && selAnchor !== null) {
             setSelFocus(index);
-            // Prevent the browser's native text-selection from fighting the range UI.
             window.getSelection?.()?.removeAllRanges();
         } else {
             setSelAnchor(index);
@@ -167,8 +140,6 @@ export const LogPanel: React.FC = () => {
             .catch(() => showToast('error', 'Failed to copy selection'));
     };
 
-    // Ctrl/Cmd+C copies the selected range (reads from the store, so off-screen
-    // rows are included) instead of only the natively-selected visible text.
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && selLo >= 0) {
             const nativeSel = window.getSelection?.()?.toString();
@@ -180,7 +151,6 @@ export const LogPanel: React.FC = () => {
     const displayMessage = latestLog ? latestLog.message : statusMessage || 'Ready';
     const displayLevel: LogLevel = latestLog?.level || 'info';
 
-    // Indicator class on the collapsed bar
     const indicatorClass = (() => {
         if (!latestLog) {
             switch (status) {
@@ -217,7 +187,6 @@ export const LogPanel: React.FC = () => {
         return (
             <div className="log-panel log-panel--expanded" onClick={toggleLogPanel}>
                 <div className="log-panel__container" onClick={(e) => e.stopPropagation()}>
-                    {/* Header */}
                     <div className="log-panel__header">
                         <span className="log-panel__title">
                             <span className="log-panel__title-icon"><Icon name="info" /></span>
@@ -247,7 +216,6 @@ export const LogPanel: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Toolbar */}
                     <div className="log-panel__toolbar">
                         <div className="log-panel__search">
                             <Icon name="search" />
@@ -288,9 +256,6 @@ export const LogPanel: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Content (virtualized — only the rows near the viewport are
-                        in the DOM; click a line / shift-click another to select a
-                        range, then Ctrl+C or "Copy selection") */}
                     <div
                         className="log-panel__content"
                         ref={contentRef}
@@ -380,5 +345,4 @@ export const LogPanel: React.FC = () => {
     );
 };
 
-// Re-export as StatusBar for backward compatibility
 export const StatusBar = LogPanel;

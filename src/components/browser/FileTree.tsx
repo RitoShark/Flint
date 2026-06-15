@@ -1,11 +1,3 @@
-/**
- * Flint - File Tree Component
- *
- * The tree is flattened into a row array during render and only the visible
- * window is mounted. `TreeRow` is a pure leaf renderer with no store
- * subscriptions — all handlers come from the parent as stable callbacks.
- */
-
 import React, { useState, useMemo, useCallback, useRef, useEffect, CSSProperties } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useAppMetadataStore, useProjectTabStore, useModalStore, useNotificationStore, useConfigStore, useNavigationStore } from '../../lib/stores';
@@ -86,19 +78,15 @@ interface FileTreeProps {
 }
 
 interface TreeRowData {
-    /** Underlying node after compact-folder merging. */
     node: FileTreeNode;
     /** Displayed path; for compacted folders this includes the merged segments. */
     displayPath: string;
     depth: number;
     isExpanded: boolean;
-    /** When set, the row should render as the inline-rename input. */
     isRenaming: boolean;
-    /** Status badge state, if any. */
     status?: 'new' | 'modified';
 }
 
-/** Compact single-child directory chains into one row label. */
 function compactNode(node: FileTreeNode): { displayPath: string; effectiveNode: FileTreeNode } {
     let current = node;
     const parts = [current.name];
@@ -145,11 +133,6 @@ function filterTreeByQuery(node: FileTreeNode, query: string): FileTreeNode | nu
     return null;
 }
 
-/**
- * Walk the tree in display order, applying compact-folder merging + expanded
- * filter, and emit one `TreeRowData` per visible row. Iterative to avoid stack
- * pressure on deep trees.
- */
 function flattenTree(
     root: FileTreeNode,
     expandedFolders: Set<string>,
@@ -157,8 +140,6 @@ function flattenTree(
     statusByRelPath: Map<string, 'new' | 'modified'>,
 ): TreeRowData[] {
     const rows: TreeRowData[] = [];
-    // Stack frames: (node, depth). DFS, children pushed in reverse so the
-    // first child is processed first.
     const stack: Array<{ node: FileTreeNode; depth: number }> = [
         { node: root, depth: 0 },
     ];
@@ -180,7 +161,6 @@ function flattenTree(
         });
 
         if (effectiveNode.isDirectory && isExpanded && effectiveNode.children) {
-            // Reverse-push so children render in their natural order.
             for (let i = effectiveNode.children.length - 1; i >= 0; i--) {
                 stack.push({ node: effectiveNode.children[i], depth: depth + 1 });
             }
@@ -216,8 +196,6 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         }).catch(() => {});
     }, [fileTreeVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // One subscription on the file-status revision counter. Read the Map
-    // snapshot once and pass it as a prop into the row data.
     const fileStatusesRev = useAppMetadataStore((s) => s.fileStatusesRev);
     const projectPathForStatus = activeTab?.projectPath || '';
     const statusByRelPath = useMemo(() => {
@@ -236,7 +214,6 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
     const [renamingPath, setRenamingPath] = useState<string | null>(null);
     const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
 
-    // Fresh refs so the long-lived OS drag listener always sees current state.
     const activeTabRef = useRef(activeTab);
     useEffect(() => { activeTabRef.current = activeTab; });
     const setFileTreeRef = useRef(setFileTree);
@@ -339,9 +316,6 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
 
     const projectPath = activeTab?.projectPath || '';
 
-    // Multi-selection (Ctrl = toggle, Shift = range over visible rows). The
-    // primary (last-clicked) still drives the preview via `selectedFile`. Reset
-    // when switching project tabs.
     const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
     const anchorRef = useRef<string | null>(null);
     const rowsRef = useRef(rows);
@@ -356,9 +330,6 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         setFileTree(activeTab.id, files);
     }, [activeTab, setFileTree]);
 
-    // F2 = rename selected file, Delete = delete selected file (with confirm).
-    // Active only in the project preview, and never while typing in an input or
-    // a Monaco editor (so Delete in the bin editor doesn't nuke the file).
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (e.key !== 'F2' && e.key !== 'Delete') return;
@@ -375,7 +346,6 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
                 setRenamingPath(sel);
             } else {
                 e.preventDefault();
-                // Delete the whole selection (or the primary file if no multi-select).
                 const selPaths = selectedPathsRef.current;
                 const targets = (selPaths.size > 0 ? [...selPaths] : [sel]).filter((p) => p && p !== '.');
                 if (!targets.length) return;
@@ -408,7 +378,6 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
     const handleItemClick = useCallback((path: string, mods?: { ctrl: boolean; shift: boolean }) => {
         if (!activeTab) return;
         if (mods?.shift && anchorRef.current) {
-            // Range-select from the anchor to this row over the visible rows.
             const paths = rowsRef.current.map((r) => r.node.path);
             const i = paths.indexOf(anchorRef.current);
             const j = paths.indexOf(path);
@@ -431,9 +400,6 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         useNavigationStore.getState().setView('preview');
     }, [activeTab, setSelectedFile]);
 
-    // Start a cross-project drag. Drags the whole selection if the pressed row is
-    // part of a multi-selection, otherwise just that row. (Pointer-drag, not
-    // HTML5 — WebView2's native drag-drop blocks HTML5 DnD.)
     const handleRowPointerDown = useCallback((node: FileTreeNode, e: React.PointerEvent) => {
         if (node.path === '.' || !projectPath || renamingPath) return;
         const sel = selectedPathsRef.current;
@@ -540,8 +506,6 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         );
     }
 
-    // renderEpoch bumps whenever the rows array identity changes (selection,
-    // expand, rename, drop target, file status).
     const renderEpoch = rows.length + (selectedFile?.length ?? 0) + (dropTargetPath?.length ?? 0) + selectedPaths.size;
 
     return (
@@ -592,10 +556,6 @@ interface TreeRowProps {
 }
 
 // ── Cross-project drag hit-testing (pointer-drag; see lib/pointerDrag.ts) ──────
-// Two drop targets: a project TAB (lands in the dialog's default folder) and a
-// FOLDER row in the visible tree (lands in that folder). Hovering a tab for
-// ~600ms "spring-loads" it: we switch to that project so its tree shows and the
-// user can drop into a specific subfolder.
 
 const SPRING_LOAD_MS = 600;
 let springTimer: number | null = null;
@@ -638,11 +598,6 @@ function activeProjectInfo(): { path: string; name: string } | null {
     return { path: tab.projectPath, name: tab.project.display_name || tab.project.name };
 }
 
-/**
- * During-drag: highlight the tab/folder under the cursor, and spring-load on
- * hover. Holding over a project TAB switches to that project; holding over a
- * FOLDER expands it so you can drill deeper before dropping.
- */
 function onTreeDragMove(x: number, y: number, sourceProject: string): void {
     clearDragHighlights();
 
@@ -652,7 +607,6 @@ function onTreeDragMove(x: number, y: number, sourceProject: string): void {
         const pp = tab.getAttribute('data-project-tab');
         if (pp && pp !== sourceProject) {
             tab.classList.add('titlebar__tab--drop-target');
-            // Spring-load: hold over the tab → switch to that project.
             if (springTargetProject !== pp) {
                 clearSpringLoad();
                 springTargetProject = pp;
@@ -670,9 +624,6 @@ function onTreeDragMove(x: number, y: number, sourceProject: string): void {
         return;
     }
 
-    // Not over a tab → cancel any pending tab spring-load. Once spring-loaded into
-    // a DIFFERENT project, highlight the folder under the cursor and, on hover,
-    // expand it so the user can navigate into subfolders and drop deeper.
     clearSpringLoad();
     const active = activeProjectInfo();
     if (active && active.path !== sourceProject) {
@@ -695,17 +646,11 @@ function onTreeDragMove(x: number, y: number, sourceProject: string): void {
     }
 }
 
-/**
- * On release: open the Move/Copy dialog with the destination fixed to where the
- * item was dropped — a specific FOLDER in the (spring-loaded) active project, or
- * the project root when dropped on the tab itself.
- */
 function onTreeDrop(x: number, y: number, payload: TreeDragPayload): void {
     clearSpringLoad();
     clearFolderExpand();
     clearDragHighlights();
 
-    // 1) Dropped on a folder in the (possibly spring-loaded) active project.
     const folder = folderRowAt(x, y);
     if (folder) {
         const destFolder = folder.getAttribute('data-drop-path');
@@ -718,10 +663,9 @@ function onTreeDrop(x: number, y: number, payload: TreeDragPayload): void {
                 destFolder,
             });
         }
-        return; // same-project / invalid folder drop — nothing to do
+        return;
     }
 
-    // 2) Dropped on a project tab (no specific folder) → project root.
     const tab = projectTabAt(x, y);
     if (!tab) return;
     const destProjectPath = tab.getAttribute('data-project-tab');
@@ -747,8 +691,6 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
     const { node, displayPath, depth, isExpanded, isRenaming, status } = row;
     const renameInputRef = useRef<HTMLInputElement>(null);
 
-    // Drag a file/folder (or the whole multi-selection) out to another project's
-    // tab — handled by the parent so it has the live selection.
     void projectPath;
     const handlePointerDown = (e: React.PointerEvent) => {
         onRowPointerDown(node, e);
@@ -771,8 +713,6 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
     const handleClick = (e: React.MouseEvent) => {
         e.stopPropagation();
         if (isRenaming) return;
-        // Ctrl = toggle, Shift = range select (handled by the parent). Shift+click
-        // the CHEVRON still deep-expands a folder.
         onItemClick(node.path, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey });
     };
 
@@ -811,9 +751,6 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
                     <span
                         className="file-tree__expander"
                         onClick={(e) => {
-                            // Chevron toggles expansion; Shift+chevron deep-expands
-                            // the whole subtree. Clicking the row body opens the
-                            // folder grid view / selects.
                             e.stopPropagation();
                             if (e.shiftKey) onDeepToggle(node, !isExpanded);
                             else onExpanderClick(node.path);

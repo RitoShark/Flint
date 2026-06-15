@@ -1,15 +1,3 @@
-/**
- * Flint - WAD Explorer
- *
- * A unified Virtual File System (VFS) browser for all League game assets.
- * WADs are discovered via scan_game_wads then lazily loaded on expand via
- * get_wad_chunks — no chunk bytes are ever read at this stage.
- *
- * Layout mirrors the Mod Project screen:
- *   Left  — resizable VFS tree with debounced regex search
- *   Right — quick-action cards when idle, inline preview when a file is selected
- */
-
 import React, {
     useState, useCallback, useEffect, useRef, useMemo,
 } from 'react';
@@ -21,8 +9,6 @@ import { getIcon, getFileIcon } from '../../lib/ui-helpers/fileIcons';
 import type { ContextMenuOption, WadChunk, WadExplorerWad } from '../../lib/types';
 import { WadCheatSheetModal } from '../modals/WadCheatSheetModal';
 
-// Extracted subcomponents and helpers (split from the original 2,680-line
-// WadExplorer.tsx). See ./wad-explorer/ for the actual implementations.
 import {
     checkboxSvg,
     type VFSNode, type VFSFolder, type VFSFile,
@@ -74,12 +60,9 @@ export const WadExplorer: React.FC = () => {
     const [showCheatSheet, setShowCheatSheet] = useState(false);
     const [highlightedKey, setHighlightedKey] = useState<string | null>(null);
     const listRef = useRef<VirtualizedListHandle | null>(null);
-    // { wadPath, filePath?, phase: 'wad'|'file' } — drives async navigation
     const pendingNavRef = useRef<{ wadPath: string; filePath?: string; phase: 'wad' | 'file' } | null>(null);
-    // Always-fresh mirrors so processNavigation can run without stale closures
     const flatRowsRef = useRef<FlatRow[] | null>(null);
 
-    // Search input (debounced → global state)
     const [inputValue, setInputValue] = useState(wadExplorer.searchQuery);
     const [searchMode, setSearchMode] = useState<SearchMode>('contains');
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -97,10 +80,6 @@ export const WadExplorer: React.FC = () => {
     const hasQuery = trimmed.length > 0;
 
     // ── PBE / Live branch toggle ────────────────────────────────────────────
-    // The store only holds one wads list at a time. We snapshot it per branch
-    // in a ref so toggling between PBE and Live is instant — no rescan, and
-    // already-loaded chunks survive (vfsCacheRef is keyed by absolute WAD path,
-    // so PBE and Live entries coexist there naturally without conflict).
     const configStore = useConfigStore();
     const [branch, setBranch] = useState<'live' | 'pbe'>('live');
     const branchSnapshotRef = useRef<Map<'live' | 'pbe', {
@@ -115,7 +94,7 @@ export const WadExplorer: React.FC = () => {
     // ── Scan on mount if not yet scanned ────────────────────────────────────
     useEffect(() => {
         if (wadExplorer.scanStatus !== 'idle') return;
-        if (!effectiveGamePath) return; // user must pick a folder
+        if (!effectiveGamePath) return;
         runScan(effectiveGamePath);
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -144,7 +123,6 @@ export const WadExplorer: React.FC = () => {
             return;
         }
 
-        // Snapshot the current branch's full state before swapping.
         branchSnapshotRef.current.set(branch, {
             wads: wadExplorer.wads,
             scanStatus: wadExplorer.scanStatus,
@@ -153,11 +131,8 @@ export const WadExplorer: React.FC = () => {
 
         setBranch(next);
 
-        // Restore cached snapshot for the new branch if we have one — instant swap.
         const cached = branchSnapshotRef.current.get(next);
         if (cached && cached.scanStatus === 'ready' && cached.wads.length > 0) {
-            // setScan remaps every wad to {status:'idle', chunks:[]}, so seed the
-            // base list first, then re-apply the cached loaded chunks per WAD.
             const baseWads = cached.wads.map(w => ({
                 path: w.path,
                 name: w.name,
@@ -173,7 +148,6 @@ export const WadExplorer: React.FC = () => {
             return;
         }
 
-        // No cache for this branch yet — fresh scan against the new path.
         const nextRoot = next === 'pbe' ? configStore.leaguePathPbe : leaguePath;
         const nextGamePath = nextRoot ? `${nextRoot}/Game` : null;
         if (!nextGamePath) {
@@ -185,8 +159,6 @@ export const WadExplorer: React.FC = () => {
     }, [branch, configStore.leaguePathPbe, leaguePath, wadExplorer.wads, wadExplorer.scanStatus, wadExplorer.scanError]);
 
     // ── Lazy WAD loading: load on-demand when WAD is expanded ─────────────────
-    // This is MUCH faster than bulk-loading all 457 WADs upfront (was 15+ seconds).
-    // Now the UI appears instantly and chunks load only when the user expands a WAD.
     const loadWad = useCallback(async (wadPath: string) => {
         useWadExplorerStore.getState().setWadStatus(wadPath, 'loading');
         try {
@@ -204,19 +176,14 @@ export const WadExplorer: React.FC = () => {
 
         useWadExplorerStore.getState().toggleWad(wadPath);
 
-        // Track WAD as recently-opened on expand. Used by the empty-state
-        // panel to offer one-click reopen.
         if (wasCollapsed) pushRecentWad(wadPath);
 
-        // Load chunks lazily when WAD is being expanded (was collapsed, will be expanded)
         if (wad?.status === 'idle' && wasCollapsed) {
             loadWad(wadPath);
         }
     }, [loadWad, wadExplorer.wads, wadExplorer.expandedWads, pushRecentWad]);
 
     // ── Cheat sheet navigation ────────────────────────────────────────────────
-    // Reads always-fresh data from refs so it can be called from effects and
-    // requestAnimationFrame without stale-closure issues.
     const processNavigation = useCallback(() => {
         const nav = pendingNavRef.current;
         const rows = flatRowsRef.current;
@@ -274,11 +241,10 @@ export const WadExplorer: React.FC = () => {
         pendingNavRef.current = { wadPath: wad.path, filePath, phase: 'wad' };
 
         if (!wadExplorer.expandedWads.has(wad.path)) {
-            handleToggleWad(wad.path); // expands + starts load → flatRows will update → effect fires
+            handleToggleWad(wad.path);
         } else if (wad.status === 'idle') {
             loadWad(wad.path);
         } else {
-            // Already expanded (and loaded/loading) — trigger on next frame since flatRows won't change
             requestAnimationFrame(() => processNavigation());
         }
     }, [wadExplorer.wads, wadExplorer.expandedWads, handleToggleWad, loadWad, processNavigation]);
@@ -291,28 +257,11 @@ export const WadExplorer: React.FC = () => {
     }, []);
 
     // ── Background bulk indexing for whole-game search ─────────────────────────
-    // Loads all WADs so search works across the entire game.
-    //
-    // Single-IPC approach (matches 1.7.1, which is ~10x faster than the
-    // batched version that was here before).
-    //
-    // Why one call beats parallel batches:
-    //   - Rust does ALL work in one shot — one rayon parallel pass over
-    //     WAD headers, ONE LMDB read txn for the deduped union of every
-    //     unique hash across every WAD. Splitting into batches forced
-    //     N separate LMDB txns and lost cross-WAD hash deduplication
-    //     (the same texture hash referenced by 50 WADs got resolved 50
-    //     times instead of once).
-    //   - Only one IPC payload to (de)serialize.
-    //   - No per-batch React re-render churn. The single dispatch at the
-    //     end means one state update, one tree render — eliminating the
-    //     ~150ms inter-batch gaps the IPC trace was showing.
     useEffect(() => {
         if (wadExplorer.scanStatus !== 'ready') return;
         const idlePaths = wadExplorer.wads.filter(w => w.status === 'idle').map(w => w.path);
         if (idlePaths.length === 0) return;
 
-        // Mark all as loading in one batch so the UI shows progress immediately.
         useWadExplorerStore.getState().batchSetWadStatuses(
             idlePaths.map(p => ({ wadPath: p, status: 'loading' as const })),
         );
@@ -469,7 +418,6 @@ export const WadExplorer: React.FC = () => {
         try {
             const dest = await open({ title: 'Choose Extraction Folder', directory: true });
             if (!dest) return;
-            // Group by wadPath
             const map = new Map<string, string[]>();
             for (const key of checkedFiles) {
                 const sep = key.indexOf('::');
@@ -503,7 +451,6 @@ export const WadExplorer: React.FC = () => {
         }, 300);
     }, []);
 
-    // Ctrl+F → focus search; Escape → clear search
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (e.ctrlKey && e.key === 'f' && currentView === 'wad-explorer') {
@@ -844,7 +791,6 @@ export const WadExplorer: React.FC = () => {
         return wadGroups;
     }, [wadExplorer.wads, trimmed, searchMode, inputValue]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Keep a flat count for the footer
     const searchResultCount = useMemo(() => {
         if (!groupedSearchResults) return 0;
         return groupedSearchResults.reduce((s, g) => s + g.totalMatches, 0);
@@ -877,22 +823,17 @@ export const WadExplorer: React.FC = () => {
     }, [hasQuery, isRegex, searchMode, categories, plainLower]);
 
     // ── WAD subtrees (lazily built per WAD, cached by chunks reference) ────
-    // Only builds VFS tree for a WAD when it's expanded AND loaded.
-    // Uses a ref cache keyed by wad path; invalidates when chunks array changes.
     const vfsCacheRef = useRef<Map<string, { chunks: WadChunk[]; tree: VFSNode[] }>>(new Map());
     const wadSubtrees = useMemo(() => {
         const cache = vfsCacheRef.current;
         const m = new Map<string, VFSNode[]>();
         for (const w of wadExplorer.wads) {
             if (w.status !== 'loaded') continue;
-            // Only build tree for expanded WADs (lazy)
             if (!wadExplorer.expandedWads.has(w.path)) continue;
             const cached = cache.get(w.path);
             if (cached && cached.chunks === w.chunks) {
-                // Same chunks reference — reuse cached tree
                 m.set(w.path, cached.tree);
             } else {
-                // Chunks changed or first build — rebuild tree
                 const tree = buildVFSSubtree(w.chunks, w.path);
                 cache.set(w.path, { chunks: w.chunks, tree });
                 m.set(w.path, tree);
@@ -902,12 +843,6 @@ export const WadExplorer: React.FC = () => {
     }, [wadExplorer.wads, wadExplorer.expandedWads]);
 
     // ── O(1) WAD check state (no full chunk walk) ─────────────────────────
-    // Was: rebuild Map<wadPath, 'all'|'some'|'none'> on every toggle by
-    // iterating every chunk of every loaded WAD — for a champion WAD with
-    // 80k chunks and 450 WADs in scope, a single checkbox click was doing
-    // millions of `Set.has + string-build` lookups before paint.
-    // Now: store maintains a `checkedCountPerWad` tally incrementally; the
-    // tri-state is just `count` vs `wad.chunks.length`.
     const checkedCountPerWad = wadExplorer.checkedCountPerWad;
     const getWadCheckStateFast = useCallback(
         (wad: WadExplorerWad): 'none' | 'some' | 'all' => {
@@ -933,11 +868,6 @@ export const WadExplorer: React.FC = () => {
     }, [wadExplorer.wads, wadExplorer.checkedFiles]);
 
     // ── Lazy folder/search check-state caches ─────────────────────────────
-    // Old precompute walked every expanded folder subtree on every toggle —
-    // for a champion WAD that's potentially the entire tree. With virtualized
-    // rendering we only need check states for currently-visible rows (~30),
-    // so we compute on demand and cache by node identity. Cache is rebuilt
-    // whenever `checkedFiles` changes (its identity flips on every toggle).
     const folderCheckStateCacheRef = useRef<WeakMap<VFSFolder, 'none' | 'some' | 'all'>>(
         new WeakMap(),
     );
@@ -972,8 +902,6 @@ export const WadExplorer: React.FC = () => {
     );
 
     // ── Memoized flat rows (tree mode) ───────────────────────────────────────
-    // NOT dependent on `selected` or `checkedFiles` — selection/check clicks
-    // no longer trigger expensive tree recomputation.
     const isSearching = groupedSearchResults !== null;
     const flatRows = useMemo(() => {
         if (isSearching) return null;
@@ -987,7 +915,6 @@ export const WadExplorer: React.FC = () => {
     }, [isSearching, filteredCategories, categories, collapsedCategories, wadExplorer.expandedWads, wadExplorer.expandedFolders, wadSubtrees]);
     flatRowsRef.current = flatRows;
 
-    // Re-run navigation whenever flatRows changes (WAD loaded, folders expanded)
     // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => { processNavigation(); }, [flatRows, processNavigation]);
 
@@ -999,20 +926,7 @@ export const WadExplorer: React.FC = () => {
 
     const totalRows = isSearching ? (flatSearchRows?.length ?? 0) : (flatRows?.length ?? 0);
 
-    // Folder + search check states are computed lazily inside `renderRow` via
-    // `getFolderCheckStateLazy` / `getSearchCheckStateLazy` — only the ~30
-    // visible rows pay the subtree-walk cost on a checkbox toggle, instead
-    // of every expanded folder in the entire tree.
-
     // ── Stable renderRow ref (prevents VirtualizedList re-renders) ───────────
-    // The memo'd `VirtualizedList` only sees this stable function reference,
-    // so its props are stable too. To still let visible rows refresh when
-    // something they read from closure changes (checks, selection, expanded
-    // sets, highlight), we pass a `renderEpoch` cache-buster prop derived
-    // from those state slices — when any of them changes, the epoch bumps,
-    // the memo compare misses, and the visible rows re-render in place.
-    // Without this, you had to scroll (which mutates the list's internal
-    // `scrollTop`) before the UI caught up.
     const renderRowRef = useRef<(index: number) => React.ReactNode>(() => null);
     const stableRenderRow = useCallback((index: number) => renderRowRef.current(index), []);
     const renderEpoch = useMemo(() => Date.now(), [
@@ -1360,7 +1274,6 @@ export const WadExplorer: React.FC = () => {
         <div style={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden' }}>
             {/* ── LEFT: VFS tree ── */}
             <div className="left-panel" style={{ width: leftWidth, minWidth: 200, maxWidth: 800, display: 'flex', flexDirection: 'column', overflow: 'hidden', flexShrink: 0 }}>
-                {/* Header */}
                 <div className="left-panel__header" style={{ padding: '10px 12px 6px', flexShrink: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
                         <span dangerouslySetInnerHTML={{ __html: getIcon('wad') }} />
@@ -1371,7 +1284,6 @@ export const WadExplorer: React.FC = () => {
                             onClick={() => setShowCheatSheet(true)}
                             style={{ fontSize: '11px', padding: '1px 6px', opacity: 0.7, fontWeight: 600 }}
                         >?</button>
-                        {/* Live / PBE branch toggle. Cached snapshots make swapping instant. */}
                         <div
                             className="wad-explorer__branch-toggle"
                             role="tablist"
@@ -1402,7 +1314,6 @@ export const WadExplorer: React.FC = () => {
                             </button>
                         )}
                     </div>
-                    {/* Search */}
                     <div className="file-tree__search" style={{ position: 'relative' }}>
                         <span style={{ position: 'absolute', left: '6px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', opacity: 0.5 }}
                             dangerouslySetInnerHTML={{ __html: getIcon('search') }} />
@@ -1434,7 +1345,6 @@ export const WadExplorer: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Selection toolbar */}
                 {wadExplorer.scanStatus === 'ready' && (
                     <div style={{ flexShrink: 0, borderBottom: '1px solid var(--border)', padding: '4px 12px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px' }}>
                         <span
@@ -1466,7 +1376,6 @@ export const WadExplorer: React.FC = () => {
                     </div>
                 )}
 
-                {/* Tree / scan states */}
                 <div className="file-tree" style={{ flex: 1, overflow: 'hidden', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                     {wadExplorer.scanStatus === 'idle' && effectiveLeagueRoot && (
                         <div className="wad-empty">
@@ -1521,7 +1430,6 @@ export const WadExplorer: React.FC = () => {
                     )}
                 </div>
 
-                {/* Footer stats */}
                 {wadExplorer.scanStatus === 'ready' && (
                     <div style={{ flexShrink: 0, borderTop: '1px solid var(--border)', padding: '6px 12px', fontSize: '11px', color: 'var(--text-muted)', display: 'flex', gap: '8px' }}>
                         <span>{wadExplorer.wads.length.toLocaleString()} WADs</span>

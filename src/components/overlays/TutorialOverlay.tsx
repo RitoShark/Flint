@@ -1,7 +1,3 @@
-/**
- * Flint - First-run tutorial overlay
- */
-
 import React, { useState, useEffect, useRef } from 'react';
 import { useModalStore } from '../../lib/stores';
 import type { ModalType } from '../../lib/types';
@@ -10,13 +6,9 @@ const ONBOARDING_KEY = 'flint_onboarding_done';
 export function isOnboardingDone(): boolean { return localStorage.getItem(ONBOARDING_KEY) === 'true'; }
 export function markOnboardingDone(): void { localStorage.setItem(ONBOARDING_KEY, 'true'); }
 
-/** Custom DOM event the Settings dev tab fires to replay the tutorial.
- *  App.tsx listens and flips `showTutorial` on. We also wipe the
- *  onboarding flag first so any re-entry triggers fire normally next
- *  session if needed. */
 export const TUTORIAL_REPLAY_EVENT = 'flint:tutorial:replay';
 export function triggerTutorialReplay(): void {
-    try { localStorage.removeItem(ONBOARDING_KEY); } catch { /* ignore */ }
+    try { localStorage.removeItem(ONBOARDING_KEY); } catch {}
     window.dispatchEvent(new CustomEvent(TUTORIAL_REPLAY_EVENT));
 }
 
@@ -34,7 +26,6 @@ interface Step {
     waitForImage?: boolean;
 }
 
-/** Click selector as soon as it appears, retrying up to maxTries × intervalMs. */
 function clickWhenReady(selector: string, maxTries = 50, intervalMs = 150): void {
     let tries = 0;
     const attempt = () => {
@@ -62,7 +53,7 @@ const STEPS: Step[] = [
         selector: '.np-type-selector',
         placement: 'below',
         modal: 'newProject',
-        delay: 280, // wait for modal CSS transition (200ms) + buffer
+        delay: 280,
     },
     {
         title: 'Select a Champion',
@@ -78,14 +69,11 @@ const STEPS: Step[] = [
         selector: '.np-hero-splash',
         placement: 'below',
         modal: 'newProject',
-        // Wait for modal (if re-entering from a non-modal step) + Aatrox skins API call
         delay: 350,
-        waitForImage: true, // only spotlight once the splash image has actually loaded
+        waitForImage: true,
         onEnter: () => {
-            // Close skin picker overlay if it was left open (backward nav from step 5)
             const overlay = document.querySelector<HTMLElement>('.np-skin-picker-overlay');
             if (overlay) overlay.click();
-            // Select Aatrox — retries handle both "champions still loading" and "already selected" cases
             clickWhenReady('.np-champ-card[title="Aatrox"]');
         },
     },
@@ -97,14 +85,12 @@ const STEPS: Step[] = [
         modal: 'newProject',
         delay: 300,
         onEnter: () => {
-            // Need: Aatrox selected → splash visible → pencil button exists
-            // Works in both directions; if splash is already there we click immediately.
             const tryOpenPicker = (tries = 0) => {
                 const editBtn = document.querySelector<HTMLElement>('.np-hero-splash__edit');
                 if (editBtn) { editBtn.click(); return; }
 
                 const aatrox = document.querySelector<HTMLElement>('.np-champ-card[title="Aatrox"]');
-                if (aatrox && tries === 0) aatrox.click(); // ensure Aatrox is selected
+                if (aatrox && tries === 0) aatrox.click();
 
                 if (tries < 40) setTimeout(() => tryOpenPicker(tries + 1), 200);
             };
@@ -148,12 +134,11 @@ const EDGE = 14;
 
 interface Spot { x: number; y: number; w: number; h: number; }
 
-/** Pad small elements gently so the highlight doesn't dwarf a 14px icon. */
 function paddingFor(w: number, h: number): number {
     const min = Math.min(w, h);
-    if (min <= 24) return 3;   // titlebar icons, small chips
-    if (min <= 48) return 5;   // small buttons
-    return 8;                  // panels, grids, splash art
+    if (min <= 24) return 3;
+    if (min <= 48) return 5;
+    return 8;
 }
 
 function clampToViewport(s: Spot, vpW: number, vpH: number): Spot {
@@ -177,7 +162,6 @@ function queryRect(selector: string, waitForImage: boolean): Spot | null {
     return { x: r.left - p, y: r.top - p, w: r.width + p * 2, h: r.height + p * 2 };
 }
 
-/** Two rects are equal enough that the element has finished moving/scaling. */
 function rectsMatch(a: Spot, b: Spot): boolean {
     return Math.abs(a.x - b.x) < 0.5
         && Math.abs(a.y - b.y) < 0.5
@@ -229,17 +213,12 @@ export const TutorialOverlay: React.FC<Props> = ({ onDone }) => {
 
     const step = STEPS[idx];
 
-    // Viewport size tracking
     useEffect(() => {
         const onResize = () => { setVpW(window.innerWidth); setVpH(window.innerHeight); };
         window.addEventListener('resize', onResize);
         return () => window.removeEventListener('resize', onResize);
     }, []);
 
-    // Spotlight polling — starts after step.delay, then waits for the element
-    // to stop moving/scaling (two consecutive samples must match) before
-    // committing the highlight. Fixes the "modal still scaling in" jitter where
-    // the spotlight would lock onto a 95%-scaled rect.
     useEffect(() => {
         clearTimeout(spotTimerRef.current);
         setSpot(null);
@@ -265,7 +244,6 @@ export const TutorialOverlay: React.FC<Props> = ({ onDone }) => {
         return () => clearTimeout(spotTimerRef.current);
     }, [idx, step.selector, step.delay, step.waitForImage]);
 
-    // onEnter action — fires after the step's delay (handles both forward + backward nav)
     useEffect(() => {
         clearTimeout(enterTimerRef.current);
         if (!step.onEnter) return;
@@ -273,7 +251,6 @@ export const TutorialOverlay: React.FC<Props> = ({ onDone }) => {
         return () => clearTimeout(enterTimerRef.current);
     }, [idx]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Cleanup on unmount
     useEffect(() => {
         return () => {
             clearTimeout(spotTimerRef.current);
@@ -309,16 +286,8 @@ export const TutorialOverlay: React.FC<Props> = ({ onDone }) => {
 
     return (
         <div className="tutorial-overlay">
-            {/* Full-screen event blocker sits behind the callout */}
             <div className="tutorial-overlay__blocker" />
 
-            {/*
-             * Spotlight: a transparent <div> whose box-shadow covers the entire
-             * viewport with the dark overlay. Because the dark area and the
-             * spotlight hole are ONE element, transitioning top/left/width/height
-             * keeps them perfectly in sync — no SVG mask desync.
-             * The ::after pseudo-element provides the animated blue ring.
-             */}
             <div
                 className={`tutorial-spotlight${!spot ? ' tutorial-spotlight--empty' : ''}`}
                 style={{
@@ -329,9 +298,6 @@ export const TutorialOverlay: React.FC<Props> = ({ onDone }) => {
                 }}
             />
 
-            {/* Callout — slides to new position via CSS transition.
-                Inner content has `key={idx}` so the fade/slide animation
-                replays when stepping forward/back. */}
             <div className="tutorial-callout" style={cs}>
                 <div className="tutorial-callout__header">
                     <span className="tutorial-callout__badge">
@@ -345,7 +311,6 @@ export const TutorialOverlay: React.FC<Props> = ({ onDone }) => {
                     </span>
                 </div>
 
-                {/* Progress bar — fills with each forward step */}
                 <div className="tutorial-callout__progress" aria-hidden="true">
                     <div
                         className="tutorial-callout__progress-fill"
@@ -353,14 +318,12 @@ export const TutorialOverlay: React.FC<Props> = ({ onDone }) => {
                     />
                 </div>
 
-                {/* Step dots stay as a secondary navigator */}
                 <div className="tutorial-callout__dots" aria-hidden="true">
                     {STEPS.map((_, i) => (
                         <span key={i} className={`tutorial-callout__dot${i === idx ? ' tutorial-callout__dot--active' : ''}`} />
                     ))}
                 </div>
 
-                {/* `key={idx}` forces a fresh fade-in on every step change */}
                 <div className="tutorial-callout__content" key={idx}>
                     <h3 className="tutorial-callout__title">{step.title}</h3>
                     <p className="tutorial-callout__body">{step.body}</p>

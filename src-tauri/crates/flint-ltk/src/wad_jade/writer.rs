@@ -1,12 +1,7 @@
 //! Minimal WAD v3.4 serializer used by the in-memory edit pipeline.
+//! v3.1 WADs are upgraded to v3.4 on write.
 //!
-//! The reader side already covers v3.1 / v3.4 parsing. This writer is
-//! v3.4 only — it's the version League ships today (since 14.x) and the
-//! only one mod managers exercise. Older WADs that come in as v3.1 are
-//! upgraded to v3.4 on write; the chunk records carry strictly more
-//! information in the newer layout.
-//!
-//! Layout (header is 266 bytes, TOC entry is 32 bytes per chunk):
+//! Layout (header is 272 bytes, TOC entry is 32 bytes per chunk):
 //!
 //! ```text
 //! Header
@@ -28,10 +23,8 @@
 //! ```
 //!
 //! Compression strategy: zstd everything bigger than 512 bytes when the
-//! compressed payload is at least 5% smaller than the source. Otherwise
-//! the chunk goes in uncompressed. This matches Riot's heuristic in
-//! their own client.bin writer and is what every other modding tool
-//! (Obsidian/Fantome/Quartz) does.
+//! compressed payload is at least 5% smaller than the source; otherwise
+//! the chunk goes in uncompressed.
 
 use crate::error::{Error, Result};
 use crate::wad_jade::format::WadCompression;
@@ -45,9 +38,8 @@ const ZSTD_LEVEL: i32 = 17;
 const ZSTD_MIN_INPUT: usize = 512;
 const ZSTD_KEEP_RATIO: f64 = 0.95;
 
-/// One entry the caller wants serialized. `bytes` is the *decompressed*
-/// payload — the writer decides whether to zstd it. `force_uncompressed`
-/// is for callers (e.g. test fixtures) that need byte-exact output.
+/// `bytes` is the *decompressed* payload — the writer decides whether to
+/// zstd it. `force_uncompressed` forces byte-exact uncompressed output.
 pub struct EntryToWrite {
     pub path_hash: u64,
     pub bytes: Vec<u8>,
@@ -60,8 +52,6 @@ impl EntryToWrite {
     }
 }
 
-/// Tally returned by `write_wad`. Mostly for the UI to surface "wrote N
-/// chunks, M bytes" — we don't otherwise care about the numbers.
 #[derive(Debug, Clone, Copy)]
 pub struct WriteStats {
     pub chunk_count: usize,
@@ -69,18 +59,10 @@ pub struct WriteStats {
     pub total_uncompressed: u64,
 }
 
-/// Serialize entries into a WAD v3.4 binary buffer.
-///
-/// Entries are sorted by path_hash before writing so the TOC is in
-/// hash-ascending order. This matches what League's tooling produces and
-/// makes the binary diff-stable across edits that touch the same chunks.
-///
-/// Duplicate hashes are deduplicated by taking the *last* entry — the
-/// caller is expected to have already merged any pending edits over the
-/// originals, so duplicates here are a usage bug, not a feature.
+/// Serialize entries into a WAD v3.4 binary buffer. Entries are sorted by
+/// path_hash so the TOC is hash-ascending; duplicate hashes are
+/// deduplicated last-wins.
 pub fn write_wad(entries: Vec<EntryToWrite>) -> Result<(Vec<u8>, WriteStats)> {
-    // Dedup-by-hash, last-wins. We compact via HashMap rather than sort+dedup
-    // so the caller doesn't have to guarantee ordering.
     let mut map: std::collections::HashMap<u64, EntryToWrite> =
         std::collections::HashMap::with_capacity(entries.len());
     for e in entries {
@@ -98,14 +80,6 @@ pub fn write_wad(entries: Vec<EntryToWrite>) -> Result<(Vec<u8>, WriteStats)> {
         })?;
     let data_start = HEADER_SIZE + toc_bytes;
 
-    // Pre-encode every chunk so we know its compressed size before we
-    // write the TOC. zstd level 17 over hundreds of chunks is the dominant
-    // cost of a save, and each chunk encodes independently, so fan it out
-    // across rayon. The collect preserves input order (which is already
-    // sorted by path_hash above), so the TOC stays hash-ascending.
-    // Memory: roughly 2× total chunk bytes (raw + zstd buffer) during this
-    // step. For typical champion WADs (~200 MB) that peaks at ~400 MB
-    // resident — acceptable for an interactive editor.
     use rayon::prelude::*;
     let encoded: Vec<EncodedEntry> = entries
         .into_par_iter()
@@ -117,22 +91,19 @@ pub fn write_wad(entries: Vec<EntryToWrite>) -> Result<(Vec<u8>, WriteStats)> {
     let mut buf: Vec<u8> = Vec::with_capacity(total_size as usize);
     let mut cursor = Cursor::new(&mut buf);
 
-    // Header
     cursor.write_u16::<LittleEndian>(MAGIC_RW)?;
     cursor.write_u8(3)?;
     cursor.write_u8(4)?;
-    cursor.write_all(&[0u8; 256])?; // ECDSA signature — zeros
-    cursor.write_u64::<LittleEndian>(0)?; // data checksum — zero
+    cursor.write_all(&[0u8; 256])?;
+    cursor.write_u64::<LittleEndian>(0)?;
     cursor.write_i32::<LittleEndian>(chunk_count as i32)?;
 
-    // TOC — emit while accumulating the running data offset.
     let mut offset = data_start as u64;
     let mut total_uncompressed: u64 = 0;
     let mut total_compressed: u64 = 0;
     for e in &encoded {
         if offset > u32::MAX as u64 {
-            // v3.4 stores data_offset as u32. WADs that big would need a
-            // version bump; we error rather than silently truncate.
+            // v3.4 stores data_offset as a u32.
             return Err(Error::Wad {
                 message: format!(
                     "WAD too large for v3.4 (data offset {} exceeds u32::MAX)",
@@ -147,12 +118,9 @@ pub fn write_wad(entries: Vec<EntryToWrite>) -> Result<(Vec<u8>, WriteStats)> {
         cursor.write_u32::<LittleEndian>(e.uncompressed_size as u32)?;
 
         // type_frame_count: frame_count (high nibble) << 4 | compression (low nibble).
-        // We never write multi-frame chunks (the multi-frame compression
-        // type is for streamed audio; League's tooling only emits it for
-        // sound banks), so the high nibble is always zero.
         let type_byte = e.compression as u8;
         cursor.write_u8(type_byte)?;
-        // start_frame: 24-bit, ordered hi / lo / mi as the reader expects.
+        // start_frame: 24-bit.
         cursor.write_u8(0)?;
         cursor.write_u8(0)?;
         cursor.write_u8(0)?;
@@ -163,7 +131,6 @@ pub fn write_wad(entries: Vec<EntryToWrite>) -> Result<(Vec<u8>, WriteStats)> {
         total_compressed += e.compressed.len() as u64;
     }
 
-    // Data section — emit in TOC order.
     for e in &encoded {
         cursor.write_all(&e.compressed)?;
     }
@@ -198,8 +165,6 @@ fn encode_one(entry: EntryToWrite) -> Result<EncodedEntry> {
                 if (zbytes.len() as f64) < (raw_len as f64) * ZSTD_KEEP_RATIO {
                     (zbytes, WadCompression::Zstd)
                 } else {
-                    // Zstd didn't save enough — store raw so the reader
-                    // doesn't pay decompression cost for a no-op.
                     (entry.bytes, WadCompression::None)
                 }
             }
@@ -213,9 +178,7 @@ fn encode_one(entry: EntryToWrite) -> Result<EncodedEntry> {
         }
     };
 
-    // Checksum is xxh3-64 of the compressed payload. Riot's writer uses
-    // this value; the client tolerates zero, but other modding tools
-    // verify it, so we compute it properly.
+    // xxh3-64 of the compressed payload.
     let checksum = xxhash_rust::xxh3::xxh3_64(&data);
 
     Ok(EncodedEntry {
@@ -226,7 +189,3 @@ fn encode_one(entry: EntryToWrite) -> Result<EncodedEntry> {
         checksum,
     })
 }
-
-// The blanket `impl From<std::io::Error> for Error` already lives in
-// `error.rs`, so Cursor write failures auto-convert here. No extra impl
-// is needed.

@@ -23,7 +23,6 @@ struct ManifestData {
     files: Vec<ManifestFile>,
 }
 
-/// Parse RMAN bytes into viewer JSON.
 pub fn rman_to_json(data: &[u8]) -> Result<String, String> {
     let rman = Rman::from_bytes(data).map_err(|e| format!("Failed to parse manifest: {e:?}"))?;
 

@@ -1,9 +1,3 @@
-/**
- * Flint - WAD Browser Panel
- * Redesigned flat list sidebar for browsing WAD files with breadcrumbs,
- * double-click folder navigation, search, and context menu actions.
- */
-
 import React, { useMemo, useCallback, useState } from 'react';
 import { useAppMetadataStore, useModalStore, useNotificationStore, useWadExtractStore } from '../../lib/stores';
 import * as api from '../../lib/api';
@@ -95,7 +89,6 @@ function buildWadTree(chunks: WadChunk[], searchQuery: string): WadTreeNode[] {
         }
     }
 
-    // Unresolved hashes → grouped at the bottom
     const unresolved = filtered.filter(c => !c.path);
     if (unresolved.length > 0) {
         rootNodes.push({
@@ -106,7 +99,6 @@ function buildWadTree(chunks: WadChunk[], searchQuery: string): WadTreeNode[] {
         });
     }
 
-    // Sort: folders first, then alphabetically
     const sort = (nodes: WadTreeNode[]) => {
         nodes.sort((a, b) => {
             if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
@@ -173,11 +165,9 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
             setIsUnhashing(true);
             setStatus('working', 'Scanning WAD for asset paths...');
 
-            // 1. Run the hash scanner
             const result = await api.extractHashesFromWad(session.wadPath);
             const totalAdded = result.game_hashes_added + result.bin_hashes_added;
 
-            // 2. Refresh chunks and update store
             const refreshedChunks = await api.getWadChunks(session.wadPath);
             useWadExtractStore.getState().setChunks(session.id, refreshedChunks);
 
@@ -219,14 +209,12 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
         }
     }, [session, showToast, setStatus]);
 
-    // Directory contents at active path
     const nodes = useMemo(() => {
         if (!session) return [];
-        const roots = buildWadTree(session.chunks, ''); // build base tree of all chunks
+        const roots = buildWadTree(session.chunks, '');
         return getNodesAtDir(roots, currentDir);
     }, [session?.chunks, currentDir]);
 
-    // Flat search results
     const filteredChunks = useMemo(() => {
         if (!session) return [];
         const q = session.searchQuery.toLowerCase().trim();
@@ -234,7 +222,7 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
         for (const c of session.chunks) {
             if ((c.path?.toLowerCase().includes(q)) || (!c.path && c.hash.toLowerCase().includes(q))) {
                 results.push(c);
-                if (results.length >= 500) break; // Limit to 500 results for fluid UI performance
+                if (results.length >= 500) break;
             }
         }
         return results;
@@ -250,7 +238,6 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
         useWadExtractStore.getState().toggleChunk(session.id, hash);
     }, [session?.id]);
 
-    // Toggles selection for all chunks under a tree node recursively
     const handleToggleFolderSelection = useCallback((node: WadTreeFolder) => {
         if (!session) return;
         const hashes = getAllChunkHashes([node]);
@@ -416,9 +403,7 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
 
     return (
         <div className="left-panel" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', ...style }}>
-            {/* Header */}
             <div className="left-panel__header" style={{ padding: '10px 12px', flexShrink: 0 }}>
-                {/* Search */}
                 <div className="file-tree__search" style={{ position: 'relative' }}>
                     <span
                         style={{ position: 'absolute', left: '6px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', opacity: 0.5 }}
@@ -435,7 +420,6 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                 </div>
             </div>
 
-            {/* Breadcrumbs Row (Folder traversal inside WAD) */}
             {!isSearching && (
                 <div style={{
                     display: 'flex',
@@ -522,7 +506,6 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                             );
                         })}
                     </div>
-                    {/* Unhash and read-only indicators */}
                     <div style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -566,7 +549,6 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                 </div>
             )}
 
-            {/* Table Column Headers */}
             <div style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -585,7 +567,6 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                 <span style={{ width: '65px', flexShrink: 0, textAlign: 'right' }}>Size</span>
             </div>
 
-            {/* Flat Directory List */}
             <div className="file-tree" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
                 {session.loading ? (
                     <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
@@ -729,7 +710,6 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                 )}
             </div>
 
-            {/* Footer */}
             <div
                 style={{
                     flexShrink: 0,

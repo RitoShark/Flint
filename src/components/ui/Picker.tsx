@@ -1,21 +1,3 @@
-/**
- * Picker — rounded, portal-rendered, themed-aware dropdown select.
- *
- * Drop-in replacement for `<Select>` (or any native `<select>`) when the
- * native popup look is unacceptable. Renders the menu via a body-portal so
- * it can never be clipped by ancestor `overflow: auto`.
- *
- * Usage:
- *   <Picker
- *     value={engine}
- *     onChange={setEngine}
- *     options={[
- *       { value: 'ltk',  label: 'LTK (Default)' },
- *       { value: 'jade', label: 'Jade Custom', hint: 'Alt converter' },
- *     ]}
- *     fullWidth
- *   />
- */
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 

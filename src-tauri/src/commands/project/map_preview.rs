@@ -149,19 +149,12 @@ pub fn build_material_table(materials_bin: &Path) -> Result<MaterialTable, Strin
             continue;
         };
 
-        // samplerValues: list of StaticMaterialShaderSamplerDef embeds.
         let Some(BinValue::List { items, .. }) = entry.fields.get(&h("samplerValues")) else {
             continue;
         };
 
-        // League names the diffuse sampler several ways across kit pieces:
-        // "DiffuseTexture", "Diffuse_Texture", "Diffuse_Color", "Main_Texture",
-        // "Color_Texture". Match any of these (case-insensitive); if none of the
-        // preferred names appear, fall back to the FIRST sampler's texturePath so
-        // the submesh is textured rather than rendered as a magenta error. This
-        // is what was leaving ~100 submeshes (water lilies, SRX kit pieces)
-        // magenta/white: their diffuse sampler is "Diffuse_Texture", not
-        // "DiffuseTexture".
+        // League names the diffuse sampler several ways; match any (case-
+        // insensitive), else fall back to the FIRST sampler's texturePath.
         const DIFFUSE_NAMES: [&str; 5] = [
             "diffusetexture",
             "diffuse_texture",
@@ -419,12 +412,8 @@ pub async fn load_map_texture(
         std::fs::read(&resolved).map_err(|e| format!("Failed to read texture '{resolved}': {e}"))?;
     let mut rgba = crate::commands::texture_convert::decode_full_rgba(&data)?;
 
-    // Keep textures at FULL resolution (2048) so in-app painting edits and saves
-    // are 1:1 with the original .tex — downscaling here would force painted
-    // textures to be saved at reduced res (quality loss). Memory cost: a 2048²
-    // texture is 16 MB raw; ~168 resident ≈ 2.7 GB. If that proves too heavy,
-    // the right fix is leaner loading (or full-res only for painted textures),
-    // not silently degrading the textures the user edits.
+    // Keep textures at FULL resolution (2048) so painting edits/saves are 1:1
+    // with the original .tex; downscaling would save painted textures at reduced res.
     const PREVIEW_MAX_DIM: u32 = 2048;
     let (w, h) = rgba.dimensions();
     if w > PREVIEW_MAX_DIM || h > PREVIEW_MAX_DIM {
@@ -491,7 +480,6 @@ pub async fn open_map_preview_window(
     use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
     const LABEL: &str = "map-preview";
 
-    // Already open: focus and tell it to load this project.
     if let Some(win) = app.get_webview_window(LABEL) {
         let _ = win.set_focus();
         let _ = win.emit("map-preview-load", project_path);
@@ -727,9 +715,9 @@ mod tests {
         let bytes = std::fs::read(&f).unwrap();
         let rgba = crate::commands::texture_convert::decode_full_rgba(&bytes).unwrap();
         let total = (rgba.width() * rgba.height()) as usize;
-        let mut a0 = 0usize; // alpha == 0
-        let mut a255 = 0usize; // alpha == 255
-        let mut amid = 0usize; // in-between
+        let mut a0 = 0usize;
+        let mut a255 = 0usize;
+        let mut amid = 0usize;
         for px in rgba.pixels() {
             match px.0[3] {
                 0 => a0 += 1,

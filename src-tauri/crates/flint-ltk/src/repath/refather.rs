@@ -1,10 +1,5 @@
-//! Repathing engine for modifying asset paths in BIN files
-//!
-//! This module implements the "bumpath" algorithm that:
-//! 1. Scans BIN files for string values containing asset paths (assets/, data/)
-//! 2. Prefixes those paths with a unique identifier (ASSETS/{creator}/{project})
-//! 3. Relocates the actual asset files to match the new paths
-//! 4. Optionally combines linked BINs into a single concat BIN
+//! Repathing engine: scans BIN files for asset paths (`assets/`, `data/`),
+//! prefixes them with `ASSETS/{creator}/{project}`, and relocates the files.
 
 use crate::bin::ltk_bridge::{read_bin, write_bin};
 use crate::error::{Error, Result};
@@ -19,7 +14,6 @@ use rayon::prelude::*;
 use dashmap::DashSet;
 use regex::Regex;
 
-/// Compute FNV-1a hash for a string (used for BIN property names)
 fn fnv1a_hash(s: &str) -> u32 {
     let mut hash: u32 = 0x811c9dc5;
     for &b in s.to_lowercase().as_bytes() {
@@ -29,118 +23,90 @@ fn fnv1a_hash(s: &str) -> u32 {
     hash
 }
 
-/// Pre-computed hash for "championSkinName" property
 static CHAMPION_SKIN_NAME_HASH: LazyLock<u32> = LazyLock::new(|| {
     fnv1a_hash("championSkinName")
 });
 
-/// Static regex for skin folder remapping (compiled once, used many times)
-/// Case-insensitive so it matches both "skin19/" and "Skin19/" (League uses mixed case internally)
+/// Case-insensitive: League uses mixed case ("skin19/" / "Skin19/") internally.
 static SKIN_FOLDER_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^(skin)(\d+)(/)").expect("Invalid skin folder regex")
 });
 
-/// Static regex for stripping /base/ from middle of paths (compiled once)
 static BASE_MIDDLE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)/base/").expect("Invalid base folder regex")
 });
 
-/// Parsed asset path with structured components (zero-copy where possible)
-///
-/// This enum provides type-safe path handling and eliminates repeated string parsing.
-/// Paths are parsed once and carry their semantic meaning through the repathing process.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum AssetPath<'a> {
-    /// SFX (Sound Effects) files - repath to audio/sfx/
-    /// These live in the champion WAD and can be safely repathed
+    /// SFX files — repath to audio/sfx/. Live in the champion WAD.
     SoundSfx {
-        filename: &'a str,  // Just the filename, all path components stripped
+        filename: &'a str,
     },
 
-    /// VO (Voice-Over) files - DO NOT REPATH
-    /// These live in separate language WADs and must keep their original paths
-    /// or the game won't be able to find them (resulting in silent characters)
+    /// VO files — NOT repathed: they live in separate language WADs and must
+    /// keep their original paths or the game can't find them.
     SoundVo {
-        original_path: &'a str,  // Keep entire original path intact
+        original_path: &'a str,
     },
 
-    /// HUD files for the target champion - go to creator-level hud/ folder
-    /// Pattern: characters/{champion}/hud/{filename}
+    /// `characters/{champion}/hud/{filename}` → project-level hud/ folder.
     ChampionHud {
         filename: &'a str,
     },
 
-    /// Target champion skin assets - go to project folder with skin ID remapped
-    /// Pattern: characters/{target_champion}/skins/skinXX/...
+    /// `characters/{target_champion}/skins/skinXX/...` → project folder, skin ID remapped.
     TargetChampionSkin {
-        /// Skin ID parsed from path (if present)
         skin_id: Option<u32>,
-        /// Everything after the champion folder (may include skins/ prefix)
+        /// Everything after the champion folder (may include skins/ prefix).
         subpath: &'a str,
     },
 
-    /// Other champion assets - go to creator-level shared-champion/ folder
-    /// Pattern: characters/{other_champion}/...
+    /// `characters/{other_champion}/...` → creator-level shared-champion/ folder.
     OtherChampion {
-        /// Everything after "characters/{champion}/"
+        /// Everything after "characters/{champion}/".
         subpath: &'a str,
     },
 
-    /// Shared assets (non-champion) - go to creator-level shared/ folder
-    /// Pattern: particles/, maps/, etc.
+    /// Non-champion assets (particles/, maps/, …) → creator-level shared/ folder.
     Shared {
-        /// Path after stripping "shared/" prefix if present
+        /// Path after stripping "shared/" prefix if present.
         subpath: &'a str,
     },
 }
 
 impl<'a> AssetPath<'a> {
-    /// Parse a path into structured components (zero-copy where possible)
-    ///
-    /// This performs a single pass over the path string, extracting semantic
-    /// information without allocating intermediate strings.
     fn parse(path: &'a str, target_champion: &str) -> Option<Self> {
-        // Strip "assets/" or "data/" prefix (case-insensitive)
         let stripped = if path.len() >= 7 && path[..7].eq_ignore_ascii_case("assets/") {
             &path[7..]
         } else if path.len() >= 5 && path[..5].eq_ignore_ascii_case("data/") {
             &path[5..]
         } else {
-            return None; // Not an asset path
+            return None;
         };
 
-        // === SOUND FILES ===
-        // Fast path: check for sounds/ prefix
         if let Some(sound_path) = Self::strip_prefix_ignore_case(stripped, "sounds/") {
-            // Check if VO file (voice-over)
             if Self::contains_ignore_case(sound_path, "/vo/") {
                 return Some(AssetPath::SoundVo {
                     original_path: path,
                 });
             }
 
-            // SFX file - extract just the filename
             let filename = sound_path.split('/').next_back().unwrap_or(sound_path);
             return Some(AssetPath::SoundSfx { filename });
         }
 
-        // === CHAMPION PATHS ===
         if let Some(rest) = Self::strip_prefix_ignore_case(stripped, "characters/") {
-            // Split into champion name and subpath
             let mut parts = rest.splitn(2, '/');
             let champion = parts.next()?;
             let subpath = parts.next().unwrap_or("");
 
-            // HUD special case
             if let Some(filename) = Self::strip_prefix_ignore_case(subpath, "hud/") {
                 if champion.eq_ignore_ascii_case(target_champion) {
                     return Some(AssetPath::ChampionHud { filename });
                 }
             }
 
-            // Target champion vs other champion
             if champion.eq_ignore_ascii_case(target_champion) {
-                // Parse skin ID if present in path
                 let skin_id = if let Some(skins_path) = Self::strip_prefix_ignore_case(subpath, "skins/") {
                     skins_path
                         .split('/')
@@ -153,18 +119,15 @@ impl<'a> AssetPath<'a> {
 
                 return Some(AssetPath::TargetChampionSkin { skin_id, subpath });
             } else {
-                // Other champion
                 return Some(AssetPath::OtherChampion { subpath });
             }
         }
 
-        // === SHARED ASSETS ===
-        // Strip "shared/" prefix if present to avoid duplication
+        // Strip "shared/" prefix if present to avoid duplication.
         let subpath = Self::strip_prefix_ignore_case(stripped, "shared/").unwrap_or(stripped);
         Some(AssetPath::Shared { subpath })
     }
 
-    /// Convert parsed path to final repathed string
     fn to_repathed(&self, config: &RepathConfig) -> String {
         let creator = config.creator_name.replace(' ', "-");
         let prefix = config.prefix();
@@ -174,38 +137,29 @@ impl<'a> AssetPath<'a> {
                 format!("ASSETS/{}/audio/sfx/{}", prefix, filename)
             }
             AssetPath::SoundVo { original_path } => {
-                // Return original path unchanged - game needs this exact path
                 original_path.to_string()
             }
             AssetPath::ChampionHud { filename } => {
-                // HUD now goes to project level (not creator level)
                 format!("ASSETS/{}/hud/{}", prefix, filename)
             }
             AssetPath::TargetChampionSkin { subpath, .. } => {
-                // Strip "skins/" prefix if present
                 let after_skins = Self::strip_prefix_ignore_case(subpath, "skins/")
                     .unwrap_or(subpath);
 
-                // Strip the skin{ID}/ folder from the beginning (we don't need it anymore)
                 let without_skin_folder = SKIN_FOLDER_RE.replace(after_skins, "").into_owned();
 
-                // Strip "Base/" folder (both leading and in middle of path)
                 let without_base = strip_base_folder(&without_skin_folder);
 
-                // Still remap animation BIN filenames (animations/skin8.bin → animations/skin42.bin)
                 let remapped = remap_animation_bin_filename(&without_base, config.target_skin_id);
 
                 format!("ASSETS/{}/{}", prefix, remapped)
             }
             AssetPath::OtherChampion { subpath } => {
-                // Flatten: remove skinN folders from other champion assets
-                // Extract path after "skins/skinN/" to remove skin folder entirely
+                // Flatten: drop skins/ and skinN/ folders from other-champion assets.
                 let parts: Vec<&str> = subpath.split('/').collect();
                 let flattened = if parts.len() >= 3 && parts[0].eq_ignore_ascii_case("skins") {
-                    // Skip both "skins" and "skinN" folders
                     parts[2..].join("/")
                 } else if parts.len() >= 2 && parts[0].eq_ignore_ascii_case("skins") {
-                    // Only "skins" folder, skip it
                     parts[1..].join("/")
                 } else {
                     subpath.to_string()
@@ -218,7 +172,6 @@ impl<'a> AssetPath<'a> {
         }
     }
 
-    /// Helper: case-insensitive prefix stripping
     #[inline]
     fn strip_prefix_ignore_case<'b>(s: &'b str, prefix: &str) -> Option<&'b str> {
         if s.len() >= prefix.len() && s[..prefix.len()].eq_ignore_ascii_case(prefix) {
@@ -228,17 +181,12 @@ impl<'a> AssetPath<'a> {
         }
     }
 
-    /// Helper: case-insensitive substring check
     #[inline]
     fn contains_ignore_case(s: &str, pattern: &str) -> bool {
         s.to_lowercase().contains(&pattern.to_lowercase())
     }
 }
 
-/// Configuration for repathing operations
-///
-/// Note: BIN concatenation is now handled separately by the organizer module.
-/// This config is purely for path modification operations.
 #[derive(Debug, Clone)]
 pub struct RepathConfig {
     pub creator_name: String,
@@ -256,7 +204,6 @@ impl RepathConfig {
     }
 }
 
-/// Result of a repathing operation
 #[derive(Debug, Clone)]
 pub struct RepathResult {
     pub bins_processed: usize,
@@ -266,7 +213,6 @@ pub struct RepathResult {
     pub missing_paths: Vec<String>,
 }
 
-/// Repath all assets in a project directory
 pub fn repath_project(
     content_base: &Path,
     config: &RepathConfig,
@@ -284,14 +230,10 @@ pub fn repath_project(
         )));
     }
 
-    // Compute the WAD folder path: content_base/{champion}.wad.client/
-    // This is required for league-mod compatible project structure
     let champion_lower = config.champion.to_lowercase();
     let wad_folder_name = format!("{}.wad.client", champion_lower);
     let wad_base = content_base.join(&wad_folder_name);
-    
-    // Determine which base to use for file operations
-    // Use WAD folder if it exists (new structure), otherwise fall back to content_base (legacy)
+
     let file_base = if wad_base.exists() {
         tracing::info!("Using WAD folder structure: {}", wad_base.display());
         &wad_base
@@ -308,7 +250,6 @@ pub fn repath_project(
         missing_paths: Vec::new(),
     };
 
-    // Step 0: Find the main skin BIN (now using file_base)
     let main_bin_path = if !config.champion.is_empty() {
         find_main_skin_bin(file_base, &config.champion, config.target_skin_id)
     } else {
@@ -321,7 +262,6 @@ pub fn repath_project(
         tracing::info!("Found main skin BIN: {}", main_path.display());
         bin_files.push(main_path.clone());
 
-        // Read the main BIN to get its linked BINs
         if let Ok(data) = fs::read(main_path) {
             if let Ok(bin) = read_bin(&data) {
                 tracing::info!("Main skin BIN has {} dependencies", bin.linked.len());
@@ -359,10 +299,6 @@ pub fn repath_project(
 
     tracing::info!("Processing {} BIN files", bin_files.len());
 
-    // Note: BIN concatenation is now handled by the organizer module.
-    // This function focuses purely on path modification.
-
-    // Step 2: Scan BINs to collect referenced asset paths (PARALLEL)
     let all_asset_paths_set: DashSet<String> = DashSet::new();
     bin_files.par_iter().for_each(|bin_path| {
         if let Ok(paths) = scan_bin_for_paths(bin_path) {
@@ -373,16 +309,11 @@ pub fn repath_project(
     });
     tracing::info!("Found {} unique asset paths in BINs", all_asset_paths_set.len());
 
-    // Convert DashSet to HashSet for existing_paths filtering
     let all_asset_paths: HashSet<String> = all_asset_paths_set.into_iter().collect();
 
     let t_step3 = std::time::Instant::now();
-    // Step 3: Determine which paths actually exist
-    // Use case-insensitive matching since Windows filesystem is case-insensitive
-    // Stat each candidate path in parallel — these are independent reads,
-    // and Windows stat is dominated by per-call kernel transition overhead
-    // (we hit the OS file cache after extract). Rayon spreads the cost
-    // across cores. ~115ms → ~30ms on this dataset.
+    /* Stat each candidate path in parallel (independent reads, Windows stat is
+       per-call kernel-transition bound). Case-insensitive since the Windows FS is. */
     let asset_path_vec: Vec<&String> = all_asset_paths.iter().collect();
     let existing_paths: HashSet<String> = asset_path_vec
         .par_iter()
@@ -391,8 +322,7 @@ pub fn repath_project(
             if full_path.exists() {
                 return true;
             }
-            // Case-insensitive fallback — only on miss. Reading the parent
-            // dir is expensive, so only do it when the direct stat failed.
+            // Case-insensitive fallback, only on miss (reading the parent dir is expensive).
             if let Some(parent) = full_path.parent() {
                 if parent.exists() {
                     if let Some(filename) = full_path.file_name() {
@@ -413,7 +343,6 @@ pub fn repath_project(
         .map(|p| (*p).clone())
         .collect();
 
-    // Log missing paths for debugging
     let missing_count = all_asset_paths.len() - existing_paths.len();
     if missing_count > 0 {
         tracing::warn!("{} asset paths referenced in BINs but not found on disk:", missing_count);
@@ -430,7 +359,6 @@ pub fn repath_project(
     }
     tracing::info!("[TIMING] step3 existing_paths filter ({} paths): {:?}", all_asset_paths.len(), t_step3.elapsed());
 
-    // Step 4: Repath BIN files (PARALLEL)
     let t_step4 = std::time::Instant::now();
     let prefix = config.prefix();
     let bins_processed = AtomicUsize::new(0);
@@ -452,24 +380,20 @@ pub fn repath_project(
     result.paths_modified = paths_modified.load(Ordering::Relaxed);
     tracing::info!("[TIMING] step4 repath {} BINs in parallel: {:?}", result.bins_processed, t_step4.elapsed());
 
-    // Step 5: Relocate asset files
     let t_step5 = std::time::Instant::now();
     result.files_relocated = relocate_assets(file_base, &existing_paths, &prefix, config)?;
     tracing::info!("[TIMING] step5 relocate_assets ({} files): {:?}", result.files_relocated, t_step5.elapsed());
 
-    // Step 6: Clean up unused files
     if config.cleanup_unused {
         let t_step6 = std::time::Instant::now();
         result.files_removed = cleanup_unused_files(file_base, &existing_paths, &prefix, config)?;
         tracing::info!("[TIMING] step6 cleanup_unused_files ({} removed): {:?}", result.files_removed, t_step6.elapsed());
     }
 
-    // Step 7: Clean up irrelevant extracted BINs
     let t_step7 = std::time::Instant::now();
     cleanup_irrelevant_bins(file_base, &config.champion, config.target_skin_id)?;
     tracing::info!("[TIMING] step7 cleanup_irrelevant_bins: {:?}", t_step7.elapsed());
 
-    // Step 8: Clean up empty directories
     let t_step8 = std::time::Instant::now();
     cleanup_empty_dirs(file_base)?;
     tracing::info!("[TIMING] step8 cleanup_empty_dirs: {:?}", t_step8.elapsed());
@@ -484,7 +408,6 @@ pub fn repath_project(
     Ok(result)
 }
 
-/// Scan a BIN file for asset path references
 fn scan_bin_for_paths(bin_path: &Path) -> Result<Vec<String>> {
     let data = fs::read(bin_path).map_err(|e| Error::io_with_path(e, bin_path))?;
 
@@ -502,7 +425,6 @@ fn scan_bin_for_paths(bin_path: &Path) -> Result<Vec<String>> {
     Ok(paths)
 }
 
-/// Recursively collect asset paths from a BinValue
 fn collect_paths_from_value(value: &BinValue, paths: &mut Vec<String>) {
     match value {
         BinValue::String(s) => {
@@ -533,36 +455,29 @@ fn collect_paths_from_value(value: &BinValue, paths: &mut Vec<String>) {
     }
 }
 
-/// Check if a string is an asset path without allocating
 fn is_asset_path(s: &str) -> bool {
-    // Fast path: check minimum length first
     if s.len() < 5 {
         return false;
     }
 
-    // Case-insensitive comparison without allocation
     (s.len() >= 7 && s[..7].eq_ignore_ascii_case("assets/")) ||
     (s.len() >= 5 && s[..5].eq_ignore_ascii_case("data/"))
 }
 
-/// Normalize path to lowercase with forward slashes
+/// Lowercase with forward slashes.
 fn normalize_path(s: &str) -> String {
     s.to_lowercase().replace('\\', "/")
 }
 
 fn apply_prefix_to_path(path: &str, _prefix: &str, config: &RepathConfig) -> String {
-    // Use the AST-based parser for structured path handling
     if let Some(asset_path) = AssetPath::parse(path, &config.champion) {
         asset_path.to_repathed(config)
     } else {
-        // Fallback: not a valid asset path, return unchanged
-        // This shouldn't happen in normal operation, but provides safety
         tracing::warn!("Invalid asset path (no assets/ or data/ prefix): {}", path);
         path.to_string()
     }
 }
 
-/// Repath a single BIN file
 fn repath_bin_file(bin_path: &Path, existing_paths: &HashSet<String>, prefix: &str, config: &RepathConfig) -> Result<usize> {
     let data = fs::read(bin_path).map_err(|e| Error::io_with_path(e, bin_path))?;
 
@@ -573,10 +488,8 @@ fn repath_bin_file(bin_path: &Path, existing_paths: &HashSet<String>, prefix: &s
 
     for entry in bin.entries.iter_mut() {
         for (prop_name, value) in entry.fields.iter_mut() {
-            // Special case: Replace championSkinName with project name (sanitized)
             if *prop_name == *CHAMPION_SKIN_NAME_HASH {
                 if let BinValue::String(ref mut s) = value {
-                    // Sanitize project name: replace spaces with hyphens
                     let sanitized_name = config.project_name.replace(' ', "-");
                     *s = sanitized_name.clone();
                     modified_count += 1;
@@ -584,7 +497,6 @@ fn repath_bin_file(bin_path: &Path, existing_paths: &HashSet<String>, prefix: &s
                 }
             }
 
-            // Normal repathing
             modified_count += repath_value(value, existing_paths, prefix, config);
         }
     }
@@ -600,46 +512,33 @@ fn repath_bin_file(bin_path: &Path, existing_paths: &HashSet<String>, prefix: &s
     Ok(modified_count)
 }
 
-/// Recursively repath string values in a BinValue
-/// Also handles special fields like championSkinName and animation paths
 fn repath_value(value: &mut BinValue, existing_paths: &HashSet<String>, prefix: &str, config: &RepathConfig) -> usize {
     let mut count = 0;
 
     match value {
-        // Leaf: the only place a path string lives. Every nested string
-        // (inside List/Map/Pointer/Embed/Option) reaches this arm via recursion,
-        // so the per-string repath logic is written exactly once here.
         BinValue::String(s) => {
             if is_asset_path(s) {
                 let normalized = normalize_path(s);
                 if existing_paths.contains(&normalized) {
-                    // Special handling for animation file paths: replace "Base" with skin ID folder
                     let repathed = apply_prefix_to_path(s, prefix, config);
                     *s = replace_base_folder_in_animation_path(&repathed, config.target_skin_id);
                     count += 1;
                 }
             }
         }
-        // List/List2 (ordered & unordered containers) collapse to one arm:
-        // recurse into every item regardless of element type.
         BinValue::List { items, .. } => {
             for item in items.iter_mut() {
                 count += repath_value(item, existing_paths, prefix, config);
             }
         }
-        // Pointer (Struct) and Embed (Embedded) share a struct body: walk fields.
         BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
             for v in fields.values_mut() {
                 count += repath_value(v, existing_paths, prefix, config);
             }
         }
-        // Optional: recurse into the boxed inner value if present.
         BinValue::Option { value: Some(inner), .. } => {
             count += repath_value(inner, existing_paths, prefix, config);
         }
-        // Map: entries is a public Vec<(BinValue, BinValue)>; mutate in place.
-        // Walk both key and value (keys are primitives in practice, but the
-        // recursion is harmless and keeps parity with collect_paths).
         BinValue::Map { entries, .. } => {
             for (key, val) in entries.iter_mut() {
                 count += repath_value(key, existing_paths, prefix, config);
@@ -652,18 +551,14 @@ fn repath_value(value: &mut BinValue, existing_paths: &HashSet<String>, prefix: 
     count
 }
 
-/// Strip "Base" folder from paths (both leading and in middle)
-/// Example: "Base/Animations/Kayn_Attack1.anm" -> "Animations/Kayn_Attack1.anm"
-/// Example: "some/path/Base/file.dds" -> "some/path/file.dds"
+/// Strips a leading or mid-path "base/" folder. Case-insensitive.
 fn strip_base_folder(path: &str) -> String {
     let lower = path.to_lowercase();
 
-    // Check if path starts with "base/"
     if lower.starts_with("base/") {
         return path[5..].to_string();
     }
 
-    // Check if path contains "/base/"
     if lower.contains("/base/") {
         return BASE_MIDDLE_RE.replace_all(path, "/").into_owned();
     }
@@ -671,26 +566,20 @@ fn strip_base_folder(path: &str) -> String {
     path.to_string()
 }
 
-/// Remap animation BIN filenames only (not folder paths)
-/// Example: animations/skin8.bin → animations/skin42.bin
-/// Example: particles/blade.dds → particles/blade.dds (unchanged)
+/// Remaps `animations/skinN.bin` → `animations/skin{target}.bin`; other paths unchanged.
 fn remap_animation_bin_filename(path: &str, target_skin_id: u32) -> String {
     let lower = path.to_lowercase();
 
-    // Only remap if it's an animation BIN file
     if (lower.contains("/animations/skin") || lower.contains("animations/skin")) && lower.ends_with(".bin") {
-        // Split path into directory and filename
         if let Some(last_slash) = path.rfind('/') {
             let dir = &path[..=last_slash];
             let filename = &path[last_slash + 1..];
 
-            // Check if filename matches skinN.bin pattern
             if filename.starts_with("skin") && filename.ends_with(".bin") {
-                let without_ext = &filename[..filename.len() - 4]; // Remove ".bin"
+                let without_ext = &filename[..filename.len() - 4];
                 if without_ext.len() > 4 {
-                    let number_part = &without_ext[4..]; // After "skin"
+                    let number_part = &without_ext[4..];
                     if number_part.chars().all(|c| c.is_ascii_digit()) {
-                        // It's a skinN.bin file, remap it
                         return format!("{}skin{}.bin", dir, target_skin_id);
                     }
                 }
@@ -701,24 +590,19 @@ fn remap_animation_bin_filename(path: &str, target_skin_id: u32) -> String {
     path.to_string()
 }
 
-/// Strip "Base" folder in animation paths
-/// Example: "ASSETS/SirDexal/Project/Base/Animations/Kayn_Attack1.anm"
-///       -> "ASSETS/SirDexal/Project/Animations/Kayn_Attack1.anm"
 fn replace_base_folder_in_animation_path(path: &str, _target_skin_id: u32) -> String {
     strip_base_folder(path)
 }
 
 fn relocate_assets(content_base: &Path, existing_paths: &HashSet<String>, prefix: &str, config: &RepathConfig) -> Result<usize> {
-    // Pass 1 (sequential): plan the moves and detect conflicts.
-    // Conflict detection requires first-writer-wins semantics, so it's
-    // unavoidably serial — but it's cheap (one HashMap insert per path).
+    /* Pass 1 (serial): plan the moves with first-writer-wins conflict
+       detection (cheap — one HashMap insert per path). */
     let mut destinations: HashMap<String, String> = HashMap::new();
     let mut moves: Vec<(PathBuf, PathBuf)> = Vec::with_capacity(existing_paths.len());
     let mut parent_dirs: HashSet<PathBuf> = HashSet::new();
 
     for path in existing_paths {
-        // Skip BIN files EXCEPT concat.bin (which needs to move to match its
-        // repathed reference)
+        // Skip BIN files except concat.bin (which moves to match its repathed reference).
         if path.to_lowercase().ends_with(".bin") && !path.to_lowercase().contains("_concat") {
             continue;
         }
@@ -742,25 +626,19 @@ fn relocate_assets(content_base: &Path, existing_paths: &HashSet<String>, prefix
         moves.push((source, dest));
     }
 
-    // Pass 2: pre-create all unique parent directories in one rip. Without
-    // this, every rename below could trigger create_dir_all on overlapping
-    // parents — N*M syscalls for nothing.
+    // Pass 2: pre-create all unique parent directories.
     for parent in &parent_dirs {
         fs::create_dir_all(parent).map_err(|e| Error::io_with_path(e, parent))?;
     }
 
-    // Pass 3 (parallel): existence check + rename. Each file is independent.
-    // Skipping the exists() syscall on the hot path: if rename fails because
-    // the source is gone, we just count it as skipped, same outcome.
+    /* Pass 3 (parallel): rename each independent file, falling back to
+       copy+delete across devices. Probe exists() only on rename failure. */
     let relocated = moves
         .par_iter()
         .filter(|(source, dest)| {
             match fs::rename(source, dest) {
                 Ok(_) => true,
                 Err(_) => {
-                    // Either source doesn't exist (legitimate skip) or this is
-                    // a cross-device situation. Probe explicitly only on
-                    // failure — keeps the hot path one syscall instead of two.
                     if !source.exists() {
                         return false;
                     }
@@ -789,11 +667,7 @@ fn cleanup_unused_files(content_base: &Path, referenced_paths: &HashSet<String>,
         .collect();
     let creator_prefix = format!("assets/{}/", config.creator_name.replace(' ', "-").to_lowercase());
 
-    // Walk the tree first (cheap, single-threaded), THEN delete in parallel.
-    // The walk has to be serial because WalkDir holds file-handle state, but
-    // the deletes are independent — parallelizing them across rayon means
-    // Windows can pipeline the I/O + AV scan teardowns instead of doing
-    // 3000+ deletes one at a time. ~3.5s → ~500ms expected.
+    // Walk serially (WalkDir holds file-handle state), then delete in parallel.
     let to_delete: Vec<PathBuf> = WalkDir::new(content_base)
         .into_iter()
         .filter_map(|e| e.ok())
@@ -802,7 +676,7 @@ fn cleanup_unused_files(content_base: &Path, referenced_paths: &HashSet<String>,
             if !path.is_file() {
                 return None;
             }
-            // Skip BIN files (handled by cleanup_irrelevant_bins)
+            // BIN files are handled by cleanup_irrelevant_bins.
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                 if ext.eq_ignore_ascii_case("bin") {
                     return None;
@@ -833,21 +707,16 @@ fn cleanup_unused_files(content_base: &Path, referenced_paths: &HashSet<String>,
     Ok(removed)
 }
 
-/// Remove all extracted BINs except:
-/// 1. Main skin BIN (skins/skin{ID}.bin)
-/// 2. Animation BIN (animations/skin{ID}.bin) 
-/// 3. Concat BIN (_Concat.bin)
-/// 
-/// This uses a whitelist approach - everything else is deleted.
+/// Whitelist approach: keeps the main skin BIN (skins/skin{ID}.bin), the
+/// animation BIN (animations/skin{ID}.bin), and the concat BIN (_Concat.bin);
+/// everything else is deleted.
 fn cleanup_irrelevant_bins(content_base: &Path, champion: &str, target_skin_id: u32) -> Result<usize> {
     let mut removed = 0;
     let champion_lower = champion.to_lowercase();
-    
-    // Patterns for BINs we want to KEEP
+
     let target_skin_name = format!("skin{}.bin", target_skin_id);
     let target_skin_name_padded = format!("skin{:02}.bin", target_skin_id);
 
-    // Dynamically read main skin BIN to find the referenced animation BIN (to keep it)
     let mut referenced_animation_bin: Option<String> = None;
     if let Some(main_bin_path) = find_main_skin_bin(content_base, champion, target_skin_id) {
         if let Ok(data) = fs::read(&main_bin_path) {
@@ -894,25 +763,20 @@ fn cleanup_irrelevant_bins(content_base: &Path, champion: &str, target_skin_id: 
             let rel_str = rel_path.to_string_lossy().to_lowercase().replace('\\', "/");
             let filename = path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
 
-            // === WHITELIST: BINs we KEEP ===
-            
-            // 1. Keep the concatenated BIN
             if filename.contains("_concat") {
                 tracing::debug!("Keeping concat BIN: {}", rel_str);
                 continue;
             }
 
-            // 2. Keep the main skin BIN in skins folder
-            if rel_str.contains("/skins/") && 
+            if rel_str.contains("/skins/") &&
                (filename == target_skin_name || filename == target_skin_name_padded) {
                 tracing::debug!("Keeping main skin BIN: {}", rel_str);
                 continue;
             }
 
-            // 3. Keep the animation BIN for the target skin or the referenced animation BIN
             if rel_str.contains("/animations/") {
-                let is_match = filename == target_skin_name 
-                    || filename == target_skin_name_padded 
+                let is_match = filename == target_skin_name
+                    || filename == target_skin_name_padded
                     || referenced_animation_bin.as_ref().is_some_and(|ref_anim| filename == *ref_anim);
                 if is_match {
                     tracing::debug!("Keeping animation BIN: {}", rel_str);
@@ -920,7 +784,6 @@ fn cleanup_irrelevant_bins(content_base: &Path, champion: &str, target_skin_id: 
                 }
             }
 
-            // === EVERYTHING ELSE IS DELETED ===
             let reason = if rel_str.contains("/animations/") {
                 "wrong animation"
             } else if rel_str.contains("/skins/") {
@@ -982,7 +845,6 @@ fn find_main_skin_bin(content_base: &Path, champion: &str, skin_id: u32) -> Opti
         }
     }
 
-    // Fallback: search for any matching BIN
     for entry in WalkDir::new(content_base)
         .into_iter()
         .filter_map(|e| e.ok())
@@ -1020,19 +882,16 @@ mod tests {
 
     #[test]
     fn test_strip_base_folder() {
-        // Test leading Base/ folder
         assert_eq!(
             strip_base_folder("Base/Animations/Attack.anm"),
             "Animations/Attack.anm"
         );
 
-        // Test Base/ in middle of path
         assert_eq!(
             strip_base_folder("some/path/Base/file.dds"),
             "some/path/file.dds"
         );
 
-        // Test case-insensitive
         assert_eq!(
             strip_base_folder("base/textures/skin.tex"),
             "textures/skin.tex"
@@ -1043,7 +902,6 @@ mod tests {
             "path/mesh.skn"
         );
 
-        // Test paths without Base/ (should be unchanged)
         assert_eq!(
             strip_base_folder("animations/idle.anm"),
             "animations/idle.anm"
@@ -1052,31 +910,26 @@ mod tests {
 
     #[test]
     fn test_remap_animation_bin_filename() {
-        // Test that animation BIN filenames ARE remapped
         assert_eq!(
             remap_animation_bin_filename("animations/skin8.bin", 42),
             "animations/skin42.bin"
         );
 
-        // Test animation BIN with skin0
         assert_eq!(
             remap_animation_bin_filename("animations/skin0.bin", 42),
             "animations/skin42.bin"
         );
 
-        // Test that non-animation files are unchanged
         assert_eq!(
             remap_animation_bin_filename("particles/blade.dds", 42),
             "particles/blade.dds"
         );
 
-        // Test mesh files are unchanged
         assert_eq!(
             remap_animation_bin_filename("renekton_skin17_base.skn", 42),
             "renekton_skin17_base.skn"
         );
 
-        // Test skin BIN files NOT in animations folder (unchanged)
         assert_eq!(
             remap_animation_bin_filename("skins/skin17.bin", 42),
             "skins/skin17.bin"
@@ -1093,9 +946,6 @@ mod tests {
             cleanup_unused: true,
         };
 
-        // Target champion: strip characters/, champion/, skins/, and skin{ID}/ folder
-        // Input: assets/characters/renekton/skins/skin17/renekton_skin17_base.skn
-        // Expected: ASSETS/SirDexal/Renny/renekton_skin17_base.skn (no skin42 folder)
         assert_eq!(
             apply_prefix_to_path(
                 "assets/characters/renekton/skins/skin17/renekton_skin17_base.skn",
@@ -1105,7 +955,6 @@ mod tests {
             "ASSETS/SirDexal/Renny/renekton_skin17_base.skn"
         );
 
-        // Target champion particles - no skin folder
         assert_eq!(
             apply_prefix_to_path(
                 "assets/characters/renekton/skins/skin17/particles/blade.dds",
@@ -1115,7 +964,6 @@ mod tests {
             "ASSETS/SirDexal/Renny/particles/blade.dds"
         );
 
-        // Target champion animations - BIN filename gets remapped but no skin folder
         assert_eq!(
             apply_prefix_to_path(
                 "data/characters/renekton/animations/skin8.bin",
@@ -1136,9 +984,6 @@ mod tests {
             cleanup_unused: true,
         };
 
-        // Other champion → shared-champion folder at CREATOR level, flattened (no skinN folders)
-        // Input: assets/characters/sona/skins/skin5/sona_skin5_base.skn
-        // Expected: ASSETS/SirDexal/shared-champion/sona_skin5_base.skn
         assert_eq!(
             apply_prefix_to_path(
                 "assets/characters/sona/skins/skin5/sona_skin5_base.skn",
@@ -1148,7 +993,6 @@ mod tests {
             "ASSETS/SirDexal/shared-champion/sona_skin5_base.skn"
         );
 
-        // Other champion particles (flattened)
         assert_eq!(
             apply_prefix_to_path(
                 "assets/characters/ahri/skins/skin0/particles/orb.dds",
@@ -1169,7 +1013,6 @@ mod tests {
             cleanup_unused: true,
         };
 
-        // Non-champion assets → shared folder at CREATOR level (not project level)
         assert_eq!(
             apply_prefix_to_path(
                 "assets/particles/fire_vfx.dds",
@@ -1179,7 +1022,6 @@ mod tests {
             "ASSETS/SirDexal/shared/particles/fire_vfx.dds"
         );
 
-        // Maps and other global assets
         assert_eq!(
             apply_prefix_to_path(
                 "data/maps/summoners_rift/textures/grass.dds",
@@ -1189,9 +1031,7 @@ mod tests {
             "ASSETS/SirDexal/shared/maps/summoners_rift/textures/grass.dds"
         );
 
-        // League's existing shared folder (no duplicate!)
-        // Input: assets/shared/particles/fire.dds
-        // Expected: ASSETS/SirDexal/shared/particles/fire.dds (NOT shared/shared/!)
+        // League's existing shared/ folder must not be duplicated to shared/shared/.
         assert_eq!(
             apply_prefix_to_path(
                 "assets/shared/particles/fire.dds",
@@ -1212,9 +1052,6 @@ mod tests {
             cleanup_unused: true,
         };
 
-        // SFX files: Repath to audio/sfx/ with ONLY filename (strip all path components)
-        // Input: assets/sounds/wwise2016/sfx/characters/kayn/skins/skin20/kayn_skin20_sfx_audio.bnk
-        // Expected: ASSETS/SirDexal/Cozy/audio/sfx/kayn_skin20_sfx_audio.bnk
         assert_eq!(
             apply_prefix_to_path(
                 "assets/sounds/wwise2016/sfx/characters/kayn/skins/skin20/kayn_skin20_sfx_audio.bnk",
@@ -1224,9 +1061,6 @@ mod tests {
             "ASSETS/SirDexal/Cozy/audio/sfx/kayn_skin20_sfx_audio.bnk"
         );
 
-        // VO files: DO NOT REPATH - keep original path (they're in separate language WADs)
-        // Input: assets/sounds/wwise2016/vo/en_us/characters/kayn/kayn_vo.wpk
-        // Expected: assets/sounds/wwise2016/vo/en_us/characters/kayn/kayn_vo.wpk (UNCHANGED)
         assert_eq!(
             apply_prefix_to_path(
                 "assets/sounds/wwise2016/vo/en_us/characters/kayn/kayn_vo.wpk",
@@ -1236,7 +1070,6 @@ mod tests {
             "assets/sounds/wwise2016/vo/en_us/characters/kayn/kayn_vo.wpk"
         );
 
-        // Another SFX example with data/ prefix
         assert_eq!(
             apply_prefix_to_path(
                 "data/sounds/wwise2016/sfx/characters/kayn/skins/skin20/kayn_skin20_impact.bnk",
@@ -1246,7 +1079,6 @@ mod tests {
             "ASSETS/SirDexal/Cozy/audio/sfx/kayn_skin20_impact.bnk"
         );
 
-        // VO with different language - still untouched
         assert_eq!(
             apply_prefix_to_path(
                 "assets/sounds/wwise2016/vo/ja_jp/characters/kayn/kayn_vo.wpk",
@@ -1256,7 +1088,6 @@ mod tests {
             "assets/sounds/wwise2016/vo/ja_jp/characters/kayn/kayn_vo.wpk"
         );
 
-        // Case-insensitive VO detection - preserves original case
         assert_eq!(
             apply_prefix_to_path(
                 "ASSETS/Sounds/wwise2016/VO/en_us/characters/kayn/kayn_vo.wpk",
@@ -1277,9 +1108,6 @@ mod tests {
             cleanup_unused: true,
         };
 
-        // HUD files go to project level (not creator level)
-        // Input: assets/characters/renekton/hud/renekton_hud.dds
-        // Expected: ASSETS/SirDexal/Renny/hud/renekton_hud.dds
         assert_eq!(
             apply_prefix_to_path(
                 "assets/characters/renekton/hud/renekton_hud.dds",
@@ -1350,7 +1178,7 @@ mod tests {
     #[test]
     fn test_asset_path_parse_other_champion() {
         let path = "assets/characters/sona/skins/skin5/particles/orb.dds";
-        let parsed = AssetPath::parse(path, "Kayn"); // Kayn is target, Sona is other
+        let parsed = AssetPath::parse(path, "Kayn");
 
         assert!(parsed.is_some());
         match parsed.unwrap() {
@@ -1377,14 +1205,13 @@ mod tests {
 
     #[test]
     fn test_asset_path_parse_shared_with_prefix() {
-        // Should strip "shared/" prefix to avoid duplication
         let path = "assets/shared/particles/fire.dds";
         let parsed = AssetPath::parse(path, "Kayn");
 
         assert!(parsed.is_some());
         match parsed.unwrap() {
             AssetPath::Shared { subpath } => {
-                assert_eq!(subpath, "particles/fire.dds"); // "shared/" stripped
+                assert_eq!(subpath, "particles/fire.dds");
             }
             _ => panic!("Expected Shared variant"),
         }
@@ -1392,7 +1219,6 @@ mod tests {
 
     #[test]
     fn test_asset_path_parse_case_insensitive() {
-        // Test case-insensitive parsing
         let path = "ASSETS/SOUNDS/wwise2016/VO/en_us/kayn_vo.wpk";
         let parsed = AssetPath::parse(path, "Kayn");
 
@@ -1440,13 +1266,11 @@ mod tests {
             original_path: original,
         };
 
-        // VO paths should remain unchanged
         assert_eq!(asset_path.to_repathed(&config), original);
     }
 
     #[test]
     fn test_asset_path_invalid() {
-        // Paths without "assets/" or "data/" prefix should return None
         let path = "sounds/wwise2016/sfx/test.bnk";
         let parsed = AssetPath::parse(path, "Kayn");
         assert!(parsed.is_none());
@@ -1454,7 +1278,6 @@ mod tests {
 
     #[test]
     fn test_replace_base_folder_in_animation_path() {
-        // Test stripping /Base/ folder
         assert_eq!(
             replace_base_folder_in_animation_path(
                 "ASSETS/SirDexal/Seele-Vollerei-Kayn/Base/Animations/Kayn_Attack1.anm",
@@ -1463,7 +1286,6 @@ mod tests {
             "ASSETS/SirDexal/Seele-Vollerei-Kayn/Animations/Kayn_Attack1.anm"
         );
 
-        // Test case-insensitive matching
         assert_eq!(
             replace_base_folder_in_animation_path(
                 "ASSETS/Creator/Project/base/Animations/Run.anm",
@@ -1472,7 +1294,6 @@ mod tests {
             "ASSETS/Creator/Project/Animations/Run.anm"
         );
 
-        // Test mixed case
         assert_eq!(
             replace_base_folder_in_animation_path(
                 "ASSETS/Creator/Project/BASE/Animations/Idle.anm",
@@ -1481,7 +1302,6 @@ mod tests {
             "ASSETS/Creator/Project/Animations/Idle.anm"
         );
 
-        // Test paths without /Base/ (should be unchanged)
         assert_eq!(
             replace_base_folder_in_animation_path(
                 "ASSETS/Creator/Project/Animations/Attack.anm",
@@ -1490,7 +1310,6 @@ mod tests {
             "ASSETS/Creator/Project/Animations/Attack.anm"
         );
 
-        // Test non-animation paths (should be unchanged)
         assert_eq!(
             replace_base_folder_in_animation_path(
                 "ASSETS/Creator/Project/particles/effect.dds",
@@ -1502,14 +1321,11 @@ mod tests {
 
     #[test]
     fn test_fnv1a_hash() {
-        // Test FNV-1a hash computation (case-insensitive)
         assert_eq!(fnv1a_hash("championSkinName"), fnv1a_hash("championskinname"));
         assert_eq!(fnv1a_hash("CHAMPIONSKINNAME"), fnv1a_hash("championSkinName"));
 
-        // Known FNV-1a hash values for common League properties
-        // These values can be verified against League's BIN files
         let hash = fnv1a_hash("championSkinName");
-        assert_ne!(hash, 0); // Should not be zero
+        assert_ne!(hash, 0);
     }
 
 }

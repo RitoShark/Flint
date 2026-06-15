@@ -1,15 +1,3 @@
-/**
- * Side-by-side comparison between a project file and its reference version
- * (either the original chunk in the user's League install, or a previously
- * created per-file backup under `.flint/backups/`).
- *
- * Triggered from the file-tree right-click menu via `openModal('fileCompare', ...)`.
- *
- * Uses the Design Lab visual language (`dl-*` classes from `design-lab.css`)
- * — portal-rendered backdrop, spring-eased entrance, status badge in the
- * header, hover-lift comparison panes.
- */
-
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useModalStore, useConfigStore, useProjectTabStore } from '../../lib/stores';
@@ -84,7 +72,6 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
     return true;
 }
 
-// ─── Inline icons (file-local — keeps the modal independent of icon registry) ─
 const CloseIcon: React.FC = () => (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
         <path d="M4 4l8 8M12 4l-8 8" />
@@ -115,7 +102,6 @@ export const FileCompareModal: React.FC = () => {
     const [identical, setIdentical] = useState<boolean | null>(null);
     const [sizes, setSizes] = useState<{ current: number; reference: number } | null>(null);
 
-    // Esc-to-close — match the design-lab Modal's behavior.
     useEffect(() => {
         if (!isVisible) return;
         const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeModal(); };
@@ -123,7 +109,6 @@ export const FileCompareModal: React.FC = () => {
         return () => document.removeEventListener('keydown', onKey);
     }, [isVisible, closeModal]);
 
-    // Revoke blob URLs when the previewed value changes / modal closes.
     useEffect(() => () => {
         if (current?.kind === 'image' && current.url.startsWith('blob:')) {
             URL.revokeObjectURL(current.url);
@@ -300,8 +285,6 @@ export const FileCompareModal: React.FC = () => {
                 </div>
             </div>
 
-            {/* Component-local styles — keeps this modal portable while still
-                speaking the design-lab visual language. */}
             <style>{LOCAL_CSS}</style>
         </div>,
         document.body,
@@ -359,8 +342,6 @@ const RenderContent: React.FC<{ content: RenderableContent | null }> = ({ conten
 };
 
 // ─── Component-local CSS ────────────────────────────────────────────────────
-// Inlined as a <style> tag so the modal stays self-contained alongside its
-// own dl-* selectors. All custom rules sit under `.dl-fc` to avoid leaking.
 const LOCAL_CSS = `
 .dl-fc__filename {
     font-weight: 600;

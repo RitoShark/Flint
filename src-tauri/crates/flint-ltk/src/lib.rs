@@ -1,5 +1,3 @@
-// flint-ltk: League Toolkit abstraction layer for Flint
-
 pub mod error;
 pub mod audio;
 pub mod bin;
@@ -23,44 +21,23 @@ pub mod stringtable;
 pub mod manifest;
 
 // =============================================================================
-// Re-exports: Types that commands import directly from LTK crates.
-// Commands should import these from `flint_ltk::ltk_types::` instead.
+// Re-exports for types the binary crate imports from LTK crates.
 // =============================================================================
 
-/// LTK types re-exported for the Flint binary crate
 pub mod ltk_types {
-    // BIN core types — MIGRATED to RitoShark's rs_bin (Plan 2). The flat `BinValue`
-    // replaces ltk_meta's `PropertyValueEnum` + typed sub-enums; `BinEntry` replaces
-    // `BinObject`/`BinProperty`; `BinType` replaces `PropertyKind`.
     pub use ritoshark::bin::{Bin, BinEntry, BinType, BinValue};
 
-    // Hash-name resolution for the ritobin text form (replaces ltk_ritobin's
-    // HashProvider/HashMapProvider/write_with_hashes — see flint_ltk::bin::ltk_bridge).
     pub use ritoshark::hash::HashMapper;
 
-    // ltk_mod_project (used by commands/export.rs, commands/ltk_manager.rs)
     pub use ltk_mod_project::{ModProject, ModProjectAuthor, default_layers};
 
-    // ltk_file: MIGRATED to ritoshark::file (Phase 4) — re-export removed.
-    // (commands/file.rs now uses ritoshark::file::detect; the extractor's
-    // remaining LeagueFileKind use goes through the league_toolkit umbrella.)
-
-    // ltk_texture: MIGRATED to ritoshark::tex (Phase 1) — re-export removed.
-
-    // ltk_modpkg (used by commands/modpkg_import.rs, commands/export.rs)
     pub use ltk_modpkg::Modpkg;
     pub use ltk_modpkg::builder::{ModpkgBuilder, ModpkgChunkBuilder, ModpkgLayerBuilder};
     pub use ltk_modpkg::{ModpkgMetadata, ModpkgAuthor};
 
-    // league_toolkit::wad: MIGRATED to ritoshark::wad (Plan 3) — re-exports removed.
-    // export/mod.rs builds via rs_wad::WadBuilder; the binary crate's chunk type is
-    // wad_jade::format::WadChunk.
-
-    // glam (used by commands/project.rs)
     pub use glam::{Vec2, Vec4};
 }
 
-/// Hematite types re-exported for the Flint binary crate (commands/fixer.rs)
 pub mod hematite {
     pub use hematite_core::context::FixContext;
     pub use hematite_core::detect::detect_issue;
@@ -74,5 +51,4 @@ pub mod hematite {
     pub use hematite_types::config::FixConfig;
 }
 
-/// Re-export heed for state.rs (Arc<heed::Env>)
 pub use heed;

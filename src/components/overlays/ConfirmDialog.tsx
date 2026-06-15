@@ -1,9 +1,3 @@
-/**
- * Flint - Confirm Dialog Component
- * Custom in-app confirmation dialog (replaces window.confirm).
- * Uses the dedicated `.confirm-*` styles, not the generic modal shell.
- */
-
 import React, { useEffect, useRef } from 'react';
 import { useModalStore } from '../../lib/stores';
 import { Button } from '../ui';

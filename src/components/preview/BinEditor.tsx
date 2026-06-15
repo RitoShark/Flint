@@ -1,18 +1,3 @@
-/**
- * Flint - BIN Editor Component (Monaco Editor)
- *
- * A full-featured code editor for viewing and editing Ritobin (.bin) files
- * using Monaco Editor directly (no @monaco-editor/react wrapper — that
- * library's internal loader breaks in Tauri production builds).
- *
- * Features:
- * - Custom Ritobin language with semantic tokenization
- * - Matching dark theme
- * - Dirty state tracking and save functionality
- * - Asset preview on hover (textures, meshes)
- * - Real-time bracket validation with visual indicator
- */
-
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
@@ -39,8 +24,6 @@ import {
     extractAssetPaths,
 } from '../../lib/editor/blockExtraction';
 
-// Configure Monaco workers — wrap in try-catch so a broken worker doesn't
-// cascade and break the entire editor (Monarch tokenizer runs on main thread anyway)
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
 
@@ -57,18 +40,13 @@ self.MonacoEnvironment = {
     },
 };
 
-// Register language and theme at module level — guaranteed to run before
-// any editor.create() call since ES module imports are evaluated first.
 registerRitobinLanguage(monaco as any);
 registerRitobinTheme(monaco as any);
 
-/** Delay in milliseconds before showing the asset preview tooltip */
 const HOVER_DELAY_MS = 3000;
 
-/** Debounce delay for bracket validation (ms) */
 const BRACKET_CHECK_DEBOUNCE_MS = 300;
 
-/** Asset file extensions that can be previewed */
 const PREVIEWABLE_EXTENSIONS = ['tex', 'dds', 'scb', 'sco', 'skn'];
 
 function isPreviewableAssetPath(value: string): boolean {
@@ -77,10 +55,6 @@ function isPreviewableAssetPath(value: string): boolean {
     return PREVIEWABLE_EXTENSIONS.includes(ext);
 }
 
-/**
- * Extract string value from a line at a given column position.
- * Returns the string content if cursor is inside a quoted string.
- */
 function extractStringAtPosition(line: string, column: number): string | null {
     const stringPattern = /"([^"\\]*(\\.[^"\\]*)*)"/g;
     let match;
@@ -92,15 +66,6 @@ function extractStringAtPosition(line: string, column: number): string | null {
     return null;
 }
 
-/**
- * Derive the absolute project-root path that an editor's `filePath` belongs to.
- *
- * Primary strategy: match the file against the `projectPath` of an open tab
- * (the file lives under `<projectPath>/...`). This is the authoritative root and
- * works regardless of which tab is currently active. Fallback: the ancestor
- * directory that directly contains `content/` (project files live under
- * `<root>/content/...`). Returns null if neither resolves.
- */
 function deriveProjectPath(filePath: string): string | null {
     const norm = filePath.replace(/\\/g, '/');
     const tabs = useProjectTabStore.getState().openTabs;
@@ -109,36 +74,22 @@ function deriveProjectPath(filePath: string): string | null {
         if (!tab.projectPath) continue;
         const proj = tab.projectPath.replace(/\\/g, '/');
         if (norm === proj || norm.startsWith(proj + '/')) {
-            // Prefer the longest (most specific) matching project root.
             if (!best || proj.length > best.length) best = tab.projectPath;
         }
     }
     if (best) return best;
 
-    // Fallback: the segment before `/content/`.
     const idx = norm.toLowerCase().indexOf('/content/');
     if (idx > 0) return filePath.slice(0, idx);
     return null;
 }
 
-/** Result of a cross-project asset copy. */
 interface AssetCopyResult {
     copied: number;
     /** Assets that could not be resolved to a real file in the source project. */
     missing: number;
 }
 
-/**
- * Copy a copied block's referenced asset files from `sourceProject` into
- * `destProject`, preserving each asset's project-relative location so the
- * block's (unchanged) asset path strings still resolve in the destination.
- *
- * For each asset: resolve the bin path → absolute file in the source project
- * (via the existing `resolve_asset_path` command, using the block's source BIN
- * as the base), convert to a source-project-relative path, ensure the dest
- * parent folder exists, then copy the file across. Resilient — a single asset
- * failure is counted, not thrown.
- */
 async function copyBlockAssets(
     block: CopiedBlock,
     sourceProject: string,
@@ -164,25 +115,22 @@ async function copyBlockAssets(
             continue;
         }
 
-        // Must resolve to a file that actually lives inside the source project.
         const absNorm = absolute.replace(/\\/g, '/');
         const prefix = srcRoot + '/';
         if (!absNorm.toLowerCase().startsWith(prefix.toLowerCase())) {
             missing += 1;
             continue;
         }
-        const relPath = absNorm.slice(prefix.length); // forward-slash project-relative
+        const relPath = absNorm.slice(prefix.length);
         const parentFolder = relPath.includes('/') ? relPath.slice(0, relPath.lastIndexOf('/')) : '';
 
         try {
             if (parentFolder) {
-                // Ignore "already exists" — createDirectory is idempotent enough.
                 await api.createDirectory(destProject, parentFolder).catch(() => {});
             }
             await api.copyBetweenProjects(sourceProject, [relPath], destProject, parentFolder);
             copied += 1;
         } catch {
-            // Copy failed (collision/IO) — count as missing so the toast is honest.
             missing += 1;
         }
     }
@@ -212,10 +160,6 @@ const BRACKET_PAIRS: Record<string, string> = { '{': '}', '[': ']', '(': ')' };
 const CLOSING_BRACKETS = new Set(['}', ']', ')']);
 const OPEN_FOR_CLOSE: Record<string, string> = { '}': '{', ']': '[', ')': '(' };
 
-/**
- * Parse bracket stack up to a given line (1-based).
- * Returns array of unclosed opening brackets with their line number and indentation.
- */
 function getBracketStackAtLine(text: string, upToLine: number): { char: string; line: number; indent: string }[] {
     const stack: { char: string; line: number; indent: string }[] = [];
     const lines = text.split('\n');
@@ -255,10 +199,6 @@ function getBracketStackAtLine(text: string, upToLine: number): { char: string; 
     return stack;
 }
 
-/**
- * Validate bracket matching in ritobin text.
- * Skips brackets inside quoted strings and comments.
- */
 function validateBrackets(text: string): BracketValidation {
     const errors: BracketError[] = [];
     const stack: { char: string; line: number; column: number }[] = [];
@@ -272,7 +212,6 @@ function validateBrackets(text: string): BracketValidation {
         for (let col = 0; col < line.length; col++) {
             const ch = line[col];
 
-            // Check for comment start (# or //)
             if (!inString) {
                 if (ch === '#') { isComment = true; break; }
                 if (ch === '/' && col + 1 < line.length && line[col + 1] === '/') {
@@ -281,7 +220,6 @@ function validateBrackets(text: string): BracketValidation {
                 }
             }
 
-            // Track string boundaries (handle escaped quotes)
             if (ch === '"' && (col === 0 || line[col - 1] !== '\\')) {
                 inString = !inString;
                 continue;
@@ -289,11 +227,9 @@ function validateBrackets(text: string): BracketValidation {
 
             if (inString || isComment) continue;
 
-            // Opening bracket
             if (BRACKET_PAIRS[ch]) {
                 stack.push({ char: ch, line: lineIdx + 1, column: col + 1 });
             }
-            // Closing bracket
             else if (CLOSING_BRACKETS.has(ch)) {
                 const expected = OPEN_FOR_CLOSE[ch];
                 if (stack.length === 0) {
@@ -322,15 +258,11 @@ function validateBrackets(text: string): BracketValidation {
         }
     }
 
-    // Report unclosed brackets — suggest insertion point using indentation heuristic.
-    // Scan forward from the opener to find the last line indented deeper than it;
-    // that's where the closing bracket belongs (same logic as the ghost-text completer).
     for (let i = stack.length - 1; i >= 0; i--) {
         const unclosed = stack[i];
         const openerLineIdx = unclosed.line - 1;
         const openerIndent = lines[openerLineIdx].match(/^(\s*)/)?.[1].length ?? 0;
 
-        // Find the last line that's indented deeper than the opener (skipping blanks/comments)
         let blockEnd = openerLineIdx;
         for (let j = openerLineIdx + 1; j < lines.length; j++) {
             const trimmed = lines[j].trim();
@@ -339,7 +271,7 @@ function validateBrackets(text: string): BracketValidation {
             if (indent <= openerIndent) break;
             blockEnd = j;
         }
-        const suggestLine = blockEnd + 1; // 1-based
+        const suggestLine = blockEnd + 1;
 
         errors.push({
             line: unclosed.line,
@@ -357,7 +289,6 @@ function validateBrackets(text: string): BracketValidation {
 // Editor Options
 // =============================================================================
 
-/** Monaco editor options shared across create calls */
 const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     automaticLayout: true,
     fontFamily: 'var(--font-mono), "Cascadia Code", "Fira Code", Consolas, "Courier New", monospace',
@@ -398,9 +329,6 @@ const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     },
     tabSize: 4,
     insertSpaces: true,
-    // 'brackets': pressing Enter keeps the previous line's indentation, adds one
-    // level after a line ending in '{', and de-indents on '}'. formatOnType/Paste
-    // stay off so only Enter is affected — existing/pasted text is never reflowed.
     autoIndent: 'brackets',
     formatOnPaste: false,
     formatOnType: false,
@@ -423,7 +351,7 @@ const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
 // Side Panel — skinScale, materialOverride, VFX helpers
 // =============================================================================
 
-/** Apply new content to Monaco in a single undoable edit (preserves cursor). */
+/** Apply new content in a single undoable edit (preserves cursor). */
 function applyContentToEditor(
     ed: editor.IStandaloneCodeEditor,
     newContent: string,
@@ -434,7 +362,6 @@ function applyContentToEditor(
     model.pushEditOperations([], [{ range: full, text: newContent }], () => null);
 }
 
-/** Parse skinScale value out of ritobin text. Returns null if not found. */
 function parseSkinScale(text: string): { value: string; exists: boolean } {
     for (const line of text.split('\n')) {
         const t = line.trim().toLowerCase();
@@ -448,10 +375,8 @@ function parseSkinScale(text: string): { value: string; exists: boolean } {
     return { value: '1.0', exists: false };
 }
 
-/** Rewrite skinScale value in text, or add it after skinMeshProperties. */
 function applySkinScaleToText(text: string, newVal: string): string {
     const lines = text.split('\n');
-    // Try to replace existing
     for (let i = 0; i < lines.length; i++) {
         if (lines[i].trim().toLowerCase().startsWith('skinscale:')) {
             const colonIdx = lines[i].indexOf(':');
@@ -465,7 +390,6 @@ function applySkinScaleToText(text: string, newVal: string): string {
             return lines.join('\n');
         }
     }
-    // Add after skinMeshProperties
     const out: string[] = [];
     let added = false;
     for (let i = 0; i < lines.length; i++) {
@@ -480,7 +404,6 @@ function applySkinScaleToText(text: string, newVal: string): string {
     return out.join('\n');
 }
 
-/** Ensure materialOverride list block exists and return updated text. */
 function ensureMaterialOverride(text: string): string {
     if (text.includes('materialOverride:')) return text;
     const lines = text.split('\n');
@@ -499,7 +422,6 @@ function ensureMaterialOverride(text: string): string {
     return out.join('\n');
 }
 
-/** Insert a SkinMeshDataProperties_MaterialOverride entry into existing list. */
 function insertMaterialOverrideEntry(
     text: string,
     path: string,
@@ -536,12 +458,10 @@ function insertMaterialOverrideEntry(
     return [...lines.slice(0, insertIdx), ...entry, ...lines.slice(insertIdx)].join('\n');
 }
 
-/** Check if text contains VfxEmitterDefinitionData blocks. */
 function hasVfxEmitters(text: string): boolean {
     return /VfxEmitterDefinitionData\s*\{/.test(text);
 }
 
-/** Update inline emitter-name CSS decorations on Monaco model. */
 function updateEmitterDecorations(
     ed: editor.IStandaloneCodeEditor,
     decorationIds: string[],
@@ -581,7 +501,6 @@ function updateEmitterDecorations(
     return ed.deltaDecorations(decorationIds, decorations);
 }
 
-/** Fold or unfold all VfxEmitterDefinitionData blocks via Monaco folding API. */
 function setEmittersFolded(ed: editor.IStandaloneCodeEditor, collapse: boolean) {
     const model = ed.getModel();
     if (!model) return;
@@ -769,7 +688,6 @@ const BinSidePanel: React.FC<BinSidePanelProps> = ({ content, onContentChange, e
 
     return (
         <div style={panelStyle}>
-            {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 14px', borderBottom: '1px solid var(--border)', background: 'var(--bg-tertiary)' }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', letterSpacing: '0.04em', textTransform: 'uppercase' }}>BIN Tools</span>
                 <button style={{ ...btnStyle, padding: '1px 6px', fontSize: 13, border: 'none', background: 'transparent' }} onClick={onClose} title="Close">✕</button>
@@ -911,34 +829,26 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const [sidePanelOpen, setSidePanelOpen] = useState(false);
     const [paletteOpen, setPaletteOpen] = useState(false);
 
-    // Bracket validation state
     const [bracketStatus, setBracketStatus] = useState<BracketValidation>({ valid: true, errors: [] });
     const [bracketErrorIndex, setBracketErrorIndex] = useState(0);
     const bracketCheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const decorationsRef = useRef<string[]>([]);
     const emitterDecorationsRef = useRef<string[]>([]);
 
-    // Subscribe to file version changes for hot reload
     const fileVersion = useAppMetadataStore((state) => {
         void state.fileVersionsRev;
         return state.getFileVersion(filePath);
     });
 
-    // Single BIN engine now (RitoShark). `variant` keys the editor session cache.
     const variant = 'ritoshark';
 
     const editorContainerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
-    // Always-current snapshot fields, read in the unmount cleanup to persist
-    // the live session (closures there would otherwise capture stale state).
     const latestRef = useRef({ content: '', originalContent: '', fileVersion: 0, variant });
     latestRef.current = { content, originalContent, fileVersion, variant };
-    // Latest save handler, called by the Ctrl/Cmd+S Monaco keybinding (the
-    // command is registered once but must invoke the current closure).
     const saveRef = useRef<() => void>(() => {});
 
-    // Asset preview tooltip state
     const [previewAsset, setPreviewAsset] = useState<string | null>(null);
     const [previewPosition, setPreviewPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
     const [showPreview, setShowPreview] = useState(false);
@@ -949,7 +859,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const isDirty = content !== originalContent;
     const basePath = filePath.split(/[/\\]/).slice(0, -1).join('\\');
 
-    // Sync dirty state to file editor store
     const fileEditorTarget = useFileEditorStore((s) => s.target);
     const setFileEditorDirty = useFileEditorStore((s) => s.setDirty);
     useEffect(() => {
@@ -963,7 +872,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         };
     }, [isDirty, filePath, fileEditorTarget, setFileEditorDirty]);
 
-    // Run bracket validation (debounced)
     const runBracketCheck = useCallback((text: string) => {
         if (bracketCheckTimerRef.current) clearTimeout(bracketCheckTimerRef.current);
         bracketCheckTimerRef.current = setTimeout(async () => {
@@ -1002,15 +910,12 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 });
                 decorationsRef.current = ed.deltaDecorations(decorationsRef.current, newDecorations);
 
-                // Also update VFX emitter inline hints
                 emitterDecorationsRef.current = updateEmitterDecorations(ed, emitterDecorationsRef.current);
             }
         }, BRACKET_CHECK_DEBOUNCE_MS);
     }, []);
 
-    // Load BIN file — restore a cached session if one is valid, else decode.
     useEffect(() => {
-        // Cache hit: restore live (possibly dirty) content without re-decoding.
         const cached = editorSessionStore.get(filePath);
         if (cached && cached.fileVersion === fileVersion && cached.variant === variant) {
             setContent(cached.content);
@@ -1034,8 +939,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 setLineCount(text.split('\n').length);
                 const result = validateBrackets(text);
                 setBracketStatus(result);
-                // Seed the cache baseline so a later tab-switch skips re-decode
-                // even if the user makes no edits.
                 editorSessionStore.save(filePath, { fileVersion, content: text, originalContent: text, variant });
             } catch (err) {
                 if (cancelled) return;
@@ -1049,7 +952,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         return () => { cancelled = true; };
     }, [filePath, fileVersion, variant]);
 
-    // Create Monaco editor
     useEffect(() => {
         if (loading || error || !editorContainerRef.current) return;
 
@@ -1062,7 +964,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
 
         editorRef.current = ed;
 
-        // Ctrl/Cmd+S → save (active while the editor is focused).
         ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => { saveRef.current(); });
 
         // ── Right-click "copy block" context actions ────────────────────────────
@@ -1071,7 +972,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             const pos = ed.getPosition();
             if (!m || !pos) return;
             const text = m.getValue();
-            // Try the requested class filter first; fall back to nearest block of any class.
             let block = findEnclosingBlock(text, pos.lineNumber, filter, outermost);
             if (!block) block = findEnclosingBlock(text, pos.lineNumber, undefined, outermost);
             if (!block) {
@@ -1110,16 +1010,12 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             run: () => copyBlockToPalette(['VfxSystemDefinitionData', 'VfxEmitterDefinitionData'], true),
         });
 
-        // Restore cursor/selection/scroll from a cached session (tab-switch return).
-        // Only when the session matches the current file version, so we never apply
-        // a stale scroll position onto freshly-decoded content.
         const restored = editorSessionStore.get(filePath);
         if (restored?.viewState && restored.fileVersion === fileVersion) {
             ed.restoreViewState(restored.viewState);
             ed.focus();
         }
 
-        // Inline completions: bracket auto-close ghost text
         const inlineProvider = monaco.languages.registerInlineCompletionsProvider(RITOBIN_LANGUAGE_ID, {
             provideInlineCompletions(model, position) {
                 const lineContent = model.getLineContent(position.lineNumber);
@@ -1149,7 +1045,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 runBracketCheck(value);
             });
 
-            // Initial bracket decorations
             const initialResult = validateBrackets(content);
             if (!initialResult.valid) {
                 const newDecorations: editor.IModelDeltaDecoration[] = initialResult.errors.map(err => ({
@@ -1164,13 +1059,10 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 decorationsRef.current = ed.deltaDecorations([], newDecorations);
             }
 
-            // Initial VFX emitter hints
             emitterDecorationsRef.current = updateEmitterDecorations(ed, []);
         }
 
         return () => {
-            // Snapshot the live session (content + cursor/scroll) before disposing
-            // so a remount (tab switch) restores it instead of re-decoding.
             const L = latestRef.current;
             editorSessionStore.save(filePath, {
                 fileVersion: L.fileVersion,
@@ -1182,11 +1074,8 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             editorRef.current = null;
             decorationsRef.current = [];
             emitterDecorationsRef.current = [];
-            // Clean up emitter hint styles
             const styleEl = document.getElementById('flint-emitter-hint-styles');
             if (styleEl) styleEl.textContent = '';
-            // Defer Monaco dispose to idle — it's synchronous and easily blocks
-            // tab-close commits for a few hundred ms otherwise.
             deferCleanup(() => {
                 inlineProvider.dispose();
                 copyEmitterAction.dispose();
@@ -1238,10 +1127,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             const flintError = err as api.FlintError;
             const msg = flintError.getUserMessage?.() || String(err) || 'Failed to save';
 
-            // The backend ritobin parser reports failures as "...at line N: <why>".
-            // Surface that line in the editor so the user can jump straight to the
-            // broken edit (e.g. a deleted value leaving `value: vec4 =`), instead
-            // of a context-free toast.
             const lineMatch = /line\s+(\d+)/i.exec(msg);
             if (lineMatch && editorRef.current) {
                 const line = parseInt(lineMatch[1], 10);
@@ -1312,41 +1197,30 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         setShowPreview(false);
     }, []);
 
-    // Insert a palette block at a client point. Driven by the `flint:emitter-drop`
-    // CustomEvent the EmitterPalette dispatches on release over this editor
-    // (pointer-drag, since WebView2's native drag-drop blocks HTML5 DnD).
     const insertBlockAt = useCallback((id: string, clientX: number, clientY: number) => {
         const block = useEmitterPaletteStore.getState().getById(id);
         const ed = editorRef.current;
         const model = ed?.getModel();
         if (!block || !ed || !model) return;
 
-        // Map the drop point to a model line; default to the last line if missed.
         const target = ed.getTargetAtClientPoint(clientX, clientY);
         const dropLine = target?.position?.lineNumber ?? model.getLineCount();
 
         const fullText = model.getValue();
         const { line, indent } = computeInsertPosition(fullText, dropLine, getBracketStackAtLine);
 
-        // Re-indent the copied block to the insert position, then rename its
-        // emitterName if it would collide with one already in this document.
         let blockText = reindentBlock(block.text, indent);
         blockText = renameEmitterIfCollision(blockText, fullText);
 
-        // Splice as a new line after `line` (single undoable edit).
         const insertCol = model.getLineMaxColumn(line);
         model.pushEditOperations(
             [],
             [{ range: new monaco.Range(line, insertCol, line, insertCol), text: '\n' + blockText }],
             () => null,
         );
-        // onDidChangeContent re-runs bracket validation automatically.
         ed.revealLineInCenter(line + 1);
         ed.focus();
 
-        // Cross-project drop: copy the block's referenced asset files into THIS
-        // project so the (unchanged) asset paths resolve here too. Same-project
-        // drops need nothing. Failures must never break the block insertion.
         const destProject = deriveProjectPath(filePath);
         const sourceProject = block.sourceProject;
         const assets = block.assets ?? [];
@@ -1371,7 +1245,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         }
     }, [showToast, filePath]);
 
-    // Receive palette pointer-drops landing on this editor's container.
     useEffect(() => {
         const el = containerRef.current;
         if (!el) return;
@@ -1383,7 +1256,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         return () => el.removeEventListener(EMITTER_DROP_EVENT, onEmitterDrop as EventListener);
     }, [insertBlockAt]);
 
-    // Fix first bracket error: insert the missing closing bracket at suggest line
     const handleFixBracket = useCallback(() => {
         const err = bracketStatus.errors[0];
         if (!err || !editorRef.current) return;
@@ -1474,7 +1346,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                     )}
                 </span>
                 <div className="bin-editor__toolbar-actions">
-                    {/* Fix Bracket button — only shown when there are errors */}
                     {!bracketStatus.valid && (
                         <button
                             className="btn btn--sm"
@@ -1485,7 +1356,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                             Fix {'}'}
                         </button>
                     )}
-                    {/* Block palette toggle */}
                     <button
                         className={`btn btn--sm${paletteOpen ? ' btn--primary' : ''}`}
                         style={!paletteOpen ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
@@ -1494,7 +1364,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                     >
                         ▤
                     </button>
-                    {/* BIN Tools side panel toggle */}
                     <button
                         className={`btn btn--sm${sidePanelOpen ? ' btn--primary' : ''}`}
                         style={!sidePanelOpen ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
@@ -1514,7 +1383,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 </div>
             </div>
 
-            {/* Editor + side panel wrapper */}
             <div style={{ flex: 1, display: 'flex', minHeight: 0, position: 'relative' }}>
                 {paletteOpen && <EmitterPalette onClose={() => setPaletteOpen(false)} />}
                 <div

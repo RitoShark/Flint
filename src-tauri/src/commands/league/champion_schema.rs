@@ -1,13 +1,3 @@
-//! Champion BIN Schema Aggregator
-//!
-//! Walks every WAD, picks only `LinkedData` BINs (skin BINs and the data BINs they
-//! link to — excludes champion-root, animation, and corrupt BINs via `classify_bin`),
-//! merges every property of every class globally, then emits ONE synthetic ritobin
-//! file containing every entry / class / field / sample value the game ships.
-//!
-//! Output is real ritobin syntax (block style with `{ }`) so users can copy-paste
-//! values straight into their own BINs.
-
 use std::collections::{HashMap, HashSet};
 
 use indexmap::IndexMap;
@@ -66,15 +56,12 @@ struct FieldSchema {
     sample_limit: usize,
 }
 
-/// One root-level entry sample: the entry key (resolved string or hex). Up to
-/// N keys per class are kept (class hash is the map key in `entries_by_class`).
 struct EntrySample {
     key_repr: String,
 }
 
 // =============================================================================
-// Type description (mirrors dev.rs::describe_value but no class-hash side channel
-// — class info comes from the sample value itself when rendering)
+// Type description
 // =============================================================================
 
 fn kind_str(kind: BinType) -> &'static str {
@@ -185,11 +172,9 @@ fn process_class(
             sample_limit: limit,
         });
 
-        // Prefer a non-empty type_str in case the first sample was uninformative.
         if field.type_str.is_empty() {
             field.type_str = type_str;
         }
-        // Bump the limit if a complex value is later seen for what was assumed scalar.
         if limit > field.sample_limit {
             field.sample_limit = limit;
         }
@@ -198,7 +183,6 @@ fn process_class(
         }
     }
 
-    // Recurse into nested classes (collect first to avoid borrow conflicts).
     let mut nested: Vec<(u32, IndexMap<u32, BinValue>)> = Vec::new();
     for value in fields.values() {
         collect_nested(value, &mut nested);
@@ -274,9 +258,6 @@ fn indent_str(level: usize) -> String {
     "    ".repeat(level)
 }
 
-/// Renders a single value into ritobin syntax. For struct/embed it dispatches
-/// to `render_class_block` which uses the merged global schema (so nested classes
-/// always show every field they ever had, not just what this sample carried).
 fn render_value(
     value: &BinValue,
     schema: &HashMap<u32, ClassSchema>,
@@ -371,7 +352,6 @@ fn render_container(
 ) {
     use std::fmt::Write;
 
-    // Take up to N samples from this container.
     let limit = SAMPLE_LIMIT_COMPLEX;
     let items: Vec<&BinValue> = items.iter().take(limit).collect();
 
@@ -380,7 +360,6 @@ fn render_container(
         return;
     }
 
-    // Inline-format scalar containers (short).
     let all_scalar = items.iter().all(|it| is_scalar_value(it));
     if all_scalar && items.len() <= 4 {
         out.push_str("{ ");
@@ -394,7 +373,6 @@ fn render_container(
         return;
     }
 
-    // Multi-line block format.
     out.push_str("{\n");
     let inner_indent = indent_str(indent + 1);
     for it in items.iter() {
@@ -433,8 +411,6 @@ fn render_map(
     write!(out, "{}}}", indent_str(indent)).unwrap();
 }
 
-/// Renders the body `{ field: type = value ... }` for a class hash, looking up
-/// fields in the global merged schema. Cycle-safe via `visited`.
 fn render_class_block(
     class_hash: u32,
     schema: &HashMap<u32, ClassSchema>,
@@ -446,8 +422,6 @@ fn render_class_block(
     use std::fmt::Write;
 
     if !visited.insert(class_hash) {
-        // Already expanding this class on the current path → emit empty body
-        // with a comment so the file stays valid ritobin and copy-paste safe.
         out.push_str("{ /* recursive */ }");
         return;
     }
@@ -476,7 +450,6 @@ fn render_class_block(
         if let Some(sample) = field.samples.first() {
             render_value(sample, schema, provider, visited, indent + 1, out);
         } else {
-            // Fallback when no sample was captured (shouldn't usually happen).
             out.push_str("...");
         }
         out.push('\n');
@@ -506,8 +479,6 @@ pub async fn aggregate_champion_bin_schema(
         ));
     }
 
-    // 1. Find every WAD under DATA/FINAL/Champions (skip non-champion WADs — they
-    //    bloat the schema with unrelated entries like menu / loadingscreen).
     let wad_paths: Vec<String> = WalkDir::new(&champions_path)
         .max_depth(3)
         .into_iter()
@@ -523,17 +494,13 @@ pub async fn aggregate_champion_bin_schema(
     let total_wads = wad_paths.len();
     tracing::info!("Champion schema: scanning {} WADs", total_wads);
 
-    // 2. Hash resolution resources.
     let hash_dir = get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
     let env_opt = lmdb.get_env(&hash_dir);
 
-    // 3. Walk every WAD, parse every LinkedData BIN, merge into the schema.
     let mut schema: HashMap<u32, ClassSchema> = HashMap::new();
-    // class_hash -> sample entry keys (root-level entries that map to this class)
     let mut entries_by_class: HashMap<u32, Vec<EntrySample>> = HashMap::new();
-    // Order in which root classes were first seen — keeps output deterministic.
     let mut root_class_order: Vec<u32> = Vec::new();
     let mut linked_samples: Vec<String> = Vec::new();
     let mut bins_parsed: usize = 0;
@@ -572,7 +539,6 @@ pub async fn aggregate_champion_bin_schema(
             let path_hash = chunk.path_hash;
             let resolved = match resolved_map.get(&path_hash) {
                 Some(p) => p,
-                // Skip unresolved chunks — we need the path to classify_bin properly.
                 None => continue,
             };
 
@@ -581,16 +547,10 @@ pub async fn aggregate_champion_bin_schema(
                 continue;
             }
 
-            // Belt-and-suspenders root.bin skip. `classify_bin` already returns
-            // ChampionRoot for any file named root.bin, but callers asked for
-            // this to be explicit.
             if resolved_lower.ends_with("/root.bin") || resolved_lower == "root.bin" {
                 continue;
             }
 
-            // Filter via classify_bin: keep ONLY LinkedData — skips
-            // ChampionRoot (e.g. Kayn.bin), Animation (animations/skin8.bin),
-            // root.bin, and Ignore (corrupt/recursive).
             match classify_bin(resolved) {
                 BinCategory::LinkedData => {}
                 _ => continue,
@@ -621,7 +581,6 @@ pub async fn aggregate_champion_bin_schema(
                 }
             };
 
-            // Sample a few linked-paths from the first BINs we successfully parse.
             if linked_samples.len() < LINKED_PATH_SAMPLE_LIMIT {
                 for dep in &bin.linked {
                     if linked_samples.len() >= LINKED_PATH_SAMPLE_LIMIT {
@@ -633,14 +592,12 @@ pub async fn aggregate_champion_bin_schema(
                 }
             }
 
-            // Each top-level entry becomes a root entry.
             for entry in &bin.entries {
                 let entries_list = entries_by_class.entry(entry.class_hash).or_default();
                 if !root_class_order.contains(&entry.class_hash) {
                     root_class_order.push(entry.class_hash);
                 }
                 if entries_list.len() < ENTRY_KEY_LIMIT_PER_CLASS {
-                    // path_hash on BinEntry is u32 (entry hash).
                     let key_repr = resolve_entry_key(entry.path_hash, &get_cached_bin_hashes().read());
                     if !entries_list.iter().any(|e| e.key_repr == key_repr) {
                         entries_list.push(EntrySample { key_repr });
@@ -654,7 +611,6 @@ pub async fn aggregate_champion_bin_schema(
         }
     }
 
-    // 4. Build the synthetic ritobin file.
     let provider = get_cached_bin_hashes().read();
     let total_fields: usize = schema.values().map(|c| c.fields.len()).sum();
 
@@ -675,19 +631,16 @@ pub async fn aggregate_champion_bin_schema(
     let _ = writeln!(output, "// Format: real ritobin block syntax — copy any block straight into a .ritobin file.");
     let _ = writeln!(output);
 
-    // Header lines (matches what real ritobin emits).
     let _ = writeln!(output, "#PROP_text");
     let _ = writeln!(output, "type: string = \"PROP\"");
     let _ = writeln!(output, "version: u32 = 3");
 
-    // linked: list[string] — sample dependencies seen across BINs.
     let _ = writeln!(output, "linked: list[string] = {{");
     for path in &linked_samples {
         let _ = writeln!(output, "    \"{}\"", escape_str(path));
     }
     let _ = writeln!(output, "}}");
 
-    // entries: map[hash, embed] — every unique root class with up to N sample keys.
     let _ = writeln!(output, "entries: map[hash,embed] = {{");
     for class_hash in &root_class_order {
         let class_name = resolve_name(*class_hash, &provider)
@@ -705,7 +658,6 @@ pub async fn aggregate_champion_bin_schema(
     }
     let _ = writeln!(output, "}}");
 
-    // 5. Write the file alongside bin-schema.txt.
     let output_path = get_hash_dir()
         .map(|p| {
             p.parent()

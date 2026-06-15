@@ -1,8 +1,3 @@
-/**
- * Flint - Settings Modal Component
- * Left sidebar navigation + content panels.
- */
-
 import React, { useState, useEffect } from 'react';
 import { useConfigStore, useUxStore, useModalStore, useNotificationStore, useAppMetadataStore, useWadExplorerStore } from '../../lib/stores';
 import { useShallow } from 'zustand/react/shallow';
@@ -27,7 +22,6 @@ import { triggerTutorialReplay } from '../overlays/TutorialOverlay';
 
 type SettingsTab = 'creator' | 'general' | 'theme' | 'paths' | 'integrations' | 'dev';
 
-// Extracted tab content - see ./settings/ for implementations.
 import { PathSettingItem, type PathSetting } from './settings/PathSettingItem';
 import { SchemaProgressView, SchemaResultView, type SchemaProgress } from './settings/SchemaViews';
 import { ThemePresetGrid } from './settings/ThemeTab';
@@ -62,12 +56,10 @@ export const SettingsModal: React.FC = () => {
     const [autoSyncToLauncher, setAutoSyncToLauncher] = useState(configStore.autoSyncToLauncher);
     const [celestialPath, setCelestialPath] = useState(configStore.celestialModPath || '');
     const [preferredLauncher, setPreferredLauncher] = useState<'ltk' | 'celestial' | null>(configStore.preferredLauncher);
-    // BIN engine is pinned to Jade — no UI selector; configStore default handles it.
     const [jadePath, setJadePath] = useState(configStore.jadePath || '');
     const [quartzPath, setQuartzPath] = useState(configStore.quartzPath || '');
     const [isValidating, setIsValidating] = useState(false);
 
-    // File-association status (Windows registry Open With)
     const [assocStatus, setAssocStatus] = useState<FileAssocStatus | null>(null);
     const [isRegisteringAssoc, setIsRegisteringAssoc] = useState(false);
 
@@ -117,11 +109,9 @@ export const SettingsModal: React.FC = () => {
         setAutoSyncToLauncher(configStore.autoSyncToLauncher);
         setCelestialPath(configStore.celestialModPath || '');
         setPreferredLauncher(configStore.preferredLauncher);
-        // BIN engine is always RitoShark now — no engine selection.
         setJadePath(configStore.jadePath || '');
         setQuartzPath(configStore.quartzPath || '');
         getVersion().then(setCurrentVersion).catch(() => setCurrentVersion('0.0.0'));
-        // Refresh file-association status when settings modal opens
         api.getFileAssociationStatus().then(setAssocStatus).catch(() => {});
     }, [isVisible, configStore.leaguePath, configStore.leaguePathPbe, configStore.defaultProjectPath, configStore.creatorName, configStore.creatorDescription, configStore.creatorHome, configStore.creatorTip, configStore.autoUpdateEnabled, verboseLoggingStore, configStore.ltkManagerModPath, configStore.autoSyncToLauncher, configStore.jadePath, configStore.quartzPath, configStore.selectedTheme]);
 
@@ -192,7 +182,7 @@ export const SettingsModal: React.FC = () => {
                         showToast('success', 'PBE installation detected!');
                         return;
                     }
-                } catch { /* continue */ }
+                } catch { }
             }
         }
         showToast('error', 'Could not auto-detect PBE installation');
@@ -450,10 +440,8 @@ export const SettingsModal: React.FC = () => {
         configStore.setPreferredLauncher(preferredLauncher);
         useAppMetadataStore.getState().setVerboseLogging(verboseLogging);
 
-        // BIN engine is pinned to 'ltk' (RitoShark) — no save needed.
         configStore.setJadePath(jadePath || null);
         configStore.setQuartzPath(quartzPath || null);
-        // selectedTheme is committed live by the preset cards — no need to re-save here.
 
         api.setLogLevel(verboseLogging).catch(() => {});
         showToast('success', 'Settings saved');
@@ -519,13 +507,9 @@ export const SettingsModal: React.FC = () => {
         browseTitle: string;
         directory: boolean;
         helpUrl?: string;
-        /** Marks the integration as a launcher target so the UI surfaces a
-         *  "Set as default launcher" pill on it. */
         kind?: 'launcher' | 'app';
     }
     const integrations: Integration[] = [
-        // Celestial first — it's our priority launcher, so it leads the list and
-        // is the default sync target. LTK Manager follows.
         {
             id: 'celestial',
             name: 'Celestial',
@@ -660,7 +644,6 @@ export const SettingsModal: React.FC = () => {
                                 />
                             </div>
 
-                            {/* Windows "Open with" file association card */}
                             <div className="settings-item">
                                 <label className="settings-item__label">
                                     <Icon name="link" />
@@ -929,8 +912,6 @@ export const SettingsModal: React.FC = () => {
                                         icon="refresh"
                                         onClick={() => {
                                             closeModal();
-                                            // Wait for the close animation to finish before opening the
-                                            // wizard so the two transitions don't overlap visually.
                                             setTimeout(() => {
                                                 useModalStore.getState().openModal('firstTimeSetup');
                                             }, 300);
@@ -957,8 +938,6 @@ export const SettingsModal: React.FC = () => {
                                     icon="info"
                                     onClick={() => {
                                         closeModal();
-                                        // Let the Settings modal finish closing so the tutorial
-                                        // spotlight can target real elements, not the modal stack.
                                         setTimeout(() => triggerTutorialReplay(), 320);
                                     }}
                                 >
@@ -1203,7 +1182,6 @@ export const SettingsModal: React.FC = () => {
                 </Button>
             </ModalFooter>
 
-            {/* Fullscreen UI primitives showcase (dev tab) */}
             <Modal
                 open={showUIPreview}
                 onClose={() => setShowUIPreview(false)}

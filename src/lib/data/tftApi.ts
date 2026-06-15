@@ -1,10 +1,3 @@
-/**
- * Flint - TFT Tactician / Companion API
- *
- * Fetches TFT companion (tactician) data from CommunityDragon.
- * Uses the companions.json endpoint to parse species and variants.
- */
-
 import { CDragonBranch, resolveCDragonAsset } from './datadragon';
 
 export interface CDragonCompanion {
@@ -38,13 +31,9 @@ export interface TacticianSkin {
     wadTier?: number;
 }
 
-// Caches for API responses (per CDragon branch)
 const cachedCompanionsByBranch = new Map<CDragonBranch, CDragonCompanion[]>();
 const cachedTacticiansByBranch = new Map<CDragonBranch, Tactician[]>();
 
-/**
- * Fetch companions list from CommunityDragon with retry logic.
- */
 async function fetchCompanionsData(branch: CDragonBranch = 'latest', retries = 3): Promise<CDragonCompanion[]> {
     const cached = cachedCompanionsByBranch.get(branch);
     if (cached) return cached;
@@ -108,9 +97,6 @@ function deriveWadThemeTier(companion: CDragonCompanion): { theme?: string; tier
     };
 }
 
-/**
- * Returns all TFT tacticians (unique species).
- */
 export async function getTacticians(branch: CDragonBranch = 'latest'): Promise<Tactician[]> {
     const cached = cachedTacticiansByBranch.get(branch);
     if (cached) return cached;
@@ -122,7 +108,7 @@ export async function getTacticians(branch: CDragonBranch = 'latest'): Promise<T
         data.forEach((c) => {
             // River Sprite uses speciesId=0 — don't drop with a truthy check.
             if (c.speciesId == null || !c.speciesName || !c.loadoutsIcon) return;
-            if (speciesMap.has(c.speciesId)) return; // Already added
+            if (speciesMap.has(c.speciesId)) return;
 
             const alias = deriveWadAlias(c);
             const iconUrl = resolveCDragonAsset(c.loadoutsIcon, branch);
@@ -144,9 +130,6 @@ export async function getTacticians(branch: CDragonBranch = 'latest'): Promise<T
     }
 }
 
-/**
- * Returns all skins/variants for a given tactician species.
- */
 export async function getTacticianSkins(
     tacticianId: string,
     branch: CDragonBranch = 'latest',
@@ -170,7 +153,7 @@ export async function getTacticianSkins(
                     name: `${c.name} (Tier ${c.level})`,
                     rarity: c.rarity || 'Default',
                     tilePath: iconPath,
-                    centeredSplashPath: iconPath, // Fallback splash to the tooltip icon
+                    centeredSplashPath: iconPath,
                     skinLines: [],
                     wadAlias,
                     wadSkinNum: skinNum,
@@ -188,9 +171,6 @@ export async function getTacticianSkins(
     }
 }
 
-/**
- * Clear the tactician list caches.
- */
 export function clearTacticianCache(): void {
     cachedCompanionsByBranch.clear();
     cachedTacticiansByBranch.clear();

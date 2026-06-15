@@ -67,11 +67,7 @@ pub async fn parse_audio_bank(path: String) -> Result<AudioBankInfo, String> {
     parse_audio_bank_inner(&data)
 }
 
-/// Parse BNK/WPK from raw bytes (for WAD Explorer in-memory chunks).
-///
-/// Frontend sends the bank as a raw `Uint8Array` body so we skip the JSON
-/// number-array round-trip — multi-MB banks were spending most of their IPC
-/// time in `JSON.stringify` / `serde_json` otherwise.
+/// Parse BNK/WPK from a raw-byte request body (for WAD Explorer in-memory chunks).
 #[tauri::command]
 pub async fn parse_audio_bank_bytes(request: tauri::ipc::Request<'_>) -> Result<AudioBankInfo, String> {
     let data = raw_body(&request, "parse_audio_bank_bytes")?;
@@ -109,11 +105,8 @@ pub async fn read_audio_entry(
     Ok(tauri::ipc::Response::new(bytes))
 }
 
-/// Read a single WEM entry from in-memory BNK/WPK bytes.
-///
-/// Bank is sent as the raw request body; `file_id` rides in a header so the
-/// command still has a single binary payload. Avoids JSON encoding the bank
-/// twice (request) plus the WEM (response).
+/// Read a single WEM entry from in-memory BNK/WPK bytes. Bank is the raw
+/// request body; `file_id` rides in a header.
 #[tauri::command]
 pub async fn read_audio_entry_bytes(
     request: tauri::ipc::Request<'_>,
@@ -248,7 +241,7 @@ pub async fn silence_audio_entry(
     match detect_format(&bank_data)? {
         "bnk" => bnk::silence_bnk_entry(&bank_data, file_id),
         "wpk" => {
-            // WPK doesn't have a dedicated silence function; reuse the BNK silence WEM
+            // WPK has no dedicated silence function; reuse the BNK silence WEM.
             wpk::replace_wpk_entry(&bank_data, file_id, bnk::SILENCE_WEM)
         }
         f => Err(format!("Unsupported format: {f}")),

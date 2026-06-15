@@ -22,8 +22,6 @@ export async function readBinInfo(binData: Uint8Array): Promise<{ version: strin
     return invokeCommand('read_bin_info', { binData: Array.from(binData) });
 }
 
-// Multi-MB ritobin text comes back as raw UTF-8 bytes — `TextDecoder` is
-// faster than `JSON.parse('"..."')` for huge strings.
 export async function parseBinFileToText(path: string): Promise<string> {
     const buf = await invokeCommand<ArrayBuffer>('parse_bin_file_to_text', { path });
     return utf8Decoder.decode(buf);

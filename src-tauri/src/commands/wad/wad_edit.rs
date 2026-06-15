@@ -1,11 +1,6 @@
-//! In-memory WAD edit session commands.
-//!
-//! Open a WAD, mutate chunks in memory, save when ready. The on-disk
-//! file is not touched until `save_session_to_path` fires — which means
-//! you can iterate on edits without thrashing the WAD on the filesystem
-//! (which would invalidate every cache that points at it, fire the
-//! project watcher, and on Windows can take real time for multi-hundred-
-//! MB champion WADs).
+//! In-memory WAD edit session commands. The on-disk file is not touched until
+//! `save_session_to_path` fires; only edited chunks live in RAM (as
+//! decompressed bytes), untouched chunks are streamed from the source WAD.
 //!
 //! Session lifecycle:
 //!   1. `open_wad_edit_session(wad_path)` — parses TOC, returns a session_id.
@@ -15,12 +10,6 @@
 //!      `discard_session_changes(session_id)` (drop the deltas, keep the
 //!      session open).
 //!   4. `close_wad_edit_session(session_id)` — frees memory.
-//!
-//! Memory profile: only edited chunks live in RAM (as decompressed
-//! bytes). Untouched chunks are streamed from the source WAD on read,
-//! same as the read-only pipeline already does. So a session that
-//! modifies ten chunks of a 5000-chunk WAD costs ~10× the decompressed
-//! chunk size — no extra resident overhead.
 
 use crate::core::ipc_trace;
 use crate::state::{WadEditDelta, WadEditSession, WadEditState};
@@ -58,10 +47,8 @@ fn parse_hex_hash(s: &str) -> Result<u64, String> {
         .map_err(|e| format!("Invalid path_hash '{}': {}", s, e))
 }
 
-/// Open a WAD into a fresh in-memory edit session. Parses the TOC
-/// immediately (so subsequent reads can locate chunks on disk) but does
-/// not decompress anything — uncommitted edits live in RAM, original
-/// chunks stay on disk until they're read or saved.
+/// Open a WAD into a fresh in-memory edit session. Parses the TOC immediately
+/// but does not decompress anything.
 #[tauri::command]
 pub async fn open_wad_edit_session(
     wad_path: String,
@@ -139,12 +126,9 @@ pub async fn list_wad_edit_sessions(
         .collect())
 }
 
-/// Read a chunk from the session. Honors pending writes (returns the
-/// staged bytes) and pending deletes (returns an error). For untouched
-/// chunks we go to disk via the existing decompression path.
-///
-/// Response body is raw bytes — caller uses `invokeCommand` with the
-/// returned ArrayBuffer.
+/// Read a chunk from the session. Honors pending writes (returns staged bytes)
+/// and pending deletes (returns an error); untouched chunks come from disk.
+/// Response body is raw bytes.
 #[tauri::command]
 pub async fn read_session_chunk(
     session_id: String,
@@ -173,8 +157,6 @@ pub async fn read_session_chunk(
             let chunk = original_chunk.ok_or_else(|| format!(
                 "Chunk {:016x} not found in WAD or session deltas", hash
             ))?;
-            // Heavy: file read + decompress. Spawn on the blocking pool so
-            // the async runtime stays responsive.
             let bytes = tokio::task::spawn_blocking(move || {
                 read_chunk_decompressed_bytes(&source_path, &chunk)
             })
@@ -186,11 +168,8 @@ pub async fn read_session_chunk(
     }
 }
 
-/// Stage new bytes for a chunk. Replaces if the hash already exists in
-/// the WAD or in a prior staged write, adds if it's new.
-///
-/// Wire format: raw body bytes; `session-id` and `path-hash` go via
-/// headers so the body is a clean memcpy on both sides.
+/// Stage new bytes for a chunk (replaces an existing hash or adds a new one).
+/// Wire format: raw body bytes; `session-id` and `path-hash` go via headers.
 #[tauri::command]
 pub async fn write_session_chunk(
     request: Request<'_>,
@@ -270,11 +249,9 @@ pub async fn discard_session_changes(
     Ok(())
 }
 
-/// Save the session as a fresh WAD at `output_path`. The session stays
-/// open afterward — you can keep editing and re-save. To overwrite the
-/// source, pass `output_path == source_path`; we use a write-then-rename
-/// dance so a crashed save can't leave a half-written WAD where the
-/// original used to be.
+/// Save the session as a fresh WAD at `output_path`, via write-then-rename so a
+/// crashed save can't leave a half-written file. The session stays open and is
+/// re-baselined to the output. Pass `output_path == source_path` to overwrite.
 #[tauri::command]
 pub async fn save_session_to_path(
     session_id: String,
@@ -309,16 +286,11 @@ pub async fn save_session_to_path(
         (g.source_path.clone(), g.original_chunks.clone(), g.deltas.clone())
     };
 
-    // Heavy: decompress every untouched chunk + run zstd over the edited
-    // ones. Pin to the blocking pool.
     let result: Result<(Vec<u8>, usize), String> = tokio::task::spawn_blocking(move || {
         use rayon::prelude::*;
 
-        // Untouched originals (not shadowed by a Delete/Write) are streamed
-        // from disk and decompressed. Each opens its own file handle, so fan
-        // the decompression out across rayon — for a full champion WAD this is
-        // thousands of independent reads. Order is irrelevant: write_wad dedups
-        // + sorts by hash internally.
+        // Decompress untouched originals (not shadowed by a delta) across rayon;
+        // each opens its own file handle. write_wad dedups + sorts by hash.
         let originals: Vec<EntryToWrite> = original_chunks
             .par_iter()
             .filter(|chunk| !deltas.contains_key(&chunk.path_hash))
@@ -335,8 +307,6 @@ pub async fn save_session_to_path(
         let mut entries = originals;
         entries.reserve(deltas.len());
 
-        // Edits (Write deltas). Includes both replacements of existing
-        // hashes and brand-new ones.
         for (hash, delta) in deltas.iter() {
             if let WadEditDelta::Write(bytes) = delta {
                 entries.push(EntryToWrite::new(*hash, bytes.clone()));
@@ -355,8 +325,7 @@ pub async fn save_session_to_path(
     let total_bytes = wad_bytes.len() as u64;
 
     // Write-then-rename so the source WAD (if `output_path == source_path`)
-    // can't get half-overwritten on a crash. Same pattern the extractor
-    // uses for individual chunk writes.
+    // can't get half-overwritten on a crash.
     let out = PathBuf::from(&output_path);
     if let Some(parent) = out.parent() {
         std::fs::create_dir_all(parent)
@@ -374,15 +343,8 @@ pub async fn save_session_to_path(
         format!("Failed to rename tmp WAD into place: {}", e)
     })?;
 
-    // The saved file is now the session's new baseline. Re-parse its TOC and
-    // clear the (now-committed) deltas, then re-point the session at the output.
-    //
-    // WHY: writing re-lays-out the WAD — chunks get recompressed (new sizes) and
-    // re-sorted by hash (new offsets). The session still cached the OLD TOC, so
-    // any later read of an UNTOUCHED chunk would seek to a stale offset in the
-    // freshly-written file and pull garbage (manifesting as "Zstd: Unknown frame
-    // descriptor" / texture InvalidMagic in the preview). Refreshing here keeps
-    // the open session consistent with what's on disk after an in-place save.
+    // Re-baseline the session to the saved file: re-parse its TOC (offsets +
+    // sizes changed on rewrite) and clear the committed deltas.
     match read_wad_toc(&out) {
         Ok(toc) => {
             let mut s = session.write();
@@ -391,9 +353,6 @@ pub async fn save_session_to_path(
             s.source_path = out.clone();
         }
         Err(e) => {
-            // The file is written and valid (we just produced it); a TOC re-read
-            // failure here is unexpected. Don't fail the save — the bytes are on
-            // disk — but warn, and drop stale deltas so we don't serve bad reads.
             tracing::warn!(
                 "Saved WAD but failed to refresh session TOC ({}); clearing deltas to avoid stale reads",
                 e

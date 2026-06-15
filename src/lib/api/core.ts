@@ -114,8 +114,8 @@ export class FlintError extends Error {
     }
 }
 
-// IPC tracing — flip with `localStorage.flintIpcTrace = '1'` then reload, or
-// set window.__FLINT_IPC_TRACE = true at runtime. Default ON in dev.
+/* IPC tracing — flip with `localStorage.flintIpcTrace = '1'` then reload, or
+   set window.__FLINT_IPC_TRACE = true at runtime. Default ON in dev. */
 declare global {
     interface Window {
         __FLINT_IPC_TRACE?: boolean;
@@ -208,11 +208,6 @@ export async function invokeCommand<T>(
     }
 }
 
-/**
- * Variant of `invokeCommand` for the raw-bytes IPC path. See api.ts history
- * for context on why this exists (multi-MB payload `Array.from` was dominant
- * cost — raw path is a memcpy each side).
- */
 export async function invokeRaw<T>(
     command: string,
     body: ArrayBuffer | ArrayBufferView | Uint8Array | undefined,
@@ -266,5 +261,4 @@ export async function invokeRaw<T>(
     }
 }
 
-/** Shared UTF-8 decoder for byte → text responses. */
 export const utf8Decoder = new TextDecoder('utf-8');

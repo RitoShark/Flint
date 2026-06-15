@@ -10,12 +10,8 @@
 //! }
 //! ```
 //!
-//! On `_t` drop, logs the elapsed wall time at info level. If the command
-//! ran longer than `SLOW_THRESHOLD_MS`, logs at warn instead so it stands
-//! out in the rolling log.
-//!
-//! These logs flow through `FrontendLogLayer`, so the frontend log panel
-//! mirrors them in real time alongside the JS-side `[ipc#N ▶/✓]` traces.
+//! On `_t` drop, logs the elapsed wall time at info level (warn if it ran
+//! longer than `SLOW_THRESHOLD_MS`).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;

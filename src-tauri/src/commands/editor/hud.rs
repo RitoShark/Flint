@@ -50,7 +50,6 @@ pub async fn create_hud_project(
         return Err(format!("Project already exists: {}", safe_name));
     }
 
-    // Create project structure
     fs::create_dir_all(&project_path)
         .map_err(|e| format!("Failed to create project directory: {}", e))?;
 
@@ -58,12 +57,10 @@ pub async fn create_hud_project(
     fs::create_dir_all(&content_dir)
         .map_err(|e| format!("Failed to create content directory: {}", e))?;
 
-    // Create default HUD file structure path
     let hud_base_path = content_dir.join("UI.wad.client/clientstates/loadingscreen/ux/loadingscreenclassic/uibase");
     fs::create_dir_all(&hud_base_path)
         .map_err(|e| format!("Failed to create HUD directory structure: {}", e))?;
 
-    // Create project metadata
     let metadata = serde_json::json!({
         "name": project_name,
         "creator": creator_name,

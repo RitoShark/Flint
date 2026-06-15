@@ -36,11 +36,9 @@ pub async fn read_wad_luabin(
     wad_path: String,
     hash: String,
 ) -> Result<String, String> {
-    // Parse hash
     let path_hash = u64::from_str_radix(&hash, 16)
         .map_err(|e| format!("Invalid hash '{}': {}", hash, e))?;
 
-    // Read WAD chunk
     let mut reader = WadReader::open(&wad_path)?;
     let chunk = *reader
         .get_chunk(path_hash)
@@ -51,7 +49,6 @@ pub async fn read_wad_luabin(
         .load_chunk_decompressed(&chunk)
         .map_err(|e| format!("Failed to decompress chunk {:016x}: {}", path_hash, e))?;
 
-    // Convert to Lua source
     flint_ltk::luabin::convert_luabin(&data)
 }
 
@@ -61,11 +58,9 @@ pub async fn read_wad_troybin(
     wad_path: String,
     hash: String,
 ) -> Result<String, String> {
-    // Parse hash
     let path_hash = u64::from_str_radix(&hash, 16)
         .map_err(|e| format!("Invalid hash '{}': {}", hash, e))?;
 
-    // Read WAD chunk
     let mut reader = WadReader::open(&wad_path)?;
     let chunk = *reader
         .get_chunk(path_hash)
@@ -76,7 +71,6 @@ pub async fn read_wad_troybin(
         .load_chunk_decompressed(&chunk)
         .map_err(|e| format!("Failed to decompress chunk {:016x}: {}", path_hash, e))?;
 
-    // Convert to INI-like text
     flint_ltk::troybin::convert_troybin(&data)
 }
 
@@ -86,11 +80,9 @@ pub async fn read_wad_inibin(
     wad_path: String,
     hash: String,
 ) -> Result<String, String> {
-    // Parse hash
     let path_hash = u64::from_str_radix(&hash, 16)
         .map_err(|e| format!("Invalid hash '{}': {}", hash, e))?;
 
-    // Read WAD chunk
     let mut reader = WadReader::open(&wad_path)?;
     let chunk = *reader
         .get_chunk(path_hash)
@@ -101,10 +93,9 @@ pub async fn read_wad_inibin(
         .load_chunk_decompressed(&chunk)
         .map_err(|e| format!("Failed to decompress chunk {:016x}: {}", path_hash, e))?;
 
-    // Parse with ltk_inibin and convert to JSON
     let file = ltk_inibin::from_slice(&data)
         .map_err(|e| format!("Failed to parse inibin: {}", e))?;
-    
+
     serde_json::to_string_pretty(&file)
         .map_err(|e| format!("Failed to serialize inibin to JSON: {}", e))
 }
@@ -137,11 +128,9 @@ pub async fn read_wad_rst(
     wad_path: String,
     hash: String,
 ) -> Result<String, String> {
-    // Parse hash
     let path_hash = u64::from_str_radix(&hash, 16)
         .map_err(|e| format!("Invalid hash '{}': {}", hash, e))?;
 
-    // Read WAD chunk
     let mut reader = WadReader::open(&wad_path)?;
     let chunk = *reader
         .get_chunk(path_hash)
@@ -152,7 +141,6 @@ pub async fn read_wad_rst(
         .load_chunk_decompressed(&chunk)
         .map_err(|e| format!("Failed to decompress chunk {:016x}: {}", path_hash, e))?;
 
-    // Parse with RitoShark's rs_rst and convert to JSON.
     rst_bytes_to_json(&data)
 }
 
@@ -180,15 +168,9 @@ pub async fn read_manifest_json(path: String) -> Result<tauri::ipc::Response, St
     Ok(tauri::ipc::Response::new(json.into_bytes()))
 }
 
-/// Parse RST bytes with `ritoshark::rst` and emit the same JSON shape the old
-/// `ltk_rst::Stringtable` serde output produced: `{ "entries": { "<hash_u64>": "<text>" } }`.
-///
-/// `ltk_rst::Stringtable` derived `Serialize` over a `HashMap<u64, String>` (keys rendered
-/// as decimal strings, arbitrary order). `ritoshark::rst::Rst` instead exposes
-/// `entries: Vec<(u64, RstValue)>`, so we collect into a `BTreeMap<u64, String>` — identical
-/// JSON shape and key encoding, but with a stable (numeric) key order instead of the old
-/// nondeterministic `HashMap` order. Encrypted pre-v5 payloads (which `ltk_rst` never
-/// surfaced) degrade to an empty string, matching the "string value" contract.
+/// Parse RST bytes and emit JSON of shape `{ "entries": { "<hash_u64>": "<text>" } }`
+/// (decimal string keys, sorted numerically). Encrypted pre-v5 payloads degrade
+/// to an empty string.
 fn rst_bytes_to_json(data: &[u8]) -> Result<String, String> {
     use ritoshark::prelude::Parse;
     use serde::Serialize;

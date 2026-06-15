@@ -1,9 +1,3 @@
-/**
- * Flint - Map Textures Modal
- * Organized panel for combining map textures into PSDs and applying edits back.
- * One row per section (Ground + wall/prop categories): tile count, exists status,
- * and Combine / Open / Apply. Texture-only — never touches the bin.
- */
 import React, { useState, useEffect, useCallback } from 'react';
 import { useModalStore, useNotificationStore, useProjectTabStore } from '../../lib/stores';
 import * as api from '../../lib/api';
@@ -21,8 +15,8 @@ export const MapTexturesModal: React.FC = () => {
     const projectPath = (activeTabId ? openTabs.find((t) => t.id === activeTabId) : null)?.projectPath || null;
 
     const [sections, setSections] = useState<MapTextureSection[]>([]);
-    const [mode, setMode] = useState<CombineMode>('Combined'); // Ground only
-    const [busy, setBusy] = useState<string | null>(null); // section name in progress
+    const [mode, setMode] = useState<CombineMode>('Combined');
+    const [busy, setBusy] = useState<string | null>(null);
 
     const refresh = useCallback(async () => {
         if (!projectPath) return;
@@ -86,7 +80,6 @@ export const MapTexturesModal: React.FC = () => {
                     then apply it back. Files live in <code>textures-psd/</code>. The bin is never touched.
                 </p>
 
-                {/* Layout toggle — applies to whatever section you Combine next. */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '6px 0 14px' }}>
                     <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Layout:</span>
                     {(['Combined', 'Split'] as CombineMode[]).map((m) => (
@@ -106,8 +99,8 @@ export const MapTexturesModal: React.FC = () => {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {sections.map((s) => {
-                        const isBusy = busy === s.name;       // this row is the active op
-                        const anyBusy = busy !== null;        // ANY op running -> block all
+                        const isBusy = busy === s.name;
+                        const anyBusy = busy !== null;
                         const empty = s.tile_count === 0;
                         return (
                             <div

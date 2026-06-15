@@ -1,12 +1,8 @@
 //! Global LMDB environment cache.
 //!
-//! Two separate LMDBs, matching Quartz's layout:
+//! Two separate LMDBs:
 //! - `hashes-wad.lmdb` — named DB `"wad"`, 8-byte BE keys (xxh64), WAD path hashes.
 //! - `hashes-bin.lmdb` — named DB `"bin"`, 4-byte BE keys (FNV1a), BIN hashes.
-//!
-//! Each env is opened once per process and cached. OS memory-maps the data files;
-//! only touched B-tree pages get paged in. `Arc<heed::Env>` clones are lock-free
-//! readers — heed's MVCC allows unlimited concurrent read transactions.
 
 use heed::types::{Bytes, Str};
 use heed::{Database, EnvOpenOptions};
@@ -16,12 +12,6 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
 // ── Arena-backed resolved-hash table ──────────────────────────────────────────
-//
-// Replaces the previous `FxHashMap<u64, String>`. A full-game scan resolves
-// ~720K hashes; the old shape paid 720K heap allocations + 720K drops on
-// cleanup. Here every path is a slice into one shared UTF-8 buffer; the
-// index is an `FxHashMap<u64, (u32 offset, u32 len)>`. One alloc for the
-// arena, none per entry. Lookup returns `&str` directly off the buffer.
 #[derive(Default, Clone)]
 pub struct ResolvedHashes {
     arena: Vec<u8>,
@@ -48,8 +38,6 @@ impl ResolvedHashes {
         self.index.insert(hash, (off, len));
     }
 
-    /// `&u64` keeps the call-site idiom (`map.get(&hash)`) identical to a
-    /// `HashMap`, easing the migration.
     pub fn get(&self, hash: &u64) -> Option<&str> {
         let (off, len) = *self.index.get(hash)?;
         let start = off as usize;
@@ -85,7 +73,6 @@ impl ResolvedHashes {
     }
 }
 
-/// Lets callers in the !env fallback path keep `iter().map(...).collect()`.
 impl FromIterator<(u64, String)> for ResolvedHashes {
     fn from_iter<I: IntoIterator<Item = (u64, String)>>(iter: I) -> Self {
         let it = iter.into_iter();
@@ -124,8 +111,7 @@ fn open_env(lmdb_dir: &Path) -> Option<heed::Env> {
         return None;
     }
 
-    // 1 GB virtual address reservation — actual RAM use is only what's touched.
-    // `max_dbs(2)` so we can open the named DB by name.
+    // 1 GB virtual address reservation; max_dbs(2) for the named DBs.
     match unsafe {
         EnvOpenOptions::new()
             .map_size(1024 * 1024 * 1024)
@@ -178,9 +164,6 @@ pub fn get_bin_env(hash_dir: &str) -> Option<Arc<heed::Env>> {
     get_cached_env(bin_mutex(), &lmdb_dir)
 }
 
-/// Legacy alias — callers that need a single env default to WAD.
-///
-/// Prefer [`get_wad_env`] or [`get_bin_env`] in new code.
 pub fn get_or_open_env(hash_dir: &str) -> Option<Arc<heed::Env>> {
     get_wad_env(hash_dir)
 }
@@ -231,22 +214,11 @@ pub fn resolve_hashes_lmdb(hashes: &[u64], env: &heed::Env) -> Vec<String> {
         .collect()
 }
 
-/// Bulk WAD hash resolution.
+/// Bulk WAD hash resolution, parallelized across rayon.
 ///
-/// Returns a [`ResolvedHashes`] (FxHashMap) containing **only the hashes that
-/// resolved** to a real path. Misses are omitted — callers that need a hex
-/// fallback should produce it themselves.
-///
-/// Keyed on a u64 that's already an xxh64 output, so the map uses `FxHasher`
-/// rather than std's default SipHash-1-3. SipHash on the merge of a 720K-entry
-/// result was ~700ms on the in-house full-game dataset; FxHash drops it to
-/// ~80ms. The whole call returns the FxHashMap directly so callers don't
-/// re-pay the conversion.
-///
-/// Parallelized across the rayon thread pool. LMDB is built for concurrent
-/// readers — every thread opens its own short-lived `RoTxn` and walks its
-/// own slice. With 720K lookups, single-threaded was page-fault-bound at
-/// ~14s cold; the parallel version pipelines those faults across cores.
+/// Returns a [`ResolvedHashes`] containing **only the hashes that resolved** to
+/// a real path. Misses are omitted — callers that need a hex fallback produce
+/// it themselves.
 pub fn resolve_hashes_lmdb_bulk(
     hashes: &[u64],
     env: &heed::Env,
@@ -257,18 +229,12 @@ pub fn resolve_hashes_lmdb_bulk(
         return ResolvedHashes::default();
     }
 
-    // Confirm the named DB exists once on the calling thread.
     let Some((probe_txn, _)) = open_read_db(env, "wad") else {
         return ResolvedHashes::default();
     };
     drop(probe_txn);
 
-    // ~64K hashes per chunk: amortizes txn open/close while keeping all
-    // cores busy for inputs above ~500K. Each worker writes resolved paths
-    // directly into a per-thread arena — no per-hit `String` allocation.
     const CHUNK: usize = 64 * 1024;
-    // ~40 bytes/path is the empirical mean for resolved League WAD paths;
-    // sized down/2 because not every hash resolves.
     const ARENA_GUESS_PER_HASH: usize = 20;
 
     let partials: Vec<ResolvedHashes> = hashes
@@ -291,7 +257,6 @@ pub fn resolve_hashes_lmdb_bulk(
         })
         .collect();
 
-    // Merge into one arena. Pre-size to the sum of partials.
     let total_entries: usize = partials.iter().map(|p| p.len()).sum();
     let total_arena: usize = partials.iter().map(|p| p.arena.len()).sum();
     let mut out = ResolvedHashes::with_capacity(total_entries, total_arena);
@@ -301,8 +266,7 @@ pub fn resolve_hashes_lmdb_bulk(
     out
 }
 
-/// Resolve a slice of 32-bit FNV1a BIN hashes. Unresolved entries fall back
-/// to 8-char hex form.
+/// Resolves 32-bit FNV1a BIN hashes; unresolved entries fall back to 8-char hex.
 pub fn resolve_bin_hashes_lmdb(hashes: &[u32], env: &heed::Env) -> HashMap<u32, String> {
     let Some((rtxn, db)) = open_read_db(env, "bin") else {
         return hashes.iter().map(|h| (*h, format!("{:08x}", h))).collect();

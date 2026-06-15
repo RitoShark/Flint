@@ -1,8 +1,3 @@
-/**
- * Navigation Store
- * Manages the current view/route in the application
- */
-
 import { create } from 'zustand';
 import type { ViewType, FileEditorTarget } from '../types';
 import { useFileEditorStore } from './fileEditorStore';
@@ -10,13 +5,11 @@ import { useFileEditorStore } from './fileEditorStore';
 interface NavigationState {
   currentView: ViewType;
 
-  // Actions
   setView: (view: ViewType) => void;
   navigateToWelcome: () => void;
   navigateToPreview: () => void;
   navigateToExtract: () => void;
   navigateToWadExplorer: () => void;
-  /** Open the dedicated file editor page with a target. */
   navigateToFileEditor: (target: FileEditorTarget) => void;
 }
 

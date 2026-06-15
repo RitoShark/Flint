@@ -1,16 +1,3 @@
-/**
- * uvPaintPass.ts — GPU "what UV is under this pixel" pass for projection paint.
- *
- * Renders the scene from the active camera into an offscreen RenderTargetTexture
- * where each pixel's color encodes the UV of the visible surface (R=u, G=v),
- * with the GPU depth test handling occlusion. The painter then reads back the
- * small brush region and paints each covered UV into the texture — so a round
- * brush on screen is a round mark on the model, across fragmented UVs, no CPU
- * triangle rasterization. (See spec 2026-06-09-gpu-uv-paint-design.)
- *
- * UVs are written in 8-bit RGBA (≈1/256 ≈ 8 texels on a 2048 map). If that's too
- * coarse, switch the RTT to a FLOAT type and read floats instead.
- */
 import { Scene } from '@babylonjs/core/scene';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { RenderTargetTexture } from '@babylonjs/core/Materials/Textures/renderTargetTexture';
@@ -68,7 +55,7 @@ export function createUvPass(scene: Scene): UvPass {
     const w = engine.getRenderWidth();
     const h = engine.getRenderHeight();
 
-    // FLOAT target so UVs are exact (8-bit ≈ 1/256 caused a stippled lattice).
+    // FLOAT target so UVs are exact (8-bit ≈ 1/256 is too coarse).
     const rtt = new RenderTargetTexture('flint-uv-pass', { width: w, height: h }, scene, {
         generateDepthBuffer: true,
         generateMipMaps: false,
@@ -100,9 +87,6 @@ export function createUvPass(scene: Scene): UvPass {
             idForMesh.clear();
             const all: Mesh[] = [];
             for (const g of groups) for (const m of g.meshes) { idForMesh.set(m, g.texId); all.push(m); }
-            // through = paint occluded surfaces: disable depth test so a farther
-            // mesh isn't culled by a nearer one (lets shadowed/behind faces get
-            // painted). Default keeps depth so only the visible surface paints.
             mat.disableDepthWrite = through;
             mat.depthFunction = through ? Constants.ALWAYS : 0; // 0 = engine default (LEQUAL)
             rtt.renderList = all;

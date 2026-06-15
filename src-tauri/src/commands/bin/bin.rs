@@ -6,9 +6,8 @@ use std::path::Path;
 use std::sync::Arc;
 use crate::core::ipc_trace;
 
-// Per-path mutex so two concurrent read_or_convert_bin calls for the same file
+// Per-path mutex so concurrent read_or_convert_bin calls for the same file
 // don't both race past the cache check and convert the BIN twice.
-// The second caller waits for the first, then hits the freshly-written cache.
 static BIN_INFLIGHT: std::sync::OnceLock<dashmap::DashMap<String, Arc<tokio::sync::Mutex<()>>>> =
     std::sync::OnceLock::new();
 
@@ -16,22 +15,13 @@ fn bin_inflight() -> &'static dashmap::DashMap<String, Arc<tokio::sync::Mutex<()
     BIN_INFLIGHT.get_or_init(dashmap::DashMap::new)
 }
 
-/// Metadata information about a bin file
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinInfo {
     pub entry_count: usize,
     pub version: u32,
 }
 
-/// Converts a binary .bin file to Python-like text format (.py)
-///
-/// # Arguments
-/// * `input_path` - Path to the input .bin file
-/// * `output_path` - Path to the output .py file
-/// * `state` - The managed HashtableState for hash resolution
-///
-/// # Returns
-/// * `Result<(), String>` - Ok if conversion succeeded, error message otherwise
+/// Convert a binary .bin file to Python-like text format (.py).
 #[tauri::command]
 pub async fn convert_bin_to_text(
     input_path: String,
@@ -39,8 +29,7 @@ pub async fn convert_bin_to_text(
 ) -> Result<(), String> {
     let _t = ipc_trace::enter("convert_bin_to_text");
     tracing::info!("Converting bin to text: {} -> {}", input_path, output_path);
-    
-    // Validate input path
+
     if input_path.is_empty() {
         tracing::error!("Input path cannot be empty");
         return Err("Input path cannot be empty".to_string());
@@ -56,7 +45,6 @@ pub async fn convert_bin_to_text(
         return Err(format!("Input file does not exist: {}", input_path));
     }
 
-    // Read the binary file
     let data = fs::read(input)
         .map_err(|e| {
             tracing::error!("Failed to read input file '{}': {}", input_path, e);
@@ -65,7 +53,6 @@ pub async fn convert_bin_to_text(
 
     tracing::debug!("Read {} bytes from {}", data.len(), input_path);
 
-    // Parse the bin file using the LTK-native reader
     let bin = flint_ltk::bin::read_bin_ltk(&data)
         .map_err(|e| {
             tracing::error!("Failed to parse bin file '{}': {}", input_path, e);
@@ -74,14 +61,12 @@ pub async fn convert_bin_to_text(
 
     tracing::debug!("Parsed bin file with {} objects", bin.entries.len());
 
-    // Convert to text with full hash resolution (same as the BIN editor path)
     let text = tree_to_text_cached(&bin)
         .map_err(|e| {
             tracing::error!("Failed to convert to text: {}", e);
             format!("Failed to convert to text: {}", e)
         })?;
 
-    // Write to output file
     fs::write(&output_path, text)
         .map_err(|e| {
             tracing::error!("Failed to write output file '{}': {}", output_path, e);
@@ -93,21 +78,12 @@ pub async fn convert_bin_to_text(
     Ok(())
 }
 
-/// Converts a binary .bin file to JSON format (.json)
-///
-/// # Arguments
-/// * `input_path` - Path to the input .bin file
-/// * `output_path` - Path to the output .json file
-/// * `state` - The managed HashtableState for hash resolution
-///
-/// # Returns
-/// * `Result<(), String>` - Ok if conversion succeeded, error message otherwise
+/// Convert a binary .bin file to JSON format (.json).
 #[tauri::command]
 pub async fn convert_bin_to_json(
     input_path: String,
     output_path: String,
 ) -> Result<(), String> {
-    // Validate input path
     if input_path.is_empty() {
         return Err("Input path cannot be empty".to_string());
     }
@@ -120,42 +96,29 @@ pub async fn convert_bin_to_json(
         return Err(format!("Input file does not exist: {}", input_path));
     }
 
-    // Read the binary file
     let data = fs::read(input)
         .map_err(|e| format!("Failed to read input file: {}", e))?;
 
-    // Parse the bin file
     let bin = read_bin(&data)
         .map_err(|e| format!("Failed to parse bin file: {}", e))?;
 
-    // Convert to JSON format
     let json = bin_to_json(&bin)
         .map_err(|e| format!("Failed to convert to JSON: {}", e))?;
 
-    // Write to output file
     fs::write(&output_path, json)
         .map_err(|e| format!("Failed to write output file: {}", e))?;
 
     Ok(())
 }
 
-/// Converts a Python-like text format (.py) to binary .bin file
-///
-/// # Arguments
-/// * `input_path` - Path to the input .py file
-/// * `output_path` - Path to the output .bin file
-/// * `state` - The managed HashtableState for string-to-hash conversion
-///
-/// # Returns
-/// * `Result<(), String>` - Ok if conversion succeeded, error message otherwise
+/// Convert a Python-like text format (.py) to a binary .bin file.
 #[tauri::command]
 pub async fn convert_text_to_bin(
     input_path: String,
     output_path: String,
 ) -> Result<(), String> {
     tracing::info!("Converting text to bin: {} -> {}", input_path, output_path);
-    
-    // Validate input path
+
     if input_path.is_empty() {
         tracing::error!("Input path cannot be empty");
         return Err("Input path cannot be empty".to_string());
@@ -171,7 +134,6 @@ pub async fn convert_text_to_bin(
         return Err(format!("Input file does not exist: {}", input_path));
     }
 
-    // Read the text file
     let text = fs::read_to_string(input)
         .map_err(|e| {
             tracing::error!("Failed to read input file '{}': {}", input_path, e);
@@ -180,7 +142,6 @@ pub async fn convert_text_to_bin(
 
     tracing::debug!("Read {} characters from {}", text.len(), input_path);
 
-    // Parse text to bin
     let bin = text_to_bin(&text)
         .map_err(|e| {
             tracing::error!("Failed to parse text from '{}': {}", input_path, e);
@@ -189,14 +150,12 @@ pub async fn convert_text_to_bin(
 
     tracing::debug!("Parsed text to bin with {} objects", bin.entries.len());
 
-    // Convert to binary
     let data = write_bin(&bin)
         .map_err(|e| {
             tracing::error!("Failed to write bin: {}", e);
             format!("Failed to write bin: {}", e)
         })?;
 
-    // Write to output file
     fs::write(&output_path, data)
         .map_err(|e| {
             tracing::error!("Failed to write output file '{}': {}", output_path, e);
@@ -208,21 +167,12 @@ pub async fn convert_text_to_bin(
     Ok(())
 }
 
-/// Converts a JSON format (.json) to binary .bin file
-///
-/// # Arguments
-/// * `input_path` - Path to the input .json file
-/// * `output_path` - Path to the output .bin file
-/// * `state` - The managed HashtableState for string-to-hash conversion
-///
-/// # Returns
-/// * `Result<(), String>` - Ok if conversion succeeded, error message otherwise
+/// Convert a JSON format (.json) to a binary .bin file.
 #[tauri::command]
 pub async fn convert_json_to_bin(
     input_path: String,
     output_path: String,
 ) -> Result<(), String> {
-    // Validate input path
     if input_path.is_empty() {
         return Err("Input path cannot be empty".to_string());
     }
@@ -235,36 +185,24 @@ pub async fn convert_json_to_bin(
         return Err(format!("Input file does not exist: {}", input_path));
     }
 
-    // Read the JSON file
     let json = fs::read_to_string(input)
         .map_err(|e| format!("Failed to read input file: {}", e))?;
 
-    // Parse JSON to bin
     let bin = json_to_bin(&json)
         .map_err(|e| format!("Failed to parse JSON: {}", e))?;
 
-    // Convert to binary
     let data = write_bin(&bin)
         .map_err(|e| format!("Failed to write bin: {}", e))?;
 
-    // Write to output file
     fs::write(&output_path, data)
         .map_err(|e| format!("Failed to write output file: {}", e))?;
 
     Ok(())
 }
 
-/// Returns metadata about a bin file
-///
-/// # Arguments
-/// * `input_path` - Path to the .bin file
-///
-/// # Returns
-/// * `Result<BinInfo, String>` - Metadata about the bin file
 #[tauri::command]
 pub async fn read_bin_info(input_path: String) -> Result<BinInfo, String> {
     let _t = ipc_trace::enter("read_bin_info");
-    // Validate input path
     if input_path.is_empty() {
         return Err("Input path cannot be empty".to_string());
     }
@@ -274,29 +212,19 @@ pub async fn read_bin_info(input_path: String) -> Result<BinInfo, String> {
         return Err(format!("Input file does not exist: {}", input_path));
     }
 
-    // Read the binary file
     let data = fs::read(input)
         .map_err(|e| format!("Failed to read input file: {}", e))?;
 
-    // Parse the bin file
     let bin = read_bin(&data)
         .map_err(|e| format!("Failed to parse bin file: {}", e))?;
 
-    // Return metadata
     Ok(BinInfo {
         entry_count: bin.entries.len(),
         version: 1, // TODO: Extract actual version from bin file if available
     })
 }
 
-/// Converts binary BIN data (in-memory bytes) to Python-like text format
-///
-/// # Arguments
-/// * `bin_data` - Raw binary data as a vector of bytes
-/// * `state` - The managed HashtableState for hash resolution
-///
-/// # Returns
-/// * `Result<String, String>` - Python-like text format or error message
+/// Convert in-memory BIN bytes to Python-like text format.
 #[tauri::command]
 pub async fn convert_bin_bytes_to_text(
     request: tauri::ipc::Request<'_>,
@@ -309,7 +237,6 @@ pub async fn convert_bin_bytes_to_text(
     };
     tracing::debug!("Converting {} bytes of BIN data to text", bin_data.len());
 
-    // Parse using the LTK-native reader so hashes are resolved correctly
     let bin = flint_ltk::bin::read_bin_ltk(bin_data)
         .map_err(|e| {
             tracing::error!("Failed to parse bin data: {}", e);
@@ -318,7 +245,6 @@ pub async fn convert_bin_bytes_to_text(
 
     tracing::debug!("Parsed bin data with {} objects", bin.entries.len());
 
-    // Convert with full hash resolution (same path as the BIN editor)
     let text = tree_to_text_cached(&bin)
         .map_err(|e| {
             tracing::error!("Failed to convert to text: {}", e);
@@ -330,14 +256,7 @@ pub async fn convert_bin_bytes_to_text(
     Ok(text)
 }
 
-/// Converts binary BIN data (in-memory bytes) to JSON format
-///
-/// # Arguments
-/// * `bin_data` - Raw binary data as a vector of bytes
-/// * `state` - The managed HashtableState for hash resolution
-///
-/// # Returns
-/// * `Result<String, String>` - JSON string representation or error message
+/// Convert in-memory BIN bytes to JSON format.
 #[tauri::command]
 pub async fn convert_bin_bytes_to_json(
     request: tauri::ipc::Request<'_>,
@@ -350,7 +269,6 @@ pub async fn convert_bin_bytes_to_json(
     };
     tracing::debug!("Converting {} bytes of BIN data to JSON", bin_data.len());
 
-    // Parse the bin file
     let bin = read_bin(bin_data)
         .map_err(|e| {
             tracing::error!("Failed to parse bin data: {}", e);
@@ -359,7 +277,6 @@ pub async fn convert_bin_bytes_to_json(
 
     tracing::debug!("Parsed bin data with {} objects", bin.entries.len());
 
-    // Convert to JSON format
     let json = bin_to_json(&bin)
         .map_err(|e| {
             tracing::error!("Failed to convert to JSON: {}", e);
@@ -371,14 +288,7 @@ pub async fn convert_bin_bytes_to_json(
     Ok(json)
 }
 
-/// Parses a BIN file and returns Python-like text format for the editor
-///
-/// # Arguments
-/// * `path` - Path to the .bin file
-/// * `state` - The managed HashtableState for hash resolution
-///
-/// # Returns
-/// * `Result<String, String>` - Python-like text format for the editor
+/// Parse a BIN file and return Python-like text format for the editor.
 #[tauri::command]
 pub async fn parse_bin_file_to_text(
     path: String,
@@ -409,30 +319,16 @@ pub async fn parse_bin_file_to_text(
 
     tracing::info!("Successfully parsed BIN file to text ({} chars)", text.len());
 
-    // Skip the JSON `"..."` round-trip — multi-MB ritobin text moves over IPC
-    // as raw UTF-8 bytes, decoded with `TextDecoder` on the JS side.
     Ok(tauri::ipc::Response::new(text.into_bytes()))
 }
 
-/// Reads a BIN file, using cached .ritobin if available and up-to-date
-///
-/// This provides fast reopening of BIN files by caching the converted text.
-/// If the .ritobin cache doesn't exist or is older than the .bin file, it will
-/// be regenerated.
-///
-/// # Arguments
-/// * `bin_path` - Path to the .bin file
-///
-/// # Returns
-/// * `Result<String, String>` - The text content (either from cache or freshly converted)
+/// Read a BIN file as ritobin text, using a cached `.ritobin` when it exists
+/// and is newer than the `.bin`; otherwise convert and regenerate the cache.
 #[tauri::command]
 pub async fn read_or_convert_bin(
     bin_path: String,
 ) -> Result<tauri::ipc::Response, String> {
     let text = read_or_convert_bin_inner(bin_path).await?;
-    // Multi-MB ritobin text used to JSON-encode as `"..."` with backslash-
-    // escapes — both serde and JSON.parse spent O(n) over the whole string.
-    // Raw UTF-8 over the binary IPC path skips that entirely.
     Ok(tauri::ipc::Response::new(text.into_bytes()))
 }
 
@@ -459,9 +355,7 @@ async fn read_or_convert_bin_inner(
     };
     let _guard = lock.lock().await;
 
-    // Early magic byte check: verify this is actually a BIN file (PROP or PTCH)
-    // before attempting any conversion. Prevents wasted work if wrong file type
-    // is routed here (e.g. .skn, .tex files due to stale UI state).
+    // Reject non-BIN files (wrong file type routed here via stale UI state).
     {
         let mut f = fs::File::open(bin_file)
             .map_err(|e| format!("Failed to open file: {}", e))?;
@@ -481,16 +375,13 @@ async fn read_or_convert_bin_inner(
         }
     }
 
-    // Check for cached .ritobin file
     let ritobin_path = format!("{}.ritobin", bin_path);
     let ritobin_file = Path::new(&ritobin_path);
 
-    // Check if cache is valid (exists and is newer than .bin)
     if ritobin_file.exists() {
         if let (Ok(bin_meta), Ok(ritobin_meta)) = (fs::metadata(bin_file), fs::metadata(ritobin_file)) {
             if let (Ok(bin_time), Ok(ritobin_time)) = (bin_meta.modified(), ritobin_meta.modified()) {
                 if ritobin_time >= bin_time {
-                    // Cache is valid, read it directly - NO CONVERSION!
                     let content = fs::read_to_string(ritobin_file)
                         .map_err(|e| format!("Failed to read cached file: {}", e))?;
                     tracing::info!("[BIN_READ] Cache hit: loaded {} chars from {}", content.len(), ritobin_path);
@@ -500,14 +391,11 @@ async fn read_or_convert_bin_inner(
         }
     }
 
-    // Cache miss or stale - need to convert
     tracing::info!("[BIN_READ] Cache miss: converting BIN with RitoShark engine");
 
-    // Read binary file
     let data = fs::read(bin_file)
         .map_err(|e| format!("Failed to read file: {}", e))?;
 
-    // Convert binary to text
     let text = {
         let bin = flint_ltk::bin::read_bin_ltk(&data)
             .map_err(|e| format!("Failed to parse bin file: {}", e))?;
@@ -515,8 +403,8 @@ async fn read_or_convert_bin_inner(
             .map_err(|e| format!("Failed to convert to text: {}", e))?
     };
 
-    // Cache the result. Mark as a self-write first so the watcher doesn't
-    // surface the implicit sidecar generation as a user-visible change.
+    // Mark as a self-write so the watcher doesn't surface the implicit
+    // sidecar generation as a user-visible change.
     crate::core::write_echo::mark(&ritobin_path);
     if let Err(e) = fs::write(&ritobin_path, &text) {
         tracing::warn!("[BIN_READ] Failed to cache .ritobin file: {}", e);
@@ -526,14 +414,7 @@ async fn read_or_convert_bin_inner(
     Ok(text)
 }
 
-/// Saves edited ritobin content back to both .bin and .ritobin files
-///
-/// # Arguments
-/// * `bin_path` - Path to the .bin file
-/// * `content` - The edited text content
-///
-/// # Returns
-/// * `Result<(), String>` - Ok if save succeeded
+/// Save edited ritobin content back to both the .bin and .ritobin files.
 #[tauri::command]
 pub async fn save_ritobin_to_bin(
     bin_path: String,
@@ -547,30 +428,25 @@ pub async fn save_ritobin_to_bin(
         return Err("Path cannot be empty".to_string());
     }
 
-    // Convert text to binary
     let binary_data = {
-        // Parse the text content back to BIN structure
         let bin = flint_ltk::bin::text_to_tree(&content)
             .map_err(|e| format!("Failed to parse text content: {}", e))?;
 
-        // Convert to binary format
         flint_ltk::bin::write_bin_ltk(&bin)
             .map_err(|e| format!("Failed to convert to binary: {}", e))?
     };
 
-    // Mark both paths as expected self-writes so the project watcher does
-    // not bounce them back into the editor as "external modifications".
+    // Mark both paths as expected self-writes so the watcher doesn't bounce
+    // them back into the editor as external modifications.
     let ritobin_path = format!("{}.ritobin", bin_path);
     crate::core::write_echo::mark(&bin_path);
     crate::core::write_echo::mark(&ritobin_path);
 
-    // Write the .bin file
     fs::write(&bin_path, &binary_data)
         .map_err(|e| format!("Failed to write .bin file: {}", e))?;
 
     tracing::info!("Saved .bin file: {} ({} bytes)", bin_path, binary_data.len());
 
-    // Update the .ritobin cache
     if let Err(e) = fs::write(&ritobin_path, &content) {
         tracing::warn!("Failed to update .ritobin cache: {}", e);
     } else {

@@ -7,8 +7,8 @@ use flint_ltk::wad::cache::WadCache;
 use flint_ltk::wad_jade::format::WadChunk;
 use parking_lot::RwLock;
 
-/// Global WAD metadata cache for fast repeated access.
-/// WADs are immutable once written, so caching headers is safe.
+/// Global WAD metadata cache. WADs are immutable once written, so caching
+/// headers is safe.
 #[derive(Clone)]
 pub struct WadCacheState(pub Arc<WadCache>);
 
@@ -32,18 +32,10 @@ impl WadCacheState {
 // LMDB env cache state
 // =============================================================================
 
-/// Tauri-managed handle to the global LMDB env caches.
-///
-/// Backed by process-wide statics in `flint_ltk::hash::lmdb_cache`; this struct
-/// is a zero-cost wrapper exposing the API to Tauri commands via
-/// `tauri::State<LmdbCacheState>`.
-///
-/// Two separate LMDBs are managed:
-/// - WAD hashes — `hashes-wad.lmdb` (64-bit xxh64 keys, named DB `"wad"`).
-/// - BIN hashes — `hashes-bin.lmdb` (32-bit FNV1a keys, named DB `"bin"`).
-///
-/// Both are pre-built and downloaded from the `LeagueToolkit/lmdb-hashes`
-/// GitHub release — no local build step.
+/// Tauri-managed handle to the global LMDB env caches, backed by process-wide
+/// statics in `flint_ltk::hash::lmdb_cache`. Two LMDBs are managed: WAD hashes
+/// (`hashes-wad.lmdb`, 64-bit xxh64 keys, named DB `"wad"`) and BIN hashes
+/// (`hashes-bin.lmdb`, 32-bit FNV1a keys, named DB `"bin"`).
 #[derive(Clone, Default)]
 pub struct LmdbCacheState;
 
@@ -55,15 +47,12 @@ impl LmdbCacheState {
         get_wad_env(hash_dir)
     }
 
-    /// Legacy alias — returns the WAD env. Prefer [`Self::get_wad_env`] in new code.
     pub fn get_env(&self, hash_dir: &str) -> Option<Arc<heed::Env>> {
         get_or_open_env(hash_dir)
     }
 
-    /// Ensure the WAD env is open and return it.
-    ///
-    /// The DB is downloaded as a pre-built zstd-compressed artifact, so priming
-    /// just opens the env. Returns `None` if the LMDB files are missing.
+    /// Ensure the WAD env is open and return it. Returns `None` if the LMDB
+    /// files are missing.
     pub fn prime(&self, hash_dir: &str) -> Option<Arc<heed::Env>> {
         if !hashes_present(std::path::Path::new(hash_dir)) {
             tracing::warn!("Hash LMDBs not present at {} — run download_hashes first", hash_dir);
@@ -82,9 +71,8 @@ impl LmdbCacheState {
 // In-memory WAD edit sessions
 // =============================================================================
 
-/// One pending edit inside a session. We store the *uncompressed* bytes —
-/// the writer re-compresses on save (it has a heuristic for "is zstd
-/// worth it for this chunk size").
+/// One pending edit inside a session. Bytes are stored uncompressed; the
+/// writer re-compresses on save.
 #[derive(Debug, Clone)]
 pub enum WadEditDelta {
     /// Replace or add a chunk with these decompressed bytes.
@@ -93,24 +81,13 @@ pub enum WadEditDelta {
     Delete,
 }
 
-/// One in-flight WAD edit session — holds the source TOC + a delta map.
-///
-/// Read flow:
-///   1. caller asks for chunk by hash
-///   2. if hash is in `deltas` and value is `Write`, return those bytes
-///   3. if hash is in `deltas` and value is `Delete`, return error
-///   4. otherwise fall through to the on-disk WAD reader
-///
-/// Save flow: enumerate every original chunk hash, decompress those NOT
-/// shadowed by a `Delete`, override with `Write` bytes where present,
-/// then call `wad_jade::writer::write_wad`.
+/// One in-flight WAD edit session — holds the source TOC plus a delta map.
 #[derive(Debug)]
 pub struct WadEditSession {
     pub session_id: String,
     pub source_path: PathBuf,
-    /// Original TOC, captured at open time. Used so we don't have to re-
-    /// parse the WAD on every read — but we still seek into the file for
-    /// untouched chunks to keep memory bounded.
+    /// Original TOC, captured at open time; untouched chunks are seeked from
+    /// the file on read to keep memory bounded.
     pub original_chunks: Vec<WadChunk>,
     /// hash → delta (Write replaces / adds, Delete removes).
     pub deltas: HashMap<u64, WadEditDelta>,
@@ -136,8 +113,7 @@ impl WadEditState {
         self.0.read().get(session_id).cloned()
     }
 
-    /// Snapshot of every active session — used by `list_wad_edit_sessions`
-    /// for UI restoration after a tab reload.
+    /// Snapshot of every active session as `(id, source_path, chunk_count)`.
     pub fn snapshot(&self) -> Vec<(String, PathBuf, usize)> {
         self.0
             .read()

@@ -1,19 +1,4 @@
 //! LMDB hash lookup for WAD path hashes (xxh64 u64) and BIN names (FNV1a u32).
-//!
-//! Two on-disk layouts are supported transparently:
-//!
-//! - **Split layout** — Quartz's: `hashes-wad.lmdb/data.mdb` (named DB
-//!   `"wad"`) and `hashes-bin.lmdb/data.mdb` (named DB `"bin"`). When this
-//!   exists in the FrogTools dir we reuse it without downloading.
-//!
-//! - **Combined layout** — what `lol-hashes-combined.zst` decompresses to:
-//!   `hashes-combined.lmdb/data.mdb` with both `"wad"` and `"bin"` named
-//!   DBs in the same env.
-//!
-//! Lookup is layout-agnostic — it always opens by name (`"wad"` or
-//! `"bin"`) inside whichever env was loaded. Envs are opened lazily on
-//! the first lookup and cached process-wide; subsequent reads reuse a
-//! cheap per-call `read_txn()` (sub-microsecond on a warm env).
 
 use heed::types::{Bytes, Str};
 use heed::EnvOpenOptions;
@@ -28,19 +13,7 @@ use super::hash_downloader::{detect_layout, HashLayout};
 struct EnvCache {
     wad: Option<Arc<heed::Env>>,
     bin: Option<Arc<heed::Env>>,
-    /// Path the envs were opened from. Used to invalidate the cache if a
-    /// different `hash_dir` is queried (rare — only matters during tests).
     layout_root: PathBuf,
-    /// In-memory result cache layered in front of LMDB. Per-call LMDB
-    /// lookups are 1-5 µs each (mutex + read_txn + open_database +
-    /// B-tree get + Arc allocation), and the BIN converter calls the
-    /// same handful of field-name hashes ("value", "name", "x", "y",
-    /// …) tens of thousands of times per file. Storing the resolved
-    /// names lets us skip the LMDB roundtrip after the first hit;
-    /// `None` is also cached so unknown hashes don't repeatedly hit
-    /// the database. Memory cost is bounded by the number of unique
-    /// hashes the converter touches — typically <50K entries per BIN
-    /// (a few MB), and reused across files in the same session.
     bin_lookups: Mutex<HashMap<u32, Option<Arc<str>>>>,
     wad_lookups: Mutex<HashMap<u64, Option<Arc<str>>>>,
 }
@@ -55,8 +28,6 @@ fn open_env(lmdb_dir: &Path) -> Option<Arc<heed::Env>> {
     if !lmdb_dir.join("data.mdb").exists() {
         return None;
     }
-    // 1 GB virtual address reservation; the OS pages in only what we touch.
-    // max_dbs(2) lets the combined env open both "wad" and "bin" by name.
     let result = unsafe {
         EnvOpenOptions::new()
             .map_size(1024 * 1024 * 1024)
@@ -72,9 +43,8 @@ fn open_env(lmdb_dir: &Path) -> Option<Arc<heed::Env>> {
     }
 }
 
-/// Open whichever layout is on disk, caching both envs. Returns `true`
-/// when at least one env was loaded; `false` if neither layout is present
-/// (caller should trigger [`super::download_combined_hashes`]).
+/// Returns `true` when at least one env was loaded; `false` if neither
+/// layout is present (caller should trigger [`super::download_combined_hashes`]).
 pub fn preload_envs(hash_dir: &Path) -> bool {
     let (wad, bin) = match detect_layout(hash_dir) {
         HashLayout::Split => {
@@ -104,9 +74,8 @@ pub fn preload_envs(hash_dir: &Path) -> bool {
     true
 }
 
-/// Drop the cached envs. Next lookup re-opens lazily; the on-disk hash
-/// dir is untouched. Call this before overwriting `data.mdb` on Windows
-/// so the memory map is released.
+/// Call this before overwriting `data.mdb` on Windows so the memory map
+/// is released. Next lookup re-opens lazily; the on-disk hash dir is untouched.
 pub fn unload_envs() {
     let mut g = cache_slot().lock();
     *g = None;
@@ -140,9 +109,8 @@ fn clone_bin_env(hash_dir: &Path) -> Option<Arc<heed::Env>> {
     g.as_ref()?.bin.clone()
 }
 
-/// Resolve a single WAD path hash. Checks the extracted-overlay first
-/// (so user discoveries win over LMDB), then LMDB, then falls back to
-/// the 16-char hex form.
+/// Checks the extracted-overlay first, then LMDB, then falls back to the
+/// 16-char hex form.
 pub fn resolve_wad(hash: u64, hash_dir: &Path) -> String {
     let overlay = wad_overlay(hash_dir);
     if let Some(p) = overlay.get(&hash) {
@@ -166,13 +134,10 @@ pub fn resolve_wad(hash: u64, hash_dir: &Path) -> String {
 }
 
 /// Bulk WAD hash resolution — single read txn for the whole batch. The
-/// extracted-overlay is layered first so user-discovered names win over
-/// LMDB. Returns a `HashMap<hash, path>` so callers can dedupe + index
-/// in O(1).
+/// extracted-overlay is layered first. Returns a `HashMap<hash, path>`.
 pub fn resolve_wad_bulk(hashes: &[u64], hash_dir: &Path) -> HashMap<u64, String> {
     let mut out: HashMap<u64, String> = HashMap::with_capacity(hashes.len());
 
-    // Pass 1 — overlay. Cheap (already-loaded HashMap) and authoritative.
     let overlay = wad_overlay(hash_dir);
     if !overlay.is_empty() {
         for &h in hashes {
@@ -220,11 +185,7 @@ pub fn resolve_wad_bulk(hashes: &[u64], hash_dir: &Path) -> HashMap<u64, String>
 }
 
 /// Resolve a single BIN name hash (FNV1a u32) via the extracted-name
-/// overlay → cached LMDB. The BIN converter doesn't go through this
-/// path anymore (it uses an in-RAM text table loaded via
-/// `HashManager`), but other callers — mainly the WAD listing/extract
-/// pipeline that resolves BIN-property names — still come through
-/// here so we keep LMDB live for them.
+/// overlay → cached LMDB.
 pub fn lookup_bin(hash: u32, hash_dir: &Path) -> Option<Arc<str>> {
     let overlay = bin_overlay(hash_dir);
     if let Some(p) = overlay.get(&hash) {
@@ -258,7 +219,6 @@ pub fn lookup_bin(hash: u32, hash_dir: &Path) -> Option<Arc<str>> {
     result
 }
 
-/// Resolve a single WAD path hash via overlay → cached LMDB.
 pub fn lookup_wad(hash: u64, hash_dir: &Path) -> Option<Arc<str>> {
     let overlay = wad_overlay(hash_dir);
     if let Some(p) = overlay.get(&hash) {
@@ -292,8 +252,7 @@ pub fn lookup_wad(hash: u64, hash_dir: &Path) -> Option<Arc<str>> {
     result
 }
 
-/// Snapshot of which named DBs are currently cached. Driven by the UI to
-/// show a "hashes ready" indicator without forcing a load.
+/// Snapshot of which named DBs are currently cached.
 #[derive(Debug, Clone, Copy)]
 pub struct LoadedStats {
     pub wad_loaded: bool,

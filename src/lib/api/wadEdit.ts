@@ -20,12 +20,10 @@ export async function openWadEditSession(wadPath: string): Promise<WadEditSessio
     return invokeCommand('open_wad_edit_session', { wadPath });
 }
 
-/** Drop the session. Any unsaved changes are lost. */
 export async function closeWadEditSession(sessionId: string): Promise<void> {
     return invokeCommand('close_wad_edit_session', { sessionId });
 }
 
-/** List active WAD edit sessions (debugging / UI restore). */
 export async function listWadEditSessions(): Promise<WadEditSessionInfo[]> {
     return invokeCommand('list_wad_edit_sessions', {});
 }
@@ -36,7 +34,7 @@ export async function readSessionChunk(sessionId: string, pathHash: string): Pro
     return new Uint8Array(buf);
 }
 
-/** Stage new bytes for a chunk. Adds if the hash is new. Raw-body transport. */
+/** Stage new bytes for a chunk. Adds if the hash is new. */
 export async function writeSessionChunk(
     sessionId: string,
     pathHash: string,
@@ -45,25 +43,21 @@ export async function writeSessionChunk(
     return invokeRaw('write_session_chunk', data, { 'session-id': sessionId, 'path-hash': pathHash });
 }
 
-/** Stage a chunk deletion. Lives in the session until save. */
 export async function removeSessionChunk(sessionId: string, pathHash: string): Promise<void> {
     return invokeCommand('remove_session_chunk', { sessionId, pathHash });
 }
 
-/** Enumerate the chunks that have pending edits in the session. */
 export async function sessionDirtyChunks(sessionId: string): Promise<WadDirtyChunk[]> {
     return invokeCommand('session_dirty_chunks', { sessionId });
 }
 
-/** Drop all pending edits but keep the session open. */
 export async function discardSessionChanges(sessionId: string): Promise<void> {
     return invokeCommand('discard_session_changes', { sessionId });
 }
 
 /**
- * Serialize the session to a WAD and write it to `outputPath`. The session
- * stays open after save so further edits can be made. Pass `outputPath === source_path`
- * to overwrite the original.
+ * Serialize the session to a WAD and write it to `outputPath`. Pass
+ * `outputPath === source_path` to overwrite the original.
  */
 export async function saveWadEditSession(
     sessionId: string,

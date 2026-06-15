@@ -1,8 +1,3 @@
-/**
- * Flint - ModelPreview Component
- * 3D preview for SKN mesh files using Babylon.js and client-side animation playback.
- */
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Scene } from '@babylonjs/core/scene';
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
@@ -24,7 +19,6 @@ import * as api from '../../lib/api';
 import { useAppMetadataStore } from '../../lib/stores';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 
-// Import our custom Babylon wrappers
 import { createEngine } from '../../lib/babylon/engine';
 import { buildSknMeshes, type MeshDTO } from '../../lib/babylon/meshBuilder';
 import { buildBabylonSkeleton, type BoneData } from '../../lib/babylon/skeletonBuilder';
@@ -47,10 +41,8 @@ interface ModelPreviewProps {
 // Main Component
 // ============================================================================
 
-// Settings persistence key
 const SETTINGS_KEY = 'flint-model-preview-settings';
 
-// Load settings from localStorage
 const loadSettings = () => {
     try {
         const saved = localStorage.getItem(SETTINGS_KEY);
@@ -76,45 +68,36 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Load persisted settings
     const savedSettings = useMemo(() => loadSettings(), []);
     const [wireframe, setWireframe] = useState(savedSettings.wireframe);
     const [visibleMaterials, setVisibleMaterials] = useState<Set<string>>(new Set());
 
-    // Environment controls (persisted)
     const [showSkybox, setShowSkybox] = useState(savedSettings.showSkybox);
     const [floorMode, setFloorMode] = useState<'grid' | 'textured' | 'none'>(savedSettings.floorMode);
     const [ambientIntensity, setAmbientIntensity] = useState(savedSettings.ambientIntensity);
     const [directionalIntensity, setDirectionalIntensity] = useState(savedSettings.directionalIntensity);
     const [customizeLighting, setCustomizeLighting] = useState(savedSettings.customizeLighting ?? false);
 
-    // Popup states for controls
     const [activePopup, setActivePopup] = useState<'display' | 'environment' | 'materials' | 'animations' | null>(null);
 
-    // Subscribe to file version changes for hot reload
     const fileVersion = useAppMetadataStore((state) => {
         void state.fileVersionsRev;
         return state.getFileVersion(filePath);
     });
 
-    // Animation state (only for skinned meshes)
     const [animations, setAnimations] = useState<{ name: string; animation_path: string }[]>([]);
     const [selectedAnimation, setSelectedAnimation] = useState<string>('');
     const [isPlaying, setIsPlaying] = useState(false);
 
-    // Animation playback state
     const [animationData, setAnimationData] = useState<{ duration: number; fps: number; joint_count: number; joint_hashes: number[] } | null>(null);
     const [currentTime, setCurrentTime] = useState(0);
 
-    // Skeleton state (only for skinned meshes, persisted)
     const [skeletonData, setSkeletonData] = useState<any | null>(null);
     const [showSkeleton, setShowSkeleton] = useState(savedSettings.showSkeleton);
 
-    // Texture preview state
     const [hoveredMaterial, setHoveredMaterial] = useState<string | null>(null);
     const [previewPosition, setPreviewPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
-    // Babylon.js refs & states
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const [scene, setScene] = useState<Scene | null>(null);
     const [camera, setCamera] = useState<ArcRotateCamera | null>(null);
@@ -125,7 +108,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const gridMeshRef = useRef<any>(null);
     const floorMeshRef = useRef<any>(null);
 
-    // Animation player refs
     const animationPlayerRef = useRef<AnimationPlayer | null>(null);
     const lastTimeRef = useRef<number>(0);
     const lastReactTimeRef = useRef<number>(0);
@@ -136,7 +118,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         joints: BoneData[];
     } | null>(null);
 
-    // Initialize engine & scene when canvas is available
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -144,14 +125,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         const engine = createEngine(canvas);
         console.log('[engine] CREATED (live GL engines pile up if this fires per file)');
 
-        // ── CATCH-ALL PANIC LOGGING ──────────────────────────────────────────
-        // "Loads fine, then BOOM" happens OUTSIDE scene.render(), so the render-
-        // loop try/catch never sees it. These fire no matter where it blows up:
-        //   • window 'error'           — any uncaught JS error anywhere
-        //   • 'unhandledrejection'     — a rejected async (texture upload, IPC)
-        //   • canvas 'webglcontextlost'— GPU context dropped (DOM event, the most
-        //                                reliable signal; preventDefault lets it restore)
-        //   • Babylon context observables — same, via Babylon's own plumbing
         const onWinError = (e: ErrorEvent) =>
             console.error(`[render] 💥 window error: ${e.message}`, e.error?.stack ?? e.error ?? '');
         const onRejection = (e: PromiseRejectionEvent) =>
@@ -171,30 +144,26 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         const activeScene = new Scene(engine);
         setScene(activeScene);
 
-        // Default scene clearColor matching the app background
-        activeScene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0); // #1b1b1b
+        activeScene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0);
 
-        // Set up orbital camera
         const activeCamera = new ArcRotateCamera(
             "camera",
-            Math.PI / 2 + Math.PI / 8, // Face front of model (tilted slightly like Jade)
+            Math.PI / 2 + Math.PI / 8,
             Math.PI / 3,
             5,
             Vector3.Zero(),
             activeScene
         );
-        activeCamera.panningSensibility = 100; // Sensibility of panning (lower value is faster)
+        activeCamera.panningSensibility = 100;
         activeCamera.attachControl(canvas, true);
-        activeCamera.wheelDeltaPercentage = 0.05; // smooth percentage zoom
+        activeCamera.wheelDeltaPercentage = 0.05;
         setCamera(activeCamera);
 
-        // Prevent default browser context menu to allow panning via right click drag
         const handleContextMenu = (e: MouseEvent) => {
             e.preventDefault();
         };
         canvas.addEventListener('contextmenu', handleContextMenu);
 
-        // Set up lighting (Jade-style soft/unlit default, customizable if checked)
         const ambientLight = new HemisphericLight("ambient", new Vector3(0, 1, 0), activeScene);
         ambientLight.intensity = customizeLighting ? ambientIntensity : 1.2;
         ambientLight.specular = new Color3(0, 0, 0);
@@ -208,17 +177,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         const dirLight3 = new DirectionalLight("dirLight3", new Vector3(0, 1, 0), activeScene);
         dirLight3.intensity = customizeLighting ? directionalIntensity * 0.3 : 0.0;
 
-        // Render loop.
-        //
-        // CRITICAL: the whole body is wrapped in try/catch. An uncaught throw
-        // inside a runRenderLoop callback escapes the requestAnimationFrame tick
-        // and PERMANENTLY kills the render loop — the canvas freezes on the last
-        // frame (skybox / no floor / no mesh) until a full reload. That is the
-        // "renderer panics, it's a gamble, need reload" symptom. A frame can throw
-        // transiently when a mesh/material/texture is disposed mid-rebuild while
-        // rapidly switching files (esp. particle SCBs). Catching here turns a
-        // permanent freeze into a single skipped frame; the next frame renders
-        // clean. The throttled log also surfaces the real exception for root-cause.
         let renderErrCount = 0;
         engine.runRenderLoop(() => {
             try {
@@ -228,7 +186,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         const dt = (now - lastTimeRef.current) / 1000;
                         animationPlayerRef.current.tick(dt);
 
-                        // Throttle state update so the React timeline slider moves smoothly without lagging the UI
                         const curTime = animationPlayerRef.current.time;
                         const rounded = Math.round(curTime * 100) / 100;
                         if (Math.abs(rounded - lastReactTimeRef.current) >= 0.05) {
@@ -247,13 +204,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             }
         });
 
-        // Resize handler
         const handleResize = () => {
             engine.resize();
         };
         window.addEventListener('resize', handleResize);
 
-        // Store cleanup on canvas ref to matches old contract
         (canvas as any)._flintCleanup = () => {
             window.removeEventListener('resize', handleResize);
             canvas.removeEventListener('contextmenu', handleContextMenu);
@@ -303,26 +258,13 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             const cleanup = canvas && (canvas as any)._flintCleanup;
             if (cleanup) {
                 delete (canvas as any)._flintCleanup;
-                // Dispose SYNCHRONOUSLY, not on idle. This effect recreates a
-                // whole Engine + WebGL context per file ([engine] CREATED fires on
-                // every load). Deferring engine.dispose() up to 500ms means the
-                // PREVIOUS file's context is still live while the NEXT one renders
-                // — on fast switches the browser's ~16-context cap is hit and the
-                // live preview's context gets force-killed ("loads fine, then
-                // boom"). Releasing the context here, before the next mount's
-                // engine is created, keeps at most ~1 live context. The ~100-200ms
-                // unmount cost is well worth not nuking the preview.
                 cleanup();
             }
             setScene(null);
             setCamera(null);
         };
-        // Engine + scene + camera set up once per component mount. Reloading
-        // a new file path mutates the existing scene instead of tearing down
-        // and recreating the WebGL context.
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Load mesh data
     useEffect(() => {
         let cancelled = false;
 
@@ -331,8 +273,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             setError(null);
             setAnimations([]);
             setSkeletonData(null);
-            // Reset per-file state — previously handled by remounting via
-            // key={filePath} on the parent, which also tore down the engine.
             setSelectedAnimation('');
             setActivePopup(null);
             setMeshData(null);
@@ -394,11 +334,9 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         return () => { cancelled = true; };
     }, [filePath, meshType, fileVersion]);
 
-    // Build/Rebuild mesh, skeleton & materials in the scene
     useEffect(() => {
         if (!scene || !camera || !meshData) return;
 
-        // Tear down previous mesh assets
         if (skeletonViewerRef.current) {
             skeletonViewerRef.current.dispose();
             skeletonViewerRef.current = null;
@@ -421,7 +359,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         builtSklRef.current = null;
         animationPlayerRef.current = null;
 
-        // 1. Build Babylon Skeleton if rigged
         let babylonSkeleton: Skeleton | undefined;
         if (skeletonData) {
             const built = buildBabylonSkeleton(skeletonData, scene, "skeleton");
@@ -434,7 +371,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             };
         }
 
-        // 2. Map mesh fields to MeshDTO
         const isSkn = meshData.kind === 'skn';
         const meshDto: MeshDTO = {
             positions: meshData.positions,
@@ -465,11 +401,8 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             bbox: meshData.bounding_box
         };
 
-        // 3. Build meshes
         const influences = skeletonData?.influences;
 
-        // ── DIAGNOSTIC: dump the exact payload handed to Babylon so a broken
-        // render is visible in the app log (console.* is forwarded to the store).
         console.log(
             `[MeshPreview] build ${meshData.kind}: ` +
             `pos=${meshData.positions?.length}(${(meshData.positions?.length ?? 0) / 3}v) ` +
@@ -478,9 +411,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             `submeshes=${meshDto.submeshes.length}[${meshDto.submeshes.map(s => `${s.name}:v${s.start_vertex}+${s.vertex_count}/i${s.start_index}+${s.index_count}`).join('; ')}]`
         );
 
-        // Guard the geometry build: a throw here used to bubble up and crash the
-        // whole React render → engine teardown → blank canvas. Now it's logged and
-        // contained (old meshes already disposed → scene keeps the floor + error).
         let meshes: ReturnType<typeof buildSknMeshes>['meshes'];
         try {
             meshes = buildSknMeshes(meshDto, scene, babylonSkeleton, influences).meshes;
@@ -492,18 +422,16 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         }
         activeMeshesRef.current = meshes;
 
-        // 4. Create base64 texture maps
         const textureCache = new Map<string, Texture>();
         const matData = meshData.material_data;
         if (matData && Object.keys(matData).length > 0) {
             for (const [matName, data] of Object.entries(matData)) {
                 try {
                     const dataUrl = "data:image/png;base64," + data.texture;
-                    // Load texture with invertY = true to match V-flipped UV coordinates
                     const texture = new Texture(dataUrl, scene, false, true);
                     texture.wrapU = Texture.WRAP_ADDRESSMODE;
                     texture.wrapV = Texture.WRAP_ADDRESSMODE;
-                    texture.hasAlpha = false; // Force texture to be opaque
+                    texture.hasAlpha = false;
 
                     if (data.uv_scale) {
                         texture.uScale = data.uv_scale[0];
@@ -533,11 +461,10 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             for (const [matName, base64Data] of Object.entries(textures)) {
                 try {
                     const dataUrl = "data:image/png;base64," + base64Data;
-                    // Load texture with invertY = true to match V-flipped UV coordinates
                     const texture = new Texture(dataUrl, scene, false, true);
                     texture.wrapU = Texture.WRAP_ADDRESSMODE;
                     texture.wrapV = Texture.WRAP_ADDRESSMODE;
-                    texture.hasAlpha = false; // Force texture to be opaque
+                    texture.hasAlpha = false;
                     textureCache.set(matName, texture);
                 } catch (e) {
                     console.error("Failed to decode base64 texture fallback for:", matName, e);
@@ -545,7 +472,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             }
         }
 
-        // 5. Apply materials with fuzzy matching
         console.log(
             `[MeshPreview] visibleMaterials(${visibleMaterials.size})=[${[...visibleMaterials].map(x => `'${x}'`).join(', ')}] ` +
             `textureCacheKeys=[${[...textureCache.keys()].map(x => `'${x}'`).join(', ')}] ` +
@@ -571,42 +497,16 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 }
             }
 
-            // ─────────────────────────────────────────────────────────────
-            // IMPORTANT: Use PBRMaterial with unlit=true — this is the ONLY
-            // correct way to render League SKN models in Babylon.js.
-            //
-            // WHY unlit=true MUST NEVER BE REMOVED:
-            //   Jade (the reference viewer) sets mat.unlit = true by default.
-            //   League models are authored for a flat / toon-shaded look. Any
-            //   lighting calculation applied on top of the albedo texture makes
-            //   the model look washed-out, darkened, or otherwise wrong.
-            //
-            //   PBR without unlit=true also uses normals for shading — and even
-            //   after ComputeNormals the per-vertex smoothed normals of a League
-            //   mesh don't look right under a PBR lighting model.
-            //
-            //   The "Customize Lighting" checkbox in the Environment panel only
-            //   controls the scene lights' intensities — it does NOT, and SHOULD
-            //   NOT, change unlit on these materials. DO NOT add shadingEnabled
-            //   or similar logic here. If you want a lit mode, gate it behind an
-            //   explicit user setting and keep unlit=true as the hard default.
-            // ─────────────────────────────────────────────────────────────
             const mat = new PBRMaterial(matName + "_material", scene);
-            mat.unlit = true;              // ← MUST stay true. See warning above.
+            mat.unlit = true;
             mat.twoSidedLighting = true;
             mat.metallic = 0;
             mat.roughness = 1;
-            mat.environmentIntensity = 0;  // kill env irradiance, not needed for unlit
+            mat.environmentIntensity = 0;
             mat.needDepthPrePass = false;
             mat.wireframe = wireframe;
 
             if (!isSkn) {
-                // SCB/SCO static meshes are simple geometry whose base texture is
-                // often one-sided / transparent — a texture that fails to load or
-                // covers only one winding leaves whole faces invisible. By design,
-                // ignore the texture entirely and render an OPAQUE, DOUBLE-SIDED
-                // solid red so the full shape is always visible regardless of
-                // winding or alpha. (User choice: red over a texture gamble.)
                 mat.albedoColor = new Color3(0.6, 0, 0);
                 mat.albedoTexture = null;
                 mat.backFaceCulling = false;
@@ -622,7 +522,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 mat.transparencyMode = Material.MATERIAL_OPAQUE;
             } else {
                 mat.backFaceCulling = true;
-                mat.albedoColor = new Color3(1, 0, 1); // magenta — no texture found
+                mat.albedoColor = new Color3(1, 0, 1);
             }
 
             m.material = mat;
@@ -635,10 +535,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             );
         });
 
-        // ── DIAGNOSTIC: dump the ACTUAL runtime state of every built mesh AFTER
-        // material + enable. This is the ground truth — if a mesh is invisible,
-        // exactly one of these fields explains why (disabled, 0 verts, off-screen,
-        // alpha 0, scaled to 0, or culled).
         meshes.forEach((m, i) => {
             const bi = m.getBoundingInfo();
             const bb = bi.boundingBox;
@@ -657,16 +553,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             );
         });
 
-        // 6. Camera centering using bounding box.
-        //
-        // Guard against a degenerate/empty/inverted box. A mesh the parser returns
-        // with zero vertices (common for tiny particle assets) yields an INVERTED
-        // box on the Rust side — `min = f32::MAX, max = f32::MIN` — so `max - min`
-        // is negative/NaN. Unguarded, that drives `camera.radius` to 0/negative/NaN,
-        // which collapses the ArcRotateCamera and renders nothing but the background
-        // ("only the skybox, floor gone"). Jade's MeshPreview guards the same framing
-        // with `Math.max(...) || 5` and derives the box from the built mesh (never
-        // inverted); we reject a non-finite or inverted box, then clamp.
         let [[minX, minY, minZ], [maxX, maxY, maxZ]] = meshData.bounding_box;
         const boxValid =
             [minX, minY, minZ, maxX, maxY, maxZ].every(Number.isFinite) &&
@@ -680,23 +566,20 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             (minY + maxY) / 2,
             (minZ + maxZ) / 2
         );
-        // Clamp to a positive minimum so tiny/zero-size meshes keep a usable radius
-        // (mirrors Jade's `|| 5` fallback).
         const size = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 0.01) || 5;
 
         camera.target = center;
         camera.radius = size * 2;
         camera.lowerRadiusLimit = size * 0.1;
         camera.upperRadiusLimit = size * 10.0;
-        camera.panningSensibility = 8000 / Math.max(camera.radius, 0.001); // guard divide-by-zero
-        camera.alpha = Math.PI / 2 + Math.PI / 8; // Face front of model (tilted slightly like Jade)
+        camera.panningSensibility = 8000 / Math.max(camera.radius, 0.001);
+        camera.alpha = Math.PI / 2 + Math.PI / 8;
         camera.beta = Math.PI / 3;
         console.log(
             `[MeshPreview] camera: boxValid=${boxValid} size=${size.toFixed(3)} ` +
             `radius=${camera.radius.toFixed(3)} target=(${center.x.toFixed(2)},${center.y.toFixed(2)},${center.z.toFixed(2)})`
         );
 
-        // 7. Setup SkeletonViewer if active
         if (showSkeleton && babylonSkeleton && meshes.length > 0) {
             try {
                 const viewer = new SkeletonViewer(
@@ -721,7 +604,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         };
     }, [scene, camera, meshData, skeletonData]);
 
-    // Load animation when selection changes
     useEffect(() => {
         if (!selectedAnimation) {
             setAnimationData(null);
@@ -758,7 +640,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         loadAnimation();
     }, [selectedAnimation, filePath]);
 
-    // Playback state synchronization
     useEffect(() => {
         if (animationPlayerRef.current) {
             animationPlayerRef.current.paused = !isPlaying;
@@ -768,16 +649,14 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         }
     }, [isPlaying]);
 
-    // Slider manual updates
     const handleSliderChange = (val: number) => {
         setCurrentTime(val);
         if (animationPlayerRef.current) {
             animationPlayerRef.current.time = val;
-            animationPlayerRef.current.tick(0); // force update pose on frame
+            animationPlayerRef.current.tick(0);
         }
     };
 
-    // Floor mode toggles
     useEffect(() => {
         if (!scene) return;
 
@@ -798,7 +677,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             const gridColors: Color4[][] = [];
             const size = 1000;
             const step = 20;
-            const color = new Color4(0.29, 0.29, 0.29, 1.0); // #4a4a4a
+            const color = new Color4(0.29, 0.29, 0.29, 1.0);
             for (let i = -size; i <= size; i += step) {
                 gridLines.push([new Vector3(i, 0, -size), new Vector3(i, 0, size)]);
                 gridLines.push([new Vector3(-size, 0, i), new Vector3(size, 0, i)]);
@@ -812,8 +691,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             const loadFloor = async () => {
                 try {
                     const pngBytes = await api.getBundledFloorPng();
-                    // Bail if this effect was torn down OR the scene was disposed
-                    // (fast file switches remount the whole component + scene).
                     if (!isMounted || scene.isDisposed) return;
 
                     const blob = new Blob([new Uint8Array(pngBytes)], { type: 'image/png' });
@@ -821,18 +698,10 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
                     const ground = CreateGround("ground", { width: 1500, height: 1500 }, scene);
                     ground.isPickable = false;
-                    // Sit a hair below y=0 so flat particle SCBs (bbox y=[0,0])
-                    // that lie exactly on the floor plane can't occlude/z-fight it.
                     ground.position.y = -2;
                     const mat = new StandardMaterial("ground-mat", scene);
-                    mat.backFaceCulling = false; // visible from any orbit angle
+                    mat.backFaceCulling = false;
 
-                    // CRITICAL: revoke the blob URL only AFTER the image has been
-                    // pulled into the GPU texture — NEVER in the effect cleanup.
-                    // Revoking while the <img> is still fetching the blob aborts the
-                    // load and the floor renders blank until a manual reload. The
-                    // old code revoked in cleanup, which fires mid-load on fast SCB
-                    // switches / StrictMode remounts → intermittent missing floor.
                     const tex = new Texture(
                         objectUrl, scene, undefined, undefined, undefined,
                         () => {
@@ -851,10 +720,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     floorMeshRef.current = ground;
                     console.log(`[floor] ground created (scene meshes=${scene.meshes.length})`);
 
-                    // ── DECISIVE DIAGNOSTIC: dump EVERY mesh actually in the scene
-                    // on the next rendered frame. If the floor is "loaded but
-                    // invisible", this says whether 'ground' is present+enabled+
-                    // visible (→ occlusion/material) or missing (→ disposed).
                     scene.onAfterRenderObservable.addOnce(() => {
                         const dump = scene.meshes.map(mm => {
                             const mm2 = mm as any;
@@ -877,7 +742,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         }
     }, [scene, floorMode]);
 
-    // Ambient light controls
     useEffect(() => {
         if (!scene) return;
 
@@ -887,7 +751,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         }
     }, [scene, ambientIntensity, customizeLighting]);
 
-    // Directional lights controls
     useEffect(() => {
         if (!scene) return;
 
@@ -899,18 +762,16 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         if (dir3) dir3.intensity = customizeLighting ? directionalIntensity * 0.3 : 0.0;
     }, [scene, directionalIntensity, customizeLighting]);
 
-    // Skybox / clearColor toggles
     useEffect(() => {
         if (!scene) return;
 
         if (showSkybox) {
-            scene.clearColor = new Color4(0.53, 0.81, 0.92, 1.0); // Sky blue
+            scene.clearColor = new Color4(0.53, 0.81, 0.92, 1.0);
         } else {
-            scene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0); // Dark grey
+            scene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0);
         }
     }, [scene, showSkybox]);
 
-    // Wireframe updates
     useEffect(() => {
         activeMeshesRef.current.forEach(m => {
             if (m.material) {
@@ -919,14 +780,12 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         });
     }, [wireframe]);
 
-    // Visibility of meshes
     useEffect(() => {
         activeMeshesRef.current.forEach(m => {
             m.setEnabled(visibleMaterials.has(m.name));
         });
     }, [visibleMaterials]);
 
-    // SkeletonViewer visibility toggle
     useEffect(() => {
         if (!scene) return;
 
@@ -955,7 +814,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         }
     }, [scene, showSkeleton]);
 
-    // Close popup when clicking outside
     useEffect(() => {
         if (!activePopup) return;
 
@@ -970,7 +828,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [activePopup]);
 
-    // Persist settings to localStorage
     useEffect(() => {
         const settings = {
             wireframe,
@@ -1008,11 +865,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         }
     };
 
-    // The Babylon engine effect is mounted by the <canvas> below. Returning
-    // a different tree for loading/error/empty would unmount the canvas and
-    // tear down the WebGL context — expensive (~50–200ms) every time the
-    // preview file changes. Instead, render the status as an overlay and
-    // keep the canvas in the tree at all times.
     const statusOverlay = loading
         ? (
             <div className="model-preview__overlay model-preview__overlay--loading">
@@ -1039,7 +891,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         <div className="model-preview">
             {meshData && (
                 <>
-                    {/* Environment Button - Top Left Corner */}
                     <div className="model-preview__controls-bar model-preview__controls-bar--left">
                         <button
                             className={`model-preview__control-btn ${activePopup === 'environment' ? 'model-preview__control-btn--active' : ''}`}
@@ -1050,7 +901,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         </button>
                     </div>
 
-                    {/* Other Control Buttons - Top Right */}
                     <div className="model-preview__controls-bar">
                         <button
                             className={`model-preview__control-btn ${activePopup === 'display' ? 'model-preview__control-btn--active' : ''}`}
@@ -1079,8 +929,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 </>
             )}
 
-            {/* 3D Canvas — stays mounted across loading/error/empty states so
-                the Babylon engine isn't torn down and recreated. */}
             <div className="model-preview__canvas">
                 <canvas
                     ref={canvasRef}
@@ -1089,7 +937,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             </div>
             {statusOverlay}
 
-            {/* Popup Panels */}
             {activePopup === 'display' && (
                 <div className="model-preview__popup model-preview__popup--top-right">
                     <div className="model-preview__popup-header">
@@ -1362,7 +1209,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 </div>
             )}
 
-            {/* Texture Preview Tooltip */}
             {hoveredMaterial && meshData && (
                 <div
                     className="asset-preview-tooltip"

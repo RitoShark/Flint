@@ -1,14 +1,3 @@
-/**
- * Flint UI primitives.
- *
- * Thin React wrappers over the existing CSS classes in `src/styles/index.css`.
- * Use these in modals, panels, and toolbars instead of hand-rolling
- * `<button class="btn btn--primary">` everywhere.
- *
- * Pattern:
- *   import { Modal, ModalHeader, ModalBody, ModalFooter, Button, Field } from '../ui';
- */
-
 export { Button } from './Button';
 export type { ButtonProps, ButtonVariant, ButtonSize } from './Button';
 

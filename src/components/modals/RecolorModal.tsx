@@ -1,8 +1,3 @@
-/**
- * Flint - Recolor Modal Component
- * Supports multiple recoloring modes: Hue Shift, Colorize, and Grayscale+Tint.
- */
-
 import React, { useState, useEffect } from 'react';
 import { useModalStore, useNotificationStore, useAppMetadataStore, useProjectTabStore } from '../../lib/stores';
 import * as api from '../../lib/api';

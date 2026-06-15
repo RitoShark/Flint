@@ -11,10 +11,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-/// Map a ritoshark [`FileKind`] (magic-detected) to the extension Flint appends
-/// to extension-less chunks. Mirrors the old `LeagueFileKind::extension()`
-/// table so the `.ltk[.ext]` naming for hash-only chunks is unchanged.
-/// `None` means "no known extension" → caller writes a bare `.ltk`.
+/// Map a ritoshark [`FileKind`] to the extension Flint appends to extension-less
+/// chunks. `None` means "no known extension" → caller writes a bare `.ltk`.
 fn file_kind_extension(kind: FileKind) -> Option<&'static str> {
     Some(match kind {
         FileKind::Unknown => return None,
@@ -40,29 +38,17 @@ fn file_kind_extension(kind: FileKind) -> Option<&'static str> {
 /// long filename had to be saved under its hash.
 type ExtractPlanEntry = (WadChunk, PathBuf, Option<(String, String)>);
 
-/// Result of an extraction operation
 #[derive(Debug, Clone)]
 pub struct ExtractionResult {
-    /// Number of chunks successfully extracted
     pub extracted_count: usize,
-    /// Mapping of original paths to actual paths (for long filenames saved with hashes)
+    /// Original-path → actual-path map for long filenames saved under their hash.
     pub path_mappings: HashMap<String, String>,
 }
 
 /// Parallel extraction of arbitrary chunks from a WAD archive.
 ///
-/// Used by the WAD-explorer "extract selected" / "extract all" buttons.
-/// Mirrors the `extract_skin_assets` pattern: parse the WAD once (rs_wad owns
-/// its data section), then decompress + write in parallel by sharing `&wad`
-/// across rayon workers (`chunk_data(&self)` is immutable). The previous
-/// implementation walked chunks serially on the IPC thread, so multi-select
-/// extracts (a few hundred chunks) blocked the runtime for several seconds.
-///
 /// `chunk_hashes = None` extracts every chunk in the WAD. Otherwise only
 /// chunks whose path-hash appears in the input set are extracted.
-///
-/// `resolve_paths` is the same bulk-LMDB resolver used elsewhere — one read
-/// txn per call, not N.
 pub fn extract_chunks_parallel(
     wad_path: impl AsRef<Path>,
     output_dir: impl AsRef<Path>,
@@ -72,15 +58,11 @@ pub fn extract_chunks_parallel(
     let wad_path = wad_path.as_ref();
     let output_dir = output_dir.as_ref();
 
-    // Parse the WAD once. rs_wad mmaps internally, parses the TOC, and OWNS the
-    // decompressed-on-demand data section, so we can share `&wad` across rayon
-    // workers below.
     let wad = Wad::from_path(wad_path).map_err(|e| Error::Wad {
         message: format!("Failed to parse WAD: {}", e),
         path: Some(wad_path.to_path_buf()),
     })?;
 
-    // Filter the TOC to the requested chunks.
     let target_chunks: Vec<WadChunk> = match chunk_hashes {
         Some(want) => wad
             .chunks
@@ -95,14 +77,9 @@ pub fn extract_chunks_parallel(
         return Ok((0, 0, HashMap::new()));
     }
 
-    // Bulk-resolve every hash in one LMDB txn.
     let all_hashes: Vec<u64> = target_chunks.iter().map(|c| c.path_hash).collect();
     let resolved_map = resolve_paths(&all_hashes);
 
-    // Build extraction plan in parallel. Reads `resolved_map` via shared `&`
-    // so we don't `String::clone` per chunk (was ~80k clones for a full
-    // champion WAD). Parents are gathered through a per-thread `HashSet`
-    // that we union at the end.
     let plan: Vec<ExtractPlanEntry> = target_chunks
         .par_iter()
         .map(|chunk| {
@@ -146,10 +123,6 @@ pub fn extract_chunks_parallel(
         }
     }
 
-    // Collect unique parents in parallel via fold + reduce, then create them
-    // concurrently. With ~5000 unique folders on a champion WAD, the serial
-    // `create_dir_all` loop was costing seconds before the writes could even
-    // start — Windows directory-create syscalls aren't free.
     let parents: HashSet<PathBuf> = plan
         .par_iter()
         .fold(HashSet::new, |mut acc, (_, out_path, _)| {
@@ -167,8 +140,6 @@ pub fn extract_chunks_parallel(
         let _ = fs::create_dir_all(parent);
     });
 
-    // Parallel decompress + write. `wad.chunk_data(&self)` is immutable, so all
-    // workers share `&wad` — no per-thread mount, no file-handle contention.
     let chunk_size = (plan.len() / rayon::current_num_threads().max(1)).max(1);
     let results: Vec<(usize, usize)> = plan
         .par_chunks(chunk_size)
@@ -178,8 +149,6 @@ pub fn extract_chunks_parallel(
             for (chunk, out_path, _) in slice {
                 match wad.chunk_data(chunk) {
                     Ok(data) => {
-                        // Path-already-has-extension fast path: skip the
-                        // resolve_chunk_path syscall + create_dir_all dance.
                         let write_path = if out_path.extension().is_some() {
                             out_path.clone()
                         } else {
@@ -223,9 +192,7 @@ fn write_hashed_names_file(output_dir: &Path, mappings: &HashMap<String, String>
 /// Check whether a champion WAD contains the main skin BIN for the given skin ID.
 ///
 /// Riot stores the skin definition at `data/characters/{champion_lower}/skins/skin{ID}.bin`
-/// (or zero-padded `skin{ID:02}.bin`). If neither chunk hash exists in the WAD's TOC,
-/// the local install does not ship this skin — typically because a PBE client is behind
-/// the patch that introduced it. This is fast: only the WAD TOC is read.
+/// (or zero-padded `skin{ID:02}.bin`). Only the WAD TOC is read.
 pub fn wad_contains_skin_bin(
     wad_path: impl AsRef<Path>,
     champion: &str,
@@ -258,25 +225,15 @@ pub fn wad_contains_skin_bin(
     Ok(false)
 }
 
-/// Find the champion WAD file in a League installation
-/// 
-/// # Arguments
-/// * `league_path` - Path to League installation
-/// * `champion` - Champion internal name (e.g., "Kayn", "Aatrox")
-/// 
-/// # Returns
-/// * `Option<PathBuf>` - Path to the WAD file if found
 pub fn find_champion_wad(league_path: impl AsRef<Path>, champion: &str) -> Option<PathBuf> {
     let league_path = league_path.as_ref();
-    
-    // Normalize champion name: lowercase, remove special characters
+
     let champion_normalized = champion
         .to_lowercase()
         .replace("'", "")
         .replace(" ", "")
         .replace(".", "");
-    
-    // Standard WAD path
+
     let wad_path = league_path
         .join("Game")
         .join("DATA")
@@ -293,29 +250,9 @@ pub fn find_champion_wad(league_path: impl AsRef<Path>, champion: &str) -> Optio
     }
 }
 
-/// Extract skin-specific assets from a WAD archive
-/// 
-/// This function extracts ALL files from the WAD. Cleanup of unused files
-/// happens later during the repathing phase based on what the skin BIN references.
-/// 
-/// # Arguments
-/// * `wad` - Mutable reference to the Wad for decoding
-/// * `output_dir` - Base directory where chunks should be extracted
-/// * `champion` - Champion internal name (e.g., "kayn")
-/// * `skin_id` - Skin ID to extract (e.g., 1 for first skin)
-/// * `hashtable` - Hashtable for path resolution
-///
-/// # Returns
-/// * `Result<ExtractionResult>` - Extraction result with count and path mappings, or an error
-///
-/// ─────────────────────────────────────────────────────────────────────────
-///
-/// **Selective extraction (`extract_skin_assets_selective`)** is the same flow
-/// scoped down to only the chunks the seed BIN's reference graph actually
-/// touches — typically ~400 of the 3700+ chunks in a champion WAD. The old
-/// path extracted everything under `assets/` or `data/` then deleted ~85% of
-/// it during repath; on a Defender-watched filesystem that was 12-13 s of
-/// avoidable I/O.
+/// Extract ALL files under `assets/` or `data/` from a WAD archive. Cleanup of
+/// unused files happens later during the repathing phase based on what the skin
+/// BIN references.
 pub fn extract_skin_assets(
     wad_path: impl AsRef<Path>,
     output_dir: impl AsRef<Path>,
@@ -340,9 +277,6 @@ pub fn extract_skin_assets(
         output_dir.display(), wad_folder_name
     );
 
-    // ── Parse the WAD once for parallel access ─────────────────────────────
-    // rs_wad mmaps + parses internally and OWNS the data section, so `&wad` can
-    // be shared across rayon workers (`chunk_data(&self)` is immutable).
     let wad = Wad::from_path(wad_path)
         .map_err(|e| Error::Wad {
             message: format!("Failed to parse WAD: {}", e),
@@ -354,7 +288,6 @@ pub fn extract_skin_assets(
     tracing::info!("Total chunks in WAD: {}", total_chunks);
 
     // ── Phase 1: bulk-resolve hashes, filter, plan dirs (sequential) ──────
-    // Resolve ALL hashes in one LMDB read txn — single call instead of N per-chunk calls.
     let all_hashes: Vec<u64> = chunks.iter().map(|c| c.path_hash).collect();
     let resolved_map = resolve_paths(&all_hashes);
 
@@ -376,8 +309,6 @@ pub fn extract_skin_assets(
             continue;
         }
 
-        // Detect if filename is suspiciously long (will be resolved with actual data later,
-        // but we need a placeholder path for directory creation)
         let final_path = PathBuf::from(&resolved);
         let filename_len = final_path.to_string_lossy().len();
 
@@ -404,7 +335,6 @@ pub fn extract_skin_assets(
         tracing::warn!("Skipped {} unresolved hashes (not in hash DB)", skipped_unknown);
     }
 
-    // Batch-create all parent directories before launching rayon workers
     for parent in parents { let _ = fs::create_dir_all(parent); }
 
     tracing::info!(
@@ -413,13 +343,8 @@ pub fn extract_skin_assets(
     );
 
     // ── Phase 2: parallel decompress + write (rayon, shared &wad) ─────────
-    // `wad.chunk_data(&self)` is immutable, so every rayon worker decompresses
-    // straight off the shared `&wad` — no per-thread mount, zero contention.
     let chunk_size = (extraction_plan.len() / rayon::current_num_threads().max(1)).max(1);
 
-    // Per-thread sub-timings let us see whether the dominant cost is
-    // decompression (CPU/zstd) vs disk write (I/O/AV). Sums across threads
-    // are a "total work" view, not wall time — wall time is `phase_start`.
     let phase_start = Instant::now();
     let thread_results: Vec<(usize, usize, Duration, Duration, Duration)> = extraction_plan
         .par_chunks(chunk_size)
@@ -429,8 +354,6 @@ pub fn extract_skin_assets(
             let mut t_decompress = Duration::ZERO;
             let mut t_path_resolve = Duration::ZERO;
             let mut t_write = Duration::ZERO;
-            // Per-thread cache so we only `create_dir_all` once per parent
-            // even when the extension-correction path goes there many times.
             let mut dirs_seen: HashSet<PathBuf> = HashSet::new();
             for (chunk, out_path) in slice {
                 let t0 = Instant::now();
@@ -440,11 +363,6 @@ pub fn extract_skin_assets(
                     Err(_) => { skipped += 1; },
                     Ok(data) => {
                         let t1 = Instant::now();
-                        // Hot-path fast skip: if the planned output path already
-                        // has an extension (true for >99% of resolved chunks),
-                        // there's no extension correction work to do — just
-                        // write to `out_path`. Saves resolve_chunk_path + an
-                        // exists() syscall + a create_dir_all per chunk.
                         let needs_resolve = out_path.extension().is_none();
                         let write_path = if needs_resolve {
                             let final_path = resolve_chunk_path(&out_path.to_string_lossy(), &data);
@@ -506,28 +424,12 @@ pub fn extract_skin_assets(
     Ok(ExtractionResult { extracted_count, path_mappings })
 }
 
-/// Resolves the final chunk path by handling extensions
-/// 
-/// This function:
-/// - Adds .ltk extension if the path has no extension
-/// - Detects file type from content and appends appropriate extension
-/// - Handles directory name collisions
-/// 
-/// # Arguments
-/// * `path` - The resolved or hex path
-/// * `chunk_data` - The decompressed chunk data for file type detection
-/// 
-/// # Returns
-/// * `PathBuf` - The final path with appropriate extensions
-/// 
-/// # Requirements
-/// Validates: Requirements 4.5, 4.6
+/// If `path` has no extension, detect the file kind from `chunk_data`'s magic
+/// bytes and append `.ltk[.ext]`.
 fn resolve_chunk_path(path: &str, chunk_data: &[u8]) -> PathBuf {
     let mut chunk_path = PathBuf::from(path);
-    
-    // Check if the path has an extension
+
     if chunk_path.extension().is_none() {
-        // Detect file type from content (magic bytes)
         let file_kind = detect(chunk_data);
         let filename = chunk_path
             .file_name()
@@ -536,11 +438,9 @@ fn resolve_chunk_path(path: &str, chunk_data: &[u8]) -> PathBuf {
             .to_string();
 
         match file_kind_extension(file_kind) {
-            // Known file type: add .ltk first, then the detected extension.
             Some(extension) => {
                 chunk_path = chunk_path.with_file_name(format!("{}.ltk.{}", filename, extension));
             }
-            // Unknown (or no mapped extension): just add .ltk.
             None => {
                 chunk_path = chunk_path.with_file_name(format!("{}.ltk", filename));
             }
@@ -550,10 +450,7 @@ fn resolve_chunk_path(path: &str, chunk_data: &[u8]) -> PathBuf {
     chunk_path
 }
 
-/// Recursively collect every asset path embedded in a parsed BIN, mirroring
-/// the post-extraction scan in `repath::refather::scan_bin_for_paths`. Used
-/// by the selective skin extractor so we can compute the chunk allow-list
-/// without writing anything to disk first.
+/// Recursively collect every `assets/`/`data/` path embedded in a parsed BIN.
 fn collect_paths_from_value_into(value: &BinValue, out: &mut Vec<String>) {
     match value {
         BinValue::String(v) => {
@@ -564,11 +461,9 @@ fn collect_paths_from_value_into(value: &BinValue, out: &mut Vec<String>) {
                 out.push(v.to_lowercase().replace('\\', "/"));
             }
         }
-        // List / List2 both hold `items: Vec<BinValue>`.
         BinValue::List { items, .. } => {
             for item in items { collect_paths_from_value_into(item, out); }
         }
-        // Pointer / Embed both hold `fields: IndexMap<u32, BinValue>`.
         BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
             for v in fields.values() { collect_paths_from_value_into(v, out); }
         }
@@ -585,25 +480,16 @@ fn collect_paths_from_value_into(value: &BinValue, out: &mut Vec<String>) {
     }
 }
 
-/// Selective skin extraction — Quartz-style.
+/// Selective skin extraction: walk the seed BIN's reference graph in memory,
+/// collect every referenced asset + linked-BIN path via BFS, and extract only
+/// those chunks.
 ///
-/// Walks the seed BIN's reference graph in **memory** (decompressing chunks
-/// straight off the mmap'd WAD, never writing them to disk), collects every
-/// referenced asset + linked-BIN path via BFS, hashes them, and hands the
-/// resulting `HashSet<u64>` to the existing parallel extractor as a chunk
-/// filter. On a typical champion WAD this drops the write count from ~3700
-/// → ~400 — which is the entire 12 s "Defender-tax" component of project
-/// creation.
+/// Returns the same shape as [`extract_skin_assets`]; `path_mappings` is empty
+/// under selective mode.
 ///
-/// Returns the same shape as [`extract_skin_assets`] so callers stay
-/// signature-compatible. `path_mappings` is empty under selective mode
-/// (long-name truncation is rare for an already-narrow file set, and the
-/// repath stage falls back to direct path lookup when the table doesn't
-/// match — same fallback the existing flow already uses).
-///
-/// If the seed BIN can't be located in the WAD (unusual install layout, mod
-/// uses non-standard path, etc.), returns `Err` so the caller can fall back
-/// to [`extract_skin_assets`] without losing the project.
+/// # Errors
+/// Returns `Err` if the seed BIN can't be located in the WAD, so the caller can
+/// fall back to [`extract_skin_assets`].
 pub fn extract_skin_assets_selective(
     wad_path: impl AsRef<Path>,
     output_dir: impl AsRef<Path>,
@@ -623,7 +509,6 @@ pub fn extract_skin_assets_selective(
     };
     let wad_output_dir = output_dir.join(&wad_folder_name);
 
-    // ── Parse WAD (rs_wad mmaps + owns its data) ───────────────────────────
     let wad = Wad::from_path(wad_path).map_err(|e| Error::Wad {
         message: format!("Failed to parse WAD: {}", e),
         path: Some(wad_path.to_path_buf()),
@@ -637,8 +522,6 @@ pub fn extract_skin_assets_selective(
 
     let xx = |s: &str| xxhash_rust::xxh64::xxh64(s.as_bytes(), 0);
 
-    // Seed = canonical `data/characters/{champ}/skins/skin{N}.bin`. Riot uses
-    // mixed case in some places, but WAD path hashing normalizes lowercase.
     let seed = format!("data/characters/{}/skins/skin{}.bin", champion_lower, skin_id);
     if !by_hash.contains_key(&xx(&seed)) {
         return Err(Error::InvalidInput(format!(
@@ -656,7 +539,6 @@ pub fn extract_skin_assets_selective(
     queue.push_back(seed.clone());
     bin_seen.insert(seed.clone());
 
-    // Also seed the animation BINs to ensure animations and their .anm files are extracted
     let anim_seeds = vec![
         format!("data/characters/{}/animations/skin0.bin", champion_lower),
         format!("data/characters/{}/animations/skin00.bin", champion_lower),
@@ -688,7 +570,6 @@ pub fn extract_skin_assets_selective(
                 continue;
             }
         };
-        // The BIN itself is needed.
         want_paths.insert(bin_path.clone());
 
         let bin = match crate::bin::ltk_bridge::read_bin(&bytes) {
@@ -701,7 +582,6 @@ pub fn extract_skin_assets_selective(
         };
         bins_walked += 1;
 
-        // Linked BINs declared in the BIN header linked-files list.
         for dep in &bin.linked {
             let dep_norm = dep.to_lowercase().replace('\\', "/");
             if bin_seen.insert(dep_norm.clone()) {
@@ -709,9 +589,8 @@ pub fn extract_skin_assets_selective(
             }
         }
 
-        // Asset paths embedded in property values. `.bin` references go on
-        // the BFS queue so we recurse into them; everything else (textures,
-        // anims, sounds, particles) goes straight in the want set.
+        // `.bin` references go on the BFS queue to recurse; everything else
+        // goes straight in the want set.
         let mut paths_found: Vec<String> = Vec::new();
         for entry in &bin.entries {
             for value in entry.fields.values() {
@@ -790,9 +669,7 @@ pub fn extract_skin_assets_selective(
 
 /// Extract every chunk from a WAD into `output_dir`, preserving the resolved
 /// path layout, but letting the caller drop chunks by their resolved
-/// (lowercased) path — the predicate returns `true` to skip the chunk. Used by
-/// the map flow to filter out localized files like `data/.../en_us/...`.
-/// Mirrors `extract_skin_assets` (mmap + bulk hash resolve + rayon decompress).
+/// (lowercased) path — the predicate returns `true` to skip the chunk.
 pub fn extract_full_wad_filtered(
     wad_path: impl AsRef<Path>,
     output_dir: impl AsRef<Path>,
@@ -804,8 +681,6 @@ pub fn extract_full_wad_filtered(
 
     tracing::info!("Extracting full WAD '{}' → '{}'", wad_path.display(), output_dir.display());
 
-    // rs_wad mmaps + parses internally and OWNS the data section, so `&wad` is
-    // shared across rayon workers below (`chunk_data(&self)` is immutable).
     let wad = Wad::from_path(wad_path)
         .map_err(|e| Error::Wad {
             message: format!("Failed to parse WAD: {}", e),
@@ -835,14 +710,11 @@ pub fn extract_full_wad_filtered(
         let path_lower = resolved.to_lowercase();
         let is_unresolved = resolved.chars().all(|c| c.is_ascii_hexdigit());
 
-        // Same allowlist as extract_skin_assets — these are the only prefixes
-        // a sane WAD chunk should resolve to. Unresolved hashes get skipped.
         if !path_lower.starts_with("assets/") && !path_lower.starts_with("data/") {
             if is_unresolved { skipped_unknown += 1; }
             continue;
         }
 
-        // Caller-supplied skip filter (e.g. drop localized files for map projects).
         if skip_path(&path_lower) { continue; }
 
         let final_path = PathBuf::from(&resolved);
@@ -893,8 +765,6 @@ pub fn extract_full_wad_filtered(
                         let actual_path = if final_path == *out_path {
                             out_path.clone()
                         } else {
-                            // resolve_chunk_path returned a relative path with extension fix —
-                            // join under output_dir so we still write into the project.
                             let joined = output_dir.join(&final_path);
                             if let Some(p) = joined.parent() { let _ = fs::create_dir_all(p); }
                             joined
@@ -952,8 +822,6 @@ mod tests {
         let path = "characters/aatrox/aatrox.bin";
         let data = vec![0u8; 100];
         let resolved = resolve_chunk_path(path, &data);
-        
-        // Should keep the original extension
         assert_eq!(resolved, PathBuf::from(path));
     }
     
@@ -962,8 +830,6 @@ mod tests {
         let path = "characters/aatrox/aatrox";
         let data = vec![0u8; 100];
         let resolved = resolve_chunk_path(path, &data);
-        
-        // Should add .ltk extension
         assert!(resolved.to_string_lossy().contains(".ltk"));
     }
     
@@ -972,8 +838,6 @@ mod tests {
         let path = "1a2b3c4d5e6f7a8b";
         let data = vec![0u8; 100];
         let resolved = resolve_chunk_path(path, &data);
-        
-        // Should add .ltk extension to hex path
         assert!(resolved.to_string_lossy().contains(".ltk"));
     }
 }

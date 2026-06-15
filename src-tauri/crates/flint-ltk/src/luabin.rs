@@ -52,7 +52,7 @@ pub enum LuaValue {
     Bool(bool),
     Number(f64),
     String(String),
-    Table(Vec<(LuaValue, LuaValue)>), // key-value pairs
+    Table(Vec<(LuaValue, LuaValue)>),
 }
 
 impl LuaValue {
@@ -60,10 +60,9 @@ impl LuaValue {
         match (self, other) {
             (LuaValue::Table(ref mut a), LuaValue::Table(b)) => {
                 for (k_b, v_b) in b {
-                    // Try to find the key in a
                     let mut found = false;
                     for (k_a, v_a) in a.iter_mut() {
-                        // Compare keys by their formatted string to handle different number representations etc
+                        // Compare keys by formatted string to normalize number representations.
                         if k_a.to_lua_source(0) == k_b.to_lua_source(0) {
                             v_a.merge(v_b.clone());
                             found = true;
@@ -75,7 +74,6 @@ impl LuaValue {
                     }
                 }
             }
-            // If they are not both tables, we just overwrite.
             (this, other_val) => {
                 *this = other_val;
             }
@@ -97,7 +95,7 @@ impl LuaValue {
                 let pad = " ".repeat(inner_indent);
                 let outer_pad = " ".repeat(indent);
 
-                // Check if this is a sequential array (keys are 1, 2, 3...)
+                // Sequential array when keys are 1, 2, 3...
                 let is_array = entries.iter().enumerate().all(|(i, (k, _))| {
                     matches!(k, LuaValue::Number(n) if *n == (i + 1) as f64)
                 });
@@ -134,7 +132,6 @@ impl LuaValue {
 
 fn format_number(n: f64) -> String {
     if n == n.floor() && n.abs() < 1e15 {
-        // Integer-like
         format!("{}", n as i64)
     } else {
         format!("{}", n)
@@ -410,7 +407,7 @@ fn simulate_function(func: &FunctionProto) -> Vec<(String, LuaValue)> {
             OP_LOADBOOL => {
                 registers[inst.a as usize] = LuaValue::Bool(inst.b != 0);
                 if inst.c != 0 {
-                    pc += 1; // skip next instruction
+                    pc += 1;
                 }
             }
 
@@ -433,7 +430,6 @@ fn simulate_function(func: &FunctionProto) -> Vec<(String, LuaValue)> {
                 let val = rk(inst.c, &registers, &func.constants);
                 let a = inst.a as usize;
                 if let LuaValue::Table(ref mut entries) = registers[a] {
-                    // Check if key already exists
                     let mut found = false;
                     for (k, v) in entries.iter_mut() {
                         if matches!((&*k, &key), (LuaValue::String(a), LuaValue::String(b)) if a == b)
@@ -457,11 +453,10 @@ fn simulate_function(func: &FunctionProto) -> Vec<(String, LuaValue)> {
 
                 // C=0 means next instruction holds the real block number
                 let block = if c == 0 {
-                    // Next instruction's raw value is the block number
                     if pc < pc_max {
                         let raw = func.instructions[pc];
                         pc += 1;
-                        // The entire instruction word is used as the value
+                        // The entire instruction word is the value.
                         ((raw.opcode as u32)
                             | ((raw.a as u32) << 6)
                             | ((raw.c as u32) << 14)
@@ -475,7 +470,6 @@ fn simulate_function(func: &FunctionProto) -> Vec<(String, LuaValue)> {
 
                 // B=0 means set up to top of stack (we approximate with what's available)
                 if b == 0 {
-                    // Count non-nil registers from a+1 upward
                     b = 0;
                     for reg in registers.iter().skip(a + 1) {
                         if matches!(reg, LuaValue::Nil) { break; }
@@ -598,9 +592,7 @@ fn simulate_function(func: &FunctionProto) -> Vec<(String, LuaValue)> {
                 break;
             }
 
-            _ => {
-                // Unknown/unhandled opcode — skip
-            }
+            _ => {}
         }
     }
 
@@ -616,7 +608,6 @@ pub fn parse_luabin_globals(data: &[u8]) -> Result<Vec<(String, LuaValue)>, Stri
         return Err("File too small to be Lua bytecode".into());
     }
 
-    // Verify signature
     if &data[0..4] != LUA_SIGNATURE {
         return Err("Not a Lua bytecode file (bad signature)".into());
     }
@@ -629,19 +620,17 @@ pub fn parse_luabin_globals(data: &[u8]) -> Result<Vec<(String, LuaValue)>, Stri
 
     let mut r = Reader::new(data.to_vec());
 
-    // Skip signature (4) + version (1) = 5 bytes
+    // Skip signature (4) + version (1).
     r.read_bytes(5).map_err(|e| e.to_string())?;
 
-    // Format byte
     let _format = r.read_u8().map_err(|e| e.to_string())?;
 
-    // Endianness: 1 = little-endian, 0 = big-endian
+    // Endianness: 1 = little-endian, 0 = big-endian.
     let endian = r.read_u8().map_err(|e| e.to_string())?;
     if endian != 1 {
         return Err("Big-endian Lua bytecode is not supported".into());
     }
 
-    // Sizes
     r.int_len = r.read_u8().map_err(|e| e.to_string())?;
     r.size_t_len = r.read_u8().map_err(|e| e.to_string())?;
     let instr_size = r.read_u8().map_err(|e| e.to_string())?;
@@ -652,20 +641,16 @@ pub fn parse_luabin_globals(data: &[u8]) -> Result<Vec<(String, LuaValue)>, Stri
         return Err(format!("Unexpected instruction size: {} (expected 4)", instr_size));
     }
 
-    // Parse main function
     let func = read_function(&mut r).map_err(|e| e.to_string())?;
 
-    // Simulate and collect global assignments
     Ok(simulate_function(&func))
 }
 
-/// Parse a Lua 5.1 bytecode buffer (luabin or luabin64) and return
-/// reconstructed Lua source text.
+/// Parses a Lua 5.1 bytecode buffer (luabin or luabin64) into reconstructed
+/// Lua source text.
 pub fn convert_luabin(data: &[u8]) -> Result<String, String> {
-    // Simulate and collect global assignments
     let globals = parse_luabin_globals(data)?;
 
-    // Format output
     let mut output = String::new();
     for (name, value) in &globals {
         output.push_str(&format!("{} = {}\n", name, value.to_lua_source(0)));

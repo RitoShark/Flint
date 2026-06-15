@@ -1,9 +1,7 @@
 //! Troybin Schema Aggregator
 //!
-//! Walks every WAD under the League installation's `DATA/FINAL/` directory,
-//! finds `.troybin` chunks, parses them via `flint_ltk::troybin::parse_troybin`,
-//! aggregates all groups and properties into a unified schema, and writes
-//! it as an INI-like text file.
+//! Walks every WAD under the League installation's `DATA/FINAL/`, parses
+//! `.troybin` chunks, and writes an INI-like schema file.
 
 use std::collections::BTreeMap;
 use serde::Serialize;
@@ -90,8 +88,7 @@ pub async fn aggregate_troybin_schema(
 
     let mut bins_parsed = 0;
     let mut bins_failed = 0;
-    
-    // Group name -> Property name -> Value string
+
     let mut schema: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
 
     let emit_progress = |app: &AppHandle, current: usize, parsed: usize, failed: usize, classes: usize| {

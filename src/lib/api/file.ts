@@ -180,15 +180,7 @@ export async function listFolderContents(
     return invokeCommand('list_folder_contents', { projectPath, folderPath });
 }
 
-/**
- * Combined "is this a dir, and if not what's the file info" — single IPC
- * call replacing the isDirectory() + readFileInfo() sequence in PreviewPanel.
- *
- * `info` is `null` when the path is a directory or does not exist.
- *
- * Field names match the existing `FileInfo` snake_case wire shape so consumers
- * already using `info.file_type` keep working unchanged.
- */
+/** `info` is `null` when the path is a directory or does not exist. */
 export interface PathInspection {
     is_directory: boolean;
     info: FileInfo | null;

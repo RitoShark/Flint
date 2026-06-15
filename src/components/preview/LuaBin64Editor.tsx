@@ -1,10 +1,3 @@
-/**
- * Flint - LuaBin64 Editor Component (Monaco Editor)
- *
- * A specialized code editor for viewing and editing decompiled LuaBin (.luabin/.luabin64)
- * files using Monaco Editor with a premium Dracula-inspired neon theme.
- */
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
@@ -16,7 +9,6 @@ import { AssetPreviewTooltip } from './AssetPreviewTooltip';
 
 const LUABIN64_THEME_ID = 'luabin64-theme';
 
-// Register the custom Dracula-inspired dark theme for Lua
 function registerLuaBin64Theme(monacoInstance: typeof monaco) {
     monacoInstance.editor.defineTheme(LUABIN64_THEME_ID, {
         base: 'vs-dark',
@@ -47,10 +39,8 @@ function registerLuaBin64Theme(monacoInstance: typeof monaco) {
     });
 }
 
-/** Delay in milliseconds before showing the asset preview tooltip */
 const HOVER_DELAY_MS = 3000;
 
-/** Asset file extensions that can be previewed */
 const PREVIEWABLE_EXTENSIONS = ['tex', 'dds', 'scb', 'sco', 'skn'];
 
 function isPreviewableAssetPath(value: string): boolean {
@@ -131,7 +121,6 @@ export const LuaBin64Editor: React.FC<LuaBin64EditorProps> = ({ filePath, hideFi
     const [error, setError] = useState<string | null>(null);
     const [lineCount, setLineCount] = useState(0);
 
-    // Subscribe to file version changes for hot reload
     const fileVersion = useAppMetadataStore((state) => {
         void state.fileVersionsRev;
         return state.getFileVersion(filePath);
@@ -140,7 +129,6 @@ export const LuaBin64Editor: React.FC<LuaBin64EditorProps> = ({ filePath, hideFi
     const editorContainerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
-    // Asset preview tooltip state
     const [previewAsset, setPreviewAsset] = useState<string | null>(null);
     const [previewPosition, setPreviewPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
     const [showPreview, setShowPreview] = useState(false);
@@ -151,7 +139,6 @@ export const LuaBin64Editor: React.FC<LuaBin64EditorProps> = ({ filePath, hideFi
     const isDirty = content !== originalContent;
     const basePath = filePath.split(/[/\\]/).slice(0, -1).join('\\');
 
-    // Sync dirty state to file editor store
     const fileEditorTarget = useFileEditorStore((s) => s.target);
     const setFileEditorDirty = useFileEditorStore((s) => s.setDirty);
     useEffect(() => {
@@ -165,7 +152,6 @@ export const LuaBin64Editor: React.FC<LuaBin64EditorProps> = ({ filePath, hideFi
         };
     }, [isDirty, filePath, fileEditorTarget, setFileEditorDirty]);
 
-    // Load LuaBin file and decompile if compiled bytecode
     useEffect(() => {
         const loadLuaBin = async () => {
             setLoading(true);
@@ -173,11 +159,10 @@ export const LuaBin64Editor: React.FC<LuaBin64EditorProps> = ({ filePath, hideFi
             try {
                 const bytes = await api.readFileBytes(filePath);
                 let text = '';
-                // Check magic bytes to see if it's compiled Lua bytecode (starts with \x1bLua)
+                // Compiled Lua bytecode starts with \x1bLua.
                 if (bytes.length >= 4 && bytes[0] === 0x1b && bytes[1] === 0x4c && bytes[2] === 0x75 && bytes[3] === 0x61) {
                     text = await api.convertLuabinToText(bytes);
                 } else {
-                    // Already decompiled or standard Lua file
                     text = new TextDecoder('utf-8').decode(bytes);
                 }
                 setContent(text);
@@ -193,11 +178,9 @@ export const LuaBin64Editor: React.FC<LuaBin64EditorProps> = ({ filePath, hideFi
         loadLuaBin();
     }, [filePath, fileVersion]);
 
-    // Register theme and create Monaco editor
     useEffect(() => {
         if (loading || error || !editorContainerRef.current) return;
 
-        // Register custom theme
         registerLuaBin64Theme(monaco);
 
         const ed = monaco.editor.create(editorContainerRef.current, {
@@ -229,7 +212,6 @@ export const LuaBin64Editor: React.FC<LuaBin64EditorProps> = ({ filePath, hideFi
     const handleSave = useCallback(async () => {
         try {
             setWorking('Saving LuaBin64 file...');
-            // Save compiled/edited Lua as raw text
             await api.writeTextFile(filePath, content);
             setOriginalContent(content);
             setReady('Saved');

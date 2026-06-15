@@ -14,7 +14,6 @@ use ritoshark::prelude::{Parse as _, Serialize as _};
 /// Maximum allowed BIN file size (50MB - no legitimate BIN should be larger)
 pub const MAX_BIN_SIZE: usize = 50 * 1024 * 1024;
 
-/// Error type for BIN operations
 #[derive(Debug)]
 pub struct BinError(pub String);
 
@@ -26,29 +25,18 @@ impl std::fmt::Display for BinError {
 
 impl std::error::Error for BinError {}
 
-/// Result type for BIN operations
 pub type Result<T> = std::result::Result<T, BinError>;
 
-/// Read a binary BIN file from bytes.
-///
-/// # Arguments
-/// * `data` - The binary data to parse
-///
-/// # Returns
-/// A `Bin` structure containing the parsed data
-///
 /// # Safety
 /// This function validates file size and magic bytes to prevent memory issues
 /// from corrupt files. Files larger than 50MB are rejected.
 pub fn read_bin(data: &[u8]) -> Result<Bin> {
-    // DEFENSIVE: Log file info before parsing
     tracing::debug!(
         "read_bin: size={} bytes, magic={:02x?}",
         data.len(),
         &data[..std::cmp::min(8, data.len())]
     );
 
-    // Reject obviously corrupt files (too large)
     if data.len() > MAX_BIN_SIZE {
         tracing::error!(
             "BIN file rejected: {} bytes exceeds max size of {} bytes",
@@ -62,7 +50,6 @@ pub fn read_bin(data: &[u8]) -> Result<Bin> {
         )));
     }
 
-    // Validate BIN magic bytes (PROP or PTCH)
     if data.len() >= 4 {
         let magic = &data[0..4];
         if magic != b"PROP" && magic != b"PTCH" {
@@ -122,26 +109,11 @@ pub fn read_bin(data: &[u8]) -> Result<Bin> {
     }
 }
 
-/// Write a Bin to binary format.
-///
-/// # Arguments
-/// * `tree` - The Bin to serialize
-///
-/// # Returns
-/// A Vec<u8> containing the binary data
 pub fn write_bin(tree: &Bin) -> Result<Vec<u8>> {
     tree.to_bytes()
         .map_err(|e| BinError(format!("Failed to write bin: {}", e)))
 }
 
-/// Convert a Bin to ritobin text format with hash name lookup.
-///
-/// # Arguments
-/// * `tree` - The Bin to convert
-/// * `hashes` - Hash mapper for name lookup
-///
-/// # Returns
-/// A String containing the ritobin text format with resolved names
 pub fn tree_to_text_with_hashes(tree: &Bin, hashes: &HashMapper) -> Result<String> {
     Ok(ritoshark::bin::to_text(tree, Some(hashes)))
 }
@@ -223,14 +195,9 @@ pub fn load_bin_hashes() -> HashMapper {
     hashes
 }
 
-/// Global cache for BIN hash mapper - loaded once, reused for all conversions
-/// This eliminates the massive overhead of loading hash files for every BIN conversion
 static BIN_HASHES_CACHE: OnceLock<RwLock<HashMapper>> = OnceLock::new();
 
-/// Get or initialize the cached BIN hash mapper
-///
-/// This is thread-safe and will only load hashes from disk once.
-/// All subsequent calls return the cached version.
+/// Thread-safe; loads hashes from disk only once.
 pub fn get_cached_bin_hashes() -> &'static RwLock<HashMapper> {
     BIN_HASHES_CACHE.get_or_init(|| {
         tracing::info!("Initializing global BIN hash cache...");
@@ -240,9 +207,7 @@ pub fn get_cached_bin_hashes() -> &'static RwLock<HashMapper> {
     })
 }
 
-/// Reload the BIN hash cache from disk
-///
-/// Call this after updating hash files to refresh the cache
+/// Call after updating hash files on disk.
 pub fn reload_bin_hash_cache() {
     if let Some(cache) = BIN_HASHES_CACHE.get() {
         tracing::info!("Reloading BIN hash cache from disk...");
@@ -253,22 +218,11 @@ pub fn reload_bin_hash_cache() {
     }
 }
 
-/// Convert a Bin to ritobin text format using the cached hash mapper
-///
-/// This is the preferred method for BIN conversion as it reuses the globally
-/// cached hash mapper instead of loading from disk each time.
 pub fn tree_to_text_cached(tree: &Bin) -> Result<String> {
     let hashes = get_cached_bin_hashes().read();
     tree_to_text_with_hashes(tree, &hashes)
 }
 
-/// Parse ritobin text format to Bin.
-///
-/// # Arguments
-/// * `text` - The ritobin text to parse
-///
-/// # Returns
-/// A Bin structure
 pub fn text_to_tree(text: &str) -> Result<Bin> {
     ritoshark::bin::from_text(text, None)
         .map_err(|e| BinError(format!("Failed to parse text: {}", e)))

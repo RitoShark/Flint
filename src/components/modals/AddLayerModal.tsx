@@ -1,12 +1,3 @@
-/**
- * Flint - Add Layer Modal
- *
- * Right-click on the project root opens this. The user picks a name for the
- * new layer, chooses which existing layer to seed it from, and ticks the
- * asset categories to copy. The Rust side (`create_project_layer`) handles
- * the file walk, classification, and `mod.config.json` registration.
- */
-
 import React, { useEffect, useMemo, useState } from 'react';
 import { useModalStore, useNotificationStore, useProjectTabStore } from '../../lib/stores';
 import * as api from '../../lib/api';
@@ -65,9 +56,6 @@ export const AddLayerModal: React.FC = () => {
     );
     const [busy, setBusy] = useState(false);
 
-    // Load the layer list every time we re-open. Source-layer dropdown stays
-    // out of date otherwise after the user creates a layer and reopens the
-    // modal.
     useEffect(() => {
         if (!isVisible || !projectPath) return;
         let cancelled = false;
@@ -86,7 +74,6 @@ export const AddLayerModal: React.FC = () => {
         };
     }, [isVisible, projectPath]);
 
-    // Reset form fields when reopening so a previous attempt doesn't leak in.
     useEffect(() => {
         if (isVisible) {
             setLayerName('');

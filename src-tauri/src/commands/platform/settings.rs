@@ -1,14 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-/// Current schema version — bump when the settings shape changes
+/// Bump when the settings shape changes.
 const SCHEMA_VERSION: u32 = 1;
 
-/// All user-facing settings, persisted to `%APPDATA%/Flint/settings.json`
+/// User-facing settings, persisted to `%APPDATA%/Flint/settings.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FlintSettings {
-    /// Schema version for future migrations
     #[serde(default = "default_schema_version")]
     pub schema_version: u32,
 
@@ -45,8 +44,7 @@ pub struct FlintSettings {
     // Celestial launcher
     #[serde(default)]
     pub celestial_mod_path: Option<String>,
-    /// Which launcher Flint should sync into when "Sync to Launcher" runs.
-    /// Values: "ltk" | "celestial". Falls back to whichever has a path set.
+    /// "ltk" | "celestial". Falls back to whichever has a path set.
     #[serde(default)]
     pub preferred_launcher: Option<String>,
 
@@ -122,7 +120,6 @@ pub fn ensure_folder_structure() -> Result<PathBuf, String> {
     Ok(home)
 }
 
-/// Path to the settings file.
 fn settings_path() -> Result<PathBuf, String> {
     Ok(get_flint_home()?.join("settings.json"))
 }
@@ -145,7 +142,6 @@ fn read_settings_from_disk() -> Result<FlintSettings, String> {
 
 fn write_settings_to_disk(settings: &FlintSettings) -> Result<(), String> {
     let path = settings_path()?;
-    // Ensure parent exists
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create settings dir: {}", e))?;
@@ -172,7 +168,6 @@ pub fn initialize_app_home() -> Result<PathBuf, String> {
 // Tauri commands
 // =============================================================================
 
-/// Returns the Flint home directory path.
 #[tauri::command]
 pub fn get_app_home() -> Result<String, String> {
     get_flint_home().map(|p| p.to_string_lossy().into_owned())
@@ -210,7 +205,6 @@ pub fn migrate_projects() -> Result<MigrateProjectsResult, String> {
     std::fs::create_dir_all(&new_dir)
         .map_err(|e| format!("Failed to create projects dir: {}", e))?;
 
-    // Move each sub-directory (each is a project)
     let entries: Vec<_> = std::fs::read_dir(&old_dir)
         .map_err(|e| format!("Failed to read old projects dir: {}", e))?
         .filter_map(|e| e.ok())
@@ -229,18 +223,16 @@ pub fn migrate_projects() -> Result<MigrateProjectsResult, String> {
         // Try rename (fast, same volume). Fall back to copy+delete.
         if std::fs::rename(entry.path(), &dest).is_err() {
             copy_dir_recursive(&entry.path(), &dest)?;
-            std::fs::remove_dir_all(entry.path()).ok(); // best-effort cleanup
+            std::fs::remove_dir_all(entry.path()).ok();
         }
         moved += 1;
     }
 
-    // Update paths in settings.json
     if moved > 0 {
         let old_prefix = old_dir.to_string_lossy().replace('\\', "/");
         let new_prefix = new_dir.to_string_lossy().replace('\\', "/");
 
         if let Ok(mut settings) = read_settings_from_disk() {
-            // Update defaultProjectPath
             if let Some(ref dp) = settings.default_project_path {
                 let normalized = dp.replace('\\', "/");
                 if normalized == old_prefix || normalized.starts_with(&format!("{}/", old_prefix)) {
@@ -248,7 +240,6 @@ pub fn migrate_projects() -> Result<MigrateProjectsResult, String> {
                 }
             }
 
-            // Update recent/saved project paths
             let rewrite_path = |val: &mut serde_json::Value| {
                 if let Some(obj) = val.as_object_mut() {
                     if let Some(p) = obj.get_mut("path") {
@@ -307,16 +298,15 @@ fn copy_dir_recursive(src: &std::path::Path, dest: &std::path::Path) -> Result<(
 // Theme commands
 // =============================================================================
 
-/// A theme file from `%APPDATA%/Flint/themes/`
+/// A theme file from `%APPDATA%/Flint/themes/`.
 #[derive(Debug, Clone, Serialize)]
 pub struct ThemeInfo {
-    /// Filename without extension (e.g. "midnight-blue")
+    /// Filename without extension.
     pub id: String,
-    /// Display name from the JSON `name` field, or id if missing
+    /// Display name from the JSON `name` field, or id if missing.
     pub name: String,
 }
 
-/// List all `.json` theme files in the themes directory.
 #[tauri::command]
 pub fn list_themes() -> Result<Vec<ThemeInfo>, String> {
     let themes_dir = get_flint_home()?.join("themes");
@@ -334,7 +324,6 @@ pub fn list_themes() -> Result<Vec<ThemeInfo>, String> {
                 .unwrap_or("unknown")
                 .to_string();
 
-            // Try to read `name` from JSON, fall back to filename
             let name = std::fs::read_to_string(&path)
                 .ok()
                 .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
@@ -348,7 +337,6 @@ pub fn list_themes() -> Result<Vec<ThemeInfo>, String> {
     Ok(themes)
 }
 
-/// Read a theme JSON file. Returns the full JSON object.
 #[tauri::command]
 pub fn load_theme(theme_id: String) -> Result<serde_json::Value, String> {
     let path = get_flint_home()?.join("themes").join(format!("{}.json", theme_id));
@@ -371,25 +359,17 @@ pub fn seed_builtin_themes() -> Result<(), String> {
     let themes_dir = get_flint_home()?.join("themes");
     std::fs::create_dir_all(&themes_dir).map_err(|e| e.to_string())?;
 
-    // Rename legacy presets that have since been re-branded.
     let lily = themes_dir.join("lilypad.json");
     let froggy = themes_dir.join("froggy.json");
     if lily.exists() && !froggy.exists() {
         let _ = std::fs::rename(&lily, &froggy);
     }
-    // Flint is now the *default* (lives in index.css :root) — no JSON file
-    // needed. Nuke any legacy `flint.json` we seeded earlier so the picker's
-    // "Flint" card resolves to setSelectedTheme(null) → bare defaults.
     let legacy_flint = themes_dir.join("flint.json");
     if legacy_flint.exists() {
         let _ = std::fs::remove_file(&legacy_flint);
     }
 
     let presets: [(&str, serde_json::Value); 4] = [
-        // Each theme keeps the bg scale near-neutral dark with only a faint
-        // tint, so the accent does the heavy lifting and the surface doesn't
-        // feel saturated. Hex values picked to sit visually next to the
-        // default Flint #111111 / #181818 / #1e1e1e / #252525 ladder.
         ("celestial", serde_json::json!({
             "name": "Celestial",
             "colors": {
@@ -500,9 +480,7 @@ pub fn seed_builtin_themes() -> Result<(), String> {
         })),
     ];
 
-    // Always overwrite the built-in presets — they're shipped, not user-
-    // authored. Users wanting customization should use `create_default_theme`
-    // which writes a separate `custom.json`.
+    // Shipped presets are always overwritten; custom themes use create_default_theme.
     for (id, json) in presets.iter() {
         let path = themes_dir.join(format!("{}.json", id));
         let pretty = serde_json::to_string_pretty(json)
@@ -560,13 +538,12 @@ pub fn create_default_theme() -> Result<String, String> {
 pub fn migrate_from_localstorage(legacy_json: String) -> Result<(), String> {
     let path = settings_path()?;
 
-    // Only migrate if settings.json doesn't exist yet
     if path.exists() {
         tracing::debug!("settings.json already exists, skipping localStorage migration");
         return Ok(());
     }
 
-    // Parse the Zustand persist blob — it wraps state in { state: { ... }, version: N }
+    // The Zustand persist blob wraps state in `{ state: { ... }, version: N }`.
     let blob: serde_json::Value = serde_json::from_str(&legacy_json)
         .map_err(|e| format!("Failed to parse localStorage blob: {}", e))?;
 
@@ -592,10 +569,9 @@ pub fn migrate_from_localstorage(legacy_json: String) -> Result<(), String> {
         bin_converter_engine: state.get("binConverterEngine").and_then(|v| v.as_str()).unwrap_or("ltk").to_string(),
         jade_path: state.get("jadePath").and_then(|v| v.as_str()).map(String::from),
         quartz_path: state.get("quartzPath").and_then(|v| v.as_str()).map(String::from),
-        selected_theme: None, // localStorage never had this field
+        selected_theme: None,
     };
 
-    // Backup the raw blob
     let backup_dir = get_flint_home()?.join("backups");
     std::fs::create_dir_all(&backup_dir).ok();
     let backup_path = backup_dir.join("pre-migration-localstorage.json");

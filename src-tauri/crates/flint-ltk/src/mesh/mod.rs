@@ -1,8 +1,4 @@
-//! Mesh parsing module for SKN and SKL files
-//! 
-//! This module provides parsing for League of Legends mesh formats:
-//! - SKN (Simple Skin) - Skinned mesh data with materials
-//! - SKL (Skeleton) - Bone hierarchy for animations
+//! Mesh parsing for League of Legends formats (SKN, SKL, SCB/SCO, ANM).
 
 pub mod skn;
 pub mod texture;

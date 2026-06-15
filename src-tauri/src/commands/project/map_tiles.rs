@@ -1,10 +1,8 @@
 //! Ground-tile PSD stitcher: combine the open map project's ground textures
 //! into one layered PSD and apply an edited PSD back to the .tex files.
-//! Texture-only — never touches the bin (bin edits crash maps).
 
 use std::path::{Path, PathBuf};
 
-/// Grid columns a..e -> 0..4.
 fn col_index(c: char) -> Option<u32> {
     match c.to_ascii_lowercase() {
         'a'..='e' => Some(c.to_ascii_lowercase() as u32 - 'a' as u32),
@@ -15,23 +13,19 @@ fn col_index(c: char) -> Option<u32> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TileGroup {
     Base,
-    /// Elemental dragon-pit variant: "Chemtech","Cloud","Mountain"(earth),
-    /// "Infernal"(fire),"Ocean".
     DragonElement(String),
-    /// Baron-pit stage: "Tunnel","Upgraded","Walled".
     BaronStage(String),
 }
 
 #[derive(Debug, Clone)]
 pub struct GroundTile {
-    pub stem: String, // filename without extension (round-trip key)
+    pub stem: String,
     pub path: PathBuf,
-    pub col: u32, // 0..4
-    pub row: u32, // 0..4
+    pub col: u32,
+    pub row: u32,
     pub group: TileGroup,
 }
 
-/// Parse a ground texture filename into a GroundTile, or None if not a ground tile.
 fn classify(path: &Path) -> Option<GroundTile> {
     let fname = path.file_name()?.to_str()?;
     let lower = fname.to_lowercase();
@@ -51,9 +45,6 @@ fn classify(path: &Path) -> Option<GroundTile> {
     }
     let row = row_char as u32 - '1' as u32;
 
-    // Exclude non-grid-tile assets that happen to start "ground_<cell>_":
-    // decals, wind/vfx overlays, masks, numeric variant suffixes. Real grid
-    // tiles are base terrain (e.g. ground_d3_chaosbase_a).
     if is_excluded_texture(&lower, stem) {
         return None;
     }
@@ -87,17 +78,11 @@ fn classify(path: &Path) -> Option<GroundTile> {
     })
 }
 
-/// Only map KIT-PIECE texture files are real map ground/wall surfaces. The
-/// project tree also contains champion particles (assets/characters/…) and map
-/// VFX (assets/maps/particles/…) whose names collide with our tokens (wall,
-/// base, door, …) — exclude everything that isn't under a
-/// `maps/kitpieces/.../textures/` path.
 fn is_kitpiece_texture(path: &Path) -> bool {
     let p = path.to_string_lossy().replace('\\', "/").to_lowercase();
     p.contains("/maps/kitpieces/") && p.contains("/textures/")
 }
 
-/// Find all ground tiles in the project's map kit-piece texture folders.
 pub fn find_ground_tiles(project_path: &Path) -> Vec<GroundTile> {
     let mut out = Vec::new();
     let content = project_path.join("content");
@@ -116,12 +101,11 @@ pub fn find_ground_tiles(project_path: &Path) -> Vec<GroundTile> {
 // Wall / prop categories (non-ground textures)
 // ============================================================================
 
-/// How the main tiles of a section are stored in the PSD.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CombineMode {
-    /// All main tiles merged into ONE full-canvas layer (seamless painting).
+    /// All main tiles merged into one full-canvas layer.
     Combined,
-    /// One named layer per tile (precise, round-trips by name).
+    /// One named layer per tile.
     Split,
 }
 impl CombineMode {
@@ -134,7 +118,6 @@ impl CombineMode {
     }
 }
 
-/// Category for non-ground textures (walls, camps, pit-surrounds, river, misc).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WallCategory {
     Walls,
@@ -166,8 +149,6 @@ impl WallCategory {
     }
 }
 
-/// Shared exclusion: decals / vfx overlays / numeric variant suffixes are not
-/// editable base textures (same rule the ground classifier uses).
 fn is_excluded_texture(lower: &str, stem: &str) -> bool {
     const EXCLUDE: [&str; 7] = ["decal", "wind", "_vfx", "_fx", "mask", "noise", "overlay"];
     if EXCLUDE.iter().any(|tok| lower.contains(tok)) {
@@ -179,7 +160,6 @@ fn is_excluded_texture(lower: &str, stem: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// One non-ground texture assigned to a category.
 #[derive(Debug, Clone)]
 pub struct WallTile {
     pub stem: String,
@@ -187,9 +167,7 @@ pub struct WallTile {
     pub category: WallCategory,
 }
 
-/// Classify a non-ground `.tex` into a category, or None if it's a ground tile,
-/// an excluded asset, or not a .tex. Precedence: Camps → Pits → River → Walls →
-/// Misc (so e.g. BaronRiver lands in Pits with the baron pit).
+/// Precedence: Camps → Pits → River → Walls → Misc.
 fn classify_wall(path: &Path) -> Option<WallTile> {
     let fname = path.file_name()?.to_str()?;
     let lower = fname.to_lowercase();
@@ -198,7 +176,7 @@ fn classify_wall(path: &Path) -> Option<WallTile> {
     }
     let stem = &lower[..lower.len() - 4];
     if stem.starts_with("ground_") {
-        return None; // ground grid handled separately
+        return None;
     }
     if is_excluded_texture(&lower, stem) {
         return None;
@@ -224,9 +202,6 @@ fn classify_wall(path: &Path) -> Option<WallTile> {
     })
 }
 
-/// Find all non-ground textures in the project's map kit-piece texture folders,
-/// classified into categories. Scoped to maps/kitpieces/.../textures/ so champion
-/// particles and map VFX (which share tokens like wall/base/door) are excluded.
 pub fn find_wall_tiles(project_path: &Path) -> Vec<WallTile> {
     let mut out = Vec::new();
     let content = project_path.join("content");
@@ -249,37 +224,27 @@ use crate::core::psd_write::{write_psd, PsdDoc, PsdGroup, PsdLayer};
 
 const TILE: u32 = 2048;
 const GRID: u32 = 5;
-/// Name of the single merged full-canvas base-ground layer in the PSD.
 const BASE_LAYER: &str = "Base ground (merged)";
 
-/// Serializes all combine/apply work. Each of these ops decodes many 2048² tiles
-/// to RGBA and builds a multi-hundred-MB PSD; running two at once (e.g. clicking
-/// Combine on Walls and Pits together) doubles peak memory and OOM-crashes the
-/// app. This lock guarantees one heavy op at a time regardless of the UI.
+/// Serializes all combine/apply work so only one heavy PSD op runs at a time.
 static PSD_OP_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// The dedicated folder for stitched PSDs, kept separate from mod content so it
-/// isn't packed into the final mod. `<project>/textures-psd/ground_map.psd`.
 fn ground_psd_path(project: &Path) -> PathBuf {
     project.join("textures-psd").join("ground_map.psd")
 }
 
-/// Whether the ground PSD already exists for this project (so the UI can confirm
-/// before regenerating / enable Apply).
 #[tauri::command]
 pub async fn ground_psd_exists(project_path: String) -> Result<bool, String> {
     Ok(ground_psd_path(&PathBuf::from(&project_path)).exists())
 }
 
-/// Combine the open project's ground tiles into one layered PSD at
-/// `<project>/textures-psd/ground_map.psd`. Returns the written path.
 #[tauri::command]
 pub async fn combine_ground_to_psd(
     app: tauri::AppHandle,
     project_path: String,
     mode: String,
 ) -> Result<String, String> {
-    let _guard = PSD_OP_LOCK.lock().await; // serialize heavy PSD ops
+    let _guard = PSD_OP_LOCK.lock().await;
     let mode = CombineMode::parse(&mode);
     let project = PathBuf::from(&project_path);
     let tiles = find_ground_tiles(&project);
@@ -287,9 +252,6 @@ pub async fn combine_ground_to_psd(
         return Err("No ground tiles (ground_*.tex) found in this project".into());
     }
 
-    // Base tiles: Combined -> one merged full-canvas layer (paint seams freely);
-    // Split -> one named layer per tile. Variant/stage tiles ALWAYS stay as their
-    // own layers (they overlap the base cells, can't be merged in).
     let mut base_canvas = image::RgbaImage::new(GRID * TILE, GRID * TILE);
     let mut base_split: Vec<PsdLayer> = Vec::new();
     let mut base_count = 0u32;
@@ -338,7 +300,6 @@ pub async fn combine_ground_to_psd(
         return Err("No base ground tiles to compose".into());
     }
 
-    // Base group: either one merged layer or the per-tile split layers.
     let base_layers = match mode {
         CombineMode::Combined => vec![PsdLayer {
             name: BASE_LAYER.into(),
@@ -381,8 +342,6 @@ pub async fn combine_ground_to_psd(
     }
     std::fs::write(&out, &bytes).map_err(|e| format!("write psd: {e}"))?;
 
-    // Tell the app a file appeared so the file tree refreshes live (the project
-    // watcher only covers content/, and textures-psd/ sits outside it).
     use tauri::Emitter;
     let _ = app.emit(
         "file-changed",
@@ -406,7 +365,6 @@ pub struct ApplyReport {
     pub errors: Vec<String>,
 }
 
-/// Crop a tile rectangle out of a canvas-sized RGBA buffer (row-major, 4 bpp).
 fn crop_tile(canvas: &[u8], canvas_w: u32, left: u32, top: u32, tw: u32, th: u32) -> image::RgbaImage {
     let mut tile = image::RgbaImage::new(tw, th);
     let n = (tw * 4) as usize;
@@ -421,8 +379,6 @@ fn crop_tile(canvas: &[u8], canvas_w: u32, left: u32, top: u32, tw: u32, th: u32
     tile
 }
 
-/// Re-encode an edited RGBA tile into the SAME format as the original .tex and
-/// overwrite it (mirrors convert_dds_to_tex's format-matching + byte-8 patch).
 fn write_tile_tex(orig: &Path, rgba: &image::RgbaImage) -> Result<(), String> {
     let orig_bytes = std::fs::read(orig).map_err(|e| format!("read orig: {e}"))?;
     let fmt = Texture::from_bytes(&orig_bytes)
@@ -443,11 +399,6 @@ fn write_tile_tex(orig: &Path, rgba: &image::RgbaImage) -> Result<(), String> {
     Ok(())
 }
 
-/// Save an in-app painted RGBA buffer back to its `.tex` (re-encoded in the
-/// original format). `texture_path` is the bin path (e.g. ASSETS/.../foo.tex);
-/// it's resolved to the real on-disk file the same way the preview resolves
-/// textures, then written via the shared encoder (which preserves format + the
-/// byte-8 mip flag).
 #[tauri::command]
 pub async fn save_painted_texture(
     project_path: String,
@@ -474,14 +425,12 @@ pub async fn save_painted_texture(
     write_tile_tex(Path::new(&real), &img)
 }
 
-/// Apply an edited PSD back to the project's ground .tex files, matching PSD
-/// layers to tiles by layer name (== tile stem).
 #[tauri::command]
 pub async fn apply_psd_to_textures(
     project_path: String,
     psd_path: String,
 ) -> Result<ApplyReport, String> {
-    let _guard = PSD_OP_LOCK.lock().await; // serialize heavy PSD ops
+    let _guard = PSD_OP_LOCK.lock().await;
     let project = PathBuf::from(&project_path);
     let by_stem: std::collections::HashMap<String, PathBuf> = find_ground_tiles(&project)
         .into_iter()
@@ -493,7 +442,6 @@ pub async fn apply_psd_to_textures(
     let canvas_w = psd.width();
     let canvas_h = psd.height();
 
-    // Grid cell -> base tile path, for slicing the merged base layer back.
     let base_by_cell: std::collections::HashMap<(u32, u32), PathBuf> = find_ground_tiles(&project)
         .into_iter()
         .filter(|t| matches!(t.group, TileGroup::Base))
@@ -506,11 +454,6 @@ pub async fn apply_psd_to_textures(
         errors: vec![],
     };
 
-    // Per-layer apply (proven path): read each layer's OWN pixels via .rgba()
-    // (canvas-sized, layer at its position) and crop. The merged base layer is
-    // sliced per grid cell; variant/stage layers are matched by name. NOTE: this
-    // does NOT bake custom (unnamed) layers — that needs working PSD-flatten,
-    // which the psd crate can't do on our PSDs yet (tracked separately).
     for layer in psd.layers() {
         let name = layer.name().to_string();
         if name == "</Layer group>" {
@@ -524,7 +467,6 @@ pub async fn apply_psd_to_textures(
         }
 
         if name == BASE_LAYER {
-            // Merged base layer: slice each grid cell back to its base .tex.
             for (&(col, row), path) in &base_by_cell {
                 let (ox, oy) = (col * TILE, row * TILE);
                 if ox + TILE > canvas_w || oy + TILE > canvas_h {
@@ -540,7 +482,6 @@ pub async fn apply_psd_to_textures(
             continue;
         }
 
-        // Otherwise it's a base (split mode) or variant/stage tile, by name.
         let Some(orig) = by_stem.get(&name) else {
             report.skipped.push(name);
             continue;
@@ -572,28 +513,20 @@ fn category_psd_path(project: &Path, cat: WallCategory) -> PathBuf {
         .join(format!("{}.psd", cat.slug()))
 }
 
-/// Whether the PSD for a category already exists.
 #[tauri::command]
 pub async fn category_psd_exists(project_path: String, category: String) -> Result<bool, String> {
     let cat = WallCategory::parse(&category).ok_or("unknown category")?;
     Ok(category_psd_path(&PathBuf::from(&project_path), cat).exists())
 }
 
-/// One texture section for the Map Textures modal.
 #[derive(serde::Serialize)]
 pub struct SectionInfo {
-    /// "Ground" or a category name ("Walls", "Camps", ...).
     pub name: String,
-    /// Number of editable tiles in this section.
     pub tile_count: u32,
-    /// Whether its PSD already exists on disk.
     pub exists: bool,
-    /// Whether the Combined/Split mode toggle applies (Ground only).
     pub supports_mode: bool,
 }
 
-/// List all texture sections (Ground + categories) with their tile counts and
-/// whether each PSD already exists — drives the Map Textures modal.
 #[tauri::command]
 pub async fn list_map_texture_sections(project_path: String) -> Result<Vec<SectionInfo>, String> {
     let project = PathBuf::from(&project_path);
@@ -621,26 +554,18 @@ pub async fn list_map_texture_sections(project_path: String) -> Result<Vec<Secti
             .into(),
             tile_count: count,
             exists: category_psd_path(&project, cat).exists(),
-            supports_mode: true, // Combined (packed atlas) now works for all sections
+            supports_mode: true,
         });
     }
     Ok(sections)
 }
 
-/// Fixed cell size for category atlas packing (tiles are ~all 2048²; smaller
-/// ones are placed at the cell origin and Apply crops back to their real size).
 const CELL: u32 = 2048;
 
-/// Deterministic atlas grid: column count for N tiles (≈ square). Combine and
-/// Apply both derive the same layout from the sorted tile list, so positions
-/// match without storing them.
 fn atlas_cols(n: usize) -> u32 {
     ((n as f64).sqrt().ceil() as u32).max(1)
 }
 
-/// Combine a category's textures into a PSD. Split = one named layer per
-/// texture. Combined = pack all tiles into a grid on ONE merged layer (one big
-/// paintable picture) that Apply slices back by cell. Returns the written path.
 #[tauri::command]
 pub async fn combine_category_to_psd(
     app: tauri::AppHandle,
@@ -649,12 +574,11 @@ pub async fn combine_category_to_psd(
     mode: Option<String>,
 ) -> Result<String, String> {
     use tauri::Emitter;
-    let _guard = PSD_OP_LOCK.lock().await; // serialize heavy PSD ops
+    let _guard = PSD_OP_LOCK.lock().await;
     let mode = CombineMode::parse(mode.as_deref().unwrap_or("split"));
     let cat = WallCategory::parse(&category).ok_or("unknown category")?;
     let project = PathBuf::from(&project_path);
 
-    // Decode the category's tiles in the deterministic (sorted) order.
     let mut imgs: Vec<(String, image::RgbaImage)> = Vec::new();
     for t in find_wall_tiles(&project) {
         if t.category != cat {
@@ -683,7 +607,6 @@ pub async fn combine_category_to_psd(
             }
         }
         CombineMode::Combined => {
-            // Pack into a grid on one canvas, flattened to a single layer.
             let cols = atlas_cols(imgs.len());
             let rows = (imgs.len() as u32).div_ceil(cols);
             let mut canvas = image::RgbaImage::new(cols * CELL, rows * CELL);
@@ -699,7 +622,7 @@ pub async fn combine_category_to_psd(
                     name: category.clone(),
                     visible: true,
                     layers: vec![PsdLayer {
-                        name: BASE_LAYER.into(), // merged atlas layer
+                        name: BASE_LAYER.into(),
                         x: 0,
                         y: 0,
                         image: canvas,
@@ -723,19 +646,16 @@ pub async fn combine_category_to_psd(
     Ok(out.to_string_lossy().into_owned())
 }
 
-/// Apply an edited category PSD back to its .tex files, matching layers to
-/// textures by name (== file stem).
 #[tauri::command]
 pub async fn apply_category_psd(
     project_path: String,
     category: String,
 ) -> Result<ApplyReport, String> {
-    let _guard = PSD_OP_LOCK.lock().await; // serialize heavy PSD ops
+    let _guard = PSD_OP_LOCK.lock().await;
     let cat = WallCategory::parse(&category).ok_or("unknown category")?;
     let project = PathBuf::from(&project_path);
     let psd_path = category_psd_path(&project, cat);
 
-    // Ordered list of this category's tiles (same order combine used).
     let ordered: Vec<(String, PathBuf)> = find_wall_tiles(&project)
         .into_iter()
         .filter(|t| t.category == cat)
@@ -755,11 +675,7 @@ pub async fn apply_category_psd(
         errors: vec![],
     };
 
-    // Per-layer apply (proven path). Combined = one merged BASE_LAYER atlas;
-    // Split = one named layer per texture. Read each layer's OWN pixels via
-    // .rgba() (does NOT bake unnamed custom layers — needs working flatten).
     if let Some(base) = psd.layers().iter().find(|l| l.name() == BASE_LAYER) {
-        // Combined atlas: slice each cell from the merged layer's pixels.
         let canvas = base.rgba();
         if canvas.len() < (canvas_w * canvas_h * 4) as usize {
             return Err("merged layer buffer too small".into());
@@ -788,7 +704,6 @@ pub async fn apply_category_psd(
         return Ok(report);
     }
 
-    // Split: crop each named layer from its OWN rgba().
     for layer in psd.layers() {
         let name = layer.name().to_string();
         if name == "</Layer group>" {
@@ -866,34 +781,25 @@ mod tests {
         assert_eq!(wc("chaos_gromp_a_1bitalpha.tex"), Some(WallCategory::Camps));
         assert_eq!(wc("chaos_baron_a_1bitalpha.tex"), Some(WallCategory::Pits));
         assert_eq!(wc("chaos_midriver_a_1bitalpha.tex"), Some(WallCategory::River));
-        // Precedence: BaronRiver -> Pits (baron checked before river).
         assert_eq!(wc("chaos_baronriver_a_1bitalpha.tex"), Some(WallCategory::Pits));
-        // Ground tiles + excluded assets are NOT walls.
         assert_eq!(wc("ground_a1_alcovetop_a.tex"), None);
         assert_eq!(wc("chaos_x_wind_decal_02.tex"), None);
-        // Unknown -> Misc, never dropped.
         assert_eq!(wc("hol_kaisastatue_a.tex"), Some(WallCategory::Misc));
     }
 
     #[test]
     fn rejects_decals_and_variants() {
-        // These start ground_<cell>_ but are NOT grid tiles.
         assert!(t("ground_d3_wind_decal_02.tex").is_none());
         assert!(t("ground_a1_overlay_mask.tex").is_none());
-        assert!(t("ground_c2_chaosred_02.tex").is_none()); // numeric variant suffix
-        // ...while the real base tile still classifies.
+        assert!(t("ground_c2_chaosred_02.tex").is_none());
         assert!(t("ground_d3_chaosbase_a.tex").is_some());
     }
 
-    /// The bug that nuked textures: writer → psd-crate read → crop must return
-    /// the EXACT pixels, at the right size, for a tile NOT at origin. This guards
-    /// the off-by-one / canvas-vs-layer-size mismatch.
     #[test]
     fn psd_roundtrip_preserves_tile_pixels() {
         use crate::core::psd_write::{write_psd, PsdDoc, PsdGroup, PsdLayer};
         use image::{Rgba, RgbaImage};
 
-        // 16×16 canvas, an 8×8 tile placed at (8,8) with a recognizable pattern.
         let tw = 8u32;
         let mut tile = RgbaImage::new(tw, tw);
         for y in 0..tw {
@@ -929,14 +835,12 @@ mod tests {
         let top = layer.layer_top().max(0) as u32;
         let right = layer.layer_right().max(0) as u32;
         let bottom = layer.layer_bottom().max(0) as u32;
-        // psd crate uses inclusive bounds -> +1.
         let (cw, ch) = (right - left + 1, bottom - top + 1);
         assert_eq!((cw, ch), (8, 8), "cropped size must equal the source tile");
         assert_eq!((left, top), (8, 8), "tile must be at its placed offset");
 
         let out = crop_tile(&layer.rgba(), canvas_w, left, top, cw, ch);
         assert_eq!(out.dimensions(), (8, 8));
-        // Every pixel must match the original.
         for y in 0..tw {
             for x in 0..tw {
                 assert_eq!(

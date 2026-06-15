@@ -1,10 +1,3 @@
-/**
- * Flint - Text Preview Component with Monaco Editor
- *
- * Uses Monaco Editor directly (no @monaco-editor/react wrapper — that
- * library's internal loader breaks in Tauri production builds with CORS errors).
- */
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
@@ -13,12 +6,9 @@ import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { deferCleanup } from '../../lib/ui-helpers/deferCleanup';
 import { useAppMetadataStore } from '../../lib/stores';
 
-// Configure Monaco workers — wrap in try-catch so a broken worker doesn't
-// cascade and break the entire editor (Monarch tokenizer runs on main thread anyway)
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
 
-// Only set MonacoEnvironment if not already configured (BinEditor may have set it)
 if (!self.MonacoEnvironment) {
     self.MonacoEnvironment = {
         getWorker(_: unknown, label: string) {
@@ -34,7 +24,6 @@ if (!self.MonacoEnvironment) {
     };
 }
 
-/** Map file extensions to Monaco language IDs */
 const LANGUAGE_MAP: Record<string, string> = {
     'json': 'json',
     'js': 'javascript',
@@ -70,7 +59,6 @@ export const TextPreview: React.FC<TextPreviewProps> = ({ filePath }) => {
     const editorContainerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
-    // Subscribe to file version changes for hot reload — see ImagePreview.
     const fileVersion = useAppMetadataStore((state) => {
         void state.fileVersionsRev;
         return state.getFileVersion(filePath);
@@ -79,7 +67,6 @@ export const TextPreview: React.FC<TextPreviewProps> = ({ filePath }) => {
     const ext = filePath.split('.').pop()?.toLowerCase() || 'txt';
     const language = LANGUAGE_MAP[ext] || 'plaintext';
 
-    // Load text file
     useEffect(() => {
         const loadText = async () => {
             setLoading(true);
@@ -102,7 +89,6 @@ export const TextPreview: React.FC<TextPreviewProps> = ({ filePath }) => {
         loadText();
     }, [filePath, fileVersion]);
 
-    // Create Monaco editor directly once content is loaded
     useEffect(() => {
         if (loading || error || !editorContainerRef.current) return;
 
@@ -147,8 +133,6 @@ export const TextPreview: React.FC<TextPreviewProps> = ({ filePath }) => {
 
         return () => {
             editorRef.current = null;
-            // Defer Monaco dispose to idle — synchronous dispose blocks the
-            // unmount commit by a few hundred ms.
             deferCleanup(() => ed.dispose());
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps

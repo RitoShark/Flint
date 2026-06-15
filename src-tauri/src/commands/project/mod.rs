@@ -12,6 +12,4 @@ pub mod checkpoint;
 pub mod compare;
 pub mod chroma;
 
-// Flatten so `commands::project::create_project` keeps resolving as before —
-// the file `project.rs` was previously at the top level of `commands/`.
 pub use project::*;

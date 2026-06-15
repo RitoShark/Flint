@@ -1,18 +1,3 @@
-/**
- * LoadscreenBannerModal
- * Mask editor for the Animated Loadscreen Banner preset. Shows the skin's
- * loadscreen image dimmed underneath and lets the user paint the BLUE-channel
- * mask (where painted = the animated VFX shows) with a brush/eraser. Saving
- * encodes the painted blue channel into the mask `.tex`.
- *
- * Opened two ways (both set modalOptions.projectPath):
- *  - project root → "Add Animated Loadscreen Banner" (banner already applied to
- *    the BIN by the context-menu handler before this opens)
- *  - right-click a *-mask.tex → "Edit Loadscreen Banner Mask"
- *
- * Styled with the design-lab `.dl-*` system, rendered through a body portal.
- */
-
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useModalStore, useNotificationStore } from '../../lib/stores';
@@ -27,7 +12,6 @@ interface ModalOpts {
 
 type Tool = 'brush' | 'eraser';
 
-/** Tiny localStorage persistence for the brush, namespaced under the editor. */
 function loadPref<T>(key: string, fallback: T): T {
     try {
         const raw = localStorage.getItem(`flint.loadscreenbanner.${key}`);
@@ -38,7 +22,6 @@ function savePref(key: string, value: unknown): void {
     try { localStorage.setItem(`flint.loadscreenbanner.${key}`, JSON.stringify(value)); } catch { /* ignore */ }
 }
 
-/** Decode a .tex/.dds file to an ImageData via the base64-PNG backend path. */
 async function decodeTexToImageData(path: string): Promise<{ data: ImageData; width: number; height: number }> {
     const decoded = await api.decodeDdsToPng(path);
     const img = new Image();
@@ -66,7 +49,6 @@ export const LoadscreenBannerModal: React.FC = () => {
     const [dims, setDims] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
     const [maskPath, setMaskPath] = useState('');
 
-    // Tool state — brush params persist across sessions (localStorage).
     const [tool, setTool] = useState<Tool>('brush');
     const [brushSize, setBrushSize] = useState(() => loadPref('brushSize', 48));
     const [hardness, setHardness] = useState(() => loadPref('hardness', 0.5));
@@ -75,26 +57,20 @@ export const LoadscreenBannerModal: React.FC = () => {
     useEffect(() => { savePref('hardness', hardness); }, [hardness]);
     useEffect(() => { savePref('opacity', opacity); }, [opacity]);
 
-    // Preset sliders (sent to the backend on save / apply).
     const [shineStrength, setShineStrength] = useState(0.02);
     const [scrollSpeedX, setScrollSpeedX] = useState(0.5);
     const [glowPulse, setGlowPulse] = useState(2);
     const [tint, setTint] = useState<[number, number, number]>([1, 1, 1]);
 
-    // Canvas refs: the displayed (composited) canvas, the dimmed backdrop image.
     const dispCanvasRef = useRef<HTMLCanvasElement>(null);
     const backdropRef = useRef<HTMLCanvasElement>(null);
     const wrapRef = useRef<HTMLDivElement>(null);
-    // Decoded loadscreen pixels, stashed until the canvases mount.
     const backdropImageRef = useRef<ImageData | null>(null);
 
-    // Mask pixel buffers (mask resolution). `rgba` = live; `base0` = pre-stroke
-    // snapshot for idempotent compositing during a stroke.
     const rgbaRef = useRef<Uint8Array | null>(null);
     const base0Ref = useRef<Uint8Array | null>(null);
     const strokeMaskRef = useRef<Float32Array | null>(null);
 
-    // Undo/redo stacks of full mask snapshots (bounded).
     const undoRef = useRef<Uint8Array[]>([]);
     const redoRef = useRef<Uint8Array[]>([]);
 
@@ -102,9 +78,6 @@ export const LoadscreenBannerModal: React.FC = () => {
     const lastPtRef = useRef<[number, number] | null>(null);
     const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
 
-    // Displayed stage size in CSS px — the loadscreen fitted (contain) inside the
-    // available wrapper box, preserving aspect ratio. Measured, not CSS-derived,
-    // so a wide flex box never stretches the image.
     const [stageSize, setStageSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
 
     // ── Load loadscreen + mask, seed the canvases ───────────────────────────
@@ -115,12 +88,6 @@ export const LoadscreenBannerModal: React.FC = () => {
             setLoading(true); setError(null);
             try {
                 const info = await api.getLoadscreenBannerInfo(projectPath);
-                // The MASK owns the canvas resolution (it carries the R/G scroll
-                // pattern + the editable blue channel). The loadscreen is just a
-                // backdrop reference and may be a different size — it's scaled to
-                // fit the mask's aspect, never pixel-aligned. (Previously we sized
-                // the canvas to the loadscreen and discarded the mask's pixels when
-                // the two differed → the R/G pattern was lost and it came out black.)
                 let maskRgba: Uint8Array;
                 let maskW: number;
                 let maskH: number;
@@ -131,8 +98,6 @@ export const LoadscreenBannerModal: React.FC = () => {
                     maskW = m.width;
                     maskH = m.height;
                 } else if (info.loadscreen_exists) {
-                    // No mask yet (e.g. re-edit before apply) — start empty at the
-                    // loadscreen size.
                     const ls0 = await decodeTexToImageData(info.loadscreen_image_path);
                     if (cancelled) return;
                     maskW = ls0.width; maskH = ls0.height;
@@ -141,7 +106,6 @@ export const LoadscreenBannerModal: React.FC = () => {
                     throw new Error('No mask or loadscreen found for this project.');
                 }
 
-                // Backdrop = the loadscreen, decoded for the on-canvas reference.
                 let backdrop: ImageData | null = null;
                 if (info.loadscreen_exists) {
                     try {
@@ -151,7 +115,6 @@ export const LoadscreenBannerModal: React.FC = () => {
                     } catch { /* backdrop is optional */ }
                 }
 
-                // Stash for the seeding effect (canvases aren't mounted yet).
                 backdropImageRef.current = backdrop;
                 rgbaRef.current = maskRgba;
                 strokeMaskRef.current = new Float32Array(maskW * maskH);
@@ -169,7 +132,6 @@ export const LoadscreenBannerModal: React.FC = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [projectPath]);
 
-    // Esc to close (when not saving).
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape' && !saving) closeModal();
@@ -189,7 +151,6 @@ export const LoadscreenBannerModal: React.FC = () => {
         return a;
     }
 
-    // Draw the composited mask overlay onto the display canvas.
     const redraw = useCallback(() => {
         const rgba = rgbaRef.current;
         const disp = dispCanvasRef.current;
@@ -206,9 +167,6 @@ export const LoadscreenBannerModal: React.FC = () => {
         ctx.putImageData(imgData, 0, 0);
     }, []);
 
-    // Seed both canvases once they're actually mounted (after `loading` clears
-    // the spinner gate) and dims are known: size them and paint the backdrop +
-    // mask overlay. Runs whenever loading/error/dims change.
     useEffect(() => {
         if (loading || error || dims.w === 0) return;
         const disp = dispCanvasRef.current;
@@ -218,9 +176,7 @@ export const LoadscreenBannerModal: React.FC = () => {
             bd.width = dims.w; bd.height = dims.h;
             const ctx = bd.getContext('2d');
             if (ctx && ls) {
-                // The loadscreen may differ in size from the mask — draw it
-                // scaled to fill the mask canvas (putImageData can't scale, so go
-                // via an offscreen canvas + drawImage).
+                // putImageData can't scale, so go via an offscreen canvas + drawImage.
                 if (ls.width === dims.w && ls.height === dims.h) {
                     ctx.putImageData(ls, 0, 0);
                 } else {
@@ -235,8 +191,6 @@ export const LoadscreenBannerModal: React.FC = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [loading, error, dims.w, dims.h]);
 
-    // Fit the stage (contain) inside the wrapper, preserving the image ratio.
-    // Recomputes on wrapper resize and once the image dims arrive.
     useEffect(() => {
         if (loading || error || dims.w === 0) return;
         const wrap = wrapRef.current;
@@ -300,7 +254,6 @@ export const LoadscreenBannerModal: React.FC = () => {
         const mask = strokeMaskRef.current!;
         const w = dims.w, h = dims.h;
         const radius = maskRadius();
-        // Inline round-dab stamp (matches paintEngine.stampMask, opacity ceiling, flow 1).
         const r = Math.ceil(radius);
         const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(w - 1, Math.ceil(cx + r));
         const y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(h - 1, Math.ceil(cy + r));
@@ -323,12 +276,8 @@ export const LoadscreenBannerModal: React.FC = () => {
         redraw();
     };
 
-    // Photoshop-style quick-adjust gestures: Alt+left-drag = brush size,
-    // right-drag = hardness. The ring PINS at the press point (doesn't follow the
-    // cursor), the OS cursor hides, and the ring turns red so the gesture reads as
-    // "resizing", not painting. `startX` is the press X; the value scales with the
-    // horizontal drag from there. (We deliberately don't use Pointer Lock — it
-    // triggers the browser's unavoidable "press Esc" banner.)
+    /* Don't use Pointer Lock here — it triggers the browser's unavoidable
+       "press Esc" banner. */
     const adjustRef = useRef<{ kind: 'size' | 'hardness'; startX: number; startVal: number } | null>(null);
     const [adjusting, setAdjusting] = useState<'size' | 'hardness' | null>(null);
 
@@ -347,11 +296,9 @@ export const LoadscreenBannerModal: React.FC = () => {
         if (loading || error) return;
         (e.target as HTMLElement).setPointerCapture(e.pointerId);
 
-        // Pin the ring where the gesture starts (canvas-relative).
         const rect = dispCanvasRef.current?.getBoundingClientRect();
         const pin = rect ? { x: e.clientX - rect.left, y: e.clientY - rect.top } : cursor;
 
-        // Right-click drag → hardness. Alt + left-click drag → size.
         if (e.button === 2) {
             e.preventDefault();
             if (pin) setCursor(pin);
@@ -377,8 +324,6 @@ export const LoadscreenBannerModal: React.FC = () => {
     };
 
     const onPointerMove = (e: React.PointerEvent) => {
-        // Quick-adjust drag takes priority over painting. The ring stays pinned;
-        // the value scales with horizontal drag from the press point.
         const adj = adjustRef.current;
         if (adj) {
             const dx = e.clientX - adj.startX;
@@ -414,17 +359,14 @@ export const LoadscreenBannerModal: React.FC = () => {
         if (!rgba || !maskPath) return;
         setSaving(true);
         try {
-            // 1. Persist preset slider values into the BIN (params only) — do
-            //    NOT rebuild the mask (we're about to save the painted one).
+            // params only — false = don't rebuild the mask we're about to save
             await api.applyLoadscreenBanner(projectPath, {
                 shineStrength,
                 scrollSpeedX,
                 glowPulse,
                 tint,
             }, false);
-            // 2. Save the mask. R/G/A are the existing texture's channels
-            //    (the scroll pattern); only the BLUE channel was edited by the
-            //    brush — send the buffer as-is, do NOT zero R/G.
+            // send the buffer as-is; only blue was edited, do NOT zero R/G
             await api.saveBannerMask(maskPath, rgba, dims.w, dims.h);
             showToast('success', 'Loadscreen banner mask saved');
             setDirty(false);
@@ -464,10 +406,9 @@ export const LoadscreenBannerModal: React.FC = () => {
                 </div>
 
                 <div className="dl-modal__body" style={{ display: 'flex', gap: 16, minHeight: 420 }}>
-                    {/* Canvas area — outer box just centers the stage; it must NOT
-                        carry the aspect ratio (it's a flex item that stretches to
-                        fill, which would override aspect-ratio and stretch the
-                        image). The inner `stage` keeps the loadscreen's ratio. */}
+                    {/* Outer box must NOT carry the aspect ratio — it's a flex item
+                        that stretches and would override aspect-ratio. The inner
+                        `stage` keeps the loadscreen's ratio. */}
                     <div
                         ref={wrapRef}
                         style={{
@@ -483,18 +424,11 @@ export const LoadscreenBannerModal: React.FC = () => {
                             <div
                                 style={{
                                     position: 'relative',
-                                    // Measured contain-fit (px) — preserves the image ratio
-                                    // regardless of the flex box's shape.
                                     width: stageSize.w > 0 ? stageSize.w : undefined,
                                     height: stageSize.h > 0 ? stageSize.h : undefined,
                                 }}
                             >
-                                {/* Loadscreen backdrop at full opacity for clarity. */}
                                 <canvas ref={backdropRef} style={{ ...canvasStyle, opacity: 1, pointerEvents: 'none' }} />
-                                {/* Mask overlay (the painting) at 40% so the
-                                    loadscreen stays readable underneath. + pointer
-                                    surface; hide the OS cursor while resizing so
-                                    only the ring shows. */}
                                 <canvas
                                     ref={dispCanvasRef}
                                     style={{ ...canvasStyle, opacity: 0.4, cursor: adjusting ? 'none' : 'crosshair' }}
@@ -504,8 +438,6 @@ export const LoadscreenBannerModal: React.FC = () => {
                                     onPointerLeave={() => { onPointerUp(); if (!adjustRef.current) setCursor(null); }}
                                     onContextMenu={(e) => e.preventDefault()}
                                 />
-                                {/* Brush ring. Brush (mask-out) = red, eraser
-                                    (restore VFX) = accent; red+fill while resizing. */}
                                 {cursor && (
                                     <div style={{
                                         position: 'absolute', left: cursor.x, top: cursor.y,
@@ -517,7 +449,6 @@ export const LoadscreenBannerModal: React.FC = () => {
                                         transition: adjusting ? 'none' : 'background .1s',
                                     }} />
                                 )}
-                                {/* Live size / hardness readout while resizing. */}
                                 {cursor && adjusting && (
                                     <div style={{
                                         position: 'absolute',
@@ -535,7 +466,6 @@ export const LoadscreenBannerModal: React.FC = () => {
                         )}
                     </div>
 
-                    {/* Tools panel */}
                     <div style={{ width: 240, flex: 'none', display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto' }}>
                         <Section title="Tool">
                             <div style={{ display: 'flex', gap: 8 }}>

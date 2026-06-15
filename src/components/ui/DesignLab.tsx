@@ -388,13 +388,11 @@ export const DesignLab: React.FC = () => {
     const [selValue, setSelValue] = useState('modpkg');
     const [selChannel, setSelChannel] = useState('b');
 
-    // Auto-advance progress for demo purposes
     useEffect(() => {
         const t = setInterval(() => setProgress((p) => (p >= 100 ? 0 : p + 1)), 80);
         return () => clearInterval(t);
     }, []);
 
-    // Cursor-following glow on .dl-btn — single delegated listener, sets --mx/--my
     useEffect(() => {
         const onMove = (e: MouseEvent) => {
             const btn = (e.target as HTMLElement).closest<HTMLElement>('.dl-btn');

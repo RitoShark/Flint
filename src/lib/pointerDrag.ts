@@ -1,28 +1,9 @@
-/**
- * Pointer-based drag (mousedown → move → up), used INSTEAD of HTML5 `draggable`.
- *
- * Why: the app runs in a Tauri 2 WebView2 window with native OS drag-drop
- * enabled (`dragDropEnabled` defaults true) so the file tree / modals can read
- * real OS file paths from Explorer drags via `onDragDropEvent`. WebView2's
- * native drag-drop handler BLOCKS HTML5 drag-and-drop inside the webview (you
- * get a "no-drop" cursor and no `drop` events). So in-app dragging must be done
- * manually with pointer events, which are unaffected.
- *
- * `beginPointerDrag` is called from a draggable element's `pointerdown`. It only
- * starts a real drag once the pointer moves past `threshold` px (so a normal
- * click still works), renders a floating ghost label that follows the cursor,
- * and reports client + screen coordinates to `onMove`/`onDrop`. After a real
- * drag it swallows the trailing `click` so the source element's click handler
- * (e.g. "select file" / "switch tab") doesn't also fire.
- */
-
 export interface PointerDragHandlers {
-    /** Fired on every move once the drag has started. */
     onMove?: (x: number, y: number) => void;
-    /** Fired on release if a real drag occurred. Coords are CSS-pixel client
-     *  coords; screen coords are for out-of-window detection (tab tear-off). */
+    /** Fired on release if a real drag occurred. Client coords are CSS pixels;
+     *  screen coords are for out-of-window detection. */
     onDrop?: (info: { clientX: number; clientY: number; screenX: number; screenY: number }) => void;
-    /** Always fired when the gesture ends (drag or not), for cleanup. */
+    /** Always fired when the gesture ends (drag or not). */
     onEnd?: () => void;
 }
 
@@ -50,15 +31,11 @@ function removeGhost() {
     }
 }
 
-/**
- * Start tracking a pointer drag. Call from a `pointerdown` handler. Returns
- * immediately; the gesture resolves through the provided callbacks.
- */
+/** Call from a `pointerdown` handler; the gesture resolves through the callbacks. */
 export function beginPointerDrag(
     e: React.PointerEvent | PointerEvent,
     opts: PointerDragOptions,
 ): void {
-    // Only react to the primary (left) button.
     if (e.button !== 0) return;
 
     const startX = e.clientX;
@@ -93,14 +70,11 @@ export function beginPointerDrag(
                 screenX: ev.screenX,
                 screenY: ev.screenY,
             });
-            // Swallow the click that follows a drag so the source's onClick
-            // (select file / switch tab) doesn't also fire.
             const swallow = (clickEv: Event) => {
                 clickEv.stopPropagation();
                 clickEv.preventDefault();
             };
             document.addEventListener('click', swallow, { capture: true, once: true });
-            // Safety: if no click arrives, drop the one-shot listener next tick.
             setTimeout(() => document.removeEventListener('click', swallow, true), 0);
         }
         opts.onEnd?.();

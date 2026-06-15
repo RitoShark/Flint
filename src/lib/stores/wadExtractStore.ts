@@ -1,8 +1,3 @@
-/**
- * WAD Extract Store
- * Manages individual WAD file browsing sessions
- */
-
 import { create } from 'zustand';
 import type { ExtractSession, WadChunk } from '../types';
 import { useConfigStore } from './configStore';
@@ -12,7 +7,6 @@ interface WadExtractState {
   extractSessions: ExtractSession[];
   activeExtractId: string | null;
 
-  // Actions
   openSession: (id: string, wadPath: string) => void;
   closeSession: (sessionId: string) => { newActiveId: string | null; remainingSessions: ExtractSession[] };
   switchSession: (sessionId: string) => void;
@@ -36,7 +30,6 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
   openSession: (id, wadPath) => {
     const wadName = wadPath.split(/[\\/]/).pop() || wadPath;
 
-    // Check if the WAD path is within League's game directory
     const config = useConfigStore.getState();
     const leaguePath = config.leaguePath;
     const leaguePathPbe = config.leaguePathPbe;
@@ -116,7 +109,6 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
     let newActiveId = activeExtractId;
 
     if (activeExtractId === sessionId) {
-      // Switch to last remaining extract session
       if (newSessions.length > 0) {
         newActiveId = newSessions[newSessions.length - 1].id;
       } else {
@@ -279,8 +271,6 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
     set((state) => ({
       extractSessions: state.extractSessions.map(s => {
         if (s.id !== sessionId) return s;
-        // Drop the chunk from the list, clear it from selection/preview, and
-        // mark the session dirty so the delete is persisted on the next WAD save.
         const newSelected = new Set(s.selectedHashes);
         newSelected.delete(hash);
         return {

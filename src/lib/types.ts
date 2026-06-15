@@ -1,7 +1,3 @@
-/**
- * Flint - TypeScript Type Definitions
- */
-
 // =============================================================================
 // Application State Types
 // =============================================================================
@@ -10,19 +6,11 @@ export type AppStatus = 'ready' | 'working' | 'error';
 export type ModalType = 'newProject' | 'settings' | 'export' | 'firstTimeSetup' | 'updateAvailable' | 'recolor' | 'checkpoint' | 'fixer' | 'projectList' | 'modConfig' | 'renameProject' | 'thumbnail' | 'binSplit' | 'fullResImage' | 'browseWad' | 'fileCompare' | 'addLayer' | 'chromaPort' | 'whatsNew' | 'map-textures' | 'loadscreenBanner' | null;
 export type ViewType = 'welcome' | 'preview' | 'editor' | 'project' | 'checkpoints' | 'extract' | 'wad-explorer' | 'file-editor';
 
-/**
- * Kinds of files that have a structured editor surface (vs. being shown raw
- * in the PreviewPanel). The page-based file editor switches its form
- * layout off this kind.
- */
 export type FileEditorKind = 'modConfig' | 'binText' | 'raw' | 'luaBin64';
 
 export interface FileEditorTarget {
-    /** Absolute path to the file being edited. */
     filePath: string;
-    /** Which structured editor to render. */
     kind: FileEditorKind;
-    /** Optional project path for relative-path display + refresh hooks. */
     projectPath?: string;
 }
 
@@ -42,7 +30,7 @@ export interface LogEntry {
 }
 
 export interface RecentProject {
-    /** Stable project id (UUID v4). May be empty for legacy entries. */
+    /** UUID v4. May be empty for legacy entries. */
     pid?: string;
     name: string;
     champion: string;
@@ -51,12 +39,10 @@ export interface RecentProject {
     lastOpened: string;
 }
 
-/** What flavour of project this is. Drives which of the type-specific
- *  fields below are meaningful for display. Mirrors the Rust enum. */
+/** Mirrors the Rust enum; drives which type-specific fields are meaningful. */
 export type ProjectKind = 'skin' | 'map' | 'loading-screen' | 'tft';
 
-/** Result of `discover_projects` — every project the backend can locate
- *  (on-disk walk ∪ projects.json index entries). */
+/** Result of `discover_projects` — on-disk walk ∪ projects.json index entries. */
 export interface ProjectListing {
     pid: string;
     path: string;
@@ -178,9 +164,6 @@ export interface ProjectTab {
     selectedFile: string | null;
     fileTree: FileTreeNode | null;
     expandedFolders: Set<string>;
-    /** Set once we've expanded `content/<layer>/<wad>.wad.client` folders for the
-     *  user on first tree load. Prevents the file-watcher refresh path from
-     *  re-expanding folders the user has manually collapsed. */
     hasAutoExpanded?: boolean;
 }
 
@@ -188,13 +171,7 @@ export interface WadChunk {
     hash: string;        // hex string e.g. "0x1a2b3c4d5e6f7a8b"
     path: string | null; // resolved path, null if hash is unknown
     size: number;
-    /**
-     * Pre-lowercased `path ?? hash`. Built once at decode time so the WAD-explorer
-     * search doesn't burn ~O(N×L) on `.toLowerCase()` per debounced keystroke
-     * (with all WADs loaded that's tens of millions of allocations per query).
-     * Optional: only the WAD-explorer load path populates it; older callers stay
-     * source-compatible.
-     */
+    /** Pre-lowercased `path ?? hash` for search. Only the WAD-explorer load path populates it. */
     haystack?: string;
 }
 
@@ -255,88 +232,64 @@ export interface WadExplorerState {
     searchQuery: string;
     /** Set of `${wadPath}::${hash}` keys for checked files (multi-select for extraction) */
     checkedFiles: Set<string>;
-    /**
-     * Live tally of checked files per WAD path. Lets the WAD-row tri-state
-     * checkbox derive its value in O(1) instead of walking ~80k chunks per
-     * WAD on every toggle. Maintained incrementally by `toggleCheck`.
-     */
+    /** Live tally of checked files per WAD path. */
     checkedCountPerWad: Map<string, number>;
 }
 
 export interface AppState {
-    // App status
     status: AppStatus;
     statusMessage: string;
 
-    // Creator info (for repathing)
     creatorName: string | null;
-    /** Default description preset stamped into new mods. */
     creatorDescription: string | null;
-    /** Optional creator home URL (portfolio / socials). */
     creatorHome: string | null;
-    /** Optional creator tip / donation URL. */
     creatorTip: string | null;
 
-    // Hash status
     hashesLoaded: boolean;
     hashCount: number;
 
-    // League installation
     leaguePath: string | null;
     leaguePathPbe: string | null;
     defaultProjectPath: string | null;
 
-    // LTK Manager integration
     ltkManagerModPath: string | null;
     autoSyncToLauncher: boolean;
 
-    // Celestial integration
     celestialModPath: string | null;
     preferredLauncher: 'ltk' | 'celestial' | null;
 
-    // Project state (tab-based)
     openTabs: ProjectTab[];
     activeTabId: string | null;
     recentProjects: RecentProject[];
     savedProjects: SavedProject[];
 
-    // File change tracking (compared to last checkpoint)
-    fileChanges: Record<string, string>; // path -> status ("M", "N", "D")
+    /** path -> status ("M", "N", "D"), compared to last checkpoint. */
+    fileChanges: Record<string, string>;
 
-    // WAD extract sessions
     extractSessions: ExtractSession[];
     activeExtractId: string | null;
 
-    // WAD Explorer (unified VFS)
     wadExplorer: WadExplorerState;
 
-    // UI state
     currentView: ViewType;
     activeModal: ModalType;
     modalOptions: Record<string, unknown> | null;
 
-    // Champions (cached)
     champions: Champion[];
     championsLoaded: boolean;
 
-    // Toast notifications
     toasts: Toast[];
 
-    // Log panel
     logs: LogEntry[];
     logPanelExpanded: boolean;
 
-    // Context menu
     contextMenu: ContextMenuState | null;
 
-    // Confirm dialog
     confirmDialog: ConfirmDialogState | null;
 
-    // Auto-update settings (persisted)
     autoUpdateEnabled: boolean;
     skippedUpdateVersion: string | null;
 
-    // Logging settings (persisted)
     verboseLogging: boolean;
 }
 
@@ -459,7 +412,6 @@ export interface HircData {
     music_playlists: { self_id: number; track_ids: number[] }[];
 }
 
-/** Tree node for the BNK editor UI */
 export interface AudioTreeNode {
     id: string;
     name: string;

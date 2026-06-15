@@ -20,13 +20,11 @@ export const StringTableEditor: React.FC<StringTableEditorProps> = ({ filePath }
     const [initialScrollTop, setInitialScrollTop] = useState(0);
     const showToast = useNotificationStore((s) => s.showToast);
 
-    // Subscribe to file version changes for hot reload (matches Bin/Inibin editors).
     const fileVersion = useAppMetadataStore((state) => {
         void state.fileVersionsRev;
         return state.getFileVersion(filePath);
     });
 
-    // Baseline JSON (for the unmount session snapshot) and live scroll offset.
     const originalJsonRef = useRef('');
     const scrollRef = useRef(0);
     const dataRef = useRef<StringTableData | null>(null);
@@ -64,8 +62,6 @@ export const StringTableEditor: React.FC<StringTableEditorProps> = ({ filePath }
         return () => { cancelled = true; };
     }, [filePath, fileVersion]);
 
-    // Persist the live session (edited rows + scroll) on unmount so a tab-switch
-    // return restores it instead of re-decoding.
     useEffect(() => {
         return () => {
             const d = dataRef.current;
@@ -112,7 +108,6 @@ export const StringTableEditor: React.FC<StringTableEditorProps> = ({ filePath }
         if (!data) return;
         try {
             await api.saveStringTable(filePath, data);
-            // Saved state is the new baseline -> dirty clears.
             originalJsonRef.current = JSON.stringify(data);
             setDirty(false);
             showToast('success', 'String table saved');

@@ -1,19 +1,12 @@
-//! User-discovered hash overlay — sits on top of the LMDB tables so
-//! WAD-scan results show up in the UI immediately without waiting for
-//! upstream `lmdb-hashes` releases.
+//! User-discovered hash overlay on top of the LMDB tables, in the same
+//! `%APPDATA%/FrogTools/hashes/` directory and filenames Quartz uses:
 //!
-//! On-disk format (Quartz-compatible — same `%APPDATA%/FrogTools/hashes/`
-//! directory, same filenames):
-//!
-//! - `hashes.extracted.txt`         — `{hex16} {path}\n` per line, WAD path overlay.
+//! - `hashes.extracted.txt`           — `{hex16} {path}\n` per line, WAD path overlay.
 //! - `hashes.binhashes.extracted.txt` — `{hex8} {name}\n` per line, BIN field/entry overlay.
 //!
-//! Both files are sorted by path/name on write. We preserve whatever
-//! Quartz already wrote (entries are merged, never replaced) so users
-//! can run scans in either tool without losing discoveries.
-//!
-//! In-memory state is cached behind a `parking_lot::RwLock` keyed on the
-//! file mtime — re-reads are O(1) when the file hasn't changed.
+//! Both files are sorted by path/name on write; existing entries are merged,
+//! never replaced. In-memory state is cached behind a `RwLock` keyed on the
+//! file mtime.
 
 use crate::error::{Error, Result};
 use parking_lot::RwLock;
@@ -29,13 +22,8 @@ const BIN_OVERLAY_FILE: &str = "hashes.binhashes.extracted.txt";
 
 #[derive(Default)]
 struct CachedOverlay {
-    /// Source file path the cache was loaded from. Cache is invalidated
-    /// (key mismatch) if the FrogTools dir moves between calls.
     source: PathBuf,
-    /// File mtime at load time. Re-read when this changes, otherwise the
-    /// cached `Arc<HashMap>` is reused.
     mtime: Option<SystemTime>,
-    /// hash → resolved string (Arc so callers don't pay per-lookup clones).
     map: Arc<HashMap<u64, Arc<str>>>,
 }
 
@@ -73,8 +61,6 @@ fn parse_wad_overlay(path: &Path) -> HashMap<u64, Arc<str>> {
         };
         let raw = h.trim().trim_start_matches("0x").trim_start_matches("0X");
         if let Ok(hash) = u64::from_str_radix(raw, 16) {
-            // Insert-only: first occurrence wins. Files are unique per Quartz
-            // and our writers, but be defensive about hand edits.
             out.entry(hash).or_insert_with(|| Arc::from(p));
         }
     }
@@ -98,9 +84,9 @@ fn parse_bin_overlay(path: &Path) -> HashMap<u32, Arc<str>> {
     out
 }
 
-/// Load the WAD-path overlay map for `hash_dir`, reusing the cached copy
-/// when the file's mtime hasn't changed since the last read. Returns an
-/// empty map when the file is missing — never errors.
+/// Load the WAD-path overlay map for `hash_dir`, reusing the cached copy when
+/// the file's mtime hasn't changed. Returns an empty map when the file is
+/// missing — never errors.
 pub fn wad_overlay(hash_dir: &Path) -> Arc<HashMap<u64, Arc<str>>> {
     let path = hash_dir.join(WAD_OVERLAY_FILE);
     let mtime = file_mtime(&path);
@@ -110,8 +96,6 @@ pub fn wad_overlay(hash_dir: &Path) -> Arc<HashMap<u64, Arc<str>>> {
         if g.source == path && g.mtime == mtime && !g.map.is_empty() {
             return Arc::clone(&g.map);
         }
-        // Empty cached map for an existing file is fine to reuse too —
-        // re-parsing wouldn't change anything if mtime matches.
         if g.source == path && g.mtime == mtime {
             return Arc::clone(&g.map);
         }
@@ -146,9 +130,7 @@ pub fn bin_overlay(hash_dir: &Path) -> Arc<HashMap<u32, Arc<str>>> {
     map
 }
 
-/// Drop both cached overlays. Next read re-loads from disk. Called by
-/// the writer after a successful merge so subsequent hash queries pick
-/// up the new entries.
+/// Drop both cached overlays. Next read re-loads from disk.
 pub fn invalidate() {
     let mut g = wad_cell().write();
     *g = CachedOverlay::default();
@@ -156,8 +138,6 @@ pub fn invalidate() {
     *g = CachedBinOverlay::default();
 }
 
-/// Summary returned to the UI after a merge — lets the frontend show
-/// "added 1,234 new paths".
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MergeStats {
     pub wad_added: usize,
@@ -167,11 +147,8 @@ pub struct MergeStats {
 }
 
 /// Merge new (hash → string) entries into the on-disk overlay files,
-/// preserving any existing entries and appending the deltas. Output is
-/// sorted by string for stable diffs and for parity with Quartz's writer.
-///
-/// Caller passes both maps even when one is empty — we still touch the
-/// untouched file's cache so the next read sees a consistent state.
+/// preserving existing entries and appending the deltas. Output is sorted by
+/// string for stable diffs.
 pub fn merge_and_write(
     hash_dir: &Path,
     new_wad: &HashMap<u64, Arc<str>>,

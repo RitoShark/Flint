@@ -52,17 +52,14 @@ export async function startProjectWatcher(
     return invokeCommand('start_project_watcher', { projectPath, ltkStoragePath, launcherKind });
 }
 
-/** Stop the active project watcher. */
 export async function stopProjectWatcher(): Promise<void> {
     return invokeCommand('stop_project_watcher', {});
 }
 
-/** Start preview file watcher for hot reload. */
 export async function startPreviewWatcher(projectPath: string): Promise<void> {
     return invokeCommand('start_preview_watcher', { projectPath });
 }
 
-/** Stop the active preview watcher. */
 export async function stopPreviewWatcher(): Promise<void> {
     return invokeCommand('stop_preview_watcher', {});
 }

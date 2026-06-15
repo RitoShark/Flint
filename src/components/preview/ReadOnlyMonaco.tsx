@@ -7,7 +7,6 @@ interface ReadOnlyMonacoProps {
     language: string;
 }
 
-/** Minimal read-only Monaco surface used by the Lua / Troybin viewers. */
 export const ReadOnlyMonaco: React.FC<ReadOnlyMonacoProps> = ({ value, language }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);

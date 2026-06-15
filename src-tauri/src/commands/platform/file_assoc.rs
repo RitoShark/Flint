@@ -17,12 +17,9 @@ use serde::{Deserialize, Serialize};
 use crate::core::ipc_trace;
 
 struct AssocSpec {
-    /// Extension with leading dot, e.g. ".wad". Compound extensions
-    /// (.wad.client) work fine here — Windows accepts them.
+    /// Extension with leading dot. Compound extensions (.wad.client) are accepted.
     ext: &'static str,
-    /// Our ProgID under HKCU\Software\Classes. Stable across versions.
     prog_id: &'static str,
-    /// Friendly description shown in Explorer's Type column.
     description: &'static str,
 }
 
@@ -40,11 +37,8 @@ const ASSOCS: &[AssocSpec] = &[
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssocStatus {
-    /// Extensions where Flint is listed as the handler.
     pub registered: Vec<String>,
-    /// Extensions in our spec that aren't currently registered.
     pub missing: Vec<String>,
-    /// Path of the executable any current registration points at.
     pub current_exe_path: Option<String>,
 }
 
@@ -60,7 +54,6 @@ fn current_exe_string() -> Result<String, String> {
     Ok(exe.to_string_lossy().into_owned())
 }
 
-/// Notify Windows shell of association changes
 #[cfg(target_os = "windows")]
 fn notify_shell_change() {
     unsafe {
@@ -101,7 +94,6 @@ pub async fn register_file_associations() -> Result<AssocResult, String> {
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
 
         for spec in ASSOCS {
-            // 1. Create the ProgID key
             let prog_key_path = format!(r"Software\Classes\{}", spec.prog_id);
             let class_key = match hkcu.create_subkey(&prog_key_path) {
                 Ok((key, _)) => key,
@@ -118,7 +110,6 @@ pub async fn register_file_associations() -> Result<AssocResult, String> {
                 errors.push(format!("{}: Failed to set friendly name: {}", spec.ext, e));
             }
 
-            // DefaultIcon
             match class_key.create_subkey("DefaultIcon") {
                 Ok((icon_key, _)) => {
                     if let Err(e) = icon_key.set_value("", &icon_value) {
@@ -130,7 +121,6 @@ pub async fn register_file_associations() -> Result<AssocResult, String> {
                 }
             }
 
-            // shell\open\command
             match class_key.create_subkey(r"shell\open\command") {
                 Ok((cmd_key, _)) => {
                     if let Err(e) = cmd_key.set_value("", &cmd_value) {
@@ -142,7 +132,6 @@ pub async fn register_file_associations() -> Result<AssocResult, String> {
                 }
             }
 
-            // 2. Associate the extension key with the ProgID (makes Flint the default handler)
             let ext_key_path = format!(r"Software\Classes\{}", spec.ext);
             match hkcu.create_subkey(&ext_key_path) {
                 Ok((ext_key, _)) => {
@@ -155,7 +144,6 @@ pub async fn register_file_associations() -> Result<AssocResult, String> {
                 }
             }
 
-            // 3. Add to OpenWithProgids
             let open_with_path = format!(r"Software\Classes\{}\OpenWithProgids", spec.ext);
             match hkcu.create_subkey(&open_with_path) {
                 Ok((open_with_key, _)) => {
@@ -171,7 +159,6 @@ pub async fn register_file_associations() -> Result<AssocResult, String> {
             touched.push(spec.ext.to_string());
         }
 
-        // 4. Register under Applications\<exe_basename>
         let exe_basename = std::path::Path::new(&exe)
             .file_name()
             .and_then(|n| n.to_str())
@@ -238,13 +225,12 @@ pub async fn unregister_file_associations() -> Result<AssocResult, String> {
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
 
         for spec in ASSOCS {
-            // Delete from OpenWithProgids
             let open_with_path = format!(r"Software\Classes\{}\OpenWithProgids", spec.ext);
             if let Ok(open_with_key) = hkcu.open_subkey_with_flags(&open_with_path, KEY_WRITE) {
                 let _ = open_with_key.delete_value(spec.prog_id);
             }
 
-            // If the extension key's default value is our ProgID, delete/clear it
+            // Only clear the extension key if its default points at our ProgID.
             let ext_key_path = format!(r"Software\Classes\{}", spec.ext);
             if let Ok(ext_key) = hkcu.open_subkey_with_flags(&ext_key_path, KEY_READ | KEY_WRITE) {
                 if let Ok(val) = ext_key.get_value::<String, _>("") {
@@ -254,7 +240,6 @@ pub async fn unregister_file_associations() -> Result<AssocResult, String> {
                 }
             }
 
-            // Delete the class tree (ProgID)
             let prog_key_path = format!(r"Software\Classes\{}", spec.prog_id);
             let _ = hkcu.delete_subkey_all(&prog_key_path);
 
@@ -303,8 +288,7 @@ pub async fn get_file_association_status() -> Result<AssocStatus, String> {
         for spec in ASSOCS {
             let ext_key_path = format!(r"Software\Classes\{}", spec.ext);
             let mut is_registered = false;
-            
-            // Check if extension default value points to our ProgID
+
             if let Ok(ext_key) = hkcu.open_subkey(&ext_key_path) {
                 if let Ok(val) = ext_key.get_value::<String, _>("") {
                     if val == spec.prog_id {
@@ -313,7 +297,6 @@ pub async fn get_file_association_status() -> Result<AssocStatus, String> {
                 }
             }
 
-            // Fallback: check if we are in OpenWithProgids too
             if !is_registered {
                 let open_with_path = format!(r"Software\Classes\{}\OpenWithProgids", spec.ext);
                 if let Ok(open_with_key) = hkcu.open_subkey(&open_with_path) {
@@ -332,8 +315,6 @@ pub async fn get_file_association_status() -> Result<AssocStatus, String> {
                     );
                     if let Ok(cmd_key) = hkcu.open_subkey(&cmd_key_path) {
                         if let Ok(cmd) = cmd_key.get_value::<String, _>("") {
-                            // Command is `"<exe>" "%1"` — strip the surrounding
-                            // quotes and the trailing argument template.
                             let cleaned = cmd
                                 .trim()
                                 .trim_matches('"')

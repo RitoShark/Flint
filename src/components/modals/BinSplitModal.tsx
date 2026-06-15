@@ -1,41 +1,14 @@
-/**
- * Flint - BIN Split Modal
- *
- * Right-click → "Split VFX to separate BIN" on a Skin{N}.bin opens this.
- * Shows the BIN's class-grouped object list with checkboxes; default-checks
- * the groups our classifier flagged as VFX. On confirm, calls the Rust
- * `split_bin_entries` command which writes a new sibling BIN, removes the
- * moved objects from the parent, and appends a link to the parent's
- * dependency list.
- *
- * The wire format we emit is byte-compatible with Quartz's combine action,
- * which is the inverse operation. See `flint-ltk/src/bin/split.rs` for the
- * details.
- */
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useModalStore, useNotificationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { Button, Input, Modal, ModalBody, ModalFooter, ModalHeader } from '../ui';
 
-/**
- * Single-BIN mode: right-click on one .bin file. The split runs against
- * just that file and writes to `<wad_root>/data/<defaultOutputName>`.
- */
 interface BinSplitSingleOptions {
     mode?: 'single';
     binPath: string;
     defaultOutputName: string;
 }
 
-/**
- * Folder mode: right-click on `data/` (or any folder containing BINs). The
- * modal scans the folder, unions class groups across every BIN, and the
- * split runs across all of them in one shot, writing to
- * `<wad_root>/data/<defaultOutputName>`. The owner BIN (the main skin BIN)
- * gets its `dependencies` list updated; the others just lose the moved
- * objects.
- */
 interface BinSplitFolderOptions {
     mode: 'folder';
     folderPath: string;
@@ -63,8 +36,6 @@ export const BinSplitModal: React.FC = () => {
     const [checkedClasses, setCheckedClasses] = useState<Set<string>>(new Set());
     const [busy, setBusy] = useState(false);
 
-    // Load analysis when modal opens. Single-mode = analyze one BIN; folder
-    // mode = walk the folder and union class groups across every BIN.
     useEffect(() => {
         if (!isVisible || !options) {
             setAnalysis(null);
@@ -118,7 +89,6 @@ export const BinSplitModal: React.FC = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isVisible, options]);
 
-    /** Whichever analysis is active — both share the same `groups` shape. */
     const groups = analysis?.groups ?? folderAnalysis?.groups ?? null;
     const totalObjects = analysis?.total_objects ?? folderAnalysis?.total_objects ?? 0;
 
@@ -173,7 +143,6 @@ export const BinSplitModal: React.FC = () => {
             return;
         }
 
-        // Collect every path_hash whose class group is checked.
         const hashes: string[] = [];
         for (const g of groups) {
             if (checkedClasses.has(g.class_hash)) hashes.push(...g.path_hashes);

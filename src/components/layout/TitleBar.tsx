@@ -1,7 +1,3 @@
-/**
- * Flint - Custom Title Bar Component with Integrated Tabs
- */
-
 import React, { useCallback, useState, useMemo, useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { save } from '@tauri-apps/plugin-dialog';
@@ -12,7 +8,6 @@ import * as api from '../../lib/api';
 import { sanitizeChampionName } from '../../lib/util/utils';
 import type { ProjectTab, ExtractSession } from '../../lib/types';
 
-// Window control icons as inline SVGs
 const MinimizeIcon: React.FC = () => (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
         <path d="M2 7H12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -59,7 +54,6 @@ const FlintLogo: React.FC = () => (
     </svg>
 );
 
-// Individual tab component
 interface TabProps {
     tab: ProjectTab;
     isActive: boolean;
@@ -78,7 +72,6 @@ const Tab: React.FC<TabProps> = ({ tab, isActive, onSwitch, onClose }) => {
         e.stopPropagation();
         if (closing) return;
         setClosing(true);
-        // Let the exit animation play before the parent removes us from state.
         setTimeout(() => onClose(e), TAB_CLOSE_MS);
     }, [onClose, closing]);
 
@@ -91,9 +84,6 @@ const Tab: React.FC<TabProps> = ({ tab, isActive, onSwitch, onClose }) => {
 
     const projectName = tab.project.display_name || tab.project.name;
 
-    // Cross-project file drops land here: the file tree's pointer-drag hit-tests
-    // `data-project-tab` and toggles `.titlebar__tab--drop-target` directly, then
-    // (after spring-loading into the project) lets the user drop into a folder.
     return (
         <div
             className={`titlebar__tab ${isActive ? 'titlebar__tab--active' : ''}${closing ? ' titlebar__tab--closing' : ''}`}
@@ -130,7 +120,6 @@ const Tab: React.FC<TabProps> = ({ tab, isActive, onSwitch, onClose }) => {
     );
 };
 
-// Extract Session Tab
 interface ExtractTabProps {
     session: ExtractSession;
     isActive: boolean;
@@ -227,7 +216,6 @@ export const TitleBar: React.FC = () => {
     const [closingWindow, setClosingWindow] = useState(false);
     const [wadExplorerClosing, setWadExplorerClosing] = useState(false);
 
-    // Get active tab
     const activeTab = useMemo(() => {
         if (!activeTabId) return null;
         return openTabs.find(t => t.id === activeTabId) || null;
@@ -253,8 +241,6 @@ export const TitleBar: React.FC = () => {
     };
 
     const handleClose = async () => {
-        // Tiny red-flash animation before the window actually goes away —
-        // catches the eye so closing feels intentional instead of jarring.
         setClosingWindow(true);
         await new Promise((r) => setTimeout(r, 160));
         try {
@@ -278,11 +264,6 @@ export const TitleBar: React.FC = () => {
         setDropdownOpen(prev => !prev);
     }, []);
 
-    // Resolve which launcher to sync to based on the user's preference, with
-    // graceful fallback if the preferred one isn't configured. Celestial is the
-    // priority launcher, so it wins the fallback when no explicit preference is
-    // set. `kind` drives which sync path runs (Celestial = deep-link import,
-    // LTK = fantome install).
     const launcherTarget = useMemo<{ name: string; path: string; kind: 'ltk' | 'celestial' } | null>(() => {
         if (preferredLauncher === 'celestial' && celestialModPath) return { name: 'Celestial', path: celestialModPath, kind: 'celestial' };
         if (preferredLauncher === 'ltk' && ltkManagerModPath) return { name: 'LTK Manager', path: ltkManagerModPath, kind: 'ltk' };
@@ -302,8 +283,6 @@ export const TitleBar: React.FC = () => {
 
         try {
             if (launcherTarget.kind === 'celestial') {
-                // Celestial reads the project folder directly — hand it the path
-                // via a deep link instead of packaging a fantome.
                 await api.syncProjectToCelestial(currentProjectPath);
                 showToast('success', 'Sent to Celestial — check its Creator Hub.');
             } else {
@@ -311,7 +290,6 @@ export const TitleBar: React.FC = () => {
                 showToast('success', `Synced to ${launcherTarget.name}! Mod ID: ${modId}`);
             }
 
-            // Auto-checkpoint after sync
             api.createCheckpoint(currentProjectPath, `Auto-checkpoint: Synced to ${launcherTarget.name}`).catch(e => {
                 console.warn('Auto-checkpoint failed:', e);
             });
@@ -325,7 +303,6 @@ export const TitleBar: React.FC = () => {
         }
     }, [currentProject, currentProjectPath, launcherTarget, showToast]);
 
-    // Direct export without modal - just opens save dialog
     const handleExportAs = useCallback(async (format: 'fantome' | 'modpkg') => {
         setDropdownOpen(false);
 
@@ -360,7 +337,6 @@ export const TitleBar: React.FC = () => {
 
             showToast('success', `Exported to ${result.path}`);
 
-            // Auto-checkpoint after export
             api.createCheckpoint(currentProjectPath, `Auto-checkpoint: Exported to ${format}`).catch(e => {
                 console.warn('Auto-checkpoint failed:', e);
             });
@@ -375,7 +351,6 @@ export const TitleBar: React.FC = () => {
     }, [currentProject, currentProjectPath, creatorName, showToast]);
 
 
-    // Close dropdown when clicking outside
     useEffect(() => {
         if (!dropdownOpen) return;
 
@@ -384,7 +359,6 @@ export const TitleBar: React.FC = () => {
         return () => document.removeEventListener('click', handleClickOutside);
     }, [dropdownOpen]);
 
-    // Tab handlers
     const handleSwitchTab = useCallback((tabId: string) => {
         useProjectTabStore.getState().switchTab(tabId);
         useNavigationStore.getState().setView('preview');
@@ -405,7 +379,6 @@ export const TitleBar: React.FC = () => {
         navigationCoordinator.closeExtractSessionWithFallback(sessionId);
     }, []);
 
-    // Determine active states
     const fileEditorTarget = useFileEditorStore((s) => s.target);
     const fileEditorDirty = useFileEditorStore((s) => s.dirty);
     const openConfirmDialog = useModalStore((s) => s.openConfirmDialog);
@@ -448,11 +421,9 @@ export const TitleBar: React.FC = () => {
                 </div>
             </div>
 
-            {/* Tabs Container - draggable when no tabs or between tabs */}
             <div className="titlebar__center" data-tauri-drag-region>
                 {hasTabs && (
                     <div className="titlebar__tabs">
-                        {/* WAD Explorer singleton tab */}
                         {isWadExplorerOpen && (
                             <div
                                 className={`titlebar__tab ${isWadExplorerActive ? 'titlebar__tab--active' : ''}${wadExplorerClosing ? ' titlebar__tab--closing' : ''}`}
@@ -485,7 +456,6 @@ export const TitleBar: React.FC = () => {
                             </div>
                         )}
 
-                        {/* File editor tab */}
                         {fileEditorTarget && (
                             <div
                                 className={`titlebar__tab ${isFileEditorActive ? 'titlebar__tab--active' : ''}`}
@@ -534,7 +504,6 @@ export const TitleBar: React.FC = () => {
             </div>
 
             <div className="titlebar__controls" data-tauri-drag-region="false">
-                {/* Map Textures modal opener — only for map projects. */}
                 {currentView === 'preview' && currentProject?.kind === 'map' && (
                     <button
                         style={psdBtnStyle(false)}
@@ -544,7 +513,6 @@ export const TitleBar: React.FC = () => {
                     >Map Textures</button>
                 )}
 
-                {/* Sync to Launcher button — visible when a project is open and any launcher is configured */}
                 {currentView === 'preview' && currentProject && launcherTarget && (
                     <button
                         className="titlebar__button titlebar__button--sync"
@@ -559,7 +527,6 @@ export const TitleBar: React.FC = () => {
                     </button>
                 )}
 
-                {/* Timeline button (only visible when a project is open) */}
                 {currentView === 'preview' && currentProject && (
                     <button
                         className="titlebar__button titlebar__button--timeline"
@@ -573,7 +540,6 @@ export const TitleBar: React.FC = () => {
                     </button>
                 )}
 
-                {/* Export dropdown (only visible when a project is open) */}
                 {currentView === 'preview' && currentProject && (
                     <div className="titlebar__dropdown" style={{ position: 'relative', display: 'inline-block' }}>
                         <button

@@ -211,13 +211,11 @@ mod tests {
     #[test]
     fn round_trips_each_type() {
         let mut f = InibinFile::new();
-        // Already-covered variants
         f.add_value(0x0000_0001, InibinValue::I32(-42), InibinFlags::Int32List);
         f.add_value(0x0000_0002, InibinValue::F32(3.5), InibinFlags::Float32List);
         f.add_value(0x0000_0003, InibinValue::Bool(true), InibinFlags::BitList);
         f.add_value(0x0000_0004, InibinValue::String("a \"b\" c".into()), InibinFlags::StringList);
         f.add_value(0x0000_0005, InibinValue::F32Vec3([1.0, 2.0, 3.0]), InibinFlags::Float32ListVec3);
-        // 8 previously-missing variants
         f.add_value(0x0000_0006, InibinValue::FixedPointFloat(2.5), InibinFlags::FixedPointFloatList);
         f.add_value(0x0000_0007, InibinValue::I16(-300), InibinFlags::Int16List);
         f.add_value(0x0000_0008, InibinValue::U8(200), InibinFlags::Int8List);

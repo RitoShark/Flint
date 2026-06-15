@@ -1,14 +1,3 @@
-/**
- * Flint - MapPreview
- * 3D preview of a map project's mapgeo, with textures auto-connected from the
- * materials bin and live reload. Rendered inside the separate map-preview window.
- *
- * Adapted from ModelPreview.tsx: engine created once + scene mutated on reload
- * (never recreate the WebGL context), render loop wrapped in try/catch, unlit
- * PBRMaterial (the correct League look), camera framing with a degenerate-box
- * guard, per-submesh meshes via the meshBuilder contract, lazy RawTexture
- * loading + cache, and live reload off the existing `file-changed` watcher event.
- */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { Engine } from '@babylonjs/core/Engines/engine';
@@ -22,8 +11,6 @@ import { RawTexture } from '@babylonjs/core/Materials/Textures/rawTexture';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import { Vector3, Color3, Color4 } from '@babylonjs/core/Maths/math';
 import { PointerEventTypes } from '@babylonjs/core/Events/pointerEvents';
-// Side-effect import: scene.pick() silently no-ops ("Ray needs to be imported
-// before…") unless the Ray module is registered. Required for hover/click picking.
 import '@babylonjs/core/Culling/ray';
 
 import * as api from '../../lib/api';
@@ -46,7 +33,6 @@ interface MapPreviewProps {
     projectPath: string;
 }
 
-/** Tiny localStorage persistence (JSON), namespaced under "flint.mappreview". */
 function loadPref<T>(key: string, fallback: T): T {
     try {
         const raw = localStorage.getItem(`flint.mappreview.${key}`);
@@ -61,10 +47,8 @@ function savePref(key: string, value: unknown): void {
 interface CamSpeed { rotate: number; pan: number; zoom: number; }
 const CAM_DEFAULTS: CamSpeed = { rotate: 1500, pan: 15, zoom: 0.04 };
 
-/** A saved brush preset. */
 interface BrushPreset { name: string; brush: paint.Brush; size: number; }
 
-/** RGB[0..255] → #rrggbb (clamped to valid bytes so the color input renders). */
 function rgbToHex(c: [number, number, number]): string {
     const h = (v: number) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
     return `#${h(c[0])}${h(c[1])}${h(c[2])}`;
@@ -73,12 +57,11 @@ function hexToRgb(hex: string): [number, number, number] {
     return [parseInt(hex.slice(1, 3), 16) || 0, parseInt(hex.slice(3, 5), 16) || 0, parseInt(hex.slice(5, 7), 16) || 0];
 }
 
-/** What hover/click resolves a piece of geometry to. */
 interface IdentifyInfo {
-    meshName: string;           // the merged-mesh name (key for show/hide)
+    meshName: string;
     materialName: string;
-    textureFile: string;        // basename for the status bar
-    texturePath: string | null; // full bin path
+    textureFile: string;
+    texturePath: string | null;
     variants: MapVariant[];
     baronStage: BaronStage | null;
     layer: number;
@@ -93,14 +76,10 @@ const badge: React.CSSProperties = {
     background: 'rgba(0,0,0,0.4)', padding: '2px 8px', borderRadius: 4, pointerEvents: 'none',
 };
 
-/** Makes a floating panel draggable by its header. Returns a style override to
- *  spread onto the panel root and an onMouseDown to put on the header. While
- *  dragging (pos != null) it overrides the panel's default top/left. */
 function useDraggable() {
     const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
     const drag = useRef<{ dx: number; dy: number } | null>(null);
     const onHeaderMouseDown = useCallback((e: React.MouseEvent) => {
-        // Ignore drags that start on a button (e.g. the × close).
         if ((e.target as HTMLElement).closest('button')) return;
         const panel = (e.currentTarget as HTMLElement).parentElement;
         if (!panel) return;
@@ -115,7 +94,6 @@ function useDraggable() {
         window.addEventListener('mouseup', onUp);
         e.preventDefault();
     }, []);
-    // When dragged, pin to left/top and clear any right/bottom anchoring.
     const dragStyle: React.CSSProperties = pos
         ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' }
         : {};
@@ -123,7 +101,6 @@ function useDraggable() {
 }
 
 export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
-    // Draggable floating panels (move them out of each other's way).
     const paintDrag = useDraggable();
     const cardDrag = useDraggable();
     const camDrag = useDraggable();
@@ -134,25 +111,15 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     const meshesRef = useRef<Mesh[]>([]);
     const builtRef = useRef<BuiltMapMesh[]>([]);
     const texCacheRef = useRef<Map<string, RawTexture>>(new Map());
-    // Mutable paint buffers per texture path: the live RGBA backing each
-    // RawTexture, so the paint brush can mutate pixels and update() in place.
     const paintBufRef = useRef<Map<string, { tex: RawTexture; rgba: Uint8Array; orig: Uint8Array; w: number; h: number }>>(new Map());
     const dataRef = useRef<api.MapPreviewData | null>(null);
     const meshByBabylonRef = useRef<Map<Mesh, BuiltMapMesh>>(new Map());
-    // The mesh currently shown with a hover tint, and its original emissive so we
-    // can restore it. (Emissive tint avoids HighlightLayer's bloom on the huge map.)
     const hoverTintRef = useRef<{ mesh: Mesh; prev: Color3 } | null>(null);
-    // Build serialization: a monotonically increasing generation. Each buildScene
-    // bumps it; any async step that finds the generation changed bails out. This
-    // prevents two concurrent builds (StrictMode double-mount, rapid project
-    // switch) from racing and corrupting the engine (the "no buffer bound" /
-    // "bindSamplers null" errors that left the window blank ~half the time).
     const buildGenRef = useRef(0);
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [status, setStatus] = useState('');
-    // Save progress: {done, total} while saving painted textures, else null.
     const [saveProgress, setSaveProgress] = useState<{ done: number; total: number } | null>(null);
     const [hoverInfo, setHoverInfo] = useState<IdentifyInfo | null>(null);
     const [pinnedInfo, setPinnedInfo] = useState<IdentifyInfo | null>(null);
@@ -160,52 +127,38 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     const [showUv, setShowUv] = useState(false);
     const [uvTris, setUvTris] = useState<Float32Array | null>(null);
     const [highlightOn, setHighlightOn] = useState(() => loadPref('highlightOn', true));
-    // Mirror highlightOn into a ref so the render-loop pick handler reads the
-    // current value without being re-created.
     const highlightOnRef = useRef(highlightOn);
 
-    // Camera speed (persisted; sliders below). Sensibilities are divisors.
     const [camSpeed, setCamSpeed] = useState<CamSpeed>(() => loadPref('camSpeed', CAM_DEFAULTS));
     const camSpeedRef = useRef(camSpeed);
     const [showCamPanel, setShowCamPanel] = useState(false);
 
-    // Brush presets (persisted).
     const [presets, setPresets] = useState<BrushPreset[]>(() => loadPref('brushPresets', [] as BrushPreset[]));
     useEffect(() => { savePref('brushPresets', presets); }, [presets]);
 
     // ── Paint mode ────────────────────────────────────────────────────────────
     const [paintMode, setPaintMode] = useState(false);
     const [brush, setBrush] = useState<paint.Brush>({
-        // Dodge with a MID-tone color lightens gently; a near-white color slams
-        // to pure white (that's how Dodge works). Default to a soft warm gray.
         mode: 'Dodge', color: [120, 110, 80], opacity: 0.7, flow: 0.4, hardness: 0.3,
     });
-    const [brushSize, setBrushSize] = useState(40); // brush radius in SCREEN px
+    const [brushSize, setBrushSize] = useState(40);
     const [eyedrop, setEyedrop] = useState(false);
     const [eraser, setEraser] = useState(false);
     const eraserRef = useRef(false);
     useEffect(() => { eraserRef.current = eraser; }, [eraser]);
-    // When ON, a stroke paints ONLY the mesh/texture under the cursor — so the
-    // brush circle overlapping a different mesh (e.g. ground while painting a
-    // wall) won't paint that other mesh. OFF = paint every texture under the brush.
     const [onlyThisMesh, setOnlyThisMesh] = useState(true);
     const onlyThisMeshRef = useRef(true);
     useEffect(() => { onlyThisMeshRef.current = onlyThisMesh; }, [onlyThisMesh]);
     const [painting, setPainting] = useState(false);
-    // Brush cursor (Blender-style ring) position over the canvas, in CSS px.
     const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
     const cursorPosRef = useRef<{ x: number; y: number } | null>(null);
-    // Refs so the pointer handler (added once) reads live values.
     const paintModeRef = useRef(false);
     const brushRef = useRef(brush);
     const brushSizeRef = useRef(brushSize);
     const eyedropRef = useRef(false);
     const dirtyTexRef = useRef<Set<string>>(new Set());
-    const uvPassRef = useRef<UvPass | null>(null); // GPU "UV under pixel" pass (lazy)
-    // Undo: per-stroke "before" snapshots (texPath -> rgba copy). strokeSnapRef
-    // collects the before-state of each texture touched in the current stroke.
+    const uvPassRef = useRef<UvPass | null>(null);
     const strokeSnapRef = useRef<Map<string, Uint8Array>>(new Map());
-    // Per-stroke coverage mask per texture (reset each pointer-down).
     const strokeMaskRef = useRef<Map<string, Float32Array>>(new Map());
     const undoStackRef = useRef<Array<Map<string, Uint8Array>>>([]);
     const redoStackRef = useRef<Array<Map<string, Uint8Array>>>([]);
@@ -216,7 +169,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     useEffect(() => { brushSizeRef.current = brushSize; }, [brushSize]);
     useEffect(() => { eyedropRef.current = eyedrop; }, [eyedrop]);
 
-    // span -> IdentifyInfo
     const spanToInfo = useCallback((built: BuiltMapMesh, span: SubmeshSpan): IdentifyInfo => {
         const file = (span.texturePath ?? span.name).split(/[\\/]/).pop() ?? span.name;
         return {
@@ -230,19 +182,14 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         };
     }, []);
 
-    // Visibility UI. Exactly ONE elemental theme is active at a time (like the
-    // live game): 'Base' shows the static map; an element swaps in its pieces and
-    // hides the Base pieces they replace. `hiddenMeshes` is per-mesh manual hide.
     const [built, setBuilt] = useState<BuiltMapMesh[]>([]);
     const [activeVariant, setActiveVariant] = useState<MapVariant>('Base');
     const [baronStage, setBaronStage] = useState<BaronStage>('Default');
-    const [hiddenMeshes, setHiddenMeshes] = useState<Set<string>>(new Set()); // by mesh.name
+    const [hiddenMeshes, setHiddenMeshes] = useState<Set<string>>(new Set());
     const [showPanel, setShowPanel] = useState(false);
     const [meshSearch, setMeshSearch] = useState('');
 
     // ── Apply (or reuse cached) texture to a material ────────────────────────
-    // Load ONE unique texture (decode in Rust → RawTexture) and apply it to all
-    // materials waiting on that path. Called by the throttled loader below.
     const loadAndApply = useCallback(async (texPath: string, mats: PBRMaterial[]) => {
         const scene = sceneRef.current;
         if (!scene) return;
@@ -250,21 +197,14 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             let tex = texCacheRef.current.get(texPath);
             if (!tex) {
                 const { width, height, rgba } = await api.loadMapTexture(projectPath, texPath);
-                // Re-validate AFTER the await: the engine/scene must still be
-                // alive and not disposed, or RawTexture upload hits a null GL
-                // program ("bindSamplers reading 'program'") and can blank the
-                // whole window. This is the boot-validation guard.
                 const sc = sceneRef.current;
                 const eng = engineRef.current;
                 if (!sc || sc.isDisposed || !eng || eng.isDisposed) return;
-                // invertY=true matches the V-flip meshBuilder applies to UVs.
                 tex = RawTexture.CreateRGBATexture(rgba, width, height, sc, false, true);
                 tex.wrapU = Texture.WRAP_ADDRESSMODE;
                 tex.wrapV = Texture.WRAP_ADDRESSMODE;
-                tex.hasAlpha = true; // sample alpha for cutouts (see below)
+                tex.hasAlpha = true;
                 texCacheRef.current.set(texPath, tex);
-                // Keep a mutable copy for painting + a pristine copy (`orig`) so
-                // the eraser can restore toward the original texture.
                 paintBufRef.current.set(texPath, {
                     tex,
                     rgba: new Uint8Array(rgba),
@@ -276,10 +216,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             for (const mat of mats) {
                 mat.albedoTexture = tex;
                 mat.albedoColor = new Color3(1, 1, 1);
-                // Alpha-test ALL materials. Verified safe: no map texture is
-                // uniformly zero-alpha, so opaque surfaces (alpha=255) pass the
-                // cutoff and render normally, while real cutouts (decals, brush,
-                // water lily) get clipped. cutoff=0.5 is a hard 1-bit cutout.
                 mat.useAlphaFromAlbedoTexture = true;
                 mat.transparencyMode = Material.MATERIAL_ALPHATEST;
                 mat.alphaCutOff = 0.5;
@@ -287,34 +223,25 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             }
         } catch (e) {
             console.error('[map-tex] failed', texPath, e);
-            for (const mat of mats) mat.albedoColor = new Color3(1, 0, 1); // magenta: missing
+            for (const mat of mats) mat.albedoColor = new Color3(1, 0, 1);
         }
     }, [projectPath]);
 
-    // Re-apply a single already-known texture path (used by live reload).
     const applyTexture = useCallback(async (mat: PBRMaterial, texPath: string) => {
         await loadAndApply(texPath, [mat]);
     }, [loadAndApply]);
 
     // ── Visibility model ─────────────────────────────────────────────────────
-    // One elemental theme active at a time. layerVisibleForVariant shows shared
-    // (0xff) + default (0x01) + the active element's pieces. Then a REPLACEMENT
-    // pass hides the default (0x01) pieces that the active element overrides at
-    // the same spot (default dragon pit hides when the elemental pit shows),
-    // matched by replacement key (name minus element token).
     const applyVisibility = useCallback(
         (active: MapVariant, stage: BaronStage, hiddenM: Set<string>) => {
             const VARIANT_BIT: Record<string, number> = {
                 Infernal: 0x02, Mountain: 0x04, Ocean: 0x08,
                 Cloud: 0x10, Hextech: 0x20, Chemtech: 0x40,
             };
-            // Replacement keys owned by the ACTIVE element's pieces.
             const replacedKeys = new Set<string>();
             if (active !== 'Base') {
                 const bit = VARIANT_BIT[active];
                 for (const b of builtRef.current) {
-                    // An element-specific piece for the active theme (its bit set,
-                    // and NOT plain default/shared) defines a spot it replaces.
                     if (b.layer !== 0xff && (b.layer & 0x01) === 0 && (b.layer & bit) !== 0) {
                         for (const k of b.replaceKeys) replacedKeys.add(k);
                     }
@@ -322,11 +249,9 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             }
             for (const b of builtRef.current) {
                 let visible = layerVisibleForVariant(b.layer, active);
-                // Hide a default (0x01) piece if the active element replaces its spot.
                 if (visible && active !== 'Base' && b.layer !== 0xff && (b.layer & 0x01) !== 0) {
                     if (b.replaceKeys.some(k => replacedKeys.has(k))) visible = false;
                 }
-                // Baron stage axis: a staged Baron piece shows only for its stage.
                 if (b.baronStage && b.baronStage !== stage) visible = false;
                 if (hiddenM.has(b.mesh.name)) visible = false;
                 b.mesh.setEnabled(visible);
@@ -339,25 +264,18 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     const buildScene = useCallback(async () => {
         const scene = sceneRef.current, camera = cameraRef.current;
         if (!scene || !camera) return;
-        // New build generation; supersedes any in-flight build.
         const gen = ++buildGenRef.current;
         setLoading(true); setError(null);
         try {
             const data = await api.loadMapPreview(projectPath);
-            // Bail if a newer build started or the scene was torn down meanwhile.
             if (gen !== buildGenRef.current || !sceneRef.current) return;
             dataRef.current = data;
 
-            // Tear down old meshes + materials (texture cache survives; keyed by path).
-            // Drop the hover-tint ref so it can't touch a disposed mesh.
             hoverTintRef.current = null;
             setHoverInfo(null);
             meshesRef.current.forEach(m => { m.material?.dispose(); m.dispose(); });
             meshesRef.current = [];
 
-            // Build MERGED meshes — one per (variant, texture) (~180), not one
-            // per submesh (~600). Building 600 meshes spiked memory to multiple
-            // GB and froze the window; merging fixes that at the source.
             const builtMeshes = buildMapMeshes(
                 {
                     positions: data.positions,
@@ -373,14 +291,11 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             meshByBabylonRef.current = new Map(builtMeshes.map(b => [b.mesh, b]));
             setBuilt(builtMeshes);
 
-            // Default to the Base theme + Default Baron stage, via the single
-            // visibility path (so the base map = shared + default geometry).
             setActiveVariant('Base');
             setBaronStage('Default');
             setHiddenMeshes(new Set());
             applyVisibility('Base', 'Default', new Set());
 
-            // Camera framing with degenerate-box guard (mirrors ModelPreview).
             let [[minX, minY, minZ], [maxX, maxY, maxZ]] = data.bounding_box;
             const ok = [minX, minY, minZ, maxX, maxY, maxZ].every(Number.isFinite)
                 && maxX >= minX && maxY >= minY && maxZ >= minZ;
@@ -391,24 +306,15 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             camera.radius = size * 1.5;
             camera.lowerRadiusLimit = size * 0.05;
             camera.upperRadiusLimit = size * 10;
-            // Camera feel — from the user's saved speed prefs (sliders). In
-            // Babylon 9, RIGHT-drag = PAN, LEFT-drag = ROTATE; both sensibilities
-            // are DIVISORS (higher = slower).
             const cs = camSpeedRef.current;
             camera.panningSensibility = cs.pan;
             camera.angularSensibilityX = cs.rotate;
             camera.angularSensibilityY = cs.rotate;
             camera.wheelDeltaPercentage = cs.zoom;
             camera.inertia = 0.7;
-            // Extend ONLY the far plane so the whole map fits in the frustum at
-            // radius = size*1.5. Keep the near plane SMALL (a large minZ clips the
-            // whole view to black — that was the regression). Default minZ is 1.
             camera.minZ = 1;
             camera.maxZ = Math.max(size * 8, 10000);
 
-            // One material per merged mesh. Each mesh maps 1:1 to a texture path
-            // (or null = no material entry). Group materials by texture so each
-            // texture is decoded once and applied to its mesh(es).
             const byTexture = new Map<string, PBRMaterial[]>();
             for (const { mesh, texturePath } of builtMeshes) {
                 const mat = new PBRMaterial(mesh.name + '_mat', scene);
@@ -417,11 +323,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 mat.roughness = 1;
                 mat.environmentIntensity = 0;
                 mat.backFaceCulling = false;
-                // Neutral grey by default. Submeshes whose material has no
-                // resolvable diffuse texture (e.g. effect/prototype materials
-                // like FaeLights) stay grey — that's expected, not an error.
-                // Magenta is reserved for a texture that WAS found but failed to
-                // decode (set in loadAndApply's catch).
                 mat.albedoColor = new Color3(0.5, 0.5, 0.5);
                 mesh.material = mat;
                 if (texturePath) {
@@ -435,12 +336,8 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             setStatus(
                 `${data.variant} · ${builtMeshes.length} meshes · loading 0/${uniqueTextures.length} textures`,
             );
-            setLoading(false); // geometry is up; textures stream in below
+            setLoading(false);
 
-            // Throttled texture loading: at most CONCURRENCY decodes in flight.
-            // This is the fix for the 6 GB / freeze — previously every submesh
-            // fired a load_map_texture IPC call at once, decoding hundreds of
-            // multi-MB textures to raw RGBA simultaneously.
             const CONCURRENCY = 4;
             let next = 0;
             let done = 0;
@@ -448,7 +345,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 while (true) {
                     const i = next++;
                     if (i >= uniqueTextures.length) break;
-                    // Stop uploading if this build was superseded or scene gone.
                     if (gen !== buildGenRef.current || !sceneRef.current) break;
                     const [texPath, mats] = uniqueTextures[i];
                     await loadAndApply(texPath, mats);
@@ -472,7 +368,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         }
     }, [projectPath, loadAndApply, applyVisibility]);
 
-    // ── Reload a single changed texture by filename match ────────────────────
     const reloadChangedTexture = useCallback(async (changedLowerPath: string) => {
         const base = changedLowerPath.split(/[\\/]/).pop() || '';
         if (!base) return;
@@ -518,8 +413,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
 
         const camera = new ArcRotateCamera('cam', Math.PI / 2, Math.PI / 3, 1000, Vector3.Zero(), scene);
         camera.attachControl(canvas, true);
-        // Speed from saved prefs (user-tunable via sliders). RIGHT-drag = pan,
-        // LEFT-drag = rotate; sensibilities are DIVISORS (higher = slower).
         {
             const cs = camSpeedRef.current;
             camera.angularSensibilityX = cs.rotate;
@@ -530,7 +423,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         camera.inertia = 0.7;
         cameraRef.current = camera;
 
-        // GPU UV-paint pass (renders "UV under each pixel" for projection paint).
         uvPassRef.current = createUvPass(scene);
 
         const light = new HemisphericLight('ambient', new Vector3(0, 1, 0), scene);
@@ -540,26 +432,16 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         const handleContextMenu = (e: MouseEvent) => e.preventDefault();
         canvas.addEventListener('contextmenu', handleContextMenu);
 
-        // Hover/click identify. IMPORTANT for perf: pointer-move fires far more
-        // often than frames; running scene.pick() per move (a ray-cast vs ~180
-        // meshes) floods and lags on fast movement. Instead, POINTERMOVE only
-        // marks "dirty" + records the cursor; the render loop does at most ONE
-        // pick per frame. Click resolves immediately (rare).
         let hoverDirty = false;
         let lastHoverMesh: Mesh | null = null;
         let lastHoverKey = '';
         let paintDown = false;
 
-        // GPU projection paint at a screen point. Render a UV pass (the visible
-        // surface's UV as color, occlusion handled by the GPU depth test), read
-        // back the brush region, and paint each covered UV into its texture. A
-        // round brush on screen = a round mark on the model, no UV scatter.
         const paintScreenAt = (px: number, py: number) => {
             const pick = scene.pick(px, py);
             if (!pick?.hit || !pick.pickedMesh) return;
             const pickedBuilt = meshByBabylonRef.current.get(pick.pickedMesh as Mesh);
 
-            // Eyedropper: sample the texel under the cursor.
             if (eyedropRef.current) {
                 const uv = pick.getTextureCoordinates?.();
                 const eEntry = pickedBuilt?.texturePath ? paintBufRef.current.get(pickedBuilt.texturePath) : undefined;
@@ -573,7 +455,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 return;
             }
 
-            const radiusPx = brushSizeRef.current; // brush radius in RENDER px
+            const radiusPx = brushSizeRef.current;
             const b = brushRef.current;
             const hsl = engine.getHardwareScalingLevel();
             const rpx = px / hsl, rpy = py / hsl, rRad = radiusPx / hsl;
@@ -585,10 +467,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             }
             if (!pass) return;
 
-            // Group paintable meshes by texture. "Only this mesh" (default)
-            // restricts to the texture under the cursor, so the brush circle
-            // overlapping a different mesh (e.g. ground while painting a wall)
-            // does NOT paint that other mesh. Off = every texture under the brush.
             const onlyTex = onlyThisMeshRef.current ? pickedBuilt?.texturePath ?? null : null;
             const texPaths: string[] = [];
             const texIndex = new Map<string, number>();
@@ -596,7 +474,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             for (const bm of builtRef.current) {
                 if (!bm.texturePath || bm.mesh.isDisposed() || !bm.mesh.isEnabled()) continue;
                 if (!paintBufRef.current.has(bm.texturePath)) continue;
-                if (onlyTex && bm.texturePath !== onlyTex) continue; // clip to picked texture
+                if (onlyTex && bm.texturePath !== onlyTex) continue;
                 let id = texIndex.get(bm.texturePath);
                 if (id === undefined) {
                     id = texPaths.length; texPaths.push(bm.texturePath); texIndex.set(bm.texturePath, id);
@@ -616,7 +494,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             const region = pass.read(x0, y0, rw, rh);
             if (!region) return;
 
-            // Decode a read pixel → {texPath, texelX, texelY} or null (no surface).
             const decode = (rx: number, ry: number) => {
                 if (rx < 0 || rx >= rw || ry < 0 || ry >= rh) return null;
                 const o = (ry * rw + rx) * 4;
@@ -645,15 +522,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                     }
                     let mask = strokeMaskRef.current.get(texPath);
                     if (!mask) { mask = new Float32Array(entry.w * entry.h); strokeMaskRef.current.set(texPath, mask); }
-                    // Dab radius = texel gap to the right/down neighbor on the
-                    // SAME surface, so coverage is solid (no stipple). CRITICAL:
-                    // ignore neighbors across a UV SEAM — adjacent screen pixels
-                    // can land on different UV islands (different trees packed in
-                    // the atlas); using that jump as the span makes a giant dab
-                    // that bleeds paint into neighboring islands (other trees lit
-                    // up). A real same-surface gradient is only a few texels, so
-                    // cap the span low and drop large jumps.
-                    const SEAM = 24; // texels: gaps bigger than this are seams
+                    const SEAM = 24;
                     const right = decode(rx + 1, ry), down = decode(rx, ry + 1);
                     let span = 1.5;
                     if (right && right.texPath === texPath) {
@@ -674,7 +543,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 const mask = strokeMaskRef.current.get(texPath)!;
                 const base0 = strokeSnapRef.current.get(texPath)!;
                 if (eraserRef.current) {
-                    // Eraser: restore toward the pristine original texture.
                     paint.compositeErase(entry.rgba, base0, entry.orig, mask, entry.w, entry.h);
                 } else {
                     paint.compositeMask(entry.rgba, base0, mask, entry.w, entry.h, b.mode, b.color);
@@ -684,7 +552,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             }
         };
 
-        // Paint along the stroke from the last screen point to the current one.
         const lastScreenRef = { x: 0, y: 0, has: false };
         const paintAtCursor = () => {
             const px = scene.pointerX, py = scene.pointerY;
@@ -696,19 +563,16 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             }
             lastScreenRef.x = px; lastScreenRef.y = py;
         };
-        // Reset stroke continuity on each new press (set in POINTERDOWN below).
         const resetStroke = () => { lastScreenRef.has = false; };
 
         scene.onPointerObservable.add((pi) => {
-            // Paint mode owns the pointer: brush on down + drag, no hover/identify.
             if (paintModeRef.current) {
-                // Ring follows the SAME coords paint uses.
                 cursorPosRef.current = { x: scene.pointerX, y: scene.pointerY };
                 if (pi.type === PointerEventTypes.POINTERDOWN) {
                     paintDown = true;
                     resetStroke();
                     strokeSnapRef.current = new Map();
-                    strokeMaskRef.current = new Map(); // fresh coverage per stroke
+                    strokeMaskRef.current = new Map();
                     setPainting(true);
                     paintAtCursor();
                 } else if (pi.type === PointerEventTypes.POINTERMOVE) {
@@ -717,7 +581,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                     paintDown = false;
                     resetStroke();
                     setPainting(false);
-                    // Commit the stroke's before-snapshot to the undo stack.
                     if (strokeSnapRef.current.size) {
                         undoStackRef.current.push(strokeSnapRef.current);
                         if (undoStackRef.current.length > 30) undoStackRef.current.shift();
@@ -742,30 +605,26 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             }
         });
 
-        // One hover-pick per frame, only when the pointer moved since last frame.
         const pickHover = () => {
-            if (paintModeRef.current) return; // paint mode owns the pointer
+            if (paintModeRef.current) return;
             if (!hoverDirty) return;
             hoverDirty = false;
             const pick = scene.pick(scene.pointerX, scene.pointerY);
             const mesh = (pick?.hit && pick.pickedMesh) ? (pick.pickedMesh as Mesh) : null;
             const built = mesh ? meshByBabylonRef.current.get(mesh) : undefined;
 
-            // Subtle emissive tint on the hovered mesh; toggle only on change.
             if (mesh !== lastHoverMesh) {
-                // Restore the previously-tinted mesh.
                 const prev = hoverTintRef.current;
                 if (prev && !prev.mesh.isDisposed()) {
                     const m = prev.mesh.material as PBRMaterial | null;
                     if (m) m.emissiveColor = prev.prev;
                 }
                 hoverTintRef.current = null;
-                // Tint the new one (unless the user disabled the highlight).
                 if (mesh && built && highlightOnRef.current) {
                     const m = mesh.material as PBRMaterial | null;
                     if (m) {
                         hoverTintRef.current = { mesh, prev: m.emissiveColor.clone() };
-                        m.emissiveColor = new Color3(0.35, 0.28, 0.05); // soft gold
+                        m.emissiveColor = new Color3(0.35, 0.28, 0.05);
                     }
                 }
                 lastHoverMesh = mesh && built ? mesh : null;
@@ -790,12 +649,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         const onResize = () => engine.resize();
         window.addEventListener('resize', onResize);
 
-        // First-open black-screen fix: when this window is freshly created the
-        // WebView lays out the canvas AFTER React mounts, so the engine's first
-        // backbuffer can be 0×0 and renders nothing until a manual reload (Ctrl+R).
-        // A ResizeObserver re-sizes the engine the moment the canvas gets real
-        // dimensions; the rAF calls cover the initial layout before the observer
-        // attaches.
         const ro = new ResizeObserver(() => engine.resize());
         ro.observe(canvas);
         requestAnimationFrame(() => {
@@ -822,8 +675,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         };
     }, []);
 
-    // Paint mode owns the pointer: detach camera control so left-drag paints
-    // instead of rotating. Re-attach when leaving paint mode.
     useEffect(() => {
         const cam = cameraRef.current;
         const canvas = canvasRef.current;
@@ -832,9 +683,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         else cam.attachControl(canvas, true);
     }, [paintMode]);
 
-    // Track the cursor for the brush ring using the SAME coordinate space as
-    // painting (scene.pointerX/Y, CSS px), so the ring and the paint always
-    // agree. Polled from the render loop via cursorPosRef → state.
     useEffect(() => {
         if (!paintMode) { setCursorPos(null); return; }
         const id = setInterval(() => {
@@ -844,14 +692,12 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         return () => clearInterval(id);
     }, [paintMode]);
 
-    // Swap current buffers with a snapshot map, returning the REPLACED state (for
-    // the opposite stack). Updates the live RawTextures + dirty set.
     const swapSnapshot = useCallback((snap: Map<string, Uint8Array>): Map<string, Uint8Array> => {
         const replaced = new Map<string, Uint8Array>();
         for (const [texPath, before] of snap) {
             const entry = paintBufRef.current.get(texPath);
             if (!entry) continue;
-            replaced.set(texPath, new Uint8Array(entry.rgba)); // current -> opposite stack
+            replaced.set(texPath, new Uint8Array(entry.rgba));
             entry.rgba.set(before);
             entry.tex.update(entry.rgba);
             dirtyTexRef.current.add(texPath);
@@ -875,7 +721,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         setCanUndo(true);
     }, [swapSnapshot]);
 
-    // Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) while in paint mode.
     useEffect(() => {
         if (!paintMode) return;
         const onKey = (e: KeyboardEvent) => {
@@ -888,10 +733,9 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         return () => window.removeEventListener('keydown', onKey);
     }, [paintMode, handleUndo, handleRedo]);
 
-    // Save all painted textures: edge-dilate then write each dirty .tex.
     const handleSavePaint = useCallback(async () => {
         const dirty = Array.from(dirtyTexRef.current);
-        if (!dirty.length || saveProgress) return; // guard re-entry while saving
+        if (!dirty.length || saveProgress) return;
         let written = 0; const errors: string[] = [];
         setSaveProgress({ done: 0, total: dirty.length });
         try {
@@ -909,7 +753,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                     }
                 }
                 setSaveProgress({ done: i + 1, total: dirty.length });
-                // Yield so the progress bar repaints between textures.
                 await new Promise(r => requestAnimationFrame(() => r(null)));
             }
         } finally {
@@ -921,14 +764,12 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             (errors.length ? `, ${errors.length} error(s)` : ''));
     }, [projectPath, saveProgress]);
 
-    // Initial build + rebuild whenever the project changes.
     useEffect(() => { void buildScene(); }, [buildScene]);
 
-    // Resolve the pinned texture's real on-disk path (for Copy / Open in editor).
     useEffect(() => {
         let cancelled = false;
         setPinnedTexPath(null);
-        setShowUv(false); // collapse UV view when switching meshes
+        setShowUv(false);
         if (pinnedInfo?.texturePath) {
             api.resolveMapTexturePath(projectPath, pinnedInfo.texturePath)
                 .then(p => { if (!cancelled) setPinnedTexPath(p); })
@@ -937,9 +778,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         return () => { cancelled = true; };
     }, [pinnedInfo, projectPath]);
 
-    // Compute the clicked mesh's triangle UVs (flat u0,v0,u1,v1,u2,v2 …) when the
-    // UV view is opened. Reads the mesh's source-submesh index ranges from the
-    // builder spans and looks up each vertex's UV in the global pool.
     useEffect(() => {
         if (!showUv || !pinnedInfo) { setUvTris(null); return; }
         const data = dataRef.current;
@@ -961,7 +799,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         setUvTris(new Float32Array(out));
     }, [showUv, pinnedInfo]);
 
-    // Keep the render-loop ref in sync; when turned off, clear the active tint.
     useEffect(() => {
         highlightOnRef.current = highlightOn;
         savePref('highlightOn', highlightOn);
@@ -975,7 +812,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         }
     }, [highlightOn]);
 
-    // Apply + persist camera speed live (sliders below).
     useEffect(() => {
         camSpeedRef.current = camSpeed;
         savePref('camSpeed', camSpeed);
@@ -992,7 +828,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     useEffect(() => {
         let unlisten: (() => void) | undefined;
         let debounce: ReturnType<typeof setTimeout> | undefined;
-        // The Rust preview watcher emits "file-changed" for anything under content/.
         void api.startPreviewWatcher(projectPath).catch(() => {});
         listen<{ path: string; kind: string }>('file-changed', (ev) => {
             const p = ev.payload.path.toLowerCase();
@@ -1008,23 +843,16 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         return () => { if (debounce) clearTimeout(debounce); unlisten?.(); };
     }, [projectPath, buildScene, reloadChangedTexture]);
 
-    // Variants actually present in this map, in canonical order. A variant is
-    // "present" if any mesh participates in it (excluding shared-only, which is
-    // always Base).
     const presentVariants = MAP_VARIANTS.filter(
         v => v === 'Base' || built.some(b => b.variants.includes(v)),
     );
-    // Show the Baron-stage selector only if this map has staged Baron geometry.
     const hasBaronStages = built.some(b => b.baronStage !== null);
-    // Meshes for the flat list, with a friendly label and a primary variant tag
-    // (the most specific variant the mesh belongs to, for display).
     const meshRows = [...built]
         .map(b => {
             const tex = b.texturePath ?? '';
             const label = tex
                 ? tex.split(/[\\/]/).pop()!.replace(/\.(tex|dds)$/i, '')
                 : b.mesh.name.replace(/^[^:]+::__notex__/, '');
-            // Primary tag: the elemental variant if any, else Base.
             const primary = b.variants.find(v => v !== 'Base') ?? 'Base';
             return { name: b.mesh.name, layer: b.layer, variants: b.variants, primary, label, hasTex: !!b.texturePath };
         })
@@ -1040,9 +868,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                          cursor: paintMode ? 'none' : 'default' }}
             />
 
-            {/* Brush ring cursor (Blender-style) — size, position + actual color.
-                Ring border = the color you'll paint with (cyan=eyedrop, red=erase);
-                a translucent fill of the same color previews the paint. */}
             {paintMode && cursorPos && (() => {
                 const ringColor = eyedrop ? '#5cf' : eraser ? '#f88'
                     : `rgb(${brush.color[0]},${brush.color[1]},${brush.color[2]})`;
@@ -1065,7 +890,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 );
             })()}
 
-            {/* Layers button (top-right) */}
             {!loading && !error && (
                 <button
                     style={{ ...iconBtn, ...(showPanel ? iconBtnActive : {}) }}
@@ -1074,7 +898,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 >☰</button>
             )}
 
-            {/* Paint button (below Layers) */}
             {!loading && !error && (
                 <button
                     style={{ ...iconBtn, top: 50, ...(paintMode ? iconBtnActive : {}) }}
@@ -1083,7 +906,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 >🖌</button>
             )}
 
-            {/* Camera settings button (below Paint) */}
             {!loading && !error && (
                 <button
                     style={{ ...iconBtn, top: 90, ...(showCamPanel ? iconBtnActive : {}) }}
@@ -1092,7 +914,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 >⚙</button>
             )}
 
-            {/* Camera settings panel (its own, separate from Paint) */}
             {showCamPanel && !loading && !error && (
                 <div style={{ ...panel, top: 90, right: 50, width: 220, ...camDrag.dragStyle }}>
                     <div style={{ ...panelHeader, cursor: 'move' }} onMouseDown={camDrag.onHeaderMouseDown}>
@@ -1101,8 +922,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                     </div>
                     <div style={panelBody}>
                         {([
-                            // Rotate/Pan are DIVISORS (higher = slower); show an
-                            // intuitive 1..100 "speed" slider and invert it.
                             ['Rotate', Math.round(20000 / camSpeed.rotate), (v: number) => setCamSpeed(s => ({ ...s, rotate: Math.round(20000 / Math.max(1, v)) }))],
                             ['Pan', Math.round(300 / camSpeed.pan), (v: number) => setCamSpeed(s => ({ ...s, pan: Math.max(1, Math.round(300 / Math.max(1, v))) }))],
                             ['Zoom', Math.round(camSpeed.zoom * 1000), (v: number) => setCamSpeed(s => ({ ...s, zoom: Math.max(0.005, v / 1000) }))],
@@ -1124,7 +943,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 </div>
             )}
 
-            {/* Paint toolbar */}
             {paintMode && !loading && !error && (
                 <div style={{ ...panel, top: undefined, bottom: 12, left: 12, right: 'auto', width: 230, ...paintDrag.dragStyle }}>
                     <div style={{ ...panelHeader, cursor: 'move' }} onMouseDown={paintDrag.onHeaderMouseDown}>
@@ -1158,7 +976,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                         </div>
                         <div style={sectionLabel}>Color</div>
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
-                            {/* Big visible swatch of the ACTUAL current brush color. */}
                             <span style={{
                                 width: 28, height: 28, borderRadius: 4, flexShrink: 0,
                                 background: `rgb(${brush.color[0]},${brush.color[1]},${brush.color[2]})`,
@@ -1187,7 +1004,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                                     onChange={e => set(Number(e.target.value))} />
                             </div>
                         ))}
-                        {/* Brush presets */}
                         <div style={{ ...sectionLabel, marginTop: 10 }}>Presets</div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginBottom: 6 }}>
                             {presets.length === 0 && (
@@ -1242,8 +1058,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 </div>
             )}
 
-            {/* Layers panel — fully self-contained inline styles (the standalone
-                preview window doesn't reliably inherit the app's component CSS). */}
             {showPanel && (
                 <div style={panel}>
                     <div style={panelHeader}>
@@ -1253,8 +1067,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
 
                     <div style={panelBody}>
 
-                        {/* Elemental theme — single active (radio). Base + any
-                            elemental variants actually present in this map. */}
                         <div style={sectionLabel}>Elemental theme</div>
                         {(['Base', ...presentVariants.filter(v => v !== 'Base')] as MapVariant[]).map(v => (
                             <label key={v} style={row}>
@@ -1268,7 +1080,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                             </label>
                         ))}
 
-                        {/* Baron pit stage — independent axis, only if present. */}
                         {hasBaronStages && (
                             <div style={{ ...row, marginTop: 8, justifyContent: 'space-between' }}>
                                 <span style={{ fontSize: 12 }}>Baron pit</span>
@@ -1284,7 +1095,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                             </div>
                         )}
 
-                        {/* Hover highlight toggle */}
                         <label style={{ ...row, marginTop: 8 }}>
                             <input
                                 type="checkbox"
@@ -1294,10 +1104,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                             <span style={{ fontSize: 12 }}>Highlight on hover</span>
                         </label>
 
-                        {/* Per-mesh hide within the current theme. Only meshes
-                            actually visible under the active theme are listed. */}
                         {(() => {
-                            // List meshes visible under the active theme, filtered by search.
                             const q = meshSearch.trim().toLowerCase();
                             const visibleRows = meshRows.filter(
                                 r => layerVisibleForVariant(r.layer, activeVariant)
@@ -1348,7 +1155,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 </div>
             )}
 
-            {/* Hover status bar — live identity of the geometry under the cursor */}
             {hoverInfo && (
                 <div style={hoverBar}>
                     <span style={{ color: '#fff' }}>{hoverInfo.materialName}</span>
@@ -1362,7 +1168,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 </div>
             )}
 
-            {/* Click info card — thumbnail, path, copy, open in editor */}
             {pinnedInfo && (
                 <div style={{ ...infoCard, ...cardDrag.dragStyle }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, cursor: 'move' }} onMouseDown={cardDrag.onHeaderMouseDown}>
@@ -1424,7 +1229,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     );
 };
 
-/** Small decoded thumbnail of a map texture, drawn from RGBA into a canvas. */
 const TextureThumb: React.FC<{ projectPath: string; texturePath: string }> = ({ projectPath, texturePath }) => {
     const ref = useRef<HTMLCanvasElement | null>(null);
     useEffect(() => {
@@ -1452,11 +1256,10 @@ const TextureThumb: React.FC<{ projectPath: string; texturePath: string }> = ({ 
  *  of triangle UV coords: u0,v0,u1,v1,u2,v2 per triangle. */
 const UvOverlay: React.FC<{ projectPath: string; texturePath: string | null; triUVs: Float32Array }>
     = ({ projectPath, texturePath, triUVs }) => {
-    const SIZE = 280; // display canvas size (square)
+    const SIZE = 280;
     const texRef = useRef<HTMLCanvasElement | null>(null);
     const uvRef = useRef<HTMLCanvasElement | null>(null);
 
-    // Draw the texture (or a checkerboard if none) at SIZE×SIZE.
     useEffect(() => {
         let cancelled = false;
         const cv = texRef.current;
@@ -1464,12 +1267,10 @@ const UvOverlay: React.FC<{ projectPath: string; texturePath: string | null; tri
         cv.width = SIZE; cv.height = SIZE;
         const ctx = cv.getContext('2d');
         if (!ctx) return;
-        // checkerboard base
         ctx.clearRect(0, 0, SIZE, SIZE);
         if (!texturePath) return;
         api.loadMapTexture(projectPath, texturePath).then(({ width, height, rgba }) => {
             if (cancelled || !texRef.current) return;
-            // Put the decoded image on an offscreen canvas, then draw scaled to SIZE.
             const off = document.createElement('canvas');
             off.width = width; off.height = height;
             off.getContext('2d')?.putImageData(new ImageData(new Uint8ClampedArray(rgba), width, height), 0, 0);
@@ -1479,7 +1280,6 @@ const UvOverlay: React.FC<{ projectPath: string; texturePath: string | null; tri
         return () => { cancelled = true; };
     }, [projectPath, texturePath]);
 
-    // Draw the UV wireframe (V flipped so it aligns with the texture as shown).
     useEffect(() => {
         const cv = uvRef.current;
         if (!cv) return;
