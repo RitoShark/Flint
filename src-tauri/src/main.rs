@@ -9,7 +9,7 @@ use commands::project_watcher::WatcherState;
 use commands::settings::{initialize_app_home, get_flint_home};
 use flint_ltk::hash::get_hash_dir;
 use core::frontend_log::{FrontendLogLayer, set_app_handle};
-use state::{LmdbCacheState, WadCacheState, WadEditState};
+use state::{CdnSessionState, LmdbCacheState, WadCacheState, WadEditState};
 use tauri::{Emitter, Manager};
 use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter};
 
@@ -95,6 +95,7 @@ fn main() {
         .manage(LmdbCacheState::new())
         .manage(WatcherState::new())
         .manage(WadEditState::new())
+        .manage(CdnSessionState::new())
         .on_page_load(move |_webview, payload| {
             tracing::info!(
                 "[startup] webview page_load (event={:?}, url={}) +{}ms",
@@ -295,6 +296,13 @@ fn main() {
             commands::mesh::read_animation,
             commands::mesh::resolve_asset_path,
             commands::mesh::resolve_anm_skin,
+            // CDN manifest browser commands
+            commands::cdn::cdn_list_manifests,
+            commands::cdn::cdn_load_manifest,
+            commands::cdn::cdn_list_wad,
+            commands::cdn::cdn_read_inner,
+            commands::cdn::cdn_extract,
+            commands::cdn::cdn_close_session,
             // Auto-update commands
             commands::updater::check_for_updates,
             commands::updater::download_and_install_update,

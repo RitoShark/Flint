@@ -10,6 +10,7 @@ pub mod import_export;
 pub mod platform;
 pub mod editor;
 pub mod system;
+pub mod cdn;
 
 pub use project::{map_project, map_preview, map_tiles, project_watcher, checkpoint, compare, chroma};
 pub use wad::{wad_edit, extract_hashes};
