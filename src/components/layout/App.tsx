@@ -40,6 +40,8 @@ import { RenameProjectModal } from '../modals/RenameProjectModal';
 import { ChromaPortModal } from '../modals/ChromaPortModal';
 import { WhatsNewModal } from '../modals/WhatsNewModal';
 import { LoadscreenBannerModal } from '../modals/LoadscreenBannerModal';
+import { LoadManifestModal } from '../modals/LoadManifestModal';
+import { ManifestBrowser } from '../browser/ManifestBrowser';
 import { ToastContainer } from '../overlays/Toast';
 import { TutorialOverlay, isOnboardingDone, TUTORIAL_REPLAY_EVENT } from '../overlays/TutorialOverlay';
 import { TooltipProvider } from '../overlays/TooltipProvider';
@@ -74,6 +76,7 @@ const ActiveModal: React.FC<{ activeModal: string | null }> = React.memo(({ acti
         case 'whatsNew':         return <WhatsNewModal />;
         case 'map-textures':     return <MapTexturesModal />;
         case 'loadscreenBanner': return <LoadscreenBannerModal />;
+        case 'loadManifest':     return <LoadManifestModal />;
         default:                 return null;
     }
 });
@@ -522,7 +525,8 @@ export const App: React.FC = () => {
     const isWadExplorer = currentView === 'wad-explorer';
     const isExtractMode = currentView === 'extract';
     const isFileEditor = currentView === 'file-editor';
-    const hasProject = !isWadExplorer && currentView !== 'welcome';
+    const isManifest = currentView === 'manifest';
+    const hasProject = !isWadExplorer && !isManifest && currentView !== 'welcome';
 
     const [projectIntro, setProjectIntro] = useState(false);
     useEffect(() => {
@@ -566,7 +570,8 @@ export const App: React.FC = () => {
                         <WadExplorer />
                     </div>
                 )}
-                {!isWadExplorer && (
+                {isManifest && <ManifestBrowser />}
+                {!isWadExplorer && !isManifest && (
                     <>
                         {hasProject && !isExtractMode && !isFileEditor && (
                             <>

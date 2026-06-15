@@ -42,6 +42,7 @@ export const WadExplorer: React.FC = () => {
     const leaguePath = useConfigStore((s) => s.leaguePath);
     const currentView = useNavigationStore((s) => s.currentView);
     const openContextMenu = useModalStore((s) => s.openContextMenu);
+    const openModal = useModalStore((s) => s.openModal);
     const showToast = useNotificationStore((s) => s.showToast);
 
     // ── Local UI state ───────────────────────────────────────────────────────
@@ -1278,6 +1279,15 @@ export const WadExplorer: React.FC = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
                         <span dangerouslySetInnerHTML={{ __html: getIcon('wad') }} />
                         <span style={{ fontSize: '12px', fontWeight: 600, flex: 1 }}>WAD Explorer</span>
+                        <button
+                            className="btn btn--sm"
+                            title="Load a patch manifest from Riot's CDN (browse online, no install)"
+                            onClick={() => openModal('loadManifest')}
+                            style={{ fontSize: '11px', padding: '1px 8px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}
+                        >
+                            <span dangerouslySetInnerHTML={{ __html: getIcon('download') }} />
+                            <span>CDN</span>
+                        </button>
                         <button
                             className="btn btn--sm"
                             title="Asset Path Cheat Sheet"

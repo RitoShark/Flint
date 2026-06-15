@@ -3,6 +3,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { save } from '@tauri-apps/plugin-dialog';
 import { useProjectTabStore, useWadExtractStore, useWadExplorerStore, useNavigationStore, useConfigStore, useModalStore, useNotificationStore, useFileEditorStore } from '../../lib/stores';
 import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
+import { useCdnManifestStore } from '../../lib/stores/cdnManifestStore';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import * as api from '../../lib/api';
 import { sanitizeChampionName } from '../../lib/util/utils';
@@ -179,6 +180,43 @@ const ExtractTab: React.FC<ExtractTabProps> = ({ session, isActive, onSwitch, on
     );
 };
 
+interface ManifestTabProps {
+    label: string;
+    isActive: boolean;
+    onSwitch: () => void;
+    onClose: (e: React.MouseEvent) => void;
+}
+
+const ManifestTab: React.FC<ManifestTabProps> = ({ label, isActive, onSwitch, onClose }) => {
+    const [closing, setClosing] = useState(false);
+    const triggerClose = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (closing) return;
+        setClosing(true);
+        setTimeout(() => onClose(e), TAB_CLOSE_MS);
+    }, [onClose, closing]);
+    const handleMiddleClick = useCallback((e: React.MouseEvent) => {
+        if (e.button === 1) { e.preventDefault(); triggerClose(e); }
+    }, [triggerClose]);
+    return (
+        <div
+            className={`titlebar__tab ${isActive ? 'titlebar__tab--active' : ''}${closing ? ' titlebar__tab--closing' : ''}`}
+            onClick={closing ? undefined : onSwitch}
+            onMouseDown={handleMiddleClick}
+            title={`CDN manifest: ${label}`}
+            data-tauri-drag-region="false"
+        >
+            <span className="titlebar__tab-icon" dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
+            <span className="titlebar__tab-name">{label}</span>
+            <button className="titlebar__tab-close" onClick={triggerClose} title="Close Tab">
+                <svg viewBox="0 0 16 16" width="12" height="12">
+                    <path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+                </svg>
+            </button>
+        </div>
+    );
+};
+
 /** Text-button styling for the map PSD actions (titlebar__button is icon-sized). */
 const psdBtnStyle = (disabled: boolean): React.CSSProperties => ({
     height: 26,
@@ -201,6 +239,8 @@ export const TitleBar: React.FC = () => {
     const openTabs = useProjectTabStore((s) => s.openTabs);
     const extractSessions = useWadExtractStore((s) => s.extractSessions);
     const activeExtractId = useWadExtractStore((s) => s.activeExtractId);
+    const cdnSessions = useCdnManifestStore((s) => s.sessions);
+    const activeManifestId = useNavigationStore((s) => s.activeManifestId);
     const wadExplorerOpen = useWadExplorerStore((s) => s.isOpen);
     const currentView = useNavigationStore((s) => s.currentView);
     const ltkManagerModPath = useConfigStore((s) => s.ltkManagerModPath);
@@ -379,6 +419,29 @@ export const TitleBar: React.FC = () => {
         navigationCoordinator.closeExtractSessionWithFallback(sessionId);
     }, []);
 
+    const handleSwitchManifest = useCallback((sessionId: string) => {
+        useNavigationStore.getState().setActiveManifest(sessionId);
+        useNavigationStore.getState().setView('manifest');
+    }, []);
+
+    const handleCloseManifest = useCallback((e: React.MouseEvent, sessionId: string) => {
+        e.stopPropagation();
+        const nav = useNavigationStore.getState();
+        const cdn = useCdnManifestStore.getState();
+        api.cdnCloseSession(sessionId).catch(() => {});
+        cdn.removeSession(sessionId);
+        // Fall back to another manifest, else leave the manifest view.
+        const remaining = Object.keys(cdn.sessions).filter((id) => id !== sessionId);
+        if (nav.activeManifestId === sessionId) {
+            if (remaining.length > 0) {
+                nav.setActiveManifest(remaining[0]);
+            } else {
+                nav.setActiveManifest(null);
+                nav.setView('welcome');
+            }
+        }
+    }, []);
+
     const fileEditorTarget = useFileEditorStore((s) => s.target);
     const fileEditorDirty = useFileEditorStore((s) => s.dirty);
     const openConfirmDialog = useModalStore((s) => s.openConfirmDialog);
@@ -388,6 +451,8 @@ export const TitleBar: React.FC = () => {
     const isProjectActive = currentView === 'preview';
     const isExtractActive = currentView === 'extract';
     const isFileEditorActive = currentView === 'file-editor';
+    const isManifestActive = currentView === 'manifest';
+    const manifestList = Object.values(cdnSessions);
 
     const handleCloseFileEditor = useCallback((e: React.MouseEvent) => {
         e.stopPropagation();
@@ -404,7 +469,7 @@ export const TitleBar: React.FC = () => {
         }
     }, [fileEditorDirty, openConfirmDialog]);
 
-    const hasTabs = openTabs.length > 0 || extractSessions.length > 0 || isWadExplorerOpen || !!fileEditorTarget;
+    const hasTabs = openTabs.length > 0 || extractSessions.length > 0 || manifestList.length > 0 || isWadExplorerOpen || !!fileEditorTarget;
 
     return (
         <div className="titlebar" data-tauri-drag-region>
@@ -497,6 +562,15 @@ export const TitleBar: React.FC = () => {
                                 isActive={session.id === activeExtractId && isExtractActive}
                                 onSwitch={() => handleSwitchExtract(session.id)}
                                 onClose={(e) => handleCloseExtract(e, session.id)}
+                            />
+                        ))}
+                        {manifestList.map(s => (
+                            <ManifestTab
+                                key={s.sessionId}
+                                label={s.label}
+                                isActive={s.sessionId === activeManifestId && isManifestActive}
+                                onSwitch={() => handleSwitchManifest(s.sessionId)}
+                                onClose={(e) => handleCloseManifest(e, s.sessionId)}
                             />
                         ))}
                     </div>
