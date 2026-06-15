@@ -12,12 +12,15 @@ import type { WadChunk } from '../../../lib/types';
 import LazyModelPreview from '../../preview/LazyModelPreview';
 import { MonacoBinViewer, MonacoTextViewer } from './MonacoViewers';
 import { detectType, formatBytes, type PreviewData } from './helpers';
+import type { WadDataSource } from './dataSource';
 
 export const ChunkPreview: React.FC<{
     wadPath: string;
     chunk: WadChunk;
     onClose: () => void;
-}> = ({ wadPath, chunk, onClose }) => {
+    /** When set, inner bytes are read through this source (e.g. a CDN session). */
+    dataSource?: WadDataSource;
+}> = ({ wadPath, chunk, onClose, dataSource }) => {
     const showToast = useNotificationStore((s) => s.showToast);
     const [data, setData] = useState<PreviewData | null>(null);
     const [loading, setLoading] = useState(true);
@@ -45,7 +48,9 @@ export const ChunkPreview: React.FC<{
 
         (async () => {
             try {
-                const bytes = await api.readWadChunkData(wadPath, chunk.hash);
+                const bytes = dataSource
+                    ? await dataSource.readInnerBytes(chunk.hash)
+                    : await api.readWadChunkData(wadPath, chunk.hash);
                 if (cancelled) return;
                 const fileType = detectType(bytes, chunk.path);
                 let imageUrl: string | null = null;
@@ -85,7 +90,10 @@ export const ChunkPreview: React.FC<{
         })();
 
         return () => { cancelled = true; };
-    }, [wadPath, chunk.hash]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [wadPath, chunk.hash, dataSource]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // On-disk-only features (single-file extract, 3D model temp) need a local WAD path.
+    const isLocal = !dataSource || dataSource.isLocal;
 
     useEffect(() => () => { if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current); }, []);
 
@@ -123,10 +131,12 @@ export const ChunkPreview: React.FC<{
                 <span className="preview-panel__filename" style={{ fontSize: '12px', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {fileName}
                 </span>
-                <button className="btn btn--sm btn--primary" onClick={handleExtract} disabled={extracting} title="Extract file to folder">
-                    <span dangerouslySetInnerHTML={{ __html: getIcon('export') }} />
-                    <span>{extracting ? 'Extracting…' : 'Extract'}</span>
-                </button>
+                {isLocal && (
+                    <button className="btn btn--sm btn--primary" onClick={handleExtract} disabled={extracting} title="Extract file to folder">
+                        <span dangerouslySetInnerHTML={{ __html: getIcon('export') }} />
+                        <span>{extracting ? 'Extracting…' : 'Extract'}</span>
+                    </button>
+                )}
             </div>
 
             <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
@@ -207,31 +217,35 @@ export const ChunkPreview: React.FC<{
                             <div className="preview-panel__empty">
                                 <div style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center' }}>
                                     <div style={{ marginBottom: '12px', opacity: 0.6 }}>{fileType}</div>
-                                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                                        <button
-                                            className="btn btn--primary btn--sm"
-                                            disabled={modelLoading}
-                                            onClick={async () => {
-                                                setModelLoading(true);
-                                                try {
-                                                    const result = await api.extractWadModelPreview(wadPath, chunk.hash);
-                                                    setModelPreviewPath(result.skn_path);
-                                                    setModelTempDir(result.temp_dir);
-                                                } catch (e) {
-                                                    setErr((e as Error).message ?? 'Failed to prepare model preview');
-                                                } finally {
-                                                    setModelLoading(false);
-                                                }
-                                            }}
-                                        >
-                                            <span dangerouslySetInnerHTML={{ __html: getIcon('model') }} />
-                                            <span>{modelLoading ? 'Preparing…' : 'Preview 3D Model'}</span>
-                                        </button>
-                                        <button className="btn btn--sm" onClick={handleExtract} disabled={extracting}>
-                                            <span dangerouslySetInnerHTML={{ __html: getIcon('export') }} />
-                                            <span>Extract</span>
-                                        </button>
-                                    </div>
+                                    {isLocal ? (
+                                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                                            <button
+                                                className="btn btn--primary btn--sm"
+                                                disabled={modelLoading}
+                                                onClick={async () => {
+                                                    setModelLoading(true);
+                                                    try {
+                                                        const result = await api.extractWadModelPreview(wadPath, chunk.hash);
+                                                        setModelPreviewPath(result.skn_path);
+                                                        setModelTempDir(result.temp_dir);
+                                                    } catch (e) {
+                                                        setErr((e as Error).message ?? 'Failed to prepare model preview');
+                                                    } finally {
+                                                        setModelLoading(false);
+                                                    }
+                                                }}
+                                            >
+                                                <span dangerouslySetInnerHTML={{ __html: getIcon('model') }} />
+                                                <span>{modelLoading ? 'Preparing…' : 'Preview 3D Model'}</span>
+                                            </button>
+                                            <button className="btn btn--sm" onClick={handleExtract} disabled={extracting}>
+                                                <span dangerouslySetInnerHTML={{ __html: getIcon('export') }} />
+                                                <span>Extract</span>
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div style={{ opacity: 0.7 }}>Extract this file to preview the 3D model.</div>
+                                    )}
                                 </div>
                             </div>
                         );

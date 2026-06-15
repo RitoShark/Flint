@@ -4,7 +4,7 @@
 
 export type AppStatus = 'ready' | 'working' | 'error';
 export type ModalType = 'newProject' | 'settings' | 'export' | 'firstTimeSetup' | 'updateAvailable' | 'recolor' | 'checkpoint' | 'fixer' | 'projectList' | 'modConfig' | 'renameProject' | 'thumbnail' | 'binSplit' | 'fullResImage' | 'browseWad' | 'fileCompare' | 'addLayer' | 'chromaPort' | 'whatsNew' | 'map-textures' | 'loadscreenBanner' | null;
-export type ViewType = 'welcome' | 'preview' | 'editor' | 'project' | 'checkpoints' | 'extract' | 'wad-explorer' | 'file-editor';
+export type ViewType = 'welcome' | 'preview' | 'editor' | 'project' | 'checkpoints' | 'extract' | 'wad-explorer' | 'file-editor' | 'manifest';
 
 export type FileEditorKind = 'modConfig' | 'binText' | 'raw' | 'luaBin64';
 
