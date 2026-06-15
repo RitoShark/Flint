@@ -319,6 +319,42 @@ pub fn resolve_animation_path(base_dir: &Path, anim_path: &str) -> Option<PathBu
     None
 }
 
+/// Pull the `simpleSkin` asset path out of a skin BIN's ritobin text, if present.
+pub fn extract_simple_skin_from_text(content: &str) -> Option<String> {
+    let re = regex::Regex::new(r#"(?i)simpleSkin:\s*string\s*=\s*"([^"]+)""#).ok()?;
+    re.captures(content)
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Given a standalone `.anm` path, find the skin BIN that references it, read its
+/// `simpleSkin`, and resolve that to a `.skn` file on disk.
+pub fn resolve_skn_for_anm(anm_path: &Path) -> anyhow::Result<PathBuf> {
+    // 1. Locate the skin BIN near the ANM. `find_animation_bin` walks the same
+    //    directory structure; the skin BIN is found first via find_skin_bin.
+    let bin_path = crate::mesh::texture::find_skin_bin(anm_path)
+        .or_else(|| find_animation_bin(anm_path))
+        .ok_or_else(|| anyhow::anyhow!("No skin BIN found near {}", anm_path.display()))?;
+
+    // 2. Parse the BIN to a tree, render ritobin text, and pull simpleSkin.
+    //    `ltk_bridge::read_bin` -> `Bin`; `converter::bin_to_text(&Bin)` -> text.
+    let data = fs::read(&bin_path)
+        .map_err(|e| anyhow::anyhow!("Failed to read BIN {}: {}", bin_path.display(), e))?;
+    let tree = ltk_bridge::read_bin(&data)
+        .map_err(|e| anyhow::anyhow!("Failed to parse BIN: {}", e))?;
+    let text = crate::bin::converter::bin_to_text(&tree)
+        .map_err(|e| anyhow::anyhow!("Failed to convert BIN to text: {}", e))?;
+    let simple_skin = extract_simple_skin_from_text(&text)
+        .ok_or_else(|| anyhow::anyhow!("BIN {} has no simpleSkin field", bin_path.display()))?;
+
+    // 3. Resolve the asset path to a real .skn on disk (generic asset resolver).
+    let base_dir = anm_path.parent().unwrap_or_else(|| Path::new("."));
+    resolve_animation_path(base_dir, &simple_skin)
+        .filter(|p| p.exists())
+        .ok_or_else(|| anyhow::anyhow!("Could not resolve simpleSkin '{}' to a file on disk", simple_skin))
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct BakedFrame {
     pub translation: [f32; 3],
@@ -402,8 +438,30 @@ pub fn bake_animation_file<P: AsRef<Path>>(path: P) -> anyhow::Result<BakedAnima
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn test_find_animation_bin() {
+    }
+
+    #[test]
+    fn reads_simple_skin_from_bin_text() {
+        let text = r#"
+        skinMeshProperties: embed = SkinMeshDataProperties {
+            simpleSkin: string = "ASSETS/Characters/Test/Skins/Skin0/Test.skn"
+            texture: string = "ASSETS/Characters/Test/Skins/Skin0/Test.tex"
+        }
+        "#;
+        assert_eq!(
+            extract_simple_skin_from_text(text).as_deref(),
+            Some("ASSETS/Characters/Test/Skins/Skin0/Test.skn"),
+        );
+    }
+
+    #[test]
+    fn missing_simple_skin_returns_none() {
+        let text = r#"skinMeshProperties: embed = SkinMeshDataProperties { }"#;
+        assert!(extract_simple_skin_from_text(text).is_none());
     }
 }
 

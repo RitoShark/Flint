@@ -23,6 +23,7 @@ import { createEngine } from '../../lib/babylon/engine';
 import { buildSknMeshes, type MeshDTO } from '../../lib/babylon/meshBuilder';
 import { buildBabylonSkeleton, type BoneData } from '../../lib/babylon/skeletonBuilder';
 import { AnimationPlayer } from '../../lib/babylon/animationPlayer';
+import { modelPreviewSessionStore, type ModelPreviewSession } from '../../lib/stores/modelPreviewSessionStore';
 
 // ============================================================================
 // Types
@@ -35,6 +36,10 @@ type MeshData = SknMeshData | ScbMeshData;
 interface ModelPreviewProps {
     filePath: string;
     meshType?: 'skinned' | 'static';  // skinned = SKN, static = SCB/SCO
+    /** Pre-select this animation_path on load (standalone .anm open). */
+    initialAnimation?: string;
+    /** Start playing the initial animation immediately. */
+    autoPlay?: boolean;
 }
 
 // ============================================================================
@@ -63,7 +68,36 @@ const loadSettings = () => {
     };
 };
 
-export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType = 'skinned' }) => {
+/**
+ * Decide which animation to pre-select on load. `initialAnimation` (a standalone
+ * .anm open) wins; otherwise a cached session is restored if its clip still exists.
+ * Returns `{ path, play }` or null.
+ */
+function pickInitialAnimation(
+    clips: { name: string; animation_path: string }[],
+    initialAnimation: string | undefined,
+    autoPlay: boolean,
+    restore: { selectedAnimation: string; isPlaying: boolean } | null,
+): { path: string; play: boolean } | null {
+    const match = (target: string) =>
+        clips.find(c =>
+            c.animation_path === target ||
+            c.animation_path.toLowerCase() === target.toLowerCase() ||
+            c.animation_path.toLowerCase().endsWith(target.toLowerCase()) ||
+            target.toLowerCase().endsWith(c.animation_path.toLowerCase()),
+        );
+    if (initialAnimation) {
+        const c = match(initialAnimation);
+        if (c) return { path: c.animation_path, play: autoPlay };
+    }
+    if (restore?.selectedAnimation) {
+        const c = match(restore.selectedAnimation);
+        if (c) return { path: c.animation_path, play: restore.isPlaying };
+    }
+    return null;
+}
+
+export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType = 'skinned', initialAnimation, autoPlay = true }) => {
     const [meshData, setMeshData] = useState<MeshData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -117,6 +151,43 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         bones: Bone[];
         joints: BoneData[];
     } | null>(null);
+
+    // Session snapshot consumed once by the mesh-load + camera-frame effects.
+    const restoreRef = useRef<ModelPreviewSession | null>(null);
+    // Latest live state, read by the engine-cleanup to persist a final snapshot.
+    const latestRef = useRef<{
+        visibleMaterials: Set<string>;
+        selectedAnimation: string;
+        isPlaying: boolean;
+        currentTime: number;
+        getCamera: () => ModelPreviewSession['camera'] | undefined;
+    }>({
+        visibleMaterials: new Set(),
+        selectedAnimation: '',
+        isPlaying: false,
+        currentTime: 0,
+        getCamera: () => undefined,
+    });
+    // Engine effect has an empty dep array, so it can't close over live props.
+    const filePathRef = useRef(filePath);
+    const fileVersionRef = useRef(fileVersion);
+
+    latestRef.current.visibleMaterials = visibleMaterials;
+    latestRef.current.selectedAnimation = selectedAnimation;
+    latestRef.current.isPlaying = isPlaying;
+    latestRef.current.currentTime = currentTime;
+    latestRef.current.getCamera = () => {
+        const cam = camera;
+        if (!cam) return undefined;
+        return {
+            alpha: cam.alpha,
+            beta: cam.beta,
+            radius: cam.radius,
+            target: [cam.target.x, cam.target.y, cam.target.z],
+        };
+    };
+    filePathRef.current = filePath;
+    fileVersionRef.current = fileVersion;
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -210,6 +281,17 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         window.addEventListener('resize', handleResize);
 
         (canvas as any)._flintCleanup = () => {
+            // Persist a final snapshot so the last camera/playhead survive remount.
+            const lr = latestRef.current;
+            modelPreviewSessionStore.save(filePathRef.current, {
+                fileVersion: fileVersionRef.current,
+                visibleMaterials: [...lr.visibleMaterials],
+                selectedAnimation: lr.selectedAnimation,
+                isPlaying: lr.isPlaying,
+                currentTime: lr.currentTime,
+                camera: lr.getCamera(),
+            });
+
             window.removeEventListener('resize', handleResize);
             canvas.removeEventListener('contextmenu', handleContextMenu);
             window.removeEventListener('error', onWinError);
@@ -277,6 +359,10 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             setActivePopup(null);
             setMeshData(null);
 
+            const cached = modelPreviewSessionStore.get(filePath);
+            const restore = cached && cached.fileVersion === fileVersion ? cached : null;
+            restoreRef.current = restore;
+
             try {
                 let data: MeshData;
 
@@ -303,6 +389,12 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         const animList = animResult.value;
                         if (animList.clips && animList.clips.length > 0) {
                             setAnimations(animList.clips);
+                            // Prop-driven open (standalone .anm) takes priority, then cache.
+                            const wantAnim = pickInitialAnimation(animList.clips, initialAnimation, autoPlay, restore);
+                            if (wantAnim) {
+                                setSelectedAnimation(wantAnim.path);
+                                setIsPlaying(wantAnim.play);
+                            }
                         }
                     }
 
@@ -332,7 +424,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
         loadMesh();
         return () => { cancelled = true; };
-    }, [filePath, meshType, fileVersion]);
+    }, [filePath, meshType, fileVersion, initialAnimation, autoPlay]);
 
     useEffect(() => {
         if (!scene || !camera || !meshData) return;
@@ -575,6 +667,14 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         camera.panningSensibility = 8000 / Math.max(camera.radius, 0.001);
         camera.alpha = Math.PI / 2 + Math.PI / 8;
         camera.beta = Math.PI / 3;
+
+        const camRestore = restoreRef.current?.camera;
+        if (camRestore) {
+            camera.alpha = camRestore.alpha;
+            camera.beta = camRestore.beta;
+            camera.radius = camRestore.radius;
+            camera.target = new Vector3(camRestore.target[0], camRestore.target[1], camRestore.target[2]);
+        }
         console.log(
             `[MeshPreview] camera: boxValid=${boxValid} size=${size.toFixed(3)} ` +
             `radius=${camera.radius.toFixed(3)} target=(${center.x.toFixed(2)},${center.y.toFixed(2)},${center.z.toFixed(2)})`
@@ -627,6 +727,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         joints
                     );
                     player.paused = !isPlaying;
+                    const seekTo = latestRef.current.currentTime;
+                    if (seekTo > 0) {
+                        player.time = seekTo;
+                        player.tick(0);
+                    }
                     animationPlayerRef.current = player;
                     lastTimeRef.current = performance.now();
                 }
@@ -840,6 +945,18 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         };
         localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     }, [wireframe, showSkybox, floorMode, ambientIntensity, directionalIntensity, showSkeleton, customizeLighting]);
+
+    useEffect(() => {
+        if (!meshData) return;
+        modelPreviewSessionStore.save(filePath, {
+            fileVersion,
+            visibleMaterials: [...visibleMaterials],
+            selectedAnimation,
+            isPlaying,
+            currentTime: latestRef.current.currentTime,
+            camera: latestRef.current.getCamera(),
+        });
+    }, [filePath, fileVersion, meshData, visibleMaterials, selectedAnimation, isPlaying]);
 
     const toggleMaterial = (name: string) => {
         setVisibleMaterials(prev => {

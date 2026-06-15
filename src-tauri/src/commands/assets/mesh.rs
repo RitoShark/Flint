@@ -715,8 +715,8 @@ pub async fn read_skl_skeleton(path: String) -> Result<SklData, String> {
 }
 
 use flint_ltk::mesh::animation::{
-    find_animation_bin, extract_animation_list, 
-    resolve_animation_path,
+    find_animation_bin, extract_animation_list,
+    resolve_animation_path, resolve_skn_for_anm,
     AnimationList, BakedAnimation,
 };
 
@@ -765,6 +765,25 @@ pub async fn read_animation(path: String, base_path: Option<String>) -> Result<B
             tracing::error!("Failed to bake animation {}: {}", anim_path.display(), e);
             format!("Failed to parse and bake animation: {}", e)
         })
+}
+
+#[derive(serde::Serialize)]
+pub struct AnmSkinResolution {
+    pub skn_path: String,
+    pub anm_asset_path: String,
+}
+
+/// Resolve which `.skn` a standalone `.anm` should play on, via the skin BIN's
+/// `simpleSkin` field. Used when an `.anm` is opened directly in the preview.
+#[tauri::command]
+pub async fn resolve_anm_skin(anm_path: String) -> Result<AnmSkinResolution, String> {
+    let anm = std::path::Path::new(&anm_path);
+    let skn = resolve_skn_for_anm(anm).map_err(|e| e.to_string())?;
+    Ok(AnmSkinResolution {
+        skn_path: skn.to_string_lossy().to_string(),
+        // Pass the ANM's own path back so the frontend can match it in the clip list.
+        anm_asset_path: anm_path,
+    })
 }
 
 // ============================================================================

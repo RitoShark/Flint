@@ -37,6 +37,48 @@ const EmptyState: React.FC = () => (
     </div>
 );
 
+/**
+ * Standalone .anm open: resolve the .skn referenced by the skin BIN's simpleSkin,
+ * then render the SKN viewer with this animation pre-selected and auto-playing.
+ */
+const AnmPreview: React.FC<{ filePath: string }> = ({ filePath }) => {
+    const [state, setState] = useState<
+        { status: 'loading' } |
+        { status: 'ok'; sknPath: string; anmAssetPath: string } |
+        { status: 'error'; message: string }
+    >({ status: 'loading' });
+
+    useEffect(() => {
+        let cancelled = false;
+        setState({ status: 'loading' });
+        api.resolveAnmSkin(filePath)
+            .then(res => { if (!cancelled) setState({ status: 'ok', sknPath: res.skn_path, anmAssetPath: res.anm_asset_path }); })
+            .catch(err => { if (!cancelled) setState({ status: 'error', message: (err as Error)?.message ?? String(err) }); });
+        return () => { cancelled = true; };
+    }, [filePath]);
+
+    if (state.status === 'loading') {
+        return (
+            <div className="model-preview__overlay model-preview__overlay--loading">
+                <div className="spinner" />
+                <span>Resolving skin for animation...</span>
+            </div>
+        );
+    }
+    if (state.status === 'error') {
+        return <UnknownPreview key={filePath} filePath={filePath} />;
+    }
+    return (
+        <ModelPreview
+            key={state.sknPath}
+            filePath={state.sknPath}
+            meshType="skinned"
+            initialAnimation={state.anmAssetPath}
+            autoPlay
+        />
+    );
+};
+
 const WadArchiveNotice: React.FC<{ filePath: string }> = ({ filePath }) => (
     <div className="preview-panel__empty">
         <div className="preview-panel__empty-icon" dangerouslySetInnerHTML={{ __html: getIcon('wad') }} />
@@ -315,6 +357,10 @@ export const PreviewPanel: React.FC = () => {
             fileInfo.file_type === 'audio/x-wwise-bnk' || fileInfo.file_type === 'audio/x-wwise-wpk'
         ) {
             return <BnkPreview key={filePath} filePath={filePath} />;
+        }
+
+        if (fileInfo.extension === 'anm' || fileInfo.file_type === 'model/x-lol-anm') {
+            return <AnmPreview key={filePath} filePath={filePath} />;
         }
 
         if (fileInfo.extension === 'skn' || fileInfo.file_type === 'model/x-lol-skn') {

@@ -225,3 +225,12 @@ export async function readAnimation(path: string, basePath?: string): Promise<An
 export async function resolveAssetPath(assetPath: string, binPath: string): Promise<string> {
     return invokeCommand('resolve_asset_path', { assetPath, binPath });
 }
+
+export interface AnmSkinResolution {
+    skn_path: string;
+    anm_asset_path: string;
+}
+
+export async function resolveAnmSkin(anmPath: string): Promise<AnmSkinResolution> {
+    return invokeCommand('resolve_anm_skin', { anmPath });
+}

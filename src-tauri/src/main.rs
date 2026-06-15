@@ -294,6 +294,7 @@ fn main() {
             commands::mesh::read_animation_list,
             commands::mesh::read_animation,
             commands::mesh::resolve_asset_path,
+            commands::mesh::resolve_anm_skin,
             // Auto-update commands
             commands::updater::check_for_updates,
             commands::updater::download_and_install_update,
