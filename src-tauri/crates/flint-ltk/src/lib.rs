@@ -19,6 +19,7 @@ pub mod loadscreen_banner;
 pub mod inibin_text;
 pub mod stringtable;
 pub mod manifest;
+pub mod cdn;
 
 // =============================================================================
 // Re-exports for types the binary crate imports from LTK crates.

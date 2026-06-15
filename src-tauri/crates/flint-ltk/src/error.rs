@@ -33,6 +33,9 @@ pub enum Error {
 
     #[error("Invalid input: {0}")]
     InvalidInput(String),
+
+    #[error("CDN error: {0}")]
+    Cdn(String),
 }
 
 impl Error {
