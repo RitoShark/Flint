@@ -1,10 +1,10 @@
 import { create } from 'zustand';
-import type { CdnTreeNode, CdnWadChunk, ManifestEntryDto } from '../api/cdn';
+import type { CdnTreeNode, CdnWadChunk } from '../api/cdn';
 
 export type ArtifactFilter = 'game' | 'client' | 'all';
 
-/** Pure filter over a manifest list by artifact kind. */
-export function filterManifests(list: ManifestEntryDto[], filter: ArtifactFilter): ManifestEntryDto[] {
+/** Pure filter over any kind-tagged manifest list by artifact kind. */
+export function filterManifests<T extends { kind: string }>(list: T[], filter: ArtifactFilter): T[] {
     if (filter === 'all') return list;
     return list.filter(e => e.kind === filter);
 }

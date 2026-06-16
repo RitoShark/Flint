@@ -3,6 +3,7 @@
 //! the Hextech-Vault core.
 
 pub mod sieve;
+pub mod catalog;
 pub mod manifest;
 pub mod wad_browse;
 pub mod downloader;

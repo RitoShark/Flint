@@ -51,6 +51,25 @@ export function cdnLoadManifest(url: string): Promise<CdnLoadResult> {
     return invokeCommand('cdn_load_manifest', { url });
 }
 
+/** One catalogued manifest version from the GitHub history repo. */
+export interface CatalogEntryDto {
+    path: string;
+    kind: ArtifactKindTag;
+    patch: string;
+    build: string;
+    version: string;
+}
+
+/** Full manifest history for region+platform (all kinds), newest first. Disk-cached. */
+export function cdnListVersions(region: string, platform: string, refresh = false): Promise<CatalogEntryDto[]> {
+    return invokeCommand('cdn_list_versions', { region, platform, refresh });
+}
+
+/** Resolve a catalog repo path to its manifest URL (cached) and load it. */
+export function cdnLoadManifestByPath(repoPath: string): Promise<CdnLoadResult> {
+    return invokeCommand('cdn_load_manifest_by_path', { repoPath });
+}
+
 export function cdnListWad(sessionId: string, fileIndex: number): Promise<CdnWadChunk[]> {
     return invokeCommand('cdn_list_wad', { sessionId, fileIndex });
 }

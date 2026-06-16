@@ -9,13 +9,19 @@ use std::sync::Arc;
 use serde::Serialize;
 use tauri::{Emitter, State};
 
-use flint_ltk::cdn::{downloader, manifest::TreeNode, sieve, wad_browse};
+use flint_ltk::cdn::{catalog, downloader, manifest::TreeNode, sieve, wad_browse};
 use flint_ltk::hash::resolve_hashes_lmdb_bulk;
 
 use crate::state::{CdnSessionState, LmdbCacheState};
 
 fn http_client() -> reqwest::Client {
     reqwest::Client::new()
+}
+
+/// Persistent on-disk cache dir for the manifest catalog (tree + resolved URLs).
+fn cdn_cache_dir() -> std::path::PathBuf {
+    let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
+    std::path::PathBuf::from(base).join("Flint").join("cache").join("cdn")
 }
 
 // ── manifest discovery ──────────────────────────────────────────────────────
@@ -47,6 +53,41 @@ pub async fn cdn_list_manifests(
             version: e.version,
             patch: e.patch,
             url: e.url,
+        })
+        .collect())
+}
+
+// ── catalog: full manifest history from Morilli/riot-manifests ───────────────
+
+#[derive(Serialize)]
+pub struct CatalogEntryDto {
+    pub path: String,
+    pub kind: String,
+    pub patch: String,
+    pub build: String,
+    pub version: String,
+}
+
+/// List every catalogued manifest for a region+platform (all kinds), newest first.
+/// Backed by the Morilli/riot-manifests GitHub tree, cached to disk; pass
+/// `refresh = true` to re-fetch and discover newly-shipped patches.
+#[tauri::command]
+pub async fn cdn_list_versions(
+    region: String,
+    platform: String,
+    refresh: bool,
+) -> Result<Vec<CatalogEntryDto>, String> {
+    let entries = catalog::list_versions(&http_client(), &cdn_cache_dir(), &region, &platform, refresh)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(entries
+        .into_iter()
+        .map(|e| CatalogEntryDto {
+            path: e.path,
+            kind: e.kind,
+            patch: e.patch,
+            build: e.build,
+            version: e.version,
         })
         .collect())
 }
@@ -99,13 +140,9 @@ pub struct CdnLoadResult {
     pub file_count: usize,
 }
 
-#[tauri::command]
-pub async fn cdn_load_manifest(
-    url: String,
-    state: State<'_, CdnSessionState>,
-) -> Result<CdnLoadResult, String> {
+async fn load_manifest_from_url(url: &str, state: &State<'_, CdnSessionState>) -> Result<CdnLoadResult, String> {
     let bytes = http_client()
-        .get(&url)
+        .get(url)
         .send()
         .await
         .map_err(|e| format!("manifest request: {e}"))?
@@ -122,6 +159,27 @@ pub async fn cdn_load_manifest(
         tree,
         file_count,
     })
+}
+
+#[tauri::command]
+pub async fn cdn_load_manifest(
+    url: String,
+    state: State<'_, CdnSessionState>,
+) -> Result<CdnLoadResult, String> {
+    load_manifest_from_url(&url, &state).await
+}
+
+/// Resolve a catalog repo path to its manifest URL (disk-cached) and load it.
+/// This is the path the GitHub-catalog UI uses.
+#[tauri::command]
+pub async fn cdn_load_manifest_by_path(
+    repo_path: String,
+    state: State<'_, CdnSessionState>,
+) -> Result<CdnLoadResult, String> {
+    let url = catalog::resolve_manifest_url(&http_client(), &cdn_cache_dir(), &repo_path)
+        .await
+        .map_err(|e| e.to_string())?;
+    load_manifest_from_url(&url, &state).await
 }
 
 // ── inner-name resolution (mirrors commands/wad/wad.rs) ──────────────────────

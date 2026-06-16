@@ -298,7 +298,9 @@ fn main() {
             commands::mesh::resolve_anm_skin,
             // CDN manifest browser commands
             commands::cdn::cdn_list_manifests,
+            commands::cdn::cdn_list_versions,
             commands::cdn::cdn_load_manifest,
+            commands::cdn::cdn_load_manifest_by_path,
             commands::cdn::cdn_list_wad,
             commands::cdn::cdn_read_inner,
             commands::cdn::cdn_extract,
