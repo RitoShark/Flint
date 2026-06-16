@@ -2,11 +2,12 @@ import React, { useMemo, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
 import * as api from '../../lib/api';
-import type { CdnTreeNode, CdnWadChunk, CdnProgress } from '../../lib/api/cdn';
+import type { CdnTreeNode, CdnProgress } from '../../lib/api/cdn';
 import type { WadChunk } from '../../lib/types';
 import { useNavigationStore, useNotificationStore } from '../../lib/stores';
 import { useCdnManifestStore } from '../../lib/stores/cdnManifestStore';
-import { formatBytes } from './wad-explorer/helpers';
+import { formatBytes, buildVFSSubtree } from './wad-explorer/helpers';
+import type { VFSNode, VFSFolder } from './wad-explorer/helpers';
 import { ChunkPreview } from './wad-explorer/ChunkPreview';
 import { cdnWadSource } from './wad-explorer/dataSource';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
@@ -33,6 +34,8 @@ export const ManifestBrowser: React.FC = () => {
     const [selectedInner, setSelectedInner] = useState<{ wadFileIndex: number; chunk: WadChunk } | null>(null);
     const [extracting, setExtracting] = useState(false);
     const [extractStatus, setExtractStatus] = useState<string | null>(null);
+    /** Tracks expanded inner-WAD folders by VFS key (e.g. `cdn:0::assets/characters`). */
+    const [expandedInnerFolders, setExpandedInnerFolders] = useState<Set<string>>(new Set());
 
     const sessionId = session?.sessionId ?? '';
 
@@ -40,6 +43,18 @@ export const ManifestBrowser: React.FC = () => {
         () => (selectedInner ? cdnWadSource(sessionId, selectedInner.wadFileIndex) : null),
         [sessionId, selectedInner],
     );
+
+    /** Memoised VFS trees for each loaded inner WAD, keyed by file_index. */
+    const innerTrees = useMemo(() => {
+        if (!session) return new Map<number, VFSNode[]>();
+        const result = new Map<number, VFSNode[]>();
+        for (const [fileIndex, chunks] of session.wadInner) {
+            const wadChunks: WadChunk[] = chunks.map((c) => ({ hash: c.hash, path: c.path, size: c.size }));
+            // Use a synthetic wadPath key: `cdn:<fileIndex>` — keeps VFS folder keys unique per WAD.
+            result.set(fileIndex, buildVFSSubtree(wadChunks, `cdn:${fileIndex}`));
+        }
+        return result;
+    }, [session?.wadInner]);
 
     if (!session) {
         return <div className="wad-explorer__empty" style={{ padding: 24 }}>No manifest loaded.</div>;
@@ -49,6 +64,14 @@ export const ManifestBrowser: React.FC = () => {
         const next = new Set(session.expandedFolders);
         if (next.has(path)) next.delete(path); else next.add(path);
         update(session.sessionId, { expandedFolders: next });
+    };
+
+    const toggleInnerFolder = (key: string) => {
+        setExpandedInnerFolders((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key); else next.add(key);
+            return next;
+        });
     };
 
     const expandWad = async (node: CdnTreeNode) => {
@@ -100,8 +123,42 @@ export const ManifestBrowser: React.FC = () => {
         }
     };
 
+    /** Render the VFS tree of inner WAD entries with folders, matching the WAD explorer look. */
+    const renderInnerNode = (node: VFSNode, depth: number, wadFileIndex: number): React.ReactNode => {
+        const pad = 8 + depth * 14;
+        if (node.type === 'folder') {
+            const folder = node as VFSFolder;
+            const isExpanded = expandedInnerFolders.has(folder.key);
+            return (
+                <div key={folder.key}>
+                    <div className="wad-explorer__row" style={{ paddingLeft: pad, display: 'flex', alignItems: 'center', gap: 6, height: 24, cursor: 'pointer' }}
+                        onClick={() => toggleInnerFolder(folder.key)}>
+                        <span style={{ opacity: 0.7 }}>{isExpanded ? '▾' : '▸'}</span>
+                        <span dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
+                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>{folder.name}</span>
+                    </div>
+                    {isExpanded && folder.children.map((c) => renderInnerNode(c, depth + 1, wadFileIndex))}
+                </div>
+            );
+        }
+        // File node
+        const chunk = node.chunk;
+        const isSel = selectedInner?.chunk.hash === chunk.hash && selectedInner?.wadFileIndex === wadFileIndex;
+        return (
+            <div key={chunk.hash}
+                className={`wad-explorer__row ${isSel ? 'wad-explorer__row--selected' : ''}`}
+                style={{ paddingLeft: pad, display: 'flex', alignItems: 'center', gap: 6, height: 24, cursor: 'pointer' }}
+                onClick={() => setSelectedInner({ wadFileIndex, chunk })}>
+                <span style={{ width: 10 }} />
+                <span dangerouslySetInnerHTML={{ __html: getIcon('document') }} />
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }} title={chunk.path ?? chunk.hash}>{node.name}</span>
+                <span style={{ opacity: 0.5, fontSize: 11 }}>{formatBytes(chunk.size)}</span>
+            </div>
+        );
+    };
+
     // Render the manifest tree recursively. Folders expand inline; WAD leaves expand
-    // to their range-fetched inner entries (each a previewable ChunkPreview target).
+    // to their range-fetched inner entries rendered as a navigable folder tree.
     const renderNode = (node: CdnTreeNode, depth: number): React.ReactNode => {
         const pad = 8 + depth * 14;
         if (node.is_dir) {
@@ -122,10 +179,11 @@ export const ManifestBrowser: React.FC = () => {
             );
         }
 
-        // File leaf. WADs expand into inner entries; non-WAD files are extract-only.
+        // File leaf. WADs expand into inner entries as a folder tree; non-WAD files are extract-only.
         const isWad = isWadPath(node.path);
         const wadExpanded = isWad && session.expandedWads.has(node.path);
         const inner = node.file_index != null ? session.wadInner.get(node.file_index) : undefined;
+        const vfsTree = node.file_index != null ? innerTrees.get(node.file_index) : undefined;
         return (
             <div key={node.path}>
                 <div className="wad-explorer__row" style={{ paddingLeft: pad, display: 'flex', alignItems: 'center', gap: 6, height: 26, cursor: isWad ? 'pointer' : 'default' }}
@@ -140,20 +198,7 @@ export const ManifestBrowser: React.FC = () => {
                 {wadExpanded && node.file_index != null && (
                     <div>
                         {inner === undefined && <div style={{ paddingLeft: pad + 24, height: 24, opacity: 0.6, fontSize: 12 }}>Listing…</div>}
-                        {inner?.map((c: CdnWadChunk) => {
-                            const chunk: WadChunk = { hash: c.hash, path: c.path, size: c.size };
-                            const label = c.path ? (c.path.split('/').pop() ?? c.path) : c.hash;
-                            const isSel = selectedInner?.chunk.hash === c.hash && selectedInner?.wadFileIndex === node.file_index;
-                            return (
-                                <div key={c.hash}
-                                    className={`wad-explorer__row ${isSel ? 'wad-explorer__row--selected' : ''}`}
-                                    style={{ paddingLeft: pad + 24, display: 'flex', alignItems: 'center', gap: 6, height: 24, cursor: 'pointer' }}
-                                    onClick={() => setSelectedInner({ wadFileIndex: node.file_index!, chunk })}>
-                                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }} title={c.path ?? c.hash}>{label}</span>
-                                    <span style={{ opacity: 0.5, fontSize: 11 }}>{formatBytes(c.size)}</span>
-                                </div>
-                            );
-                        })}
+                        {vfsTree && vfsTree.map((n) => renderInnerNode(n, depth + 1, node.file_index!))}
                     </div>
                 )}
             </div>
@@ -161,7 +206,7 @@ export const ManifestBrowser: React.FC = () => {
     };
 
     return (
-        <div className="wad-explorer" style={{ display: 'flex', height: '100%' }}>
+        <div className="wad-explorer" style={{ display: 'flex', flex: 1, height: '100%', overflow: 'hidden', minWidth: 0 }}>
             <div style={{ width: 460, minWidth: 320, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontWeight: 600 }}>{session.label}</span>
@@ -172,7 +217,7 @@ export const ManifestBrowser: React.FC = () => {
                     {session.tree.children.map((c) => renderNode(c, 0))}
                 </div>
             </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                 {selectedInner && dataSource ? (
                     <ChunkPreview
                         key={`${selectedInner.wadFileIndex}:${selectedInner.chunk.hash}`}
