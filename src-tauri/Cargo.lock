@@ -312,7 +312,7 @@ dependencies = [
  "anyhow",
  "arrayvec",
  "log",
- "nom 8.0.0",
+ "nom",
  "num-rational",
  "v_frame",
 ]
@@ -496,12 +496,6 @@ name = "bumpalo"
 version = "3.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d20789868f4b01b2f2caec9f5c4e0213b41e3e5702a50157d699ae31ced2fcb"
-
-[[package]]
-name = "bytecount"
-version = "0.6.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "175812e0be2bccb6abe50bb8d566126198344f707e304f45c648fd8f2cc0365e"
 
 [[package]]
 name = "bytemuck"
@@ -1527,7 +1521,7 @@ dependencies = [
 
 [[package]]
 name = "flint"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "anyhow",
  "base64 0.21.7",
@@ -1543,15 +1537,16 @@ dependencies = [
  "intel_tex_2 0.5.0",
  "libloading 0.8.9",
  "ltk_inibin",
- "ltk_rst",
  "notify",
  "notify-debouncer-full",
  "opener",
  "parking_lot",
  "proptest",
+ "psd",
  "rayon",
  "regex",
  "reqwest 0.11.27",
+ "ritoshark",
  "rustc-hash",
  "semver",
  "serde",
@@ -1594,7 +1589,7 @@ dependencies = [
  "eyre",
  "flate2",
  "futures",
- "glam",
+ "glam 0.27.0",
  "heed",
  "hematite-core",
  "hematite-ltk",
@@ -1603,23 +1598,17 @@ dependencies = [
  "image_dds",
  "indexmap 2.13.0",
  "itertools",
- "league-toolkit 0.2.18 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_anim 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
  "ltk_fantome",
- "ltk_file 0.2.8 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
  "ltk_inibin",
- "ltk_mesh 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_meta 0.4.0 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
  "ltk_mod_core",
  "ltk_mod_project",
  "ltk_modpkg",
- "ltk_ritobin",
- "ltk_texture 0.4.4 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
  "memmap2",
  "parking_lot",
  "rayon",
  "regex",
  "reqwest 0.11.27",
+ "ritoshark",
  "rustc-hash",
  "semver",
  "serde",
@@ -2030,9 +2019,12 @@ name = "glam"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e05e7e6723e3455f4818c7b26e855439f7546cf617ef669d1adedb8669e5cb9"
-dependencies = [
- "serde",
-]
+
+[[package]]
+name = "glam"
+version = "0.29.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8babf46d4c1c9d92deac9f7be466f76dfc4482b6452fc5024b5e8daf6ffeb3ee"
 
 [[package]]
 name = "glib"
@@ -2279,14 +2271,14 @@ version = "0.3.0"
 source = "git+https://github.com/LeagueToolkit/Hematite#a9d0b3d3a6d34840f398a8f2cce86976f2d71237"
 dependencies = [
  "anyhow",
- "glam",
+ "glam 0.27.0",
  "heed",
  "hematite-core",
  "hematite-types",
  "indexmap 2.13.0",
- "league-toolkit 0.2.18 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
+ "league-toolkit",
  "ltk_primitives 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
- "ltk_texture 0.4.4 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
+ "ltk_texture",
  "tracing",
  "xxhash-rust",
 ]
@@ -3023,30 +3015,15 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 [[package]]
 name = "league-toolkit"
 version = "0.2.18"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
-dependencies = [
- "ltk_anim 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_file 0.2.8 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_hash 0.2.5 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_mesh 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_meta 0.4.0 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_primitives 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_texture 0.4.4 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_wad 0.2.13 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
-]
-
-[[package]]
-name = "league-toolkit"
-version = "0.2.18"
 source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4#ca8eff48b2210c89d63dd07692acb29f1a3e55f4"
 dependencies = [
- "ltk_anim 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
+ "ltk_anim",
  "ltk_file 0.2.8 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
- "ltk_hash 0.2.5 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
- "ltk_mesh 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
- "ltk_meta 0.4.0 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
+ "ltk_hash",
+ "ltk_mesh",
+ "ltk_meta",
  "ltk_primitives 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
- "ltk_texture 0.4.4 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
+ "ltk_texture",
  "ltk_wad 0.2.13 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
 ]
 
@@ -3133,6 +3110,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "libm"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
+
+[[package]]
 name = "libredox"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3216,28 +3199,13 @@ dependencies = [
 [[package]]
 name = "ltk_anim"
 version = "0.3.2"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
-dependencies = [
- "bitflags 2.11.0",
- "bytemuck",
- "byteorder",
- "glam",
- "ltk_hash 0.2.5 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_io_ext 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "num_enum",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "ltk_anim"
-version = "0.3.2"
 source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4#ca8eff48b2210c89d63dd07692acb29f1a3e55f4"
 dependencies = [
  "bitflags 2.11.0",
  "bytemuck",
  "byteorder",
- "glam",
- "ltk_hash 0.2.5 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
+ "glam 0.27.0",
+ "ltk_hash",
  "ltk_io_ext 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
  "num_enum",
  "thiserror 1.0.69",
@@ -3275,15 +3243,6 @@ dependencies = [
 [[package]]
 name = "ltk_file"
 version = "0.2.8"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
-dependencies = [
- "serde",
- "strum 0.27.2",
-]
-
-[[package]]
-name = "ltk_file"
-version = "0.2.8"
 source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4#ca8eff48b2210c89d63dd07692acb29f1a3e55f4"
 dependencies = [
  "strum 0.27.2",
@@ -3292,20 +3251,7 @@ dependencies = [
 [[package]]
 name = "ltk_hash"
 version = "0.2.5"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
-
-[[package]]
-name = "ltk_hash"
-version = "0.2.5"
 source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4#ca8eff48b2210c89d63dd07692acb29f1a3e55f4"
-
-[[package]]
-name = "ltk_hash"
-version = "0.2.6"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=3222fe477919fef4240829a0f1c731ee9728aab3#3222fe477919fef4240829a0f1c731ee9728aab3"
-dependencies = [
- "xxhash-rust",
-]
 
 [[package]]
 name = "ltk_inibin"
@@ -3326,7 +3272,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cefeb90ba24a3a1a3ee79aaf40f1f222137ec514bd9276af047e15f412de04bf"
 dependencies = [
  "byteorder",
- "glam",
+ "glam 0.27.0",
  "ltk_primitives 0.2.4",
  "thiserror 1.0.69",
 ]
@@ -3338,7 +3284,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "751c5641617ea4fe4bb1bf92ac82d88db597f35d5ff4ea40b735bcf674c15107"
 dependencies = [
  "byteorder",
- "glam",
+ "glam 0.27.0",
  "ltk_primitives 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "thiserror 1.0.69",
 ]
@@ -3346,59 +3292,22 @@ dependencies = [
 [[package]]
 name = "ltk_io_ext"
 version = "0.4.1"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
-dependencies = [
- "byteorder",
- "glam",
- "ltk_primitives 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "ltk_io_ext"
-version = "0.4.1"
 source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4#ca8eff48b2210c89d63dd07692acb29f1a3e55f4"
 dependencies = [
  "byteorder",
- "glam",
+ "glam 0.27.0",
  "ltk_primitives 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
  "thiserror 1.0.69",
 ]
 
 [[package]]
-name = "ltk_io_ext"
-version = "0.4.3"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=3222fe477919fef4240829a0f1c731ee9728aab3#3222fe477919fef4240829a0f1c731ee9728aab3"
-dependencies = [
- "byteorder",
- "glam",
- "ltk_primitives 0.3.4",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "ltk_mesh"
-version = "0.4.1"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
-dependencies = [
- "bitflags 2.11.0",
- "byteorder",
- "glam",
- "lazy_static",
- "ltk_io_ext 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_primitives 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "num_enum",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "ltk_mesh"
 version = "0.4.1"
 source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4#ca8eff48b2210c89d63dd07692acb29f1a3e55f4"
 dependencies = [
  "bitflags 2.11.0",
  "byteorder",
- "glam",
+ "glam 0.27.0",
  "lazy_static",
  "ltk_io_ext 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
  "ltk_primitives 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
@@ -3409,30 +3318,11 @@ dependencies = [
 [[package]]
 name = "ltk_meta"
 version = "0.4.0"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
-dependencies = [
- "byteorder",
- "enum_dispatch",
- "glam",
- "indexmap 2.13.0",
- "log",
- "ltk_io_ext 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_primitives 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "miette 7.6.0",
- "num_enum",
- "paste",
- "serde",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "ltk_meta"
-version = "0.4.0"
 source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4#ca8eff48b2210c89d63dd07692acb29f1a3e55f4"
 dependencies = [
  "byteorder",
  "enum_dispatch",
- "glam",
+ "glam 0.27.0",
  "indexmap 2.13.0",
  "log",
  "ltk_io_ext 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4)",
@@ -3500,7 +3390,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c77dca1c463ef7ce047c80bb42fbad4d23eb1265a0f0d821fa7451d0be0a6811"
 dependencies = [
  "byteorder",
- "glam",
+ "glam 0.27.0",
  "thiserror 1.0.69",
 ]
 
@@ -3511,18 +3401,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f5379b9ad4c75f5a12d43ae941ab9cb8b14b49f4e15c3a04cb213962b26b6fcb"
 dependencies = [
  "byteorder",
- "glam",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "ltk_primitives"
-version = "0.3.2"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
-dependencies = [
- "byteorder",
- "glam",
- "serde",
+ "glam 0.27.0",
  "thiserror 1.0.69",
 ]
 
@@ -3532,63 +3411,7 @@ version = "0.3.2"
 source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=ca8eff4#ca8eff48b2210c89d63dd07692acb29f1a3e55f4"
 dependencies = [
  "byteorder",
- "glam",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "ltk_primitives"
-version = "0.3.4"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=3222fe477919fef4240829a0f1c731ee9728aab3#3222fe477919fef4240829a0f1c731ee9728aab3"
-dependencies = [
- "byteorder",
- "glam",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "ltk_ritobin"
-version = "0.2.1"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
-dependencies = [
- "glam",
- "indexmap 2.13.0",
- "ltk_hash 0.2.5 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_meta 0.4.0 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_primitives 0.3.2 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "miette 7.6.0",
- "nom 7.1.3",
- "nom_locate",
- "thiserror 1.0.69",
- "xxhash-rust",
-]
-
-[[package]]
-name = "ltk_rst"
-version = "0.1.0"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=3222fe477919fef4240829a0f1c731ee9728aab3#3222fe477919fef4240829a0f1c731ee9728aab3"
-dependencies = [
- "byteorder",
- "ltk_hash 0.2.6",
- "ltk_io_ext 0.4.3",
- "serde",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "ltk_texture"
-version = "0.4.4"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
-dependencies = [
- "bitflags 2.11.0",
- "byteorder",
- "ddsfile",
- "image",
- "image_dds",
- "intel_tex_2 0.5.0",
- "ltk_io_ext 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "num_enum",
- "texture2ddecoder",
+ "glam 0.27.0",
  "thiserror 1.0.69",
 ]
 
@@ -3623,25 +3446,6 @@ dependencies = [
  "ltk_io_ext 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "memchr",
  "num_enum",
- "thiserror 1.0.69",
- "xxhash-rust",
- "zstd 0.13.3",
-]
-
-[[package]]
-name = "ltk_wad"
-version = "0.2.13"
-source = "git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083#6137083822a9496be36aad6bcf7c17c11369ee5e"
-dependencies = [
- "byteorder",
- "camino",
- "flate2",
- "itertools",
- "ltk_file 0.2.8 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "ltk_io_ext 0.4.1 (git+https://github.com/LeagueToolkit/league-toolkit?rev=6137083)",
- "memchr",
- "num_enum",
- "serde",
  "thiserror 1.0.69",
  "xxhash-rust",
  "zstd 0.13.3",
@@ -3829,12 +3633,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
-name = "minimal-lexical"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
-
-[[package]]
 name = "minisign-verify"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3931,32 +3729,11 @@ checksum = "72ef4a56884ca558e5ddb05a1d1e7e1bfd9a68d9ed024c21704cc98872dae1bb"
 
 [[package]]
 name = "nom"
-version = "7.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d273983c5a657a70a3e8f2a01329822f3b8c8172b73826411a55751e404a0a4a"
-dependencies = [
- "memchr",
- "minimal-lexical",
-]
-
-[[package]]
-name = "nom"
 version = "8.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df9761775871bdef83bee530e60050f7e54b1105350d6884eb0fb4f46c2f9405"
 dependencies = [
  "memchr",
-]
-
-[[package]]
-name = "nom_locate"
-version = "4.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e3c83c053b0713da60c5b8de47fe8e494fe3ece5267b2f23090a07a053ba8f3"
-dependencies = [
- "bytecount",
- "memchr",
- "nom 7.1.3",
 ]
 
 [[package]]
@@ -4914,6 +4691,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "psd"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a25f9b8cfffd65d911baf31a033239f7a0facb755faa2481575b70db5dc9195"
+dependencies = [
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "pxfm"
 version = "0.1.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5378,6 +5164,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "ritoshark"
+version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=b775b0c#b775b0c8f41b1d95e79cd626872737dd77682f8a"
+dependencies = [
+ "rs_anim",
+ "rs_audio",
+ "rs_bin",
+ "rs_file",
+ "rs_hash",
+ "rs_io",
+ "rs_luabin",
+ "rs_mapgeo",
+ "rs_math",
+ "rs_mesh",
+ "rs_rman",
+ "rs_rst",
+ "rs_tex",
+ "rs_troybin",
+ "rs_wad",
+]
+
+[[package]]
 name = "rmp"
 version = "0.8.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5394,6 +5202,157 @@ checksum = "72f81bee8c8ef9b577d1681a70ebbc962c232461e397b22c208c43c04b67a155"
 dependencies = [
  "rmp",
  "serde",
+]
+
+[[package]]
+name = "rs_anim"
+version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=b775b0c#b775b0c8f41b1d95e79cd626872737dd77682f8a"
+dependencies = [
+ "rs_hash",
+ "rs_io",
+ "rs_math",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rs_audio"
+version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=b775b0c#b775b0c8f41b1d95e79cd626872737dd77682f8a"
+dependencies = [
+ "rs_io",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rs_bin"
+version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=b775b0c#b775b0c8f41b1d95e79cd626872737dd77682f8a"
+dependencies = [
+ "indexmap 2.13.0",
+ "rs_hash",
+ "rs_io",
+ "rs_math",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rs_file"
+version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=b775b0c#b775b0c8f41b1d95e79cd626872737dd77682f8a"
+
+[[package]]
+name = "rs_hash"
+version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=b775b0c#b775b0c8f41b1d95e79cd626872737dd77682f8a"
+dependencies = [
+ "thiserror 2.0.18",
+ "xxhash-rust",
+]
+
+[[package]]
+name = "rs_io"
+version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=b775b0c#b775b0c8f41b1d95e79cd626872737dd77682f8a"
+dependencies = [
+ "memmap2",
+ "rs_math",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rs_luabin"
+version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=b775b0c#b775b0c8f41b1d95e79cd626872737dd77682f8a"
+dependencies = [
+ "rs_io",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rs_mapgeo"
+version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=b775b0c#b775b0c8f41b1d95e79cd626872737dd77682f8a"
+dependencies = [
+ "rs_io",
+ "rs_math",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rs_math"
+version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=b775b0c#b775b0c8f41b1d95e79cd626872737dd77682f8a"
+dependencies = [
+ "glam 0.29.3",
+]
+
+[[package]]
+name = "rs_mesh"
+version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=b775b0c#b775b0c8f41b1d95e79cd626872737dd77682f8a"
+dependencies = [
+ "rs_io",
+ "rs_math",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rs_rman"
+version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=b775b0c#b775b0c8f41b1d95e79cd626872737dd77682f8a"
+dependencies = [
+ "rs_io",
+ "thiserror 2.0.18",
+ "zstd 0.13.3",
+]
+
+[[package]]
+name = "rs_rst"
+version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=b775b0c#b775b0c8f41b1d95e79cd626872737dd77682f8a"
+dependencies = [
+ "indexmap 2.13.0",
+ "rs_hash",
+ "rs_io",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rs_tex"
+version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=b775b0c#b775b0c8f41b1d95e79cd626872737dd77682f8a"
+dependencies = [
+ "ddsfile",
+ "image",
+ "intel_tex_2 0.4.0",
+ "rs_io",
+ "rs_math",
+ "texpresso",
+ "texture2ddecoder",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rs_troybin"
+version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=b775b0c#b775b0c8f41b1d95e79cd626872737dd77682f8a"
+dependencies = [
+ "rs_hash",
+ "rs_io",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rs_wad"
+version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=b775b0c#b775b0c8f41b1d95e79cd626872737dd77682f8a"
+dependencies = [
+ "flate2",
+ "rs_hash",
+ "rs_io",
+ "thiserror 2.0.18",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -6737,6 +6696,15 @@ checksum = "c4790fc369d5a530f4b544b094e31388b9b3a37c0f4652ade4505945f5660d24"
 dependencies = [
  "new_debug_unreachable",
  "utf-8",
+]
+
+[[package]]
+name = "texpresso"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8550677e2259d675a7841cb1403db35f330cc9e58674c8c5caa12dd12c51dc71"
+dependencies = [
+ "libm",
 ]
 
 [[package]]

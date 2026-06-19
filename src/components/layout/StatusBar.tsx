@@ -1,12 +1,3 @@
-/**
- * Flint - Log Panel Component
- * Displays application logs captured by the logger service.
- *
- * Polished version: selectable text, per-line copy on hover, level pills
- * (no emoji), filter input, level chips, copy/clear actions via the shared
- * Button primitive.
- */
-
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppMetadataStore, useNotificationStore } from '../../lib/stores';
 import { setLogStore } from '../../lib/util/logger';
@@ -14,6 +5,9 @@ import { Button, Icon } from '../ui';
 
 type LogLevel = 'info' | 'warning' | 'error';
 type FilterLevel = 'all' | LogLevel;
+
+const ROW_H = 34;        // px, single-line row height (must match logger-polish.css row sizing)
+const OVERSCAN = 12;     // rows rendered beyond the viewport on each side
 
 const LEVEL_LABEL: Record<LogLevel, string> = {
     info: 'INFO',
@@ -54,14 +48,12 @@ export const LogPanel: React.FC = () => {
     const [filter, setFilter] = useState('');
     const [levelFilter, setLevelFilter] = useState<FilterLevel>('all');
 
-    // Connect the logger to the store on mount
     useEffect(() => {
         if (hasConnectedRef.current) return;
         hasConnectedRef.current = true;
         setLogStore(addLog, addLogsBatch);
     }, [addLog, addLogsBatch]);
 
-    // Counts per level (compute before filtering)
     const counts = useMemo(() => {
         let info = 0, warning = 0, error = 0;
         for (const l of logs) {
@@ -72,7 +64,6 @@ export const LogPanel: React.FC = () => {
         return { info, warning, error };
     }, [logs]);
 
-    // Filtered logs (level + text)
     const filteredLogs = useMemo(() => {
         const q = filter.trim().toLowerCase();
         return logs.filter((l) => {
@@ -82,18 +73,84 @@ export const LogPanel: React.FC = () => {
         });
     }, [logs, filter, levelFilter]);
 
-    // Auto-scroll to bottom when new logs appear
+    // ── Virtualization state ────────────────────────────────────────────────
+    const [scrollTop, setScrollTop] = useState(0);
+    const [viewportH, setViewportH] = useState(400);
+    const stickToBottomRef = useRef(true);
+
+    // ── Range selection (click → anchor, shift-click → extend) ──────────────
+    const [selAnchor, setSelAnchor] = useState<number | null>(null);
+    const [selFocus, setSelFocus] = useState<number | null>(null);
+    const selLo = selAnchor === null || selFocus === null ? -1 : Math.min(selAnchor, selFocus);
+    const selHi = selAnchor === null || selFocus === null ? -1 : Math.max(selAnchor, selFocus);
+    const selCount = selLo < 0 ? 0 : selHi - selLo + 1;
+
+    const total = filteredLogs.length;
+    const totalHeight = total * ROW_H;
+    const startIndex = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
+    const endIndex = Math.min(total, Math.ceil((scrollTop + viewportH) / ROW_H) + OVERSCAN);
+    const windowRows = filteredLogs.slice(startIndex, endIndex);
+
     useEffect(() => {
-        if (contentRef.current && logPanelExpanded) {
-            contentRef.current.scrollTop = contentRef.current.scrollHeight;
+        const el = contentRef.current;
+        if (el && logPanelExpanded && stickToBottomRef.current) {
+            el.scrollTop = el.scrollHeight;
+            setScrollTop(el.scrollTop);
         }
     }, [filteredLogs, logPanelExpanded]);
+
+    useEffect(() => {
+        if (!logPanelExpanded) return;
+        const el = contentRef.current;
+        if (!el) return;
+        const measure = () => setViewportH(el.clientHeight);
+        measure();
+        const ro = new ResizeObserver(measure);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [logPanelExpanded]);
+
+    const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+        const el = e.currentTarget;
+        setScrollTop(el.scrollTop);
+        stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < ROW_H * 2;
+    };
+
+    const handleRowClick = (index: number, e: React.MouseEvent) => {
+        if (e.shiftKey && selAnchor !== null) {
+            setSelFocus(index);
+            window.getSelection?.()?.removeAllRanges();
+        } else {
+            setSelAnchor(index);
+            setSelFocus(index);
+        }
+    };
+
+    const formatRange = (lo: number, hi: number) =>
+        filteredLogs.slice(lo, hi + 1).map((log) => {
+            const time = formatTime(log.timestamp);
+            const level = LEVEL_LABEL[log.level as LogLevel].padEnd(5);
+            return `[${time}] ${level} ${log.message}`;
+        }).join('\n');
+
+    const copySelection = () => {
+        if (selLo < 0) return;
+        navigator.clipboard.writeText(formatRange(selLo, selHi))
+            .then(() => showToast('success', `${selCount} line${selCount === 1 ? '' : 's'} copied`))
+            .catch(() => showToast('error', 'Failed to copy selection'));
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && selLo >= 0) {
+            const nativeSel = window.getSelection?.()?.toString();
+            if (!nativeSel) { e.preventDefault(); copySelection(); }
+        }
+    };
 
     const latestLog = logs.length > 0 ? logs[logs.length - 1] : null;
     const displayMessage = latestLog ? latestLog.message : statusMessage || 'Ready';
     const displayLevel: LogLevel = latestLog?.level || 'info';
 
-    // Indicator class on the collapsed bar
     const indicatorClass = (() => {
         if (!latestLog) {
             switch (status) {
@@ -130,7 +187,6 @@ export const LogPanel: React.FC = () => {
         return (
             <div className="log-panel log-panel--expanded" onClick={toggleLogPanel}>
                 <div className="log-panel__container" onClick={(e) => e.stopPropagation()}>
-                    {/* Header */}
                     <div className="log-panel__header">
                         <span className="log-panel__title">
                             <span className="log-panel__title-icon"><Icon name="info" /></span>
@@ -143,6 +199,11 @@ export const LogPanel: React.FC = () => {
                             </span>
                         </span>
                         <div className="log-panel__actions">
+                            {selCount > 0 && (
+                                <Button size="sm" variant="primary" icon="copy" onClick={copySelection}>
+                                    Copy selection ({selCount})
+                                </Button>
+                            )}
                             <Button size="sm" icon="copy" onClick={copyAll} disabled={filteredLogs.length === 0}>
                                 Copy logs
                             </Button>
@@ -155,7 +216,6 @@ export const LogPanel: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Toolbar */}
                     <div className="log-panel__toolbar">
                         <div className="log-panel__search">
                             <Icon name="search" />
@@ -196,8 +256,13 @@ export const LogPanel: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Content */}
-                    <div className="log-panel__content" ref={contentRef}>
+                    <div
+                        className="log-panel__content"
+                        ref={contentRef}
+                        onScroll={handleScroll}
+                        onKeyDown={handleKeyDown}
+                        tabIndex={0}
+                    >
                         {logs.length === 0 ? (
                             <div className="log-panel__empty">
                                 <span className="log-panel__empty-icon"><Icon name="info" /></span>
@@ -212,26 +277,50 @@ export const LogPanel: React.FC = () => {
                                 <span>{filter ? `Nothing matches "${filter}"` : `No ${levelFilter} entries.`}</span>
                             </div>
                         ) : (
-                            filteredLogs.map((log) => (
-                                <div
-                                    key={log.id}
-                                    className={`log-panel__entry log-panel__entry--${log.level}`}
-                                >
-                                    <span className="log-panel__time">{formatTime(log.timestamp)}</span>
-                                    <span className={`log-panel__level-pill log-panel__level-pill--${log.level}`}>
-                                        {LEVEL_LABEL[log.level as LogLevel]}
-                                    </span>
-                                    <span className="log-panel__message">{log.message}</span>
-                                    <button
-                                        className="log-panel__entry-copy"
-                                        onClick={() => copyLine(log.message)}
-                                        title="Copy line"
-                                        aria-label="Copy log line"
-                                    >
-                                        <Icon name="copy" />
-                                    </button>
-                                </div>
-                            ))
+                            <div style={{ height: totalHeight, position: 'relative' }}>
+                                {windowRows.map((log, i) => {
+                                    const index = startIndex + i;
+                                    const selected = selLo >= 0 && index >= selLo && index <= selHi;
+                                    return (
+                                        <div
+                                            key={log.id}
+                                            className={`log-panel__entry log-panel__entry--${log.level}`}
+                                            style={{
+                                                position: 'absolute',
+                                                top: index * ROW_H,
+                                                left: 0,
+                                                right: 0,
+                                                height: ROW_H,
+                                                padding: '0 14px',
+                                                background: selected
+                                                    ? 'color-mix(in oklab, var(--accent-primary) 24%, transparent)'
+                                                    : undefined,
+                                            }}
+                                            onClick={(e) => handleRowClick(index, e)}
+                                        >
+                                            <span className="log-panel__time">{formatTime(log.timestamp)}</span>
+                                            <span className={`log-panel__level-pill log-panel__level-pill--${log.level}`}>
+                                                {LEVEL_LABEL[log.level as LogLevel]}
+                                            </span>
+                                            <span
+                                                className="log-panel__message"
+                                                style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                                title={log.message}
+                                            >
+                                                {log.message}
+                                            </span>
+                                            <button
+                                                className="log-panel__entry-copy"
+                                                onClick={(e) => { e.stopPropagation(); copyLine(log.message); }}
+                                                title="Copy line"
+                                                aria-label="Copy log line"
+                                            >
+                                                <Icon name="copy" />
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         )}
                     </div>
                 </div>
@@ -256,5 +345,4 @@ export const LogPanel: React.FC = () => {
     );
 };
 
-// Re-export as StatusBar for backward compatibility
 export const StatusBar = LogPanel;

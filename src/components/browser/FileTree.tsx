@@ -1,18 +1,14 @@
-/**
- * Flint - File Tree Component
- *
- * The tree is flattened into a row array during render and only the visible
- * window is mounted. `TreeRow` is a pure leaf renderer with no store
- * subscriptions — all handlers come from the parent as stable callbacks.
- */
-
 import React, { useState, useMemo, useCallback, useRef, useEffect, CSSProperties } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useAppMetadataStore, useProjectTabStore, useModalStore, useNotificationStore, useConfigStore, useNavigationStore } from '../../lib/stores';
+import { openWadInExtract, isWadPath } from '../../lib/openWad';
 import { getFileIcon, getExpanderIcon, getIcon } from '../../lib/ui-helpers/fileIcons';
 import { VirtualizedList } from './wad-explorer/VirtualizedList';
 import * as api from '../../lib/api';
 import { buildFileContextMenuOptions } from '../../lib/editor/fileContextMenuOptions';
+import { beginPointerDrag } from '../../lib/pointerDrag';
+import { useTransferStore } from '../../lib/stores/transferStore';
+import type { TreeDragPayload, TreeDragItem } from '../../lib/dnd';
 import type { FileTreeNode, ProjectTab } from '../../lib/types';
 
 const ROW_HEIGHT = 22;
@@ -33,13 +29,36 @@ interface LeftPanelProps {
 export const LeftPanel: React.FC<LeftPanelProps> = ({ style }) => {
     const activeTabId = useProjectTabStore((s) => s.activeTabId);
     const openTabs = useProjectTabStore((s) => s.openTabs);
+    const showToast = useNotificationStore((s) => s.showToast);
     const [searchQuery, setSearchQuery] = useState('');
 
     const activeTab = getActiveTab(activeTabId, openTabs);
     if (!activeTab) return null;
 
+    const isMapProject = activeTab.project.kind === 'map';
+    const projectPath = activeTab.projectPath;
+
     return (
         <aside className="left-panel" id="left-panel" style={style}>
+            {isMapProject && (
+                <button
+                    className="btn btn--sm"
+                    style={{ margin: '8px 8px 0', width: 'calc(100% - 16px)', justifyContent: 'center' }}
+                    title="Open a 3D preview of this map in a separate window"
+                    onClick={async () => {
+                        try {
+                            await api.openMapPreviewWindow(projectPath);
+                        } catch (err) {
+                            const msg = (err as Error).message || String(err);
+                            console.error('[LeftPanel] open map preview failed:', msg);
+                            showToast('error', `Failed to open map preview: ${msg}`);
+                        }
+                    }}
+                >
+                    <span dangerouslySetInnerHTML={{ __html: getIcon('image') }} />
+                    <span>Preview Map</span>
+                </button>
+            )}
             <div className="search-box">
                 <input
                     type="text"
@@ -59,19 +78,15 @@ interface FileTreeProps {
 }
 
 interface TreeRowData {
-    /** Underlying node after compact-folder merging. */
     node: FileTreeNode;
     /** Displayed path; for compacted folders this includes the merged segments. */
     displayPath: string;
     depth: number;
     isExpanded: boolean;
-    /** When set, the row should render as the inline-rename input. */
     isRenaming: boolean;
-    /** Status badge state, if any. */
     status?: 'new' | 'modified';
 }
 
-/** Compact single-child directory chains into one row label. */
 function compactNode(node: FileTreeNode): { displayPath: string; effectiveNode: FileTreeNode } {
     let current = node;
     const parts = [current.name];
@@ -118,11 +133,6 @@ function filterTreeByQuery(node: FileTreeNode, query: string): FileTreeNode | nu
     return null;
 }
 
-/**
- * Walk the tree in display order, applying compact-folder merging + expanded
- * filter, and emit one `TreeRowData` per visible row. Iterative to avoid stack
- * pressure on deep trees.
- */
 function flattenTree(
     root: FileTreeNode,
     expandedFolders: Set<string>,
@@ -130,8 +140,6 @@ function flattenTree(
     statusByRelPath: Map<string, 'new' | 'modified'>,
 ): TreeRowData[] {
     const rows: TreeRowData[] = [];
-    // Stack frames: (node, depth). DFS, children pushed in reverse so the
-    // first child is processed first.
     const stack: Array<{ node: FileTreeNode; depth: number }> = [
         { node: root, depth: 0 },
     ];
@@ -153,7 +161,6 @@ function flattenTree(
         });
 
         if (effectiveNode.isDirectory && isExpanded && effectiveNode.children) {
-            // Reverse-push so children render in their natural order.
             for (let i = effectiveNode.children.length - 1; i >= 0; i--) {
                 stack.push({ node: effectiveNode.children[i], depth: depth + 1 });
             }
@@ -189,8 +196,6 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         }).catch(() => {});
     }, [fileTreeVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // One subscription on the file-status revision counter. Read the Map
-    // snapshot once and pass it as a prop into the row data.
     const fileStatusesRev = useAppMetadataStore((s) => s.fileStatusesRev);
     const projectPathForStatus = activeTab?.projectPath || '';
     const statusByRelPath = useMemo(() => {
@@ -209,7 +214,6 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
     const [renamingPath, setRenamingPath] = useState<string | null>(null);
     const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
 
-    // Fresh refs so the long-lived OS drag listener always sees current state.
     const activeTabRef = useRef(activeTab);
     useEffect(() => { activeTabRef.current = activeTab; });
     const setFileTreeRef = useRef(setFileTree);
@@ -312,17 +316,111 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
 
     const projectPath = activeTab?.projectPath || '';
 
+    const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+    const anchorRef = useRef<string | null>(null);
+    const rowsRef = useRef(rows);
+    rowsRef.current = rows;
+    const selectedPathsRef = useRef(selectedPaths);
+    selectedPathsRef.current = selectedPaths;
+    useEffect(() => { setSelectedPaths(new Set()); anchorRef.current = null; }, [activeTabId]);
+
     const refreshFileTree = useCallback(async () => {
         if (!activeTab) return;
         const files = await api.listProjectFiles(activeTab.projectPath);
         setFileTree(activeTab.id, files);
     }, [activeTab, setFileTree]);
 
-    const handleItemClick = useCallback((path: string) => {
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key !== 'F2' && e.key !== 'Delete') return;
+            if (useNavigationStore.getState().currentView !== 'preview') return;
+            if (renamingPath) return;
+            const ae = document.activeElement as HTMLElement | null;
+            if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable || ae.closest('.monaco-editor'))) return;
+            const tab = activeTabRef.current;
+            const sel = tab?.selectedFile;
+            if (!tab || !sel || sel === '.') return;
+
+            if (e.key === 'F2') {
+                e.preventDefault();
+                setRenamingPath(sel);
+            } else {
+                e.preventDefault();
+                const selPaths = selectedPathsRef.current;
+                const targets = (selPaths.size > 0 ? [...selPaths] : [sel]).filter((p) => p && p !== '.');
+                if (!targets.length) return;
+                const label = targets.length === 1
+                    ? `"${targets[0].split('/').pop()}"`
+                    : `${targets.length} items`;
+                openConfirmDialog({
+                    title: 'Delete',
+                    message: `Are you sure you want to delete ${label}? This cannot be undone.`,
+                    confirmLabel: 'Delete',
+                    danger: true,
+                    onConfirm: async () => {
+                        try {
+                            for (const p of targets) await api.deleteFile(tab.projectPath, p);
+                            await refreshFileTree();
+                            setSelectedPaths(new Set());
+                            showToastRef.current('success', targets.length === 1 ? 'Deleted' : `Deleted ${targets.length} items`);
+                        } catch (err) {
+                            const fe = err as api.FlintError;
+                            showToastRef.current('error', fe.getUserMessage?.() || 'Failed to delete');
+                        }
+                    },
+                });
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [renamingPath, openConfirmDialog, refreshFileTree]);
+
+    const handleItemClick = useCallback((path: string, mods?: { ctrl: boolean; shift: boolean }) => {
         if (!activeTab) return;
+        if (mods?.shift && anchorRef.current) {
+            const paths = rowsRef.current.map((r) => r.node.path);
+            const i = paths.indexOf(anchorRef.current);
+            const j = paths.indexOf(path);
+            if (i >= 0 && j >= 0) {
+                const [lo, hi] = i <= j ? [i, j] : [j, i];
+                setSelectedPaths(new Set(paths.slice(lo, hi + 1)));
+            }
+        } else if (mods?.ctrl) {
+            setSelectedPaths((prev) => {
+                const next = new Set(prev);
+                if (next.has(path)) next.delete(path); else next.add(path);
+                return next;
+            });
+            anchorRef.current = path;
+        } else {
+            setSelectedPaths(new Set([path]));
+            anchorRef.current = path;
+        }
         setSelectedFile(activeTab.id, path);
         useNavigationStore.getState().setView('preview');
     }, [activeTab, setSelectedFile]);
+
+    const handleRowPointerDown = useCallback((node: FileTreeNode, e: React.PointerEvent) => {
+        if (node.path === '.' || !projectPath || renamingPath) return;
+        const sel = selectedPathsRef.current;
+        let items: TreeDragItem[];
+        if (sel.has(node.path) && sel.size > 1) {
+            items = rowsRef.current
+                .filter((r) => sel.has(r.node.path) && r.node.path !== '.')
+                .map((r) => ({ relPath: r.node.path, name: r.node.name, isDirectory: r.node.isDirectory }));
+        } else {
+            items = [{ relPath: node.path, name: node.name, isDirectory: node.isDirectory }];
+        }
+        if (!items.length) return;
+        const payload: TreeDragPayload = { projectPath, items };
+        const label = items.length === 1 ? items[0].name : `${items.length} items`;
+        beginPointerDrag(e, {
+            label,
+            onMove: (x, y) => onTreeDragMove(x, y, projectPath),
+            onDrop: ({ clientX, clientY }) => onTreeDrop(clientX, clientY, payload),
+            onEnd: () => { clearSpringLoad(); clearFolderExpand(); clearDragHighlights(); },
+        });
+    }, [projectPath, renamingPath]);
 
     const handleExpanderClick = useCallback((path: string) => {
         if (activeTab) toggleFolder(activeTab.id, path);
@@ -333,6 +431,14 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         bulkSetFolders(activeTab.id, collectAllFolderPaths(node), expand);
     }, [activeTab, bulkSetFolders]);
 
+    const openWad = useCallback((fullFilePath: string) => {
+        showToastRef.current('info', 'Opening WAD…');
+        openWadInExtract(fullFilePath).catch((err) => {
+            const fe = err as api.FlintError;
+            showToastRef.current('error', fe.getUserMessage?.() || 'Failed to open WAD');
+        });
+    }, []);
+
     const handleDoubleClick = useCallback((node: FileTreeNode) => {
         if (node.isDirectory) return;
         const path = node.path;
@@ -340,7 +446,9 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         const fullFilePath = `${projectPath}/${path}`;
         const nav = useNavigationStore.getState();
 
-        if (node.name === 'mod.config.json') {
+        if (isWadPath(lower)) {
+            openWad(fullFilePath);
+        } else if (node.name === 'mod.config.json') {
             nav.navigateToFileEditor({ filePath: fullFilePath, kind: 'modConfig', projectPath });
         } else if (BIN_TEXT_EXTS.some(ext => lower.endsWith(ext))) {
             nav.navigateToFileEditor({ filePath: fullFilePath, kind: 'binText', projectPath });
@@ -349,7 +457,7 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         } else if (lower.endsWith('.json') || lower.endsWith('.txt') || lower.endsWith('.lua') || lower.endsWith('.py')) {
             nav.navigateToFileEditor({ filePath: fullFilePath, kind: 'raw', projectPath });
         }
-    }, [projectPath]);
+    }, [projectPath, openWad]);
 
     const handleRenameSubmit = useCallback(async (path: string, newName: string) => {
         setRenamingPath(null);
@@ -398,9 +506,7 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         );
     }
 
-    // renderEpoch bumps whenever the rows array identity changes (selection,
-    // expand, rename, drop target, file status).
-    const renderEpoch = rows.length + (selectedFile?.length ?? 0) + (dropTargetPath?.length ?? 0);
+    const renderEpoch = rows.length + (selectedFile?.length ?? 0) + (dropTargetPath?.length ?? 0) + selectedPaths.size;
 
     return (
         <div className="file-tree">
@@ -415,9 +521,11 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
                     return (
                         <TreeRow
                             row={row}
-                            isSelected={selectedFile === row.node.path}
+                            projectPath={activeTab?.projectPath || ''}
+                            isSelected={selectedPaths.has(row.node.path) || selectedFile === row.node.path}
                             isDropTarget={dropTargetPath === row.node.path}
                             onItemClick={handleItemClick}
+                            onRowPointerDown={handleRowPointerDown}
                             onExpanderClick={handleExpanderClick}
                             onDeepToggle={handleDeepToggle}
                             onDoubleClick={handleDoubleClick}
@@ -434,9 +542,11 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
 
 interface TreeRowProps {
     row: TreeRowData;
+    projectPath: string;
     isSelected: boolean;
     isDropTarget: boolean;
-    onItemClick: (path: string) => void;
+    onItemClick: (path: string, mods?: { ctrl: boolean; shift: boolean }) => void;
+    onRowPointerDown: (node: FileTreeNode, e: React.PointerEvent) => void;
     onExpanderClick: (path: string) => void;
     onDeepToggle: (node: FileTreeNode, expand: boolean) => void;
     onDoubleClick: (node: FileTreeNode) => void;
@@ -445,11 +555,132 @@ interface TreeRowProps {
     onContextMenu: (e: React.MouseEvent, node: FileTreeNode, depth: number) => void;
 }
 
+// ── Cross-project drag hit-testing (pointer-drag; see lib/pointerDrag.ts) ──────
+
+const SPRING_LOAD_MS = 600;
+let springTimer: number | null = null;
+let springTargetProject: string | null = null;
+let folderExpandTimer: number | null = null;
+let folderExpandTarget: string | null = null;
+
+function clearSpringLoad(): void {
+    if (springTimer !== null) { clearTimeout(springTimer); springTimer = null; }
+    springTargetProject = null;
+}
+
+function clearFolderExpand(): void {
+    if (folderExpandTimer !== null) { clearTimeout(folderExpandTimer); folderExpandTimer = null; }
+    folderExpandTarget = null;
+}
+
+/** Project tab under the given client point, if any (tabs carry data-project-tab). */
+function projectTabAt(x: number, y: number): HTMLElement | null {
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    return (el?.closest('[data-project-tab]') as HTMLElement | null) ?? null;
+}
+
+/** Folder row (the tree node element) under the point — folders carry data-drop-path. */
+function folderRowAt(x: number, y: number): HTMLElement | null {
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    return (el?.closest('[data-drop-path]') as HTMLElement | null) ?? null;
+}
+
+function clearDragHighlights(): void {
+    document.querySelectorAll('.titlebar__tab--drop-target, .file-tree__node--drop-target, .file-tree__item--drop-target')
+        .forEach((el) => el.classList.remove('titlebar__tab--drop-target', 'file-tree__node--drop-target', 'file-tree__item--drop-target'));
+}
+
+/** The currently-active project tab's path + display name (post spring-load). */
+function activeProjectInfo(): { path: string; name: string } | null {
+    const st = useProjectTabStore.getState();
+    const tab = st.openTabs.find((t) => t.id === st.activeTabId);
+    if (!tab) return null;
+    return { path: tab.projectPath, name: tab.project.display_name || tab.project.name };
+}
+
+function onTreeDragMove(x: number, y: number, sourceProject: string): void {
+    clearDragHighlights();
+
+    const tab = projectTabAt(x, y);
+    if (tab) {
+        clearFolderExpand();
+        const pp = tab.getAttribute('data-project-tab');
+        if (pp && pp !== sourceProject) {
+            tab.classList.add('titlebar__tab--drop-target');
+            if (springTargetProject !== pp) {
+                clearSpringLoad();
+                springTargetProject = pp;
+                springTimer = window.setTimeout(() => {
+                    const st = useProjectTabStore.getState();
+                    const t = st.openTabs.find((tb) => tb.projectPath === pp);
+                    if (t) {
+                        st.switchTab(t.id);
+                        useNavigationStore.getState().setView('preview');
+                    }
+                    springTimer = null;
+                }, SPRING_LOAD_MS);
+            }
+        }
+        return;
+    }
+
+    clearSpringLoad();
+    const active = activeProjectInfo();
+    if (active && active.path !== sourceProject) {
+        const folder = folderRowAt(x, y);
+        if (folder) {
+            folder.classList.add('file-tree__node--drop-target');
+            const folderPath = folder.getAttribute('data-drop-path');
+            if (folderPath && folderPath !== '.' && folderExpandTarget !== folderPath) {
+                clearFolderExpand();
+                folderExpandTarget = folderPath;
+                folderExpandTimer = window.setTimeout(() => {
+                    const st = useProjectTabStore.getState();
+                    if (st.activeTabId) st.bulkSetFolders(st.activeTabId, [folderPath], true);
+                    folderExpandTimer = null;
+                }, SPRING_LOAD_MS);
+            }
+        } else {
+            clearFolderExpand();
+        }
+    }
+}
+
+function onTreeDrop(x: number, y: number, payload: TreeDragPayload): void {
+    clearSpringLoad();
+    clearFolderExpand();
+    clearDragHighlights();
+
+    const folder = folderRowAt(x, y);
+    if (folder) {
+        const destFolder = folder.getAttribute('data-drop-path');
+        const active = activeProjectInfo();
+        if (destFolder && active && active.path !== payload.projectPath) {
+            useTransferStore.getState().openTransfer({
+                payload,
+                destProjectPath: active.path,
+                destProjectName: active.name,
+                destFolder,
+            });
+        }
+        return;
+    }
+
+    const tab = projectTabAt(x, y);
+    if (!tab) return;
+    const destProjectPath = tab.getAttribute('data-project-tab');
+    const destProjectName = tab.getAttribute('data-project-name') || 'project';
+    if (!destProjectPath || destProjectPath === payload.projectPath) return;
+    useTransferStore.getState().openTransfer({ payload, destProjectPath, destProjectName, destFolder: '.' });
+}
+
 const TreeRow: React.FC<TreeRowProps> = React.memo(({
     row,
+    projectPath,
     isSelected,
     isDropTarget,
     onItemClick,
+    onRowPointerDown,
     onExpanderClick,
     onDeepToggle,
     onDoubleClick,
@@ -459,6 +690,11 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
 }) => {
     const { node, displayPath, depth, isExpanded, isRenaming, status } = row;
     const renameInputRef = useRef<HTMLInputElement>(null);
+
+    void projectPath;
+    const handlePointerDown = (e: React.PointerEvent) => {
+        onRowPointerDown(node, e);
+    };
 
     useEffect(() => {
         if (isRenaming && renameInputRef.current) {
@@ -477,11 +713,7 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
     const handleClick = (e: React.MouseEvent) => {
         e.stopPropagation();
         if (isRenaming) return;
-        if (e.shiftKey && node.isDirectory) {
-            onDeepToggle(node, !isExpanded);
-        } else {
-            onItemClick(node.path);
-        }
+        onItemClick(node.path, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey });
     };
 
     const handleDoubleClick = (e: React.MouseEvent) => {
@@ -510,6 +742,7 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
             <div
                 className={`file-tree__item ${isSelected ? 'file-tree__item--selected' : ''} ${statusClass}${isDropTarget ? ' file-tree__item--drop-target' : ''}`}
                 style={{ paddingLeft: 4 + depth * 12 }}
+                onPointerDown={handlePointerDown}
                 onClick={handleClick}
                 onDoubleClick={handleDoubleClick}
                 onContextMenu={(e) => onContextMenu(e, node, depth)}
@@ -518,10 +751,9 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
                     <span
                         className="file-tree__expander"
                         onClick={(e) => {
-                            // Chevron only toggles expansion; clicking the row
-                            // body is what opens the folder grid view.
                             e.stopPropagation();
-                            onExpanderClick(node.path);
+                            if (e.shiftKey) onDeepToggle(node, !isExpanded);
+                            else onExpanderClick(node.path);
                         }}
                         style={{ cursor: 'pointer' }}
                         dangerouslySetInnerHTML={{ __html: expanderIcon }}

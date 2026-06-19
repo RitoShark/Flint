@@ -1,23 +1,5 @@
-/**
- * Flint - WAD Preview Panel (in-memory)
- *
- * Previews a WAD chunk WITHOUT writing anything to disk.
- * Reads the decompressed bytes directly from the WAD, detects the file type
- * from magic bytes / path hint, then renders the appropriate view inline.
- *
- * Supported previews:
- *   - DDS / TEX textures  → decoded PNG via decode_bytes_to_png
- *   - PNG / JPEG images   → object URL from raw bytes
- *   - BIN property files  → ritobin text via convert_bin_to_text
- *   - JSON / text / Lua   → UTF-8 decode shown in a scrollable pre block
- *   - Everything else     → hex dump
- *
- * 3D models (SKN / SCB / SKL) require an on-disk path, so we offer a one-click
- * "Extract to preview" shortcut for those types only.
- */
-
 import React, { useState, useEffect, useRef } from 'react';
-import { useConfigStore, useWadExtractStore, useNotificationStore } from '../../lib/stores';
+import { useWadExtractStore, useNotificationStore, useModalStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
@@ -64,7 +46,6 @@ function detectChunkType(bytes: Uint8Array, pathHint: string | null): ChunkTypeI
             return { fileType: 'model/x-lol-skn', extension: 'skn' };
     }
 
-    // Extension-based fallback
     const extMap: Record<string, string> = {
         dds: 'image/dds',
         tex: 'image/tex',
@@ -214,7 +195,6 @@ const ErrorState: React.FC<{ message: string }> = ({ message }) => (
 // Monaco BIN Viewer Component (read-only with syntax highlighting)
 // =============================================================================
 
-// Register Ritobin language once at module load
 registerRitobinLanguage(monaco as any);
 registerRitobinTheme(monaco as any);
 
@@ -229,7 +209,6 @@ const MonacoBinViewer: React.FC<{
     useEffect(() => {
         if (!containerRef.current) return;
 
-        // Create Monaco editor
         const editor = monaco.editor.create(containerRef.current, {
             value: text,
             language: RITOBIN_LANGUAGE_ID,
@@ -266,16 +245,14 @@ const MonacoBinViewer: React.FC<{
             editor.dispose();
             editorRef.current = null;
         };
-    }, []); // Only create once
+    }, []);
 
-    // Update readOnly setting
     useEffect(() => {
         if (editorRef.current) {
             editorRef.current.updateOptions({ readOnly });
         }
     }, [readOnly]);
 
-    // Update content when text changes
     useEffect(() => {
         if (editorRef.current) {
             const model = editorRef.current.getModel();
@@ -321,7 +298,7 @@ const MonacoTextViewer: React.FC<{ text: string; language: string }> = ({ text, 
             editor.dispose();
             editorRef.current = null;
         };
-    }, [language]); // Recreate if language changes
+    }, [language]);
 
     useEffect(() => {
         if (editorRef.current) {
@@ -350,15 +327,12 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
     const [imageZoom, setImageZoom] = useState<'fit' | number>('fit');
     const [isExtracting, setIsExtracting] = useState(false);
 
-    // Editing states for in-memory WAD edits
     const [editedContent, setEditedContent] = useState<string | null>(null);
     const [isContentDirty, setIsContentDirty] = useState(false);
     const [isSavingChunk, setIsSavingChunk] = useState(false);
 
-    // Object-URL cleanup: store the URL so we can revoke it when the chunk changes
     const blobUrlRef = useRef<string | null>(null);
 
-    // Model preview states
     const [modelPreviewPath, setModelPreviewPath] = useState<string | null>(null);
     const [modelTempDir, setModelTempDir] = useState<string | null>(null);
     const [modelLoading, setModelLoading] = useState(false);
@@ -366,7 +340,6 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
     const session = extractSessions.find(s => s.id === activeExtractId);
     const chunk = session?.chunks.find(c => c.hash === session.previewHash) ?? null;
 
-    // Reset editing states when preview changes
     useEffect(() => {
         if (preview && preview.textContent !== null) {
             setEditedContent(preview.textContent);
@@ -377,24 +350,18 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
         }
     }, [preview]);
 
-    // Cleanup model temp dir on chunk change or unmount
     useEffect(() => {
         return () => {
             if (modelTempDir) api.cleanupWadModelPreview(modelTempDir).catch(() => {});
         };
     }, [modelTempDir]);
 
-    // -------------------------------------------------------------------------
-    // Load preview whenever the selected chunk changes
-    // -------------------------------------------------------------------------
     useEffect(() => {
-        // Revoke any previous blob URL to avoid memory leaks
         if (blobUrlRef.current) {
             URL.revokeObjectURL(blobUrlRef.current);
             blobUrlRef.current = null;
         }
 
-        // Clean up previous model preview files
         setModelPreviewPath(null);
         if (modelTempDir) {
             api.cleanupWadModelPreview(modelTempDir).catch(() => {});
@@ -416,21 +383,18 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
             setImageZoom('fit');
 
             try {
-                // 1. Fetch raw decompressed bytes from WAD — check edit session first for in-memory modifications
                 const bytes = session.editSessionId
                     ? await api.readSessionChunk(session.editSessionId, chunk.hash)
                     : await api.readWadChunkData(session.wadPath, chunk.hash);
 
                 if (cancelled) return;
 
-                // 2. Detect file type from bytes + path hint
                 const { fileType, extension } = detectChunkType(bytes, chunk.path);
 
                 let imageDataUrl: string | null = null;
                 let textContent: string | null = null;
                 let dimensions: [number, number] | null = null;
 
-                // 3. Type-specific decoding
                 if (fileType === 'image/dds' || fileType === 'image/tex') {
                     const decoded = await api.decodeBytesToPng(bytes);
                     if (!cancelled) {
@@ -461,7 +425,6 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                 ) {
                     textContent = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
                 }
-                // For model / audio / binary: we just show a hex dump (bytes are passed through)
 
                 if (!cancelled) {
                     setPreview({ fileType, extension, bytes, imageDataUrl, textContent, dimensions });
@@ -481,16 +444,12 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
         return () => { cancelled = true; };
     }, [session?.id, chunk?.hash]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Cleanup blob URL on unmount
     useEffect(() => {
         return () => {
             if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
         };
     }, []);
 
-    // -------------------------------------------------------------------------
-    // Extract current file to disk
-    // -------------------------------------------------------------------------
     const handleExtractThis = async () => {
         if (!session || !chunk) return;
         try {
@@ -507,26 +466,17 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
         }
     };
 
-    // -------------------------------------------------------------------------
-    // Save current in-memory edits to backend edit session
-    // -------------------------------------------------------------------------
     const handleSaveChunk = async () => {
         if (!session || !chunk || !session.editSessionId || editedContent === null) return;
 
         setIsSavingChunk(true);
         try {
-            // 1. Compile ritobin text back to binary bytes
-            const binConverterEngine = useConfigStore.getState().binConverterEngine;
-            const useJade = binConverterEngine === 'jade';
-            const binBytes = await api.compileRitobinTextToBytes(editedContent, useJade);
+            const binBytes = await api.compileRitobinTextToBytes(editedContent);
 
-            // 2. Write binary bytes to the edit session
             await api.writeSessionChunk(session.editSessionId, chunk.hash, binBytes);
 
-            // 3. Update chunk list in the store (update size and set dirty)
             useWadExtractStore.getState().stageChunkEdit(session.id, chunk.hash, binBytes.length);
 
-            // 4. Update parent's textContent so it matches and dirty flag clears
             setPreview(p => p ? { ...p, bytes: binBytes, textContent: editedContent } : null);
             setIsContentDirty(false);
 
@@ -540,9 +490,48 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
         }
     };
 
-    // -------------------------------------------------------------------------
-    // Early returns
-    // -------------------------------------------------------------------------
+    const handleDeleteFromWad = () => {
+        if (!session || !chunk || !session.editSessionId) return;
+        const editSessionId = session.editSessionId;
+        const sessionId = session.id;
+        const hash = chunk.hash;
+        const label = chunk.path ? (chunk.path.split(/[\\/]/).pop() ?? chunk.path) : chunk.hash;
+        useModalStore.getState().openConfirmDialog({
+            title: 'Delete from WAD?',
+            message: `Remove "${label}" from this WAD? The deletion is staged in memory and applied when you save the WAD.`,
+            confirmLabel: 'Delete',
+            danger: true,
+            onConfirm: async () => {
+                try {
+                    await api.removeSessionChunk(editSessionId, hash);
+                    useWadExtractStore.getState().stageChunkDelete(sessionId, hash);
+                    useWadExtractStore.getState().setPreview(sessionId, null);
+                    showToast('success', 'File removed. Save the WAD to persist the deletion.');
+                } catch (err) {
+                    const msg = err instanceof api.FlintError ? err.getUserMessage() : String(err);
+                    showToast('error', `Failed to delete: ${msg}`);
+                }
+            },
+        });
+    };
+
+    const saveChunkRef = useRef<() => void>(() => {});
+    saveChunkRef.current = () => {
+        if (session?.editSessionId && isContentDirty && editedContent !== null && !isSavingChunk) {
+            void handleSaveChunk();
+        }
+    };
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+                e.preventDefault();
+                saveChunkRef.current();
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, []);
+
     if (!session || !chunk) {
         return <div className="preview-panel" style={style}><EmptyState /></div>;
     }
@@ -553,9 +542,6 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
 
     const isImage = preview?.fileType.startsWith('image/');
 
-    // -------------------------------------------------------------------------
-    // Content renderer
-    // -------------------------------------------------------------------------
     const renderContent = () => {
         if (loading) return <LoadingState />;
         if (error) return <ErrorState message={error} />;
@@ -563,7 +549,6 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
 
         const { fileType, bytes, imageDataUrl, textContent, dimensions } = preview;
 
-        // Image
         if (isImage && imageDataUrl) {
             const imgStyle: React.CSSProperties =
                 imageZoom === 'fit'
@@ -597,9 +582,7 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
             );
         }
 
-        // BIN / text / luabin / troybin
         if (textContent !== null) {
-            // BIN files get Monaco editor with syntax highlighting (editable if editSessionId is active)
             if (fileType === 'application/x-bin') {
                 return (
                     <MonacoBinViewer
@@ -612,15 +595,12 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                     />
                 );
             }
-            // LuaBin files get Monaco editor with Lua syntax highlighting
             if (fileType === 'application/x-luabin') {
                 return <MonacoTextViewer text={textContent} language="lua" />;
             }
-            // TroyBin files get Monaco editor with INI syntax highlighting
             if (fileType === 'application/x-troybin') {
                 return <MonacoTextViewer text={textContent} language="ini" />;
             }
-            // Plain text files get simple div
             return (
                 <div
                     style={{
@@ -641,7 +621,6 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
             );
         }
 
-        // 3D Model: SKN skinned mesh preview inline
         if (fileType === 'model/x-lol-skn') {
             if (modelPreviewPath) {
                 return (
@@ -688,7 +667,6 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
             );
         }
 
-        // Other Model / Audio / Animation — suggest extraction
         if (
             fileType.startsWith('model/') ||
             fileType.startsWith('audio/') ||
@@ -714,16 +692,11 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
             );
         }
 
-        // Fallback: hex dump
         return <HexDump bytes={bytes} />;
     };
 
-    // -------------------------------------------------------------------------
-    // Render
-    // -------------------------------------------------------------------------
     return (
         <div className="preview-panel" style={style}>
-            {/* Toolbar */}
             <div className="preview-panel__toolbar" style={{ position: 'relative', paddingRight: '240px' }}>
                 {isImage && (
                     <div className="preview-panel__zoom-controls" style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
@@ -820,6 +793,17 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                         <span dangerouslySetInnerHTML={{ __html: getIcon('export') }} />
                         <span>{isExtracting ? 'Extracting…' : 'Extract File'}</span>
                     </button>
+                    {session.editSessionId && (
+                        <button
+                            className="btn btn--sm btn--danger"
+                            onClick={handleDeleteFromWad}
+                            title="Delete this file from the WAD (applied when you save the WAD)"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                        >
+                            <span dangerouslySetInnerHTML={{ __html: getIcon('trash') || '🗑' }} />
+                            <span>Delete</span>
+                        </button>
+                    )}
                     <button
                         className="btn btn--sm"
                         onClick={() => {
@@ -833,10 +817,8 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                 </div>
             </div>
 
-            {/* Content */}
             <div className="preview-panel__content">{renderContent()}</div>
 
-            {/* Info bar */}
             {preview && (
                 <div className="preview-panel__info-bar" style={{ height: '44px', boxSizing: 'border-box' }}>
                     <span className="preview-panel__info-item">

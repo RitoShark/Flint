@@ -45,6 +45,92 @@ export interface VersionChangelog {
  */
 export const CHANGELOG: VersionChangelog[] = [
     {
+        version: '2.2.0',
+        date: 'June 2026',
+        headline: 'Flint 2.2.0',
+        subtitle: 'Map editing, new format editors, a faster workflow, and tighter launcher sync.',
+        entries: [
+            {
+                icon: 'picture',
+                tag: 'feature',
+                title: 'Animated Loadscreen Banner',
+                description: 'Turn a static loadscreen into an animated VFX banner in one click — Flint injects the shader material and opens a mask editor right over the loading screen. The whole banner animates by default; you paint over the champion (or anything that should stay clean) to mask it out, and Restore brings the effect back. Photoshop-style controls: Alt-drag to resize the brush, right-drag for hardness, plus sliders for shine, scroll, glow, and tint.',
+            },
+            {
+                icon: 'code',
+                tag: 'feature',
+                title: 'TFT BIN Schema Creator',
+                description: 'Generate a copy-pasteable ritobin reference of every Teamfight Tactics class, field, and sample value — scanned straight from the Companions and TFT map WADs. Find it in Settings → Dev.',
+            },
+            {
+                icon: 'wrench',
+                tag: 'improvement',
+                title: 'Faster WAD Editor: Save Shortcut, Delete & Parallel Saving',
+                description: 'Saving an edited WAD now compresses every chunk in parallel across all your CPU cores — a big speedup on full champion WADs. Press Ctrl/Cmd+S to save a file inside a WAD, and use the new Delete button to remove files from a WAD.',
+            },
+            {
+                icon: 'picture',
+                tag: 'feature',
+                title: 'Map Preview & Texture Painting',
+                description: 'Preview map geometry in 3D and paint textures directly onto meshes with a Blender-style projection brush — blend modes, falloff, seam-aware bleed, and per-stroke undo/redo, saved straight back to the asset.',
+            },
+            {
+                icon: 'code',
+                tag: 'feature',
+                title: 'New Format Editors',
+                description: 'Edit .inibin / .cfgbin and .stringtable files in-app, plus read-only viewers for .luabin64, .troybin, and .manifest — all wired through the standard preview path with byte-exact round-trips.',
+            },
+            {
+                icon: 'folder',
+                tag: 'feature',
+                title: 'Multi-Select & Cross-Project Drag-and-Drop',
+                description: 'Ctrl/Shift-select files in the tree, then drag a whole selection between projects with a Move/Copy dialog and Replace / Keep-both conflict handling. Spring-loaded tabs and folders let you drill into the destination mid-drag.',
+            },
+            {
+                icon: 'wrench',
+                tag: 'feature',
+                title: 'Hard Rename Project',
+                description: 'Rename a project for real — rewrites the asset prefix inside every BIN, renames on-disk asset folders, updates the config files, and renames the project directory, then reopens it cleanly.',
+            },
+            {
+                icon: 'link',
+                tag: 'feature',
+                title: 'Celestial Launcher Sync',
+                description: 'Sync straight to the Celestial launcher’s Creator Hub — Flint hands your project folder over via a deep link, no packaging required. Celestial is now the default launcher target, with LTK Manager still one click away.',
+            },
+            {
+                icon: 'picture',
+                tag: 'feature',
+                title: 'BIN Emitter Copy & Drag Palette',
+                description: 'Right-click to copy VfxEmitter / VfxSystem blocks, then drag them from a persistent palette into any BIN editor — bracket-aware re-indent, collision rename, and cross-project VFX asset copying included.',
+            },
+            {
+                icon: 'success',
+                tag: 'improvement',
+                title: 'Unsaved Edits Survive Remounts',
+                description: 'Switching tabs, files, or views no longer drops your unsaved edits, cursor, or scroll position — text editors restore their session from an in-memory cache.',
+            },
+            {
+                icon: 'wrench',
+                tag: 'fix',
+                title: 'BIN & WAD Saving Fixes',
+                description: 'Fixed a parser bug that made saving any BIN with a transform matrix fail with “invalid number”, and fixed stale texture previews after saving a WAD in place. Save errors now jump straight to the offending line.',
+            },
+            {
+                icon: 'info',
+                tag: 'improvement',
+                title: 'Faster, Unbounded Log Panel',
+                description: 'The log panel is now virtualized with no retention cap — it stays fast no matter how much output you throw at it, with range selection and copy.',
+            },
+            {
+                icon: 'wrench',
+                tag: 'breaking',
+                title: 'Single BIN Engine (RitoShark)',
+                description: 'The legacy Jade BIN writer has been removed — RitoShark is now the only BIN engine. This fixes project-creation, save, and rename errors. Projects created with the old broken Jade refather should be recreated.',
+            },
+        ],
+    },
+    {
         version: '2.0.2',
         date: 'May 2026',
         headline: 'Flint 2.0.2',

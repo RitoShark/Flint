@@ -1,11 +1,3 @@
-//! Tauri commands for the "split BIN" right-click action.
-//!
-//! Two endpoints:
-//! - `analyze_bin_for_split` — read a BIN and return its objects grouped by
-//!   class, plus the default VFX selection. Drives the modal preview.
-//! - `split_bin_entries` — perform the split (writes new sibling BIN, updates
-//!   parent dependencies, removes moved objects from parent).
-
 use flint_ltk::bin::{
     analyze_multi, classify_vfx_objects, group_by_class, organize_vfx_in_folder, read_bin,
     split_bin, split_bin_multi,
@@ -15,10 +7,6 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-/// One class group surfaced to the modal: a class hash, an optional
-/// resolved class name (looked up via the BIN hash table when available),
-/// the per-object path hashes in this group, and whether the class is in
-/// the default VFX set.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinSplitClassGroup {
     pub class_hash: String,
@@ -29,17 +17,10 @@ pub struct BinSplitClassGroup {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinSplitAnalysis {
-    /// Total objects in the parent BIN.
     pub total_objects: usize,
-    /// Class groups for the modal table. Sorted by class hash so the order
-    /// is deterministic between calls.
     pub groups: Vec<BinSplitClassGroup>,
 }
 
-/// Resolve the WAD-folder root for a given BIN path. Convention is
-/// `<project>/content/base/<champion>.wad.client/data/...`. Walk parents
-/// until we find a directory whose name ends in `.wad.client`; if none
-/// exists fall back to the immediate parent (best-effort).
 fn find_wad_root(bin_path: &Path) -> PathBuf {
     let mut cur = bin_path.parent();
     while let Some(p) = cur {
@@ -55,7 +36,6 @@ fn find_wad_root(bin_path: &Path) -> PathBuf {
     bin_path.parent().unwrap_or(Path::new(".")).to_path_buf()
 }
 
-/// Read a BIN and return its class breakdown for the split modal.
 #[tauri::command]
 pub async fn analyze_bin_for_split(bin_path: String) -> Result<BinSplitAnalysis, String> {
     tracing::info!("analyze_bin_for_split: reading {}", bin_path);
@@ -63,7 +43,7 @@ pub async fn analyze_bin_for_split(bin_path: String) -> Result<BinSplitAnalysis,
     let data = std::fs::read(&path).map_err(|e| format!("Failed to read BIN: {}", e))?;
     let bin = read_bin(&data).map_err(|e| format!("Failed to parse BIN: {}", e))?;
 
-    let total = bin.objects.len();
+    let total = bin.entries.len();
     let vfx_set: HashSet<u32> = classify_vfx_objects(&bin).into_iter().collect();
 
     let class_cache = flint_ltk::bin::get_cached_bin_hashes();
@@ -72,8 +52,6 @@ pub async fn analyze_bin_for_split(bin_path: String) -> Result<BinSplitAnalysis,
     let groups: Vec<BinSplitClassGroup> = group_by_class(&bin)
         .into_iter()
         .map(|(class_hash, hashes)| {
-            // Resolve class name via BIN hash table (HashMapProvider). The
-            // provider exposes `get_type` for class-name lookups in v0.4.
             let class_name = lookup_bin_hash_name(&cache, class_hash);
             let is_vfx_default = hashes.iter().any(|h| vfx_set.contains(h));
             BinSplitClassGroup {
@@ -91,16 +69,11 @@ pub async fn analyze_bin_for_split(bin_path: String) -> Result<BinSplitAnalysis,
     })
 }
 
-/// Look up a BIN class hash in the cached HashMapProvider. Returns the
-/// resolved name when present; falls back to `None` so the frontend renders
-/// the raw hex.
 fn lookup_bin_hash_name(
-    provider: &flint_ltk::bin::ltk_bridge::HashMapProvider,
+    provider: &flint_ltk::ltk_types::HashMapper,
     hash: u32,
 ) -> Option<String> {
-    use flint_ltk::bin::ltk_bridge::HashProvider;
-    // Class hashes resolve through the `types` table on the provider.
-    provider.lookup_type(hash).map(|s| s.to_string())
+    provider.get(hash as u64).map(|s| s.to_string())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,13 +82,9 @@ pub struct BinSplitResult {
     pub link_added: String,
 }
 
-/// One source BIN listed in a folder-mode analysis.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinSplitSourceInfo {
-    /// Absolute path of the source BIN.
     pub path: String,
-    /// Engine-relative form (e.g. `data/characters/.../skin19.bin`) shown in
-    /// the modal so the user can tell which BIN they're operating on.
     pub rel_path: String,
     pub object_count: usize,
 }
@@ -125,15 +94,9 @@ pub struct BinSplitFolderAnalysis {
     pub sources: Vec<BinSplitSourceInfo>,
     pub total_objects: usize,
     pub groups: Vec<BinSplitClassGroup>,
-    /// Suggested owner BIN (the main skin BIN — biggest object count among
-    /// matches in `data/characters/.../skins/skin*.bin`). Empty string if
-    /// nothing in the folder looks like a main skin BIN.
     pub suggested_owner: String,
 }
 
-/// Walk the given folder for `.bin` files. Skips animation BINs (anim files
-/// are bone curves; we never want to split or merge those), and skips empty
-/// concat byproducts.
 fn collect_folder_bins(folder: &Path) -> Vec<PathBuf> {
     WalkDir::new(folder)
         .into_iter()
@@ -145,7 +108,6 @@ fn collect_folder_bins(folder: &Path) -> Vec<PathBuf> {
             if !name.ends_with(".bin") {
                 return None;
             }
-            // Skip animation BINs — different content, never relevant here.
             let path_lower = path.to_string_lossy().to_lowercase().replace('\\', "/");
             if path_lower.contains("/animations/") {
                 return None;
@@ -155,9 +117,6 @@ fn collect_folder_bins(folder: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Pick the most plausible "owner" BIN — the one whose `dependencies` list
-/// should get the new link added. Heuristic: the largest BIN whose path
-/// looks like a skin definition (`/data/characters/<name>/skins/skinNN.bin`).
 fn pick_owner_bin(sources: &[(PathBuf, usize)]) -> Option<PathBuf> {
     let mut best: Option<(usize, PathBuf)> = None;
     for (path, count) in sources {
@@ -176,8 +135,6 @@ fn pick_owner_bin(sources: &[(PathBuf, usize)]) -> Option<PathBuf> {
     best.map(|(_, p)| p)
 }
 
-/// Folder-mode analysis: walk every BIN in `folder_path`, union their class
-/// groups, and return the suggested owner.
 #[tauri::command]
 pub async fn analyze_folder_for_split(
     folder_path: String,
@@ -251,9 +208,6 @@ pub async fn analyze_folder_for_split(
     })
 }
 
-/// Folder-mode split: move objects out of every listed source BIN into a
-/// single shared output file under `<wad_root>/data/<output_filename>`. The
-/// `owner_path` BIN's `dependencies` list gets the new link.
 #[tauri::command]
 pub async fn split_folder_entries(
     folder_path: String,
@@ -292,9 +246,6 @@ pub async fn split_folder_entries(
     })
 }
 
-/// Move the listed objects out of `bin_path` into a new sibling BIN at
-/// `output_filename` (just the filename — written next to the parent). The
-/// parent's dependency list is updated to reference the new file.
 #[tauri::command]
 pub async fn split_bin_entries(
     bin_path: String,
@@ -352,9 +303,6 @@ pub struct BinOrganizeResult {
     pub vfx_link_added: String,
 }
 
-/// Walk a folder, classify every object across every BIN, and report what an
-/// organize pass would do. The frontend can show this preview in a confirm
-/// dialog before running the actual write.
 #[tauri::command]
 pub async fn preview_organize_vfx(folder_path: String) -> Result<BinOrganizePreview, String> {
     tracing::info!("preview_organize_vfx: scanning {}", folder_path);
@@ -444,10 +392,6 @@ pub async fn get_vfx_filename_command(folder_path: String) -> Result<String, Str
     }))
 }
 
-/// Run the organize pass. Pulls every VFX-class object from every source
-/// (incl. owner) into a consolidated `<wad_root>/data/<vfx_filename>`,
-/// merges every non-owner non-VFX object into the owner BIN, deletes any
-/// source BIN that ends up empty, and prunes dead dependency links.
 #[tauri::command]
 pub async fn organize_bins_vfx(
     folder_path: String,

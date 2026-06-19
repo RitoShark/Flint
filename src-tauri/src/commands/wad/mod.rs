@@ -7,5 +7,4 @@ pub mod wad;
 pub mod wad_edit;
 pub mod extract_hashes;
 
-// Flatten so `commands::wad::read_wad` keeps resolving as before.
 pub use wad::*;

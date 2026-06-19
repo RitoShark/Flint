@@ -1,20 +1,6 @@
-/**
- * Flint - Chroma Port Modal
- *
- * Right-click on project root → "Port to Chromas…" opens this.
- * Fetches CDragon chroma data for the current project's skin, lets the user
- * pick which chromas to target, then calls portProjectToChromas.
- *
- * Handles two cases:
- *  - Base-skin project (skin_id = 1): shows all chromas of that skin.
- *  - Chroma project (skin_id = 61): finds the parent skin, shows sibling
- *    chromas plus a "Base" card. Port runs from skin61 → selected targets.
- */
-
 import React, { useEffect, useState } from 'react';
 
-/** Strip the skin name prefix and trailing "Chroma" word from a CDragon chroma name.
- *  "Coven Ahri Amethyst Chroma" + skinName "Coven Ahri" → "Amethyst" */
+/** "Coven Ahri Amethyst Chroma" + skinName "Coven Ahri" → "Amethyst" */
 function chromaLabel(name: string | undefined, skinName: string, skinNum: number): string {
     if (!name) return `#${skinNum}`;
     const escaped = skinName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -66,7 +52,6 @@ export const ChromaPortModal: React.FC = () => {
     const [busy, setBusy] = useState(false);
     const [imgErrors, setImgErrors] = useState<Set<number>>(new Set());
 
-    // Base-skin card — only populated when the project is itself a chroma
     const [baseSkinNum, setBaseSkinNum] = useState<number | null>(null);
     const [baseSkinTileUrl, setBaseSkinTileUrl] = useState<string | null>(null);
     const [baseSkinName, setBaseSkinName] = useState<string | null>(null);
@@ -98,12 +83,10 @@ export const ChromaPortModal: React.FC = () => {
 
                 const skins = await fetchChampionSkins(champ.id, champ.alias);
 
-                // First try: project.skin_id is a base skin num
                 let skin = skins.find((s) => s.num === project.skin_id);
                 let excludeSkinNum: number | null = null;
 
                 if (!skin) {
-                    // Chroma project — find the parent skin that owns this chroma
                     skin = skins.find((s) =>
                         s.chromas?.some((c) => c.skinNum === project.skin_id),
                     );
@@ -239,7 +222,6 @@ export const ChromaPortModal: React.FC = () => {
                         <div className="chroma-port-gallery">
                             <div className="chroma-port-grid">
 
-                                {/* Base skin card — only for chroma projects */}
                                 {baseSkinNum !== null && (() => {
                                     const isSel = selected.has(baseSkinNum);
                                     return (
@@ -268,7 +250,6 @@ export const ChromaPortModal: React.FC = () => {
                                     );
                                 })()}
 
-                                {/* Chroma cards */}
                                 {chromas.map((chroma) => {
                                     const isSel = selected.has(chroma.skinNum);
                                     const c1 = chroma.colors[0] ?? '#888888';

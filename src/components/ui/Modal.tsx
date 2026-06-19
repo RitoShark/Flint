@@ -34,10 +34,6 @@ export const Modal: React.FC<ModalProps> = ({
     closeOnEscape = true,
     children,
 }) => {
-    // Two-phase mount: keep the DOM alive for MODAL_EXIT_MS after `open` flips
-    // to false so the exit animation can play. `mounted` controls whether the
-    // overlay is in the DOM, `closing` flips the modifier class that triggers
-    // the reverse animation.
     const [mounted, setMounted] = useState(open);
     const [closing, setClosing] = useState(false);
 

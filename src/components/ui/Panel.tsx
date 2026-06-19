@@ -7,11 +7,6 @@ export interface PanelProps {
     style?: React.CSSProperties;
 }
 
-/**
- * Generic panel surface. Use `padded` for default inner padding.
- * Wraps a div with `.panel`. The actual look comes from the global
- * stylesheet — components compose modifiers via `className`.
- */
 export const Panel: React.FC<PanelProps> = ({ children, className = '', padded = false, style }) => (
     <div className={`panel ${padded ? 'panel--padded' : ''} ${className}`.trim()} style={style}>
         {children}

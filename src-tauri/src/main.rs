@@ -9,30 +9,21 @@ use commands::project_watcher::WatcherState;
 use commands::settings::{initialize_app_home, get_flint_home};
 use flint_ltk::hash::get_hash_dir;
 use core::frontend_log::{FrontendLogLayer, set_app_handle};
-use state::{LmdbCacheState, WadCacheState, WadEditState};
+use state::{CdnSessionState, LmdbCacheState, WadCacheState, WadEditState};
 use tauri::{Emitter, Manager};
 use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter};
 
 fn main() {
-    // Create log directory early so the file appender can start writing
     let log_dir = get_flint_home()
         .map(|h| h.join("logs"))
         .unwrap_or_else(|_| std::path::PathBuf::from("./logs"));
     std::fs::create_dir_all(&log_dir).ok();
 
-    // Daily rolling log file: flint.YYYY-MM-DD.log in %APPDATA%/Flint/logs/
     let file_appender = tracing_appender::rolling::daily(&log_dir, "flint.log");
     let (file_writer, _guard) = tracing_appender::non_blocking(file_appender);
 
-    // Initialize tracing/logging with frontend layer
-    // Use reload layer so log level can be changed at runtime via set_log_level command
-    //
-    // Default filter configuration:
-    // - Normal mode (info): Show important app events and user-facing operations
-    // - Verbose mode (debug): Show detailed internal operations and diagnostics
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| {
-            // Default to info level for our app, but suppress noisy dependencies
             EnvFilter::new("info")
                 .add_directive("tauri=warn".parse().unwrap())
                 .add_directive("tao=error".parse().unwrap())
@@ -41,16 +32,13 @@ fn main() {
 
     let (filter_layer, reload_handle) = reload::Layer::new(filter);
 
-    // Store a closure that captures the reload handle — avoids spelling out the full type
     commands::logging::set_reload_fn(Box::new(move |filter_str: &str| {
         let directive = if filter_str == "debug" {
-            // Verbose mode: show everything from our app, suppress deps
             EnvFilter::new("debug")
                 .add_directive("tauri=warn".parse().unwrap())
                 .add_directive("tao=error".parse().unwrap())
                 .add_directive("mio=warn".parse().unwrap())
         } else {
-            // Normal mode: info level with suppressed deps
             EnvFilter::new("info")
                 .add_directive("tauri=warn".parse().unwrap())
                 .add_directive("tao=error".parse().unwrap())
@@ -75,10 +63,6 @@ fn main() {
          Toggle JS-side trace via `localStorage.flintIpcTrace = '0'` then reload."
     );
 
-    // Reference timestamp for startup diagnostics — relative ms since this
-    // point makes the cold-start log easy to read. The previous "Rust ready"
-    // → "Log level changed" gap was 79s with no visibility into what Tauri
-    // was doing in between; these marks call it out.
     let t_start = std::time::Instant::now();
     tracing::info!("[startup] tauri::Builder constructed +{}ms", t_start.elapsed().as_millis());
 
@@ -111,10 +95,8 @@ fn main() {
         .manage(LmdbCacheState::new())
         .manage(WatcherState::new())
         .manage(WadEditState::new())
+        .manage(CdnSessionState::new())
         .on_page_load(move |_webview, payload| {
-            // Fires once per webview page navigation — first hit is the cold
-            // start and tells us when the bundle finished loading. The gap
-            // between this and "set_log_level" is React mount + first IPC.
             tracing::info!(
                 "[startup] webview page_load (event={:?}, url={}) +{}ms",
                 payload.event(),
@@ -124,15 +106,12 @@ fn main() {
         })
         .setup(move |app| {
             tracing::info!("[startup] setup() running +{}ms", t_start.elapsed().as_millis());
-            // Set app handle for frontend logging
             set_app_handle(app.handle().clone());
 
-            // Initialize Flint home directory structure + migrate old hashes
             if let Err(e) = initialize_app_home() {
                 tracing::error!("Failed to initialize app home: {}", e);
             }
 
-            // Hash directory: %APPDATA%/RitoShark/Requirements/Hashes/.
             let hash_dir = get_hash_dir().unwrap_or_else(|e| {
                 tracing::warn!("Failed to get hash directory: {}", e);
                 app.path().app_data_dir()
@@ -142,15 +121,6 @@ fn main() {
 
             tracing::info!("Hash directory: {}", hash_dir.display());
 
-            // Download pre-built LMDBs from LeagueToolkit/lmdb-hashes releases,
-            // then open them. No local build step — the .mdb files are canonical.
-            //
-            // Performance: BIN hash caches (HashMapProvider) used to be pre-warmed
-            // here via spawn_blocking, iterating the entire BIN LMDB into memory.
-            // That was ~3s of work + ~hundreds of MB resident before the user did
-            // anything. Now they lazy-init on first use (first BIN open / project
-            // create). LMDB point lookups for WAD hashes are still primed here —
-            // those are mmap-backed and free (only touched pages page in).
             let hash_dir_str = hash_dir.to_string_lossy().into_owned();
             let lmdb_state = app.state::<LmdbCacheState>().inner().clone();
             let app_handle = app.handle().clone();
@@ -178,32 +148,17 @@ fn main() {
                     }
                 };
 
-                // Notify frontend exactly once instead of having it poll
-                // get_hash_status every 1s for up to 30s (was 30 IPC round-trips
-                // per cold start).
                 let _ = app_handle.emit("hashes-ready", ready);
             });
 
-            // CLI arg passthrough — when Windows hands us a file via
-            // "Open with" the path arrives as `argv[1]`. We don't try to
-            // route it from Rust (the frontend owns project/tab state);
-            // instead we emit a `file-open-request` event after the
-            // webview has loaded. The frontend listens for this and
-            // decides what to do (open a project, focus a WAD, etc.).
-            //
-            // We deliberately spawn this on a delay so the webview is
-            // mounted before we fire. A page_load listener would be more
-            // precise but the 250ms timer is simpler and the cost of a
-            // missed event on the very first paint is just "open the
-            // file by hand once". We also emit synchronously below — the
-            // page_load handler above will deliver it again on the first
-            // navigation if the spawn hasn't fired yet.
+            // CLI arg passthrough: when Windows hands us a file via "Open with"
+            // the path arrives as `argv[1]`. Emit a `file-open-request` event
+            // (on a short delay so the webview is mounted) for the frontend to
+            // act on.
             let pending_file_arg: Option<String> = std::env::args()
                 .nth(1)
                 .filter(|a| !a.starts_with("--") && std::path::Path::new(a).is_file())
                 .map(|a| {
-                    // Canonicalize so the frontend gets an absolute path
-                    // regardless of how Explorer invoked us.
                     std::fs::canonicalize(&a)
                         .map(|p| {
                             let s = p.to_string_lossy().into_owned();
@@ -260,6 +215,7 @@ fn main() {
             commands::project::discover_projects,
             commands::project::forget_project,
             commands::project::save_project,
+            commands::project::hard_rename_project,
             commands::project::delete_project,
             commands::project::list_project_files,
             commands::project::projects_path_valid,
@@ -270,6 +226,19 @@ fn main() {
             commands::map_project::list_available_maps,
             commands::map_project::list_map_variants,
             commands::map_project::create_map_project,
+            // Map preview commands (separate-window 3D map preview)
+            commands::map_preview::load_map_preview,
+            commands::map_preview::load_map_texture,
+            commands::map_preview::open_map_preview_window,
+            commands::map_preview::resolve_map_texture_path,
+            commands::map_tiles::combine_ground_to_psd,
+            commands::map_tiles::apply_psd_to_textures,
+            commands::map_tiles::ground_psd_exists,
+            commands::map_tiles::combine_category_to_psd,
+            commands::map_tiles::apply_category_psd,
+            commands::map_tiles::category_psd_exists,
+            commands::map_tiles::list_map_texture_sections,
+            commands::map_tiles::save_painted_texture,
             // Champion discovery commands
             commands::champion::discover_champions,
             commands::champion::get_champion_skins,
@@ -296,6 +265,9 @@ fn main() {
             commands::file::duplicate_file,
             commands::file::move_file,
             commands::file::import_external_files,
+            commands::file::copy_between_projects,
+            commands::file::move_between_projects,
+            commands::file::check_transfer_conflicts,
             commands::file::is_directory,
             commands::file::list_folder_contents,
             commands::bin_split::analyze_bin_for_split,
@@ -323,6 +295,16 @@ fn main() {
             commands::mesh::read_animation_list,
             commands::mesh::read_animation,
             commands::mesh::resolve_asset_path,
+            commands::mesh::resolve_anm_skin,
+            // CDN manifest browser commands
+            commands::cdn::cdn_list_manifests,
+            commands::cdn::cdn_list_versions,
+            commands::cdn::cdn_load_manifest,
+            commands::cdn::cdn_load_manifest_by_path,
+            commands::cdn::cdn_list_wad,
+            commands::cdn::cdn_read_inner,
+            commands::cdn::cdn_extract,
+            commands::cdn::cdn_close_session,
             // Auto-update commands
             commands::updater::check_for_updates,
             commands::updater::download_and_install_update,
@@ -366,6 +348,7 @@ fn main() {
             commands::ltk_manager::get_ltk_manager_mod_path,
             commands::ltk_manager::get_celestial_mod_path,
             commands::ltk_manager::sync_project_to_launcher,
+            commands::ltk_manager::sync_project_to_celestial,
             // Project watcher commands (auto-sync + preview hot reload)
             commands::project_watcher::start_project_watcher,
             commands::project_watcher::stop_project_watcher,
@@ -382,13 +365,24 @@ fn main() {
             commands::hud::save_hud_ritobin_file,
             commands::hud::create_hud_project,
             commands::hud::get_hud_file_stats,
+            // Animated loadscreen banner
+            commands::loadscreen_banner::get_loadscreen_banner_info,
+            commands::loadscreen_banner::apply_loadscreen_banner,
+            commands::loadscreen_banner::save_banner_mask,
             // Format converter commands (luabin, troybin)
             commands::format_converters::convert_luabin_to_text,
+            commands::format_converters::read_luabin_text,
             commands::format_converters::convert_troybin_to_text,
+            commands::format_converters::read_troybin_text,
             commands::format_converters::read_wad_luabin,
             commands::format_converters::read_wad_troybin,
             commands::format_converters::read_wad_inibin,
             commands::format_converters::read_wad_rst,
+            commands::format_converters::read_inibin_text,
+            commands::format_converters::save_inibin_text,
+            commands::format_converters::read_stringtable_json,
+            commands::format_converters::save_stringtable_json,
+            commands::format_converters::read_manifest_json,
             // Texture format conversion (tex<->dds, +png export)
             commands::texture_convert::convert_tex_to_dds,
             commands::texture_convert::convert_dds_to_tex,
@@ -412,6 +406,7 @@ fn main() {
             // Dev commands (schema aggregation)
             commands::dev::aggregate_bin_schema,
             commands::champion_schema::aggregate_champion_bin_schema,
+            commands::tft_schema::aggregate_tft_bin_schema,
             commands::troybin_schema::aggregate_troybin_schema,
             commands::luabin_extract::extract_all_luabins,
             // Settings commands (disk-based settings)

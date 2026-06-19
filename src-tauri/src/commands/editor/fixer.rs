@@ -1,9 +1,3 @@
-//! Tauri commands for Hematite fixer integration (v2).
-//!
-//! Provides project analysis and fixing using the Hematite fix engine.
-//! Scans BIN files for known issues (broken health bars, deprecated fields, etc.)
-//! and applies config-driven fixes.
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -23,7 +17,7 @@ use flint_ltk::hematite::{CharacterRelations, ChampionList};
 use flint_ltk::hematite::FixConfig;
 
 // =============================================================================
-// Config fetching (replicated from hematite-cli/src/remote.rs)
+// Config fetching
 // =============================================================================
 
 const FIX_CONFIG_URL: &str =
@@ -52,7 +46,6 @@ fn is_cache_valid(path: &Path) -> bool {
     elapsed < CACHE_TTL
 }
 
-/// Fetch a JSON resource with cache → GitHub → stale cache fallback.
 async fn fetch_or_cached<T: serde::de::DeserializeOwned>(
     url: &str,
     cache_name: &str,
@@ -60,7 +53,6 @@ async fn fetch_or_cached<T: serde::de::DeserializeOwned>(
     let cache_dir = get_cache_dir()?;
     let cache_file = cache_dir.join(cache_name);
 
-    // 1. Valid cache (< 1 hour)
     if is_cache_valid(&cache_file) {
         if let Ok(json) = std::fs::read_to_string(&cache_file) {
             if let Ok(val) = serde_json::from_str::<T>(&json) {
@@ -70,7 +62,6 @@ async fn fetch_or_cached<T: serde::de::DeserializeOwned>(
         }
     }
 
-    // 2. Fetch from GitHub
     tracing::info!("Fetching {} from GitHub...", cache_name);
     let client = reqwest::Client::new();
     match client
@@ -98,7 +89,6 @@ async fn fetch_or_cached<T: serde::de::DeserializeOwned>(
         }
     }
 
-    // 3. Stale cache fallback
     if cache_file.exists() {
         if let Ok(json) = std::fs::read_to_string(&cache_file) {
             if let Ok(val) = serde_json::from_str::<T>(&json) {
@@ -189,7 +179,6 @@ pub struct BatchFixResult {
 // Helpers
 // =============================================================================
 
-/// Find all .bin files under a project's content directory.
 fn find_bin_files(project_path: &Path) -> Vec<PathBuf> {
     let content_dir = project_path.join("content");
     if !content_dir.exists() {
@@ -214,15 +203,11 @@ fn find_bin_files(project_path: &Path) -> Vec<PathBuf> {
 // Commands
 // =============================================================================
 
-/// Fetch the fixer configuration (from GitHub with cache fallback).
 #[tauri::command]
 pub async fn get_fixer_config() -> Result<FixConfig, String> {
     load_fix_config().await
 }
 
-/// Analyze a Flint project for fixable issues.
-///
-/// Scans all BIN files under `{project_path}/content/` and reports detected issues.
 #[tauri::command]
 pub async fn analyze_project(
     project_path: String,
@@ -241,7 +226,6 @@ pub async fn analyze_project(
         }),
     );
 
-    // Fetch config asynchronously
     let config = load_fix_config().await?;
 
     let _ = app.emit(
@@ -252,7 +236,6 @@ pub async fn analyze_project(
         }),
     );
 
-    // Heavy work in blocking thread
     let analysis =
         tokio::task::spawn_blocking(move || -> Result<ProjectAnalysis, String> {
             let hash_provider = LmdbHashProvider::load_from_appdata()
@@ -269,7 +252,6 @@ pub async fn analyze_project(
             for bin_path in &bin_files {
                 let path_str = bin_path.to_string_lossy().to_string();
 
-                // Read and parse the BIN file
                 let bytes = match std::fs::read(bin_path) {
                     Ok(b) => b,
                     Err(e) => {
@@ -286,7 +268,6 @@ pub async fn analyze_project(
                     }
                 };
 
-                // Run detection for each enabled fix rule
                 let mut detected_issues = Vec::new();
                 for (fix_id, rule) in &config.fixes {
                     if !rule.enabled {
@@ -332,10 +313,6 @@ pub async fn analyze_project(
     Ok(analysis)
 }
 
-/// Fix a Flint project by applying selected fixes.
-///
-/// Scans BIN files, detects issues, and applies the specified fixes in-place.
-/// If `selected_fix_ids` is empty, all detected fixes are applied.
 #[tauri::command]
 pub async fn fix_project(
     project_path: String,
@@ -355,7 +332,6 @@ pub async fn fix_project(
         }),
     );
 
-    // Fetch config + champion list asynchronously
     let config = load_fix_config().await?;
     let champion_list = load_champion_list().await?;
 
@@ -378,7 +354,6 @@ pub async fn fix_project(
 
             let bin_files = find_bin_files(&project_dir);
 
-            // If no specific fixes selected, use all enabled fix IDs
             let fix_ids: Vec<String> = if selected_fix_ids.is_empty() {
                 config
                     .fixes
@@ -413,7 +388,6 @@ pub async fn fix_project(
                     }
                 };
 
-                // Build fix context
                 let mut ctx = FixContext {
                     tree,
                     hashes: &hash_provider,
@@ -425,10 +399,8 @@ pub async fn fix_project(
                     shader_validator: shader_validator.as_ref(),
                 };
 
-                // Apply fixes
                 let process_result = apply_fixes(&mut ctx, &config, &fix_ids, false);
 
-                // Map to our FixResult type
                 let fixes_applied: Vec<AppliedFix> = process_result
                     .applied_fixes
                     .iter()
@@ -448,7 +420,6 @@ pub async fn fix_project(
                     })
                     .collect();
 
-                // Write modified BIN back if we applied fixes
                 if !fixes_applied.is_empty() {
                     match bin_provider.write_bytes(&ctx.tree) {
                         Ok(output) => {
@@ -513,10 +484,6 @@ pub async fn fix_project(
     Ok(fix_result)
 }
 
-/// Batch fix multiple Flint projects.
-///
-/// Each path in `project_paths` should be a Flint project directory.
-/// Applies all enabled fixes to each project.
 #[tauri::command]
 pub async fn batch_fix_projects(
     project_paths: Vec<String>,
@@ -533,7 +500,6 @@ pub async fn batch_fix_projects(
         }),
     );
 
-    // Fetch config + champion list asynchronously
     let config = load_fix_config().await?;
     let champion_list = load_champion_list().await?;
 

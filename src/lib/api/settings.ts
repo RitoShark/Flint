@@ -18,7 +18,6 @@ export interface FlintSettings {
     autoSyncToLauncher: boolean;
     celestialModPath: string | null;
     preferredLauncher: 'ltk' | 'celestial' | null;
-    binConverterEngine: string;
     jadePath: string | null;
     quartzPath: string | null;
     selectedTheme: string | null;

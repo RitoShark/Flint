@@ -1,8 +1,3 @@
-/**
- * Flint - ModelPreview Component
- * 3D preview for SKN mesh files using Babylon.js and client-side animation playback.
- */
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Scene } from '@babylonjs/core/scene';
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
@@ -23,13 +18,12 @@ import { SkeletonViewer } from '@babylonjs/core/Debug/skeletonViewer';
 import * as api from '../../lib/api';
 import { useAppMetadataStore } from '../../lib/stores';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
-import { deferCleanup } from '../../lib/ui-helpers/deferCleanup';
 
-// Import our custom Babylon wrappers
 import { createEngine } from '../../lib/babylon/engine';
 import { buildSknMeshes, type MeshDTO } from '../../lib/babylon/meshBuilder';
 import { buildBabylonSkeleton, type BoneData } from '../../lib/babylon/skeletonBuilder';
 import { AnimationPlayer } from '../../lib/babylon/animationPlayer';
+import { modelPreviewSessionStore, type ModelPreviewSession } from '../../lib/stores/modelPreviewSessionStore';
 
 // ============================================================================
 // Types
@@ -42,16 +36,18 @@ type MeshData = SknMeshData | ScbMeshData;
 interface ModelPreviewProps {
     filePath: string;
     meshType?: 'skinned' | 'static';  // skinned = SKN, static = SCB/SCO
+    /** Pre-select this animation_path on load (standalone .anm open). */
+    initialAnimation?: string;
+    /** Start playing the initial animation immediately. */
+    autoPlay?: boolean;
 }
 
 // ============================================================================
 // Main Component
 // ============================================================================
 
-// Settings persistence key
 const SETTINGS_KEY = 'flint-model-preview-settings';
 
-// Load settings from localStorage
 const loadSettings = () => {
     try {
         const saved = localStorage.getItem(SETTINGS_KEY);
@@ -72,50 +68,70 @@ const loadSettings = () => {
     };
 };
 
-export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType = 'skinned' }) => {
+/**
+ * Decide which animation to pre-select on load. `initialAnimation` (a standalone
+ * .anm open) wins; otherwise a cached session is restored if its clip still exists.
+ * Returns `{ path, play }` or null.
+ */
+function pickInitialAnimation(
+    clips: { name: string; animation_path: string }[],
+    initialAnimation: string | undefined,
+    autoPlay: boolean,
+    restore: { selectedAnimation: string; isPlaying: boolean } | null,
+): { path: string; play: boolean } | null {
+    const match = (target: string) =>
+        clips.find(c =>
+            c.animation_path === target ||
+            c.animation_path.toLowerCase() === target.toLowerCase() ||
+            c.animation_path.toLowerCase().endsWith(target.toLowerCase()) ||
+            target.toLowerCase().endsWith(c.animation_path.toLowerCase()),
+        );
+    if (initialAnimation) {
+        const c = match(initialAnimation);
+        if (c) return { path: c.animation_path, play: autoPlay };
+    }
+    if (restore?.selectedAnimation) {
+        const c = match(restore.selectedAnimation);
+        if (c) return { path: c.animation_path, play: restore.isPlaying };
+    }
+    return null;
+}
+
+export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType = 'skinned', initialAnimation, autoPlay = true }) => {
     const [meshData, setMeshData] = useState<MeshData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Load persisted settings
     const savedSettings = useMemo(() => loadSettings(), []);
     const [wireframe, setWireframe] = useState(savedSettings.wireframe);
     const [visibleMaterials, setVisibleMaterials] = useState<Set<string>>(new Set());
 
-    // Environment controls (persisted)
     const [showSkybox, setShowSkybox] = useState(savedSettings.showSkybox);
     const [floorMode, setFloorMode] = useState<'grid' | 'textured' | 'none'>(savedSettings.floorMode);
     const [ambientIntensity, setAmbientIntensity] = useState(savedSettings.ambientIntensity);
     const [directionalIntensity, setDirectionalIntensity] = useState(savedSettings.directionalIntensity);
     const [customizeLighting, setCustomizeLighting] = useState(savedSettings.customizeLighting ?? false);
 
-    // Popup states for controls
     const [activePopup, setActivePopup] = useState<'display' | 'environment' | 'materials' | 'animations' | null>(null);
 
-    // Subscribe to file version changes for hot reload
     const fileVersion = useAppMetadataStore((state) => {
         void state.fileVersionsRev;
         return state.getFileVersion(filePath);
     });
 
-    // Animation state (only for skinned meshes)
     const [animations, setAnimations] = useState<{ name: string; animation_path: string }[]>([]);
     const [selectedAnimation, setSelectedAnimation] = useState<string>('');
     const [isPlaying, setIsPlaying] = useState(false);
 
-    // Animation playback state
     const [animationData, setAnimationData] = useState<{ duration: number; fps: number; joint_count: number; joint_hashes: number[] } | null>(null);
     const [currentTime, setCurrentTime] = useState(0);
 
-    // Skeleton state (only for skinned meshes, persisted)
     const [skeletonData, setSkeletonData] = useState<any | null>(null);
     const [showSkeleton, setShowSkeleton] = useState(savedSettings.showSkeleton);
 
-    // Texture preview state
     const [hoveredMaterial, setHoveredMaterial] = useState<string | null>(null);
     const [previewPosition, setPreviewPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
-    // Babylon.js refs & states
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const [scene, setScene] = useState<Scene | null>(null);
     const [camera, setCamera] = useState<ArcRotateCamera | null>(null);
@@ -126,7 +142,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const gridMeshRef = useRef<any>(null);
     const floorMeshRef = useRef<any>(null);
 
-    // Animation player refs
     const animationPlayerRef = useRef<AnimationPlayer | null>(null);
     const lastTimeRef = useRef<number>(0);
     const lastReactTimeRef = useRef<number>(0);
@@ -137,39 +152,89 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         joints: BoneData[];
     } | null>(null);
 
-    // Initialize engine & scene when canvas is available
+    // Session snapshot consumed once by the mesh-load + camera-frame effects.
+    const restoreRef = useRef<ModelPreviewSession | null>(null);
+    // Latest live state, read by the engine-cleanup to persist a final snapshot.
+    const latestRef = useRef<{
+        visibleMaterials: Set<string>;
+        selectedAnimation: string;
+        isPlaying: boolean;
+        currentTime: number;
+        getCamera: () => ModelPreviewSession['camera'] | undefined;
+    }>({
+        visibleMaterials: new Set(),
+        selectedAnimation: '',
+        isPlaying: false,
+        currentTime: 0,
+        getCamera: () => undefined,
+    });
+    // Engine effect has an empty dep array, so it can't close over live props.
+    const filePathRef = useRef(filePath);
+    const fileVersionRef = useRef(fileVersion);
+
+    latestRef.current.visibleMaterials = visibleMaterials;
+    latestRef.current.selectedAnimation = selectedAnimation;
+    latestRef.current.isPlaying = isPlaying;
+    latestRef.current.currentTime = currentTime;
+    latestRef.current.getCamera = () => {
+        const cam = camera;
+        if (!cam) return undefined;
+        return {
+            alpha: cam.alpha,
+            beta: cam.beta,
+            radius: cam.radius,
+            target: [cam.target.x, cam.target.y, cam.target.z],
+        };
+    };
+    filePathRef.current = filePath;
+    fileVersionRef.current = fileVersion;
+
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
 
         const engine = createEngine(canvas);
+        console.log('[engine] CREATED (live GL engines pile up if this fires per file)');
+
+        const onWinError = (e: ErrorEvent) =>
+            console.error(`[render] 💥 window error: ${e.message}`, e.error?.stack ?? e.error ?? '');
+        const onRejection = (e: PromiseRejectionEvent) =>
+            console.error('[render] 💥 unhandledrejection:', e.reason?.stack ?? e.reason ?? e.reason);
+        const onCtxLost = (e: Event) => {
+            e.preventDefault();
+            console.error('[render] 💥 canvas webglcontextlost (GPU context dropped)');
+        };
+        const onCtxRestored = () => console.log('[render] ✓ canvas webglcontextrestored');
+        window.addEventListener('error', onWinError);
+        window.addEventListener('unhandledrejection', onRejection);
+        canvas.addEventListener('webglcontextlost', onCtxLost);
+        canvas.addEventListener('webglcontextrestored', onCtxRestored);
+        engine.onContextLostObservable.add(() => console.error('[render] 💥 Babylon onContextLost'));
+        engine.onContextRestoredObservable.add(() => console.log('[render] ✓ Babylon onContextRestored'));
+
         const activeScene = new Scene(engine);
         setScene(activeScene);
 
-        // Default scene clearColor matching the app background
-        activeScene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0); // #1b1b1b
+        activeScene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0);
 
-        // Set up orbital camera
         const activeCamera = new ArcRotateCamera(
             "camera",
-            Math.PI / 2 + Math.PI / 8, // Face front of model (tilted slightly like Jade)
+            Math.PI / 2 + Math.PI / 8,
             Math.PI / 3,
             5,
             Vector3.Zero(),
             activeScene
         );
-        activeCamera.panningSensibility = 100; // Sensibility of panning (lower value is faster)
+        activeCamera.panningSensibility = 100;
         activeCamera.attachControl(canvas, true);
-        activeCamera.wheelDeltaPercentage = 0.05; // smooth percentage zoom
+        activeCamera.wheelDeltaPercentage = 0.05;
         setCamera(activeCamera);
 
-        // Prevent default browser context menu to allow panning via right click drag
         const handleContextMenu = (e: MouseEvent) => {
             e.preventDefault();
         };
         canvas.addEventListener('contextmenu', handleContextMenu);
 
-        // Set up lighting (Jade-style soft/unlit default, customizable if checked)
         const ambientLight = new HemisphericLight("ambient", new Vector3(0, 1, 0), activeScene);
         ambientLight.intensity = customizeLighting ? ambientIntensity : 1.2;
         ambientLight.specular = new Color3(0, 0, 0);
@@ -183,37 +248,57 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         const dirLight3 = new DirectionalLight("dirLight3", new Vector3(0, 1, 0), activeScene);
         dirLight3.intensity = customizeLighting ? directionalIntensity * 0.3 : 0.0;
 
-        // Render loop
+        let renderErrCount = 0;
         engine.runRenderLoop(() => {
-            if (animationPlayerRef.current) {
-                const now = performance.now();
-                if (lastTimeRef.current !== 0) {
-                    const dt = (now - lastTimeRef.current) / 1000;
-                    animationPlayerRef.current.tick(dt);
+            try {
+                if (animationPlayerRef.current) {
+                    const now = performance.now();
+                    if (lastTimeRef.current !== 0) {
+                        const dt = (now - lastTimeRef.current) / 1000;
+                        animationPlayerRef.current.tick(dt);
 
-                    // Throttle state update so the React timeline slider moves smoothly without lagging the UI
-                    const curTime = animationPlayerRef.current.time;
-                    const rounded = Math.round(curTime * 100) / 100;
-                    if (Math.abs(rounded - lastReactTimeRef.current) >= 0.05) {
-                        lastReactTimeRef.current = rounded;
-                        setCurrentTime(curTime);
+                        const curTime = animationPlayerRef.current.time;
+                        const rounded = Math.round(curTime * 100) / 100;
+                        if (Math.abs(rounded - lastReactTimeRef.current) >= 0.05) {
+                            lastReactTimeRef.current = rounded;
+                            setCurrentTime(curTime);
+                        }
                     }
+                    lastTimeRef.current = now;
                 }
-                lastTimeRef.current = now;
+                activeScene.render();
+            } catch (err) {
+                renderErrCount++;
+                if (renderErrCount <= 5 || renderErrCount % 180 === 0) {
+                    console.error(`[render] frame #${renderErrCount} threw (loop kept alive):`, err);
+                }
             }
-            activeScene.render();
         });
 
-        // Resize handler
         const handleResize = () => {
             engine.resize();
         };
         window.addEventListener('resize', handleResize);
 
-        // Store cleanup on canvas ref to matches old contract
         (canvas as any)._flintCleanup = () => {
+            // Persist a final snapshot so the last camera/playhead survive remount.
+            const lr = latestRef.current;
+            modelPreviewSessionStore.save(filePathRef.current, {
+                fileVersion: fileVersionRef.current,
+                visibleMaterials: [...lr.visibleMaterials],
+                selectedAnimation: lr.selectedAnimation,
+                isPlaying: lr.isPlaying,
+                currentTime: lr.currentTime,
+                camera: lr.getCamera(),
+            });
+
             window.removeEventListener('resize', handleResize);
             canvas.removeEventListener('contextmenu', handleContextMenu);
+            window.removeEventListener('error', onWinError);
+            window.removeEventListener('unhandledrejection', onRejection);
+            canvas.removeEventListener('webglcontextlost', onCtxLost);
+            canvas.removeEventListener('webglcontextrestored', onCtxRestored);
+            console.log('[engine] DISPOSED');
 
             if (skeletonViewerRef.current) {
                 skeletonViewerRef.current.dispose();
@@ -255,20 +340,13 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             const cleanup = canvas && (canvas as any)._flintCleanup;
             if (cleanup) {
                 delete (canvas as any)._flintCleanup;
-                // Defer GPU teardown so closing a project that had a 3D
-                // preview open returns the UI immediately. The engine +
-                // meshes + textures get disposed on the next idle slot.
-                deferCleanup(cleanup);
+                cleanup();
             }
             setScene(null);
             setCamera(null);
         };
-        // Engine + scene + camera set up once per component mount. Reloading
-        // a new file path mutates the existing scene instead of tearing down
-        // and recreating the WebGL context.
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Load mesh data
     useEffect(() => {
         let cancelled = false;
 
@@ -277,11 +355,13 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             setError(null);
             setAnimations([]);
             setSkeletonData(null);
-            // Reset per-file state — previously handled by remounting via
-            // key={filePath} on the parent, which also tore down the engine.
             setSelectedAnimation('');
             setActivePopup(null);
             setMeshData(null);
+
+            const cached = modelPreviewSessionStore.get(filePath);
+            const restore = cached && cached.fileVersion === fileVersion ? cached : null;
+            restoreRef.current = restore;
 
             try {
                 let data: MeshData;
@@ -309,6 +389,12 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         const animList = animResult.value;
                         if (animList.clips && animList.clips.length > 0) {
                             setAnimations(animList.clips);
+                            // Prop-driven open (standalone .anm) takes priority, then cache.
+                            const wantAnim = pickInitialAnimation(animList.clips, initialAnimation, autoPlay, restore);
+                            if (wantAnim) {
+                                setSelectedAnimation(wantAnim.path);
+                                setIsPlaying(wantAnim.play);
+                            }
                         }
                     }
 
@@ -338,13 +424,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
         loadMesh();
         return () => { cancelled = true; };
-    }, [filePath, meshType, fileVersion]);
+    }, [filePath, meshType, fileVersion, initialAnimation, autoPlay]);
 
-    // Build/Rebuild mesh, skeleton & materials in the scene
     useEffect(() => {
         if (!scene || !camera || !meshData) return;
 
-        // Tear down previous mesh assets
         if (skeletonViewerRef.current) {
             skeletonViewerRef.current.dispose();
             skeletonViewerRef.current = null;
@@ -367,7 +451,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         builtSklRef.current = null;
         animationPlayerRef.current = null;
 
-        // 1. Build Babylon Skeleton if rigged
         let babylonSkeleton: Skeleton | undefined;
         if (skeletonData) {
             const built = buildBabylonSkeleton(skeletonData, scene, "skeleton");
@@ -380,7 +463,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             };
         }
 
-        // 2. Map mesh fields to MeshDTO
         const isSkn = meshData.kind === 'skn';
         const meshDto: MeshDTO = {
             positions: meshData.positions,
@@ -396,7 +478,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     vertex_count: m.vertex_count,
                     start_index: m.start_index,
                     index_count: m.index_count
-                  }))
+                }))
                 : (meshData as ScbMeshData).materials.map(matName => {
                     const scb = meshData as ScbMeshData;
                     const range = scb.material_ranges?.[matName] || [0, scb.indices.length];
@@ -407,27 +489,41 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         start_index: range[0],
                         index_count: range[1]
                     };
-                  }),
+                }),
             bbox: meshData.bounding_box
         };
 
-        // 3. Build meshes
         const influences = skeletonData?.influences;
-        const { meshes } = buildSknMeshes(meshDto, scene, babylonSkeleton, influences);
+
+        console.log(
+            `[MeshPreview] build ${meshData.kind}: ` +
+            `pos=${meshData.positions?.length}(${(meshData.positions?.length ?? 0) / 3}v) ` +
+            `idx=${meshData.indices?.length} uv=${meshData.uvs?.length} nrm=${meshData.normals?.length} ` +
+            `bbox=${JSON.stringify(meshData.bounding_box)} skel=${!!babylonSkeleton} ` +
+            `submeshes=${meshDto.submeshes.length}[${meshDto.submeshes.map(s => `${s.name}:v${s.start_vertex}+${s.vertex_count}/i${s.start_index}+${s.index_count}`).join('; ')}]`
+        );
+
+        let meshes: ReturnType<typeof buildSknMeshes>['meshes'];
+        try {
+            meshes = buildSknMeshes(meshDto, scene, babylonSkeleton, influences).meshes;
+            console.log(`[MeshPreview] buildSknMeshes OK → ${meshes.length} mesh(es)`);
+        } catch (err) {
+            console.error(`[MeshPreview] buildSknMeshes THREW (${meshData.kind}):`, err);
+            setError(`Mesh build failed: ${(err as Error)?.message ?? String(err)}`);
+            return;
+        }
         activeMeshesRef.current = meshes;
 
-        // 4. Create base64 texture maps
         const textureCache = new Map<string, Texture>();
         const matData = meshData.material_data;
         if (matData && Object.keys(matData).length > 0) {
             for (const [matName, data] of Object.entries(matData)) {
                 try {
                     const dataUrl = "data:image/png;base64," + data.texture;
-                    // Load texture with invertY = true to match V-flipped UV coordinates
                     const texture = new Texture(dataUrl, scene, false, true);
                     texture.wrapU = Texture.WRAP_ADDRESSMODE;
                     texture.wrapV = Texture.WRAP_ADDRESSMODE;
-                    texture.hasAlpha = false; // Force texture to be opaque
+                    texture.hasAlpha = false;
 
                     if (data.uv_scale) {
                         texture.uScale = data.uv_scale[0];
@@ -457,11 +553,10 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             for (const [matName, base64Data] of Object.entries(textures)) {
                 try {
                     const dataUrl = "data:image/png;base64," + base64Data;
-                    // Load texture with invertY = true to match V-flipped UV coordinates
                     const texture = new Texture(dataUrl, scene, false, true);
                     texture.wrapU = Texture.WRAP_ADDRESSMODE;
                     texture.wrapV = Texture.WRAP_ADDRESSMODE;
-                    texture.hasAlpha = false; // Force texture to be opaque
+                    texture.hasAlpha = false;
                     textureCache.set(matName, texture);
                 } catch (e) {
                     console.error("Failed to decode base64 texture fallback for:", matName, e);
@@ -469,7 +564,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             }
         }
 
-        // 5. Apply materials with fuzzy matching
+        console.log(
+            `[MeshPreview] visibleMaterials(${visibleMaterials.size})=[${[...visibleMaterials].map(x => `'${x}'`).join(', ')}] ` +
+            `textureCacheKeys=[${[...textureCache.keys()].map(x => `'${x}'`).join(', ')}] ` +
+            `meshNames=[${meshes.map(m => `'${m.name}'`).join(', ')}]`
+        );
         meshes.forEach(m => {
             const matName = m.name;
 
@@ -490,68 +589,97 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 }
             }
 
-            // ─────────────────────────────────────────────────────────────
-            // IMPORTANT: Use PBRMaterial with unlit=true — this is the ONLY
-            // correct way to render League SKN models in Babylon.js.
-            //
-            // WHY unlit=true MUST NEVER BE REMOVED:
-            //   Jade (the reference viewer) sets mat.unlit = true by default.
-            //   League models are authored for a flat / toon-shaded look. Any
-            //   lighting calculation applied on top of the albedo texture makes
-            //   the model look washed-out, darkened, or otherwise wrong.
-            //
-            //   PBR without unlit=true also uses normals for shading — and even
-            //   after ComputeNormals the per-vertex smoothed normals of a League
-            //   mesh don't look right under a PBR lighting model.
-            //
-            //   The "Customize Lighting" checkbox in the Environment panel only
-            //   controls the scene lights' intensities — it does NOT, and SHOULD
-            //   NOT, change unlit on these materials. DO NOT add shadingEnabled
-            //   or similar logic here. If you want a lit mode, gate it behind an
-            //   explicit user setting and keep unlit=true as the hard default.
-            // ─────────────────────────────────────────────────────────────
             const mat = new PBRMaterial(matName + "_material", scene);
-            mat.unlit = true;              // ← MUST stay true. See warning above.
-            mat.backFaceCulling = true;
+            mat.unlit = true;
             mat.twoSidedLighting = true;
             mat.metallic = 0;
             mat.roughness = 1;
-            mat.environmentIntensity = 0;  // kill env irradiance, not needed for unlit
+            mat.environmentIntensity = 0;
             mat.needDepthPrePass = false;
             mat.wireframe = wireframe;
 
-            if (texture) {
+            if (!isSkn) {
+                mat.albedoColor = new Color3(0.6, 0, 0);
+                mat.albedoTexture = null;
+                mat.backFaceCulling = false;
+                mat.useAlphaFromAlbedoTexture = false;
+                mat.transparencyMode = Material.MATERIAL_OPAQUE;
+                mat.alpha = 1;
+            } else if (texture) {
+                mat.backFaceCulling = true;
                 texture.hasAlpha = false;
                 mat.albedoTexture = texture;
                 mat.albedoColor = new Color3(1, 1, 1);
                 mat.useAlphaFromAlbedoTexture = false;
                 mat.transparencyMode = Material.MATERIAL_OPAQUE;
             } else {
-                mat.albedoColor = new Color3(1, 0, 1); // magenta — no texture found
+                mat.backFaceCulling = true;
+                mat.albedoColor = new Color3(1, 0, 1);
             }
 
             m.material = mat;
-            m.setEnabled(visibleMaterials.has(matName));
+            const willEnable = visibleMaterials.has(matName);
+            m.setEnabled(willEnable);
+            console.log(
+                `[MeshPreview] applyMat mesh='${matName}' textureFound=${!!texture} ` +
+                `visibleMaterials.has('${matName}')=${willEnable} -> setEnabled(${willEnable}) ` +
+                `=> isEnabled=${m.isEnabled()} albedo=${texture ? 'tex' : 'MAGENTA(no-tex)'}`
+            );
         });
 
-        // 6. Camera centering using bounding box
-        const [[minX, minY, minZ], [maxX, maxY, maxZ]] = meshData.bounding_box;
+        meshes.forEach((m, i) => {
+            const bi = m.getBoundingInfo();
+            const bb = bi.boundingBox;
+            const mat = m.material as PBRMaterial | null;
+            console.log(
+                `[MeshPreview] FINAL mesh[${i}] name='${m.name}' enabled=${m.isEnabled()} ` +
+                `isVisible=${m.isVisible} visibility=${m.visibility} alphaIndex=${m.alphaIndex} ` +
+                `gpuVerts=${m.getTotalVertices()} gpuIdx=${m.getTotalIndices()} ` +
+                `pos=(${m.position.x.toFixed(1)},${m.position.y.toFixed(1)},${m.position.z.toFixed(1)}) ` +
+                `scale=(${m.scaling.x},${m.scaling.y},${m.scaling.z}) ` +
+                `bbMinW=(${bb.minimumWorld.x.toFixed(1)},${bb.minimumWorld.y.toFixed(1)},${bb.minimumWorld.z.toFixed(1)}) ` +
+                `bbMaxW=(${bb.maximumWorld.x.toFixed(1)},${bb.maximumWorld.y.toFixed(1)},${bb.maximumWorld.z.toFixed(1)}) ` +
+                `mat='${mat?.name}' matAlpha=${mat?.alpha} unlit=${mat?.unlit} wireframe=${mat?.wireframe} ` +
+                `albedoColor=${mat?.albedoColor ? `(${mat.albedoColor.r},${mat.albedoColor.g},${mat.albedoColor.b})` : 'none'} ` +
+                `hasAlbedoTex=${!!mat?.albedoTexture}`
+            );
+        });
+
+        let [[minX, minY, minZ], [maxX, maxY, maxZ]] = meshData.bounding_box;
+        const boxValid =
+            [minX, minY, minZ, maxX, maxY, maxZ].every(Number.isFinite) &&
+            maxX >= minX && maxY >= minY && maxZ >= minZ;
+        if (!boxValid) {
+            minX = minY = minZ = -1;
+            maxX = maxY = maxZ = 1;
+        }
         const center = new Vector3(
             (minX + maxX) / 2,
             (minY + maxY) / 2,
             (minZ + maxZ) / 2
         );
-        const size = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
+        const size = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 0.01) || 5;
 
         camera.target = center;
         camera.radius = size * 2;
         camera.lowerRadiusLimit = size * 0.1;
         camera.upperRadiusLimit = size * 10.0;
-        camera.panningSensibility = 8000 / camera.radius; // Dynamic panning sensibility based on model size
-        camera.alpha = Math.PI / 2 + Math.PI / 8; // Face front of model (tilted slightly like Jade)
+        camera.panningSensibility = 8000 / Math.max(camera.radius, 0.001);
+        camera.alpha = Math.PI / 2 + Math.PI / 8;
         camera.beta = Math.PI / 3;
 
-        // 7. Setup SkeletonViewer if active
+        const camRestore = restoreRef.current?.camera;
+        if (camRestore) {
+            camera.alpha = camRestore.alpha;
+            camera.beta = camRestore.beta;
+            camera.radius = camRestore.radius;
+            camera.target = new Vector3(camRestore.target[0], camRestore.target[1], camRestore.target[2]);
+        }
+        console.log(
+            `[MeshPreview] camera: boxValid=${boxValid} size=${size.toFixed(3)} ` +
+            `radius=${camera.radius.toFixed(3)} target=(${center.x.toFixed(2)},${center.y.toFixed(2)},${center.z.toFixed(2)})`
+        );
+
         if (showSkeleton && babylonSkeleton && meshes.length > 0) {
             try {
                 const viewer = new SkeletonViewer(
@@ -576,7 +704,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         };
     }, [scene, camera, meshData, skeletonData]);
 
-    // Load animation when selection changes
     useEffect(() => {
         if (!selectedAnimation) {
             setAnimationData(null);
@@ -600,6 +727,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         joints
                     );
                     player.paused = !isPlaying;
+                    const seekTo = latestRef.current.currentTime;
+                    if (seekTo > 0) {
+                        player.time = seekTo;
+                        player.tick(0);
+                    }
                     animationPlayerRef.current = player;
                     lastTimeRef.current = performance.now();
                 }
@@ -613,7 +745,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         loadAnimation();
     }, [selectedAnimation, filePath]);
 
-    // Playback state synchronization
     useEffect(() => {
         if (animationPlayerRef.current) {
             animationPlayerRef.current.paused = !isPlaying;
@@ -623,16 +754,14 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         }
     }, [isPlaying]);
 
-    // Slider manual updates
     const handleSliderChange = (val: number) => {
         setCurrentTime(val);
         if (animationPlayerRef.current) {
             animationPlayerRef.current.time = val;
-            animationPlayerRef.current.tick(0); // force update pose on frame
+            animationPlayerRef.current.tick(0);
         }
     };
 
-    // Floor mode toggles
     useEffect(() => {
         if (!scene) return;
 
@@ -653,7 +782,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             const gridColors: Color4[][] = [];
             const size = 1000;
             const step = 20;
-            const color = new Color4(0.29, 0.29, 0.29, 1.0); // #4a4a4a
+            const color = new Color4(0.29, 0.29, 0.29, 1.0);
             for (let i = -size; i <= size; i += step) {
                 gridLines.push([new Vector3(i, 0, -size), new Vector3(i, 0, size)]);
                 gridLines.push([new Vector3(-size, 0, i), new Vector3(size, 0, i)]);
@@ -663,38 +792,61 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             gridMeshRef.current.isPickable = false;
         } else if (floorMode === 'textured') {
             let isMounted = true;
-            let objectUrl: string | null = null;
 
             const loadFloor = async () => {
                 try {
                     const pngBytes = await api.getBundledFloorPng();
-                    if (!isMounted) return;
+                    if (!isMounted || scene.isDisposed) return;
 
                     const blob = new Blob([new Uint8Array(pngBytes)], { type: 'image/png' });
-                    objectUrl = URL.createObjectURL(blob);
+                    const objectUrl = URL.createObjectURL(blob);
 
                     const ground = CreateGround("ground", { width: 1500, height: 1500 }, scene);
                     ground.isPickable = false;
+                    ground.position.y = -2;
                     const mat = new StandardMaterial("ground-mat", scene);
-                    const tex = new Texture(objectUrl, scene);
+                    mat.backFaceCulling = false;
+
+                    const tex = new Texture(
+                        objectUrl, scene, undefined, undefined, undefined,
+                        () => {
+                            URL.revokeObjectURL(objectUrl);
+                            console.log('[floor] ground texture loaded (url revoked)');
+                        },
+                        (msg, ex) => {
+                            URL.revokeObjectURL(objectUrl);
+                            console.error('[floor] ground texture FAILED to load:', msg, ex);
+                        },
+                    );
                     mat.diffuseTexture = tex;
                     mat.specularColor = new Color3(0, 0, 0);
                     ground.material = mat;
 
                     floorMeshRef.current = ground;
+                    console.log(`[floor] ground created (scene meshes=${scene.meshes.length})`);
+
+                    scene.onAfterRenderObservable.addOnce(() => {
+                        const dump = scene.meshes.map(mm => {
+                            const mm2 = mm as any;
+                            return `${mm.name}{en=${mm.isEnabled()},vis=${mm.isVisible},a=${mm.visibility},y=${mm.position.y.toFixed(1)},` +
+                                `verts=${mm.getTotalVertices()},mat=${mm2.material?.getClassName?.() ?? mm2.material?.name ?? 'none'}}`;
+                        });
+                        const cam = scene.activeCamera as any;
+                        console.log(
+                            `[floor] AFTER-RENDER scene.meshes(${scene.meshes.length})=[${dump.join(', ')}] ` +
+                            `cam.radius=${cam?.radius?.toFixed?.(1)} cam.minZ=${cam?.minZ} cam.maxZ=${cam?.maxZ} ` +
+                            `clearColor=(${scene.clearColor.r.toFixed(2)},${scene.clearColor.g.toFixed(2)},${scene.clearColor.b.toFixed(2)})`
+                        );
+                    });
                 } catch (e) {
                     console.error("Failed to load textured floor:", e);
                 }
             };
             loadFloor();
-            return () => {
-                isMounted = false;
-                if (objectUrl) URL.revokeObjectURL(objectUrl);
-            };
+            return () => { isMounted = false; };
         }
     }, [scene, floorMode]);
 
-    // Ambient light controls
     useEffect(() => {
         if (!scene) return;
 
@@ -704,7 +856,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         }
     }, [scene, ambientIntensity, customizeLighting]);
 
-    // Directional lights controls
     useEffect(() => {
         if (!scene) return;
 
@@ -716,18 +867,16 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         if (dir3) dir3.intensity = customizeLighting ? directionalIntensity * 0.3 : 0.0;
     }, [scene, directionalIntensity, customizeLighting]);
 
-    // Skybox / clearColor toggles
     useEffect(() => {
         if (!scene) return;
 
         if (showSkybox) {
-            scene.clearColor = new Color4(0.53, 0.81, 0.92, 1.0); // Sky blue
+            scene.clearColor = new Color4(0.53, 0.81, 0.92, 1.0);
         } else {
-            scene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0); // Dark grey
+            scene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0);
         }
     }, [scene, showSkybox]);
 
-    // Wireframe updates
     useEffect(() => {
         activeMeshesRef.current.forEach(m => {
             if (m.material) {
@@ -736,14 +885,12 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         });
     }, [wireframe]);
 
-    // Visibility of meshes
     useEffect(() => {
         activeMeshesRef.current.forEach(m => {
             m.setEnabled(visibleMaterials.has(m.name));
         });
     }, [visibleMaterials]);
 
-    // SkeletonViewer visibility toggle
     useEffect(() => {
         if (!scene) return;
 
@@ -772,7 +919,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         }
     }, [scene, showSkeleton]);
 
-    // Close popup when clicking outside
     useEffect(() => {
         if (!activePopup) return;
 
@@ -787,7 +933,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [activePopup]);
 
-    // Persist settings to localStorage
     useEffect(() => {
         const settings = {
             wireframe,
@@ -800,6 +945,18 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         };
         localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     }, [wireframe, showSkybox, floorMode, ambientIntensity, directionalIntensity, showSkeleton, customizeLighting]);
+
+    useEffect(() => {
+        if (!meshData) return;
+        modelPreviewSessionStore.save(filePath, {
+            fileVersion,
+            visibleMaterials: [...visibleMaterials],
+            selectedAnimation,
+            isPlaying,
+            currentTime: latestRef.current.currentTime,
+            camera: latestRef.current.getCamera(),
+        });
+    }, [filePath, fileVersion, meshData, visibleMaterials, selectedAnimation, isPlaying]);
 
     const toggleMaterial = (name: string) => {
         setVisibleMaterials(prev => {
@@ -825,11 +982,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         }
     };
 
-    // The Babylon engine effect is mounted by the <canvas> below. Returning
-    // a different tree for loading/error/empty would unmount the canvas and
-    // tear down the WebGL context — expensive (~50–200ms) every time the
-    // preview file changes. Instead, render the status as an overlay and
-    // keep the canvas in the tree at all times.
     const statusOverlay = loading
         ? (
             <div className="model-preview__overlay model-preview__overlay--loading">
@@ -856,7 +1008,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         <div className="model-preview">
             {meshData && (
                 <>
-                    {/* Environment Button - Top Left Corner */}
                     <div className="model-preview__controls-bar model-preview__controls-bar--left">
                         <button
                             className={`model-preview__control-btn ${activePopup === 'environment' ? 'model-preview__control-btn--active' : ''}`}
@@ -867,7 +1018,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         </button>
                     </div>
 
-                    {/* Other Control Buttons - Top Right */}
                     <div className="model-preview__controls-bar">
                         <button
                             className={`model-preview__control-btn ${activePopup === 'display' ? 'model-preview__control-btn--active' : ''}`}
@@ -896,8 +1046,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 </>
             )}
 
-            {/* 3D Canvas — stays mounted across loading/error/empty states so
-                the Babylon engine isn't torn down and recreated. */}
             <div className="model-preview__canvas">
                 <canvas
                     ref={canvasRef}
@@ -906,7 +1054,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             </div>
             {statusOverlay}
 
-            {/* Popup Panels */}
             {activePopup === 'display' && (
                 <div className="model-preview__popup model-preview__popup--top-right">
                     <div className="model-preview__popup-header">
@@ -1020,14 +1167,14 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         <div className="model-preview__header-actions">
                             <button className="model-preview__toggle-btn model-preview__toggle-btn--all" onClick={() => toggleAllMaterials(true)} title="Show all materials">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                                    <circle cx="12" cy="12" r="3"/>
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                    <circle cx="12" cy="12" r="3" />
                                 </svg>
                             </button>
                             <button className="model-preview__toggle-btn model-preview__toggle-btn--none" onClick={() => toggleAllMaterials(false)} title="Hide all materials">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-                                    <line x1="1" y1="1" x2="23" y2="23"/>
+                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                                    <line x1="1" y1="1" x2="23" y2="23" />
                                 </svg>
                             </button>
                             <button onClick={() => setActivePopup(null)}>×</button>
@@ -1084,11 +1231,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                                             <span className={`material-toggle__status ${hasTexture ? 'material-toggle__status--loaded' : 'material-toggle__status--missing'}`}>
                                                 {hasTexture ? (
                                                     <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
-                                                        <path d="M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z"/>
+                                                        <path d="M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z" />
                                                     </svg>
                                                 ) : (
                                                     <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
-                                                        <path d="M4.646 4.646a.5.5 0 01.708 0L8 7.293l2.646-2.647a.5.5 0 01.708.708L8.707 8l2.647 2.646a.5.5 0 01-.708.708L8 8.707l-2.646 2.647a.5.5 0 01-.708-.708L7.293 8 4.646 5.354a.5.5 0 010-.708z"/>
+                                                        <path d="M4.646 4.646a.5.5 0 01.708 0L8 7.293l2.646-2.647a.5.5 0 01.708.708L8.707 8l2.647 2.646a.5.5 0 01-.708.708L8 8.707l-2.646 2.647a.5.5 0 01-.708-.708L7.293 8 4.646 5.354a.5.5 0 010-.708z" />
                                                     </svg>
                                                 )}
                                                 {hasTexture ? 'Texture loaded' : 'No texture'}
@@ -1179,7 +1326,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 </div>
             )}
 
-            {/* Texture Preview Tooltip */}
             {hoveredMaterial && meshData && (
                 <div
                     className="asset-preview-tooltip"

@@ -10,12 +10,11 @@ use crate::error::{Error, Result};
 use crate::hash::ResolvedHashes;
 use crate::project::{create_project as core_create_project, register_in_index, save_project, Project};
 use crate::wad::extractor::{extract_full_wad_filtered, resolve_wad_paths, ExtractionResult};
-use league_toolkit::wad::{Wad, WadChunk};
-use memmap2::Mmap;
+use ritoshark::prelude::*;
+use ritoshark::wad::{Wad, WadChunk};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::fs::{self, File};
-use std::io::Cursor;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 /// A map discovered in a League install.
@@ -47,13 +46,11 @@ pub struct MapVariant {
 /// one of these per supported language carrying audio/text bundles only — they
 /// are useless for asset modding.
 fn is_locale_wad_name(lower_name: &str) -> bool {
-    // Strip the WAD suffix first so we look at just the stem.
     let stem = lower_name
         .strip_suffix(".wad.client")
         .or_else(|| lower_name.strip_suffix(".wad"))
         .unwrap_or(lower_name);
-    // After the map id, a `.xx_yy` locale dot-segment is a clear signal.
-    // Example stems: "map11.en_us", "map11.de_de", "common.fr_fr"
+    // A trailing `.xx_yy` dot-segment (e.g. "map11.en_us") is the locale signal.
     if let Some(dot_idx) = stem.rfind('.') {
         let suffix = &stem[dot_idx + 1..];
         if is_locale_token(suffix) { return true; }
@@ -137,10 +134,6 @@ pub fn list_available_maps(league_path: &Path) -> Result<Vec<MapEntry>> {
         if !path.is_file() { continue; }
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
         if !name.ends_with(".wad.client") && !name.ends_with(".wad") { continue; }
-        // Skip language-specific WADs (Map11.en_US.wad.client, Map11.de_DE.wad.client, …).
-        // Their stem after stripping the WAD suffix matches `<id>.<locale>` where the
-        // locale is two lowercase letters + underscore + two uppercase letters in the
-        // original filename. Working in lowercase so we just match `_xx`.
         if is_locale_wad_name(&name) { continue; }
         by_name.insert(name, path);
     }
@@ -148,7 +141,6 @@ pub fn list_available_maps(league_path: &Path) -> Result<Vec<MapEntry>> {
     let mut maps: HashMap<String, MapEntry> = HashMap::new();
 
     for (name, path) in &by_name {
-        // Strip .wad.client / .wad
         let stem = name
             .strip_suffix(".wad.client")
             .or_else(|| name.strip_suffix(".wad"))
@@ -157,7 +149,6 @@ pub fn list_available_maps(league_path: &Path) -> Result<Vec<MapEntry>> {
         // Skip LEVELS WADs in the main pass — they're paired below.
         if stem.ends_with("levels") { continue; }
 
-        // Accept "common" or anything that starts with "map".
         let id = if stem == "common" { "common".to_string() }
                  else if stem.starts_with("map") { stem.to_string() }
                  else { continue };
@@ -292,16 +283,12 @@ pub fn create_map_project(
         )))?;
 
     progress("create", "Creating project structure...");
-    // Map projects don't have a champion — flint.json carries `kind: "map"`
-    // and `map_id: "<id>"` instead. We still go through core_create_project
-    // so the on-disk layout matches skin projects (mod.config.json + content/
-    // + output/), then convert the runtime struct to the Map shape and
-    // re-save flint.json so the legacy `champion: "map-<id>"` tag never
-    // touches disk for newly-created projects.
+    // Map projects carry `kind: "map"` + `map_id` instead of a champion. Go
+    // through core_create_project for the on-disk layout, then convert to the
+    // Map shape and re-save so the legacy `champion: "map-<id>"` tag never lands.
     let project = core_create_project(name, "", 0, league_path, output_dir, author)?;
     let project = project.into_map(entry.id.clone());
     save_project(&project)?;
-    // Re-register so the index reflects the cleared champion / new fields.
     if let Err(e) = register_in_index(output_dir, &project) {
         tracing::warn!("Failed to refresh projects.json for map project {}: {}", project.pid, e);
     }
@@ -401,14 +388,14 @@ fn xx64(s: &str) -> u64 {
 /// Extract one chunk of a mounted WAD to disk by absolute path. Skips
 /// silently if the chunk isn't present in the WAD.
 fn extract_one(
-    wad: &mut Wad<Cursor<&[u8]>>,
+    wad: &Wad,
     by_hash: &HashMap<u64, WadChunk>,
     rel_path: &str,
     output_dir: &Path,
 ) -> Result<bool> {
     let h = xx64(rel_path);
     let Some(chunk) = by_hash.get(&h).copied() else { return Ok(false); };
-    let data = wad.load_chunk_decompressed(&chunk).map_err(|e| Error::Wad {
+    let data = wad.chunk_data(&chunk).map_err(|e| Error::Wad {
         message: format!("Failed to decompress chunk for '{}': {}", rel_path, e),
         path: None,
     })?;
@@ -481,39 +468,34 @@ pub fn extract_variant_files(
     let mapgeo_path = format!("{}{}.mapgeo", prefix, var_lower);
     let materials_path = format!("{}{}.materials.bin", prefix, var_lower);
 
-    let file = File::open(wad_path).map_err(|e| Error::io_with_path(e, wad_path))?;
-    let mmap = unsafe { Mmap::map(&file) }.map_err(|e| Error::Wad {
-        message: format!("Failed to mmap WAD: {}", e),
-        path: Some(wad_path.to_path_buf()),
-    })?;
-    let mut wad = Wad::mount(Cursor::new(&mmap[..])).map_err(|e| Error::Wad {
+    let wad = Wad::from_path(wad_path).map_err(|e| Error::Wad {
         message: format!("Failed to mount WAD: {}", e),
         path: Some(wad_path.to_path_buf()),
     })?;
 
     let by_hash: HashMap<u64, WadChunk> = wad
-        .chunks().iter().copied()
-        .map(|c| (c.path_hash(), c))
+        .chunks.iter()
+        .map(|c| (c.path_hash, *c))
         .collect();
 
     fs::create_dir_all(output_dir).map_err(|e| Error::io_with_path(e, output_dir))?;
 
     let mut extracted = 0usize;
-    if extract_one(&mut wad, &by_hash, &mapgeo_path, output_dir)? { extracted += 1; }
-    if extract_one(&mut wad, &by_hash, &materials_path, output_dir)? { extracted += 1; }
+    if extract_one(&wad, &by_hash, &mapgeo_path, output_dir)? { extracted += 1; }
+    if extract_one(&wad, &by_hash, &materials_path, output_dir)? { extracted += 1; }
 
     // Scan materials.bin for referenced paths. If we couldn't pull it (e.g.
     // hash miss), there's nothing to scan and we just return what we have.
     let mat_h = xx64(&materials_path);
     if let Some(chunk) = by_hash.get(&mat_h).copied() {
-        if let Ok(bytes) = wad.load_chunk_decompressed(&chunk) {
+        if let Ok(bytes) = wad.chunk_data(&chunk) {
             let referenced = scan_referenced_paths(&bytes);
             tracing::info!(
                 "Variant '{}' references {} candidate asset path(s) in materials.bin",
                 variant, referenced.len()
             );
             for path in referenced {
-                if extract_one(&mut wad, &by_hash, &path, output_dir).unwrap_or(false) {
+                if extract_one(&wad, &by_hash, &path, output_dir).unwrap_or(false) {
                     extracted += 1;
                 }
             }
@@ -576,24 +558,19 @@ pub fn extract_levels_variant_files(
     let with_data: Vec<String> = candidates.iter().map(|p| format!("data/{}", p)).collect();
     candidates.extend(with_data);
 
-    let file = File::open(wad_path).map_err(|e| Error::io_with_path(e, wad_path))?;
-    let mmap = unsafe { Mmap::map(&file) }.map_err(|e| Error::Wad {
-        message: format!("Failed to mmap LEVELS WAD: {}", e),
-        path: Some(wad_path.to_path_buf()),
-    })?;
-    let mut wad = Wad::mount(Cursor::new(&mmap[..])).map_err(|e| Error::Wad {
+    let wad = Wad::from_path(wad_path).map_err(|e| Error::Wad {
         message: format!("Failed to mount LEVELS WAD: {}", e),
         path: Some(wad_path.to_path_buf()),
     })?;
     let by_hash: HashMap<u64, WadChunk> = wad
-        .chunks().iter().copied()
-        .map(|c| (c.path_hash(), c))
+        .chunks.iter()
+        .map(|c| (c.path_hash, *c))
         .collect();
 
     fs::create_dir_all(output_dir).map_err(|e| Error::io_with_path(e, output_dir))?;
     let mut extracted = 0usize;
     for path in candidates {
-        if extract_one(&mut wad, &by_hash, &path, output_dir).unwrap_or(false) {
+        if extract_one(&wad, &by_hash, &path, output_dir).unwrap_or(false) {
             extracted += 1;
         }
     }

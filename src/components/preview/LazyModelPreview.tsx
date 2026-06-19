@@ -1,13 +1,5 @@
-/**
- * Lazy-loaded ModelPreview Component
- *
- * This component lazy-loads the Three.js 3D viewer to reduce initial bundle size.
- * Three.js is ~600KB and only needed when viewing 3D models.
- */
-
 import { lazy, Suspense } from 'react';
 
-// Lazy load the ModelPreview component (named export)
 const ModelPreview = lazy(() => import('./ModelPreview').then(module => ({ default: module.ModelPreview })));
 
 interface LazyModelPreviewProps {

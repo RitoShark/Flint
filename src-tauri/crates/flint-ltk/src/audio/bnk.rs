@@ -2,21 +2,18 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 use std::io::{Cursor, Read, Write};
 
-/// Metadata for a single WEM audio entry (no data)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioEntryInfo {
     pub id: u32,
     pub size: u32,
 }
 
-/// A full audio entry with its data
 #[derive(Debug, Clone)]
 pub struct AudioEntry {
     pub id: u32,
     pub data: Vec<u8>,
 }
 
-/// Result of parsing a BNK file
 #[derive(Debug)]
 pub struct BnkFile {
     pub version: u32,
@@ -25,11 +22,9 @@ pub struct BnkFile {
     entries: Vec<(u32, u32, u32)>,
     /// Absolute offset of the DATA section payload in the original buffer
     data_section_offset: usize,
-    /// Raw HIRC section bytes (if present)
     pub hirc_bytes: Option<Vec<u8>>,
 }
 
-/// Parsed BNK metadata returned to the frontend
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BnkInfo {
     pub format: String,
@@ -41,12 +36,10 @@ pub struct BnkInfo {
 }
 
 impl BnkFile {
-    /// Parse a BNK file from raw bytes.
     pub fn parse(data: &[u8]) -> Result<Self, String> {
         let mut cursor = Cursor::new(data);
         let len = data.len() as u64;
 
-        // Read BKHD header
         let mut magic = [0u8; 4];
         cursor
             .read_exact(&mut magic)
@@ -64,7 +57,6 @@ impl BnkFile {
             .read_u32::<LittleEndian>()
             .map_err(|e| format!("Failed to read bank ID: {e}"))?;
 
-        // Skip rest of BKHD
         let bkhd_remaining = bkhd_len.saturating_sub(8) as u64;
         cursor.set_position(cursor.position() + bkhd_remaining);
 
@@ -72,7 +64,6 @@ impl BnkFile {
         let mut data_section_offset: usize = 0;
         let mut hirc_bytes: Option<Vec<u8>> = None;
 
-        // Loop through remaining sections
         while cursor.position() + 8 <= len {
             let mut section_magic = [0u8; 4];
             if cursor.read_exact(&mut section_magic).is_err() {
@@ -125,7 +116,6 @@ impl BnkFile {
         })
     }
 
-    /// Get metadata-only info for all entries (no audio data copied).
     pub fn info(&self) -> BnkInfo {
         BnkInfo {
             format: "bnk".into(),
@@ -141,7 +131,6 @@ impl BnkFile {
         }
     }
 
-    /// Read a single WEM entry's audio data by file ID from the original buffer.
     pub fn read_entry_data<'a>(&self, data: &'a [u8], file_id: u32) -> Result<&'a [u8], String> {
         let entry = self
             .entries
@@ -164,7 +153,6 @@ impl BnkFile {
         Ok(&data[start..end])
     }
 
-    /// Read all entries as AudioEntry (with data). Used for editing.
     pub fn read_all_entries(&self, data: &[u8]) -> Result<Vec<AudioEntry>, String> {
         let mut result = Vec::with_capacity(self.entries.len());
         for &(id, offset, length) in &self.entries {
@@ -182,13 +170,11 @@ impl BnkFile {
     }
 }
 
-/// Parse BNK metadata from raw bytes (no audio data loaded).
 pub fn parse_bnk_metadata(data: &[u8]) -> Result<BnkInfo, String> {
     let bnk = BnkFile::parse(data)?;
     Ok(bnk.info())
 }
 
-/// Read a single entry's WEM data from a BNK buffer.
 pub fn read_bnk_entry(data: &[u8], file_id: u32) -> Result<Vec<u8>, String> {
     let bnk = BnkFile::parse(data)?;
     Ok(bnk.read_entry_data(data, file_id)?.to_vec())
@@ -209,12 +195,10 @@ fn align_up(val: usize, alignment: usize) -> usize {
     }
 }
 
-/// Write a BNK file from a list of audio entries.
 /// Produces a minimal BKHD + DIDX + DATA bank (version 0x86).
 pub fn write_bnk(entries: &[AudioEntry]) -> Vec<u8> {
-    let bkhd_section_len: u32 = 0x14; // 20 bytes for the BKHD payload
+    let bkhd_section_len: u32 = 0x14;
 
-    // Calculate DIDX + DATA sizes
     let didx_size = (entries.len() * 12) as u32;
 
     let mut offsets = Vec::with_capacity(entries.len());
@@ -225,22 +209,19 @@ pub fn write_bnk(entries: &[AudioEntry]) -> Vec<u8> {
         data_size = aligned + entry.data.len();
     }
 
-    let total = 8 + bkhd_section_len as usize // BKHD section
-        + 8 + didx_size as usize              // DIDX section
-        + 8 + data_size;                      // DATA section
+    let total = 8 + bkhd_section_len as usize
+        + 8 + didx_size as usize
+        + 8 + data_size;
 
     let mut buf = Vec::with_capacity(total);
 
-    // BKHD
     buf.write_all(b"BKHD").unwrap();
     buf.write_u32::<LittleEndian>(bkhd_section_len).unwrap();
-    buf.write_u32::<LittleEndian>(0x86).unwrap(); // version
-    buf.write_u32::<LittleEndian>(0).unwrap(); // bank_id placeholder
-    buf.write_u32::<LittleEndian>(0x17705D3E).unwrap(); // language ID
-    // Remaining bytes to fill bkhd_section_len (20 - 12 = 8)
+    buf.write_u32::<LittleEndian>(0x86).unwrap();
+    buf.write_u32::<LittleEndian>(0).unwrap();
+    buf.write_u32::<LittleEndian>(0x17705D3E).unwrap();
     buf.write_all(&[0u8; 8]).unwrap();
 
-    // DIDX
     buf.write_all(b"DIDX").unwrap();
     buf.write_u32::<LittleEndian>(didx_size).unwrap();
     for (i, entry) in entries.iter().enumerate() {
@@ -249,7 +230,6 @@ pub fn write_bnk(entries: &[AudioEntry]) -> Vec<u8> {
         buf.write_u32::<LittleEndian>(entry.data.len() as u32).unwrap();
     }
 
-    // DATA
     buf.write_all(b"DATA").unwrap();
     buf.write_u32::<LittleEndian>(data_size as u32).unwrap();
     let data_start = buf.len();
@@ -262,7 +242,6 @@ pub fn write_bnk(entries: &[AudioEntry]) -> Vec<u8> {
     buf
 }
 
-/// Replace a single entry's audio data in a BNK buffer, returning the new BNK.
 pub fn replace_bnk_entry(data: &[u8], file_id: u32, new_wem: &[u8]) -> Result<Vec<u8>, String> {
     let bnk = BnkFile::parse(data)?;
     let mut entries = bnk.read_all_entries(data)?;
@@ -293,12 +272,11 @@ pub const SILENCE_WEM: &[u8] = &[
     0x00, 0x00, 0x00, 0x00, // data size = 0 (silence)
 ];
 
-/// Replace an entry with silence.
 pub fn silence_bnk_entry(data: &[u8], file_id: u32) -> Result<Vec<u8>, String> {
     replace_bnk_entry(data, file_id, SILENCE_WEM)
 }
 
-/// Remove an entry from the bank entirely (rewrites BKHD/DIDX/DATA — HIRC is not preserved).
+/// Rewrites BKHD/DIDX/DATA — HIRC is not preserved.
 pub fn remove_bnk_entry(data: &[u8], file_id: u32) -> Result<Vec<u8>, String> {
     let bnk = BnkFile::parse(data)?;
     let mut entries = bnk.read_all_entries(data)?;

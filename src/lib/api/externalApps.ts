@@ -1,7 +1,5 @@
 import { invokeCommand } from './core';
 
-// External apps (Jade/Quartz)
-
 export async function detectJadeInstallation(): Promise<string | null> {
     return invokeCommand('detect_jade_installation', {});
 }
@@ -18,13 +16,7 @@ export async function launchQuartz(filePath: string, quartzPath: string): Promis
     return invokeCommand('launch_quartz', { filePath, quartzPath });
 }
 
-/**
- * Combined detection — single IPC call that probes Jade, Quartz, LTK Manager
- * and Celestial in parallel on the Rust side. Replaces the 2-4 separate
- * detect_* / get_*_mod_path calls used in FirstTimeSetupModal and SettingsModal.
- *
- * Each field is the detected install/storage path or null when not found.
- */
+/** Each field is the detected install/storage path or null when not found. */
 export interface ExternalAppsDetection {
     jade: string | null;
     quartz: string | null;
@@ -65,12 +57,10 @@ export async function registerFileAssociations(): Promise<FileAssocResult> {
     return invokeCommand('register_file_associations', {});
 }
 
-/** Remove every "Open with" entry we registered. */
 export async function unregisterFileAssociations(): Promise<FileAssocResult> {
     return invokeCommand('unregister_file_associations', {});
 }
 
-/** Inspect which of our extensions are currently registered for this user. */
 export async function getFileAssociationStatus(): Promise<FileAssocStatus> {
     return invokeCommand('get_file_association_status', {});
 }

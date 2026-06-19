@@ -26,7 +26,7 @@ export const UnknownPreview: React.FC<UnknownPreviewProps> = ({ filePath }) => {
             <div className="unknown-preview__content">
                 <div
                     className="unknown-preview__icon"
-                    dangerouslySetInnerHTML={{ __html: getIcon('unknown') }}
+                    dangerouslySetInnerHTML={{ __html: getIcon('file') }}
                 />
                 <h2>Unknown File Format</h2>
                 <p>This file type does not have a dedicated viewer. How would you like to open it?</p>
@@ -43,7 +43,7 @@ export const UnknownPreview: React.FC<UnknownPreviewProps> = ({ filePath }) => {
                         className="btn btn--secondary unknown-preview__btn"
                         onClick={() => setViewMode('hex')}
                     >
-                        <span dangerouslySetInnerHTML={{ __html: getIcon('binary') }} />
+                        <span dangerouslySetInnerHTML={{ __html: getIcon('code') }} />
                         Open in Hex View
                     </button>
                 </div>

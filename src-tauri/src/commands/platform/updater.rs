@@ -4,8 +4,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use tauri::{AppHandle, Emitter};
 
-// Primary: RitoShark/Flint. Fallback: SirDexal/Flint (personal profile — used if
-// the repo gets moved). Tried in order; first successful 2xx wins.
+// Tried in order; first successful 2xx wins.
 const GITHUB_OWNERS: &[&str] = &["RitoShark", "SirDexal"];
 const GITHUB_REPO: &str = "Flint";
 
@@ -49,7 +48,7 @@ pub async fn check_for_updates() -> Result<UpdateInfo, String> {
 
     let client = reqwest::Client::new();
 
-    // Try each owner in order; first 2xx wins. 404 from every owner => no release yet.
+    // 404 from every owner => no release yet.
     let mut last_err: Option<String> = None;
     let mut release: Option<GitHubRelease> = None;
     for owner in GITHUB_OWNERS {
@@ -98,18 +97,15 @@ pub async fn check_for_updates() -> Result<UpdateInfo, String> {
 
     let latest_version = release.tag_name.trim_start_matches('v').to_string();
 
-    // Find Windows installer asset with broader matching
     let download_url = release
         .assets
         .iter()
         .find(|asset| {
             let name = asset.name.to_lowercase();
-            // Match .exe, .msi, or NSIS installers
             (name.ends_with(".exe") || name.ends_with(".msi")) &&
             (name.contains("windows") || name.contains("setup") || name.contains("installer") || name.contains("flint"))
         })
         .or_else(|| {
-            // Fallback: any .exe or .msi asset
             release.assets.iter().find(|asset| {
                 let name = asset.name.to_lowercase();
                 name.ends_with(".exe") || name.ends_with(".msi")
@@ -159,7 +155,6 @@ pub async fn download_and_install_update(
         return Err(format!("Download failed: {}", response.status()));
     }
 
-    // Get total size from Content-Length header
     let total_size = response.content_length().unwrap_or(0);
 
     let filename = download_url
@@ -171,7 +166,6 @@ pub async fn download_and_install_update(
     let temp_dir = std::env::temp_dir();
     let installer_path: PathBuf = temp_dir.join(&filename);
 
-    // Stream download with real progress events
     let mut downloaded: u64 = 0;
     let mut file = std::fs::File::create(&installer_path)
         .map_err(|e| format!("Failed to create installer file: {}", e))?;
@@ -186,7 +180,6 @@ pub async fn download_and_install_update(
 
         downloaded += chunk.len() as u64;
 
-        // Emit real progress
         let _ = app.emit("update-download-progress", DownloadProgress {
             downloaded,
             total: total_size,

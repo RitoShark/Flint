@@ -3,14 +3,13 @@
 use super::hirc::HircData;
 use serde::{Deserialize, Serialize};
 
-/// A BIN event string with its FNV-1 hash
+/// Hash is FNV-1.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinEventString {
     pub name: String,
     pub hash: u32,
 }
 
-/// A mapped event → WEM file relationship
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventMapping {
     pub event_name: String,
@@ -72,11 +71,9 @@ fn read_u32_le(data: &[u8], offset: usize) -> u32 {
     u32::from_le_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]])
 }
 
-/// Extract event strings from raw BIN file bytes using pattern matching.
 pub fn extract_bin_events(bin_data: &[u8]) -> Vec<BinEventString> {
     let mut result = Vec::new();
 
-    // Search for event containers
     let mut offset = 0usize;
     while let Some(found) = find_sequence(bin_data, &EVENT_HEADER, offset) {
         let mut pos = found + EVENT_HEADER.len();
@@ -85,7 +82,6 @@ pub fn extract_bin_events(bin_data: &[u8]) -> Vec<BinEventString> {
             break;
         }
 
-        // Skip object size (4 bytes)
         pos += 4;
 
         let amount = read_u32_le(bin_data, pos) as usize;
@@ -113,7 +109,6 @@ pub fn extract_bin_events(bin_data: &[u8]) -> Vec<BinEventString> {
         offset = pos;
     }
 
-    // Search for music containers
     offset = 0;
     while let Some(found) = find_sequence(bin_data, &MUSIC_HEADER, offset) {
         let mut pos = found + MUSIC_HEADER.len();
@@ -133,7 +128,6 @@ pub fn extract_bin_events(bin_data: &[u8]) -> Vec<BinEventString> {
             break;
         }
 
-        // Skip object size (4 bytes)
         pos += 4;
 
         let amount = read_u16_le(bin_data, pos) as usize;
@@ -143,14 +137,12 @@ pub fn extract_bin_events(bin_data: &[u8]) -> Vec<BinEventString> {
             if pos + 5 > bin_data.len() {
                 break;
             }
-            // Skip name hash (4 bytes)
             pos += 4;
 
             let bin_type = read_u8_at(bin_data, pos);
             pos += 1;
 
             if bin_type != 0x10 {
-                // Must be string type
                 break;
             }
 
@@ -189,7 +181,6 @@ fn add_connected_files(
     hirc: &HircData,
     results: &mut Vec<EventMapping>,
 ) {
-    // Music Switch
     if let Some(ms) = hirc.music_switches.iter().find(|o| o.self_id == id) {
         for &child in &ms.children {
             add_connected_files(event_name, child, id, hirc, results);
@@ -197,7 +188,6 @@ fn add_connected_files(
         return;
     }
 
-    // Music Playlist
     if let Some(mp) = hirc.music_playlists.iter().find(|o| o.self_id == id) {
         let pid = if mp.track_ids.len() > 1 { id } else { parent_id };
         for &track_id in &mp.track_ids {
@@ -206,7 +196,6 @@ fn add_connected_files(
         return;
     }
 
-    // Random Container
     if let Some(rc) = hirc.random_containers.iter().find(|o| o.self_id == id) {
         let pid = if rc.sound_ids.len() > 1 { id } else { parent_id };
         for &sound_id in &rc.sound_ids {
@@ -215,7 +204,6 @@ fn add_connected_files(
         return;
     }
 
-    // Switch Container
     if let Some(sc) = hirc.switch_containers.iter().find(|o| o.self_id == id) {
         for &child in &sc.children {
             add_connected_files(event_name, child, id, hirc, results);
@@ -223,7 +211,6 @@ fn add_connected_files(
         return;
     }
 
-    // Music Segment
     if let Some(seg) = hirc.music_segments.iter().find(|o| o.self_id == id) {
         for &track_id in &seg.track_ids {
             if let Some(track) = hirc.music_tracks.iter().find(|t| t.self_id == track_id) {
@@ -249,7 +236,6 @@ fn add_connected_files(
         return;
     }
 
-    // Sound
     if let Some(sound) = hirc.sounds.iter().find(|o| o.self_id == id) {
         results.push(EventMapping {
             event_name: event_name.to_string(),
@@ -261,7 +247,6 @@ fn add_connected_files(
     }
 }
 
-/// Map BIN events to WEM IDs via HIRC hierarchy.
 pub fn map_events_to_wem(events: &[BinEventString], hirc: &HircData) -> Vec<EventMapping> {
     let mut results = Vec::new();
 
@@ -339,11 +324,8 @@ mod tests {
 
     #[test]
     fn test_fnv1_hash() {
-        // Known Wwise FNV-1 hashes
         assert_eq!(fnv1_hash("Play_sfx_Ahri_Base_Q_Cast"), fnv1_hash("play_sfx_ahri_base_q_cast"));
-        // Verify it's NOT FNV-1a (different result)
         let fnv1 = fnv1_hash("test");
-        // FNV-1a would be: hash XOR then multiply
         let mut fnv1a: u32 = 0x811c9dc5;
         for &b in b"test" {
             fnv1a ^= b as u32;

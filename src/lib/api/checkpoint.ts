@@ -41,14 +41,6 @@ export async function getFileChanges(projectPath: string): Promise<Record<string
     return invokeCommand('get_file_changes', { projectPath });
 }
 
-/**
- * Combined list + per-pair diffs — replaces N+1 sequential calls
- * (listCheckpoints + N×compareCheckpoints) in CheckpointTimeline.
- *
- * Returns the checkpoints in newest-first order plus a `diffs` map keyed by
- * the newer checkpoint's id (matches the loop's `diffs[list[i].id] = ...`
- * pattern: each entry diffs `list[i+1]` → `list[i]`).
- */
 export interface CheckpointsWithDiffs {
     checkpoints: Checkpoint[];
     diffs: Record<string, CheckpointDiff>;

@@ -1,16 +1,6 @@
-/**
- * CreatorTab - 'Creator' tab in Settings (name, description, home / tip
- * URLs). Pre-fills new project metadata.
- */
 import React from 'react';
 import { Icon, Input, Textarea } from '../../ui';
 
-/* -------------------------------------------------------------------------- */
-/* Creator tab — name, description, home URL, tip URL                          */
-/* Inspired by celestial-1's CreatorHubTab but laid out in Flint's settings   */
-/* primitive (settings-item / Field / Input). The header uses a glassy hero    */
-/* card so the tab feels distinct from the rest of Settings.                   */
-/* -------------------------------------------------------------------------- */
 export const CreatorTab: React.FC<{
     name: string;
     onName: (v: string) => void;

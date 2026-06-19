@@ -1,5 +1,3 @@
-// flint-ltk: League Toolkit abstraction layer for Flint
-
 pub mod error;
 pub mod audio;
 pub mod bin;
@@ -17,57 +15,30 @@ pub mod checkpoint;
 pub mod hud;
 pub mod luabin;
 pub mod troybin;
+pub mod loadscreen_banner;
+pub mod inibin_text;
+pub mod stringtable;
+pub mod manifest;
+pub mod cdn;
 
 // =============================================================================
-// Re-exports: Types that commands import directly from LTK crates.
-// Commands should import these from `flint_ltk::ltk_types::` instead.
+// Re-exports for types the binary crate imports from LTK crates.
 // =============================================================================
 
-/// LTK types re-exported for the Flint binary crate
 pub mod ltk_types {
-    // ltk_meta core types (renamed in 0.4: BinTree→Bin, BinTreeObject→BinObject, BinPropertyKind→PropertyKind)
-    pub use ltk_meta::{Bin, BinObject, BinProperty, PropertyKind, PropertyValueEnum};
+    pub use ritoshark::bin::{Bin, BinEntry, BinType, BinValue};
 
-    // Value types module (use values::String to avoid shadowing std::string::String)
-    pub use ltk_meta::property::values;
-    pub use ltk_meta::property::values::{
-        Bool, I8, U8, I16, U16, I32, U32, I64, U64, F32,
-        Vector2, Vector3, Vector4, Matrix44,
-        Color, Hash, ObjectLink, BitBool, WadChunkLink,
-        Struct, Embedded, Container, UnorderedContainer, Optional, Map,
-    };
+    pub use ritoshark::hash::HashMapper;
 
-    // ltk_ritobin (used by commands/dev.rs, bin_roundtrip_test.rs)
-    pub use ltk_ritobin::{HashProvider, HashMapProvider, write_with_hashes};
-
-    // ltk_mod_project (used by commands/export.rs, commands/ltk_manager.rs)
     pub use ltk_mod_project::{ModProject, ModProjectAuthor, default_layers};
 
-    // ltk_file (used by commands/file.rs)
-    pub use ltk_file::LeagueFileKind;
-
-    // ltk_texture (used by commands/file.rs, commands/project.rs)
-    pub use ltk_texture::Texture;
-    pub use ltk_texture::tex::{Tex, EncodeOptions, Format as TexFormat};
-
-    // ltk_modpkg (used by commands/modpkg_import.rs, commands/export.rs)
     pub use ltk_modpkg::Modpkg;
     pub use ltk_modpkg::builder::{ModpkgBuilder, ModpkgChunkBuilder, ModpkgLayerBuilder};
     pub use ltk_modpkg::{ModpkgMetadata, ModpkgAuthor};
 
-    // league-toolkit WAD builders (used by commands/export.rs)
-    pub use league_toolkit::wad::{WadBuilder, WadChunkBuilder, WadBuilderError};
-    // WAD chunk type — needed by commands/wad.rs to express its `Vec<WadChunk>`
-    // result type when implementing the byte-encoder trait. The `flint_ltk::wad`
-    // module's `WadChunk` re-export above is private; this one is public for
-    // the binary crate.
-    pub use league_toolkit::wad::WadChunk;
-
-    // glam (used by commands/project.rs)
     pub use glam::{Vec2, Vec4};
 }
 
-/// Hematite types re-exported for the Flint binary crate (commands/fixer.rs)
 pub mod hematite {
     pub use hematite_core::context::FixContext;
     pub use hematite_core::detect::detect_issue;
@@ -81,5 +52,4 @@ pub mod hematite {
     pub use hematite_types::config::FixConfig;
 }
 
-/// Re-export heed for state.rs (Arc<heed::Env>)
 pub use heed;

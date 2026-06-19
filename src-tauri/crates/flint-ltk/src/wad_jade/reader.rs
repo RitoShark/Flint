@@ -1,9 +1,4 @@
 //! Custom WAD parser — header + TOC only. No decompression.
-//!
-//! Reads a WAD's table of contents into a flat `Vec<WadChunk>`. Parsing is
-//! synchronous and bounded by the chunk count (typical champion WAD is
-//! 5–20k chunks ≈ 140–560 KB of TOC). The data section is left unread —
-//! Phase 3 will seek + decompress on demand.
 
 use crate::wad_jade::format::{WadChunk, WadCompression, WadVersion};
 use crate::error::{Error, Result};
@@ -12,9 +7,6 @@ use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-/// What `read_wad_toc` returns: version + every chunk in the file. The
-/// `path` field is informational — Phase 3 may use it for re-opening the
-/// file for extraction.
 #[derive(Debug)]
 pub struct WadToc {
     pub path: PathBuf,
@@ -24,8 +16,6 @@ pub struct WadToc {
 
 const MAGIC_RW: u16 = 0x5752; // "RW" little-endian: 'R' (0x52) then 'W' (0x57).
 
-/// Parse a WAD file's TOC. Opens with a 64 KB buffered reader; on a warm
-/// disk a 200 MB champion WAD's TOC parses in <30 ms.
 pub fn read_wad_toc(path: impl AsRef<Path>) -> Result<WadToc> {
     let path = path.as_ref();
     let file = File::open(path).map_err(|e| Error::io_with_path(e, path))?;
@@ -55,8 +45,7 @@ pub fn read_wad_toc(path: impl AsRef<Path>) -> Result<WadToc> {
         ));
     }
 
-    // v3 carries a 256-byte ECDSA signature block + 8-byte data checksum
-    // before the chunk count. We don't validate either — the launcher does.
+    // 256-byte ECDSA signature block + 8-byte data checksum before the chunk count.
     reader
         .seek(SeekFrom::Current(256 + 8))
         .map_err(|e| Error::io_with_path(e, path))?;
@@ -104,7 +93,6 @@ fn read_chunk_v3_1<R: Read>(reader: &mut R) -> Result<WadChunk> {
     let uncompressed_size = reader.read_i32::<LittleEndian>()?.max(0) as u64;
 
     let type_frame_count = reader.read_u8()?;
-    let frame_count = type_frame_count >> 4;
     let compression_byte = type_frame_count & 0x0F;
     let compression = WadCompression::from_u8(compression_byte).ok_or_else(|| {
         Error::Wad {
@@ -113,9 +101,10 @@ fn read_chunk_v3_1<R: Read>(reader: &mut R) -> Result<WadChunk> {
         }
     })?;
 
-    let is_duplicated = reader.read_u8()? == 1;
-    let start_frame = reader.read_u16::<LittleEndian>()? as u32;
-    let checksum = reader.read_u64::<LittleEndian>()?;
+    // Advance past is_duplicated (u8), start_frame (u16), checksum (u64).
+    reader.read_u8()?;
+    reader.read_u16::<LittleEndian>()?;
+    reader.read_u64::<LittleEndian>()?;
 
     Ok(WadChunk {
         path_hash,
@@ -123,10 +112,6 @@ fn read_chunk_v3_1<R: Read>(reader: &mut R) -> Result<WadChunk> {
         compressed_size,
         uncompressed_size,
         compression,
-        frame_count,
-        start_frame,
-        is_duplicated,
-        checksum,
     })
 }
 
@@ -137,7 +122,6 @@ fn read_chunk_v3_4<R: Read>(reader: &mut R) -> Result<WadChunk> {
     let uncompressed_size = reader.read_u32::<LittleEndian>()? as u64;
 
     let type_frame_count = reader.read_u8()?;
-    let frame_count = type_frame_count >> 4;
     let compression_byte = type_frame_count & 0x0F;
     let compression = WadCompression::from_u8(compression_byte).ok_or_else(|| {
         Error::Wad {
@@ -146,13 +130,11 @@ fn read_chunk_v3_4<R: Read>(reader: &mut R) -> Result<WadChunk> {
         }
     })?;
 
-    // 24-bit start_frame, oddly ordered: hi, lo, mi (matches Riot's writer).
-    let hi = reader.read_u8()? as u32;
-    let lo = reader.read_u8()? as u32;
-    let mi = reader.read_u8()? as u32;
-    let start_frame = (hi << 16) | (mi << 8) | lo;
-
-    let checksum = reader.read_u64::<LittleEndian>()?;
+    // Advance past the 24-bit start_frame (3 bytes) and checksum (u64).
+    reader.read_u8()?;
+    reader.read_u8()?;
+    reader.read_u8()?;
+    reader.read_u64::<LittleEndian>()?;
 
     Ok(WadChunk {
         path_hash,
@@ -160,9 +142,5 @@ fn read_chunk_v3_4<R: Read>(reader: &mut R) -> Result<WadChunk> {
         compressed_size,
         uncompressed_size,
         compression,
-        frame_count,
-        start_frame,
-        is_duplicated: false,
-        checksum,
     })
 }

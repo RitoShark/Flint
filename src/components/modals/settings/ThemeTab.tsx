@@ -1,17 +1,9 @@
-/**
- * ThemePresetGrid - 5 brand-themed cards on the Settings 'Theme' tab.
- * Selecting one routes to setSelectedTheme(id, accent).
- */
 import React, { useEffect } from 'react';
 import * as api from '../../../lib/api';
 
 /* -------------------------------------------------------------------------- */
 /* Theme preset grid — same 5 cards as the wizard, lives on the Theme tab     */
 /* -------------------------------------------------------------------------- */
-/* Flint is the default — `id: null` means "no theme override, fall back to
-   index.css :root defaults". Selecting it routes to setSelectedTheme(null).
-   The other 4 bind to real `themes/<id>.json` files seeded by the Rust
-   `seed_builtin_themes` command. */
 export type SettingsThemePreset = { id: string | null; name: string; bg: string; raised: string; accent: string };
 export const SETTINGS_THEME_PRESETS: SettingsThemePreset[] = [
     { id: null,        name: 'Flint',     bg: '#0c0c10', raised: '#15151b', accent: '#EF4444' },
@@ -24,10 +16,8 @@ export const ThemePresetGrid: React.FC<{
     selectedTheme: string | null;
     onSelect: (id: string | null, accent: string) => void;
 }> = ({ selectedTheme, onSelect }) => {
-    // Seed the JSON theme files on first render so clicking a card actually
-    // resolves to a real `themes/<id>.json` via the existing apply path.
     useEffect(() => {
-        api.seedBuiltinThemes().catch(() => { /* non-fatal */ });
+        api.seedBuiltinThemes().catch(() => {});
     }, []);
     return (
         <div className="theme-preset-grid">

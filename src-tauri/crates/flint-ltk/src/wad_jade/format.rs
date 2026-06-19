@@ -64,22 +64,15 @@ impl fmt::Display for WadVersion {
     }
 }
 
-/// One TOC entry. Mirrors League's on-disk layout. Several fields are
-/// only consumed during extraction (Phase 3) so they're tagged dead-code-
-/// allowed for now.
+/// One TOC entry. Mirrors League's on-disk layout. Only the fields the
+/// extractor actually consumes are kept; the remaining on-disk fields
+/// (frame count, start frame, duplicated flag, checksum) are read past to
+/// advance the cursor but not stored.
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
 pub struct WadChunk {
     pub path_hash: u64,
     pub data_offset: u64,
     pub compressed_size: u64,
     pub uncompressed_size: u64,
     pub compression: WadCompression,
-    /// Number of zstd frames for `ZstdMulti` chunks; 0 otherwise.
-    pub frame_count: u8,
-    /// Index of the chunk's first frame in the WAD-wide subchunk table.
-    /// Only meaningful for v3.4+; stored for Phase 3 use.
-    pub start_frame: u32,
-    pub is_duplicated: bool,
-    pub checksum: u64,
 }

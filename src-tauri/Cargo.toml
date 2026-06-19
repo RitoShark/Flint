@@ -3,7 +3,7 @@ members = [".", "crates/flint-ltk", "crates/ltk_inibin"]
 
 [package]
 name = "flint"
-version = "2.1.0"
+version = "2.2.0"
 edition = "2021"
 default-run = "flint"
 
@@ -26,7 +26,10 @@ tauri-build = { version = "2", features = [] }
 # Core library (all LTK deps live here)
 flint-ltk = { path = "crates/flint-ltk" }
 ltk_inibin = { path = "crates/ltk_inibin", features = ["serde"] }
-ltk_rst = { git = "https://github.com/LeagueToolkit/league-toolkit", rev = "3222fe477919fef4240829a0f1c731ee9728aab3", features = ["serde"] }
+# ltk_rst: MIGRATED to ritoshark::rst (Phase 4) — direct dep removed.
+# RitoShark crates — migration target. Binary-crate commands use ritoshark types directly;
+# same git rev as flint-ltk's dep, so cargo compiles ONE shared copy (identical types across crates).
+ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "b775b0c", features = ["rman-verify"] }
 intel_tex_2 = "0.5"
 flate2 = "1.0"
 
@@ -97,11 +100,12 @@ opener = "0.7"
 
 # ZIP (fantome export/import)
 zip = { version = "2.4", features = ["deflate"] }
+psd = "0.3.5"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
 libloading = "0.8"
-windows = { version = "0.58", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell"] }
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
 proptest = "1.0"

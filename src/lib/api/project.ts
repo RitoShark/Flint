@@ -8,7 +8,6 @@ interface CreateProjectParams {
     projectPath: string;
     leaguePath: string;
     creatorName?: string;
-    useJade?: boolean;
     isPbe?: boolean;
     isTft?: boolean;
 }
@@ -21,7 +20,6 @@ export async function createProject(params: CreateProjectParams): Promise<Projec
         outputPath: params.projectPath,
         leaguePath: params.leaguePath,
         creatorName: params.creatorName,
-        useJade: params.useJade,
         isPbe: params.isPbe,
         isTft: params.isTft,
     });
@@ -156,6 +154,29 @@ export async function saveProject(project: Project): Promise<void> {
     return invokeCommand('save_project', { project });
 }
 
+export interface HardRenameResult {
+    new_project_path: string;
+    project: Project;
+    bins_changed: number;
+    strings_changed: number;
+    folders_renamed: number;
+    skipped_bins: string[];
+}
+
+/**
+ * Hard-rename a project everywhere: rewrite the asset prefix in every BIN,
+ * rename the on-disk asset folders, update mod.config.json + flint.json, and
+ * rename the project directory itself. Irreversible. Returns the new on-disk
+ * path + updated project; the caller should reopen the project at that path.
+ */
+export async function hardRenameProject(
+    project: Project,
+    projectPath: string,
+    newName: string,
+): Promise<HardRenameResult> {
+    return invokeCommand('hard_rename_project', { project, projectPath, newName });
+}
+
 export async function deleteProject(projectPath: string): Promise<void> {
     return invokeCommand('delete_project', { projectPath });
 }
@@ -171,7 +192,6 @@ export async function forgetProject(projectsRoot: string, pid: string): Promise<
     return invokeCommand('forget_project', { projectsRoot, pid });
 }
 
-// Backend file tree entry format
 interface BackendFileEntry {
     path: string;
     size?: number;
@@ -231,10 +251,7 @@ export async function listProjectFiles(projectPath: string): Promise<FileTreeNod
     return transformFileTree(rawTree, 'Project');
 }
 
-/**
- * Batched existence check for project directories. Used by `cleanStaleProjects`
- * at startup — replaces N IPC calls with one.
- */
+/** Batched existence check for project directories. */
 export async function projectsPathValid(projectPaths: string[]): Promise<boolean[]> {
     if (projectPaths.length === 0) return [];
     return invokeCommand('projects_path_valid', { projectPaths });
@@ -266,10 +283,6 @@ export async function listProjectLayers(projectPath: string): Promise<string[]> 
     return invokeCommand('list_project_layers', { projectPath });
 }
 
-/**
- * Combined "open + list" — single IPC call replacing the prior
- * openProject() + listProjectFiles() sequence in FileTree.handleOpenProject.
- */
 export interface OpenProjectWithTreeResult {
     project: Project;
     fileTree: FileTreeNode;

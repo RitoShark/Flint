@@ -1,14 +1,3 @@
-/**
- * Flint - Browse WAD Modal
- *
- * Single full-width drop zone (also clickable to open the file picker) for
- * choosing a .wad / .wad.client. After the file is loaded we read the chunk
- * list, count chunks with no resolved path (unknown hashes), and — if more
- * than 3 — surface a callout offering to scan the WAD's BIN/SKN chunks and
- * write `hashes.extracted.txt` / `hashes.binhashes.extracted.txt` into the
- * user's hash directory. Algorithm ported from Quartz's `bin_hashes.rs`.
- */
-
 import React, { useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
@@ -37,7 +26,6 @@ export const BrowseWadModal: React.FC = () => {
     const [extractResult, setExtractResult] = useState<api.ExtractHashesResult | null>(null);
     const [dragOver, setDragOver] = useState(false);
     const dropZoneRef = useRef<HTMLDivElement | null>(null);
-    /** Latest loadWad ref so the webview listener (mounted once) sees fresh state. */
     const loadWadRef = useRef<(p: string) => Promise<void>>(() => Promise.resolve());
 
     useEffect(() => {
@@ -85,31 +73,22 @@ export const BrowseWadModal: React.FC = () => {
         }
     };
 
-    /** Open the file picker rooted at League's `Game/DATA/FINAL` (where the
-        client WADs live — same root the champion-schema scanner uses).
-        Handles whether `leaguePath` points at the install root, the Game
-        folder, or already deeper inside DATA/FINAL. */
     const handleBrowseLeague = async () => {
         if (!effectiveLeaguePath) {
             showToast('error', 'League path not set — configure it in Settings');
             return;
         }
         const sep = effectiveLeaguePath.includes('\\') ? '\\' : '/';
-        // Normalize: strip trailing slashes, split into segments.
         const norm = effectiveLeaguePath.replace(/[\\/]+$/, '');
         const lower = norm.toLowerCase().replace(/\\/g, '/');
         let dataFinal: string;
         if (lower.includes('/data/final')) {
-            // Already inside DATA/FINAL — use as-is.
             dataFinal = norm;
         } else if (lower.endsWith('/data')) {
-            // Sitting at DATA — append FINAL.
             dataFinal = `${norm}${sep}FINAL`;
         } else if (lower.endsWith('/game')) {
-            // "Game" folder — append DATA/FINAL.
             dataFinal = `${norm}${sep}DATA${sep}FINAL`;
         } else {
-            // Install root (e.g. ".../League of Legends") — append Game/DATA/FINAL.
             dataFinal = `${norm}${sep}Game${sep}DATA${sep}FINAL`;
         }
         try {
@@ -126,10 +105,6 @@ export const BrowseWadModal: React.FC = () => {
         }
     };
 
-    /* Tauri's webview drag-drop pipeline (same approach FileTree uses): the
-       OS-level drop event delivers absolute paths via `event.payload.paths`.
-       We hit-test the drop position against the drop-zone's bounding rect to
-       know whether the user actually dropped inside our target. */
     useEffect(() => {
         loadWadRef.current = loadWad;
     });
@@ -167,7 +142,6 @@ export const BrowseWadModal: React.FC = () => {
                         showToast('error', 'No file path in the drop');
                         return;
                     }
-                    // Pick the first path that looks like a WAD; fall back to the first.
                     const wad = payload.paths.find((p) => /\.(wad|wad\.client|client)$/i.test(p)) ?? payload.paths[0];
                     void loadWadRef.current(wad);
                 } else {
@@ -199,8 +173,6 @@ export const BrowseWadModal: React.FC = () => {
             setExtractResult(result);
             const total = result.game_hashes_added + result.bin_hashes_added;
 
-            // Re-resolve the chunk list so the "Resolved / Unknown" stats reflect
-            // the freshly-merged hashes (the backend writes them straight to LMDB).
             const beforeUnknown = chunks?.filter((c) => !c.path).length ?? 0;
             try {
                 const refreshed = await api.getWadChunks(wadPath);
@@ -243,8 +215,6 @@ export const BrowseWadModal: React.FC = () => {
 
     if (!isVisible) return null;
 
-    /* Picker phase is fully headless — heading + drop zone + manual button live
-       inside the body. Other phases keep a compact ModalHeader for context. */
     const showHeader = phase !== 'pick';
 
     return (
@@ -501,7 +471,6 @@ export const BrowseWadModal: React.FC = () => {
                                     flexShrink: 0,
                                 }}
                             >
-                                {/* Compass-style icon hinting at the League install dir */}
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
                                     <circle cx="12" cy="12" r="9" />
                                     <path d="M15.5 8.5l-2 5-5 2 2-5z" />

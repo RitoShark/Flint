@@ -1,6 +1,4 @@
-//! Mesh commands for SKN/SKL/SCB file parsing
-//! 
-//! Provides Tauri commands for reading 3D mesh data from League files.
+//! Mesh commands for SKN/SKL/SCB file parsing.
 
 use std::path::Path;
 use std::collections::HashMap;
@@ -16,16 +14,22 @@ fn decode_texture_blocking(path: &Path) -> Result<String, String> {
     decode_texture_file_sync(path)
 }
 
-/// Read and parse an SCB (Static Mesh Binary) file.
-///
-/// Returns the mesh in a packed binary wire format (see
-/// `flint_ltk::mesh::wire`). Vertex/index buffers travel as raw bytes so the
-/// frontend can hand them straight to `THREE.BufferAttribute` without paying
-/// the JSON-array round trip — a 30K-vertex mesh used to push ~3-5 MB of
-/// `[[x,y,z], …]` JSON; now it's the underlying ~600 KB of f32 bytes.
+/// Read and parse an SCB (Static Mesh Binary) file. Returns the mesh in a
+/// packed binary wire format (see `flint_ltk::mesh::wire`).
 #[tauri::command]
 pub async fn read_scb_mesh(path: String) -> Result<tauri::ipc::Response, String> {
     let mesh = read_scb_mesh_inner(path).await?;
+    tracing::info!(
+        "[mesh-wire] SCB '{}': {} verts, {} idx, {} mats={:?} ranges={:?} mat_data_keys={:?} bbox={:?}",
+        mesh.name,
+        mesh.positions.len(),
+        mesh.indices.len(),
+        mesh.materials.len(),
+        mesh.materials,
+        mesh.material_ranges,
+        mesh.material_data.keys().collect::<Vec<_>>(),
+        mesh.bounding_box
+    );
     let buf = flint_ltk::mesh::wire::encode_scb_binary(&mesh)?;
     Ok(tauri::ipc::Response::new(buf))
 }
@@ -36,7 +40,6 @@ async fn read_scb_mesh_inner(path: String) -> Result<ScbMeshData, String> {
 
     let scb_path = Path::new(&path);
 
-    // Parse the SCB/SCO file
     let mut mesh_data = parse_scb_file(&path)
         .map_err(|e| {
             tracing::error!("Failed to parse SCB file {}: {}", path, e);
@@ -45,18 +48,15 @@ async fn read_scb_mesh_inner(path: String) -> Result<ScbMeshData, String> {
 
     tracing::debug!("✓ SCB parsed successfully. Materials: {:?}", mesh_data.materials);
 
-    // Try to find .ritobin text for texture discovery
     let ritobin_text = find_ritobin_text(scb_path);
 
     if let Some(bin_text) = ritobin_text {
         tracing::debug!("📄 Loaded ritobin text ({} bytes) for SCB texture lookup", bin_text.len());
 
-        // Also load concat BIN ritobin for additional material definitions
         let concat_text = find_concat_ritobin_text(scb_path);
         let combined_text = if let Some(concat) = concat_text {
             tracing::debug!("📄 Also loaded concat ritobin ({} bytes)", concat.len());
 
-            // DEBUG: List all StaticMaterialDef definitions in concat
             let material_def_pattern = regex::Regex::new(r#""([^"]+)"\s*=\s*StaticMaterialDef"#).unwrap();
             let concat_materials: Vec<String> = material_def_pattern
                 .captures_iter(&concat)
@@ -75,7 +75,6 @@ async fn read_scb_mesh_inner(path: String) -> Result<ScbMeshData, String> {
 
         use flint_ltk::mesh::texture::extract_texture_mapping_from_text;
 
-        // Extract all texture mappings from combined ritobin text (main + concat)
         let texture_mapping = match extract_texture_mapping_from_text(&combined_text) {
             Ok(mapping) => mapping,
             Err(e) => {
@@ -96,9 +95,7 @@ async fn read_scb_mesh_inner(path: String) -> Result<ScbMeshData, String> {
         let mut material_props_map: HashMap<String, MaterialProperties> = HashMap::new();
         let mut texture_tasks: Vec<(String, std::path::PathBuf)> = Vec::new();
 
-        // Look up texture for each material
         for material_name in &mesh_data.materials {
-            // Try direct lookup, then fallback to default
             let mat_props = material_props.get(material_name).cloned()
                 .or_else(|| {
                     default_tex.as_ref().map(|tex| MaterialProperties {
@@ -124,14 +121,10 @@ async fn read_scb_mesh_inner(path: String) -> Result<ScbMeshData, String> {
                     }
                 }
 
-                // Load textures in parallel
                 tracing::debug!("⬇ Loading {} unique textures for SCB...", texture_tasks.len());
                 let start_time = std::time::Instant::now();
 
-                // `decode_dds_to_png` is an `async` Tauri command but its body is
-                // fully blocking CPU work — `join_all` on a single tokio task ran
-                // them serially (4× 150ms ≈ 600ms in the SKN preview log). Push
-                // them onto rayon so they actually run in parallel across cores.
+                // Blocking CPU decode runs on rayon so textures decode in parallel.
                 let results = tokio::task::spawn_blocking(move || {
                     use rayon::prelude::*;
                     texture_tasks
@@ -203,7 +196,6 @@ fn find_ritobin_text(mesh_path: &Path) -> Option<String> {
         if let Some(bin_path) = finder(mesh_path) {
             let ritobin_path = std::path::PathBuf::from(format!("{}.ritobin", bin_path.display()));
 
-            // Check if cache exists
             if ritobin_path.exists() {
                 if let Ok(text) = std::fs::read_to_string(&ritobin_path) {
                     tracing::debug!("✓ Found .ritobin cache next to BIN: {}", ritobin_path.display());
@@ -211,7 +203,6 @@ fn find_ritobin_text(mesh_path: &Path) -> Option<String> {
                 }
             }
 
-            // Cache doesn't exist - try to create it automatically
             tracing::debug!("Creating .ritobin cache from BIN: {}", bin_path.display());
             match create_ritobin_cache(&bin_path, &ritobin_path) {
                 Ok(text) => {
@@ -245,22 +236,17 @@ fn find_ritobin_text(mesh_path: &Path) -> Option<String> {
     None
 }
 
-/// Find concat BIN ritobin text for additional material definitions
-///
-/// Concat BINs contain merged material definitions that may not be in the main skin BIN
+/// Find concat BIN ritobin text — concat BINs hold merged material
+/// definitions that may not be in the main skin BIN.
 fn find_concat_ritobin_text(mesh_path: &Path) -> Option<String> {
     tracing::debug!("🔎 Looking for concat BIN for: {}", mesh_path.display());
 
-    // Find project root and character folder
     let root = find_project_root(mesh_path)?;
     tracing::debug!("  Project root: {}", root.display());
 
     let character_folder = extract_character_folder(mesh_path)?;
     tracing::debug!("  Character folder: {}", character_folder);
 
-    // Search in multiple locations:
-    // 1. data/characters/{champion}/skins/ (standard location)
-    // 2. data/ (after refathering, concat might be here)
     let search_dirs = vec![
         root.join("data").join("characters").join(&character_folder).join("skins"),
         root.join("data"),
@@ -274,7 +260,6 @@ fn find_concat_ritobin_text(mesh_path: &Path) -> Option<String> {
             continue;
         }
 
-        // Look for concat BIN files (they typically have "concat" or "Concat" in the name)
         if let Ok(entries) = std::fs::read_dir(&search_dir) {
             let files: Vec<_> = entries.filter_map(|e| e.ok()).collect();
             tracing::debug!("    Found {} files", files.len());
@@ -283,11 +268,9 @@ fn find_concat_ritobin_text(mesh_path: &Path) -> Option<String> {
                 let path = entry.path();
                 let name = path.file_name()?.to_string_lossy().to_lowercase();
 
-                // Check if this is a concat BIN
                 if name.contains("concat") && name.ends_with(".bin") {
                     tracing::debug!("  ✓ Found concat BIN: {}", path.display());
 
-                    // Check for existing .ritobin cache
                     let ritobin_path = std::path::PathBuf::from(format!("{}.ritobin", path.display()));
                     if ritobin_path.exists() {
                         if let Ok(text) = std::fs::read_to_string(&ritobin_path) {
@@ -296,7 +279,6 @@ fn find_concat_ritobin_text(mesh_path: &Path) -> Option<String> {
                         }
                     }
 
-                    // Create cache if it doesn't exist
                     tracing::debug!("  Creating ritobin cache for concat BIN...");
                     if let Ok(text) = create_ritobin_cache(&path, &ritobin_path) {
                         tracing::debug!("  ✓ Created concat ritobin cache: {}", ritobin_path.display());
@@ -313,27 +295,22 @@ fn find_concat_ritobin_text(mesh_path: &Path) -> Option<String> {
     None
 }
 
-/// Create a .ritobin cache file from a BIN file
-///
-/// Reads the BIN file, converts it to text using cached hashes, and writes to .ritobin
+/// Read a BIN file, convert it to text using cached hashes, and write a
+/// `.ritobin` cache file.
 pub fn create_ritobin_cache(bin_path: &Path, ritobin_path: &Path) -> anyhow::Result<String> {
     use flint_ltk::bin::ltk_bridge;
 
     tracing::debug!("Reading BIN file: {}", bin_path.display());
 
-    // Read BIN file bytes
     let data = std::fs::read(bin_path)
         .map_err(|e| anyhow::anyhow!("Failed to read BIN file: {}", e))?;
 
-    // Parse BIN to tree structure
     let tree = ltk_bridge::read_bin(&data)
         .map_err(|e| anyhow::anyhow!("Failed to parse BIN file: {}", e))?;
 
-    // Convert tree to text using cached hashes
     let text = ltk_bridge::tree_to_text_cached(&tree)
         .map_err(|e| anyhow::anyhow!("Failed to convert BIN to text: {}", e))?;
 
-    // Write cache file
     std::fs::write(ritobin_path, &text)
         .map_err(|e| anyhow::anyhow!("Failed to write .ritobin cache: {}", e))?;
 
@@ -352,12 +329,10 @@ fn find_ritobin_in_dir(dir: &Path) -> Option<String> {
         let name = entry.file_name().to_string_lossy().to_lowercase();
 
         if path.is_dir() {
-            // Recurse into skin subdirectories
             if let Some(text) = find_ritobin_in_dir(&path) {
                 return Some(text);
             }
         } else if name.ends_with(".bin.ritobin") {
-            // Prefer Concat
             if name.contains("concat") {
                 if let Ok(text) = std::fs::read_to_string(&path) {
                     tracing::debug!("✓ Found concat .ritobin directly: {}", path.display());
@@ -369,7 +344,6 @@ fn find_ritobin_in_dir(dir: &Path) -> Option<String> {
         }
     }
 
-    // Use non-concat .ritobin if no concat found
     if let Some(fb_path) = fallback {
         if let Ok(text) = std::fs::read_to_string(&fb_path) {
             tracing::debug!("✓ Found .ritobin directly: {}", fb_path.display());
@@ -380,15 +354,20 @@ fn find_ritobin_in_dir(dir: &Path) -> Option<String> {
     None
 }
 
-/// Read and parse an SKN (Simple Skin) mesh file.
-///
-/// Returns the mesh in a packed binary wire format (see
-/// `flint_ltk::mesh::wire`). Vertex/index buffers travel as raw bytes so the
-/// frontend can hand them straight to `THREE.BufferAttribute` without paying
-/// the JSON-array round trip.
+/// Read and parse an SKN (Simple Skin) mesh file. Returns the mesh in a
+/// packed binary wire format (see `flint_ltk::mesh::wire`).
 #[tauri::command]
 pub async fn read_skn_mesh(path: String) -> Result<tauri::ipc::Response, String> {
     let mesh = read_skn_mesh_inner(path).await?;
+    tracing::info!(
+        "[mesh-wire] SKN: {} verts, {} idx, {} mats, {} bone_idx, {} bone_wt, bbox={:?}",
+        mesh.positions.len(),
+        mesh.indices.len(),
+        mesh.materials.len(),
+        mesh.bone_indices.len(),
+        mesh.bone_weights.len(),
+        mesh.bounding_box
+    );
     let buf = flint_ltk::mesh::wire::encode_skn_binary(&mesh)?;
     Ok(tauri::ipc::Response::new(buf))
 }
@@ -399,7 +378,6 @@ async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {
 
     let skn_path = Path::new(&path);
 
-    // Parse the SKN file
     let mut mesh_data = parse_skn_file(&path)
         .map_err(|e| {
             tracing::error!("Failed to parse SKN file {}: {}", path, e);
@@ -409,18 +387,15 @@ async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {
     tracing::debug!("✓ SKN parsed successfully. Materials: {:?}",
         mesh_data.materials.iter().map(|m| &m.name).collect::<Vec<_>>());
 
-    // Try to find .ritobin text for texture discovery
     let ritobin_text = find_ritobin_text(skn_path);
 
     if let Some(bin_text) = ritobin_text {
         tracing::debug!("📄 Loaded ritobin text ({} bytes) for SKN texture lookup", bin_text.len());
 
-        // Also load concat BIN ritobin for additional material definitions
         let concat_text = find_concat_ritobin_text(skn_path);
         let combined_text = if let Some(concat) = concat_text {
             tracing::debug!("📄 Also loaded concat ritobin ({} bytes)", concat.len());
 
-            // DEBUG: List all StaticMaterialDef definitions in concat
             let material_def_pattern = regex::Regex::new(r#""([^"]+)"\s*=\s*StaticMaterialDef"#).unwrap();
             let concat_materials: Vec<String> = material_def_pattern
                 .captures_iter(&concat)
@@ -439,7 +414,6 @@ async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {
 
         use flint_ltk::mesh::texture::extract_texture_mapping_from_text;
 
-        // Extract all texture mappings from combined ritobin text (main + concat)
         let texture_mapping = match extract_texture_mapping_from_text(&combined_text) {
             Ok(mapping) => mapping,
             Err(e) => {
@@ -460,20 +434,16 @@ async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {
         let mut material_props_map: HashMap<String, MaterialProperties> = HashMap::new();
         let mut texture_tasks: Vec<(String, std::path::PathBuf)> = Vec::new();
 
-        // Look up texture for each material
         for material in &mesh_data.materials {
             let material_name = &material.name;
 
-            // Try direct lookup from materialOverride list
             let mat_props = material_props.get(material_name).cloned()
                 .or_else(|| {
-                    // If not in override list, search for StaticMaterialDef by material name
                     tracing::debug!("  Material '{}' not in override list, searching for StaticMaterialDef...", material_name);
                     use flint_ltk::mesh::texture::lookup_material_texture_by_name;
                     lookup_material_texture_by_name(&combined_text, material_name)
                 })
                 .or_else(|| {
-                    // Last resort: use default texture
                     tracing::warn!("  Material '{}' not found anywhere, using default texture", material_name);
                     default_tex.as_ref().map(|tex| MaterialProperties {
                         texture_path: tex.clone(),
@@ -500,14 +470,10 @@ async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {
                     }
                 }
 
-                // Load textures in parallel
                 tracing::debug!("⬇ Loading {} unique textures...", texture_tasks.len());
                 let start_time = std::time::Instant::now();
 
-                // `decode_dds_to_png` is an `async` Tauri command but its body is
-                // fully blocking CPU work — `join_all` on a single tokio task ran
-                // them serially (4× 150ms ≈ 600ms in the SKN preview log). Push
-                // them onto rayon so they actually run in parallel across cores.
+                // Blocking CPU decode runs on rayon so textures decode in parallel.
                 let results = tokio::task::spawn_blocking(move || {
                     use rayon::prelude::*;
                     texture_tasks
@@ -569,28 +535,27 @@ async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {
 /// 2. Try the full ASSETS/ path relative to project root
 /// 3. Search in WAD folders (base/*.wad.client/assets/)
 fn resolve_texture_path(base_dir: &Path, texture_path: &str) -> Option<std::path::PathBuf> {
-    // Strategy 1: Just use the filename in the same directory as SKN
+    // Strategy 1: filename in the same directory as the SKN.
     let filename = Path::new(texture_path)
         .file_name()?
         .to_string_lossy();
-    
+
     let same_dir_path = base_dir.join(filename.as_ref());
     if same_dir_path.exists() {
         return Some(same_dir_path);
     }
-    
-    // Strategy 2: Try the path as-is (might be repathed)
+
+    // Strategy 2: path as-is (might be repathed).
     let texture_path_buf = std::path::PathBuf::from(texture_path);
     if texture_path_buf.exists() {
         return Some(texture_path_buf);
     }
-    
-    // Strategy 3: Try stripping ASSETS/ prefix and resolving from base_dir parent
+
+    // Strategy 3: strip ASSETS/ prefix and resolve walking up from base_dir.
     let normalized = texture_path
         .trim_start_matches("ASSETS/")
         .trim_start_matches("assets/");
-    
-    // Go up to find project root (look for parent directories)
+
     let mut search_dir = base_dir.to_path_buf();
     for _ in 0..5 {
         let candidate = search_dir.join(normalized);
@@ -620,14 +585,12 @@ pub async fn resolve_asset_path(
     tracing::debug!("Resolving asset path: {} relative to {}", asset_path, bin_path);
 
     let bin_path_ref = std::path::Path::new(&bin_path);
-    // bin_path might be a file or a directory — handle both
     let base_dir = if bin_path_ref.is_dir() {
         bin_path_ref.to_path_buf()
     } else {
         bin_path_ref.parent().unwrap_or(Path::new(".")).to_path_buf()
     };
 
-    // Normalize the asset path (convert forward slashes, remove ASSETS/ prefix)
     let normalized: String = asset_path.replace('/', std::path::MAIN_SEPARATOR_STR);
     let stripped = normalized
         .trim_start_matches("ASSETS\\")
@@ -646,25 +609,22 @@ pub async fn resolve_asset_path(
         return Ok(same_dir.to_string_lossy().to_string());
     }
 
-    // Find project root (directory containing `data/`) — smarter root detection
     let project_root = find_project_root(&base_dir);
 
-    // Strategy 2: Search in WAD folders from project root
+    // Strategy 2: WAD folders under the project root.
     if let Some(ref root) = project_root {
-        // Search base/*.wad.client/assets/
         let base_folder = root.join("base");
         if let Some(found) = search_wad_folders(&base_folder, stripped) {
             return Ok(found);
         }
 
-        // Also try content/base/ if project has that structure
         let content_base = root.join("content").join("base");
         if let Some(found) = search_wad_folders(&content_base, stripped) {
             return Ok(found);
         }
     }
 
-    // Strategy 3: Walk up from base_dir looking for `base/` folder with WADs
+    // Strategy 3: Walk up from base_dir looking for a `base/` folder with WADs.
     let mut current = base_dir.clone();
     for _ in 0..15 {
         let base_folder = current.join("base");
@@ -674,21 +634,18 @@ pub async fn resolve_asset_path(
             }
         }
 
-        // Check for extracted/ folder
         let extracted = current.join("extracted").join("ASSETS").join(stripped);
         if extracted.exists() {
             tracing::debug!("Found in extracted: {}", extracted.display());
             return Ok(extracted.to_string_lossy().to_string());
         }
 
-        // Also check assets/ folder directly (might be inside a WAD extraction)
         let assets_direct = current.join("assets").join(stripped);
         if assets_direct.exists() {
             tracing::debug!("Found in assets/: {}", assets_direct.display());
             return Ok(assets_direct.to_string_lossy().to_string());
         }
 
-        // Try full path relative to current
         let candidate = current.join(stripped);
         if candidate.exists() {
             tracing::debug!("Found in parent: {}", candidate.display());
@@ -702,7 +659,7 @@ pub async fn resolve_asset_path(
         }
     }
 
-    // Strategy 4: Try path as-is (might be an absolute path)
+    // Strategy 4: path as-is (might be absolute).
     let as_is = std::path::PathBuf::from(&asset_path);
     if as_is.exists() {
         return Ok(as_is.to_string_lossy().to_string());
@@ -723,14 +680,12 @@ fn search_wad_folders(base_folder: &Path, stripped: &str) -> Option<String> {
     for entry in entries.filter_map(|e| e.ok()) {
         let wad_name = entry.file_name().to_string_lossy().to_lowercase();
         if wad_name.ends_with(".wad.client") || wad_name.ends_with(".wad") {
-            // Check with original casing
             let wad_asset = entry.path().join("assets").join(stripped);
             if wad_asset.exists() {
                 tracing::debug!("Found in WAD {}: {}", wad_name, wad_asset.display());
                 return Some(wad_asset.to_string_lossy().to_string());
             }
 
-            // Check with lowercase
             let lower_asset = entry.path().join("assets").join(stripped.to_lowercase());
             if lower_asset.exists() {
                 tracing::debug!("Found in WAD {} (lowercase): {}", wad_name, lower_asset.display());
@@ -760,8 +715,8 @@ pub async fn read_skl_skeleton(path: String) -> Result<SklData, String> {
 }
 
 use flint_ltk::mesh::animation::{
-    find_animation_bin, extract_animation_list, 
-    resolve_animation_path,
+    find_animation_bin, extract_animation_list,
+    resolve_animation_path, resolve_skn_for_anm,
     AnimationList, BakedAnimation,
 };
 
@@ -773,8 +728,7 @@ pub async fn read_animation_list(skn_path: String) -> Result<AnimationList, Stri
     tracing::debug!("Reading animation list for: {}", skn_path);
     
     let skn_path = std::path::Path::new(&skn_path);
-    
-    // Find animation BIN file
+
     let bin_path = find_animation_bin(skn_path)
         .ok_or_else(|| "Animation BIN file not found".to_string())?;
     
@@ -791,8 +745,7 @@ pub async fn read_animation_list(skn_path: String) -> Result<AnimationList, Stri
 #[tauri::command]
 pub async fn read_animation(path: String, base_path: Option<String>) -> Result<BakedAnimation, String> {
     tracing::debug!("Reading and baking animation: {}", path);
-    
-    // Try to resolve the animation path
+
     let resolved_path = if let Some(base) = base_path {
         let base_dir = std::path::Path::new(&base).parent().unwrap_or(std::path::Path::new("."));
         resolve_animation_path(base_dir, &path)
@@ -814,6 +767,25 @@ pub async fn read_animation(path: String, base_path: Option<String>) -> Result<B
         })
 }
 
+#[derive(serde::Serialize)]
+pub struct AnmSkinResolution {
+    pub skn_path: String,
+    pub anm_asset_path: String,
+}
+
+/// Resolve which `.skn` a standalone `.anm` should play on, via the skin BIN's
+/// `simpleSkin` field. Used when an `.anm` is opened directly in the preview.
+#[tauri::command]
+pub async fn resolve_anm_skin(anm_path: String) -> Result<AnmSkinResolution, String> {
+    let anm = std::path::Path::new(&anm_path);
+    let skn = resolve_skn_for_anm(anm).map_err(|e| e.to_string())?;
+    Ok(AnmSkinResolution {
+        skn_path: skn.to_string_lossy().to_string(),
+        // Pass the ANM's own path back so the frontend can match it in the clip list.
+        anm_asset_path: anm_path,
+    })
+}
+
 // ============================================================================
 // Helper Functions
 // ============================================================================
@@ -825,14 +797,14 @@ fn extract_character_folder(file_path: &Path) -> Option<String> {
     let path_str = file_path.to_string_lossy().to_lowercase();
     let components: Vec<&str> = path_str.split(&['/', '\\'][..]).collect();
 
-    // Strategy 1: Look for "characters/{name}" pattern
+    // Strategy 1: "characters/{name}" pattern.
     for (i, part) in components.iter().enumerate() {
         if part == &"characters" && i + 1 < components.len() {
             return Some(components[i + 1].to_string());
         }
     }
 
-    // Strategy 2: Extract from WAD folder name (e.g., "aurora.wad.client" → "aurora")
+    // Strategy 2: WAD folder name (e.g., "aurora.wad.client" → "aurora").
     for part in &components {
         if let Some(name) = part.strip_suffix(".wad.client")
             .or_else(|| part.strip_suffix(".wad"))
@@ -844,7 +816,7 @@ fn extract_character_folder(file_path: &Path) -> Option<String> {
         }
     }
 
-    // Strategy 3: Look for pattern like "/{name}/base/{name}.skn" or "/{name}/skins/"
+    // Strategy 3: "/{name}/base/{name}.skn" or "/{name}/skins/".
     for (i, part) in components.iter().enumerate() {
         if (part == &"base" || part == &"skins") && i > 0 {
             let potential_name = components[i - 1];
@@ -858,7 +830,7 @@ fn extract_character_folder(file_path: &Path) -> Option<String> {
         }
     }
 
-    // Strategy 4: Extract from filename (skip generic/compound names) — last resort
+    // Strategy 4: filename, skipping generic/compound names (last resort).
     if let Some(file_name) = file_path.file_stem() {
         let name = file_name.to_string_lossy().to_lowercase();
         if !name.starts_with("skin") && name != "base" && !name.is_empty() && !name.contains('.') {
@@ -879,11 +851,9 @@ fn find_scb_bin(scb_path: &Path) -> Option<std::path::PathBuf> {
 
     let character_folder = extract_character_folder(scb_path)?;
 
-    // Extract skin folder from path (e.g., "skin0", "skin20")
     let skin_folder = extract_skin_folder(scb_path);
     tracing::debug!("SCB BIN lookup: champion={}, skin={:?}", character_folder, skin_folder);
 
-    // Find project root by walking up to find a directory with `data/` child
     let project_root = find_project_root(scb_path)?;
     tracing::debug!("Project root: {}", project_root.display());
 
@@ -901,7 +871,7 @@ fn extract_skin_folder(path: &Path) -> Option<String> {
     let path_str = path.to_string_lossy().to_lowercase();
     let components: Vec<&str> = path_str.split(&['/', '\\'][..]).collect();
 
-    // Strategy 1: Look for skins/{skinN} pattern
+    // Strategy 1: skins/{skinN} pattern.
     for (i, part) in components.iter().enumerate() {
         if *part == "skins" && i + 1 < components.len() {
             let next = components[i + 1];
@@ -913,8 +883,7 @@ fn extract_skin_folder(path: &Path) -> Option<String> {
         }
     }
 
-    // Strategy 2: Look for any directory component matching "skinN" pattern
-    // (handles WAD-extracted paths like .../skin11/champion.skn)
+    // Strategy 2: any "skinN" directory component (WAD-extracted paths).
     for part in components.iter().rev() {
         if part.starts_with("skin") && part.len() > 4 && part[4..].chars().all(|c| c.is_ascii_digit()) {
             return Some(part.to_string());
@@ -957,7 +926,6 @@ fn find_project_root(file_path: &Path) -> Option<std::path::PathBuf> {
         };
     }
 
-    // Fall back to WAD folder if no better root found
     if let Some(ref fallback) = best {
         tracing::debug!("Using WAD folder as fallback project root: {}", fallback.display());
     }
@@ -972,7 +940,7 @@ fn search_skins_dir_for_bin(skins_dir: &Path, skin_folder: Option<&str>) -> Opti
         return None;
     }
 
-    // Strategy 1: Look for *Concat.bin (highest priority — pre-merged)
+    // Strategy 1: *Concat.bin (highest priority — pre-merged).
     if let Ok(entries) = std::fs::read_dir(skins_dir) {
         for entry in entries.filter_map(|e| e.ok()) {
             let name = entry.file_name().to_string_lossy().to_lowercase();
@@ -983,15 +951,13 @@ fn search_skins_dir_for_bin(skins_dir: &Path, skin_folder: Option<&str>) -> Opti
         }
     }
 
-    // Strategy 2: Look in skinN/ subfolder if we know the skin
+    // Strategy 2: skinN/ subfolder if we know the skin.
     if let Some(skin) = skin_folder {
-        // skin0/skin0.bin
         let nested = skins_dir.join(skin).join(format!("{}.bin", skin));
         if nested.exists() {
             tracing::debug!("Found nested skin BIN: {}", nested.display());
             return Some(nested);
         }
-        // skin0.bin directly in skins/
         let flat = skins_dir.join(format!("{}.bin", skin));
         if flat.exists() {
             tracing::debug!("Found flat skin BIN: {}", flat.display());
@@ -999,14 +965,14 @@ fn search_skins_dir_for_bin(skins_dir: &Path, skin_folder: Option<&str>) -> Opti
         }
     }
 
-    // Strategy 3: Fallback to skin0.bin
+    // Strategy 3: skin0.bin.
     let skin0 = skins_dir.join("skin0.bin");
     if skin0.exists() {
         tracing::debug!("Found fallback skin0.bin: {}", skin0.display());
         return Some(skin0);
     }
 
-    // Strategy 4: Any .bin file in skins/
+    // Strategy 4: any .bin file in skins/.
     if let Ok(entries) = std::fs::read_dir(skins_dir) {
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();

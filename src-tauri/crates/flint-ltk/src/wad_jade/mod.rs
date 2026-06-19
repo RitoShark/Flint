@@ -1,7 +1,5 @@
 //! WAD support — hashtable lookup, downloader, custom TOC parser, and
-//! a mount registry. The LMDB hashtable is shared with Quartz via the
-//! FrogTools hash directory; see `hash_downloader::detect_layout` for
-//! the two on-disk layouts we transparently support.
+//! a mount registry.
 
 pub mod adapter;
 pub mod extracted_overlay;

@@ -1,14 +1,3 @@
-/**
- * Flint - BNK / WPK Audio Bank Preview + Editor
- *
- * - Read-only: lists all WEM entries, decodes & plays via WebAudio
- * - Event tree: groups WEM IDs under human-readable event names from a linked skin BIN
- * - Edit mode: Replace (WAV/WEM) / Silence / Save / Undo operate on in-memory bank bytes
- *
- * Replacement accepts plain PCM WAV files directly — WEM is just RIFF, so a valid
- * WAV with wFormatTag=1 is a valid WEM payload (no Wwise SDK needed).
- */
-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import * as api from '../../lib/api';
@@ -18,8 +7,6 @@ import type { AudioBankInfo, AudioEntryInfo, EventMapping } from '../../lib/type
 import { AudioCutterModal } from './AudioCutterModal';
 import { applyGainToWem } from './audioUtils';
 
-// Extracted siblings - see ./bnk/ for shared types, helpers, ctx menu,
-// and inline-style table.
 import type {
     BnkPreviewProps, ViewMode, BinLinkState, HircSource, DecodedCacheEntry, EventGroup,
 } from './bnk/types';
@@ -32,9 +19,6 @@ import { CtxItem, CtxDivider } from './bnk/CtxMenu';
 import { panelStyles } from './bnk/styles';
 
 export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
-    // -------------------------------------------------------------------
-    // Core bank state
-    // -------------------------------------------------------------------
     const [info, setInfo] = useState<AudioBankInfo | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -45,50 +29,33 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
     const [volume, setVolume] = useState(0.8);
     const [viewMode, setViewMode] = useState<ViewMode>('flat');
 
-    // -------------------------------------------------------------------
-    // Event-name mapping state
-    // -------------------------------------------------------------------
     const [binLink, setBinLink] = useState<BinLinkState>({ kind: 'idle' });
     const [hircSource, setHircSource] = useState<HircSource>({ kind: 'self' });
     const [mappings, setMappings] = useState<EventMapping[] | null>(null);
     const [mappingError, setMappingError] = useState<string | null>(null);
     const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set());
 
-    // -------------------------------------------------------------------
-    // Edit state
-    // -------------------------------------------------------------------
     const [bankBytes, setBankBytes] = useState<Uint8Array | null>(null);
     const [isDirty, setIsDirty] = useState(false);
     const [saving, setSaving] = useState(false);
     const [busyId, setBusyId] = useState<number | null>(null);
     const undoStackRef = useRef<Uint8Array[]>([]);
-    // Tracks whether a click gesture started ON the modal overlay itself;
-    // prevents drag-then-release-outside from accidentally closing modals.
     const overlayDownRef = useRef(false);
     const [undoDepth, setUndoDepth] = useState(0);
 
-    // Context menu state
     const [ctxMenu, setCtxMenu] = useState<
         { x: number; y: number; entry: AudioEntryInfo; eventName?: string } | null
     >(null);
 
-    // Volume-adjust modal state
     const [volumeModal, setVolumeModal] = useState<{ entry: AudioEntryInfo; gainDb: number; busy: boolean } | null>(
         null,
     );
 
-    // Audio-cutter modal state
     const [cutterModal, setCutterModal] = useState<{ entry: AudioEntryInfo } | null>(null);
 
-    // -------------------------------------------------------------------
-    // Refs
-    // -------------------------------------------------------------------
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const cacheRef = useRef<Map<number, DecodedCacheEntry>>(new Map());
 
-    // -------------------------------------------------------------------
-    // Store selectors
-    // -------------------------------------------------------------------
     const fileVersion = useAppMetadataStore((state) => {
         void state.fileVersionsRev;
         return state.getFileVersion(filePath);
@@ -102,9 +69,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         return tab?.projectPath ?? null;
     });
 
-    // -------------------------------------------------------------------
-    // Decoded-audio cache invalidation
-    // -------------------------------------------------------------------
     const invalidateCache = useCallback((id?: number) => {
         if (id === undefined) {
             for (const { url } of cacheRef.current.values()) URL.revokeObjectURL(url);
@@ -118,9 +82,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         }
     }, []);
 
-    // -------------------------------------------------------------------
-    // Initial & hot-reload parse
-    // -------------------------------------------------------------------
     useEffect(() => {
         let cancelled = false;
         setLoading(true);
@@ -155,9 +116,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         };
     }, [filePath, fileVersion, invalidateCache]);
 
-    // -------------------------------------------------------------------
-    // Auto-detect HIRC source (events BNK) + skin BIN once info + tree load
-    // -------------------------------------------------------------------
     useEffect(() => {
         if (!info || !fileTree || !projectPath || binLink.kind !== 'idle') return;
 
@@ -167,7 +125,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
             ? normBank.slice(normProject.length).replace(/^\/+/, '')
             : normBank;
 
-        // 1. Figure out where HIRC lives
         let resolvedHirc: HircSource;
         if (info.has_hirc) {
             resolvedHirc = { kind: 'self' };
@@ -182,7 +139,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         }
         setHircSource(resolvedHirc);
 
-        // 2. If we have a HIRC source, try to auto-link the skin BIN
         if (resolvedHirc.kind === 'missing') {
             setBinLink({ kind: 'none' });
             return;
@@ -198,9 +154,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [info, fileTree, projectPath, filePath]);
 
-    // -------------------------------------------------------------------
-    // Link a BIN file (auto or manual) — reads bytes, parses events, maps
-    // -------------------------------------------------------------------
     const linkBinFile = useCallback(
         async (binPath: string, source: 'auto' | 'manual', hircOverride?: HircSource) => {
             const activeHirc = hircOverride ?? hircSource;
@@ -216,7 +169,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
             setMappingError(null);
             try {
                 const hircPath = activeHirc.kind === 'external' ? activeHirc.path : filePath;
-                // If HIRC is from the current bank *and* we have modified bytes, prefer those
                 const hircBytes =
                     activeHirc.kind === 'self' && bankBytes
                         ? bankBytes
@@ -263,7 +215,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         if (!selected) return;
         const newHirc: HircSource = { kind: 'external', path: selected as string, source: 'manual' };
         setHircSource(newHirc);
-        // Re-run mapping if BIN is already linked
         if (binLink.kind === 'linked') {
             await linkBinFile(binLink.path, binLink.source, newHirc);
         }
@@ -276,9 +227,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         setViewMode('flat');
     }, []);
 
-    // -------------------------------------------------------------------
-    // Cleanup
-    // -------------------------------------------------------------------
     useEffect(() => {
         return () => {
             if (audioRef.current) {
@@ -293,7 +241,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         if (audioRef.current) audioRef.current.volume = volume;
     }, [volume]);
 
-    // Close context menu on outside click / Escape
     useEffect(() => {
         if (!ctxMenu) return;
         const close = () => setCtxMenu(null);
@@ -311,9 +258,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
     }, [ctxMenu]);
 
 
-    // -------------------------------------------------------------------
-    // Audio playback
-    // -------------------------------------------------------------------
     const ensureDecoded = useCallback(
         async (id: number): Promise<DecodedCacheEntry> => {
             const cached = cacheRef.current.get(id);
@@ -373,9 +317,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         setPlayingId(null);
     }, []);
 
-    // -------------------------------------------------------------------
-    // Extract (download)
-    // -------------------------------------------------------------------
     const handleExtract = useCallback(
         async (entry: AudioEntryInfo, mode: 'wem' | 'decoded') => {
             try {
@@ -407,9 +348,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         [filePath, bankBytes, ensureDecoded],
     );
 
-    // -------------------------------------------------------------------
-    // Edit operations (replace / silence / save / undo)
-    // -------------------------------------------------------------------
     const ensureEditableBytes = useCallback(async (): Promise<Uint8Array> => {
         if (bankBytes) return bankBytes;
         const bytes = await api.readFileBytes(filePath);
@@ -422,7 +360,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
             try {
                 setBusyId(id);
                 const curr = await ensureEditableBytes();
-                const prevSnapshot = new Uint8Array(curr); // copy for undo
+                const prevSnapshot = new Uint8Array(curr);
                 const newArr = await producer(Array.from(curr));
                 const newBytes = new Uint8Array(newArr);
 
@@ -432,7 +370,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                 setIsDirty(true);
                 invalidateCache(id);
 
-                // Refresh entry list (sizes may have changed)
                 const refreshed = await api.parseAudioBankBytes(newBytes);
                 setInfo(refreshed);
             } catch (err) {
@@ -538,7 +475,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         }
         setVolumeModal((prev) => (prev ? { ...prev, busy: true } : null));
         try {
-            // Get current WEM bytes
             const wemBytes = bankBytes
                 ? await api.readAudioEntryBytes(bankBytes, entry.id)
                 : await api.readAudioEntry(filePath, entry.id);
@@ -553,9 +489,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         }
     }, [volumeModal, bankBytes, filePath, applyEdit]);
 
-    // -------------------------------------------------------------------
-    // Derived data
-    // -------------------------------------------------------------------
     const { events, mappedIds } = useMemo(
         () => (mappings ? groupMappings(mappings) : { events: [], mappedIds: new Set<number>() }),
         [mappings],
@@ -587,7 +520,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         return info.entries.filter((e) => !mappedIds.has(e.id));
     }, [info, mappedIds]);
 
-    // Keyboard shortcuts (scoped — ignored while typing in inputs / modals)
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
             const tag = (e.target as HTMLElement | null)?.tagName;
@@ -609,9 +541,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         return () => window.removeEventListener('keydown', handler);
     }, [selectedId, entriesById, volumeModal, ctxMenu, cutterModal, handlePlayToggle, handleSilence, handleRemove]);
 
-    // -------------------------------------------------------------------
-    // Rendering
-    // -------------------------------------------------------------------
     if (loading) {
         return (
             <div style={panelStyles.centered}>
@@ -743,7 +672,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
 
     return (
         <div style={panelStyles.root}>
-            {/* Header */}
             <div style={panelStyles.header}>
                 <div style={panelStyles.summary}>
                     <span style={panelStyles.badge}>{info.format.toUpperCase()}</span>
@@ -814,10 +742,8 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                 </div>
             </div>
 
-            {/* Sources bar — HIRC (events BNK) + skin BIN */}
             <div style={panelStyles.binBar}>
                 <div style={panelStyles.binStatus}>
-                    {/* HIRC source status */}
                     <span style={panelStyles.sourceChip}>
                         <span style={panelStyles.sourceLabel}>Events:</span>
                         {hircSource.kind === 'self' && (
@@ -838,7 +764,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
 
                     <span style={panelStyles.sourceSep}>·</span>
 
-                    {/* BIN status */}
                     <span style={panelStyles.sourceChip}>
                         <span style={panelStyles.sourceLabel}>BIN:</span>
                         {binLink.kind === 'loading' && (
@@ -880,7 +805,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                 </div>
             </div>
 
-            {/* Edit toolbar */}
             <div style={panelStyles.editBar}>
                 <div style={panelStyles.subtle}>
                     {isDirty
@@ -916,7 +840,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                 </div>
             )}
 
-            {/* Entry list */}
             <div style={panelStyles.listWrap}>
                 <table style={panelStyles.table}>
                     <thead>
@@ -970,7 +893,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                 style={{ display: 'none' }}
             />
 
-            {/* Right-click context menu */}
             {ctxMenu && (
                 <div
                     style={{
@@ -1034,7 +956,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                 </div>
             )}
 
-            {/* Volume-adjust modal */}
             {volumeModal && (
                 <div
                     style={panelStyles.modalOverlay}
@@ -1116,7 +1037,6 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                 </div>
             )}
 
-            {/* Audio-cutter modal */}
             {cutterModal && (
                 <AudioCutterModal
                     entry={cutterModal.entry}

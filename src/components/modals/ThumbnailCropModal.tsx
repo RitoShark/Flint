@@ -1,15 +1,9 @@
-/**
- * Flint - Thumbnail Crop Modal
- * Allows users to select an image, crop it to 16:9, and save as thumbnail.webp
- */
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useModalStore, useNotificationStore } from '../../lib/stores';
 import { open } from '@tauri-apps/plugin-dialog';
 import * as api from '../../lib/api';
 import { Button, Modal, ModalBody, ModalFooter, ModalHeader, Range } from '../ui';
 
-// Output: 1280x720 (16:9 HD)
 const THUMB_W = 1280;
 const THUMB_H = 720;
 const ASPECT = 16 / 9;
@@ -28,7 +22,6 @@ export const ThumbnailCropModal: React.FC = () => {
     const imageRef = useRef<HTMLImageElement | null>(null);
 
     const [imageSrc, setImageSrc] = useState<string | null>(null);
-    // Crop region in image-space pixels (16:9 rectangle)
     const [cropX, setCropX] = useState(0);
     const [cropY, setCropY] = useState(0);
     const [cropW, setCropW] = useState(100);
@@ -37,11 +30,9 @@ export const ThumbnailCropModal: React.FC = () => {
     const [dragStart, setDragStart] = useState({ x: 0, y: 0, cropX: 0, cropY: 0 });
     const [zoom, setZoom] = useState(1);
 
-    // Canvas display dimensions
     const CANVAS_W = 320;
     const CANVAS_H = 240;
 
-    // Reset state when modal closes
     useEffect(() => {
         if (!isVisible) {
             setImageSrc(null);
@@ -53,7 +44,6 @@ export const ThumbnailCropModal: React.FC = () => {
         }
     }, [isVisible]);
 
-    // Pick an image file
     const handlePickImage = useCallback(async () => {
         const selected = await open({
             title: 'Select Thumbnail Image',
@@ -77,14 +67,12 @@ export const ThumbnailCropModal: React.FC = () => {
         }
     }, [showToast]);
 
-    // Load image when src changes
     useEffect(() => {
         if (!imageSrc) return;
 
         const img = new Image();
         img.onload = () => {
             imageRef.current = img;
-            // Initialize crop: largest 16:9 rectangle that fits
             const fitW = img.width;
             const fitH = fitW / ASPECT;
             if (fitH <= img.height) {
@@ -109,7 +97,6 @@ export const ThumbnailCropModal: React.FC = () => {
         };
     }, [imageSrc]);
 
-    // Draw canvas
     useEffect(() => {
         const canvas = canvasRef.current;
         const preview = previewCanvasRef.current;
@@ -121,19 +108,16 @@ export const ThumbnailCropModal: React.FC = () => {
 
         ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
 
-        // Scale to fit image in canvas
         const scale = Math.min(CANVAS_W / img.width, CANVAS_H / img.height) * zoom;
         const drawW = img.width * scale;
         const drawH = img.height * scale;
         const drawX = (CANVAS_W - drawW) / 2;
         const drawY = (CANVAS_H - drawH) / 2;
 
-        // Draw dimmed image
         ctx.globalAlpha = 0.3;
         ctx.drawImage(img, drawX, drawY, drawW, drawH);
         ctx.globalAlpha = 1;
 
-        // Draw crop area (bright)
         const cDrawX = drawX + (cropX / img.width) * drawW;
         const cDrawY = drawY + (cropY / img.height) * drawH;
         const cDrawW = (cropW / img.width) * drawW;
@@ -146,7 +130,6 @@ export const ThumbnailCropModal: React.FC = () => {
         ctx.drawImage(img, drawX, drawY, drawW, drawH);
         ctx.restore();
 
-        // Crop border
         ctx.strokeStyle = '#dc5050';
         ctx.lineWidth = 2;
         ctx.strokeRect(cDrawX, cDrawY, cDrawW, cDrawH);
@@ -165,7 +148,6 @@ export const ThumbnailCropModal: React.FC = () => {
             ctx.stroke();
         }
 
-        // Corner handles
         const hs = 8;
         ctx.fillStyle = '#dc5050';
         ctx.fillRect(cDrawX - hs / 2, cDrawY - hs / 2, hs, hs);
@@ -173,14 +155,12 @@ export const ThumbnailCropModal: React.FC = () => {
         ctx.fillRect(cDrawX - hs / 2, cDrawY + cDrawH - hs / 2, hs, hs);
         ctx.fillRect(cDrawX + cDrawW - hs / 2, cDrawY + cDrawH - hs / 2, hs, hs);
 
-        // 16:9 label
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
         ctx.fillRect(cDrawX + cDrawW - 38, cDrawY + 4, 34, 16);
         ctx.fillStyle = '#ccc';
         ctx.font = '10px sans-serif';
         ctx.fillText('16:9', cDrawX + cDrawW - 34, cDrawY + 15);
 
-        // Preview
         if (preview) {
             const pctx = preview.getContext('2d');
             if (pctx) {
@@ -190,7 +170,6 @@ export const ThumbnailCropModal: React.FC = () => {
         }
     }, [imageSrc, cropX, cropY, cropW, cropH, zoom]);
 
-    // Drag to move crop
     const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
         if (!imageRef.current || !canvasRef.current) return;
         const rect = canvasRef.current.getBoundingClientRect();
@@ -218,7 +197,6 @@ export const ThumbnailCropModal: React.FC = () => {
 
     const handleMouseUp = useCallback(() => setDragging(false), []);
 
-    // Scroll to resize crop (maintain 16:9)
     const handleWheel = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
         e.preventDefault();
         const img = imageRef.current;
@@ -226,12 +204,10 @@ export const ThumbnailCropModal: React.FC = () => {
 
         const delta = e.deltaY > 0 ? 20 : -20;
         const minW = 64;
-        // Max width: fit within image at 16:9 aspect
         const maxW = Math.min(img.width, img.height * ASPECT);
         const newW = Math.max(minW, Math.min(maxW, cropW + delta));
         const newH = newW / ASPECT;
 
-        // Keep centered
         const cx = cropX + cropW / 2;
         const cy = cropY + cropH / 2;
         const newX = Math.max(0, Math.min(img.width - newW, cx - newW / 2));
@@ -243,7 +219,6 @@ export const ThumbnailCropModal: React.FC = () => {
         setCropY(newY);
     }, [cropX, cropY, cropW, cropH]);
 
-    // Save thumbnail
     const handleSave = useCallback(async () => {
         const img = imageRef.current;
         if (!img || !options?.projectPath) return;
@@ -310,7 +285,6 @@ export const ThumbnailCropModal: React.FC = () => {
                     ) : (
                         <>
                             <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-                                {/* Crop canvas */}
                                 <div style={{ position: 'relative' }}>
                                     <canvas
                                         ref={canvasRef}
@@ -341,7 +315,6 @@ export const ThumbnailCropModal: React.FC = () => {
                                     </div>
                                 </div>
 
-                                {/* Preview */}
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center' }}>
                                     <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Preview</span>
                                     <canvas

@@ -78,12 +78,7 @@ pub struct Vec4 {
     pub y2: f32,
 }
 
-/// Parse a .ritobin HUD file into structured data
-/// Note: This is a placeholder - actual parsing will be done by frontend
-/// using existing BIN→JSON conversion, then passed to this for position updates
 pub fn parse_hud_file(content: &str) -> Result<HudData> {
-    // For now, just return a placeholder
-    // The actual workflow is: ritobin → frontend converts to JSON → extracts HUD data
     tracing::debug!("HUD file parsing called with {} bytes", content.len());
 
     Ok(HudData {
@@ -94,37 +89,31 @@ pub fn parse_hud_file(content: &str) -> Result<HudData> {
     })
 }
 
-/// Serialize HUD data back to .ritobin format
-/// Uses find-and-replace strategy on the original content to preserve structure
+/// Serializes HUD data back to .ritobin, find-and-replacing positions in
+/// `original_content` to preserve structure.
 pub fn serialize_hud_file(data: &HudData, original_content: &str) -> Result<String> {
     let mut modified = original_content.to_string();
 
     for (key, entry) in &data.entries {
         if let Some(ref pos) = entry.position {
-            // Find the position field for this entry using the hash key
             let search_pattern = format!("#{}", key);
 
             if let Some(entry_start) = modified.find(&search_pattern) {
-                // Find the position: vec2 = { x, y } pattern after this entry
                 let after_entry = &modified[entry_start..];
 
                 if let Some(pos_idx) = after_entry.find("position: vec2 = {") {
                     let absolute_pos_idx = entry_start + pos_idx;
 
-                    // Extract the line
                     if let Some(line_end) = modified[absolute_pos_idx..].find('\n') {
                         let line = &modified[absolute_pos_idx..absolute_pos_idx + line_end];
 
-                        // Extract indentation
                         let indent_len = line.len() - line.trim_start().len();
                         let indent = " ".repeat(indent_len);
 
-                        // Build new position line
                         let new_x = pos.ui_rect.position.x.round() as i32;
                         let new_y = pos.ui_rect.position.y.round() as i32;
                         let new_line = format!("{}position: vec2 = {{ {}, {} }}", indent, new_x, new_y);
 
-                        // Replace the line
                         let before = &modified[..absolute_pos_idx];
                         let after = &modified[absolute_pos_idx + line_end..];
                         modified = format!("{}{}{}", before, new_line, after);

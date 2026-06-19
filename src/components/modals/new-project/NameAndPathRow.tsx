@@ -1,12 +1,6 @@
-/**
- * NameAndPathRow - shared 'Project Name' + 'Location' field pair used
- * across every project type (skin, loading-screen, map, TFT) in the
- * New Project wizard.
- */
 import React from 'react';
 import { Input } from '../../ui';
 
-/** Project name + folder location row, shared across all project types. */
 export const NameAndPathRow: React.FC<{
     namePlaceholder: string;
     name: string;

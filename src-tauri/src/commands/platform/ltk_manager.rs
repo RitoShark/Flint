@@ -19,7 +19,6 @@ pub struct LtkManagerSettings {
     pub theme: String,
 }
 
-/// Read LTK Manager settings to get the mod storage path
 #[tauri::command]
 pub async fn get_ltk_manager_mod_path(app: tauri::AppHandle) -> Result<Option<String>, String> {
     tracing::info!("Reading LTK Manager settings...");
@@ -32,20 +31,16 @@ pub async fn get_ltk_manager_mod_path(app: tauri::AppHandle) -> Result<Option<St
         .parent()
         .ok_or_else(|| "Failed to get parent directory".to_string())?;
 
-    // Get Local AppData directory (sibling to Roaming)
     let local_dir = roaming_dir
         .parent()
         .ok_or_else(|| "Failed to get AppData parent directory".to_string())?
         .join("Local");
 
-    // Try multiple possible locations and app identifiers
-    // LTK Manager can be in Local or Roaming, and uses different identifiers for dev/prod
+    // LTK Manager can live in Local or Roaming, under different dev/prod identifiers.
     let search_configs = [
-        // Roaming AppData (most common for Tauri apps in dev mode)
         (roaming_dir, "dev.leaguetoolkit.manager"),
         (roaming_dir, "dev.leaguetoolkit.ltk-manager"),
         (roaming_dir, "com.leaguetoolkit.ltk-manager"),
-        // Local AppData (for installed versions)
         (local_dir.as_path(), "LTK Manager"),
         (local_dir.as_path(), "dev.leaguetoolkit.manager"),
         (local_dir.as_path(), "dev.leaguetoolkit.ltk-manager"),
@@ -68,7 +63,7 @@ pub async fn get_ltk_manager_mod_path(app: tauri::AppHandle) -> Result<Option<St
                 tracing::info!("Found LTK Manager mod storage path: {}", mod_path);
                 return Ok(Some(mod_path));
             } else {
-                // If modStoragePath is not set, LTK Manager uses the app data directory
+                // No modStoragePath set — LTK Manager falls back to its app data directory.
                 let ltk_data_dir = base_dir.join(dir_name);
                 tracing::info!("Using LTK Manager default data directory: {:?}", ltk_data_dir);
                 return Ok(Some(ltk_data_dir.to_string_lossy().to_string()));
@@ -82,9 +77,8 @@ pub async fn get_ltk_manager_mod_path(app: tauri::AppHandle) -> Result<Option<St
 
 /// Detect the Celestial launcher's mod storage path.
 ///
-/// Celestial stores mods at `%APPDATA%\com.divineskins.celestial\storage` by
-/// default. If the user moved storage we still surface the launcher's data
-/// directory so syncs go to a sensible place.
+/// Defaults to `%APPDATA%\com.divineskins.celestial\storage`; if storage was
+/// moved, falls back to the launcher's data directory.
 #[tauri::command]
 pub async fn get_celestial_mod_path(app: tauri::AppHandle) -> Result<Option<String>, String> {
     tracing::info!("Looking for Celestial launcher install...");
@@ -96,16 +90,13 @@ pub async fn get_celestial_mod_path(app: tauri::AppHandle) -> Result<Option<Stri
         .parent()
         .ok_or_else(|| "Failed to get parent directory".to_string())?;
 
-    // Celestial uses identifier `com.divineskins.celestial` (matches its tauri
-    // bundle id). Old installs lived under `Celestial Launcher`.
+    // Old installs lived under `Celestial Launcher`.
     let celestial_root = roaming_dir.join("com.divineskins.celestial");
     let legacy_root = roaming_dir.join("Celestial Launcher");
 
     for root in [&celestial_root, &legacy_root] {
         if !root.exists() { continue; }
 
-        // Try to read a `mod_storage_path` from settings.json first; fall back
-        // to the conventional `storage/` subfolder.
         let settings_path = root.join("settings.json");
         if settings_path.exists() {
             if let Ok(contents) = fs::read_to_string(&settings_path) {
@@ -125,8 +116,6 @@ pub async fn get_celestial_mod_path(app: tauri::AppHandle) -> Result<Option<Stri
             return Ok(Some(storage.to_string_lossy().to_string()));
         }
 
-        // Launcher exists but no `storage/` yet — return the launcher root so
-        // the sync target points at something sensible.
         return Ok(Some(root.to_string_lossy().to_string()));
     }
 
@@ -134,12 +123,104 @@ pub async fn get_celestial_mod_path(app: tauri::AppHandle) -> Result<Option<Stri
     Ok(None)
 }
 
-/// Package a Flint project and install it to LTK Manager
+/// Sync a Flint project to the Celestial launcher by handing it the project
+/// path via a `celestial://import-flint?path=...` deep link (Celestial reads the
+/// raw project folder itself, so nothing is packaged).
 ///
-/// This command:
-/// 1. Packages the project as a .modpkg file
-/// 2. Installs it into LTK Manager's mod library
-/// 3. Returns the installed mod ID
+/// Returns the absolute project path that was handed over.
+#[tauri::command]
+pub async fn sync_project_to_celestial(project_path: String) -> Result<String, String> {
+    let project_buf = PathBuf::from(&project_path);
+
+    if !project_buf.join("flint.json").is_file() {
+        return Err(format!(
+            "Not a Flint project (no flint.json found at {})",
+            project_path
+        ));
+    }
+
+    let abs = project_buf
+        .canonicalize()
+        .unwrap_or(project_buf)
+        .to_string_lossy()
+        .to_string();
+    // Strip the Windows `\\?\` verbatim prefix `canonicalize` adds — the shell
+    // and Celestial want a plain path.
+    let abs = abs.strip_prefix(r"\\?\").map(str::to_string).unwrap_or(abs);
+    let encoded = encode_path_component(&abs);
+    let deep_link = format!("celestial://import-flint?path={}", encoded);
+
+    tracing::info!("Launching Celestial deep link: {}", deep_link);
+    launch_url(&deep_link)
+        .map_err(|e| format!("Failed to launch Celestial. Is it installed? ({})", e))?;
+
+    Ok(abs)
+}
+
+/// Percent-encode a filesystem path for use as a URL query value. Mirrors
+/// JavaScript's `encodeURIComponent` for the byte set we care about — anything
+/// outside the unreserved set (`A-Z a-z 0-9 - _ . ~`) is `%XX`-escaped. The
+/// matching decoder lives in Celestial's `percent_decode_path`.
+fn encode_path_component(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for &b in input.as_bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
+}
+
+/// Launch a URL (or protocol deep link) through the OS shell.
+///
+/// On Windows we call `ShellExecuteW` directly instead of `opener::open` — the
+/// latter shells out via `cmd /c start`, which flashes a console window every
+/// time. `ShellExecuteW` resolves the protocol handler with no console window.
+#[cfg(windows)]
+fn launch_url(url: &str) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    let to_wide = |s: &str| -> Vec<u16> {
+        std::ffi::OsStr::new(s)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    };
+    let verb = to_wide("open");
+    let file = to_wide(url);
+
+    // SAFETY: all PCWSTRs point at null-terminated buffers that outlive the call.
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            PCWSTR(verb.as_ptr()),
+            PCWSTR(file.as_ptr()),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    // ShellExecuteW returns an HINSTANCE > 32 on success; <= 32 is an error code.
+    if result.0 as usize > 32 {
+        Ok(())
+    } else {
+        Err(format!("ShellExecuteW failed (code {})", result.0 as usize))
+    }
+}
+
+#[cfg(not(windows))]
+fn launch_url(url: &str) -> Result<(), String> {
+    opener::open(url).map_err(|e| e.to_string())
+}
+
+/// Package a Flint project as `.fantome`, install it into LTK Manager's
+/// library, and return the installed mod ID.
 #[tauri::command]
 pub async fn sync_project_to_launcher(
     project_path: String,
@@ -151,13 +232,11 @@ pub async fn sync_project_to_launcher(
     let project_path_buf = PathBuf::from(&project_path);
     let ltk_storage_buf = PathBuf::from(&ltk_storage_path);
 
-    // 1. Load the project
     let project = flint_ltk::project::open_project(&project_path_buf)
         .map_err(|e| format!("Failed to open project: {}", e))?;
 
     tracing::info!("Loaded project: {} v{}", project.name, project.version);
 
-    // 2. Package the project as .fantome (with proper WAD binaries)
     let package_start = Instant::now();
     let temp_dir = std::env::temp_dir();
     let fantome_filename = format!("{}.fantome", project.name);
@@ -170,7 +249,6 @@ pub async fn sync_project_to_launcher(
 
     tracing::info!("Successfully packaged project as .fantome in {:.2}s", package_start.elapsed().as_secs_f32());
 
-    // 3. Install to LTK Manager
     let install_start = Instant::now();
     let mod_id = install_to_ltk_manager(&fantome_path, &ltk_storage_buf)
         .map_err(|e| format!("Failed to install to LTK Manager: {}", e))?;
@@ -178,13 +256,11 @@ pub async fn sync_project_to_launcher(
     tracing::info!("Successfully installed to LTK Manager with ID: {} in {:.2}s", mod_id, install_start.elapsed().as_secs_f32());
     tracing::info!("Total sync time: {:.2}s", sync_start.elapsed().as_secs_f32());
 
-    // Clean up temp file
     let _ = fs::remove_file(&fantome_path);
 
     Ok(mod_id)
 }
 
-/// Package a Flint project as a .fantome file with proper WAD binaries
 fn package_project(project_path: &std::path::Path, output_path: &std::path::Path) -> Result<(), String> {
     use flint_ltk::export::build_wad_from_directory;
     use flint_ltk::ltk_types::{ModProject, ModProjectAuthor};
@@ -192,7 +268,6 @@ fn package_project(project_path: &std::path::Path, output_path: &std::path::Path
     use zip::write::SimpleFileOptions;
     use zip::ZipWriter;
 
-    // Read mod.config.json
     let mod_config_path = project_path.join("mod.config.json");
     let config_data = std::fs::read_to_string(&mod_config_path)
         .map_err(|e| format!("Failed to read mod.config.json: {}", e))?;
@@ -209,7 +284,6 @@ fn package_project(project_path: &std::path::Path, output_path: &std::path::Path
         .map_err(|e| format!("Failed to create output file: {}", e))?;
     let mut zip = ZipWriter::new(file);
 
-    // Find all .wad.client directories and build proper WAD binaries
     for entry in std::fs::read_dir(&content_base)
         .map_err(|e| format!("Failed to read content/base: {}", e))?
     {
@@ -236,7 +310,6 @@ fn package_project(project_path: &std::path::Path, output_path: &std::path::Path
         }
     }
 
-    // Write META/info.json
     let author_str = if mod_project.authors.is_empty() {
         "Unknown".to_string()
     } else {
@@ -270,7 +343,6 @@ fn package_project(project_path: &std::path::Path, output_path: &std::path::Path
     Ok(())
 }
 
-/// Install a .fantome file to LTK Manager's library
 fn install_to_ltk_manager(
     fantome_path: &std::path::Path,
     ltk_storage_path: &std::path::Path,
@@ -278,7 +350,6 @@ fn install_to_ltk_manager(
     use uuid::Uuid;
     use std::io::Read;
 
-    // Read info.json from the fantome ZIP to get metadata
     let fantome_file = fs::File::open(fantome_path)
         .map_err(|e| format!("Failed to open fantome: {}", e))?;
     let mut archive = zip::ZipArchive::new(fantome_file)
@@ -295,7 +366,6 @@ fn install_to_ltk_manager(
         info.get("Name").and_then(|n| n.as_str()).unwrap_or("Unknown").to_string()
     };
 
-    // Check if a mod with this name already exists in the library
     let library_path = ltk_storage_path.join("library.json");
     let existing_mod_id = if library_path.exists() {
         let contents = fs::read_to_string(&library_path)
@@ -329,7 +399,6 @@ fn install_to_ltk_manager(
         (new_id, false)
     };
 
-    // Create archives directory and copy fantome there
     let archives_dir = ltk_storage_path.join("archives");
     fs::create_dir_all(&archives_dir)
         .map_err(|e| format!("Failed to create archives directory: {}", e))?;
@@ -338,12 +407,10 @@ fn install_to_ltk_manager(
     fs::copy(fantome_path, &archive_dest)
         .map_err(|e| format!("Failed to copy fantome to archives: {}", e))?;
 
-    // Create mods metadata directory with mod.config.json
     let mods_dir = ltk_storage_path.join("mods").join(&mod_id);
     fs::create_dir_all(&mods_dir)
         .map_err(|e| format!("Failed to create mods metadata directory: {}", e))?;
 
-    // Re-open to read metadata for config
     let fantome_file2 = fs::File::open(fantome_path)
         .map_err(|e| format!("Failed to reopen fantome: {}", e))?;
     let mut archive2 = zip::ZipArchive::new(fantome_file2)
@@ -373,7 +440,6 @@ fn install_to_ltk_manager(
     fs::write(mods_dir.join("mod.config.json"), config_json)
         .map_err(|e| format!("Failed to write mod.config.json: {}", e))?;
 
-    // Update library.json
     update_library_index(ltk_storage_path, &mod_id, "fantome")
         .map_err(|e| format!("Failed to update library index: {}", e))?;
 
@@ -428,11 +494,9 @@ impl Default for LibraryIndex {
     }
 }
 
-/// Update LTK Manager's library.json to include the new mod
 fn update_library_index(ltk_storage_path: &std::path::Path, mod_id: &str, format: &str) -> Result<(), String> {
     let library_path = ltk_storage_path.join("library.json");
 
-    // Load existing library or create new one
     let mut library: LibraryIndex = if library_path.exists() {
         let contents = fs::read_to_string(&library_path)
             .map_err(|e| format!("Failed to read library.json: {}", e))?;
@@ -442,15 +506,12 @@ fn update_library_index(ltk_storage_path: &std::path::Path, mod_id: &str, format
         LibraryIndex::default()
     };
 
-    // Check if mod already exists
     let existing_mod = library.mods.iter_mut().find(|m| m.id == mod_id);
 
     if let Some(existing) = existing_mod {
-        // Update existing mod's installed_at timestamp
         existing.installed_at = Utc::now().to_rfc3339();
         tracing::info!("Updated existing mod entry in library");
     } else {
-        // Add new mod entry
         library.mods.push(LibraryModEntry {
             id: mod_id.to_string(),
             installed_at: Utc::now().to_rfc3339(),
@@ -458,13 +519,11 @@ fn update_library_index(ltk_storage_path: &std::path::Path, mod_id: &str, format
         });
         tracing::info!("Added new mod entry to library");
 
-        // Add to active profile's mod_order (only for new mods)
         if let Some(profile) = library.profiles.iter_mut().find(|p| p.id == library.active_profile_id) {
             profile.mod_order.push(mod_id.to_string());
         }
     }
 
-    // Save library.json
     let contents = serde_json::to_string_pretty(&library)
         .map_err(|e| format!("Failed to serialize library index: {}", e))?;
 

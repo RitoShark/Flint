@@ -1,8 +1,3 @@
-/**
- * Flint - Mod Config Editor Modal
- * Provides a form-based editor for mod.config.json fields.
- */
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { useModalStore, useNotificationStore } from '../../lib/stores';
 import * as api from '../../lib/api';

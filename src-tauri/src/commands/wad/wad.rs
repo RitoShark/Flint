@@ -10,14 +10,12 @@ use std::time::Instant;
 use tauri::State;
 use walkdir::WalkDir;
 
-/// Information about a WAD archive
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WadInfo {
     pub path: String,
     pub chunk_count: usize,
 }
 
-/// Information about a chunk within a WAD archive
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkInfo {
     pub hash: String,
@@ -25,14 +23,12 @@ pub struct ChunkInfo {
     pub size: u32,
 }
 
-/// Result of a WAD extraction operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractionResult {
     pub extracted_count: usize,
     pub failed_count: usize,
 }
 
-/// Opens a WAD file and returns metadata about it
 #[tauri::command]
 pub async fn read_wad(path: String) -> Result<WadInfo, String> {
     let reader = WadReader::open(&path)?;
@@ -43,8 +39,6 @@ pub async fn read_wad(path: String) -> Result<WadInfo, String> {
 }
 
 /// Returns a list of all chunks in a WAD archive with resolved paths.
-///
-/// Uses LMDB for O(log N) point lookups — no full hashtable loaded into RAM.
 #[tauri::command]
 pub async fn get_wad_chunks(
     path: String,
@@ -55,7 +49,6 @@ pub async fn get_wad_chunks(
     let total_start = Instant::now();
     let cache = wad_cache_state.get();
 
-    // WAD metadata cache (avoids re-parsing headers)
     let cache_hit;
     let t_open = Instant::now();
     let chunks = if let Some(cached) = cache.get(&path) {
@@ -71,14 +64,12 @@ pub async fn get_wad_chunks(
     };
     let d_open = t_open.elapsed();
 
-    // Bulk-resolve all hashes in a single LMDB read txn (microseconds)
     let t_hashes = Instant::now();
     let hash_u64s: Vec<u64> = chunks.iter().map(|c| c.path_hash).collect();
     let d_hash_collect = t_hashes.elapsed();
 
     let t_resolve = Instant::now();
     let resolved: Vec<String> = if let Some(env) = lmdb.get_env(
-        // Determine hash dir from the LMDB cache (uses whatever was last primed)
         &flint_ltk::hash::get_hash_dir()
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_default()
@@ -95,7 +86,7 @@ pub async fn get_wad_chunks(
         .zip(resolved.into_iter())
         .map(|(chunk, resolved_path)| {
             let path_hash = chunk.path_hash;
-            // Hex-only 16-char strings are unresolved hashes — treat as None
+            // Hex-only 16-char strings are unresolved hashes — treat as None.
             let path = if resolved_path.len() == 16
                 && resolved_path.bytes().all(|b| b.is_ascii_hexdigit())
             {
@@ -128,23 +119,14 @@ pub async fn get_wad_chunks(
     Ok(chunk_infos)
 }
 
-// `load_all_wad_chunks` returns raw bytes via `tauri::ipc::Response`. The
-// previous JSON shapes (`WadChunkBatch` / `WadChunkBatchCols`) are gone —
-// see the wire-format comment above `load_all_wad_chunks` below.
-
-/// Loads chunk metadata for multiple WAD files in one call.
+/// Loads chunk metadata for multiple WAD files in one call, returning a compact
+/// binary payload via `tauri::ipc::Response`.
 ///
-/// Phase 1: parallel WAD header parsing (I/O-bound, rayon).
-/// Phase 2: collect ALL unique hashes across every WAD, deduplicate.
-/// Phase 3: single LMDB read txn resolves every unique hash once.
-/// Phase 4: O(1) HashMap lookup distributes resolved paths back to each WAD.
+/// Phase 1: parallel WAD header parsing (rayon). Phase 2: collect + dedup all
+/// unique hashes. Phase 3: single LMDB read txn resolves every unique hash.
+/// Phase 4: encode the per-WAD binary blocks.
 ///
-/// This is dramatically faster than per-WAD resolution because:
-/// - One LMDB transaction instead of N (avoids N × txn + db open overhead)
-/// - Deduplication saves 30-50% of B-tree lookups (shared assets across WADs)
-/// Compact binary wire format for `load_all_wad_chunks`. Skips JSON entirely.
-///
-/// Layout (all little-endian):
+/// Layout (all little-endian; frontend decoder `decodeWadChunkPayload()` in `api.ts`):
 /// ```text
 /// [u32 wad_count]
 /// per WAD:
@@ -156,8 +138,6 @@ pub async fn get_wad_chunks(
 ///   [chunk_count × u16 resolved_path_len]   // 0xFFFF = null/unresolved
 ///   [packed resolved-path utf-8 bytes ...]
 /// ```
-///
-/// Frontend decoder: `decodeWadChunkPayload()` in `api.ts`.
 #[tauri::command]
 pub async fn load_all_wad_chunks(
     paths: Vec<String>,
@@ -168,20 +148,12 @@ pub async fn load_all_wad_chunks(
     let total_start = Instant::now();
     let cache = wad_cache_state.get();
 
-    // Resolve hash dir once
     let hash_dir = flint_ltk::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
     let env_opt = lmdb.get_env(&hash_dir);
 
-    // Phase 1: parallel WAD header reads (rayon — I/O-bound).
-    //
-    // Uncapped on the global rayon pool. An earlier experiment clamped to
-    // 8 threads (mirroring Quartz's 1-32 ceiling); on this machine it added
-    // ~1s vs unbounded for a cold scan of 450 WADs. SSD random-read can
-    // absorb more concurrent TOC parses than the bound allowed. Cache hits
-    // short-circuit before any I/O, so the warm path is unaffected either
-    // way — only cold scans cared, and they wanted more threads, not fewer.
+    // Phase 1: parallel WAD header reads (rayon).
     let t_phase1 = Instant::now();
     let toc_results: Vec<(String, Result<Arc<Vec<_>>, String>)> = paths
         .par_iter()
@@ -201,11 +173,8 @@ pub async fn load_all_wad_chunks(
         .collect();
     let d_phase1 = t_phase1.elapsed();
 
-    // Phase 2: separate successes from errors, collect ALL unique hashes.
-    //
-    // FxHashSet here for the same reason the resolver uses FxHashMap: keys
-    // are xxh64 outputs, so SipHash on top of them is wasted CPU. With ~820K
-    // inserts dropping from ~410ms (std HashSet) to ~50ms.
+    // Phase 2: separate successes from errors, collect all unique hashes.
+    // FxHashSet because keys are already xxh64 outputs.
     let t_phase2 = Instant::now();
     let mut entries: Vec<(String, Result<Arc<Vec<_>>, String>)> = Vec::with_capacity(toc_results.len());
     let mut unique_hashes: rustc_hash::FxHashSet<u64> =
@@ -233,12 +202,7 @@ pub async fn load_all_wad_chunks(
     };
     let d_phase3 = t_phase3.elapsed();
 
-    // Phase 4: encode binary payload in parallel.
-    //
-    // Each WAD's bytes are independent, so we encode them on rayon and
-    // concatenate at the end. Skipping JSON entirely turns the 7-second IPC
-    // tail (encode + transit + decode of a JSON shape) into raw memcpy +
-    // a small JS-side decoder loop. ~3-5× faster on this dataset.
+    // Phase 4: encode binary payload in parallel (each WAD's bytes are independent).
     let t_phase4 = Instant::now();
     let resolved_ref = &resolved_map;
     let per_wad_buffers: Vec<Vec<u8>> = entries
@@ -275,11 +239,6 @@ pub async fn load_all_wad_chunks(
     Ok(tauri::ipc::Response::new(buf))
 }
 
-/// Encode a single WAD's binary block (see wire format above).
-///
-/// Generic over the chunk element so we don't have to name the private
-/// `WadChunk` type from the league-toolkit crate. We only need `path_hash`
-/// and `uncompressed_size`, which are exposed by the `WadChunkMeta` trait.
 trait WadChunkMeta {
     fn path_hash_le(&self) -> u64;
     fn uncompressed_size_u32(&self) -> u32;
@@ -290,11 +249,8 @@ impl WadChunkMeta for flint_ltk::wad_jade::format::WadChunk {
     fn uncompressed_size_u32(&self) -> u32 { self.uncompressed_size as u32 }
 }
 
-/// Phase-1 output row: WAD path + (chunks | error) result.
 type TocResult<C> = (String, Result<Arc<Vec<C>>, String>);
 
-/// Total chunk count across the Phase-1 results, used to pre-size the
-/// Phase-2 dedup set so we don't pay growth + rehash cost on the hot path.
 fn total_chunks_estimate<C>(results: &[TocResult<C>]) -> usize {
     results.iter().filter_map(|(_, r)| r.as_ref().ok()).map(|v| v.len()).sum()
 }
@@ -312,7 +268,6 @@ fn encode_one_wad<C: WadChunkMeta>(
     };
     let chunk_count = chunks_opt.map(|c| c.len()).unwrap_or(0);
 
-    // Compute the resolved-path bytes total in one pass so we can pre-size.
     let mut resolved_total: usize = 0;
     if let Some(chunks) = chunks_opt {
         for c in chunks.iter() {
@@ -370,9 +325,7 @@ fn encode_one_wad<C: WadChunkMeta>(
 ///
 /// Uses mmap + rayon: each worker mounts its own `Wad` cursor over the shared
 /// mmap and decompresses + writes in parallel. Hash → path resolution happens
-/// in one bulk LMDB read txn up front. Multi-select extracts of a few hundred
-/// chunks used to walk the chunks one at a time on the IPC thread; this
-/// drops them to a fraction of the wall time.
+/// in one bulk LMDB read txn up front.
 #[tauri::command]
 pub async fn extract_wad(
     wad_path: String,
@@ -389,8 +342,6 @@ pub async fn extract_wad(
         .unwrap_or_default();
     let env_opt = lmdb.get_env(&hash_dir);
 
-    // Convert the hex-string set into u64s up front; cheap, but still needs
-    // to happen before we leave the async context to surface bad input.
     let want_hashes: Option<HashSet<u64>> = match chunk_hashes {
         None => None,
         Some(list) => {
@@ -447,7 +398,6 @@ pub async fn invalidate_wad_cache(
     Ok(())
 }
 
-/// Result of extracting a WAD model preview
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WadModelPreviewResult {
     pub skn_path: String,
@@ -469,7 +419,6 @@ pub async fn extract_wad_model_preview(
 
     let cache = wad_cache_state.get();
 
-    // Get chunks (from cache or fresh parse)
     let chunks = if let Some(cached) = cache.get(&wad_path) {
         cached
     } else {
@@ -480,7 +429,6 @@ pub async fn extract_wad_model_preview(
         chunks
     };
 
-    // Resolve all hashes via LMDB
     let hash_u64s: Vec<u64> = chunks.iter().map(|c| c.path_hash).collect();
     let hash_dir = flint_ltk::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
@@ -491,20 +439,16 @@ pub async fn extract_wad_model_preview(
         hash_u64s.iter().map(|h| (*h, format!("{:016x}", h))).collect()
     };
 
-    // Find the SKN chunk's resolved path
     let skn_resolved = resolved_map.get(&target_hash)
         .ok_or_else(|| format!("SKN chunk {:016x} not found in WAD", target_hash))?;
 
-    // Determine the skin folder prefix (e.g., "data/characters/ahri/skins/skin01/")
     let skn_normalized = skn_resolved.replace('\\', "/");
     let skn_folder = skn_normalized.rsplit_once('/')
         .map(|(folder, _)| format!("{}/", folder))
         .unwrap_or_default();
 
-    // Companion extensions to extract alongside the SKN
     let companion_exts = [".skn", ".skl", ".bin", ".dds", ".tex"];
 
-    // Find all companion chunks in the same folder
     let mut to_extract: Vec<(u64, String)> = Vec::new();
     for chunk in chunks.iter() {
         let h = chunk.path_hash;
@@ -516,7 +460,6 @@ pub async fn extract_wad_model_preview(
                     to_extract.push((h, norm));
                 }
             } else if h == target_hash {
-                // Always include the target SKN even if folder matching fails
                 to_extract.push((h, norm));
             }
         }
@@ -526,13 +469,11 @@ pub async fn extract_wad_model_preview(
         return Err("No extractable files found for SKN preview".to_string());
     }
 
-    // Create temp directory
     let uuid = uuid::Uuid::new_v4();
     let temp_dir = std::env::temp_dir().join("flint-wad-preview").join(uuid.to_string());
     std::fs::create_dir_all(&temp_dir)
         .map_err(|e| format!("Failed to create temp dir: {}", e))?;
 
-    // Extract companion files
     let mut reader = WadReader::open(&wad_path)?;
     let mut skn_path = String::new();
 
@@ -556,12 +497,11 @@ pub async fn extract_wad_model_preview(
     }
 
     if skn_path.is_empty() {
-        // Cleanup on failure
         let _ = std::fs::remove_dir_all(&temp_dir);
         return Err("Failed to extract SKN chunk".to_string());
     }
 
-    // Auto-generate .ritobin cache for all extracted .bin files
+    // Auto-generate .ritobin cache for all extracted .bin files.
     for (_, rel_path) in &to_extract {
         if rel_path.to_lowercase().ends_with(".bin") {
             let bin_path = temp_dir.join(rel_path);
@@ -604,7 +544,6 @@ pub async fn cleanup_wad_model_preview(temp_dir: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Info about a WAD file found on disk (for game WAD scanning)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GameWadInfo {
     pub path: String,
@@ -612,12 +551,8 @@ pub struct GameWadInfo {
     pub category: String,
 }
 
-/// Read decompressed chunk data from a WAD archive into memory — no disk write.
-///
-/// Returns raw bytes via `tauri::ipc::Response` so a multi-MB texture/audio
-/// chunk arrives at the frontend as an `ArrayBuffer` instead of a JSON
-/// `[1,2,3,…]` number array (which roughly tripled wire size + cost a JSON
-/// parse on the frontend).
+/// Read decompressed chunk data from a WAD archive into memory, returning raw
+/// bytes via `tauri::ipc::Response`.
 #[tauri::command]
 pub async fn read_wad_chunk_data(
     wad_path: String,

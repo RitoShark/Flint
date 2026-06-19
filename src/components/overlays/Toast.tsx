@@ -1,7 +1,3 @@
-/**
- * Flint - Toast Notifications Component
- */
-
 import React from 'react';
 import { useNotificationStore } from '../../lib/stores';
 import { getToastIcon } from '../../lib/ui-helpers/fileIcons';

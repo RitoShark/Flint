@@ -1,9 +1,3 @@
-/**
- * Config Store
- * Manages League paths, creator settings, and user preferences
- * Persists to %APPDATA%/Flint/settings.json via Tauri IPC
- */
-
 import { create } from 'zustand';
 import { getSettings, saveSettings, migrateFromLocalStorage, migrateProjects, loadTheme, seedBuiltinThemes } from '../api';
 import type { FlintSettings } from '../api';
@@ -25,7 +19,6 @@ interface ConfigState {
   celestialModPath: string | null;
   preferredLauncher: 'ltk' | 'celestial' | null;
   savedProjects: SavedProject[];
-  binConverterEngine: 'ltk' | 'jade';
   jadePath: string | null;
   quartzPath: string | null;
   selectedTheme: string | null;
@@ -33,7 +26,6 @@ interface ConfigState {
   /** Whether the store has finished loading from disk */
   _hydrated: boolean;
 
-  // Actions
   setLeaguePath: (path: string | null) => void;
   setLeaguePathPbe: (path: string | null) => void;
   setDefaultProjectPath: (path: string | null) => void;
@@ -51,7 +43,6 @@ interface ConfigState {
   setSavedProjects: (projects: SavedProject[]) => void;
   addSavedProject: (project: SavedProject) => void;
   removeSavedProject: (projectId: string) => void;
-  setBinConverterEngine: (engine: 'ltk' | 'jade') => void;
   setJadePath: (path: string | null) => void;
   setQuartzPath: (path: string | null) => void;
   setSelectedTheme: (themeId: string | null) => void;
@@ -60,10 +51,6 @@ interface ConfigState {
   hydrate: () => Promise<void>;
 }
 
-// localStorage cache key for the settings snapshot. Lets us hydrate the store
-// SYNCHRONOUSLY at module-eval time so the UI gets real values on first render
-// instead of waiting for the migrate→getSettings IPC chain. Disk is still the
-// source of truth (settings.json on %APPDATA%) — this is just a hot cache.
 const SETTINGS_CACHE_KEY = 'flint_settings_cache_v1';
 const MIGRATIONS_DONE_KEY = 'flint_migrations_done_v1';
 
@@ -85,11 +72,6 @@ function writeCache(settings: FlintSettings) {
   }
 }
 
-// Debounce settings writes. Multiple synchronous mutations (e.g. project
-// creation: addSavedProject → setRecentProjects fires within milliseconds)
-// previously emitted one full save_settings IPC each. With ~16 fields per
-// payload and a 25-70ms IPC tail, that adds up. The debounce coalesces a
-// burst into one write while still hitting disk inside the same UI frame.
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 const PERSIST_DEBOUNCE_MS = 50;
 
@@ -112,7 +94,6 @@ function snapshotSettings(): FlintSettings {
     autoSyncToLauncher: s.autoSyncToLauncher,
     celestialModPath: s.celestialModPath,
     preferredLauncher: s.preferredLauncher,
-    binConverterEngine: s.binConverterEngine,
     jadePath: s.jadePath,
     quartzPath: s.quartzPath,
     selectedTheme: s.selectedTheme,
@@ -123,8 +104,6 @@ function snapshotSettings(): FlintSettings {
 function persistToDisk() {
   if (!useConfigStore.getState()._hydrated) return;
 
-  // Update the localStorage cache immediately so a reload picks up the
-  // latest values even if the debounce hasn't fired yet. This is cheap.
   writeCache(snapshotSettings());
 
   if (persistTimer !== null) clearTimeout(persistTimer);
@@ -144,16 +123,10 @@ export function applyThemeColors(colors: Record<string, string>) {
   }
 }
 
-/** Clear all theme overrides (revert to CSS defaults). Re-applies user UX
- *  prefs (accent override, glass blur/opacity) afterwards so theme switching
- *  doesn't accidentally wipe unrelated personalisation. */
+/** Clear all theme overrides (revert to CSS defaults), then re-apply user UX prefs. */
 export function clearThemeOverrides() {
   const root = document.documentElement;
-  // Remove inline style properties — the CSS :root declarations take over
   root.removeAttribute('style');
-  // Re-stamp the user's UX prefs (accent / glass / fps) — applyUxPrefs uses
-  // setProperty so it only touches the keys it owns.
-  // Imported lazily to avoid a circular dep at module-eval time.
   import('./uxStore').then(({ applyUxPrefs, useUxStore }) => {
     applyUxPrefs(useUxStore.getState());
   }).catch(() => { /* non-fatal */ });
@@ -179,11 +152,6 @@ export async function applyThemeById(themeId: string | null): Promise<boolean> {
   return false;
 }
 
-// Read the cached settings synchronously at module-eval time so the store
-// starts with real values, not blank defaults. This is what makes startup
-// feel instant: the UI renders with the user's last-known config instead of
-// waiting for the migrate→getSettings IPC chain to finish (~500ms+ before).
-// On first run with no cache, falls back to the same defaults as before.
 const __cached = readCache();
 
 export const useConfigStore = create<ConfigState>()((set) => ({
@@ -202,15 +170,9 @@ export const useConfigStore = create<ConfigState>()((set) => ({
   celestialModPath: __cached?.celestialModPath ?? null,
   preferredLauncher: (__cached?.preferredLauncher === 'celestial' ? 'celestial' : __cached?.preferredLauncher === 'ltk' ? 'ltk' : null) as 'ltk' | 'celestial' | null,
   savedProjects: (__cached?.savedProjects as SavedProject[] | undefined) ?? [],
-  // Jade is now the only engine — old 'ltk' values silently upgrade.
-  binConverterEngine: 'jade' as 'ltk' | 'jade',
   jadePath: __cached?.jadePath ?? null,
   quartzPath: __cached?.quartzPath ?? null,
   selectedTheme: __cached?.selectedTheme ?? null,
-  // If we had a cache, treat the store as already hydrated for first-paint
-  // purposes (matches 1.7.1's localStorage-first behavior). The disk-load
-  // below still runs to pick up any settings written by another window/tool,
-  // but the user sees real values immediately.
   _hydrated: __cached !== null,
 
   setLeaguePath: (path) => { set({ leaguePath: path }); persistToDisk(); },
@@ -227,7 +189,6 @@ export const useConfigStore = create<ConfigState>()((set) => ({
   setAutoSyncToLauncher: (enabled) => { set({ autoSyncToLauncher: enabled }); persistToDisk(); },
   setCelestialModPath: (path) => { set({ celestialModPath: path }); persistToDisk(); },
   setPreferredLauncher: (l) => { set({ preferredLauncher: l }); persistToDisk(); },
-  setBinConverterEngine: (engine) => { set({ binConverterEngine: engine }); persistToDisk(); },
   setJadePath: (path) => { set({ jadePath: path }); persistToDisk(); },
   setQuartzPath: (path) => { set({ quartzPath: path }); persistToDisk(); },
   setSavedProjects: (projects) => { set({ savedProjects: projects }); persistToDisk(); },
@@ -251,14 +212,9 @@ export const useConfigStore = create<ConfigState>()((set) => ({
   },
 
   hydrate: async () => {
-    // Migrations run AT MOST ONCE per install. The flag in localStorage means
-    // we skip the two migration IPCs on every subsequent launch — they were
-    // running unconditionally before, costing ~150ms each at every startup
-    // even when there was nothing to migrate.
     const migrationsDone = localStorage.getItem(MIGRATIONS_DONE_KEY) === '1';
 
     if (!migrationsDone) {
-      // 1. Check if there's old localStorage data to migrate
       const legacyRaw = localStorage.getItem('flint_settings');
       if (legacyRaw) {
         try {
@@ -269,7 +225,6 @@ export const useConfigStore = create<ConfigState>()((set) => ({
         }
       }
 
-      // 2. Migrate projects from old RitoShark/Flint/Projects to Flint/projects/
       try {
         const result = await migrateProjects();
         if (result.moved > 0) {
@@ -282,10 +237,6 @@ export const useConfigStore = create<ConfigState>()((set) => ({
       try { localStorage.setItem(MIGRATIONS_DONE_KEY, '1'); } catch { /* ignore */ }
     }
 
-    // 3. Load settings from disk. If we already populated the store from the
-    // localStorage cache, this just refreshes from disk in the background —
-    // the UI is already rendered with real values, so this isn't on the
-    // first-paint critical path anymore.
     try {
       const s = await getSettings();
       set({
@@ -304,15 +255,12 @@ export const useConfigStore = create<ConfigState>()((set) => ({
         autoSyncToLauncher: s.autoSyncToLauncher,
         celestialModPath: s.celestialModPath ?? null,
         preferredLauncher: (s.preferredLauncher === 'celestial' ? 'celestial' : s.preferredLauncher === 'ltk' ? 'ltk' : null) as 'ltk' | 'celestial' | null,
-        // Pinned to 'jade' regardless of disk value — see configStore default.
-        binConverterEngine: 'jade' as 'ltk' | 'jade',
         jadePath: s.jadePath,
         quartzPath: s.quartzPath,
         selectedTheme: s.selectedTheme ?? null,
         _hydrated: true,
       });
 
-      // Refresh the cache so next startup gets latest disk state synchronously.
       writeCache({
         schemaVersion: 1,
         leaguePath: s.leaguePath,
@@ -330,16 +278,11 @@ export const useConfigStore = create<ConfigState>()((set) => ({
         autoSyncToLauncher: s.autoSyncToLauncher,
         celestialModPath: s.celestialModPath ?? null,
         preferredLauncher: (s.preferredLauncher === 'celestial' ? 'celestial' : s.preferredLauncher === 'ltk' ? 'ltk' : null) as 'ltk' | 'celestial' | null,
-        binConverterEngine: s.binConverterEngine,
         jadePath: s.jadePath,
         quartzPath: s.quartzPath,
         selectedTheme: s.selectedTheme ?? null,
       });
 
-      // 4. Refresh built-in preset themes on disk (idempotent — overwrites
-      // shipped presets so users get color tweaks across updates), then
-      // apply the saved theme. Seed runs before apply so the apply reads
-      // the latest JSON.
       try {
         await seedBuiltinThemes();
       } catch (err) {
@@ -350,7 +293,7 @@ export const useConfigStore = create<ConfigState>()((set) => ({
       }
     } catch (err) {
       console.error('[Config] Failed to load settings from disk:', err);
-      set({ _hydrated: true }); // still mark hydrated so the app can function with defaults
+      set({ _hydrated: true });
     }
   },
 }));

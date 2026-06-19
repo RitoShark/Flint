@@ -1,10 +1,3 @@
-/**
- * Flint - Asset Preview Tooltip Component
- * 
- * Shows a preview of textures (.tex, .dds) or meshes (.scb, .sco, .skn)
- * when hovering over asset path strings in the BIN editor.
- */
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Engine } from '@babylonjs/core/Engines/engine';
 import { Scene } from '@babylonjs/core/scene';
@@ -18,20 +11,13 @@ import { Vector3, Color3, Color4 } from '@babylonjs/core/Maths/math';
 import * as api from '../../lib/api';
 
 interface AssetPreviewTooltipProps {
-    /** The asset path to preview (e.g., "ASSETS/Characters/...") */
     assetPath: string;
-    /** Base path to resolve relative asset paths */
     basePath: string;
-    /** Position to display the tooltip */
     position: { x: number; y: number };
-    /** Whether the tooltip is visible */
     visible: boolean;
-    /** Callback when tooltip should close */
     onClose?: () => void;
 }
 
-/** Mesh data format for the mini preview — typed arrays come straight from
- *  the IPC binary buffer, no conversion needed. */
 interface MeshData {
     positions: Float32Array;
     indices: Uint16Array | Uint32Array;
@@ -44,9 +30,6 @@ type PreviewState =
     | { status: 'texture'; data: string; width: number; height: number; format: string }
     | { status: 'mesh'; meshData: MeshData; vertexCount: number; faceCount: number };
 
-/**
- * Determines the asset type from the file path
- */
 function getAssetType(path: string): 'texture' | 'mesh' | 'unknown' {
     const ext = path.toLowerCase().split('.').pop() || '';
     if (['tex', 'dds'].includes(ext)) {
@@ -58,9 +41,6 @@ function getAssetType(path: string): 'texture' | 'mesh' | 'unknown' {
     return 'unknown';
 }
 
-/**
- * Mini 3D mesh preview component using Babylon.js
- */
 const MiniMeshPreview: React.FC<{ meshData: MeshData }> = ({ meshData }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -68,7 +48,6 @@ const MiniMeshPreview: React.FC<{ meshData: MeshData }> = ({ meshData }) => {
         const canvas = canvasRef.current;
         if (!canvas || !meshData.positions.length) return;
 
-        // Create Babylon engine & scene
         const engine = new Engine(canvas, true, {
             preserveDrawingBuffer: false,
             stencil: false,
@@ -76,9 +55,8 @@ const MiniMeshPreview: React.FC<{ meshData: MeshData }> = ({ meshData }) => {
             alpha: true
         });
         const scene = new Scene(engine);
-        scene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0); // #1b1b1b matching old bg
+        scene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0);
 
-        // Build geometry
         const mesh = new Mesh("mini-preview-mesh", scene);
         const vd = new VertexData();
         vd.positions = meshData.positions;
@@ -93,32 +71,26 @@ const MiniMeshPreview: React.FC<{ meshData: MeshData }> = ({ meshData }) => {
         }
         vd.indices = indices;
 
-        // Compute normals for shading
         const normals = new Float32Array(meshData.positions.length);
         VertexData.ComputeNormals(meshData.positions, indices, normals);
         vd.normals = normals;
 
-        // Apply vertex data
         vd.applyToMesh(mesh);
 
-        // Center the mesh geometry
         mesh.computeWorldMatrix(true);
         const boundingInfo = mesh.getBoundingInfo();
         const center = boundingInfo.boundingBox.center;
         mesh.position.set(-center.x, -center.y, -center.z);
 
-        // Calculate size for camera radius
         const extents = boundingInfo.boundingBox.extendSize;
         const maxDim = Math.max(extents.x, extents.y, extents.z) * 2;
 
-        // Material with unlit/soft League style look
         const material = new StandardMaterial("mini-preview-mat", scene);
-        material.diffuseColor = new Color3(0.4, 0.6, 0.8); // 0x6699cc
+        material.diffuseColor = new Color3(0.4, 0.6, 0.8);
         material.specularColor = new Color3(0, 0, 0);
         material.backFaceCulling = false;
         mesh.material = material;
 
-        // Orbit camera: ArcRotateCamera(name, alpha, beta, radius, target, scene)
         const camera = new ArcRotateCamera(
             "mini-camera",
             0,
@@ -128,7 +100,6 @@ const MiniMeshPreview: React.FC<{ meshData: MeshData }> = ({ meshData }) => {
             scene
         );
 
-        // Lights
         const ambientLight = new HemisphericLight("mini-ambient", new Vector3(0, 1, 0), scene);
         ambientLight.intensity = 0.8;
         ambientLight.specular = new Color3(0, 0, 0);
@@ -136,13 +107,11 @@ const MiniMeshPreview: React.FC<{ meshData: MeshData }> = ({ meshData }) => {
         const dirLight = new DirectionalLight("mini-dir", new Vector3(1, 1, 1), scene);
         dirLight.intensity = 0.5;
 
-        // Animation render loop
         engine.runRenderLoop(() => {
-            camera.alpha += 0.015; // Auto rotate
+            camera.alpha += 0.015;
             scene.render();
         });
 
-        // Cleanup on unmount
         return () => {
             engine.dispose();
         };
@@ -168,7 +137,6 @@ export const AssetPreviewTooltip: React.FC<AssetPreviewTooltipProps> = ({
     const [resolvedPath, setResolvedPath] = useState<string>('');
     const containerRef = useRef<HTMLDivElement>(null);
 
-    // Load preview when asset path changes
     useEffect(() => {
         if (!visible || !assetPath) {
             return;
@@ -181,7 +149,6 @@ export const AssetPreviewTooltip: React.FC<AssetPreviewTooltipProps> = ({
 
         const loadPreview = async () => {
             try {
-                // Use backend to resolve the asset path (searches WAD folders, etc.)
                 const fullPath = await api.resolveAssetPath(assetPath, basePath);
                 setResolvedPath(fullPath);
                 console.log('[AssetPreview] Resolved:', assetPath, '->', fullPath);
@@ -240,7 +207,6 @@ export const AssetPreviewTooltip: React.FC<AssetPreviewTooltipProps> = ({
         return null;
     }
 
-    // Calculate position to stay within viewport
     const tooltipWidth = 260;
     const tooltipHeight = 240;
     const margin = 20;
@@ -248,7 +214,6 @@ export const AssetPreviewTooltip: React.FC<AssetPreviewTooltipProps> = ({
     let left = position.x + margin;
     let top = position.y - tooltipHeight / 2;
 
-    // Adjust if going off-screen
     if (left + tooltipWidth > window.innerWidth) {
         left = position.x - tooltipWidth - margin;
     }
@@ -271,12 +236,10 @@ export const AssetPreviewTooltip: React.FC<AssetPreviewTooltipProps> = ({
                 pointerEvents: 'none'
             }}
         >
-            {/* Header with file name */}
             <div className="asset-preview-tooltip__header">
                 {assetPath.split(/[/\\]/).pop()}
             </div>
 
-            {/* Preview content */}
             <div className="asset-preview-tooltip__content">
                 {preview.status === 'loading' && (
                     <div className="asset-preview-tooltip__loading">
@@ -321,7 +284,6 @@ export const AssetPreviewTooltip: React.FC<AssetPreviewTooltipProps> = ({
                 )}
             </div>
 
-            {/* Footer with full path */}
             <div className="asset-preview-tooltip__footer">
                 {resolvedPath.split('\\').slice(-2).join('\\')}
             </div>

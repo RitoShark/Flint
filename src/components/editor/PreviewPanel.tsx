@@ -1,14 +1,9 @@
-/**
- * Flint - Preview Panel Component
- * Main preview container with toolbar and content routing
- */
-
 import React, { useState, useEffect, useRef } from 'react';
 import { useConfigStore, useProjectTabStore, useModalStore, useNotificationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
+import { openWadInExtract, isWadPath } from '../../lib/openWad';
 import { ImagePreview } from '../preview/ImagePreview';
-import { HexViewer } from '../preview/HexViewer';
 import { TextPreview } from '../preview/TextPreview';
 import { BinEditor } from '../preview/BinEditor';
 import { ModelPreview } from '../preview/ModelPreview';
@@ -16,6 +11,11 @@ import { UnknownPreview } from '../preview/UnknownPreview';
 import { HUDEditor } from '../preview/HUDEditor';
 import { BnkPreview } from '../preview/BnkPreview';
 import { FolderGridView } from '../preview/FolderGridView';
+import { LuabinViewer } from '../preview/LuabinViewer';
+import { TroybinViewer } from '../preview/TroybinViewer';
+import { InibinEditor } from '../preview/InibinEditor';
+import { StringTableEditor } from '../preview/StringTableEditor';
+import { ManifestViewer } from '../preview/ManifestViewer';
 import { JadeIcon } from '../icons/JadeIcon';
 import { QuartzIcon } from '../icons/QuartzIcon';
 
@@ -37,6 +37,62 @@ const EmptyState: React.FC = () => (
     </div>
 );
 
+/**
+ * Standalone .anm open: resolve the .skn referenced by the skin BIN's simpleSkin,
+ * then render the SKN viewer with this animation pre-selected and auto-playing.
+ */
+const AnmPreview: React.FC<{ filePath: string }> = ({ filePath }) => {
+    const [state, setState] = useState<
+        { status: 'loading' } |
+        { status: 'ok'; sknPath: string; anmAssetPath: string } |
+        { status: 'error'; message: string }
+    >({ status: 'loading' });
+
+    useEffect(() => {
+        let cancelled = false;
+        setState({ status: 'loading' });
+        api.resolveAnmSkin(filePath)
+            .then(res => { if (!cancelled) setState({ status: 'ok', sknPath: res.skn_path, anmAssetPath: res.anm_asset_path }); })
+            .catch(err => { if (!cancelled) setState({ status: 'error', message: (err as Error)?.message ?? String(err) }); });
+        return () => { cancelled = true; };
+    }, [filePath]);
+
+    if (state.status === 'loading') {
+        return (
+            <div className="model-preview__overlay model-preview__overlay--loading">
+                <div className="spinner" />
+                <span>Resolving skin for animation...</span>
+            </div>
+        );
+    }
+    if (state.status === 'error') {
+        return <UnknownPreview key={filePath} filePath={filePath} />;
+    }
+    return (
+        <ModelPreview
+            key={state.sknPath}
+            filePath={state.sknPath}
+            meshType="skinned"
+            initialAnimation={state.anmAssetPath}
+            autoPlay
+        />
+    );
+};
+
+const WadArchiveNotice: React.FC<{ filePath: string }> = ({ filePath }) => (
+    <div className="preview-panel__empty">
+        <div className="preview-panel__empty-icon" dangerouslySetInnerHTML={{ __html: getIcon('wad') }} />
+        <div className="preview-panel__empty-text">This is a WAD archive.</div>
+        <button
+            className="dl-btn dl-btn--primary"
+            style={{ marginTop: 12 }}
+            onClick={() => { openWadInExtract(filePath).catch(() => {}); }}
+        >
+            Open in WAD viewer
+        </button>
+    </div>
+);
+
 const ErrorState: React.FC<{ message: string }> = ({ message }) => (
     <div className="preview-panel__error">
         <span
@@ -48,7 +104,6 @@ const ErrorState: React.FC<{ message: string }> = ({ message }) => (
 );
 
 const getTypeLabel = (fileType: string, filePath?: string): string => {
-    // Special check for HUD files (dev only)
     if (import.meta.env.DEV && filePath && filePath.endsWith('.ritobin') &&
         (filePath.includes('uibase') || filePath.includes('loadingscreen'))) {
         return 'HUD Configuration';
@@ -107,7 +162,6 @@ class PreviewErrorBoundary extends React.Component<
     }
 }
 
-/** Check if a file type is a 3D model that uses WebGL */
 const is3DType = (info: FileInfo | null): boolean => {
     if (!info) return false;
     return info.extension === 'skn' || info.extension === 'scb' || info.extension === 'sco' ||
@@ -126,20 +180,11 @@ export const PreviewPanel: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [imageZoom, setImageZoom] = useState<'fit' | number>('fit');
-    /**
-     * When the active selection is a folder, this drops the file-preview
-     * pipeline and routes to the folder grid view instead. Set in the
-     * effect below after a cheap `is_directory` IPC.
-     */
     const [isFolderSelection, setIsFolderSelection] = useState(false);
 
-    // Track previous file type to detect 3D→non-3D transitions
-    // When leaving a 3D preview, we add a brief cooldown to let R3F
-    // fully dispose the WebGL context before mounting the next component
     const [webglCooldown, setWebglCooldown] = useState(false);
     const prevFileInfoRef = useRef<FileInfo | null>(null);
 
-    // Get selected file and project path from active tab
     const activeTab = activeTabId
         ? openTabs.find(t => t.id === activeTabId)
         : null;
@@ -154,18 +199,13 @@ export const PreviewPanel: React.FC = () => {
             return;
         }
 
-        // Detect if we're leaving a 3D preview — need cooldown for WebGL cleanup
         const was3D = is3DType(prevFileInfoRef.current);
 
-        // Clear stale info IMMEDIATELY to prevent wrong preview routing
-        // (e.g. old SKN file info causing JSON file to be sent to ModelPreview)
         setFileInfo(null);
         setIsFolderSelection(false);
         setLoading(true);
         setError(null);
 
-        // If leaving a 3D preview, add a brief cooldown to let R3F dispose the
-        // WebGL context fully before we mount the next component
         if (was3D) {
             setWebglCooldown(true);
         }
@@ -174,7 +214,6 @@ export const PreviewPanel: React.FC = () => {
         let cancelled = false;
 
         const loadFileInfo = async () => {
-            // If transitioning from 3D, wait a frame for WebGL cleanup
             if (was3D) {
                 await new Promise<void>(resolve => {
                     requestAnimationFrame(() => {
@@ -187,9 +226,6 @@ export const PreviewPanel: React.FC = () => {
             }
 
             try {
-                // One IPC call: returns { is_directory, info? } — folders
-                // skip the file pipeline, files get their FileInfo back in
-                // the same round-trip.
                 const inspection = await api.inspectPath(filePath);
                 if (cancelled) return;
                 if (inspection.is_directory) {
@@ -228,10 +264,6 @@ export const PreviewPanel: React.FC = () => {
     const fileName = filePath.split('\\').pop() || filePath.split('/').pop() || filePath;
     const isImage = fileInfo?.file_type?.startsWith('image/');
 
-    // Folder selection short-circuits the entire file-preview pipeline.
-    // The grid view owns its own header and reads the folder contents
-    // directly via Rust; we just give it the absolute path and it handles
-    // the rest, including the "up" button.
     if (isFolderSelection) {
         return (
             <div className="preview-panel">
@@ -262,9 +294,6 @@ export const PreviewPanel: React.FC = () => {
             return <EmptyState />;
         }
 
-        // Guard: if fileInfo is stale (from a previous file), show loading.
-        // Prevents wrong routing during the render between selectedFile
-        // changing and useEffect clearing fileInfo.
         if (fileInfo.path !== filePath) {
             return (
                 <div className="preview-panel__loading">
@@ -274,15 +303,14 @@ export const PreviewPanel: React.FC = () => {
             );
         }
 
-        // Choose preview component based on file type
-        // IMPORTANT: Use filePath as key to force full unmount/remount when switching files
-        // This ensures proper cleanup of WebGL contexts and other resources
+        if (isWadPath(selectedFile || filePath || '') || fileInfo.extension === 'wad' || fileInfo.extension === 'client') {
+            return <WadArchiveNotice filePath={filePath} />;
+        }
+
         if (fileInfo.file_type.startsWith('image/')) {
             return <ImagePreview key={filePath} filePath={filePath} zoom={imageZoom} onZoomChange={setImageZoom} />;
         }
 
-        // HUD editor for ritobin files in HUD paths (dev only)
-        // Check for uibase.ritobin or any .ritobin in the HUD directory structure
         const isHudFile = (fileInfo.extension === 'ritobin' || selectedFile.endsWith('.ritobin')) &&
             (selectedFile.includes('uibase') || selectedFile.includes('loadingscreen'));
 
@@ -292,6 +320,26 @@ export const PreviewPanel: React.FC = () => {
 
         if (fileInfo.extension === 'bin' || fileInfo.file_type === 'application/x-bin') {
             return <BinEditor key={filePath} filePath={filePath} />;
+        }
+
+        if (fileInfo.extension === 'luabin64' || fileInfo.extension === 'luabin' || fileInfo.file_type === 'application/x-luabin') {
+            return <LuabinViewer key={filePath} filePath={filePath} />;
+        }
+
+        if (fileInfo.extension === 'troybin' || fileInfo.file_type === 'application/x-troybin') {
+            return <TroybinViewer key={filePath} filePath={filePath} />;
+        }
+
+        if (fileInfo.extension === 'inibin' || fileInfo.extension === 'cfgbin' || fileInfo.file_type === 'application/x-inibin') {
+            return <InibinEditor key={filePath} filePath={filePath} />;
+        }
+
+        if (fileInfo.extension === 'stringtable' || fileInfo.extension === 'rst' || fileInfo.file_type === 'application/x-stringtable') {
+            return <StringTableEditor key={filePath} filePath={filePath} />;
+        }
+
+        if (fileInfo.extension === 'manifest' || fileInfo.extension === 'rman' || fileInfo.file_type === 'application/x-manifest') {
+            return <ManifestViewer key={filePath} filePath={filePath} />;
         }
 
         if (
@@ -304,7 +352,6 @@ export const PreviewPanel: React.FC = () => {
             return <TextPreview key={filePath} filePath={filePath} />;
         }
 
-        // Wwise audio banks (BNK / WPK)
         if (
             fileInfo.extension === 'bnk' || fileInfo.extension === 'wpk' ||
             fileInfo.file_type === 'audio/x-wwise-bnk' || fileInfo.file_type === 'audio/x-wwise-wpk'
@@ -312,14 +359,14 @@ export const PreviewPanel: React.FC = () => {
             return <BnkPreview key={filePath} filePath={filePath} />;
         }
 
-        // 3D model preview for SKN files — no `key` here so swapping files
-        // reuses the same Babylon engine + WebGL context instead of paying
-        // 50–200ms to allocate a new one.
+        if (fileInfo.extension === 'anm' || fileInfo.file_type === 'model/x-lol-anm') {
+            return <AnmPreview key={filePath} filePath={filePath} />;
+        }
+
         if (fileInfo.extension === 'skn' || fileInfo.file_type === 'model/x-lol-skn') {
             return <ModelPreview filePath={filePath} meshType="skinned" />;
         }
 
-        // 3D model preview for SCB/SCO static mesh files
         if (
             fileInfo.extension === 'scb' || fileInfo.extension === 'sco' ||
             fileInfo.file_type === 'model/x-lol-scb' || fileInfo.file_type === 'model/x-lol-sco'
@@ -337,7 +384,6 @@ export const PreviewPanel: React.FC = () => {
 
     return (
         <div className="preview-panel">
-            {/* Toolbar */}
             <div className="preview-panel__toolbar">
                 {isImage && (
                     <div className="preview-panel__zoom-controls">
@@ -372,14 +418,12 @@ export const PreviewPanel: React.FC = () => {
                 <span className="preview-panel__filename">{fileName}</span>
             </div>
 
-            {/* Content */}
             <div className="preview-panel__content">
                 <PreviewErrorBoundary fileKey={filePath}>
                     {renderPreview()}
                 </PreviewErrorBoundary>
             </div>
 
-            {/* Info bar */}
             {fileInfo && (
                 <div className="preview-panel__info-bar">
                     <div className="preview-panel__info-left">
@@ -398,7 +442,6 @@ export const PreviewPanel: React.FC = () => {
                             {formatFileSize(fileInfo.size)}
                         </span>
                     </div>
-                    {/* Conditional buttons for BIN files */}
                     {((fileInfo.extension === 'bin' || fileInfo.file_type === 'application/x-bin') && ((jadePath && jadePath.trim() !== '') || (quartzPath && quartzPath.trim() !== ''))) ? (
                         <div style={{ display: 'flex', gap: '8px' }}>
                             {jadePath && jadePath.trim() !== '' && (
@@ -445,7 +488,6 @@ export const PreviewPanel: React.FC = () => {
                             className="preview-panel__open-btn"
                             onClick={async () => {
                                 try {
-                                    // Normalize path: ensure consistent backslashes for Windows
                                     const normalizedPath = filePath.replace(/\//g, '\\');
                                     await api.openWithDefaultApp(normalizedPath);
                                 } catch (err) {

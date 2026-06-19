@@ -1,14 +1,3 @@
-/**
- * Flint - Full-Resolution Image Modal
- *
- * Triggered by double-clicking a texture card in the folder grid view.
- * Shows the texture at native resolution with pan + scroll-zoom — no fit,
- * no transform pipeline, just the raw pixels in a draggable viewport.
- *
- * Decoding goes through the same `imageCache` path the grid card uses,
- * so opening here right after a thumbnail finishes decoding is instant.
- */
-
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useModalStore } from '../../lib/stores';
 import * as api from '../../lib/api';
@@ -16,9 +5,7 @@ import { getCachedImage, cacheImage } from '../../lib/ui-helpers/imageCache';
 import { Button, Modal, ModalHeader } from '../ui';
 
 interface FullResImageOptions {
-    /** Absolute path of the image file to open. */
     absPath: string;
-    /** Just the filename — shown in the title bar. */
     fileName: string;
 }
 
@@ -45,7 +32,6 @@ export const FullResImageModal: React.FC = () => {
     const dragStateRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
     const viewportRef = useRef<HTMLDivElement>(null);
 
-    // Reset transient state when the modal opens or the target changes.
     useEffect(() => {
         if (!isVisible || !options?.absPath) {
             setSrc(null);

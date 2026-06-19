@@ -1,13 +1,3 @@
-/**
- * Flint - Update Available Modal
- *
- * Polished version that matches the rest of the modal stack: scoped
- * `.modal--update` modifier, icon tile in the header, version-comparison
- * card with arrow + accent-tinted "Latest" pill, release-notes scroll panel,
- * progress bar inline. Install runs silently via NSIS `/S` (configured in
- * tauri.conf.json `plugins.updater.windows.installMode: "quiet"`).
- */
-
 import React, { useState } from 'react';
 import { useModalStore, useNotificationStore, useConfigStore } from '../../lib/stores';
 import * as updater from '../../lib/util/updater';
@@ -25,8 +15,6 @@ import {
 const escapeHtml = (s: string): string =>
     s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-// Minimal GitHub-flavored markdown → HTML renderer for release notes.
-// Handles headings, bold/italic, inline code, links, and simple bullet lists.
 const renderReleaseNotes = (md: string): string => {
     const lines = escapeHtml(md).replace(/\r\n/g, '\n').split('\n');
     const out: string[] = [];
@@ -97,7 +85,6 @@ export const UpdateModal: React.FC = () => {
                     setDownloadProgress(Math.round((downloaded / total) * 100));
                 }
             });
-            // The app relaunches automatically after a successful silent install.
         } catch (err) {
             setIsDownloading(false);
             setDownloadProgress(0);

@@ -15,8 +15,7 @@ export interface ChromaLinks {
     links: ChromaLink[];
 }
 
-/** Port every BIN under skin{baseSkinNum}/ to each requested chroma skin num.
- *  Returns the number of BIN files written. */
+/** Returns the number of BIN files written. */
 export async function portProjectToChromas(
     projectPath: string,
     champion: string,
@@ -31,8 +30,7 @@ export async function portProjectToChromas(
     });
 }
 
-/** Re-derive all chroma BINs linked to `baseBinPath` from the current base content.
- *  Returns project-relative paths of synced chroma BINs. */
+/** Returns project-relative paths of synced chroma BINs. */
 export async function syncChromaBins(
     projectPath: string,
     baseBinPath: string,
@@ -47,7 +45,6 @@ export async function syncChromaBins(
     });
 }
 
-/** Return the chroma-links.json manifest for the given project. */
 export async function getChromaLinks(projectPath: string): Promise<ChromaLinks> {
     return invokeCommand('get_chroma_links', { projectPath });
 }

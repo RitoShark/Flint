@@ -4,7 +4,6 @@ use std::io::{Cursor, Read, Write};
 
 use super::bnk::{AudioEntry, AudioEntryInfo};
 
-/// Parsed WPK metadata returned to the frontend
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WpkInfo {
     pub format: String,
@@ -13,7 +12,6 @@ pub struct WpkInfo {
     pub entries: Vec<AudioEntryInfo>,
 }
 
-/// Internal WPK entry descriptor
 #[derive(Debug, Clone)]
 struct WpkEntry {
     id: u32,
@@ -21,7 +19,6 @@ struct WpkEntry {
     data_length: u32,
 }
 
-/// Parsed WPK file handle
 #[derive(Debug)]
 pub struct WpkFile {
     pub version: u32,
@@ -29,7 +26,6 @@ pub struct WpkFile {
 }
 
 impl WpkFile {
-    /// Parse a WPK file from raw bytes.
     pub fn parse(data: &[u8]) -> Result<Self, String> {
         let mut cursor = Cursor::new(data);
 
@@ -48,7 +44,6 @@ impl WpkFile {
             .read_u32::<LittleEndian>()
             .map_err(|e| format!("Failed to read WPK file count: {e}"))?;
 
-        // Read offset table
         let mut offsets = Vec::with_capacity(file_count as usize);
         for _ in 0..file_count {
             offsets.push(
@@ -62,7 +57,7 @@ impl WpkFile {
 
         for &offset in &offsets {
             if offset == 0 {
-                continue; // Skip padding entries
+                continue;
             }
 
             cursor.set_position(offset as u64);
@@ -85,7 +80,6 @@ impl WpkFile {
                 filename.push(lo as char);
             }
 
-            // Extract ID from filename (e.g. "12345.wem" → 12345)
             let id: u32 = filename
                 .trim_end_matches(".wem")
                 .parse()
@@ -103,7 +97,6 @@ impl WpkFile {
         Ok(WpkFile { version, entries })
     }
 
-    /// Get metadata-only info for all entries.
     pub fn info(&self) -> WpkInfo {
         WpkInfo {
             format: "wpk".into(),
@@ -120,7 +113,6 @@ impl WpkFile {
         }
     }
 
-    /// Read a single entry's WEM data by ID.
     pub fn read_entry_data<'a>(&self, data: &'a [u8], file_id: u32) -> Result<&'a [u8], String> {
         let entry = self
             .entries
@@ -143,7 +135,6 @@ impl WpkFile {
         Ok(&data[start..end])
     }
 
-    /// Read all entries with data.
     pub fn read_all_entries(&self, data: &[u8]) -> Result<Vec<AudioEntry>, String> {
         let mut result = Vec::with_capacity(self.entries.len());
         for entry in &self.entries {
@@ -161,13 +152,11 @@ impl WpkFile {
     }
 }
 
-/// Parse WPK metadata from raw bytes.
 pub fn parse_wpk_metadata(data: &[u8]) -> Result<WpkInfo, String> {
     let wpk = WpkFile::parse(data)?;
     Ok(wpk.info())
 }
 
-/// Read a single entry's WEM data from a WPK buffer.
 pub fn read_wpk_entry(data: &[u8], file_id: u32) -> Result<Vec<u8>, String> {
     let wpk = WpkFile::parse(data)?;
     Ok(wpk.read_entry_data(data, file_id)?.to_vec())
@@ -188,7 +177,6 @@ fn align_up(val: usize, alignment: usize) -> usize {
     }
 }
 
-/// Write a WPK file from a list of audio entries.
 pub fn write_wpk(entries: &[AudioEntry]) -> Vec<u8> {
     let count = entries.len();
 
@@ -196,7 +184,6 @@ pub fn write_wpk(entries: &[AudioEntry]) -> Vec<u8> {
     let header_size = 12 + count * 4;
     let aligned_header = align_up(header_size, WPK_ALIGNMENT);
 
-    // Entry info sizes
     struct EntryLayout {
         info_pos: usize,
         filename: String,
@@ -215,7 +202,6 @@ pub fn write_wpk(entries: &[AudioEntry]) -> Vec<u8> {
         current_pos += aligned_info;
     }
 
-    // Data positions
     let mut data_offsets = Vec::with_capacity(count);
     for entry in entries {
         data_offsets.push(current_pos);
@@ -227,31 +213,26 @@ pub fn write_wpk(entries: &[AudioEntry]) -> Vec<u8> {
     let mut buf = vec![0u8; total_size];
     let mut w = Cursor::new(&mut buf[..]);
 
-    // Write header
     w.write_all(b"r3d2").unwrap();
     w.write_u32::<LittleEndian>(1).unwrap(); // version
     w.write_u32::<LittleEndian>(count as u32).unwrap();
 
-    // Write offset table
     for layout in &layouts {
         w.write_u32::<LittleEndian>(layout.info_pos as u32).unwrap();
     }
 
-    // Write entry infos
     for (i, layout) in layouts.iter().enumerate() {
         w.set_position(layout.info_pos as u64);
         w.write_u32::<LittleEndian>(data_offsets[i] as u32).unwrap();
         w.write_u32::<LittleEndian>(entries[i].data.len() as u32).unwrap();
         w.write_u32::<LittleEndian>(layout.filename.len() as u32).unwrap();
 
-        // Write UTF-16LE filename
         for ch in layout.filename.bytes() {
             w.write_u8(ch).unwrap();
             w.write_u8(0).unwrap();
         }
     }
 
-    // Write audio data
     for (i, entry) in entries.iter().enumerate() {
         buf[data_offsets[i]..data_offsets[i] + entry.data.len()].copy_from_slice(&entry.data);
     }
@@ -259,7 +240,6 @@ pub fn write_wpk(entries: &[AudioEntry]) -> Vec<u8> {
     buf
 }
 
-/// Replace a single entry's audio data in a WPK buffer, returning the new WPK.
 pub fn replace_wpk_entry(data: &[u8], file_id: u32, new_wem: &[u8]) -> Result<Vec<u8>, String> {
     let wpk = WpkFile::parse(data)?;
     let mut entries = wpk.read_all_entries(data)?;
@@ -273,7 +253,6 @@ pub fn replace_wpk_entry(data: &[u8], file_id: u32, new_wem: &[u8]) -> Result<Ve
     Ok(write_wpk(&entries))
 }
 
-/// Remove an entry from the package entirely.
 pub fn remove_wpk_entry(data: &[u8], file_id: u32) -> Result<Vec<u8>, String> {
     let wpk = WpkFile::parse(data)?;
     let mut entries = wpk.read_all_entries(data)?;

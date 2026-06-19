@@ -1,184 +1,206 @@
 //! Simple BIN roundtrip test tool
-//! 
+//!
 //! Usage: cargo run --bin bin_roundtrip_test -- <path_to_bin_file>
-//! 
-//! This tool:
-//! 1. Reads a BIN file
-//! 2. Parses it with ltk_meta
-//! 3. Writes it back using ltk_meta
-//! 4. Compares the sizes and object counts
-//! 5. Outputs both versions for comparison
 
 use std::env;
 use std::fs;
-use std::io::Cursor;
 use std::path::Path;
 
-use flint_ltk::ltk_types::{Bin, HashMapProvider, write_with_hashes};
+use flint_ltk::ltk_types::{Bin, HashMapper};
+use ritoshark::bin::{from_text, to_text};
+use ritoshark::prelude::{Parse as _, Serialize as _};
+
 fn main() {
     let args: Vec<String> = env::args().collect();
-    
+
     if args.len() < 2 {
         eprintln!("Usage: {} <path_to_bin_file>", args[0]);
         eprintln!("Example: {} C:/path/to/skin0.bin", args[0]);
         std::process::exit(1);
     }
-    
+
     let input_path = Path::new(&args[1]);
-    
+
     if !input_path.exists() {
         eprintln!("ERROR: File not found: {}", input_path.display());
         std::process::exit(1);
     }
-    
+
     println!("=== BIN Roundtrip Test ===\n");
     println!("Input file: {}", input_path.display());
-    
-    // Step 1: Read original file
+
     let original_data = fs::read(input_path).expect("Failed to read input file");
     let original_size = original_data.len();
-    
+
     println!("\n--- Step 1: Original File ---");
     println!("Size: {} bytes", original_size);
     println!("Magic: {:?}", String::from_utf8_lossy(&original_data[0..4]));
-    
-    // Step 2: Parse with ltk_meta
-    println!("\n--- Step 2: Parsing with ltk_meta ---");
-    let mut cursor = Cursor::new(&original_data);
-    let bin_tree = match Bin::from_reader(&mut cursor) {
-        Ok(tree) => tree,
+
+    println!("\n--- Step 2: Parsing with rs_bin ---");
+    let bin = match Bin::from_bytes(&original_data) {
+        Ok(b) => b,
         Err(e) => {
             eprintln!("ERROR: Failed to parse BIN: {:?}", e);
             std::process::exit(1);
         }
     };
-    
-    println!("Objects count: {}", bin_tree.objects.len());
-    println!("Dependencies count: {}", bin_tree.dependencies.len());
-    
-    // List objects
-    println!("\nObjects (entry path hashes):");
-    for (hash, obj) in &bin_tree.objects {
-        let prop_count = obj.properties.len();
-        println!("  0x{:08x} (class: 0x{:08x}) - {} properties", hash, obj.class_hash, prop_count);
+
+    println!("Entries count: {}", bin.entries.len());
+    println!("Linked count: {}", bin.linked.len());
+
+    println!("\nEntries (path hashes):");
+    for entry in &bin.entries {
+        println!(
+            "  0x{:08x} (class: 0x{:08x}) - {} fields",
+            entry.path_hash,
+            entry.class_hash,
+            entry.fields.len()
+        );
     }
-    
-    // List dependencies
-    if !bin_tree.dependencies.is_empty() {
-        println!("\nDependencies (linked BINs):");
-        for dep in &bin_tree.dependencies {
+
+    if !bin.linked.is_empty() {
+        println!("\nLinked (dependency BINs):");
+        for dep in &bin.linked {
             println!("  {}", dep);
         }
     }
-    
-    // Step 3: Write back with ltk_meta
-    println!("\n--- Step 3: Writing back with ltk_meta ---");
-    let mut output_cursor = Cursor::new(Vec::new());
-    if let Err(e) = bin_tree.to_writer(&mut output_cursor) {
-        eprintln!("ERROR: Failed to write BIN: {:?}", e);
-        std::process::exit(1);
-    }
-    let output_data = output_cursor.into_inner();
+
+    println!("\n--- Step 3: Writing back with rs_bin ---");
+    let output_data = match bin.to_bytes() {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("ERROR: Failed to write BIN: {:?}", e);
+            std::process::exit(1);
+        }
+    };
     let output_size = output_data.len();
-    
+
     println!("Output size: {} bytes", output_size);
     println!("Size difference: {} bytes", output_size as i64 - original_size as i64);
-    
-    // Step 4: Re-parse the output to verify
+
     println!("\n--- Step 4: Re-parsing output ---");
-    let mut verify_cursor = Cursor::new(&output_data);
-    let verify_tree = match Bin::from_reader(&mut verify_cursor) {
-        Ok(tree) => tree,
+    let verify = match Bin::from_bytes(&output_data) {
+        Ok(b) => b,
         Err(e) => {
             eprintln!("ERROR: Failed to re-parse output: {:?}", e);
             std::process::exit(1);
         }
     };
-    
-    println!("Verified objects count: {}", verify_tree.objects.len());
-    println!("Verified dependencies count: {}", verify_tree.dependencies.len());
-    
-    // Step 5: Compare
+
+    println!("Verified entries count: {}", verify.entries.len());
+    println!("Verified linked count: {}", verify.linked.len());
+
     println!("\n--- Step 5: Comparison ---");
-    let objects_match = bin_tree.objects.len() == verify_tree.objects.len();
-    let deps_match = bin_tree.dependencies.len() == verify_tree.dependencies.len();
-    
-    if objects_match {
-        println!("✅ Object count matches: {}", bin_tree.objects.len());
+    let entries_match = bin.entries.len() == verify.entries.len();
+    let linked_match = bin.linked.len() == verify.linked.len();
+    let bytes_match = original_data == output_data;
+
+    if entries_match {
+        println!("[ok] Entry count matches: {}", bin.entries.len());
     } else {
-        println!("❌ Object count MISMATCH: {} -> {}", bin_tree.objects.len(), verify_tree.objects.len());
+        println!("[!!] Entry count MISMATCH: {} -> {}", bin.entries.len(), verify.entries.len());
     }
-    
-    if deps_match {
-        println!("✅ Dependencies count matches: {}", bin_tree.dependencies.len());
+
+    if linked_match {
+        println!("[ok] Linked count matches: {}", bin.linked.len());
     } else {
-        println!("❌ Dependencies count MISMATCH: {} -> {}", bin_tree.dependencies.len(), verify_tree.dependencies.len());
+        println!("[!!] Linked count MISMATCH: {} -> {}", bin.linked.len(), verify.linked.len());
     }
-    
-    // Step 6: Convert to text for visual comparison (WITH HASH RESOLUTION)
+
+    if bytes_match {
+        println!("[ok] Binary output is byte-identical to input");
+    } else {
+        println!("[!!] Binary output differs from input ({} -> {} bytes)", original_size, output_size);
+    }
+
     println!("\n--- Step 6: Converting to ritobin text with hash resolution ---");
-    
-    // Load hashes from RitoShark directory
-    let mut hashes = HashMapProvider::new();
+
+    let mut hashes = HashMapper::new();
     if let Ok(appdata) = std::env::var("APPDATA") {
         let hash_dir = std::path::PathBuf::from(appdata)
             .join("RitoShark")
             .join("Requirements")
             .join("Hashes");
-        
+
         if hash_dir.exists() {
             println!("Loading hashes from: {}", hash_dir.display());
-            hashes.load_from_directory(&hash_dir);
-            println!("Loaded {} total hashes", hashes.total_count());
+            // CDTB dictionaries are `<hex> <name>` per line; merge every file in the
+            // directory into one shared mapper (HashMapper has no cross-file merge,
+            // so parse the lines directly).
+            for entry in fs::read_dir(&hash_dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if !path.is_file() {
+                    continue;
+                }
+                let text = match fs::read_to_string(&path) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("WARNING: failed to read {}: {:?}", path.display(), e);
+                        continue;
+                    }
+                };
+                for line in text.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    if let Some((hex, name)) = trimmed.split_once(' ') {
+                        if let Ok(h) = u64::from_str_radix(hex, 16) {
+                            hashes.insert(h, name.to_string());
+                        }
+                    }
+                }
+            }
+            println!("Loaded {} total hashes", hashes.len());
         } else {
             println!("WARNING: Hash directory not found: {}", hash_dir.display());
         }
     }
-    
-    let original_text = match write_with_hashes(&bin_tree, &hashes) {
-        Ok(text) => text,
-        Err(e) => {
-            eprintln!("WARNING: Failed to convert to text: {:?}", e);
-            String::new()
+
+    let original_text = to_text(&bin, Some(&hashes));
+    let output_text = to_text(&verify, Some(&hashes));
+
+    println!("\n--- Step 7: text -> bin -> text round-trip ---");
+    match from_text(&original_text, None) {
+        Ok(reparsed) => {
+            let retext = to_text(&reparsed, Some(&hashes));
+            if retext == original_text {
+                println!("[ok] text round-trip is stable");
+            } else {
+                println!("[!!] text round-trip DIFFERS (parse(text) -> text not identical)");
+            }
         }
-    };
-    
-    let output_text = match write_with_hashes(&verify_tree, &hashes) {
-        Ok(text) => text,
         Err(e) => {
-            eprintln!("WARNING: Failed to convert output to text: {:?}", e);
-            String::new()
+            eprintln!("WARNING: Failed to re-parse text form: {:?}", e);
         }
-    };
-    
-    // Save outputs
+    }
+
     let parent = input_path.parent().unwrap_or(Path::new("."));
     let stem = input_path.file_stem().unwrap_or_default().to_string_lossy();
-    
+
     let output_bin_path = parent.join(format!("{}_roundtrip.bin", stem));
     let original_text_path = parent.join(format!("{}_original.ritobin", stem));
     let output_text_path = parent.join(format!("{}_roundtrip.ritobin", stem));
-    
+
     fs::write(&output_bin_path, &output_data).expect("Failed to write output bin");
     fs::write(&original_text_path, &original_text).expect("Failed to write original text");
     fs::write(&output_text_path, &output_text).expect("Failed to write output text");
-    
+
     println!("\nSaved files:");
     println!("  Binary: {}", output_bin_path.display());
     println!("  Original text: {}", original_text_path.display());
     println!("  Roundtrip text: {}", output_text_path.display());
-    
-    // Final verdict
+
     println!("\n=== VERDICT ===");
-    if original_size == output_size && objects_match && deps_match {
-        println!("✅ Roundtrip appears SUCCESSFUL - no obvious data loss");
+    if bytes_match && entries_match && linked_match {
+        println!("[ok] Roundtrip appears SUCCESSFUL - byte-identical, no data loss");
     } else {
-        println!("⚠️  Roundtrip shows DIFFERENCES:");
+        println!("[!!] Roundtrip shows DIFFERENCES:");
         println!("   Size: {} -> {} ({} bytes)", original_size, output_size, output_size as i64 - original_size as i64);
-        println!("   Objects: {} -> {}", bin_tree.objects.len(), verify_tree.objects.len());
-        println!("   Deps: {} -> {}", bin_tree.dependencies.len(), verify_tree.dependencies.len());
+        println!("   Entries: {} -> {}", bin.entries.len(), verify.entries.len());
+        println!("   Linked: {} -> {}", bin.linked.len(), verify.linked.len());
     }
-    
-    println!("\n💡 Compare the .ritobin files to see exactly what changed!");
+
+    println!("\nCompare the .ritobin files to see exactly what changed!");
     println!("   Use: diff {} {}", original_text_path.display(), output_text_path.display());
 }

@@ -20,10 +20,6 @@ export interface BakedAnimationDTO {
     tracks: AnmTrackDTO[];
 }
 
-/**
- * Handles client-side playback of pre-baked skeletal animations.
- * Performs linear/spherical interpolation without garbage collection pressure.
- */
 export class AnimationPlayer {
     private animation: BakedAnimationDTO;
     private resolved: Array<{ bone: Bone; track: AnmTrackDTO }>;
@@ -33,7 +29,6 @@ export class AnimationPlayer {
     public loop: boolean = true;
     public speed: number = 1;
 
-    // Pre-allocated scratch objects to avoid garbage collection stutters
     private _t = new Vector3();
     private _r = new Quaternion();
     private _s = new Vector3();

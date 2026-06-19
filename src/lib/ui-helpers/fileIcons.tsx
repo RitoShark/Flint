@@ -1,8 +1,3 @@
-/**
- * Flint - File Icons (VS Code Symbols Style)
- * High-quality SVG icons from vscode-symbols
- */
-
 // =============================================================================
 // SVG Icon Definitions - VS Code Symbols Style (24x24 viewBox)
 // =============================================================================
@@ -213,15 +208,11 @@ const extensionMap: Record<string, keyof typeof icons> = {
 // Exported Functions
 // =============================================================================
 
-/**
- * Get file icon SVG based on extension
- */
 export function getFileIcon(name: string, isFolder: boolean, isExpanded = false): string {
     if (isFolder) {
         return isExpanded ? icons.folderOpen : icons.folder;
     }
 
-    // Defensive check for undefined/null name
     if (!name) {
         return icons.file;
     }
@@ -231,23 +222,14 @@ export function getFileIcon(name: string, isFolder: boolean, isExpanded = false)
     return iconType ? icons[iconType] : icons.file;
 }
 
-/**
- * Get expander/chevron icon
- */
 export function getExpanderIcon(isExpanded: boolean): string {
     return isExpanded ? icons.chevronDown : icons.chevronRight;
 }
 
-/**
- * Get specific icon by name
- */
 export function getIcon(name: keyof typeof icons): string {
     return icons[name] || icons.file;
 }
 
-/**
- * Get toast notification icon
- */
 export function getToastIcon(type: 'info' | 'success' | 'warning' | 'error'): string {
     return icons[type] || icons.info;
 }

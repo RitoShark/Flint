@@ -37,22 +37,19 @@ pub struct Checkpoint {
     pub file_manifest: HashMap<String, FileEntry>, // path -> Entry
 }
 
-/// Content types returned when reading a checkpoint file for preview
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum CheckpointFileContent {
-    /// Base64-encoded PNG image data
+    /// Base64-encoded PNG image data.
     #[serde(rename = "image")]
     Image { data: String, width: u32, height: u32 },
-    /// Text file content
     #[serde(rename = "text")]
     Text { data: String },
-    /// Binary file (only size returned)
+    /// Only size is returned.
     #[serde(rename = "binary")]
     Binary { size: u64 },
 }
 
-/// Progress information emitted during checkpoint creation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointProgress {
     pub phase: String,
@@ -60,12 +57,10 @@ pub struct CheckpointProgress {
     pub total: u64,
 }
 
-/// Directories/files to skip when scanning or cleaning
 fn should_skip_dir(name: &str) -> bool {
     matches!(name, ".flint" | ".git" | "node_modules" | "output")
 }
 
-/// Collect all project files (excluding internal dirs), returning their paths
 fn collect_project_files(project_path: &Path) -> Vec<PathBuf> {
     WalkDir::new(project_path)
         .into_iter()
@@ -118,14 +113,12 @@ impl CheckpointManager {
     where
         F: Fn(&str, u64, u64),
     {
-        // Phase 1: Collect all files first (for progress tracking)
         if let Some(ref cb) = progress {
             cb("Scanning files...", 0, 0);
         }
         let files = collect_project_files(&self.project_path);
         let total = files.len() as u64;
 
-        // Phase 2: Hash and store each file
         let mut manifest = HashMap::new();
         for (i, full_path) in files.iter().enumerate() {
             if let Some(ref cb) = progress {
@@ -162,7 +155,6 @@ impl CheckpointManager {
         Ok(checkpoint)
     }
 
-    /// Create a checkpoint (no progress callback)
     pub fn create_checkpoint(&self, message: String, tags: Vec<String>) -> Result<Checkpoint> {
         self.create_checkpoint_with_progress(message, tags, None::<fn(&str, u64, u64)>)
     }
@@ -239,7 +231,6 @@ impl CheckpointManager {
             }
         }
 
-        // Sort by timestamp descending
         checkpoints.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
         Ok(checkpoints)
     }
@@ -251,11 +242,9 @@ impl CheckpointManager {
     pub fn restore_checkpoint(&self, id: &str) -> Result<()> {
         let checkpoint = self.load_checkpoint(id)?;
 
-        // 1. Auto-backup current state before restoring
         let backup_msg = format!("Auto-backup before restore to: {}", checkpoint.message);
         self.create_checkpoint(backup_msg, vec!["auto-backup".to_string()])?;
 
-        // 2. Delete files NOT in the checkpoint manifest
         let current_files = collect_project_files(&self.project_path);
         for file_path in &current_files {
             let relative = file_path.strip_prefix(&self.project_path)
@@ -264,18 +253,16 @@ impl CheckpointManager {
                 .to_string()
                 .replace('\\', "/");
 
-            // Skip project.json (metadata shouldn't be reverted)
+            // project.json metadata shouldn't be reverted.
             if relative == "project.json" {
                 continue;
             }
 
             if !checkpoint.file_manifest.contains_key(&relative) {
-                // File doesn't exist in checkpoint - remove it
                 let _ = fs::remove_file(file_path);
             }
         }
 
-        // 3. Restore all files from manifest
         for (rel_path, entry) in &checkpoint.file_manifest {
             let target_path = self.project_path.join(rel_path.replace('/', "\\"));
             let object_path = self.object_store.join(&entry.hash[..2]).join(&entry.hash);
@@ -291,15 +278,12 @@ impl CheckpointManager {
             fs::copy(&object_path, &target_path).map_err(|e| Error::io_with_path(e, &target_path))?;
         }
 
-        // 4. Clean up empty directories left after file deletion
         self.cleanup_empty_dirs()?;
 
         Ok(())
     }
 
-    /// Remove empty directories in the project (after file deletion during restore)
     fn cleanup_empty_dirs(&self) -> Result<()> {
-        // Walk bottom-up to clean nested empty dirs
         let mut dirs: Vec<PathBuf> = WalkDir::new(&self.project_path)
             .into_iter()
             .filter_entry(|e| {
@@ -315,7 +299,6 @@ impl CheckpointManager {
             .map(|e| e.into_path())
             .collect();
 
-        // Sort by depth descending (deepest dirs first)
         dirs.sort_by_key(|b| std::cmp::Reverse(b.components().count()));
 
         for dir in dirs {
@@ -341,7 +324,7 @@ impl CheckpointManager {
                 Some(old) if old.hash != entry.hash => {
                     diff.modified.push((old.clone(), entry.clone()));
                 }
-                _ => {} // Unchanged
+                _ => {}
             }
         }
 
@@ -362,8 +345,6 @@ impl CheckpointManager {
         Ok(())
     }
 
-    /// Read a stored object file by its hash for preview purposes.
-    /// Returns raw bytes of the file from the object store.
     pub fn read_object_file(&self, hash: &str) -> Result<Vec<u8>> {
         let object_path = self.object_store.join(&hash[..2]).join(hash);
         if !object_path.exists() {
@@ -372,10 +353,8 @@ impl CheckpointManager {
         fs::read(&object_path).map_err(|e| Error::io_with_path(e, &object_path))
     }
 
-    /// Read a checkpoint file and return its content in a preview-friendly format.
-    /// For textures (DDS/TEX): decode to base64 PNG
-    /// For text files: return string content
-    /// For other files: return size info
+    /// Textures (DDS/TEX) decode to base64 PNG; text files return string content;
+    /// everything else returns size info.
     pub fn read_checkpoint_file(&self, hash: &str, file_path: &str) -> Result<CheckpointFileContent> {
         let data = self.read_object_file(hash)?;
         let ext = Path::new(file_path)
@@ -385,19 +364,16 @@ impl CheckpointManager {
             .to_lowercase();
 
         match ext.as_str() {
-            // Texture files - decode to PNG
             "dds" | "tex" => {
                 match Self::decode_texture_to_png(&data) {
                     Ok((base64_data, width, height)) => {
                         Ok(CheckpointFileContent::Image { data: base64_data, width, height })
                     }
                     Err(_) => {
-                        // If decoding fails, return as binary
                         Ok(CheckpointFileContent::Binary { size: data.len() as u64 })
                     }
                 }
             }
-            // Image files that are already standard formats
             "png" | "jpg" | "jpeg" => {
                 use base64::{engine::general_purpose::STANDARD, Engine};
                 let base64_data = STANDARD.encode(&data);
@@ -411,42 +387,41 @@ impl CheckpointManager {
                     height: 0,
                 })
             }
-            // Text-based files
             "json" | "txt" | "lua" | "xml" | "ritobin" | "py" | "cfg" | "ini" | "yaml" | "yml" | "toml" | "md" => {
                 match String::from_utf8(data.clone()) {
                     Ok(text) => Ok(CheckpointFileContent::Text { data: text }),
                     Err(_) => Ok(CheckpointFileContent::Binary { size: data.len() as u64 }),
                 }
             }
-            // Everything else
             _ => Ok(CheckpointFileContent::Binary { size: data.len() as u64 }),
         }
     }
 
-    /// Decode DDS/TEX texture data to base64 PNG
     fn decode_texture_to_png(data: &[u8]) -> std::result::Result<(String, u32, u32), String> {
-        use ltk_texture::Texture;
-        use std::io::Cursor;
+        use ritoshark::prelude::*;
+        use ritoshark::tex::Texture;
         use base64::{engine::general_purpose::STANDARD, Engine};
 
         if data.len() < 4 {
             return Err("File too small".to_string());
         }
 
-        let mut cursor = Cursor::new(data);
-        let texture = Texture::from_reader(&mut cursor)
-            .map_err(|e| format!("Failed to parse texture: {:?}", e))?;
+        // RitoShark's `Texture` is one struct; branch on the 4-byte magic
+        // (b"DDS " → from_dds_bytes, otherwise TEX → from_bytes).
+        let texture = if &data[0..4] == b"DDS " {
+            Texture::from_dds_bytes(data)
+                .map_err(|e| format!("Failed to parse texture: {:?}", e))?
+        } else {
+            Texture::from_bytes(data)
+                .map_err(|e| format!("Failed to parse texture: {:?}", e))?
+        };
 
-        let width = texture.width();
-        let height = texture.height();
-
-        let surface = texture
-            .decode_mipmap(0)
+        let rgba_image = texture
+            .decode_rgba()
             .map_err(|e| format!("Failed to decode texture: {:?}", e))?;
 
-        let rgba_image = surface
-            .into_rgba_image()
-            .map_err(|e| format!("Failed to convert to RGBA: {:?}", e))?;
+        let width = rgba_image.width();
+        let height = rgba_image.height();
 
         let mut png_data = Vec::new();
         {
@@ -461,22 +436,18 @@ impl CheckpointManager {
         Ok((base64_data, width, height))
     }
 
-    /// Get file status compared to the latest checkpoint
-    /// Returns a map of relative paths to their status (Modified, New)
+    /// Returns a map of relative paths to their status (M / N / D).
     pub fn get_file_changes(&self) -> Result<HashMap<String, String>> {
-        // Get latest checkpoint
         let checkpoints = self.list_checkpoints()?;
         let latest = match checkpoints.first() {
             Some(cp) => cp,
             None => {
-                // No checkpoint exists - all files are "new"
                 return Ok(HashMap::new());
             }
         };
 
         let mut changes = HashMap::new();
 
-        // Collect current files
         let current_files = collect_project_files(&self.project_path);
 
         for file_path in current_files {
@@ -486,29 +457,24 @@ impl CheckpointManager {
                 .to_string()
                 .replace('\\', "/");
 
-            // Skip internal files
             if relative.starts_with(".flint/") {
                 continue;
             }
 
-            // Calculate hash of current file
             let data = fs::read(&file_path).map_err(|e| Error::io_with_path(e, &file_path))?;
             let mut hasher = Sha256::new();
             hasher.update(&data);
             let current_hash = format!("{:x}", hasher.finalize());
 
             if let Some(entry) = latest.file_manifest.get(&relative) {
-                // File exists in checkpoint - check if modified
                 if entry.hash != current_hash {
                     changes.insert(relative, "M".to_string());
                 }
             } else {
-                // File doesn't exist in checkpoint - it's new
                 changes.insert(relative, "N".to_string());
             }
         }
 
-        // Check for deleted files (in checkpoint but not in current files)
         for path in latest.file_manifest.keys() {
             if path.starts_with(".flint/") {
                 continue;

@@ -1,7 +1,4 @@
-//! Project management for Flint
-//!
-//! This module provides data structures and logic for creating, loading,
-//! and saving Flint mod projects using the league-mod compatible format.
+//! Creating, loading, and saving Flint mod projects in the league-mod format.
 
 use crate::error::{Error, Result};
 use chrono::{DateTime, Utc};
@@ -11,16 +8,12 @@ use std::fs::{self, File};
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 
-/// Project config file name (league-mod compatible)
 const PROJECT_FILE: &str = "mod.config.json";
 
-/// Flint metadata file name
 const FLINT_FILE: &str = "flint.json";
 
-/// What kind of project this is. Drives which fields in `flint.json` are
-/// meaningful (e.g. `skin_id` only applies to Skin projects, `map_id` only
-/// applies to Map projects). Persisted as a kebab-case string so the JSON
-/// reads naturally: `"kind": "skin" | "map" | "loading-screen"`.
+/// Drives which fields in `flint.json` are meaningful. Persisted as kebab-case
+/// (`"skin" | "map" | "loading-screen" | "tft"`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProjectKind {
@@ -45,31 +38,23 @@ impl ProjectKind {
 fn is_zero_u32(v: &u32) -> bool { *v == 0 }
 fn is_empty_string(s: &str) -> bool { s.is_empty() }
 
-/// Flint-specific metadata (stored separately from mod.config.json).
-///
-/// Only the fields meaningful for the project's `kind` are written to disk —
-/// e.g. a Map project does NOT serialize `champion` / `skin_id`, and a Skin
-/// project does NOT serialize `map_id`. Backward-compat with older files
-/// that pre-date the `kind` field is handled in `open_project` via the
-/// legacy-tag heuristic on `champion`.
+/// Flint-specific metadata (stored separately from mod.config.json). Only the
+/// fields meaningful for the project's `kind` are written.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlintMetadata {
-    /// Stable project id (UUID v4). Generated on creation; the projects
-    /// index uses this to track moves/renames across sessions.
+    /// Stable project id (UUID v4); the index tracks moves/renames by it.
     #[serde(default)]
     pub pid: String,
 
-    /// What kind of project this is. Older files default to Skin.
+    /// Older files default to Skin.
     #[serde(default)]
     pub kind: ProjectKind,
 
-    /// Champion internal name (e.g., "Ahri"). Empty / omitted for non-skin
-    /// projects.
+    /// Champion internal name (e.g., "Ahri"). Empty / omitted for non-skin projects.
     #[serde(default, skip_serializing_if = "is_empty_string")]
     pub champion: String,
 
-    /// Skin ID (0 for base skin). Only meaningful — and only written — for
-    /// Skin projects.
+    /// Skin ID (0 for base skin). Only written for Skin projects.
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub skin_id: u32,
 
@@ -77,93 +62,73 @@ pub struct FlintMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub map_id: Option<String>,
 
-    /// Path to League of Legends installation
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub league_path: Option<PathBuf>,
 
-    /// When the project was created (ISO 8601)
     pub created_at: DateTime<Utc>,
 
-    /// When the project was last modified (ISO 8601)
     pub modified_at: DateTime<Utc>,
 }
 
-/// Represents a Flint mod project (runtime representation)
-/// 
-/// This struct combines league-mod compatible ModProject with Flint-specific
-/// champion/skin data needed for the extraction workflow.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Project {
     // ===== League-mod compatible fields (from mod.config.json) =====
-    
-    /// The name of the mod (slug format, no spaces)
+
+    /// Slug format, no spaces.
     pub name: String,
-    
-    /// The display name of the mod
+
     pub display_name: String,
-    
-    /// The version of the mod (semver format)
+
+    /// Semver format.
     pub version: String,
-    
-    /// The description of the mod
+
     pub description: String,
-    
-    /// Layers of the mod project
+
     #[serde(default = "default_layers")]
     pub layers: Vec<ModProjectLayer>,
-    
-    /// Authors of the mod (stored as strings for Clone compatibility)
-    /// Custom deserializer handles both plain strings and ModProjectAuthor objects
+
+    /// Stored as strings for Clone compatibility; the deserializer accepts
+    /// both plain strings and ModProjectAuthor objects.
     #[serde(default, deserialize_with = "deserialize_authors")]
     pub authors: Vec<String>,
-    
+
     // ===== Flint-specific fields (from flint.json, populated at runtime) =====
 
-    /// Stable project id (UUID v4). Persists across moves so projects.json
-    /// can re-discover a project after the user relocates the folder.
+    /// Stable project id (UUID v4), persisting across moves.
     #[serde(default)]
     pub pid: String,
 
-    /// What kind of project this is — drives which of the type-specific
-    /// fields below are meaningful.
+    /// Drives which type-specific fields below are meaningful.
     #[serde(default)]
     pub kind: ProjectKind,
 
-    /// Champion internal name (e.g., "Ahri") - skin projects only
+    /// Champion internal name (e.g., "Ahri") - skin projects only.
     #[serde(default)]
     pub champion: String,
 
-    /// Skin ID (0 for base skin) - skin projects only
+    /// Skin ID (0 for base skin) - skin projects only.
     #[serde(default)]
     pub skin_id: u32,
 
-    /// Map id (e.g. "map11") - map projects only
+    /// Map id (e.g. "map11") - map projects only.
     #[serde(default)]
     pub map_id: Option<String>,
 
-    /// Path to League of Legends installation - Flint specific
     #[serde(skip)]
     pub league_path: Option<PathBuf>,
 
-    /// Path to the project directory
     #[serde(default)]
     pub project_path: PathBuf,
-    
-    /// When the project was created
+
     #[serde(skip)]
     pub created_at: DateTime<Utc>,
-    
-    /// When the project was last modified
+
     #[serde(skip)]
     pub modified_at: DateTime<Utc>,
 }
 
-/// Deserialize authors from any format:
-/// - Plain string: "Author" → "Author"
-/// - Untagged Name: "Author" → "Author" (same as above, serde untagged)
-/// - Untagged Role: {"name":"Author","role":"Creator"} → "Author"
-/// - Legacy tagged Name: {"Name":"Author"} → "Author"
-/// - Legacy tagged NameAndRole: {"NameAndRole":{"name":"Author","role":"Creator"}} → "Author"
+/// Accepts plain strings, untagged `{name, role}`, and legacy tagged `{Name}` /
+/// `{NameAndRole: {name, role}}`, extracting the name in each case.
 fn deserialize_authors<'de, D>(deserializer: D) -> std::result::Result<Vec<String>, D::Error>
 where
     D: Deserializer<'de>,
@@ -173,15 +138,12 @@ where
         match &v {
             serde_json::Value::String(s) => Some(s.clone()),
             serde_json::Value::Object(map) => {
-                // Untagged Role variant: {"name": "...", "role": "..."}
                 if let Some(serde_json::Value::String(name)) = map.get("name") {
                     return Some(name.clone());
                 }
-                // Legacy tagged Name: {"Name": "..."}
                 if let Some(serde_json::Value::String(name)) = map.get("Name") {
                     return Some(name.clone());
                 }
-                // Legacy tagged NameAndRole: {"NameAndRole": {"name": "...", "role": "..."}}
                 if let Some(serde_json::Value::Object(inner)) = map.get("NameAndRole") {
                     if let Some(serde_json::Value::String(name)) = inner.get("name") {
                         return Some(name.clone());
@@ -195,7 +157,6 @@ where
 }
 
 impl Project {
-    /// Creates a new project
     pub fn new(
         name: impl Into<String>,
         champion: impl Into<String>,
@@ -208,9 +169,8 @@ impl Project {
         let name_str = name.into();
         let champion_str = champion.into();
 
-        // Store author as simple string
         let authors = author.into_iter().collect::<Vec<_>>();
-        
+
         Self {
             name: slugify(&name_str),
             display_name: name_str,
@@ -230,9 +190,7 @@ impl Project {
         }
     }
 
-    /// Mark this project as a map project. Clears the skin-specific fields so
-    /// flint.json doesn't end up with `champion: "map-..."` / `skin_id: 0`
-    /// noise — those belong to skin projects only.
+    /// Clears the skin-specific fields.
     pub fn into_map(mut self, map_id: impl Into<String>) -> Self {
         self.kind = ProjectKind::Map;
         self.map_id = Some(map_id.into());
@@ -241,8 +199,7 @@ impl Project {
         self
     }
 
-    /// Mark this project as a loading-screen project. Clears the
-    /// champion/skin fields for the same reason as `into_map`.
+    /// Clears the champion/skin fields.
     pub fn into_loading_screen(mut self) -> Self {
         self.kind = ProjectKind::LoadingScreen;
         self.map_id = None;
@@ -251,7 +208,6 @@ impl Project {
         self
     }
 
-    /// Mark this project as a TFT project.
     pub fn into_tft(mut self, wad_alias: impl Into<String>, skin_id: u32) -> Self {
         self.kind = ProjectKind::Tft;
         self.champion = wad_alias.into();
@@ -260,7 +216,6 @@ impl Project {
         self
     }
 
-    /// Convert to ltk_mod_project::ModProject for export compatibility
     pub fn to_mod_project(&self) -> ModProject {
         ModProject {
             name: self.name.clone(),
@@ -275,7 +230,6 @@ impl Project {
         }
     }
 
-    /// Get FlintMetadata from this project
     pub fn to_flint_metadata(&self) -> FlintMetadata {
         FlintMetadata {
             pid: self.pid.clone(),
@@ -289,42 +243,30 @@ impl Project {
         }
     }
 
-    /// Returns the path to the mod.config.json file
     pub fn config_path(&self) -> PathBuf {
         self.project_path.join(PROJECT_FILE)
     }
-    
-    /// Returns the path to the flint.json file
+
     pub fn flint_path(&self) -> PathBuf {
         self.project_path.join(FLINT_FILE)
     }
 
-    /// Returns the path to the content directory for a specific layer
     pub fn content_path(&self, layer: &str) -> PathBuf {
         self.project_path.join("content").join(layer)
     }
 
-    /// Returns the path to the base layer content (default for assets)
-    /// This is the league-mod compatible path: content/base
+    /// The league-mod compatible default asset path: content/base.
     pub fn assets_path(&self) -> PathBuf {
         self.content_path("base")
     }
 
-    /// Returns the path to the output directory
     pub fn output_path(&self) -> PathBuf {
         self.project_path.join("output")
     }
 }
 
-/// Creates a new project with the required directory structure
-///
-/// # Arguments
-/// * `name` - Project name (used as folder name)
-/// * `champion` - Champion internal name
-/// * `skin_id` - Skin ID
-/// * `league_path` - Path to League installation
-/// * `output_dir` - Directory where project folder will be created
-/// * `author` - Optional author/creator name
+/// Creates a new project with the required directory structure. `champion` may
+/// be empty for non-skin project types (loading-screen, map).
 pub fn create_project(
     name: &str,
     champion: &str,
@@ -335,33 +277,25 @@ pub fn create_project(
 ) -> Result<Project> {
     tracing::info!("Creating project '{}' for {} skin {}", name, champion, skin_id);
 
-    // Validate inputs
     if name.is_empty() {
         return Err(Error::InvalidInput("Project name cannot be empty".to_string()));
     }
-    // NOTE: champion may legitimately be empty for non-skin project types
-    // (loading-screen, map). The skin Tauri command validates champion
-    // existence earlier via find_champion_wad, so we don't need to guard
-    // here.
     if !league_path.exists() {
         return Err(Error::InvalidInput(format!(
             "League path does not exist: {}",
             league_path.display()
         )));
     }
-    
-    // Create output directory if it doesn't exist
+
     if !output_dir.exists() {
         fs::create_dir_all(output_dir)
             .map_err(|e| Error::io_with_path(e, output_dir))?;
         tracing::info!("Created output directory: {}", output_dir.display());
     }
 
-    // Create project directory name (no .flint extension, like league-mod)
     let project_dir_name = sanitize_filename(name);
     let project_path = output_dir.join(&project_dir_name);
 
-    // Check if project already exists
     if project_path.exists() {
         return Err(Error::InvalidInput(format!(
             "Project already exists at: {}",
@@ -369,7 +303,6 @@ pub fn create_project(
         )));
     }
 
-    // Create project
     let project = Project::new(
         name,
         champion,
@@ -379,22 +312,18 @@ pub fn create_project(
         author,
     );
 
-    // Create directories
     fs::create_dir_all(&project_path)
         .map_err(|e| Error::io_with_path(e, &project_path))?;
-    
-    // Create content/base directory (league-mod compatible)
+
     fs::create_dir_all(project.assets_path())
         .map_err(|e| Error::io_with_path(e, project.assets_path()))?;
-    
+
     fs::create_dir_all(project.output_path())
         .map_err(|e| Error::io_with_path(e, project.output_path()))?;
 
-    // Save project files
     save_project(&project)?;
 
-    // Register in projects.json (best-effort; failure here doesn't fail
-    // project creation since the project itself is already persisted).
+    // Best-effort: the project is already persisted if this fails.
     if let Err(e) = register_in_index(output_dir, &project) {
         tracing::warn!("Failed to register {} in projects.json: {}", project.pid, e);
     }
@@ -403,9 +332,7 @@ pub fn create_project(
     Ok(project)
 }
 
-/// Upsert a project into the index file at `projects_root`. Used by
-/// `create_project` and the open-project Tauri wrapper so projects.json
-/// always reflects the most recent path/name for a given pid.
+/// Upserts a project into `projects.json` at `projects_root`.
 pub fn register_in_index(projects_root: &Path, project: &Project) -> Result<()> {
     use crate::project::index::{upsert, ProjectIndexEntry};
     let now = chrono::Utc::now();
@@ -424,14 +351,11 @@ pub fn register_in_index(projects_root: &Path, project: &Project) -> Result<()> 
     })
 }
 
-/// Opens an existing project from a path
-///
-/// # Arguments
-/// * `path` - Path to the project directory, mod.config.json, flint.json, or project.json file
+/// `path` may be the project directory or a mod.config.json / flint.json /
+/// project.json file (the parent directory is used in that case).
 pub fn open_project(path: &Path) -> Result<Project> {
     tracing::debug!("Attempting to open project from path: {}", path.display());
 
-    // Normalize path - if it points to a project file, get the parent directory
     let project_path = if path.is_file() {
         let file_name = path.file_name().and_then(|n| n.to_str());
         match file_name {
@@ -459,18 +383,15 @@ pub fn open_project(path: &Path) -> Result<Project> {
 
     tracing::info!("Opening project from: {}", config_path.display());
 
-    // Load mod.config.json
     let file = File::open(&config_path)
         .map_err(|e| Error::io_with_path(e, &config_path))?;
     let reader = BufReader::new(file);
-    
+
     let mut project: Project = serde_json::from_reader(reader)
         .map_err(|e| Error::InvalidInput(format!("Failed to parse project file: {}", e)))?;
 
-    // Set project path (not serialized)
     project.project_path = project_path.clone();
-    
-    // Load flint.json if it exists
+
     let flint_path = project_path.join(FLINT_FILE);
     let mut needs_resave = false;
     if flint_path.exists() {
@@ -490,11 +411,8 @@ pub fn open_project(path: &Path) -> Result<Project> {
     }
 
     // ── Legacy-format migration ────────────────────────────────────────────
-    // Projects created before `kind`/`map_id` existed encoded the project
-    // type by overloading `champion` ("map-<id>" / "loading-screen"). When
-    // we see one of those legacy tags AND `kind` is still the default
-    // (Skin), convert it to the proper shape and rewrite flint.json so the
-    // next open is clean.
+    /* Older projects encoded the type by overloading `champion`
+       ("map-<id>" / "loading-screen") with `kind` left at Skin. */
     if matches!(project.kind, ProjectKind::Skin) {
         if let Some(rest) = project.champion.strip_prefix("map-") {
             let map_id = rest.to_string();
@@ -511,14 +429,11 @@ pub fn open_project(path: &Path) -> Result<Project> {
         }
     }
 
-    // Backfill pid for projects created before the index existed. Saved
-    // back so the next open re-uses the same UUID.
     if project.pid.is_empty() {
         project.pid = uuid::Uuid::new_v4().to_string();
         needs_resave = true;
     }
     if needs_resave {
-        // Best-effort: don't fail open() if we couldn't write the backfilled pid.
         if let Err(e) = save_project(&project) {
             tracing::warn!("Failed to backfill pid for {}: {}", project.project_path.display(), e);
         }
@@ -528,10 +443,8 @@ pub fn open_project(path: &Path) -> Result<Project> {
     Ok(project)
 }
 
-/// Saves a project to disk
-/// Writes both mod.config.json (league-mod compatible) and flint.json (Flint metadata)
+/// Writes both mod.config.json (league-mod compatible) and flint.json.
 pub fn save_project(project: &Project) -> Result<()> {
-    // Save mod.config.json (league-mod compatible format)
     let config_path = project.config_path();
     tracing::debug!("Saving project to: {}", config_path.display());
 
@@ -541,8 +454,7 @@ pub fn save_project(project: &Project) -> Result<()> {
     let writer = BufWriter::new(file);
     serde_json::to_writer_pretty(writer, &mod_project)
         .map_err(|e| Error::InvalidInput(format!("Failed to write project file: {}", e)))?;
-    
-    // Save flint.json (Flint-specific metadata)
+
     let flint_path = project.flint_path();
     let flint_metadata = project.to_flint_metadata();
     let file = File::create(&flint_path)
@@ -555,7 +467,6 @@ pub fn save_project(project: &Project) -> Result<()> {
     Ok(())
 }
 
-/// Sanitizes a filename to remove invalid characters
 fn sanitize_filename(name: &str) -> String {
     name.chars()
         .map(|c| {
@@ -568,7 +479,6 @@ fn sanitize_filename(name: &str) -> String {
         .collect()
 }
 
-/// Convert name to slug format
 fn slugify(name: &str) -> String {
     name.chars()
         .map(|c| {
@@ -696,11 +606,9 @@ mod tests {
         assert!(project.output_path().exists());
         assert!(project.config_path().exists());
         assert!(project.flint_path().exists());
-        
-        // Verify no .flint extension
+
         assert!(!project.project_path.to_string_lossy().ends_with(".flint"));
 
-        // Test opening the project
         let loaded = open_project(&project.project_path).unwrap();
         assert_eq!(loaded.display_name, project.display_name);
         assert_eq!(loaded.champion, project.champion);
@@ -716,7 +624,6 @@ mod tests {
 
     #[test]
     fn test_create_project_empty_champion_allowed() {
-        // Empty champion is allowed — loading-screen and map projects use it.
         let temp_dir = tempdir().unwrap();
         let league_dir = temp_dir.path().join("League");
         std::fs::create_dir_all(&league_dir).unwrap();

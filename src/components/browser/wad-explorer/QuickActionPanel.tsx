@@ -1,9 +1,3 @@
-/**
- * QuickActionPanel - right-pane filler shown while no chunk is selected.
- *
- * Surfaces the four built-in filter cards and a height-fitted recent-WADs
- * list. WadListSkeleton is the shimmer placeholder for an in-flight WAD.
- */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useWadExplorerStore } from '../../../lib/stores';
 import type { WadChunk, WadExplorerWad } from '../../../lib/types';

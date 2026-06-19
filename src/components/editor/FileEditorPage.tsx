@@ -1,21 +1,3 @@
-/**
- * Flint - File Editor Page
- *
- * Dedicated full-screen surface for structured file editors (started with
- * mod.config.json; designed so future structured editors — raw text, BIN
- * field editor — slot in via the `FileEditorKind` switch at the bottom).
- *
- * This replaces the old modal-based flow. The page reads its target from
- * `useFileEditorStore` (set by `navigationStore.navigateToFileEditor()`)
- * and reports dirty state back to the store so the title bar / tab system
- * can prompt before closing.
- *
- * Layout: header with breadcrumb + close, body with the active editor
- * form, footer with save/cancel actions. Matches the visual language of
- * the existing modals (`var(--bg-*)`, `var(--border)`) so the in-app feel
- * is consistent.
- */
-
 import React, { useCallback, useEffect, useState } from 'react';
 import * as api from '../../lib/api';
 import {

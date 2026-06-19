@@ -1,29 +1,19 @@
 import { invokeCommand } from './core';
 
 export interface OriginalFileMeta {
-    /** Did we locate a chunk in the original WAD that matches this project file? */
     found: boolean;
     /** True when the matched WAD-internal path is an exact (case-insensitive)
      *  match. False when matched via the suffix-tolerant fallback. */
     exact: boolean;
-    /** Did we locate the original WAD file in the League install? */
     wad_found: boolean;
-    /** Absolute path of the original WAD (null if not located). */
     wad_path: string | null;
     /** Hex hash of the matched chunk — pass to `readWadChunkData` to fetch bytes. */
     matched_hash: string | null;
-    /** WAD-internal path of the matched chunk. */
     matched_internal_path: string | null;
-    /** Internal path we derived from the project file. */
     queried_internal_path: string;
-    /** WAD folder name we derived (e.g. `Ambessa.wad.client`). */
     queried_wad_name: string;
 }
 
-/**
- * Look up the original chunk for a project file. Tolerates suffix changes
- * between patches.
- */
 export async function findOriginalFile(
     leaguePath: string,
     projectPath: string,

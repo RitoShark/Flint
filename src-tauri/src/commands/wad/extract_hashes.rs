@@ -1,20 +1,14 @@
 //! Extract WAD path hashes from BIN/SKN chunks.
 //!
-//! Mirrors the logic in Quartz's `bin_hashes.rs` (see `Quartz/native/quartz_cli/
-//! src/commands/bin_hashes.rs`):
-//!
-//! * **Game hashes** (xxhash64) — length-prefixed UTF-8 strings inside `PROP`
-//!   / `PTCH` BIN files that look like asset paths (start with `assets/`,
-//!   `data/`, `maps/`, `levels/`, `clientstates/`, `ux/`, `uiautoatlas/`).
-//!   `.dds` paths also get `2x_` and `4x_` variants emitted; `.bin` paths get
-//!   their `.py` cousin emitted.
+//! * **Game hashes** (xxhash64) — length-prefixed UTF-8 asset-path strings
+//!   inside `PROP`/`PTCH` BIN files (prefixed `assets/`, `data/`, `maps/`,
+//!   `levels/`, `clientstates/`, `ux/`, `uiautoatlas/`). `.dds` paths also emit
+//!   `2x_`/`4x_` variants; `.bin` paths emit their `.py` cousin.
 //! * **BIN hashes** (fnv1a-lower 32-bit) — null-terminated mesh range names
 //!   inside SKN files (magic `0x00112233`).
 //!
-//! Found pairs are merged into the user's hash directory as
-//!   `hashes.extracted.txt`           (xxhash64 hex → path, sorted)
-//!   `hashes.binhashes.extracted.txt` (fnv1a hex → name, sorted)
-//! and the LMDB cache is invalidated so the next resolve picks them up.
+//! Pairs are merged into `hashes.extracted.txt` (xxhash64 hex → path) and
+//! `hashes.binhashes.extracted.txt` (fnv1a hex → name) in the user hash dir.
 
 use flint_ltk::wad_jade::adapter::WadHandle as WadReader;
 use serde::{Deserialize, Serialize};
@@ -212,8 +206,7 @@ fn write_merged(
 
 // ─── LMDB merge helpers ─────────────────────────────────────────────────────
 
-/// Insert (or overwrite) freshly-extracted (xxhash64 → path) entries into the
-/// already-cached WAD LMDB. Single write txn, single commit. Idempotent.
+/// Insert (or overwrite) (xxhash64 → path) entries into the cached WAD LMDB.
 fn merge_into_wad_lmdb(
     hash_dir: &str,
     entries: &BTreeMap<u64, String>,
@@ -236,8 +229,7 @@ fn merge_into_wad_lmdb(
     Ok(written)
 }
 
-/// Insert (or overwrite) freshly-extracted (fnv1a32 → name) entries into the
-/// already-cached BIN LMDB.
+/// Insert (or overwrite) (fnv1a32 → name) entries into the cached BIN LMDB.
 fn merge_into_bin_lmdb(
     hash_dir: &str,
     entries: &BTreeMap<u32, String>,
@@ -262,27 +254,16 @@ fn merge_into_bin_lmdb(
 
 // ─── Tauri commands ─────────────────────────────────────────────────────────
 
-/// Result of an extract_hashes operation, returned to the frontend.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExtractHashesResult {
-    /// Files (BIN + SKN) actually scanned.
     pub scanned: usize,
-    /// New (path → xxhash64) pairs written.
     pub game_hashes_added: usize,
-    /// New (name → fnv1a32) pairs written.
     pub bin_hashes_added: usize,
-    /// Absolute paths of files written / merged.
     pub output_files: Vec<String>,
 }
 
-/// Extract path hashes from BIN/SKN chunks inside a single WAD archive.
-///
-/// Reads BIN (PROP/PTCH) and SKN chunks in-memory (no temp files), runs the
-/// Quartz scanners, and merges results into the user's hash directory. The
-/// authoritative output is the pair of `hashes.extracted.txt` /
-/// `hashes.binhashes.extracted.txt` files in the user hash dir — these are
-/// also the format the official LeagueToolkit hashtable accepts as upstream
-/// PRs.
+/// Extract path hashes from BIN/SKN chunks inside a single WAD archive and
+/// merge them into the user's hash directory.
 #[tauri::command]
 pub async fn extract_hashes_from_wad(
     wad_path: String,
@@ -302,9 +283,6 @@ pub async fn extract_hashes_from_wad(
     let mut scanned = 0usize;
 
     for chunk in &chunks {
-        // Decompress the chunk to memory; cheap-and-dirty filter on the first
-        // 4 bytes inside the scanners themselves means we don't need to know
-        // the path/extension.
         let data = match reader.wad_mut().load_chunk_decompressed(chunk) {
             Ok(d) => d,
             Err(e) => {
@@ -331,8 +309,6 @@ pub async fn extract_hashes_from_wad(
     let bin_for_lmdb = bin.clone();
     let (added_game, added_bin) = write_merged(&hash_dir, game, bin)?;
 
-    // Insert the freshly-scanned hashes into the live LMDB caches so the very
-    // next `getWadChunks` call resolves them without a process restart.
     let hash_dir_str = hash_dir.to_string_lossy().to_string();
     if !game_for_lmdb.is_empty() {
         if let Err(e) = merge_into_wad_lmdb(&hash_dir_str, &game_for_lmdb) {

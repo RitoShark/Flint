@@ -1,23 +1,9 @@
-/**
- * Flint - BIN Editor Component (Monaco Editor)
- *
- * A full-featured code editor for viewing and editing Ritobin (.bin) files
- * using Monaco Editor directly (no @monaco-editor/react wrapper — that
- * library's internal loader breaks in Tauri production builds).
- *
- * Features:
- * - Custom Ritobin language with semantic tokenization
- * - Matching dark theme
- * - Dirty state tracking and save functionality
- * - Asset preview on hover (textures, meshes)
- * - Real-time bracket validation with visual indicator
- */
-
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
-import { useAppMetadataStore, useConfigStore, useFileEditorStore, useNotificationStore } from '../../lib/stores';
+import { useAppMetadataStore, useFileEditorStore, useNotificationStore } from '../../lib/stores';
 import { useProjectTabStore } from '../../lib/stores/projectTabStore';
+import { editorSessionStore } from '../../lib/stores/editorSessionStore';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { deferCleanup } from '../../lib/ui-helpers/deferCleanup';
@@ -28,9 +14,16 @@ import {
     registerRitobinTheme
 } from '../../lib/editor/ritobinLanguage';
 import { AssetPreviewTooltip } from './AssetPreviewTooltip';
+import { EmitterPalette, EMITTER_DROP_EVENT, type EmitterDropDetail } from './EmitterPalette';
+import { useEmitterPaletteStore, type CopiedBlock } from '../../lib/stores/emitterPaletteStore';
+import {
+    findEnclosingBlock,
+    reindentBlock,
+    renameEmitterIfCollision,
+    computeInsertPosition,
+    extractAssetPaths,
+} from '../../lib/editor/blockExtraction';
 
-// Configure Monaco workers — wrap in try-catch so a broken worker doesn't
-// cascade and break the entire editor (Monarch tokenizer runs on main thread anyway)
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
 
@@ -47,18 +40,13 @@ self.MonacoEnvironment = {
     },
 };
 
-// Register language and theme at module level — guaranteed to run before
-// any editor.create() call since ES module imports are evaluated first.
 registerRitobinLanguage(monaco as any);
 registerRitobinTheme(monaco as any);
 
-/** Delay in milliseconds before showing the asset preview tooltip */
 const HOVER_DELAY_MS = 3000;
 
-/** Debounce delay for bracket validation (ms) */
 const BRACKET_CHECK_DEBOUNCE_MS = 300;
 
-/** Asset file extensions that can be previewed */
 const PREVIEWABLE_EXTENSIONS = ['tex', 'dds', 'scb', 'sco', 'skn'];
 
 function isPreviewableAssetPath(value: string): boolean {
@@ -67,10 +55,6 @@ function isPreviewableAssetPath(value: string): boolean {
     return PREVIEWABLE_EXTENSIONS.includes(ext);
 }
 
-/**
- * Extract string value from a line at a given column position.
- * Returns the string content if cursor is inside a quoted string.
- */
 function extractStringAtPosition(line: string, column: number): string | null {
     const stringPattern = /"([^"\\]*(\\.[^"\\]*)*)"/g;
     let match;
@@ -80,6 +64,78 @@ function extractStringAtPosition(line: string, column: number): string | null {
         if (column >= startCol && column <= endCol) return match[1];
     }
     return null;
+}
+
+function deriveProjectPath(filePath: string): string | null {
+    const norm = filePath.replace(/\\/g, '/');
+    const tabs = useProjectTabStore.getState().openTabs;
+    let best: string | null = null;
+    for (const tab of tabs) {
+        if (!tab.projectPath) continue;
+        const proj = tab.projectPath.replace(/\\/g, '/');
+        if (norm === proj || norm.startsWith(proj + '/')) {
+            if (!best || proj.length > best.length) best = tab.projectPath;
+        }
+    }
+    if (best) return best;
+
+    const idx = norm.toLowerCase().indexOf('/content/');
+    if (idx > 0) return filePath.slice(0, idx);
+    return null;
+}
+
+interface AssetCopyResult {
+    copied: number;
+    /** Assets that could not be resolved to a real file in the source project. */
+    missing: number;
+}
+
+async function copyBlockAssets(
+    block: CopiedBlock,
+    sourceProject: string,
+    destProject: string,
+): Promise<AssetCopyResult> {
+    const assets = block.assets ?? [];
+    const srcRoot = sourceProject.replace(/\\/g, '/').replace(/\/+$/, '');
+    const baseBinPath = block.sourceBinPath ?? sourceProject;
+
+    let copied = 0;
+    let missing = 0;
+
+    for (const assetPath of assets) {
+        let absolute: string;
+        try {
+            absolute = await api.resolveAssetPath(assetPath, baseBinPath);
+        } catch {
+            missing += 1;
+            continue;
+        }
+        if (!absolute) {
+            missing += 1;
+            continue;
+        }
+
+        const absNorm = absolute.replace(/\\/g, '/');
+        const prefix = srcRoot + '/';
+        if (!absNorm.toLowerCase().startsWith(prefix.toLowerCase())) {
+            missing += 1;
+            continue;
+        }
+        const relPath = absNorm.slice(prefix.length);
+        const parentFolder = relPath.includes('/') ? relPath.slice(0, relPath.lastIndexOf('/')) : '';
+
+        try {
+            if (parentFolder) {
+                await api.createDirectory(destProject, parentFolder).catch(() => {});
+            }
+            await api.copyBetweenProjects(sourceProject, [relPath], destProject, parentFolder);
+            copied += 1;
+        } catch {
+            missing += 1;
+        }
+    }
+
+    return { copied, missing };
 }
 
 // =============================================================================
@@ -104,10 +160,6 @@ const BRACKET_PAIRS: Record<string, string> = { '{': '}', '[': ']', '(': ')' };
 const CLOSING_BRACKETS = new Set(['}', ']', ')']);
 const OPEN_FOR_CLOSE: Record<string, string> = { '}': '{', ']': '[', ')': '(' };
 
-/**
- * Parse bracket stack up to a given line (1-based).
- * Returns array of unclosed opening brackets with their line number and indentation.
- */
 function getBracketStackAtLine(text: string, upToLine: number): { char: string; line: number; indent: string }[] {
     const stack: { char: string; line: number; indent: string }[] = [];
     const lines = text.split('\n');
@@ -147,10 +199,6 @@ function getBracketStackAtLine(text: string, upToLine: number): { char: string; 
     return stack;
 }
 
-/**
- * Validate bracket matching in ritobin text.
- * Skips brackets inside quoted strings and comments.
- */
 function validateBrackets(text: string): BracketValidation {
     const errors: BracketError[] = [];
     const stack: { char: string; line: number; column: number }[] = [];
@@ -164,7 +212,6 @@ function validateBrackets(text: string): BracketValidation {
         for (let col = 0; col < line.length; col++) {
             const ch = line[col];
 
-            // Check for comment start (# or //)
             if (!inString) {
                 if (ch === '#') { isComment = true; break; }
                 if (ch === '/' && col + 1 < line.length && line[col + 1] === '/') {
@@ -173,7 +220,6 @@ function validateBrackets(text: string): BracketValidation {
                 }
             }
 
-            // Track string boundaries (handle escaped quotes)
             if (ch === '"' && (col === 0 || line[col - 1] !== '\\')) {
                 inString = !inString;
                 continue;
@@ -181,11 +227,9 @@ function validateBrackets(text: string): BracketValidation {
 
             if (inString || isComment) continue;
 
-            // Opening bracket
             if (BRACKET_PAIRS[ch]) {
                 stack.push({ char: ch, line: lineIdx + 1, column: col + 1 });
             }
-            // Closing bracket
             else if (CLOSING_BRACKETS.has(ch)) {
                 const expected = OPEN_FOR_CLOSE[ch];
                 if (stack.length === 0) {
@@ -214,15 +258,11 @@ function validateBrackets(text: string): BracketValidation {
         }
     }
 
-    // Report unclosed brackets — suggest insertion point using indentation heuristic.
-    // Scan forward from the opener to find the last line indented deeper than it;
-    // that's where the closing bracket belongs (same logic as the ghost-text completer).
     for (let i = stack.length - 1; i >= 0; i--) {
         const unclosed = stack[i];
         const openerLineIdx = unclosed.line - 1;
         const openerIndent = lines[openerLineIdx].match(/^(\s*)/)?.[1].length ?? 0;
 
-        // Find the last line that's indented deeper than the opener (skipping blanks/comments)
         let blockEnd = openerLineIdx;
         for (let j = openerLineIdx + 1; j < lines.length; j++) {
             const trimmed = lines[j].trim();
@@ -231,7 +271,7 @@ function validateBrackets(text: string): BracketValidation {
             if (indent <= openerIndent) break;
             blockEnd = j;
         }
-        const suggestLine = blockEnd + 1; // 1-based
+        const suggestLine = blockEnd + 1;
 
         errors.push({
             line: unclosed.line,
@@ -249,7 +289,6 @@ function validateBrackets(text: string): BracketValidation {
 // Editor Options
 // =============================================================================
 
-/** Monaco editor options shared across create calls */
 const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     automaticLayout: true,
     fontFamily: 'var(--font-mono), "Cascadia Code", "Fira Code", Consolas, "Courier New", monospace',
@@ -290,7 +329,7 @@ const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     },
     tabSize: 4,
     insertSpaces: true,
-    autoIndent: 'none',
+    autoIndent: 'brackets',
     formatOnPaste: false,
     formatOnType: false,
     wordWrap: 'off',
@@ -304,7 +343,7 @@ const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     colorDecorators: false,
     codeLens: false,
     inlineSuggest: { enabled: true, mode: 'prefix' },
-    contextmenu: false,
+    contextmenu: true,
     accessibilitySupport: 'off',
 };
 
@@ -312,7 +351,7 @@ const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
 // Side Panel — skinScale, materialOverride, VFX helpers
 // =============================================================================
 
-/** Apply new content to Monaco in a single undoable edit (preserves cursor). */
+/** Apply new content in a single undoable edit (preserves cursor). */
 function applyContentToEditor(
     ed: editor.IStandaloneCodeEditor,
     newContent: string,
@@ -323,7 +362,6 @@ function applyContentToEditor(
     model.pushEditOperations([], [{ range: full, text: newContent }], () => null);
 }
 
-/** Parse skinScale value out of ritobin text. Returns null if not found. */
 function parseSkinScale(text: string): { value: string; exists: boolean } {
     for (const line of text.split('\n')) {
         const t = line.trim().toLowerCase();
@@ -337,10 +375,8 @@ function parseSkinScale(text: string): { value: string; exists: boolean } {
     return { value: '1.0', exists: false };
 }
 
-/** Rewrite skinScale value in text, or add it after skinMeshProperties. */
 function applySkinScaleToText(text: string, newVal: string): string {
     const lines = text.split('\n');
-    // Try to replace existing
     for (let i = 0; i < lines.length; i++) {
         if (lines[i].trim().toLowerCase().startsWith('skinscale:')) {
             const colonIdx = lines[i].indexOf(':');
@@ -354,7 +390,6 @@ function applySkinScaleToText(text: string, newVal: string): string {
             return lines.join('\n');
         }
     }
-    // Add after skinMeshProperties
     const out: string[] = [];
     let added = false;
     for (let i = 0; i < lines.length; i++) {
@@ -369,7 +404,6 @@ function applySkinScaleToText(text: string, newVal: string): string {
     return out.join('\n');
 }
 
-/** Ensure materialOverride list block exists and return updated text. */
 function ensureMaterialOverride(text: string): string {
     if (text.includes('materialOverride:')) return text;
     const lines = text.split('\n');
@@ -388,7 +422,6 @@ function ensureMaterialOverride(text: string): string {
     return out.join('\n');
 }
 
-/** Insert a SkinMeshDataProperties_MaterialOverride entry into existing list. */
 function insertMaterialOverrideEntry(
     text: string,
     path: string,
@@ -425,12 +458,10 @@ function insertMaterialOverrideEntry(
     return [...lines.slice(0, insertIdx), ...entry, ...lines.slice(insertIdx)].join('\n');
 }
 
-/** Check if text contains VfxEmitterDefinitionData blocks. */
 function hasVfxEmitters(text: string): boolean {
     return /VfxEmitterDefinitionData\s*\{/.test(text);
 }
 
-/** Update inline emitter-name CSS decorations on Monaco model. */
 function updateEmitterDecorations(
     ed: editor.IStandaloneCodeEditor,
     decorationIds: string[],
@@ -470,7 +501,6 @@ function updateEmitterDecorations(
     return ed.deltaDecorations(decorationIds, decorations);
 }
 
-/** Fold or unfold all VfxEmitterDefinitionData blocks via Monaco folding API. */
 function setEmittersFolded(ed: editor.IStandaloneCodeEditor, collapse: boolean) {
     const model = ed.getModel();
     if (!model) return;
@@ -658,7 +688,6 @@ const BinSidePanel: React.FC<BinSidePanelProps> = ({ content, onContentChange, e
 
     return (
         <div style={panelStyle}>
-            {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 14px', borderBottom: '1px solid var(--border)', background: 'var(--bg-tertiary)' }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', letterSpacing: '0.04em', textTransform: 'uppercase' }}>BIN Tools</span>
                 <button style={{ ...btnStyle, padding: '1px 6px', fontSize: 13, border: 'none', background: 'transparent' }} onClick={onClose} title="Close">✕</button>
@@ -791,7 +820,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const showToast = useNotificationStore((s) => s.showToast);
     const setWorking = useAppMetadataStore((s) => s.setWorking);
     const setReady = useAppMetadataStore((s) => s.setReady);
-    const binConverterEngine = useConfigStore((state) => state.binConverterEngine);
 
     const [content, setContent] = useState<string>('');
     const [originalContent, setOriginalContent] = useState<string>('');
@@ -799,26 +827,28 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const [error, setError] = useState<string | null>(null);
     const [lineCount, setLineCount] = useState(0);
     const [sidePanelOpen, setSidePanelOpen] = useState(false);
+    const [paletteOpen, setPaletteOpen] = useState(false);
 
-    // Bracket validation state
     const [bracketStatus, setBracketStatus] = useState<BracketValidation>({ valid: true, errors: [] });
     const [bracketErrorIndex, setBracketErrorIndex] = useState(0);
     const bracketCheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const decorationsRef = useRef<string[]>([]);
     const emitterDecorationsRef = useRef<string[]>([]);
 
-    // Subscribe to file version changes for hot reload
     const fileVersion = useAppMetadataStore((state) => {
         void state.fileVersionsRev;
         return state.getFileVersion(filePath);
     });
 
-    const useJade = binConverterEngine === 'jade';
+    const variant = 'ritoshark';
 
     const editorContainerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
-    // Asset preview tooltip state
+    const latestRef = useRef({ content: '', originalContent: '', fileVersion: 0, variant });
+    latestRef.current = { content, originalContent, fileVersion, variant };
+    const saveRef = useRef<() => void>(() => {});
+
     const [previewAsset, setPreviewAsset] = useState<string | null>(null);
     const [previewPosition, setPreviewPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
     const [showPreview, setShowPreview] = useState(false);
@@ -829,7 +859,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const isDirty = content !== originalContent;
     const basePath = filePath.split(/[/\\]/).slice(0, -1).join('\\');
 
-    // Sync dirty state to file editor store
     const fileEditorTarget = useFileEditorStore((s) => s.target);
     const setFileEditorDirty = useFileEditorStore((s) => s.setDirty);
     useEffect(() => {
@@ -843,7 +872,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         };
     }, [isDirty, filePath, fileEditorTarget, setFileEditorDirty]);
 
-    // Run bracket validation (debounced)
     const runBracketCheck = useCallback((text: string) => {
         if (bracketCheckTimerRef.current) clearTimeout(bracketCheckTimerRef.current);
         bracketCheckTimerRef.current = setTimeout(async () => {
@@ -882,35 +910,48 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 });
                 decorationsRef.current = ed.deltaDecorations(decorationsRef.current, newDecorations);
 
-                // Also update VFX emitter inline hints
                 emitterDecorationsRef.current = updateEmitterDecorations(ed, emitterDecorationsRef.current);
             }
         }, BRACKET_CHECK_DEBOUNCE_MS);
     }, []);
 
-    // Load BIN file
     useEffect(() => {
+        const cached = editorSessionStore.get(filePath);
+        if (cached && cached.fileVersion === fileVersion && cached.variant === variant) {
+            setContent(cached.content);
+            setOriginalContent(cached.originalContent);
+            setLineCount(cached.content.split('\n').length);
+            setBracketStatus(validateBrackets(cached.content));
+            setError(null);
+            setLoading(false);
+            return;
+        }
+
+        let cancelled = false;
         const loadBin = async () => {
             setLoading(true);
             setError(null);
             try {
-                const text = await api.readOrConvertBin(filePath, useJade);
+                const text = await api.readOrConvertBin(filePath);
+                if (cancelled) return;
                 setContent(text);
                 setOriginalContent(text);
                 setLineCount(text.split('\n').length);
                 const result = validateBrackets(text);
                 setBracketStatus(result);
+                editorSessionStore.save(filePath, { fileVersion, content: text, originalContent: text, variant });
             } catch (err) {
+                if (cancelled) return;
                 console.error('[BinEditor] Error:', err);
                 setError((err as Error).message || 'Failed to load BIN file');
             } finally {
-                setLoading(false);
+                if (!cancelled) setLoading(false);
             }
         };
         loadBin();
-    }, [filePath, fileVersion, useJade]);
+        return () => { cancelled = true; };
+    }, [filePath, fileVersion, variant]);
 
-    // Create Monaco editor
     useEffect(() => {
         if (loading || error || !editorContainerRef.current) return;
 
@@ -923,7 +964,58 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
 
         editorRef.current = ed;
 
-        // Inline completions: bracket auto-close ghost text
+        ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => { saveRef.current(); });
+
+        // ── Right-click "copy block" context actions ────────────────────────────
+        const copyBlockToPalette = (filter: string[] | undefined, outermost: boolean) => {
+            const m = ed.getModel();
+            const pos = ed.getPosition();
+            if (!m || !pos) return;
+            const text = m.getValue();
+            let block = findEnclosingBlock(text, pos.lineNumber, filter, outermost);
+            if (!block) block = findEnclosingBlock(text, pos.lineNumber, undefined, outermost);
+            if (!block) {
+                showToast('info', 'No block found at cursor');
+                return;
+            }
+            const nameMatch = block.blockText.match(/emitterName:\s*string\s*=\s*"([^"]+)"/);
+            const label = nameMatch ? nameMatch[1] : block.className;
+            const assets = extractAssetPaths(block.blockText);
+            useEmitterPaletteStore.getState().add({
+                label,
+                className: block.className,
+                text: block.blockText,
+                sourceProject: deriveProjectPath(filePath) ?? undefined,
+                sourceBinPath: filePath,
+                assets,
+            });
+            setPaletteOpen(true);
+            const assetSuffix = assets.length ? ` (${assets.length} asset${assets.length === 1 ? '' : 's'})` : '';
+            showToast('success', `Copied ${label} to palette${assetSuffix}`);
+        };
+
+        const copyEmitterAction = ed.addAction({
+            id: 'flint.copyEmitterBlock',
+            label: 'Copy emitter block',
+            contextMenuGroupId: 'flint',
+            contextMenuOrder: 1,
+            run: () => copyBlockToPalette(['VfxEmitterDefinitionData'], false),
+        });
+
+        const copyFullVfxAction = ed.addAction({
+            id: 'flint.copyFullVfx',
+            label: 'Copy full VfxEmitter / VfxSystem',
+            contextMenuGroupId: 'flint',
+            contextMenuOrder: 2,
+            run: () => copyBlockToPalette(['VfxSystemDefinitionData', 'VfxEmitterDefinitionData'], true),
+        });
+
+        const restored = editorSessionStore.get(filePath);
+        if (restored?.viewState && restored.fileVersion === fileVersion) {
+            ed.restoreViewState(restored.viewState);
+            ed.focus();
+        }
+
         const inlineProvider = monaco.languages.registerInlineCompletionsProvider(RITOBIN_LANGUAGE_ID, {
             provideInlineCompletions(model, position) {
                 const lineContent = model.getLineContent(position.lineNumber);
@@ -953,7 +1045,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 runBracketCheck(value);
             });
 
-            // Initial bracket decorations
             const initialResult = validateBrackets(content);
             if (!initialResult.valid) {
                 const newDecorations: editor.IModelDeltaDecoration[] = initialResult.errors.map(err => ({
@@ -968,21 +1059,27 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 decorationsRef.current = ed.deltaDecorations([], newDecorations);
             }
 
-            // Initial VFX emitter hints
             emitterDecorationsRef.current = updateEmitterDecorations(ed, []);
         }
 
         return () => {
+            const L = latestRef.current;
+            editorSessionStore.save(filePath, {
+                fileVersion: L.fileVersion,
+                content: L.content,
+                originalContent: L.originalContent,
+                variant: L.variant,
+                viewState: ed.saveViewState(),
+            });
             editorRef.current = null;
             decorationsRef.current = [];
             emitterDecorationsRef.current = [];
-            // Clean up emitter hint styles
             const styleEl = document.getElementById('flint-emitter-hint-styles');
             if (styleEl) styleEl.textContent = '';
-            // Defer Monaco dispose to idle — it's synchronous and easily blocks
-            // tab-close commits for a few hundred ms otherwise.
             deferCleanup(() => {
                 inlineProvider.dispose();
+                copyEmitterAction.dispose();
+                copyFullVfxAction.dispose();
                 ed.dispose();
             });
         };
@@ -1007,7 +1104,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
 
         try {
             setWorking('Saving BIN file...');
-            await api.saveRitobinToBin(filePath, content, useJade);
+            await api.saveRitobinToBin(filePath, content);
             setOriginalContent(content);
             setReady('Saved');
             showToast('success', 'BIN file saved successfully');
@@ -1028,9 +1125,25 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         } catch (err) {
             console.error('[BinEditor] Save error:', err);
             const flintError = err as api.FlintError;
-            showToast('error', flintError.getUserMessage?.() || 'Failed to save');
+            const msg = flintError.getUserMessage?.() || String(err) || 'Failed to save';
+
+            const lineMatch = /line\s+(\d+)/i.exec(msg);
+            if (lineMatch && editorRef.current) {
+                const line = parseInt(lineMatch[1], 10);
+                const ed = editorRef.current;
+                const maxLine = ed.getModel()?.getLineCount() ?? line;
+                const target = Math.min(Math.max(line, 1), maxLine);
+                ed.revealLineInCenter(target);
+                ed.setPosition({ lineNumber: target, column: 1 });
+                ed.focus();
+                showToast('error', `Save failed at line ${line}: ${msg.replace(/^.*?at line \d+:\s*/i, '')}`);
+            } else {
+                showToast('error', msg);
+            }
+            setReady('Save failed');
         }
-    }, [filePath, content, useJade, setWorking, setReady, showToast, bracketStatus]);
+    }, [filePath, content, setWorking, setReady, showToast, bracketStatus]);
+    saveRef.current = handleSave;
 
     useEffect(() => { return () => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); }; }, []);
 
@@ -1084,7 +1197,65 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         setShowPreview(false);
     }, []);
 
-    // Fix first bracket error: insert the missing closing bracket at suggest line
+    const insertBlockAt = useCallback((id: string, clientX: number, clientY: number) => {
+        const block = useEmitterPaletteStore.getState().getById(id);
+        const ed = editorRef.current;
+        const model = ed?.getModel();
+        if (!block || !ed || !model) return;
+
+        const target = ed.getTargetAtClientPoint(clientX, clientY);
+        const dropLine = target?.position?.lineNumber ?? model.getLineCount();
+
+        const fullText = model.getValue();
+        const { line, indent } = computeInsertPosition(fullText, dropLine, getBracketStackAtLine);
+
+        let blockText = reindentBlock(block.text, indent);
+        blockText = renameEmitterIfCollision(blockText, fullText);
+
+        const insertCol = model.getLineMaxColumn(line);
+        model.pushEditOperations(
+            [],
+            [{ range: new monaco.Range(line, insertCol, line, insertCol), text: '\n' + blockText }],
+            () => null,
+        );
+        ed.revealLineInCenter(line + 1);
+        ed.focus();
+
+        const destProject = deriveProjectPath(filePath);
+        const sourceProject = block.sourceProject;
+        const assets = block.assets ?? [];
+        const crossProject =
+            !!destProject && !!sourceProject &&
+            destProject.replace(/\\/g, '/').toLowerCase() !== sourceProject.replace(/\\/g, '/').toLowerCase();
+
+        if (crossProject && assets.length > 0) {
+            void copyBlockAssets(block, sourceProject!, destProject!).then((res) => {
+                if (res.copied > 0 && res.missing === 0) {
+                    showToast('success', `Inserted ${block.label} (+${res.copied} asset${res.copied === 1 ? '' : 's'})`);
+                } else if (res.copied > 0) {
+                    showToast('warning', `Inserted ${block.label} — copied ${res.copied}/${assets.length} assets, ${res.missing} unresolved`);
+                } else {
+                    showToast('warning', `Inserted ${block.label} — could not copy ${assets.length} asset${assets.length === 1 ? '' : 's'} (unresolved)`);
+                }
+            }).catch(() => {
+                showToast('warning', `Inserted ${block.label} — asset copy failed`);
+            });
+        } else {
+            showToast('success', `Inserted ${block.label}`);
+        }
+    }, [showToast, filePath]);
+
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        const onEmitterDrop = (e: Event) => {
+            const { blockId, clientX, clientY } = (e as CustomEvent<EmitterDropDetail>).detail;
+            insertBlockAt(blockId, clientX, clientY);
+        };
+        el.addEventListener(EMITTER_DROP_EVENT, onEmitterDrop as EventListener);
+        return () => el.removeEventListener(EMITTER_DROP_EVENT, onEmitterDrop as EventListener);
+    }, [insertBlockAt]);
+
     const handleFixBracket = useCallback(() => {
         const err = bracketStatus.errors[0];
         if (!err || !editorRef.current) return;
@@ -1175,7 +1346,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                     )}
                 </span>
                 <div className="bin-editor__toolbar-actions">
-                    {/* Fix Bracket button — only shown when there are errors */}
                     {!bracketStatus.valid && (
                         <button
                             className="btn btn--sm"
@@ -1186,7 +1356,14 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                             Fix {'}'}
                         </button>
                     )}
-                    {/* BIN Tools side panel toggle */}
+                    <button
+                        className={`btn btn--sm${paletteOpen ? ' btn--primary' : ''}`}
+                        style={!paletteOpen ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
+                        onClick={() => setPaletteOpen(!paletteOpen)}
+                        title="Toggle copied-block palette (drag emitter/VFX blocks into any BIN)"
+                    >
+                        ▤
+                    </button>
                     <button
                         className={`btn btn--sm${sidePanelOpen ? ' btn--primary' : ''}`}
                         style={!sidePanelOpen ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
@@ -1206,8 +1383,8 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 </div>
             </div>
 
-            {/* Editor + side panel wrapper */}
             <div style={{ flex: 1, display: 'flex', minHeight: 0, position: 'relative' }}>
+                {paletteOpen && <EmitterPalette onClose={() => setPaletteOpen(false)} />}
                 <div
                     className="bin-editor__content"
                     ref={containerRef}

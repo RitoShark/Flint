@@ -12,11 +12,10 @@ function hasPlaceholder(text: string): boolean {
     return PLACEHOLDER_TOKENS.some(p => text.includes(p));
 }
 
-/** Converts a path with ALLCAPS placeholders into a regex string usable in WAD Explorer search. */
 function toRegexPattern(path: string): string {
     return path
-        .replace(/\./g, '\\.')       // escape literal dots
-        .replace(PLACEHOLDER_RE, '[^/]+'); // replace each placeholder with a non-slash wildcard
+        .replace(/\./g, '\\.')
+        .replace(PLACEHOLDER_RE, '[^/]+');
 }
 
 // ─── Inline token types ───────────────────────────────────────────────────────
@@ -156,7 +155,6 @@ function groupSections(blocks: Block[]): Section[] {
             cur = { heading, blocks: [block] };
             sections.push(cur);
         } else if (block.type !== 'h1') {
-            // Skip h1 (document title) in body — it's already shown in the modal header
             cur.blocks.push(block);
         }
     }

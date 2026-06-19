@@ -1,17 +1,5 @@
-/**
- * Full-bleed dimmer + progress card shown while WadExplorer is performing
- * a batched extract. Determinate bar when extracting multiple WADs;
- * indeterminate animation when only one is in flight.
- */
 import React from 'react';
 
-/* ----------------------------------------------------------------------------
-   ExtractOverlay — full-bleed dimmer with a glassy card containing a spinner,
-   the user's selection summary, and a determinate progress bar that fills as
-   each WAD finishes (we don't have per-chunk progress events). When only one
-   WAD is in flight the bar uses an indeterminate animation instead so the
-   user still sees motion.
----------------------------------------------------------------------------- */
 export const ExtractOverlay: React.FC<{
     progress: {
         title: string;

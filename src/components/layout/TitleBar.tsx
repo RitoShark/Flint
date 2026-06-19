@@ -1,18 +1,14 @@
-/**
- * Flint - Custom Title Bar Component with Integrated Tabs
- */
-
 import React, { useCallback, useState, useMemo, useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { save } from '@tauri-apps/plugin-dialog';
 import { useProjectTabStore, useWadExtractStore, useWadExplorerStore, useNavigationStore, useConfigStore, useModalStore, useNotificationStore, useFileEditorStore } from '../../lib/stores';
 import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
+import { useCdnManifestStore } from '../../lib/stores/cdnManifestStore';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import * as api from '../../lib/api';
 import { sanitizeChampionName } from '../../lib/util/utils';
 import type { ProjectTab, ExtractSession } from '../../lib/types';
 
-// Window control icons as inline SVGs
 const MinimizeIcon: React.FC = () => (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
         <path d="M2 7H12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -59,7 +55,6 @@ const FlintLogo: React.FC = () => (
     </svg>
 );
 
-// Individual tab component
 interface TabProps {
     tab: ProjectTab;
     isActive: boolean;
@@ -78,7 +73,6 @@ const Tab: React.FC<TabProps> = ({ tab, isActive, onSwitch, onClose }) => {
         e.stopPropagation();
         if (closing) return;
         setClosing(true);
-        // Let the exit animation play before the parent removes us from state.
         setTimeout(() => onClose(e), TAB_CLOSE_MS);
     }, [onClose, closing]);
 
@@ -98,6 +92,8 @@ const Tab: React.FC<TabProps> = ({ tab, isActive, onSwitch, onClose }) => {
             onMouseDown={handleMiddleClick}
             title={`${projectName}\n${tab.projectPath}`}
             data-tauri-drag-region="false"
+            data-project-tab={tab.projectPath}
+            data-project-name={projectName}
         >
             <span
                 className="titlebar__tab-icon"
@@ -125,7 +121,6 @@ const Tab: React.FC<TabProps> = ({ tab, isActive, onSwitch, onClose }) => {
     );
 };
 
-// Extract Session Tab
 interface ExtractTabProps {
     session: ExtractSession;
     isActive: boolean;
@@ -185,11 +180,67 @@ const ExtractTab: React.FC<ExtractTabProps> = ({ session, isActive, onSwitch, on
     );
 };
 
+interface ManifestTabProps {
+    label: string;
+    isActive: boolean;
+    onSwitch: () => void;
+    onClose: (e: React.MouseEvent) => void;
+}
+
+const ManifestTab: React.FC<ManifestTabProps> = ({ label, isActive, onSwitch, onClose }) => {
+    const [closing, setClosing] = useState(false);
+    const triggerClose = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (closing) return;
+        setClosing(true);
+        setTimeout(() => onClose(e), TAB_CLOSE_MS);
+    }, [onClose, closing]);
+    const handleMiddleClick = useCallback((e: React.MouseEvent) => {
+        if (e.button === 1) { e.preventDefault(); triggerClose(e); }
+    }, [triggerClose]);
+    return (
+        <div
+            className={`titlebar__tab ${isActive ? 'titlebar__tab--active' : ''}${closing ? ' titlebar__tab--closing' : ''}`}
+            onClick={closing ? undefined : onSwitch}
+            onMouseDown={handleMiddleClick}
+            title={`CDN manifest: ${label}`}
+            data-tauri-drag-region="false"
+        >
+            <span className="titlebar__tab-icon" dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
+            <span className="titlebar__tab-name">{label}</span>
+            <button className="titlebar__tab-close" onClick={triggerClose} title="Close Tab">
+                <svg viewBox="0 0 16 16" width="12" height="12">
+                    <path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+                </svg>
+            </button>
+        </div>
+    );
+};
+
+/** Text-button styling for the map PSD actions (titlebar__button is icon-sized). */
+const psdBtnStyle = (disabled: boolean): React.CSSProperties => ({
+    height: 26,
+    padding: '0 10px',
+    marginRight: 6,
+    display: 'inline-flex',
+    alignItems: 'center',
+    whiteSpace: 'nowrap',
+    fontSize: 12,
+    borderRadius: 6,
+    border: '1px solid var(--border, #444)',
+    background: 'var(--bg-secondary, #2a2a2a)',
+    color: disabled ? 'var(--text-muted, #888)' : 'var(--text-primary, #ddd)',
+    cursor: disabled ? 'default' : 'pointer',
+    opacity: disabled ? 0.6 : 1,
+});
+
 export const TitleBar: React.FC = () => {
     const activeTabId = useProjectTabStore((s) => s.activeTabId);
     const openTabs = useProjectTabStore((s) => s.openTabs);
     const extractSessions = useWadExtractStore((s) => s.extractSessions);
     const activeExtractId = useWadExtractStore((s) => s.activeExtractId);
+    const cdnSessions = useCdnManifestStore((s) => s.sessions);
+    const activeManifestId = useNavigationStore((s) => s.activeManifestId);
     const wadExplorerOpen = useWadExplorerStore((s) => s.isOpen);
     const currentView = useNavigationStore((s) => s.currentView);
     const ltkManagerModPath = useConfigStore((s) => s.ltkManagerModPath);
@@ -205,7 +256,6 @@ export const TitleBar: React.FC = () => {
     const [closingWindow, setClosingWindow] = useState(false);
     const [wadExplorerClosing, setWadExplorerClosing] = useState(false);
 
-    // Get active tab
     const activeTab = useMemo(() => {
         if (!activeTabId) return null;
         return openTabs.find(t => t.id === activeTabId) || null;
@@ -231,8 +281,6 @@ export const TitleBar: React.FC = () => {
     };
 
     const handleClose = async () => {
-        // Tiny red-flash animation before the window actually goes away —
-        // catches the eye so closing feels intentional instead of jarring.
         setClosingWindow(true);
         await new Promise((r) => setTimeout(r, 160));
         try {
@@ -256,13 +304,11 @@ export const TitleBar: React.FC = () => {
         setDropdownOpen(prev => !prev);
     }, []);
 
-    // Resolve which launcher to sync to based on the user's preference, with
-    // graceful fallback if the preferred one isn't configured.
-    const launcherTarget = useMemo<{ name: string; path: string } | null>(() => {
-        if (preferredLauncher === 'celestial' && celestialModPath) return { name: 'Celestial', path: celestialModPath };
-        if (preferredLauncher === 'ltk' && ltkManagerModPath) return { name: 'LTK Manager', path: ltkManagerModPath };
-        if (celestialModPath) return { name: 'Celestial', path: celestialModPath };
-        if (ltkManagerModPath) return { name: 'LTK Manager', path: ltkManagerModPath };
+    const launcherTarget = useMemo<{ name: string; path: string; kind: 'ltk' | 'celestial' } | null>(() => {
+        if (preferredLauncher === 'celestial' && celestialModPath) return { name: 'Celestial', path: celestialModPath, kind: 'celestial' };
+        if (preferredLauncher === 'ltk' && ltkManagerModPath) return { name: 'LTK Manager', path: ltkManagerModPath, kind: 'ltk' };
+        if (celestialModPath) return { name: 'Celestial', path: celestialModPath, kind: 'celestial' };
+        if (ltkManagerModPath) return { name: 'LTK Manager', path: ltkManagerModPath, kind: 'ltk' };
         return null;
     }, [preferredLauncher, ltkManagerModPath, celestialModPath]);
 
@@ -276,10 +322,14 @@ export const TitleBar: React.FC = () => {
         setIsSyncing(true);
 
         try {
-            const modId = await api.syncProjectToLauncher(currentProjectPath, launcherTarget.path);
-            showToast('success', `Synced to ${launcherTarget.name}! Mod ID: ${modId}`);
+            if (launcherTarget.kind === 'celestial') {
+                await api.syncProjectToCelestial(currentProjectPath);
+                showToast('success', 'Sent to Celestial — check its Creator Hub.');
+            } else {
+                const modId = await api.syncProjectToLauncher(currentProjectPath, launcherTarget.path);
+                showToast('success', `Synced to ${launcherTarget.name}! Mod ID: ${modId}`);
+            }
 
-            // Auto-checkpoint after sync
             api.createCheckpoint(currentProjectPath, `Auto-checkpoint: Synced to ${launcherTarget.name}`).catch(e => {
                 console.warn('Auto-checkpoint failed:', e);
             });
@@ -293,7 +343,6 @@ export const TitleBar: React.FC = () => {
         }
     }, [currentProject, currentProjectPath, launcherTarget, showToast]);
 
-    // Direct export without modal - just opens save dialog
     const handleExportAs = useCallback(async (format: 'fantome' | 'modpkg') => {
         setDropdownOpen(false);
 
@@ -328,7 +377,6 @@ export const TitleBar: React.FC = () => {
 
             showToast('success', `Exported to ${result.path}`);
 
-            // Auto-checkpoint after export
             api.createCheckpoint(currentProjectPath, `Auto-checkpoint: Exported to ${format}`).catch(e => {
                 console.warn('Auto-checkpoint failed:', e);
             });
@@ -342,7 +390,7 @@ export const TitleBar: React.FC = () => {
         }
     }, [currentProject, currentProjectPath, creatorName, showToast]);
 
-    // Close dropdown when clicking outside
+
     useEffect(() => {
         if (!dropdownOpen) return;
 
@@ -351,7 +399,6 @@ export const TitleBar: React.FC = () => {
         return () => document.removeEventListener('click', handleClickOutside);
     }, [dropdownOpen]);
 
-    // Tab handlers
     const handleSwitchTab = useCallback((tabId: string) => {
         useProjectTabStore.getState().switchTab(tabId);
         useNavigationStore.getState().setView('preview');
@@ -372,7 +419,29 @@ export const TitleBar: React.FC = () => {
         navigationCoordinator.closeExtractSessionWithFallback(sessionId);
     }, []);
 
-    // Determine active states
+    const handleSwitchManifest = useCallback((sessionId: string) => {
+        useNavigationStore.getState().setActiveManifest(sessionId);
+        useNavigationStore.getState().setView('manifest');
+    }, []);
+
+    const handleCloseManifest = useCallback((e: React.MouseEvent, sessionId: string) => {
+        e.stopPropagation();
+        const nav = useNavigationStore.getState();
+        const cdn = useCdnManifestStore.getState();
+        api.cdnCloseSession(sessionId).catch(() => {});
+        cdn.removeSession(sessionId);
+        // Fall back to another manifest, else leave the manifest view.
+        const remaining = Object.keys(cdn.sessions).filter((id) => id !== sessionId);
+        if (nav.activeManifestId === sessionId) {
+            if (remaining.length > 0) {
+                nav.setActiveManifest(remaining[0]);
+            } else {
+                nav.setActiveManifest(null);
+                nav.setView('welcome');
+            }
+        }
+    }, []);
+
     const fileEditorTarget = useFileEditorStore((s) => s.target);
     const fileEditorDirty = useFileEditorStore((s) => s.dirty);
     const openConfirmDialog = useModalStore((s) => s.openConfirmDialog);
@@ -382,6 +451,8 @@ export const TitleBar: React.FC = () => {
     const isProjectActive = currentView === 'preview';
     const isExtractActive = currentView === 'extract';
     const isFileEditorActive = currentView === 'file-editor';
+    const isManifestActive = currentView === 'manifest';
+    const manifestList = Object.values(cdnSessions);
 
     const handleCloseFileEditor = useCallback((e: React.MouseEvent) => {
         e.stopPropagation();
@@ -398,7 +469,7 @@ export const TitleBar: React.FC = () => {
         }
     }, [fileEditorDirty, openConfirmDialog]);
 
-    const hasTabs = openTabs.length > 0 || extractSessions.length > 0 || isWadExplorerOpen || !!fileEditorTarget;
+    const hasTabs = openTabs.length > 0 || extractSessions.length > 0 || manifestList.length > 0 || isWadExplorerOpen || !!fileEditorTarget;
 
     return (
         <div className="titlebar" data-tauri-drag-region>
@@ -415,11 +486,9 @@ export const TitleBar: React.FC = () => {
                 </div>
             </div>
 
-            {/* Tabs Container - draggable when no tabs or between tabs */}
             <div className="titlebar__center" data-tauri-drag-region>
                 {hasTabs && (
                     <div className="titlebar__tabs">
-                        {/* WAD Explorer singleton tab */}
                         {isWadExplorerOpen && (
                             <div
                                 className={`titlebar__tab ${isWadExplorerActive ? 'titlebar__tab--active' : ''}${wadExplorerClosing ? ' titlebar__tab--closing' : ''}`}
@@ -452,7 +521,6 @@ export const TitleBar: React.FC = () => {
                             </div>
                         )}
 
-                        {/* File editor tab */}
                         {fileEditorTarget && (
                             <div
                                 className={`titlebar__tab ${isFileEditorActive ? 'titlebar__tab--active' : ''}`}
@@ -496,12 +564,29 @@ export const TitleBar: React.FC = () => {
                                 onClose={(e) => handleCloseExtract(e, session.id)}
                             />
                         ))}
+                        {manifestList.map(s => (
+                            <ManifestTab
+                                key={s.sessionId}
+                                label={s.label}
+                                isActive={s.sessionId === activeManifestId && isManifestActive}
+                                onSwitch={() => handleSwitchManifest(s.sessionId)}
+                                onClose={(e) => handleCloseManifest(e, s.sessionId)}
+                            />
+                        ))}
                     </div>
                 )}
             </div>
 
             <div className="titlebar__controls" data-tauri-drag-region="false">
-                {/* Sync to Launcher button — visible when a project is open and any launcher is configured */}
+                {currentView === 'preview' && currentProject?.kind === 'map' && (
+                    <button
+                        style={psdBtnStyle(false)}
+                        onClick={() => openModal('map-textures')}
+                        title="Combine / apply map texture PSDs (ground, walls, camps, …)"
+                        data-tauri-drag-region="false"
+                    >Map Textures</button>
+                )}
+
                 {currentView === 'preview' && currentProject && launcherTarget && (
                     <button
                         className="titlebar__button titlebar__button--sync"
@@ -516,7 +601,6 @@ export const TitleBar: React.FC = () => {
                     </button>
                 )}
 
-                {/* Timeline button (only visible when a project is open) */}
                 {currentView === 'preview' && currentProject && (
                     <button
                         className="titlebar__button titlebar__button--timeline"
@@ -530,7 +614,6 @@ export const TitleBar: React.FC = () => {
                     </button>
                 )}
 
-                {/* Export dropdown (only visible when a project is open) */}
                 {currentView === 'preview' && currentProject && (
                     <div className="titlebar__dropdown" style={{ position: 'relative', display: 'inline-block' }}>
                         <button

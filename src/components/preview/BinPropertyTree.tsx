@@ -1,7 +1,3 @@
-/**
- * Flint - BIN Property Tree Component (Placeholder)
- */
-
 import React from 'react';
 
 interface BinPropertyTreeProps {

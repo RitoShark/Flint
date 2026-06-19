@@ -102,8 +102,6 @@ pub async fn list_checkpoints_with_diffs(
     let manager = CheckpointManager::new(path);
     let checkpoints = manager.list_checkpoints().map_err(|e| e.to_string())?;
 
-    // Build (newer_id, older_id) pairs in newest-first order. Skip the last
-    // entry — it has no predecessor to diff against.
     let pairs: Vec<(String, String)> = checkpoints
         .windows(2)
         .map(|w| (w[0].id.clone(), w[1].id.clone()))
@@ -112,8 +110,6 @@ pub async fn list_checkpoints_with_diffs(
     let diffs: HashMap<String, CheckpointDiff> = pairs
         .into_par_iter()
         .filter_map(|(newer, older)| {
-            // Each rayon thread gets its own manager — CheckpointManager
-            // holds no shared cross-thread state we care about here.
             let m = CheckpointManager::new(PathBuf::from(&project_path));
             m.compare_checkpoints(&older, &newer)
                 .ok()

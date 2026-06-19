@@ -1,6 +1,5 @@
 //! Troybin binary parser — converts .troybin files to INI-like text.
 //!
-//! Ported from Leischii's Troygrade (TroybinConverter/Main.jsx).
 //! Format: version byte (1=old, 2=new), then typed sections keyed by u32 hashes.
 //! Hash resolution uses the "ihash" algorithm (65599-based rolling hash).
 
@@ -105,7 +104,6 @@ impl TroybinValue {
                 else { format!("{}", v) }
             }
             TroybinValue::Str(s) => {
-                // Check if it's numeric
                 if s.parse::<f64>().is_ok() { s.clone() }
                 else { format!("\"{}\"", s) }
             }
@@ -159,7 +157,6 @@ fn sanitize_str(s: &str) -> TroybinValue {
     if s == "false" { return TroybinValue::Int(0); }
     if s.eq_ignore_ascii_case("nan") { return TroybinValue::Float(f64::NAN); }
 
-    // Try parsing as space-separated numbers (vectors)
     let parts: Vec<&str> = s.split_whitespace().collect();
     if parts.len() > 1 {
         let nums: Vec<f64> = parts.iter().filter_map(|p| p.parse().ok()).collect();
@@ -168,7 +165,6 @@ fn sanitize_str(s: &str) -> TroybinValue {
         }
     }
 
-    // Single number
     if let Ok(v) = s.parse::<f64>() {
         return TroybinValue::Float(v);
     }
@@ -214,7 +210,6 @@ fn read_numbers(r: &mut BinReader, fmt: NumFmt, count: usize, mul: f64) -> io::R
             vals.push(raw * mul);
         }
         let value = if count == 1 && mul == 1.0 {
-            // Keep as-is (int or float depending on format)
             match fmt {
                 NumFmt::I32 | NumFmt::I16 | NumFmt::U16 => TroybinValue::Int(vals[0] as i32),
                 _ => TroybinValue::Float(vals[0]),
@@ -230,7 +225,6 @@ fn read_numbers(r: &mut BinReader, fmt: NumFmt, count: usize, mul: f64) -> io::R
 }
 
 fn read_strings(r: &mut BinReader, strings_length: usize) -> io::Result<Vec<HashEntry>> {
-    // Offsets are stored as u16 numbers
     let offsets = read_numbers(r, NumFmt::U16, 1, 1.0)?;
     let data = r.read_bytes(strings_length)?;
     let mut result = Vec::with_capacity(offsets.len());
@@ -261,8 +255,6 @@ fn read_new(r: &mut BinReader) -> io::Result<Vec<HashEntry>> {
         flags = r.read_u16_le()?;
     }
 
-    // Read configs for each flag bit (0..15)
-    // Format: (NumFmt, count, multiplier) or special cases for bools (5) and strings (12)
     let mut target = Vec::new();
 
     for i in 0u16..16 {

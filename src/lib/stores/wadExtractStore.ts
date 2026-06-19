@@ -1,8 +1,3 @@
-/**
- * WAD Extract Store
- * Manages individual WAD file browsing sessions
- */
-
 import { create } from 'zustand';
 import type { ExtractSession, WadChunk } from '../types';
 import { useConfigStore } from './configStore';
@@ -12,7 +7,6 @@ interface WadExtractState {
   extractSessions: ExtractSession[];
   activeExtractId: string | null;
 
-  // Actions
   openSession: (id: string, wadPath: string) => void;
   closeSession: (sessionId: string) => { newActiveId: string | null; remainingSessions: ExtractSession[] };
   switchSession: (sessionId: string) => void;
@@ -25,6 +19,7 @@ interface WadExtractState {
   setCurrentDir: (sessionId: string, dir: string) => void;
   navigateHistory: (sessionId: string, direction: 'back' | 'forward' | 'up') => void;
   stageChunkEdit: (sessionId: string, hash: string, newSize: number) => void;
+  stageChunkDelete: (sessionId: string, hash: string) => void;
   setSessionDirty: (sessionId: string, isDirty: boolean) => void;
 }
 
@@ -35,7 +30,6 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
   openSession: (id, wadPath) => {
     const wadName = wadPath.split(/[\\/]/).pop() || wadPath;
 
-    // Check if the WAD path is within League's game directory
     const config = useConfigStore.getState();
     const leaguePath = config.leaguePath;
     const leaguePathPbe = config.leaguePathPbe;
@@ -115,7 +109,6 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
     let newActiveId = activeExtractId;
 
     if (activeExtractId === sessionId) {
-      // Switch to last remaining extract session
       if (newSessions.length > 0) {
         newActiveId = newSessions[newSessions.length - 1].id;
       } else {
@@ -268,6 +261,23 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
         return {
           ...s,
           chunks: newChunks,
+          isDirty: true,
+        };
+      }),
+    }));
+  },
+
+  stageChunkDelete: (sessionId, hash) => {
+    set((state) => ({
+      extractSessions: state.extractSessions.map(s => {
+        if (s.id !== sessionId) return s;
+        const newSelected = new Set(s.selectedHashes);
+        newSelected.delete(hash);
+        return {
+          ...s,
+          chunks: s.chunks.filter(c => c.hash !== hash),
+          selectedHashes: newSelected,
+          previewHash: s.previewHash === hash ? null : s.previewHash,
           isDirty: true,
         };
       }),

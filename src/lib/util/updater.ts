@@ -1,8 +1,3 @@
-/**
- * Flint - Auto-Update Manager
- * Uses Tauri's official updater plugin
- */
-
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 
@@ -14,9 +9,6 @@ export interface UpdateCheckResult {
     date?: string;
 }
 
-/**
- * Check for available updates using Tauri's updater plugin
- */
 export async function checkForUpdates(): Promise<UpdateCheckResult> {
     try {
         const update = await check();
@@ -41,9 +33,6 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
     }
 }
 
-/**
- * Download and install an available update
- */
 export async function downloadAndInstallUpdate(
     onProgress?: (downloaded: number, total: number) => void
 ): Promise<void> {
@@ -56,11 +45,9 @@ export async function downloadAndInstallUpdate(
 
         console.log('[Updater] Downloading update...');
 
-        // Track download progress
         let totalBytes = 0;
         let downloadedBytes = 0;
 
-        // Download with progress callback
         await update.downloadAndInstall((event) => {
             switch (event.event) {
                 case 'Started':
@@ -85,7 +72,6 @@ export async function downloadAndInstallUpdate(
 
         console.log('[Updater] Update installed successfully, relaunching...');
 
-        // Relaunch the app
         await relaunch();
     } catch (error) {
         console.error('[Updater] Failed to install update:', error);

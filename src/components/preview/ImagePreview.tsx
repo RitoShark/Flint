@@ -1,8 +1,3 @@
-/**
- * Flint - Image Preview Component
- * Supports zoom (fit, 100%, 200%) and scroll wheel zooming
- */
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as api from '../../lib/api';
 import { getCachedImage, cacheImage } from '../../lib/ui-helpers/imageCache';
@@ -23,9 +18,6 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({ filePath, zoom, onZo
     const containerRef = useRef<HTMLDivElement>(null);
     const imageRef = useRef<HTMLImageElement>(null);
 
-    // Touch fileVersionsRev so this selector re-runs when ANY file version
-    // bumps, but return THIS file's version — zustand's Object.is equality
-    // means the component only re-renders when our specific file changed.
     const fileVersion = useAppMetadataStore((state) => {
         void state.fileVersionsRev;
         return state.getFileVersion(filePath);
@@ -36,7 +28,6 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({ filePath, zoom, onZo
             setLoading(true);
             setError(null);
 
-            // Check cache
             const cached = getCachedImage(filePath);
             if (cached) {
                 setImageData(cached as string);
@@ -54,7 +45,6 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({ filePath, zoom, onZo
                     cacheImage(filePath, dataUrl);
                     setImageData(dataUrl);
                 } else {
-                    // Regular image - read bytes and create data URL
                     const bytes = await api.readFileBytes(filePath);
                     const blob = new Blob([bytes as BlobPart]);
                     const dataUrl = URL.createObjectURL(blob);
@@ -70,15 +60,13 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({ filePath, zoom, onZo
         };
 
         loadImage();
-    }, [filePath, fileVersion]); // Re-run when file version changes (hot reload)
+    }, [filePath, fileVersion]);
 
-    // Handle image load to get natural size
     const handleImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
         const img = e.currentTarget;
         setNaturalSize({ width: img.naturalWidth, height: img.naturalHeight });
     }, []);
 
-    // Handle scroll wheel zoom
     const handleWheel = useCallback((e: React.WheelEvent) => {
         e.preventDefault();
 
@@ -89,7 +77,6 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({ filePath, zoom, onZo
         onZoomChange(newZoom);
     }, [zoom, onZoomChange]);
 
-    // Calculate display size based on zoom
     const getImageStyle = useCallback((): React.CSSProperties => {
         if (!naturalSize || !containerRef.current) {
             return {};
@@ -100,17 +87,15 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({ filePath, zoom, onZo
         const containerHeight = container.clientHeight;
 
         if (zoom === 'fit') {
-            // Fit within container
             const scaleX = containerWidth / naturalSize.width;
             const scaleY = containerHeight / naturalSize.height;
-            const scale = Math.min(scaleX, scaleY, 1); // Don't scale up for fit
+            const scale = Math.min(scaleX, scaleY, 1);
 
             return {
                 width: naturalSize.width * scale,
                 height: naturalSize.height * scale,
             };
         } else {
-            // Apply zoom percentage
             return {
                 width: naturalSize.width * zoom,
                 height: naturalSize.height * zoom,

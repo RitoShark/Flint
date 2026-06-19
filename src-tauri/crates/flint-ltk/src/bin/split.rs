@@ -12,7 +12,7 @@
 //!
 //! Split is the inverse of that pipeline. The wire format we emit needs to
 //! be byte-compatible: a sibling `.bin` with the moved entries in
-//! `bin.objects`, an empty `dependencies`, and the parent's `dependencies`
+//! `bin.entries`, an empty `linked` list, and the parent's `linked` list
 //! gets the new file's project-relative path appended.
 //!
 //! ## VFX classification
@@ -26,7 +26,7 @@
 //! See `event_mapper.rs::fnv1_hash` for FNV-1 vs FNV-1a; we use 1a here.
 
 use crate::error::{Error, Result};
-use ltk_meta::{Bin, BinObject};
+use ritoshark::bin::{Bin, BinEntry};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -90,11 +90,11 @@ pub const VFX_CLASS_NAMES: &[&str] = &[
 /// one of [`VFX_CLASS_NAMES`].
 pub fn classify_vfx_objects(bin: &Bin) -> Vec<u32> {
     let vfx_hashes: HashSet<u32> = VFX_CLASS_NAMES.iter().map(|n| fnv1a_lower(n)).collect();
-    bin.objects
+    bin.entries
         .iter()
-        .filter_map(|(path_hash, obj)| {
-            if vfx_hashes.contains(&obj.class_hash) {
-                Some(*path_hash)
+        .filter_map(|e| {
+            if vfx_hashes.contains(&e.class_hash) {
+                Some(e.path_hash)
             } else {
                 None
             }
@@ -108,8 +108,8 @@ pub fn classify_vfx_objects(bin: &Bin) -> Vec<u32> {
 pub fn group_by_class(bin: &Bin) -> Vec<(u32, Vec<u32>)> {
     use std::collections::BTreeMap;
     let mut map: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
-    for (path_hash, obj) in bin.objects.iter() {
-        map.entry(obj.class_hash).or_default().push(*path_hash);
+    for e in bin.entries.iter() {
+        map.entry(e.class_hash).or_default().push(e.path_hash);
     }
     map.into_iter().collect()
 }
@@ -136,17 +136,15 @@ pub fn split_bin(
         ));
     }
 
-    // 1. Read parent.
     let parent_data = std::fs::read(parent_bin_path)
         .map_err(|e| Error::io_with_path(e, parent_bin_path))?;
     let mut parent = crate::bin::read_bin(&parent_data)
         .map_err(|e| Error::InvalidInput(format!("Failed to parse parent BIN: {}", e)))?;
 
-    // 2. Pull moved objects out of parent.
-    let mut moved_objects: Vec<BinObject> = Vec::with_capacity(move_hashes.len());
-    parent.objects.retain(|hash, obj| {
-        if move_hashes.contains(hash) {
-            moved_objects.push(obj.clone());
+    let mut moved_objects: Vec<BinEntry> = Vec::with_capacity(move_hashes.len());
+    parent.entries.retain(|e| {
+        if move_hashes.contains(&e.path_hash) {
+            moved_objects.push(e.clone());
             false
         } else {
             true
@@ -161,14 +159,13 @@ pub fn split_bin(
 
     let moved_count = moved_objects.len();
 
-    // 3. Build the new sibling BIN (objects only, empty dependencies).
-    let new_bin = Bin::builder().objects(moved_objects).build();
+    let new_bin = Bin { entries: moved_objects, ..Bin::new() };
 
-    // 4. Always write the new BIN under `<wad_root>/data/`. This matches
-    //    Riot's convention for linked/concat BINs (engine load-paths look
-    //    like `data/<file>.bin`) and keeps the project tree tidy — the new
-    //    file is never co-located with the source skin BIN, where it would
-    //    get tangled with character-specific assets.
+    /* Always write the new BIN under `<wad_root>/data/`. This matches
+       Riot's convention for linked/concat BINs (engine load-paths look
+       like `data/<file>.bin`) and keeps the project tree tidy — the new
+       file is never co-located with the source skin BIN, where it would
+       get tangled with character-specific assets. */
     let data_dir = project_root.join("data");
     std::fs::create_dir_all(&data_dir)
         .map_err(|e| Error::io_with_path(e, &data_dir))?;
@@ -181,9 +178,8 @@ pub fn split_bin(
         )));
     }
 
-    // 5. Compute the engine-relative link string — `data/<filename>` per the
-    //    rule above. Engine reads `bin.dependencies` as paths relative to
-    //    the WAD root (the directory containing `data/`, `assets/`, etc).
+    /* Engine reads `bin.linked` as paths relative to the WAD root (the
+       directory containing `data/`, `assets/`, etc). */
     let link_rel = new_full_path
         .strip_prefix(project_root)
         .map_err(|_| {
@@ -197,19 +193,17 @@ pub fn split_bin(
         .replace('\\', "/")
         .to_lowercase();
 
-    // 6. Write the new BIN to disk first — only mutate the parent if this
-    //    succeeds, so a failure leaves the project in its original state.
+    /* Write the new BIN to disk first — only mutate the parent if this
+       succeeds, so a failure leaves the project in its original state. */
     let new_bytes = crate::bin::write_bin(&new_bin)
         .map_err(|e| Error::InvalidInput(format!("Failed to serialize new BIN: {}", e)))?;
     std::fs::write(&new_full_path, &new_bytes)
         .map_err(|e| Error::io_with_path(e, &new_full_path))?;
 
-    // 7. Append link to parent.dependencies (skip duplicates).
-    if !parent.dependencies.iter().any(|d| d.eq_ignore_ascii_case(&link_rel)) {
-        parent.dependencies.push(link_rel.clone());
+    if !parent.linked.iter().any(|d| d.eq_ignore_ascii_case(&link_rel)) {
+        parent.linked.push(link_rel.clone());
     }
 
-    // 8. Write parent back.
     let parent_bytes = crate::bin::write_bin(&parent)
         .map_err(|e| Error::InvalidInput(format!("Failed to serialize parent BIN: {}", e)))?;
     std::fs::write(parent_bin_path, &parent_bytes)
@@ -250,15 +244,15 @@ pub fn analyze_multi(bin_paths: &[PathBuf]) -> MultiAnalysis {
 
         sources.push(MultiSourceInfo {
             bin_path: path.clone(),
-            object_count: bin.objects.len(),
+            object_count: bin.entries.len(),
         });
-        total_objects += bin.objects.len();
+        total_objects += bin.entries.len();
 
-        for (path_hash, obj) in bin.objects.iter() {
+        for e in bin.entries.iter() {
             class_buckets
-                .entry(obj.class_hash)
+                .entry(e.class_hash)
                 .or_default()
-                .push(*path_hash);
+                .push(e.path_hash);
         }
     }
 
@@ -297,11 +291,11 @@ pub fn split_bin_multi(
         ));
     }
 
-    // 1. Read every source. Bail on read/parse error so we never mutate
-    //    state when something's off — better to fail before any write.
+    /* Bail on read/parse error so we never mutate state when something's
+       off — better to fail before any write. */
     struct Source {
         path: PathBuf,
-        bin: ltk_meta::Bin,
+        bin: Bin,
     }
     let mut sources: Vec<Source> = Vec::with_capacity(source_paths.len());
     for path in source_paths {
@@ -311,21 +305,20 @@ pub fn split_bin_multi(
         sources.push(Source { path: path.clone(), bin });
     }
 
-    // 2. Pull matching objects out of each source. Track which paths
-    //    actually had moves so we only rewrite files that changed.
-    let mut moved_objects: Vec<BinObject> = Vec::new();
+    /* Track which paths actually had moves so we only rewrite files that changed. */
+    let mut moved_objects: Vec<BinEntry> = Vec::new();
     let mut sources_changed: Vec<bool> = vec![false; sources.len()];
     for (idx, src) in sources.iter_mut().enumerate() {
-        let before = src.bin.objects.len();
-        src.bin.objects.retain(|hash, obj| {
-            if move_hashes.contains(hash) {
-                moved_objects.push(obj.clone());
+        let before = src.bin.entries.len();
+        src.bin.entries.retain(|e| {
+            if move_hashes.contains(&e.path_hash) {
+                moved_objects.push(e.clone());
                 false
             } else {
                 true
             }
         });
-        if src.bin.objects.len() != before {
+        if src.bin.entries.len() != before {
             sources_changed[idx] = true;
         }
     }
@@ -337,10 +330,8 @@ pub fn split_bin_multi(
     }
     let moved_count = moved_objects.len();
 
-    // 3. Build the consolidated output BIN.
-    let new_bin = ltk_meta::Bin::builder().objects(moved_objects).build();
+    let new_bin = Bin { entries: moved_objects, ..Bin::new() };
 
-    // 4. Always write the new BIN under `<project_root>/data/`.
     let data_dir = project_root.join("data");
     std::fs::create_dir_all(&data_dir).map_err(|e| Error::io_with_path(e, &data_dir))?;
     let new_full_path: PathBuf = data_dir.join(output_filename);
@@ -364,14 +355,12 @@ pub fn split_bin_multi(
         .replace('\\', "/")
         .to_lowercase();
 
-    // 5. Write the new BIN first.
     let new_bytes = crate::bin::write_bin(&new_bin)
         .map_err(|e| Error::InvalidInput(format!("Failed to serialize new BIN: {}", e)))?;
     std::fs::write(&new_full_path, &new_bytes).map_err(|e| Error::io_with_path(e, &new_full_path))?;
 
-    // 6. Update the owner BIN's dependencies, then write back every changed
-    //    source. The owner is identified by path equality with one of the
-    //    sources — fall back to appending if it isn't in the list.
+    /* The owner is identified by path equality with one of the sources —
+       fall back to appending if it isn't in the list. */
     let owner_idx = sources.iter().position(|s| s.path == owner_path);
     let owner_bin = match owner_idx {
         Some(i) => &mut sources[i].bin,
@@ -381,13 +370,12 @@ pub fn split_bin_multi(
             let data = std::fs::read(owner_path).map_err(|e| Error::io_with_path(e, owner_path))?;
             let mut bin = crate::bin::read_bin(&data)
                 .map_err(|e| Error::InvalidInput(format!("Failed to parse owner BIN: {}", e)))?;
-            if !bin.dependencies.iter().any(|d| d.eq_ignore_ascii_case(&link_rel)) {
-                bin.dependencies.push(link_rel.clone());
+            if !bin.linked.iter().any(|d| d.eq_ignore_ascii_case(&link_rel)) {
+                bin.linked.push(link_rel.clone());
             }
             let bytes = crate::bin::write_bin(&bin)
                 .map_err(|e| Error::InvalidInput(format!("Failed to serialize owner BIN: {}", e)))?;
             std::fs::write(owner_path, &bytes).map_err(|e| Error::io_with_path(e, owner_path))?;
-            // continue to write the other sources below
             for (idx, src) in sources.iter().enumerate() {
                 if !sources_changed[idx] { continue; }
                 let bytes = crate::bin::write_bin(&src.bin).map_err(|e| {
@@ -398,12 +386,11 @@ pub fn split_bin_multi(
             return Ok(SplitResult { moved: moved_count, link_added: link_rel });
         }
     };
-    if !owner_bin.dependencies.iter().any(|d| d.eq_ignore_ascii_case(&link_rel)) {
-        owner_bin.dependencies.push(link_rel.clone());
+    if !owner_bin.linked.iter().any(|d| d.eq_ignore_ascii_case(&link_rel)) {
+        owner_bin.linked.push(link_rel.clone());
     }
     if let Some(i) = owner_idx { sources_changed[i] = true; }
 
-    // 7. Write back every changed source.
     for (idx, src) in sources.iter().enumerate() {
         if !sources_changed[idx] { continue; }
         let bytes = crate::bin::write_bin(&src.bin).map_err(|e| {
@@ -469,7 +456,7 @@ pub fn organize_vfx_in_folder(
 
     let vfx_class_set: HashSet<u32> = VFX_CLASS_NAMES.iter().map(|n| fnv1a_lower(n)).collect();
 
-    // 1. Read every source BIN. Bail before any write if anything fails.
+    /* Bail before any write if anything fails. */
     struct Source {
         path: PathBuf,
         bin: Bin,
@@ -490,24 +477,23 @@ pub fn organize_vfx_in_folder(
         )));
     }
 
-    // 2. Bucket sort: pull VFX from every source into one bucket; pull
-    //    non-VFX from NON-OWNER sources into another. Owner's non-VFX stays
-    //    in place — it's already where we want it.
-    let mut vfx_bucket: Vec<BinObject> = Vec::new();
-    let mut main_bucket: Vec<BinObject> = Vec::new();
+    /* Pull VFX from every source into one bucket; pull non-VFX from
+       NON-OWNER sources into another. Owner's non-VFX stays in place. */
+    let mut vfx_bucket: Vec<BinEntry> = Vec::new();
+    let mut main_bucket: Vec<BinEntry> = Vec::new();
     for src in sources.iter_mut() {
-        let mut keep: indexmap::IndexMap<u32, BinObject> = indexmap::IndexMap::new();
-        let drained = std::mem::take(&mut src.bin.objects);
-        for (path_hash, obj) in drained {
-            if vfx_class_set.contains(&obj.class_hash) {
-                vfx_bucket.push(obj);
+        let mut keep: Vec<BinEntry> = Vec::new();
+        let drained = std::mem::take(&mut src.bin.entries);
+        for entry in drained {
+            if vfx_class_set.contains(&entry.class_hash) {
+                vfx_bucket.push(entry);
             } else if src.is_owner {
-                keep.insert(path_hash, obj);
+                keep.push(entry);
             } else {
-                main_bucket.push(obj);
+                main_bucket.push(entry);
             }
         }
-        src.bin.objects = keep;
+        src.bin.entries = keep;
     }
 
     let vfx_count = vfx_bucket.len();
@@ -518,15 +504,18 @@ pub fn organize_vfx_in_folder(
         ));
     }
 
-    // 3. Merge main_bucket into the owner. Skip-on-collision.
+    /* Skip-on-collision (owner's existing version of any duplicated path
+       hash wins). Track the owner's existing path hashes in a HashSet to
+       keep the collision check O(1) instead of scanning the Vec per push. */
     let owner_idx = sources.iter().position(|s| s.is_owner).unwrap();
-    for obj in main_bucket {
-        let key = obj.path_hash;
-        sources[owner_idx].bin.objects.entry(key).or_insert(obj);
+    let mut owner_hashes: HashSet<u32> =
+        sources[owner_idx].bin.entries.iter().map(|e| e.path_hash).collect();
+    for entry in main_bucket {
+        if owner_hashes.insert(entry.path_hash) {
+            sources[owner_idx].bin.entries.push(entry);
+        }
     }
 
-    // 4. Decide where the new VFX BIN lives. Refuse to overwrite, refuse
-    //    to collide with a source path.
     let data_dir = project_root.join("data");
     std::fs::create_dir_all(&data_dir).map_err(|e| Error::io_with_path(e, &data_dir))?;
     let vfx_path = data_dir.join(vfx_filename);
@@ -557,13 +546,13 @@ pub fn organize_vfx_in_folder(
         .replace('\\', "/")
         .to_lowercase();
 
-    // 5. Determine which sources end up deleted (non-owner with no objects
-    //    left). Track their relative paths so we can prune dead links.
+    /* Sources that end up deleted (non-owner with no objects left). Track
+       their relative paths so we can prune dead links. */
     let mut to_delete: Vec<PathBuf> = Vec::new();
     let mut deleted_links: HashSet<String> = HashSet::new();
     for src in sources.iter() {
         if src.is_owner { continue; }
-        if src.bin.objects.is_empty() {
+        if src.bin.entries.is_empty() {
             to_delete.push(src.path.clone());
             if let Ok(rel) = src.path.strip_prefix(project_root) {
                 deleted_links.insert(rel.to_string_lossy().replace('\\', "/").to_lowercase());
@@ -571,32 +560,29 @@ pub fn organize_vfx_in_folder(
         }
     }
 
-    // 6. Update owner deps: prune dead links, append the new VFX link.
-    let dep_count_before = sources[owner_idx].bin.dependencies.len();
+    let dep_count_before = sources[owner_idx].bin.linked.len();
     sources[owner_idx]
         .bin
-        .dependencies
+        .linked
         .retain(|d| !deleted_links.contains(&d.to_lowercase()));
-    let links_pruned = dep_count_before - sources[owner_idx].bin.dependencies.len();
+    let links_pruned = dep_count_before - sources[owner_idx].bin.linked.len();
     if vfx_count > 0
         && !sources[owner_idx]
             .bin
-            .dependencies
+            .linked
             .iter()
             .any(|d| d.eq_ignore_ascii_case(&vfx_link_rel))
     {
-        sources[owner_idx].bin.dependencies.push(vfx_link_rel.clone());
+        sources[owner_idx].bin.linked.push(vfx_link_rel.clone());
     }
 
-    // 7. Write the consolidated VFX BIN first (only if non-empty).
     if vfx_count > 0 {
-        let vfx_bin = Bin::builder().objects(vfx_bucket).build();
+        let vfx_bin = Bin { entries: vfx_bucket, ..Bin::new() };
         let vfx_bytes = crate::bin::write_bin(&vfx_bin)
             .map_err(|e| Error::InvalidInput(format!("Failed to serialize VFX BIN: {}", e)))?;
         std::fs::write(&vfx_path, &vfx_bytes).map_err(|e| Error::io_with_path(e, &vfx_path))?;
     }
 
-    // 8. Write the owner BIN.
     {
         let owner_bytes = crate::bin::write_bin(&sources[owner_idx].bin)
             .map_err(|e| Error::InvalidInput(format!("Failed to serialize owner BIN: {}", e)))?;
@@ -604,11 +590,11 @@ pub fn organize_vfx_in_folder(
             .map_err(|e| Error::io_with_path(e, &sources[owner_idx].path))?;
     }
 
-    // 9. Write any non-empty non-owner sources (in case any of them had
-    //    only some objects move out). Then delete the empty ones.
+    /* Write any non-empty non-owner sources (in case any of them had only
+       some objects move out). Then delete the empty ones. */
     for src in sources.iter() {
         if src.is_owner { continue; }
-        if src.bin.objects.is_empty() { continue; } // gets deleted below
+        if src.bin.entries.is_empty() { continue; } // gets deleted below
         let bytes = crate::bin::write_bin(&src.bin).map_err(|e| {
             Error::InvalidInput(format!("Failed to serialize {}: {}", src.path.display(), e))
         })?;

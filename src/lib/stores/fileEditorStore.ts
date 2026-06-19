@@ -1,16 +1,3 @@
-/**
- * File Editor Store
- *
- * Holds the "currently being edited" file target for the page-based
- * file editor. This decouples the editor page from the file tree —
- * any callsite (context menu, command palette, double-click) can
- * push a target here and navigate to the page.
- *
- * Why this isn't on `navigationStore`: the page can also remember
- * dirty state (so closing the tab can prompt to save), which doesn't
- * belong on the navigation store.
- */
-
 import { create } from 'zustand';
 import type { FileEditorTarget } from '../types';
 

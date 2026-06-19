@@ -1,7 +1,3 @@
-/**
- * Flint - Export Modal Component
- */
-
 import React, { useState } from 'react';
 import { useModalStore, useNotificationStore, useProjectTabStore, useConfigStore } from '../../lib/stores';
 import * as api from '../../lib/api';

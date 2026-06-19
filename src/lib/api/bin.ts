@@ -22,20 +22,18 @@ export async function readBinInfo(binData: Uint8Array): Promise<{ version: strin
     return invokeCommand('read_bin_info', { binData: Array.from(binData) });
 }
 
-// Multi-MB ritobin text comes back as raw UTF-8 bytes — `TextDecoder` is
-// faster than `JSON.parse('"..."')` for huge strings.
 export async function parseBinFileToText(path: string): Promise<string> {
     const buf = await invokeCommand<ArrayBuffer>('parse_bin_file_to_text', { path });
     return utf8Decoder.decode(buf);
 }
 
-export async function readOrConvertBin(binPath: string, useJade?: boolean): Promise<string> {
-    const buf = await invokeCommand<ArrayBuffer>('read_or_convert_bin', { binPath, useJade });
+export async function readOrConvertBin(binPath: string): Promise<string> {
+    const buf = await invokeCommand<ArrayBuffer>('read_or_convert_bin', { binPath });
     return utf8Decoder.decode(buf);
 }
 
-export async function saveRitobinToBin(binPath: string, content: string, useJade?: boolean): Promise<void> {
-    return invokeCommand('save_ritobin_to_bin', { binPath, content, useJade });
+export async function saveRitobinToBin(binPath: string, content: string): Promise<void> {
+    return invokeCommand('save_ritobin_to_bin', { binPath, content });
 }
 
 export async function parseBinToTree(binPath: string): Promise<unknown[]> {
@@ -46,7 +44,7 @@ export async function getBinPaths(binPath: string): Promise<unknown[]> {
     return invokeCommand('get_bin_paths', { binPath });
 }
 
-export async function compileRitobinTextToBytes(content: string, useJade?: boolean): Promise<Uint8Array> {
-    const buf = await invokeCommand<ArrayBuffer>('compile_ritobin_text_to_bytes', { content, useJade });
+export async function compileRitobinTextToBytes(content: string): Promise<Uint8Array> {
+    const buf = await invokeCommand<ArrayBuffer>('compile_ritobin_text_to_bytes', { content });
     return new Uint8Array(buf);
 }

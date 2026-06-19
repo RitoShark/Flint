@@ -1,8 +1,3 @@
-/**
- * Root Store Index
- * Combines all domain stores and provides backward-compatible useAppState() hook
- */
-
 import React from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppMetadataStore } from './appMetadataStore';
@@ -16,10 +11,10 @@ import { useChampionStore } from './championStore';
 import { useModalStore } from './modalStore';
 import { useFileEditorStore } from './fileEditorStore';
 import { useNotificationStore } from './notificationStore';
+import { useTransferStore } from './transferStore';
 import { navigationCoordinator } from './navigationCoordinator';
 import type { AppState } from '../types';
 
-// Re-export individual stores
 export {
   useAppMetadataStore,
   useConfigStore,
@@ -32,34 +27,18 @@ export {
   useModalStore,
   useNotificationStore,
   useFileEditorStore,
+  useTransferStore,
 };
 
 /**
- * Combined hook that provides backward compatibility with the old useAppState() API
- * Components can continue using state.xyz pattern or migrate to individual stores.
- *
- * IMPORTANT — performance: each store is subscribed via a `useShallow`
- * selector that picks ONLY the fields surfaced through the combined `state`
- * object. Without this, calling `useAppMetadataStore()` (no selector)
- * subscribes the consumer to the entire store snapshot, so any field change
- * (a new log line, a toast, a heartbeat) re-renders every component that
- * reads `useAppState()`. With ~22 callsites including TitleBar/StatusBar
- * (always mounted), that cascade was the dominant cause of the
- * "delay between commands" sluggishness.
- *
- * Action method refs are stable by zustand contract, so we read them via
- * `getState()` rather than subscribing to them.
+ * Combined hook that provides backward compatibility with the old useAppState()
+ * API. Each store is subscribed via a `useShallow` selector that picks only the
+ * fields surfaced through the combined `state` object; action method refs are
+ * read via `getState()` rather than subscribed.
  */
 export function useAppState() {
-  // Subscribed field subsets — drive the `state` object below. Each call
-  // uses `useShallow` so the consumer only re-renders when one of the
-  // listed fields actually changes (rather than on any field-or-method
-  // change in the store, which is what bare `useXxxStore()` would do).
-  // NOTE: `logs` and `logPanelExpanded` are intentionally NOT in this subset.
-  // Backend tracing events flush to the logs array every 250ms; including
-  // them here would re-render every `useAppState()` consumer (TitleBar,
-  // StatusBar, modals, ~25 components) on every flush. LogPanel subscribes
-  // to those fields directly via `useAppMetadataStore((s) => s.logs)`.
+  // `logs` and `logPanelExpanded` are intentionally NOT subscribed here —
+  // LogPanel subscribes to them directly via useAppMetadataStore((s) => s.logs).
   const appMetadataSubset = useAppMetadataStore(
     useShallow((s) => ({
       status: s.status,
@@ -135,10 +114,6 @@ export function useAppState() {
     useShallow((s) => ({ toasts: s.toasts })),
   );
 
-  // Action snapshots — method refs are stable in zustand, so reading off
-  // getState() once per render is safe and avoids unnecessary subscriptions.
-  // Names match the legacy bundles so the dispatch switch and return below
-  // need no changes.
   const appMetadata = useAppMetadataStore.getState();
   const config = useConfigStore.getState();
   const projectTab = useProjectTabStore.getState();
@@ -149,29 +124,15 @@ export function useAppState() {
   const modal = useModalStore.getState();
   const notification = useNotificationStore.getState();
 
-  // Combined state object (for components that read state.xyz). Built from
-  // the subscribed `*Subset` bundles so this object is stable when none of
-  // the picked fields changed. Wrapped in useMemo so the outer reference
-  // is stable too — without this, every render returned a fresh literal
-  // and React.memo on consumers receiving `state` (or destructured pieces)
-  // saw "new" props every dispatch.
   const state: AppState = React.useMemo(() => ({
-    // App metadata
     status: appMetadataSubset.status,
     statusMessage: appMetadataSubset.statusMessage,
     hashesLoaded: appMetadataSubset.hashesLoaded,
     hashCount: appMetadataSubset.hashCount,
     verboseLogging: appMetadataSubset.verboseLogging,
-    // logs/logPanelExpanded read off the live store snapshot — they're not
-    // subscribed in `appMetadataSubset` (would cascade re-renders to every
-    // useAppState consumer on each 250ms log flush). The few callers that
-    // actually read these from `state` get a fresh value on the renders that
-    // are triggered by *other* fields they care about; live consumers should
-    // subscribe directly via useAppMetadataStore.
     logs: appMetadata.logs,
     logPanelExpanded: appMetadata.logPanelExpanded,
 
-    // Config
     leaguePath: configSubset.leaguePath,
     leaguePathPbe: configSubset.leaguePathPbe,
     defaultProjectPath: configSubset.defaultProjectPath,
@@ -186,23 +147,18 @@ export function useAppState() {
     celestialModPath: configSubset.celestialModPath,
     preferredLauncher: configSubset.preferredLauncher,
 
-    // Project tabs
     openTabs: projectTabSubset.openTabs,
     activeTabId: projectTabSubset.activeTabId,
     recentProjects: configSubset.recentProjects,
     savedProjects: configSubset.savedProjects,
 
-    // File change tracking
     fileChanges: {},
 
-    // Navigation
     currentView: navigationSubset.currentView,
 
-    // WAD extract
     extractSessions: wadExtractSubset.extractSessions,
     activeExtractId: wadExtractSubset.activeExtractId,
 
-    // WAD explorer
     wadExplorer: {
       isOpen: wadExplorerSubset.isOpen,
       wads: wadExplorerSubset.wads,
@@ -216,17 +172,14 @@ export function useAppState() {
       checkedCountPerWad: wadExplorerSubset.checkedCountPerWad,
     },
 
-    // Champions
     champions: championSubset.champions,
     championsLoaded: championSubset.championsLoaded,
 
-    // Modals
     activeModal: modalSubset.activeModal,
     modalOptions: modalSubset.modalOptions,
     confirmDialog: modalSubset.confirmDialog,
     contextMenu: modalSubset.contextMenu,
 
-    // Notifications
     toasts: notificationSubset.toasts,
   }), [
     appMetadataSubset,
@@ -242,11 +195,8 @@ export function useAppState() {
     appMetadata.logPanelExpanded,
   ]);
 
-  // Legacy dispatch function for backward compatibility
-  // Maps old action types to new store calls
   const dispatch = (action: any) => {
     switch (action.type) {
-      // App metadata
       case 'SET_STATUS':
         appMetadata.setStatus(action.payload.status, action.payload.message);
         break;
@@ -260,7 +210,6 @@ export function useAppState() {
         appMetadata.toggleLogPanel();
         break;
 
-      // Modals
       case 'OPEN_MODAL':
         modal.openModal(action.payload.modal, action.payload.options);
         break;
@@ -280,7 +229,6 @@ export function useAppState() {
         modal.closeConfirmDialog();
         break;
 
-      // Notifications
       case 'ADD_TOAST':
         notification.showToast(action.payload.type, action.payload.message, { suggestion: action.payload.suggestion });
         break;
@@ -288,7 +236,6 @@ export function useAppState() {
         notification.dismissToast(action.payload);
         break;
 
-      // Project tabs
       case 'ADD_TAB':
         projectTab.addTab(action.payload.project, action.payload.path);
         navigation.setView('preview');
@@ -313,13 +260,11 @@ export function useAppState() {
         projectTab.setSelectedFile(action.payload.tabId, action.payload.filePath);
         break;
 
-      // Legacy project actions (redirect to tab actions)
       case 'SET_PROJECT':
         if (action.payload.project && action.payload.path) {
           projectTab.addTab(action.payload.project, action.payload.path);
           navigation.setView('preview');
 
-          // Auto-save to saved projects list
           const proj = action.payload.project;
           config.addSavedProject({
             id: `proj-${Date.now()}`,
@@ -331,12 +276,10 @@ export function useAppState() {
             lastOpened: new Date().toISOString(),
           });
         } else {
-          // Close all tabs
           projectTab.openTabs.forEach(t => navigationCoordinator.removeTabWithFallback(t.id));
         }
         break;
       case 'SET_FILE_TREE':
-        // Use getState() to get current activeTabId, not captured value
         const currentTabId = useProjectTabStore.getState().activeTabId;
         if (currentTabId) {
           useProjectTabStore.getState().setFileTree(currentTabId, action.payload);
@@ -359,7 +302,6 @@ export function useAppState() {
         }
         break;
 
-      // Config
       case 'SET_RECENT_PROJECTS':
         config.setRecentProjects(action.payload);
         break;
@@ -370,12 +312,10 @@ export function useAppState() {
         config.removeSavedProject(action.payload);
         break;
 
-      // Champions
       case 'SET_CHAMPIONS':
         champion.setChampions(action.payload);
         break;
 
-      // WAD Explorer
       case 'OPEN_WAD_EXPLORER':
         navigationCoordinator.openWadExplorer();
         break;
@@ -417,7 +357,6 @@ export function useAppState() {
         wadExplorer.clearChecks();
         break;
 
-      // Extract sessions
       case 'OPEN_EXTRACT_SESSION':
         wadExtract.openSession(action.payload.id, action.payload.wadPath);
         navigation.setView('extract');
@@ -454,7 +393,6 @@ export function useAppState() {
         wadExtract.setSessionDirty(action.payload.sessionId, action.payload.isDirty);
         break;
 
-      // Generic SET_STATE for partial updates
       case 'SET_STATE':
         if (action.payload.status !== undefined) appMetadata.setStatus(action.payload.status, action.payload.statusMessage || '');
         if (action.payload.hashesLoaded !== undefined) appMetadata.setHashInfo(action.payload.hashesLoaded, action.payload.hashCount || 0);
@@ -482,9 +420,8 @@ export function useAppState() {
 
   return {
     state,
-    dispatch, // Legacy dispatch for backward compatibility
+    dispatch,
 
-    // Convenience methods (delegate to appropriate stores)
     setStatus: appMetadata.setStatus,
     setWorking: appMetadata.setWorking,
     setReady: appMetadata.setReady,
@@ -501,7 +438,6 @@ export function useAppState() {
     openConfirmDialog: modal.openConfirmDialog,
     closeConfirmDialog: modal.closeConfirmDialog,
 
-    // Direct store access (for components that want to use individual stores)
     stores: {
       appMetadata,
       config,
@@ -516,11 +452,6 @@ export function useAppState() {
   };
 }
 
-/**
- * Legacy AppProvider component for backward compatibility
- * With Zustand, we don't need a provider at the root, but we keep this
- * export to avoid breaking components that import AppProvider
- */
 export function AppProvider({ children }: { children: React.ReactNode }) {
   return React.createElement(React.Fragment, null, children);
 }

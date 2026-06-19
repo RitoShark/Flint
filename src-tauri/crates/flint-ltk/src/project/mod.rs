@@ -1,4 +1,3 @@
-// Project management module exports
 #[allow(clippy::module_inception)]
 pub mod project;
 pub mod index;

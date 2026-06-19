@@ -1,9 +1,3 @@
-/**
- * Read-only Monaco editor wrappers used by WadExplorer's inline preview.
- * One for ritobin (custom language registered at module load), one generic
- * for built-in languages (Lua, INI, etc.).
- */
-
 import React, { useEffect, useRef } from 'react';
 import * as monaco from 'monaco-editor';
 import {
@@ -13,7 +7,6 @@ import {
     registerRitobinTheme,
 } from '../../../lib/editor/ritobinLanguage';
 
-// Register Ritobin language + theme once at module load.
 registerRitobinLanguage(monaco as any);
 registerRitobinTheme(monaco as any);
 
@@ -46,7 +39,7 @@ export const MonacoBinViewer: React.FC<{ text: string }> = ({ text }) => {
             editor.dispose();
             editorRef.current = null;
         };
-    }, []); // Only create once
+    }, []);
 
     useEffect(() => {
         if (editorRef.current) {
@@ -89,7 +82,7 @@ export const MonacoTextViewer: React.FC<{ text: string; language: string }> = ({
             editor.dispose();
             editorRef.current = null;
         };
-    }, [language]); // Recreate if language changes
+    }, [language]);
 
     useEffect(() => {
         if (editorRef.current) {

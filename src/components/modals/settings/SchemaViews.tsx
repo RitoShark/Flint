@@ -1,8 +1,3 @@
-/**
- * SchemaViews - progress + result panels used by the 'Dev' tab when
- * aggregating BIN schemas. Kept paired since they share the
- * SchemaProgress shape.
- */
 import React from 'react';
 import * as api from '../../../lib/api';
 import { Button, ProgressBar } from '../../ui';

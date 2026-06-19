@@ -5,7 +5,6 @@ declare module '*.md?raw' {
     export default content;
 }
 
-// Declare Vite worker import syntax
 declare module '*?worker' {
     const workerConstructor: {
         new (): Worker;

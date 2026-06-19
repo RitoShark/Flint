@@ -1,14 +1,4 @@
 //! Discover Flint projects on disk and reconcile with `projects.json`.
-//!
-//! Workflow:
-//!   1. Walk the projects root one level deep, looking for child directories
-//!      that contain a `mod.config.json` (the league-mod marker).
-//!   2. For each, read `flint.json` to recover the `pid` (or generate one if
-//!      missing — which case `open_project` will backfill on its next open).
-//!   3. Cross-reference with the existing `projects.json` index. Anything
-//!      indexed but missing from the disk walk is reported with `exists=false`
-//!      so the UI can offer "locate again" / "remove from list" affordances.
-//!   4. Anything found on disk but missing from the index gets upserted.
 
 use crate::error::Result;
 use crate::project::index::{read_index, upsert, ProjectIndexEntry};
@@ -23,16 +13,14 @@ const PROJECT_FILE: &str = "mod.config.json";
 const FLINT_FILE: &str = "flint.json";
 const INDEX_FILE: &str = "projects.json";
 
-/// One row returned to the frontend. Mirrors `ProjectIndexEntry` but always
-/// reflects current on-disk state (path verified; missing folders flagged).
+/// One row returned to the frontend, always reflecting current on-disk state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectListing {
     pub pid: String,
     pub path: PathBuf,
     pub name: String,
     pub display_name: String,
-    /// Project kind — drives which of the type-specific fields below are
-    /// meaningful. Older entries default to Skin.
+    /// Drives which type-specific fields below are meaningful. Older entries default to Skin.
     #[serde(default)]
     pub kind: ProjectKind,
     pub champion: String,
@@ -47,20 +35,17 @@ pub struct ProjectListing {
     pub exists: bool,
     /// True if this row came from the disk walk (vs. solely the index).
     pub on_disk: bool,
-    /// True if this row was rediscovered (in index AND on disk under a new
-    /// path). Useful for "we re-located your project" toasts.
+    /// True if rediscovered (in index AND on disk under a new path).
     pub relocated: bool,
-    /// Base64 encoded thumbnail.webp if it exists.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thumbnail: Option<String>,
 }
 
-/// Scan `projects_root` one level deep for project folders, merge with the
-/// `projects.json` index, and return the union. Side-effect: the index is
-/// rewritten with any newly-discovered or relocated projects.
+/// Scans `projects_root` one level deep, merges with the `projects.json` index,
+/// and returns the union. The index is rewritten with newly-discovered or
+/// relocated projects.
 pub fn discover_projects(projects_root: &Path) -> Result<Vec<ProjectListing>> {
     if !projects_root.exists() {
-        // Nothing to scan — but don't fail; let the caller treat empty as "no projects".
         return Ok(vec![]);
     }
 
@@ -79,16 +64,11 @@ pub fn discover_projects(projects_root: &Path) -> Result<Vec<ProjectListing>> {
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_dir() { continue; }
-        // Skip the index file itself (it's a sibling of project folders, not a folder).
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if name.eq_ignore_ascii_case(INDEX_FILE) { continue; }
-        // Cheap probe — must have mod.config.json to be a project.
         let config = path.join(PROJECT_FILE);
         if !config.is_file() { continue; }
 
-        // Try the lightweight read first (just flint.json) so a parse error
-        // in mod.config.json doesn't hide the project. Fall back to a full
-        // open_project (which also backfills pid) if needed.
         let listing = match read_listing_lightweight(&path) {
             Some(l) => l,
             None => match open_project(&path) {
@@ -100,8 +80,6 @@ pub fn discover_projects(projects_root: &Path) -> Result<Vec<ProjectListing>> {
             }
         };
 
-        // Upsert into index — this also bumps last_seen_at and rewrites path
-        // if the project was previously known under a different location.
         let prior = indexed.entries.iter().find(|e| e.pid == listing.pid).cloned();
         let relocated = prior
             .as_ref()
@@ -126,7 +104,6 @@ pub fn discover_projects(projects_root: &Path) -> Result<Vec<ProjectListing>> {
             tracing::warn!("Failed to update projects.json for {}: {}", listing.pid, e);
         }
 
-        // Refresh local mirror so the second-pass loop below sees the upsert.
         if let Some(slot) = indexed.entries.iter_mut().find(|e| e.pid == upsert_entry.pid) {
             *slot = upsert_entry.clone();
         } else {
@@ -177,14 +154,12 @@ pub fn discover_projects(projects_root: &Path) -> Result<Vec<ProjectListing>> {
         });
     }
 
-    // Newest first by modified time.
     results.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
     Ok(results)
 }
 
-/// Try to build a listing from the project's own JSON files without going
-/// through the full `open_project` pipeline. Returns `None` if either file
-/// is unreadable; caller falls back to `open_project`.
+/// Builds a listing from the project's JSON files without the full
+/// `open_project` pipeline. Returns `None` if either file is unreadable.
 fn read_listing_lightweight(project_path: &Path) -> Option<ProjectListing> {
     let config_path = project_path.join(PROJECT_FILE);
     let config_file = File::open(&config_path).ok()?;
@@ -194,8 +169,7 @@ fn read_listing_lightweight(project_path: &Path) -> Option<ProjectListing> {
     let name = config.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let display_name = config.get("display_name").and_then(|v| v.as_str()).unwrap_or(&name).to_string();
 
-    // Flint metadata is optional — projects imported from another tool might
-    // not have it. We still want to surface them.
+    // Flint metadata is optional — projects imported from another tool may lack it.
     let flint_path = project_path.join(FLINT_FILE);
     let (pid, kind, champion, skin_id, map_id, created_at, modified_at) = if flint_path.exists() {
         match File::open(&flint_path).and_then(|f| {
@@ -203,10 +177,8 @@ fn read_listing_lightweight(project_path: &Path) -> Option<ProjectListing> {
                 .map_err(std::io::Error::other)
         }) {
             Ok(meta) => {
-                // Migrate the legacy `champion: "map-<id>"` / `"loading-screen"`
-                // tags into the new kind+map_id shape so the listing the UI
-                // sees is always normalised, even before the project is
-                // opened (which would re-save flint.json).
+                /* Normalise legacy `champion: "map-<id>"` / `"loading-screen"`
+                   tags into the kind+map_id shape. */
                 let (kind, champion, skin_id, map_id) = if matches!(meta.kind, ProjectKind::Skin) {
                     if let Some(rest) = meta.champion.strip_prefix("map-") {
                         (ProjectKind::Map, String::new(), 0, Some(rest.to_string()))

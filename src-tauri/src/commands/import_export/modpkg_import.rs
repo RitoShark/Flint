@@ -1,8 +1,3 @@
-//! Tauri commands for importing ModPkg mods into Flint projects
-//!
-//! Provides analysis and import of ModPkg-packaged mods, with automatic
-//! champion/skin detection, thumbnail extraction, and optional refathering.
-
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -21,30 +16,18 @@ use flint_ltk::project::Project;
 // Types
 // =============================================================================
 
-/// Analysis result of a ModPkg file (mirrors FantomeAnalysis for frontend reuse)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModpkgAnalysis {
-    /// Detected champion name (if any)
     pub champion: Option<String>,
-    /// Detected skin IDs from file paths
     pub skin_ids: Vec<u32>,
-    /// Whether this appears to be a champion mod
     pub is_champion_mod: bool,
-    /// Total number of content files (excluding _meta_/)
     pub file_count: usize,
-    /// Sample of file paths (first 50)
     pub file_paths: Vec<String>,
-    /// Mod name from metadata
     pub name: Option<String>,
-    /// Mod display name from metadata
     pub display_name: Option<String>,
-    /// Mod description from metadata
     pub description: Option<String>,
-    /// Mod version from metadata
     pub version: Option<String>,
-    /// Author names from metadata
     pub authors: Vec<String>,
-    /// Whether thumbnail is available
     pub has_thumbnail: bool,
 }
 
@@ -52,7 +35,6 @@ pub struct ModpkgAnalysis {
 // Commands
 // =============================================================================
 
-/// Analyze a ModPkg file to detect champion, skin IDs, metadata, and mod type
 #[tauri::command]
 pub async fn analyze_modpkg(modpkg_path: String) -> Result<ModpkgAnalysis, String> {
     tokio::task::spawn_blocking(move || analyze_modpkg_internal(&modpkg_path))
@@ -68,13 +50,10 @@ fn analyze_modpkg_internal(modpkg_path: &str) -> Result<ModpkgAnalysis, String> 
     let mut modpkg = Modpkg::mount_from_reader(reader)
         .map_err(|e| format!("Failed to read modpkg: {}", e))?;
 
-    // Load metadata (optional — older modpkg files might not have it)
     let metadata = modpkg.load_metadata().ok();
 
-    // Check if thumbnail exists
     let has_thumbnail = modpkg.load_thumbnail().is_ok();
 
-    // Collect content file paths (skip _meta_/ entries)
     let content_paths: Vec<String> = modpkg
         .chunk_paths
         .values()
@@ -84,10 +63,8 @@ fn analyze_modpkg_internal(modpkg_path: &str) -> Result<ModpkgAnalysis, String> 
 
     let file_count = content_paths.len();
 
-    // Detect champion from paths
     let champion = extract_champion_from_paths(&content_paths);
 
-    // Detect skin IDs from paths
     let mut skin_id_set: HashSet<u32> = HashSet::new();
     for path in &content_paths {
         if let Some(skin_id) = extract_skin_id_from_path(path) {
@@ -99,10 +76,8 @@ fn analyze_modpkg_internal(modpkg_path: &str) -> Result<ModpkgAnalysis, String> 
 
     let is_champion_mod = champion.is_some();
 
-    // Get sample paths (first 50)
     let file_paths: Vec<String> = content_paths.into_iter().take(50).collect();
 
-    // Extract metadata fields
     let (name, display_name, description, version, authors) = match &metadata {
         Some(m) => (
             Some(m.name.clone()),
@@ -129,7 +104,6 @@ fn analyze_modpkg_internal(modpkg_path: &str) -> Result<ModpkgAnalysis, String> 
     })
 }
 
-/// Import a ModPkg file into a Flint project
 #[tauri::command]
 pub async fn import_modpkg(
     app: AppHandle,
@@ -162,7 +136,6 @@ fn import_modpkg_internal(
 
     let project_path = Path::new(project_dir);
 
-    // Create project directory structure
     std::fs::create_dir_all(project_path)
         .map_err(|e| format!("Failed to create project directory: {}", e))?;
 
@@ -178,7 +151,6 @@ fn import_modpkg_internal(
         }),
     );
 
-    // Open modpkg
     let file = File::open(modpkg_path)
         .map_err(|e| format!("Failed to open modpkg file: {}", e))?;
     let reader = BufReader::new(file);
@@ -186,14 +158,10 @@ fn import_modpkg_internal(
     let mut modpkg = Modpkg::mount_from_reader(reader)
         .map_err(|e| format!("Failed to read modpkg: {}", e))?;
 
-    // Load metadata
     let metadata = modpkg.load_metadata().ok();
 
-    // Try to load thumbnail
     let thumbnail = modpkg.load_thumbnail().ok();
 
-    // Collect all content chunk entries: (path_hash, layer_hash, path)
-    // Skip _meta_/ entries (metadata, thumbnail, etc.)
     let chunk_entries: Vec<(u64, u64, String)> = modpkg
         .chunks
         .keys()
@@ -216,12 +184,10 @@ fn import_modpkg_internal(
         }),
     );
 
-    // Detect champion from file paths
     let paths: Vec<String> = chunk_entries.iter().map(|(_, _, p)| p.clone()).collect();
     let champion = extract_champion_from_paths(&paths)
         .ok_or("Failed to detect champion from ModPkg paths")?;
 
-    // Detect skin IDs
     let mut skin_id_set: HashSet<u32> = HashSet::new();
     for path in &paths {
         if let Some(skin_id) = extract_skin_id_from_path(path) {
@@ -229,7 +195,6 @@ fn import_modpkg_internal(
         }
     }
 
-    // Create WAD folder structure: content/{champion}.wad.client/
     let champion_lower = champion.to_lowercase();
     let wad_folder_name = format!("{}.wad.client", champion_lower);
     let wad_base = content_path.join(&wad_folder_name);
@@ -249,24 +214,20 @@ fn import_modpkg_internal(
         }),
     );
 
-    // Extract all content chunks into WAD folder
     let mut extracted_count = 0;
     let mut path_mappings = HashMap::new();
 
     for (path_hash, layer_hash, path) in &chunk_entries {
-        // Skip testcuberenderer debug files
         let path_lower = path.to_lowercase();
         if path_lower.contains("testcuberenderer") {
             tracing::debug!("Skipping testcuberenderer file: {}", path);
             continue;
         }
 
-        // Load and decompress chunk data
         let data = modpkg
             .load_chunk_decompressed_by_hash(*path_hash, *layer_hash)
             .map_err(|e| format!("Failed to decompress chunk '{}': {}", path, e))?;
 
-        // Write to WAD folder
         let file_path = wad_base.join(path.trim_start_matches('/'));
         if let Some(parent) = file_path.parent() {
             std::fs::create_dir_all(parent)
@@ -276,11 +237,9 @@ fn import_modpkg_internal(
         std::fs::write(&file_path, &*data)
             .map_err(|e| format!("Failed to write file: {}", e))?;
 
-        // Track path mappings for refathering
         path_mappings.insert(format!("{:016x}", path_hash), path.clone());
         extracted_count += 1;
 
-        // Emit progress periodically
         let progress_interval = (total_files / 10).max(50).min(total_files);
         if extracted_count % progress_interval == 0 || extracted_count == total_files {
             let _ = app.emit(
@@ -299,7 +258,6 @@ fn import_modpkg_internal(
         wad_folder_name
     );
 
-    // Save thumbnail if available
     if let Some(thumb_data) = thumbnail {
         let thumb_path = project_path.join("thumbnail.webp");
         if let Err(e) = std::fs::write(&thumb_path, &thumb_data) {
@@ -309,7 +267,6 @@ fn import_modpkg_internal(
         }
     }
 
-    // Get project metadata from modpkg metadata or import options
     let creator_name = metadata
         .as_ref()
         .and_then(|m| m.authors.first())
@@ -354,7 +311,6 @@ fn import_modpkg_internal(
         version
     );
 
-    // Apply refathering if enabled
     if options.refather {
         let _ = app.emit(
             "modpkg-import-progress",
@@ -374,7 +330,6 @@ fn import_modpkg_internal(
             champion: champion.clone(),
             target_skin_id,
             cleanup_unused: false,
-            use_jade_engine: options.use_jade.unwrap_or(false),
             wad_folder_override: None,
         };
 
@@ -384,7 +339,6 @@ fn import_modpkg_internal(
         tracing::info!("Refathering completed successfully");
     }
 
-    // Create project
     let league_path_buf = options.league_path.as_ref().map(std::path::PathBuf::from);
 
     let mut project = Project::new(
@@ -396,14 +350,12 @@ fn import_modpkg_internal(
         Some(creator_name.to_string()),
     );
 
-    // Override with modpkg metadata if available
     if let Some(desc) = description {
         project.description = desc;
     }
     if let Some(ver) = version {
         project.version = ver;
     }
-    // Add all modpkg authors
     if let Some(meta) = &metadata {
         if meta.authors.len() > 1 {
             project.authors = meta.authors.iter().map(|a| a.name.clone()).collect();
@@ -418,7 +370,6 @@ fn import_modpkg_internal(
         }),
     );
 
-    // Save project files (mod.config.json and flint.json)
     core_save_project(&project).map_err(|e| format!("Failed to save project: {}", e))?;
 
     tracing::info!(

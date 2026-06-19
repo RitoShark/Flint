@@ -1,8 +1,3 @@
-/**
- * Flint - Checkpoint Modal Component
- * Project history and version control for modders
- */
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { useModalStore, useNotificationStore, useAppMetadataStore, useProjectTabStore } from '../../lib/stores';
 import * as api from '../../lib/api';
@@ -10,20 +5,17 @@ import { Button, Icon, Input, Modal, ModalBody, ModalHeader, ProgressBar, Spinne
 import { listen } from '@tauri-apps/api/event';
 import type { Checkpoint, CheckpointDiff, CheckpointProgress, CheckpointFileContent } from '../../lib/types';
 
-/** Helper to extract just the filename from a path */
 function getFileName(path: string): string {
     const parts = path.split('/');
     return parts[parts.length - 1] || path;
 }
 
-/** Format file size in human-readable form */
 function formatSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** Format relative time */
 function formatRelativeTime(timestamp: string): string {
     const now = new Date();
     const then = new Date(timestamp);
@@ -54,17 +46,14 @@ export const CheckpointModal: React.FC = () => {
     const [diff, setDiff] = useState<CheckpointDiff | null>(null);
     const [isComparing, setIsComparing] = useState(false);
 
-    // Creation progress
     const [isCreating, setIsCreating] = useState(false);
     const [createProgress, setCreateProgress] = useState<CheckpointProgress | null>(null);
 
-    // File preview comparison
     const [previewFile, setPreviewFile] = useState<{ path: string; oldHash?: string; newHash?: string } | null>(null);
     const [previewOld, setPreviewOld] = useState<CheckpointFileContent | null>(null);
     const [previewNew, setPreviewNew] = useState<CheckpointFileContent | null>(null);
     const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
-    // Cache diffs per checkpoint ID
     const [diffCache, setDiffCache] = useState<Record<string, CheckpointDiff>>({});
 
     const isVisible = activeModal === 'checkpoint';
@@ -74,7 +63,6 @@ export const CheckpointModal: React.FC = () => {
         : null;
     const currentProjectPath = activeTab?.projectPath || null;
 
-    // Listen for checkpoint progress events
     useEffect(() => {
         let unlisten: (() => void) | null = null;
         listen<CheckpointProgress>('checkpoint-progress', (event) => {
@@ -90,8 +78,6 @@ export const CheckpointModal: React.FC = () => {
         try {
             const list = await api.listCheckpoints(currentProjectPath);
             setCheckpoints(list);
-            // Diffs are now computed lazily when a checkpoint is selected (see auto-diff effect below)
-            // This makes the modal open instantly instead of blocking for potentially minutes
         } catch (err) {
             console.error('Failed to load checkpoints:', err);
             showToast('error', 'Failed to load checkpoints');
@@ -106,7 +92,6 @@ export const CheckpointModal: React.FC = () => {
         }
     }, [isVisible, loadCheckpoints]);
 
-    // Auto-diff when a checkpoint is selected
     useEffect(() => {
         if (!selectedCheckpoint || !currentProjectPath) {
             setDiff(null);
@@ -117,7 +102,6 @@ export const CheckpointModal: React.FC = () => {
         const idx = checkpoints.findIndex(c => c.id === selectedCheckpoint);
         if (idx === -1) return;
 
-        // If it's the oldest checkpoint, show as "initial" (all files are added)
         if (idx === checkpoints.length - 1) {
             const cp = checkpoints[idx];
             const initialDiff: CheckpointDiff = {
@@ -129,13 +113,11 @@ export const CheckpointModal: React.FC = () => {
             return;
         }
 
-        // Use cached diff if available
         if (diffCache[selectedCheckpoint]) {
             setDiff(diffCache[selectedCheckpoint]);
             return;
         }
 
-        // Compute diff from previous checkpoint
         const prevId = checkpoints[idx + 1].id;
         setIsComparing(true);
         api.compareCheckpoints(currentProjectPath, prevId, selectedCheckpoint)
@@ -206,7 +188,6 @@ export const CheckpointModal: React.FC = () => {
         }
     };
 
-    // Load file preview for comparison
     const handleFileClick = async (filePath: string, oldHash?: string, newHash?: string) => {
         if (!currentProjectPath) return;
 
@@ -251,7 +232,6 @@ export const CheckpointModal: React.FC = () => {
                 />
 
                 <ModalBody className="checkpoint-modal__body">
-                    {/* Create Checkpoint Section */}
                     <div className="checkpoint-modal__create">
                         <h3>Create Checkpoint</h3>
                         <p className="text-muted">Save your current progress with a message</p>
@@ -282,9 +262,7 @@ export const CheckpointModal: React.FC = () => {
                         )}
                     </div>
 
-                    {/* Checkpoint List & Details */}
                     <div className="checkpoint-modal__content">
-                        {/* Left: List */}
                         <div className="checkpoint-modal__list">
                             <h3>History</h3>
                             {isLoading ? (
@@ -317,7 +295,6 @@ export const CheckpointModal: React.FC = () => {
                                                         </span>
                                                     </div>
 
-                                                    {/* Tags */}
                                                     {cp.tags.length > 0 && (
                                                         <div className="checkpoint-card__tags">
                                                             {cp.tags.map(tag => (
@@ -326,7 +303,6 @@ export const CheckpointModal: React.FC = () => {
                                                         </div>
                                                     )}
 
-                                                    {/* Change summary */}
                                                     <div className="checkpoint-card__summary">
                                                         {isInitial ? (
                                                             <span className="checkpoint-summary__initial">
@@ -381,7 +357,6 @@ export const CheckpointModal: React.FC = () => {
                             )}
                         </div>
 
-                        {/* Right: Details */}
                         <div className="checkpoint-modal__details">
                             {selectedCheckpoint ? (
                                 <div className="checkpoint-details">
@@ -458,7 +433,6 @@ export const CheckpointModal: React.FC = () => {
                                                 )}
                                             </div>
 
-                                            {/* File preview comparison */}
                                             {previewFile && (
                                                 <div className="checkpoint-preview">
                                                     <div className="checkpoint-preview__header">
@@ -476,14 +450,12 @@ export const CheckpointModal: React.FC = () => {
                                                         <div className="checkpoint-preview__loading">Loading preview...</div>
                                                     ) : (
                                                         <div className="checkpoint-preview__compare">
-                                                            {/* Old version */}
                                                             {previewFile.oldHash && (
                                                                 <div className="checkpoint-preview__side">
                                                                     <div className="checkpoint-preview__label checkpoint-preview__label--old">Before</div>
                                                                     <PreviewContent content={previewOld} />
                                                                 </div>
                                                             )}
-                                                            {/* New version */}
                                                             {previewFile.newHash && (
                                                                 <div className="checkpoint-preview__side">
                                                                     <div className="checkpoint-preview__label checkpoint-preview__label--new">After</div>
@@ -514,7 +486,6 @@ export const CheckpointModal: React.FC = () => {
     );
 };
 
-/** Render preview content based on type */
 const PreviewContent: React.FC<{ content: CheckpointFileContent | null }> = ({ content }) => {
     if (!content) {
         return <div className="checkpoint-preview__empty">Not available</div>;

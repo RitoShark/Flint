@@ -1,11 +1,3 @@
-/**
- * WadExplorer — pure helpers.
- *
- * Types, SVG constants, VFS tree builders, search/check-state helpers, and
- * flatteners that have no React state of their own. Extracted from
- * WadExplorer.tsx so the main component file can focus on UI.
- */
-
 import { getIcon } from '../../../lib/ui-helpers/fileIcons';
 import type { WadChunk, WadExplorerWad } from '../../../lib/types';
 
@@ -84,7 +76,6 @@ export function buildVFSSubtree(chunks: WadChunk[], wadPath: string): VFSNode[] 
         }
     }
 
-    // Unknown hashes at the bottom
     const unknown = chunks.filter(c => !c.path);
     if (unknown.length > 0) {
         const key = `${wadPath}::__unknown__`;
@@ -123,16 +114,13 @@ export type SearchMode = 'contains' | 'starts' | 'regex';
 export function matchChunk(chunk: WadChunk, re: RegExp | null, plain: string, mode: SearchMode): boolean {
     if (mode === 'regex') return re ? re.test(chunk.path ?? chunk.hash) : false;
     // Lowercased path is cached on the chunk on first search to avoid
-    // re-lowercasing the same string across keystrokes. Decode no longer
-    // pre-computes this — eagerly lowercasing all 820K chunks at boot was
-    // ~1.5s of wasted work since most never get searched.
+    // re-lowercasing the same string across keystrokes.
     let haystack = chunk.haystack;
     if (haystack === undefined) {
         haystack = chunk.path !== null ? chunk.path.toLowerCase() : chunk.hash;
         chunk.haystack = haystack;
     }
     if (mode === 'starts') {
-        // Match either the file basename or the full path starting with the query
         const slash = haystack.lastIndexOf('/');
         const basename = slash >= 0 ? haystack.slice(slash + 1) : haystack;
         return basename.startsWith(plain) || haystack.startsWith(plain);
@@ -154,7 +142,6 @@ export function makeFileKey(wadPath: string, hash: string): string {
     return `${wadPath}::${hash}`;
 }
 
-/** Collect all `${wadPath}::${hash}` keys from a VFS folder recursively */
 export function collectFolderFileKeys(node: VFSFolder, wadPath: string): string[] {
     const keys: string[] = [];
     const walk = (n: VFSNode) => {
@@ -165,7 +152,6 @@ export function collectFolderFileKeys(node: VFSFolder, wadPath: string): string[
     return keys;
 }
 
-/** Collect all hashes from a VFS folder recursively (for extraction) */
 export function collectFolderHashes(node: VFSFolder): string[] {
     const hashes: string[] = [];
     const walk = (n: VFSNode) => {
@@ -176,7 +162,6 @@ export function collectFolderHashes(node: VFSFolder): string[] {
     return hashes;
 }
 
-/** Get checkbox state for a VFS folder based on how many descendant files are checked */
 export function getFolderCheckState(node: VFSFolder, wadPath: string, checkedFiles: Set<string>): 'none' | 'some' | 'all' {
     let hasChecked = false;
     let hasUnchecked = false;
@@ -206,7 +191,6 @@ export function getWadCheckState(wad: WadExplorerWad, checkedFiles: Set<string>)
     return hasChecked ? 'all' : 'none';
 }
 
-/** Get check state for an arbitrary list of file keys */
 export function getCheckStateForKeys(keys: string[], checkedFiles: Set<string>): 'none' | 'some' | 'all' {
     if (keys.length === 0) return 'none';
     let checked = 0;
@@ -271,7 +255,7 @@ export function detectType(bytes: Uint8Array, pathHint: string | null): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const ROW_HEIGHT = 26;
-export const OVERSCAN = 8; // extra rows above/below viewport
+export const OVERSCAN = 8;
 
 export type FlatRow =
     | { kind: 'category'; cat: string; loadedCount: number; totalCount: number }
@@ -286,7 +270,6 @@ export type FlatSearchRow =
     | { kind: 'search-folder'; wadPath: string; folderPath: string; fileCount: number }
     | { kind: 'search-file'; wadPath: string; chunk: WadChunk; fileName: string; folderPath: string };
 
-// Compact folders: merge single-child VFS folder chains into one label
 export function compactVFSNode(node: VFSFolder): { displayPath: string; effectiveNode: VFSFolder } {
     let current = node;
     const parts = [current.name];
@@ -300,7 +283,6 @@ export function compactVFSNode(node: VFSFolder): { displayPath: string; effectiv
     return { displayPath: parts.join('/'), effectiveNode: current };
 }
 
-// Collect all descendant folder keys for deep expand/collapse
 export function collectAllVFSFolderKeys(node: VFSNode): string[] {
     if (node.type !== 'folder') return [];
     const result = [node.key];
@@ -310,14 +292,12 @@ export function collectAllVFSFolderKeys(node: VFSNode): string[] {
     return result;
 }
 
-// Find wadPath from any descendant file
 export function findWadPath(node: VFSNode): string | null {
     if (node.type === 'file') return node.wadPath;
     for (const c of node.children) { const r = findWadPath(c); if (r) return r; }
     return null;
 }
 
-/** Flatten the category → WAD → VFS tree into a flat row array for virtualized rendering */
 export function flattenTree(
     categories: [string, WadExplorerWad[]][],
     collapsedCategories: Set<string>,
@@ -367,7 +347,6 @@ export function flattenTree(
     return rows;
 }
 
-/** Flatten search results into a flat row array for virtualized rendering */
 export function flattenSearchResults(
     groups: Array<{
         wadPath: string;

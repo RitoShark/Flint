@@ -1,8 +1,3 @@
-/**
- * WAD Explorer Store
- * Manages the unified VFS browser for all game WAD files
- */
-
 import { create } from 'zustand';
 import type { WadExplorerWad, WadChunk, GameWadInfo } from '../types';
 
@@ -25,7 +20,7 @@ function saveRecentWads(list: string[]) {
   try {
     localStorage.setItem(RECENT_WADS_KEY, JSON.stringify(list));
   } catch {
-    // out of space / privacy mode — silently ignore
+    /* non-fatal */
   }
 }
 
@@ -39,18 +34,10 @@ interface WadExplorerState {
   expandedFolders: Set<string>;
   searchQuery: string;
   checkedFiles: Set<string>;
-  /**
-   * Live tally of how many of each WAD's files are currently in `checkedFiles`.
-   * Maintained incrementally on every `toggleCheck` so the WAD-row checkbox
-   * tri-state can be derived in O(1) per WAD instead of walking 80k chunks
-   * per render. Each row's `'all' | 'some' | 'none'` is just
-   * `count === 0 ? 'none' : count === wad.chunks.length ? 'all' : 'some'`.
-   */
   checkedCountPerWad: Map<string, number>;
-  /** Most-recently-opened WAD paths (front = newest). Persisted in localStorage. */
+  /** Most-recently-opened WAD paths (front = newest). */
   recentWads: string[];
 
-  // Actions
   open: () => void;
   close: () => void;
   setScan: (status: WadExplorerState['scanStatus'], wads?: GameWadInfo[], error?: string) => void;
@@ -162,8 +149,6 @@ export const useWadExplorerStore = create<WadExplorerState>((set) => ({
     set((state) => {
       const next = new Set(state.checkedFiles);
       const counts = new Map(state.checkedCountPerWad);
-      // Per-WAD delta tally — only the WADs whose keys actually changed get
-      // their count touched, so the WAD-row tri-state stays O(1) per render.
       const deltas = new Map<string, number>();
       for (const k of keys) {
         if (checked) {

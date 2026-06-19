@@ -1,14 +1,3 @@
-/**
- * Flint — Context Menu Component
- *
- * Hierarchical right-click menu. Items with a `submenu` open a side-panel on
- * hover; mousing onto the panel keeps it open. Click-outside / Escape close
- * the whole tree.
- *
- * Visual language matches `design-lab.css` (`--dl-*` tokens) — frosted
- * surface, spring-eased entrance, gradient hover stripe.
- */
-
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useModalStore } from '../../lib/stores';
 import type { ContextMenuOption } from '../../lib/types';
@@ -42,10 +31,7 @@ const ContextMenuPanel: React.FC<PanelProps> = ({ options, x, y, depth, closing,
     const panelRef = useRef<HTMLDivElement>(null);
     const itemRefs = useRef<Array<HTMLDivElement | null>>([]);
     const [openIndex, setOpenIndex] = useState<number | null>(null);
-    // Position of the submenu anchor (right edge of the item that owns it).
     const [submenuPos, setSubmenuPos] = useState<{ x: number; y: number } | null>(null);
-    // Adjusted final position after we measure the panel — keeps the menu
-    // inside the viewport even when triggered near the screen edge.
     const [adjusted, setAdjusted] = useState<{ x: number; y: number }>({ x, y });
 
     useLayoutEffect(() => {
@@ -72,8 +58,6 @@ const ContextMenuPanel: React.FC<PanelProps> = ({ options, x, y, depth, closing,
         if (!item) return;
         const itemRect = item.getBoundingClientRect();
         const vw = window.innerWidth;
-        // Default: open to the right of the parent panel. Flip to the left if
-        // we'd run off the viewport.
         let sx = itemRect.right - 2;
         const wouldOverflow = sx + APPROX_PANEL_WIDTH > vw - 6;
         if (wouldOverflow) sx = itemRect.left - APPROX_PANEL_WIDTH + 2;
@@ -82,8 +66,6 @@ const ContextMenuPanel: React.FC<PanelProps> = ({ options, x, y, depth, closing,
     };
 
     const handleLeavePanel = () => {
-        // Don't immediately close — the user might be moving the cursor toward
-        // the submenu. A small idle delay before resetting handles that.
     };
 
     const handleItemClick = (opt: ContextMenuOption) => {
@@ -176,9 +158,6 @@ export const ContextMenu: React.FC = () => {
     const [closing, setClosing] = useState(false);
     const [snapshot, setSnapshot] = useState(menu);
 
-    // Two-phase unmount: keep the DOM alive long enough for the exit
-    // animation to play. `snapshot` holds the last menu state so the closing
-    // animation can render with the original position/options.
     useEffect(() => {
         if (menu) {
             setSnapshot(menu);

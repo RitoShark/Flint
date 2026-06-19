@@ -4,31 +4,25 @@
 //! PROP/PTCH (BIN) chunks are scanned with two complementary passes:
 //!
 //! 1. **Length-prefixed pass** — sliding 1-byte window matching u16-length
-//!    UTF-8 records that start with one of [`PATH_PREFIXES`]. Same shape
-//!    Quartz uses, kept so the resulting `hashes.extracted.txt` stays
-//!    byte-compatible.
+//!    UTF-8 records that start with one of [`PATH_PREFIXES`].
 //! 2. **Free-form ASCII pass** — walks contiguous runs of path-safe
 //!    bytes (alnum + `/._-`) and accepts any run that contains `/` AND
-//!    ends with a known asset extension. Catches paths that *don't*
-//!    start with one of the rooted prefixes (Riot embeds plenty: shader
-//!    refs, particle libraries, mode-specific assets), and is what makes
-//!    Jade's recall noticeably better than Quartz's stock scanner.
+//!    ends with a known asset extension, catching paths that don't start
+//!    with one of the rooted prefixes.
 //!
 //! Both passes lowercase before hashing (matches WAD path-hash convention)
-//! and feed into the same dedupe map so overlapping hits cost nothing.
+//! and feed into the same dedupe map.
 //!
-//! SKN scanning is unchanged from Quartz — fixed-layout submesh table,
-//! magic `0x00112233`, 80-byte header per submesh, first 64 bytes are a
-//! null-terminated bone/blend name. FNV1a hashes feed the BIN unhasher
-//! (separate domain from WAD path resolution).
+//! SKN scanning reads the fixed-layout submesh table: magic `0x00112233`,
+//! 80-byte header per submesh, first 64 bytes are a null-terminated
+//! bone/blend name. FNV1a hashes feed the BIN unhasher (separate domain
+//! from WAD path resolution).
 
 use std::collections::HashMap;
 use std::hash::Hasher;
 use twox_hash::XxHash64;
 
-/// Known asset roots in Riot WADs. Quartz's original list (top group)
-/// plus modes/particles/shaders/materials/etc. that frequently host
-/// paths the BIN serializer references but Quartz's scanner skipped.
+/// Known asset roots in Riot WADs.
 const PATH_PREFIXES: &[&[u8]] = &[
     b"assets/",
     b"data/",
@@ -129,13 +123,9 @@ fn fnv1a_lower(s: &str) -> u32 {
     h
 }
 
-/// Scan a PROP/PTCH chunk for asset path strings. Runs both the
-/// length-prefixed pass (Quartz-compatible) and the free-form ASCII
-/// pass (Jade's recall extension). Returns deduplicated `(xxh64, path)`
-/// tuples — duplicates across passes cost a single HashMap lookup.
-///
-/// Bails out early on any other magic so the caller can dispatch by
-/// `data[..4]` without pre-filtering.
+/// Scan a PROP/PTCH chunk for asset path strings, running both the
+/// length-prefixed and free-form ASCII passes. Returns deduplicated
+/// `(xxh64, path)` tuples. Returns empty for any other magic.
 pub fn scan_chunk_for_paths(data: &[u8]) -> Vec<(u64, String)> {
     if data.len() < 4 {
         return Vec::new();
@@ -150,9 +140,8 @@ pub fn scan_chunk_for_paths(data: &[u8]) -> Vec<(u64, String)> {
     results.into_iter().collect()
 }
 
-/// Pass 1 — sliding u16 length-prefixed scan over the BIN body. Wider
-/// length window than Quartz (5..=512 vs. 8..=300) so short
-/// `<root>/x.bin` paths and very-long compound names also land.
+/// Pass 1 — sliding u16 length-prefixed scan over the BIN body, accepting
+/// records of length 5..=512.
 fn scan_length_prefixed(data: &[u8], out: &mut HashMap<u64, String>) {
     let mut i = 0usize;
     while i + 2 <= data.len() {
@@ -168,7 +157,6 @@ fn scan_length_prefixed(data: &[u8], out: &mut HashMap<u64, String>) {
                             .any(|p| lb.len() >= p.len() && lb[..p.len()].eq_ignore_ascii_case(p));
                     if is_path {
                         enroll(s, out);
-                        // Skip past the consumed string — record was a real hit.
                         i += 2 + len;
                         continue;
                     }
@@ -181,12 +169,8 @@ fn scan_length_prefixed(data: &[u8], out: &mut HashMap<u64, String>) {
 
 /// Pass 2 — free-form ASCII run scanner. Walks contiguous spans of
 /// path-safe bytes (alnum + `/._-`) and accepts any span that contains
-/// a `/` AND ends with one of [`KNOWN_EXTENSIONS`].
-///
-/// This is what catches paths Quartz misses: anything not rooted under
-/// the [`PATH_PREFIXES`] allowlist (sub-paths emitted as standalone
-/// strings, mode-only roots Riot adds without updating older scanners,
-/// shader/particle references inside packed structs).
+/// a `/` AND ends with one of [`KNOWN_EXTENSIONS`]. Catches paths not rooted
+/// under the [`PATH_PREFIXES`] allowlist.
 fn scan_free_ascii(data: &[u8], out: &mut HashMap<u64, String>) {
     let mut start = 0usize;
     let mut i = 0usize;
@@ -246,10 +230,9 @@ fn validate_path_shape(s: &str) -> bool {
     true
 }
 
-/// Enroll a candidate path string + its derivatives into `out`, keyed
-/// by xxh64(lowercase). Same derivative rules Quartz uses (HD-texture
-/// twins for `.dds`, Python-sidecar for `.bin`) so the on-disk overlay
-/// stays interoperable.
+/// Enroll a candidate path string + its derivatives into `out`, keyed by
+/// xxh64(lowercase). Derivatives: HD-texture twins (`2x_`/`4x_`) for `.dds`,
+/// a Python sidecar for `.bin`.
 fn enroll(s: &str, out: &mut HashMap<u64, String>) {
     let lower = s.to_ascii_lowercase();
     let h = xxhash_path(&lower);
@@ -316,9 +299,8 @@ mod tests {
 
     #[test]
     fn xxhash_is_deterministic() {
-        // Determinism guard — twox-hash version bumps shouldn't change the
-        // seed-0 output for ASCII strings, otherwise the on-disk overlay
-        // becomes incompatible with prior writes (and with Quartz).
+        // Determinism guard — twox-hash version bumps must not change the
+        // seed-0 output, or the on-disk overlay breaks compatibility.
         let a = xxhash_path("assets/characters/aatrox/skins/skin0.bin");
         let b = xxhash_path("assets/characters/aatrox/skins/skin0.bin");
         assert_eq!(a, b);

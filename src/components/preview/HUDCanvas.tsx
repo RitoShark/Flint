@@ -1,9 +1,3 @@
-/**
- * Flint - HUD Canvas Component
- * SVG-based drag-and-drop editor for League HUD elements
- * League uses 1600x1200 resolution for HUD positioning
- */
-
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import type { HudData, HudEntry } from '../../lib/api';
 import './HUDCanvas.css';
@@ -59,7 +53,6 @@ export const HUDCanvas: React.FC<HUDCanvasProps> = ({
 
     const canvasRef = useRef<SVGSVGElement>(null);
 
-    // Parse UI elements from HUD data
     const parseElements = useCallback((): ParsedElement[] => {
         const elements: ParsedElement[] = [];
 
@@ -88,7 +81,6 @@ export const HUDCanvas: React.FC<HUDCanvasProps> = ({
 
     const elements = useMemo(() => parseElements(), [parseElements]);
 
-    // Filter elements by visibility
     const filteredElements = useMemo(() => {
         return elements.filter(element => {
             const groupVisible = visibleGroups[element.group] !== false;
@@ -97,7 +89,6 @@ export const HUDCanvas: React.FC<HUDCanvasProps> = ({
         });
     }, [elements, visibleGroups, visibleLayers]);
 
-    // Convert client coordinates to SVG coordinates
     const clientToSvg = useCallback((clientX: number, clientY: number) => {
         const svg = canvasRef.current;
         if (!svg || !svg.createSVGPoint) {
@@ -112,7 +103,6 @@ export const HUDCanvas: React.FC<HUDCanvasProps> = ({
         return { x: svgPt.x, y: svgPt.y };
     }, []);
 
-    // Handle mouse down (start dragging or Alt+Click to delete)
     const handleMouseDown = useCallback((e: React.MouseEvent, element: ParsedElement) => {
         e.preventDefault();
         e.stopPropagation();
@@ -122,23 +112,19 @@ export const HUDCanvas: React.FC<HUDCanvasProps> = ({
         const mouseY = e.clientY - rect.top;
         const { x: startSvgX, y: startSvgY } = clientToSvg(e.clientX, e.clientY);
 
-        // Alt+Click to delete
         if (e.altKey) {
             onDeleteElement(element.id);
             return;
         }
 
-        // Handle selection
         if (selectedSearchElements.size > 0 && selectedSearchElements.has(element.id)) {
             setSelectedElements(selectedSearchElements);
         } else if (selectedElements.size > 0 && selectedElements.has(element.id)) {
             // Continue with existing selection
         } else {
-            // Single select
             setSelectedElements(new Set([element.id]));
         }
 
-        // Track start positions for all selected elements
         const startPositions = new Map<string, { x: number; y: number }>();
         startPositions.set(element.id, { ...element.position });
 
@@ -165,9 +151,7 @@ export const HUDCanvas: React.FC<HUDCanvasProps> = ({
         });
     }, [selectedElements, selectedSearchElements, elements, clientToSvg, onDeleteElement]);
 
-    // Handle mouse move (dragging)
     const handleMouseMove = useCallback((e: React.MouseEvent) => {
-        // Update cursor position
         const { x: svgX, y: svgY } = clientToSvg(e.clientX, e.clientY);
         setCursorPosition({ x: Math.round(svgX), y: Math.round(svgY) });
 
@@ -183,7 +167,6 @@ export const HUDCanvas: React.FC<HUDCanvasProps> = ({
             y: dragState.startPos.y + deltaY,
         };
 
-        // Update all selected elements
         if (selectedElements.size > 1) {
             const draggedElement = elements.find(el => el.id === dragState.elementId);
             if (draggedElement) {
@@ -206,7 +189,6 @@ export const HUDCanvas: React.FC<HUDCanvasProps> = ({
         }
     }, [dragState, selectedElements, elements, onPositionChange, clientToSvg]);
 
-    // Handle mouse up (end dragging)
     const handleMouseUp = useCallback(() => {
         if (dragState && dragStartPositions.size > 0) {
             let hasMovement = false;
@@ -233,7 +215,6 @@ export const HUDCanvas: React.FC<HUDCanvasProps> = ({
         setDragStartPositions(new Map());
     }, [dragState, elements, dragStartPositions, onDragEndBatch]);
 
-    // Keyboard shortcuts
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
@@ -247,7 +228,6 @@ export const HUDCanvas: React.FC<HUDCanvasProps> = ({
 
     return (
         <div className="hud-canvas">
-            {/* Controls */}
             <div className="hud-canvas__controls">
                 <div className="hud-canvas__control-group">
                     <label>Opacity: {Math.round(opacity * 100)}%</label>
@@ -272,7 +252,6 @@ export const HUDCanvas: React.FC<HUDCanvasProps> = ({
                 )}
             </div>
 
-            {/* SVG Canvas */}
             <div className="hud-canvas__viewport">
                 <svg
                     ref={canvasRef}
@@ -283,7 +262,6 @@ export const HUDCanvas: React.FC<HUDCanvasProps> = ({
                     onMouseLeave={handleMouseUp}
                     className="hud-canvas__svg"
                 >
-                    {/* Grid */}
                     <defs>
                         <pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse">
                             <path d="M 50 0 L 0 0 0 50" fill="none" stroke="#374151" strokeWidth="1" opacity="0.3" />
@@ -291,7 +269,6 @@ export const HUDCanvas: React.FC<HUDCanvasProps> = ({
                     </defs>
                     <rect width="100%" height="100%" fill="url(#grid)" />
 
-                    {/* Screen bounds */}
                     <rect
                         x="0"
                         y="0"
@@ -302,7 +279,6 @@ export const HUDCanvas: React.FC<HUDCanvasProps> = ({
                         strokeWidth="2"
                     />
 
-                    {/* Cursor indicator */}
                     <g className="pointer-events-none">
                         <circle
                             cx={cursorPosition.x}
@@ -324,7 +300,6 @@ export const HUDCanvas: React.FC<HUDCanvasProps> = ({
                         </text>
                     </g>
 
-                    {/* HUD Elements */}
                     {filteredElements.map((element) => (
                         <g key={element.id}>
                             <rect
@@ -368,7 +343,6 @@ export const HUDCanvas: React.FC<HUDCanvasProps> = ({
                 </svg>
             </div>
 
-            {/* Legend */}
             <div className="hud-canvas__legend">
                 <div className="legend-item">
                     <span className="legend-color" style={{ backgroundColor: '#10B981' }}></span>

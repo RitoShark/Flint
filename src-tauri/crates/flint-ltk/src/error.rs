@@ -33,10 +33,12 @@ pub enum Error {
 
     #[error("Invalid input: {0}")]
     InvalidInput(String),
+
+    #[error("CDN error: {0}")]
+    Cdn(String),
 }
 
 impl Error {
-    /// Creates an IO error with file path context
     pub fn io_with_path(source: std::io::Error, path: impl Into<std::path::PathBuf>) -> Self {
         Error::Io {
             source,
@@ -44,7 +46,6 @@ impl Error {
         }
     }
 
-    /// Creates a parse error with file path context
     pub fn parse_with_path(
         line: usize,
         message: impl Into<String>,
@@ -57,7 +58,6 @@ impl Error {
         }
     }
 
-    /// Creates a WAD error with file path context
     pub fn wad_with_path(message: impl Into<String>, path: impl Into<std::path::PathBuf>) -> Self {
         Error::Wad {
             message: message.into(),
@@ -65,7 +65,6 @@ impl Error {
         }
     }
 
-    /// Creates a bin conversion error with file path context
     pub fn bin_conversion_with_path(
         message: impl Into<String>,
         path: impl Into<std::path::PathBuf>,
@@ -77,14 +76,12 @@ impl Error {
     }
 }
 
-// Implement From<std::io::Error> manually since we changed the variant structure
 impl From<std::io::Error> for Error {
     fn from(source: std::io::Error) -> Self {
         Error::Io { source, path: None }
     }
 }
 
-// Convert to String for Tauri commands
 impl From<Error> for String {
     fn from(error: Error) -> Self {
         error.to_string()

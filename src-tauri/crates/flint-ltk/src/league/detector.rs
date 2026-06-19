@@ -1,36 +1,26 @@
-//! League of Legends installation detection
-//!
-//! This module provides functionality to automatically detect and validate
-//! League of Legends installations. Uses ltk_mod_core for detection.
+//! League of Legends installation detection, via `ltk_mod_core`.
 
 use crate::error::{Error, Result};
 use ltk_mod_core::{auto_detect_league_path, is_valid_league_path};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// Files that should exist in a valid League installation
 const REQUIRED_FILES: &[&str] = &[
     "LeagueClient.exe",
 ];
 
-/// Directories that should exist in a valid League installation
 const REQUIRED_DIRS: &[&str] = &[
     "Game",
 ];
 
-/// Represents a detected League of Legends installation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LeagueInstallation {
-    /// Path to the League of Legends installation directory
     pub path: PathBuf,
-    /// Path to the Game directory
     pub game_path: PathBuf,
-    /// Whether this was detected automatically or set manually
     pub auto_detected: bool,
 }
 
 impl LeagueInstallation {
-    /// Creates a new LeagueInstallation from a validated path
     pub fn new(path: PathBuf, auto_detected: bool) -> Self {
         let game_path = path.join("Game");
         Self {
@@ -42,26 +32,15 @@ impl LeagueInstallation {
 
 }
 
-/// Attempts to detect a League of Legends installation automatically
-/// using ltk_mod_core detection methods.
-///
-/// Detection order (via ltk_mod_core):
-/// 1. RiotClientInstalls.json
-/// 2. Running League processes
-/// 3. Common installation paths
-/// 4. Windows Registry
-///
-/// # Returns
-/// * `Ok(LeagueInstallation)` - If a valid installation was found
-/// * `Err(Error)` - If no valid installation was found
+/// Detects a League installation via `ltk_mod_core`, which checks (in order):
+/// RiotClientInstalls.json, running League processes, common paths, the registry.
 pub fn detect_league_installation() -> Result<LeagueInstallation> {
     tracing::info!("Attempting to detect League of Legends installation via ltk_mod_core");
 
     if let Some(exe_path) = auto_detect_league_path() {
         tracing::info!("ltk_mod_core found League at: {}", exe_path);
-        
-        // ltk_mod_core returns path to Game/League of Legends.exe
-        // Navigate up to installation root
+
+        // ltk_mod_core returns Game/League of Legends.exe; go up to the root.
         if let Some(game_path) = exe_path.parent() {
             if let Some(root_path) = game_path.parent() {
                 let root_buf = PathBuf::from(root_path.as_str());
@@ -77,23 +56,13 @@ pub fn detect_league_installation() -> Result<LeagueInstallation> {
     ))
 }
 
-/// Validates a manually specified League path
-///
-/// # Arguments
-/// * `path` - The path to validate
-///
-/// # Returns
-/// * `Ok(LeagueInstallation)` - If the path is valid
-/// * `Err(Error)` - If the path is invalid
 pub fn validate_league_path(path: impl AsRef<Path>) -> Result<LeagueInstallation> {
     let path = path.as_ref();
     tracing::debug!("Validating League path: {}", path.display());
     validate_and_create(path, false)
 }
 
-/// Validates a path and creates a LeagueInstallation if valid
 fn validate_and_create(path: &Path, auto_detected: bool) -> Result<LeagueInstallation> {
-    // Check path exists
     if !path.exists() {
         return Err(Error::InvalidInput(format!(
             "Path does not exist: {}",
@@ -101,7 +70,6 @@ fn validate_and_create(path: &Path, auto_detected: bool) -> Result<LeagueInstall
         )));
     }
 
-    // Check required files
     for file in REQUIRED_FILES {
         let file_path = path.join(file);
         if !file_path.exists() {
@@ -113,7 +81,6 @@ fn validate_and_create(path: &Path, auto_detected: bool) -> Result<LeagueInstall
         }
     }
 
-    // Check required directories
     for dir in REQUIRED_DIRS {
         let dir_path = path.join(dir);
         if !dir_path.is_dir() {
@@ -125,7 +92,6 @@ fn validate_and_create(path: &Path, auto_detected: bool) -> Result<LeagueInstall
         }
     }
 
-    // Also validate with ltk_mod_core if the exe exists
     let exe_path = path.join("Game").join("League of Legends.exe");
     if exe_path.exists() {
         if let Ok(utf8_path) = camino::Utf8PathBuf::from_path_buf(exe_path) {

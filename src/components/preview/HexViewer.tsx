@@ -1,7 +1,3 @@
-/**
- * Flint - Hex Viewer Component
- */
-
 import React, { useState, useEffect } from 'react';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
@@ -10,7 +6,7 @@ interface HexViewerProps {
     filePath: string;
 }
 
-const MAX_BYTES = 16 * 1024; // 16KB max display
+const MAX_BYTES = 16 * 1024;
 
 export const HexViewer: React.FC<HexViewerProps> = ({ filePath }) => {
     const [data, setData] = useState<Uint8Array | null>(null);
@@ -63,7 +59,6 @@ export const HexViewer: React.FC<HexViewerProps> = ({ filePath }) => {
 
     if (!data) return null;
 
-    // Generate rows (16 bytes each)
     const rows: Array<{
         offset: string;
         hex: string;

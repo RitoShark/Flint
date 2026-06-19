@@ -1,10 +1,5 @@
-//! Binary wire format for SKN/SCB mesh data sent to the frontend.
-//!
-//! The default JSON-tuple shape (`Vec<[f32; 3]>` etc.) was the worst IPC
-//! offender in the app: a 30K-vertex SKN serialized to ~5 MB of JSON arrays
-//! that the JS side then had to parse + flatten before handing to Three.js.
-//! Three.js consumes raw `Float32Array` / `Uint16Array` buffers natively, so
-//! we send those directly.
+//! Binary wire format for SKN/SCB mesh data sent to the frontend; Three.js
+//! consumes the raw `Float32Array` / `Uint16Array` buffers directly.
 //!
 //! Layout (all little-endian):
 //!
@@ -20,10 +15,8 @@
 //! [vertex_count × 4 × u8]    bone_indices  // SKN only, when has_bones=true
 //! ```
 //!
-//! The metadata JSON object contains everything that isn't a big vertex
-//! buffer — material ranges, textures (still base64 PNG strings, deliberately
-//! kept in JSON because they're already opaque), and the section sizes the
-//! decoder needs to slice the buffer.
+//! The metadata JSON carries material ranges, textures (base64 PNG strings),
+//! and the section sizes the decoder needs to slice the buffer.
 
 use serde::Serialize;
 use std::collections::HashMap;
@@ -31,7 +24,6 @@ use std::collections::HashMap;
 use super::scb::ScbMeshData;
 use super::skn::{MaterialData, MaterialRange, SknMeshData};
 
-/// Metadata header for SKN binary payloads.
 #[derive(Serialize)]
 pub struct SknHeader<'a> {
     pub kind: &'static str,
@@ -49,7 +41,6 @@ pub struct SknHeader<'a> {
     pub has_bones: bool,
 }
 
-/// Metadata header for SCB binary payloads.
 #[derive(Serialize)]
 pub struct ScbHeader<'a> {
     pub kind: &'static str,
@@ -72,7 +63,7 @@ fn align_to_4(buf: &mut Vec<u8>) {
     }
 }
 
-/// Reinterpret a slice of `[T; N]` as raw bytes — safe for `Copy` POD types.
+/// Reinterprets a slice of `Copy` POD as raw bytes.
 fn slice_as_bytes<T: Copy>(slice: &[T]) -> &[u8] {
     let byte_len = std::mem::size_of_val(slice);
     // SAFETY: `T: Copy` and we're just reading the same memory as `u8`.
@@ -80,16 +71,13 @@ fn slice_as_bytes<T: Copy>(slice: &[T]) -> &[u8] {
     unsafe { std::slice::from_raw_parts(slice.as_ptr() as *const u8, byte_len) }
 }
 
-/// Pack an SKN mesh into the binary wire format documented above.
 pub fn encode_skn_binary(mesh: &SknMeshData) -> Result<Vec<u8>, String> {
     let vertex_count = mesh.positions.len() as u32;
     let index_count = mesh.indices.len() as u32;
     let has_bones = !mesh.bone_weights.is_empty() && !mesh.bone_indices.is_empty();
 
-    // Sanity: all per-vertex buffers should agree on length, otherwise the JS
-    // decoder will read garbage. Drop the optional ones if they don't match;
-    // the renderer treats them as "no skinning" which matches existing UX for
-    // non-skinned SKNs.
+    // All per-vertex buffers must agree on length, else the JS decoder reads
+    // garbage; on mismatch drop the bone buffers (renderer treats as no skinning).
     let bones_ok = has_bones
         && mesh.bone_weights.len() as u32 == vertex_count
         && mesh.bone_indices.len() as u32 == vertex_count;
@@ -108,8 +96,6 @@ pub fn encode_skn_binary(mesh: &SknMeshData) -> Result<Vec<u8>, String> {
     };
     let meta = serde_json::to_vec(&header).map_err(|e| format!("SKN meta serialize: {e}"))?;
 
-    // Capacity pre-calc keeps allocations to one. Off-by-a-few from the pad
-    // is fine — Vec::reserve_exact takes the hit anyway.
     let pos_bytes = (vertex_count as usize) * 12;
     let nrm_bytes = pos_bytes;
     let uv_bytes = (vertex_count as usize) * 8;
@@ -136,7 +122,6 @@ pub fn encode_skn_binary(mesh: &SknMeshData) -> Result<Vec<u8>, String> {
     Ok(buf)
 }
 
-/// Pack an SCB mesh into the binary wire format documented above.
 pub fn encode_scb_binary(mesh: &ScbMeshData) -> Result<Vec<u8>, String> {
     let vertex_count = mesh.positions.len() as u32;
     let index_count = mesh.indices.len() as u32;

@@ -1,16 +1,12 @@
-/**
- * Project Tab Store
- * Manages multi-tab workspace, file trees, and folder expansion state
- */
-
 import { create } from 'zustand';
 import type { ProjectTab, Project, FileTreeNode } from '../types';
+import { editorSessionStore } from './editorSessionStore';
+import { modelPreviewSessionStore } from './modelPreviewSessionStore';
 
 interface ProjectTabState {
   openTabs: ProjectTab[];
   activeTabId: string | null;
 
-  // Actions
   addTab: (project: Project, path: string) => void;
   removeTab: (tabId: string) => { newActiveId: string | null; remainingTabs: ProjectTab[] };
   switchTab: (tabId: string) => void;
@@ -21,7 +17,6 @@ interface ProjectTabState {
   setSelectedFile: (tabId: string, filePath: string | null) => void;
 }
 
-// Helper to generate unique tab IDs
 let tabIdCounter = 0;
 function generateTabId(): string {
   return `tab-${Date.now()}-${++tabIdCounter}`;
@@ -56,14 +51,11 @@ export const useProjectTabStore = create<ProjectTabState>((set, get) => ({
 
   addTab: (project, path) => {
     const { openTabs } = get();
-    // Check if this project is already open
     const existingTab = openTabs.find(t => t.projectPath === path);
     if (existingTab) {
-      // Switch to existing tab
       set({ activeTabId: existingTab.id });
       return;
     }
-    // Create new tab
     const newTab: ProjectTab = {
       id: generateTabId(),
       project,
@@ -81,14 +73,17 @@ export const useProjectTabStore = create<ProjectTabState>((set, get) => ({
 
   removeTab: (tabId) => {
     const { openTabs, activeTabId } = get();
+    const closed = openTabs.find(t => t.id === tabId);
+    if (closed?.projectPath) {
+      editorSessionStore.pruneByPrefix(closed.projectPath);
+      modelPreviewSessionStore.pruneByPrefix(closed.projectPath);
+    }
     const newTabs = openTabs.filter(t => t.id !== tabId);
     let newActiveId = activeTabId;
 
-    // If we closed the active tab, switch to another
     if (activeTabId === tabId) {
       const closedIndex = openTabs.findIndex(t => t.id === tabId);
       if (newTabs.length > 0) {
-        // Switch to previous tab, or first if we closed the first
         const newIndex = Math.max(0, closedIndex - 1);
         newActiveId = newTabs[newIndex]?.id || null;
       } else {
@@ -124,10 +119,6 @@ export const useProjectTabStore = create<ProjectTabState>((set, get) => ({
     set((state) => ({
       openTabs: state.openTabs.map(t => {
         if (t.id !== tabId) return t;
-        // First time we see a tree for this tab → auto-expand the path down
-        // to the wad.client folders so users land directly on their assets
-        // instead of clicking through `Project > content > base > foo.wad.client`.
-        // Subsequent calls (file-watcher refreshes, renames, imports) skip this.
         if (tree && !t.hasAutoExpanded) {
           const autoPaths = collectAutoExpandPaths(tree);
           const newExpanded = new Set(t.expandedFolders);

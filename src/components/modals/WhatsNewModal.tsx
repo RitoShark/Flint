@@ -1,12 +1,3 @@
-/**
- * Flint — What's New Modal
- *
- * Shown once per version after startup. Displays a curated list of
- * features, improvements, and fixes from the changelog data file.
- * Matches the Flint modal design language: dark surfaces, accent
- * tinting via `color-mix(in oklab, ...)`, scoped `.modal--whats-new`.
- */
-
 import React from 'react';
 import { useModalStore } from '../../lib/stores';
 import { CHANGELOG, type ChangelogEntry, type ChangelogTag } from '../../lib/data/changelog';
@@ -61,8 +52,6 @@ export const WhatsNewModal: React.FC = () => {
 
     const isVisible = activeModal === 'whatsNew';
 
-    // Resolve the changelog entry for the current version. We read
-    // getVersion() eagerly here — it's cached by Tauri after the first call.
     const [currentVersion, setCurrentVersion] = React.useState<string>('');
     React.useEffect(() => {
         if (isVisible) {
@@ -72,8 +61,6 @@ export const WhatsNewModal: React.FC = () => {
 
     const changelog = CHANGELOG.find((c) => c.version === currentVersion);
 
-    // If there's no changelog entry for this version, just close immediately
-    // (the auto-show logic already marked it as seen).
     if (!isVisible) return null;
 
     return (
@@ -108,7 +95,6 @@ export const WhatsNewModal: React.FC = () => {
             <ModalBody className="wn-body">
                 {changelog ? (
                     <>
-                        {/* Hero headline */}
                         {changelog.headline && (
                             <div className="wn-hero">
                                 <h3 className="wn-hero__title">{changelog.headline}</h3>
@@ -118,7 +104,6 @@ export const WhatsNewModal: React.FC = () => {
                             </div>
                         )}
 
-                        {/* Entry cards */}
                         <div className="wn-entries">
                             {changelog.entries.map((entry, i) => (
                                 <EntryCard key={i} entry={entry} index={i} />

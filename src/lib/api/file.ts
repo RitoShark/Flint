@@ -121,6 +121,41 @@ export async function importExternalFiles(
     return invokeCommand('import_external_files', { projectPath, destFolder, sources });
 }
 
+export type TransferConflictPolicy = 'rename' | 'replace';
+
+/** Copy files/folders from one project into a folder of another project.
+ *  `onConflict`: 'rename' (keep both, default) or 'replace' (overwrite). */
+export async function copyBetweenProjects(
+    sourceProject: string,
+    sourceRelPaths: string[],
+    destProject: string,
+    destFolder: string,
+    onConflict: TransferConflictPolicy = 'rename',
+): Promise<string[]> {
+    return invokeCommand('copy_between_projects', { sourceProject, sourceRelPaths, destProject, destFolder, onConflict });
+}
+
+/** Move files/folders from one project into a folder of another project.
+ *  `onConflict`: 'rename' (keep both, default) or 'replace' (overwrite). */
+export async function moveBetweenProjects(
+    sourceProject: string,
+    sourceRelPaths: string[],
+    destProject: string,
+    destFolder: string,
+    onConflict: TransferConflictPolicy = 'rename',
+): Promise<string[]> {
+    return invokeCommand('move_between_projects', { sourceProject, sourceRelPaths, destProject, destFolder, onConflict });
+}
+
+/** Filenames in `destFolder` of `destProject` that would collide with the transfer. */
+export async function checkTransferConflicts(
+    sourceRelPaths: string[],
+    destProject: string,
+    destFolder: string,
+): Promise<string[]> {
+    return invokeCommand('check_transfer_conflicts', { sourceRelPaths, destProject, destFolder });
+}
+
 // =============================================================================
 // Folder grid (custom file explorer)
 // =============================================================================
@@ -145,15 +180,7 @@ export async function listFolderContents(
     return invokeCommand('list_folder_contents', { projectPath, folderPath });
 }
 
-/**
- * Combined "is this a dir, and if not what's the file info" — single IPC
- * call replacing the isDirectory() + readFileInfo() sequence in PreviewPanel.
- *
- * `info` is `null` when the path is a directory or does not exist.
- *
- * Field names match the existing `FileInfo` snake_case wire shape so consumers
- * already using `info.file_type` keep working unchanged.
- */
+/** `info` is `null` when the path is a directory or does not exist. */
 export interface PathInspection {
     is_directory: boolean;
     info: FileInfo | null;

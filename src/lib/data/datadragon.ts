@@ -1,9 +1,3 @@
-/**
- * Flint - Data Dragon / CommunityDragon API
- * 
- * Fetches champion and skin data from Riot's official APIs
- */
-
 const DDRAGON_BASE_URL = "https://ddragon.leagueoflegends.com";
 
 export type CDragonBranch = "latest" | "pbe";
@@ -12,7 +6,6 @@ function cdragonBase(branch: CDragonBranch = "latest"): string {
     return `https://raw.communitydragon.org/${branch}/plugins/rcp-be-lol-game-data/global/default/v1`;
 }
 
-// Types
 export interface DDragonChampion {
     id: number;
     name: string;
@@ -42,27 +35,17 @@ export interface DDragonSkin {
     chromas?: DDragonChroma[];
 }
 
-// Cache for API responses (per CDragon branch)
 let cachedPatch: string | null = null;
 const cachedChampionsByBranch = new Map<CDragonBranch, DDragonChampion[]>();
 
-// Image blob cache — maps URL → blob URL for reuse
 const imageBlobCache = new Map<string, string>();
-// In-flight fetches to avoid duplicate requests
 const imageFetchQueue = new Map<string, Promise<string>>();
 
-/**
- * Fetch an image URL and return a cached blob URL.
- * First call fetches + caches; subsequent calls return instantly.
- */
 export function getCachedImageUrl(url: string): string | null {
     return imageBlobCache.get(url) ?? null;
 }
 
-/**
- * Preload an image URL into the blob cache.
- * Returns the blob URL. Safe to call multiple times (deduped).
- */
+/** Returns the blob URL. Safe to call multiple times (deduped). */
 export async function preloadImage(url: string): Promise<string> {
     const cached = imageBlobCache.get(url);
     if (cached) return cached;
@@ -83,25 +66,19 @@ export async function preloadImage(url: string): Promise<string> {
         })
         .catch(() => {
             imageFetchQueue.delete(url);
-            return url; // fallback to original URL
+            return url;
         });
 
     imageFetchQueue.set(url, promise);
     return promise;
 }
 
-/**
- * Preload all champion icons in the background.
- */
 export async function preloadChampionIcons(champions: DDragonChampion[], branch: CDragonBranch = "latest"): Promise<void> {
     const batch = champions.map(c => preloadImage(getChampionIconUrl(c.id, branch)));
     await Promise.allSettled(batch);
 }
 
-/**
- * Preload all skin splashes for a champion (uses CDragon — whitelisted in CSP).
- * Preloads the centered loading-screen splash (matches what the New Project hero shows).
- */
+/** Preloads the centered loading-screen splash via CDragon (whitelisted in CSP). */
 export async function preloadSkinSplashes(championId: number, skins: DDragonSkin[], branch: CDragonBranch = "latest"): Promise<void> {
     const batch = skins.map(s => {
         const centered = getSkinCenteredSplashUrl(s, branch);
@@ -110,9 +87,6 @@ export async function preloadSkinSplashes(championId: number, skins: DDragonSkin
     await Promise.allSettled(batch);
 }
 
-/**
- * Fetch with retry logic
- */
 async function fetchWithRetry<T>(url: string, retries = 3): Promise<T> {
     try {
         const response = await fetch(url);
@@ -129,31 +103,24 @@ async function fetchWithRetry<T>(url: string, retries = 3): Promise<T> {
     }
 }
 
-/**
- * Get latest patch version
- */
 export async function getLatestPatch(): Promise<string> {
     if (cachedPatch) return cachedPatch;
 
     try {
         const versions = await fetchWithRetry<string[]>(`${DDRAGON_BASE_URL}/api/versions.json`);
-        cachedPatch = versions[0];  // First is latest
+        cachedPatch = versions[0];
         return cachedPatch;
     } catch (error) {
         console.error("Failed to fetch patch versions:", error);
-        return "14.23.1";  // Fallback
+        return "14.23.1";
     }
 }
 
-/**
- * Fetch all champions from CommunityDragon
- */
 export async function fetchChampions(branch: CDragonBranch = "latest"): Promise<DDragonChampion[]> {
     const cached = cachedChampionsByBranch.get(branch);
     if (cached) return cached;
 
     try {
-        // Use CommunityDragon champion summary (simpler format)
         const url = `${cdragonBase(branch)}/champion-summary.json`;
         interface ChampionSummary {
             id: number;
@@ -162,7 +129,7 @@ export async function fetchChampions(branch: CDragonBranch = "latest"): Promise<
         }
         const champions = await fetchWithRetry<ChampionSummary[]>(url);
 
-        // Filter out special entries (id < 0 or Doom Bots) and map to our type
+        // Filter out special entries (id < 0 or Doom Bots).
         const mapped = champions
             .filter(c => c.id > 0 && c.id < 10000)
             .map(c => ({
@@ -180,9 +147,7 @@ export async function fetchChampions(branch: CDragonBranch = "latest"): Promise<
     }
 }
 
-/**
- * Fetch with a timeout (no retries — fail fast).
- */
+/** Fetch with a timeout (no retries — fail fast). */
 async function fetchWithTimeout<T>(url: string, timeoutMs = 8000): Promise<T> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -257,7 +222,6 @@ export function resolveCDragonAsset(path: string, branch: CDragonBranch = "lates
 export async function fetchChampionSkins(championId: number, alias?: string, branch: CDragonBranch = "latest"): Promise<DDragonSkin[]> {
     const errors: string[] = [];
 
-    // Try CommunityDragon
     try {
         const url = `${cdragonBase(branch)}/champions/${championId}.json`;
         const champion = await fetchWithTimeout<{ skins?: CDragonSkinData[] }>(url);
@@ -290,7 +254,6 @@ export async function fetchChampionSkins(championId: number, alias?: string, bra
         }
     }
 
-    // If both failed, throw so caller can surface the error
     if (errors.length > 0) {
         throw new Error(`Failed to fetch skins: ${errors.join('; ')}`);
     }
@@ -298,54 +261,36 @@ export async function fetchChampionSkins(championId: number, alias?: string, bra
     return [{ id: championId * 1000, name: 'Base', num: 0, isBase: true }];
 }
 
-/**
- * Get champion icon URL from CommunityDragon
- */
 export function getChampionIconUrl(championId: number, branch: CDragonBranch = "latest"): string {
     return `${cdragonBase(branch)}/champion-icons/${championId}.png`;
 }
 
 /**
- * Get chroma portrait image URL from CommunityDragon.
- * championId is the numeric champion ID (e.g. 103 for Ahri).
  * chromaId is the full CDragon chroma ID (e.g. 103001001), NOT skinNum.
  */
 export function getChromaImageUrl(championId: number, chromaId: number, branch: CDragonBranch = "latest"): string {
     return `${cdragonBase(branch)}/champion-chroma-images/${championId}/${chromaId}.png`;
 }
 
-/**
- * Get skin splash URL from DataDragon (live only — DDragon has no PBE branch)
- */
+/** Skin splash URL from DataDragon (live only — DDragon has no PBE branch). */
 export function getSkinSplashUrl(alias: string, skinNum: number): string {
     return `${DDRAGON_BASE_URL}/cdn/img/champion/splash/${alias}_${skinNum}.jpg`;
 }
 
-/**
- * Get skin splash URL from CommunityDragon (fallback) — uncentered/wide.
- */
 export function getSkinSplashCDragonUrl(championId: number, skinId: number, branch: CDragonBranch = "latest"): string {
     return `${cdragonBase(branch)}/champion-splashes/${championId}/${skinId}.jpg`;
 }
 
 /**
- * Centered loading-screen splash URL for a skin.
- * Prefers the `splashPath` from the CDragon champion JSON (which already points
- * at the centered LoadScreen art), falling back to a constructed centered URL.
- *
- * The `champion-splashes` endpoint serves the *uncentered* wide art; CDragon's
- * centered crops live under each champion's loading-screen folder, e.g.
- *   /game/assets/characters/{champ}/skins/skin{N}/{champ}loadscreen[_{N}].jpg
- * which is what `splashPath` normally encodes.
+ * Centered loading-screen splash URL for a skin. Prefers `splashPath` from the
+ * CDragon champion JSON (already the centered LoadScreen art); the
+ * `champion-splashes` endpoint serves the *uncentered* wide art instead.
  */
 export function getSkinCenteredSplashUrl(skin: DDragonSkin, branch: CDragonBranch = "latest"): string | null {
     if (skin.splashPath) return resolveCDragonAsset(skin.splashPath, branch);
     return null;
 }
 
-/**
- * Clear cached data (useful if user wants to refresh)
- */
 export function clearCache(): void {
     cachedPatch = null;
     cachedChampionsByBranch.clear();

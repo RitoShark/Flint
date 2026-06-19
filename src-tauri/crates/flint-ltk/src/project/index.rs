@@ -1,14 +1,7 @@
 //! Project index — `projects.json` at the user's projects root.
 //!
-//! Tracks every Flint project the user has ever created/opened by a stable
-//! `pid` (project id, UUID v4). Each entry remembers the absolute path, last
-//! known location, and a snapshot of name/champion/skin so the picker can
-//! show an entry even when the project folder is missing or moved.
-//!
-//! The index is a recovery layer — the source of truth is still each
-//! project's own `flint.json` (which now also carries `pid`). Any time a
-//! project is created or opened we upsert here; at startup the picker
-//! reconciles against on-disk state.
+//! A recovery layer keyed by stable `pid` (UUID v4); the source of truth is
+//! each project's own `flint.json`.
 
 use crate::error::{Error, Result};
 use crate::project::project::ProjectKind;
@@ -18,31 +11,23 @@ use std::fs::{self, File};
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 
-/// Filename of the index — written at the projects root, NOT inside any
-/// individual project directory.
+/// Written at the projects root, not inside any individual project directory.
 const INDEX_FILE: &str = "projects.json";
 
-/// One entry in the projects index. Kept lean — anything heavier (file tree,
-/// thumbnails) lives inside the project itself.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectIndexEntry {
-    /// Stable project ID (UUID v4). Generated once on project creation,
-    /// stored both here and in the project's `flint.json`.
+    /// Stable project ID (UUID v4), shared with the project's `flint.json`.
     pub pid: String,
     /// Last known absolute path to the project directory.
     pub path: PathBuf,
-    /// Project's `display_name` (from mod.config.json) at last open.
     #[serde(default)]
     pub display_name: String,
-    /// Project's `name` slug.
     #[serde(default)]
     pub name: String,
-    /// What kind of project this is. Drives which of the type-specific
-    /// fields below are meaningful.
+    /// Drives which type-specific fields below are meaningful.
     #[serde(default)]
     pub kind: ProjectKind,
-    /// Champion internal name (e.g. "Ahri") — empty string for non-skin
-    /// projects since they don't have a champion.
+    /// Champion internal name (e.g. "Ahri") — empty for non-skin projects.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub champion: String,
     /// Skin id (0 = base). Only meaningful for Skin projects.
@@ -51,24 +36,18 @@ pub struct ProjectIndexEntry {
     /// Map id (e.g. "map11"). Only meaningful for Map projects.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub map_id: Option<String>,
-    /// First time the project was registered (or detected on disk).
     pub created_at: DateTime<Utc>,
-    /// Last time the project was opened or scanned successfully.
     pub last_seen_at: DateTime<Utc>,
-    /// Whether the recorded `path` still exists on disk. Refreshed on every
-    /// scan; useful for "missing — locate again?" UI affordances.
+    /// Whether the recorded `path` still exists on disk; refreshed on every scan.
     #[serde(default)]
     pub exists: bool,
 }
 
-/// Wrapper struct so the on-disk format can grow new top-level fields
-/// (schema version, etc.) without breaking older indexes.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProjectIndex {
-    /// File-format version. Bump when the schema changes incompatibly.
+    /// Bump when the schema changes incompatibly.
     #[serde(default = "default_schema_version")]
     pub schema_version: u32,
-    /// All known projects. Order is irrelevant — frontend sorts.
     #[serde(default)]
     pub entries: Vec<ProjectIndexEntry>,
 }
@@ -84,9 +63,7 @@ pub fn index_path(projects_root: &Path) -> PathBuf {
 
 // ── Read / write ────────────────────────────────────────────────────────────
 
-/// Load the index from `projects.json`. Missing file → empty index. A
-/// corrupt file is logged and treated as empty so a single bad write can't
-/// brick the project picker.
+/// Missing file → empty index. A corrupt file is logged and treated as empty.
 pub fn read_index(projects_root: &Path) -> ProjectIndex {
     let path = index_path(projects_root);
     if !path.exists() { return ProjectIndex { schema_version: 1, entries: vec![] }; }
@@ -106,7 +83,7 @@ pub fn read_index(projects_root: &Path) -> ProjectIndex {
     }
 }
 
-/// Write the index back. Creates the projects root directory if missing.
+/// Creates the projects root directory if missing.
 pub fn write_index(projects_root: &Path, index: &ProjectIndex) -> Result<()> {
     fs::create_dir_all(projects_root)
         .map_err(|e| Error::io_with_path(e, projects_root))?;
@@ -119,8 +96,7 @@ pub fn write_index(projects_root: &Path, index: &ProjectIndex) -> Result<()> {
 
 // ── Mutation helpers ────────────────────────────────────────────────────────
 
-/// Upsert an entry by `pid`. If `path` differs from the existing record we
-/// rewrite the location (project moved). Bumps `last_seen_at`.
+/// Upserts by `pid`, rewriting the location if `path` differs and bumping `last_seen_at`.
 pub fn upsert(projects_root: &Path, entry: ProjectIndexEntry) -> Result<()> {
     let mut index = read_index(projects_root);
     if let Some(existing) = index.entries.iter_mut().find(|e| e.pid == entry.pid) {
@@ -139,7 +115,7 @@ pub fn upsert(projects_root: &Path, entry: ProjectIndexEntry) -> Result<()> {
     write_index(projects_root, &index)
 }
 
-/// Remove an entry by pid. Returns true if a row was actually removed.
+/// Returns true if a row was actually removed.
 pub fn remove(projects_root: &Path, pid: &str) -> Result<bool> {
     let mut index = read_index(projects_root);
     let before = index.entries.len();

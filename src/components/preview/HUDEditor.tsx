@@ -1,9 +1,3 @@
-/**
- * Flint - HUD Editor Component
- * Visual editor for League of Legends HUD files (.ritobin)
- * Reference: Quartz HUD Editor (archived)
- */
-
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { HUDCanvas } from './HUDCanvas';
 import * as api from '../../lib/api';
@@ -41,7 +35,6 @@ interface VisibleGroups {
 const UNDO_HISTORY_LIMIT = 200;
 
 const determineElementGroup = (key: string, entry: HudEntry): string => {
-    // Categorize by element type
     if (entry.type === 'UiElementTextData') return 'text';
     if (entry.type === 'UiElementIconData') return 'icons';
     if (entry.type === 'UiElementRegionData') return 'regions';
@@ -50,7 +43,6 @@ const determineElementGroup = (key: string, entry: HudEntry): string => {
     if (entry.type === 'UiElementEffectDesaturateData') return 'desaturate';
     if (entry.type === 'UiElementEffectAmmoData') return 'ammo';
 
-    // Fallback to key-based categorization
     if (key.includes('Ability')) return 'abilities';
     if (key.includes('Summoner')) return 'summoners';
     if (key.includes('LevelUp')) return 'levelUp';
@@ -85,21 +77,17 @@ export const HUDEditor: React.FC<HUDEditorProps> = ({ filePath }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedSearchElements, setSelectedSearchElements] = useState<Set<string>>(new Set());
 
-    // Load HUD file on mount
     useEffect(() => {
         const loadHudFile = async () => {
             setIsLoading(true);
             setError(null);
 
             try {
-                // First, read the ritobin file as text (it's already converted by BIN editor)
                 const content = await api.readTextFile(filePath);
                 setOriginalContent(content);
 
-                // Parse the JSON content to extract HUD data
                 const jsonData = JSON.parse(content);
 
-                // Transform to HudData format
                 const hudData: HudData = {
                     type: jsonData.type || 'PROP',
                     version: jsonData.version || 1,
@@ -107,7 +95,6 @@ export const HUDEditor: React.FC<HUDEditorProps> = ({ filePath }) => {
                     entries: {},
                 };
 
-                // Extract entries from JSON
                 Object.entries(jsonData).forEach(([key, value]: [string, any]) => {
                     if (key.startsWith('#') && typeof value === 'object') {
                         const hash = key.substring(1);
@@ -131,7 +118,6 @@ export const HUDEditor: React.FC<HUDEditorProps> = ({ filePath }) => {
                 setOriginalData(parsedDataClone);
                 setHasChanges(false);
 
-                // Initialize undo history
                 const initSnapshot: HistoryEntry = {
                     action: 'init',
                     data: { hudData: parsedDataClone, deletedElements: [] },
@@ -151,7 +137,6 @@ export const HUDEditor: React.FC<HUDEditorProps> = ({ filePath }) => {
         loadHudFile();
     }, [filePath]);
 
-    // Get unique layers
     const uniqueLayers = useMemo(() => {
         if (!hudData) return [];
         const layers = new Set<number>();
@@ -161,14 +146,12 @@ export const HUDEditor: React.FC<HUDEditorProps> = ({ filePath }) => {
         return Array.from(layers).sort((a, b) => a - b);
     }, [hudData]);
 
-    // Initialize visible layers
     useEffect(() => {
         if (hudData && uniqueLayers.length > 0) {
             setVisibleLayers(new Set(uniqueLayers));
         }
     }, [hudData, uniqueLayers]);
 
-    // Search functionality
     const searchResults = useMemo(() => {
         if (!hudData || !searchTerm.trim()) return [];
 
@@ -186,7 +169,6 @@ export const HUDEditor: React.FC<HUDEditorProps> = ({ filePath }) => {
         return results;
     }, [hudData, searchTerm]);
 
-    // Save to undo history
     const saveToUndoHistory = useCallback((action: string, data: { hudData: HudData; deletedElements: string[] }) => {
         const historyEntry: HistoryEntry = {
             action,
@@ -207,7 +189,6 @@ export const HUDEditor: React.FC<HUDEditorProps> = ({ filePath }) => {
         setUndoIndex(prev => prev + 1);
     }, [undoIndex]);
 
-    // Handle position changes
     const handlePositionChange = useCallback((elementId: string, newPosition: { x: number; y: number }) => {
         if (!hudData) return;
 
@@ -236,15 +217,12 @@ export const HUDEditor: React.FC<HUDEditorProps> = ({ filePath }) => {
         });
     }, [hudData]);
 
-    // Save position changes to history (called when drag ends)
     const handleDragEndBatch = useCallback((changes: Array<{ id: string; from: { x: number; y: number }; to: { x: number; y: number } }>) => {
         if (!hudData || changes.length === 0) return;
 
-        // Check if there was actual movement
         const hasMovement = changes.some(({ from, to }) => from.x !== to.x || from.y !== to.y);
         if (!hasMovement) return;
 
-        // Save current state to history
         const historyData = {
             hudData: JSON.parse(JSON.stringify(hudData)),
             deletedElements: Array.from(deletedElements),
@@ -254,7 +232,6 @@ export const HUDEditor: React.FC<HUDEditorProps> = ({ filePath }) => {
         setHasChanges(true);
     }, [hudData, deletedElements, saveToUndoHistory]);
 
-    // Handle element deletion
     const handleDeleteElement = useCallback((elementId: string) => {
         if (!hudData || !originalData) return;
 
@@ -275,7 +252,6 @@ export const HUDEditor: React.FC<HUDEditorProps> = ({ filePath }) => {
         });
     }, [hudData, originalData, deletedElements, saveToUndoHistory]);
 
-    // Undo
     const handleUndo = useCallback(() => {
         if (undoIndex <= 0) return;
 
@@ -290,7 +266,6 @@ export const HUDEditor: React.FC<HUDEditorProps> = ({ filePath }) => {
         }
     }, [undoHistory, undoIndex]);
 
-    // Redo
     const handleRedo = useCallback(() => {
         if (undoIndex >= undoHistory.length - 1) return;
 
@@ -305,7 +280,6 @@ export const HUDEditor: React.FC<HUDEditorProps> = ({ filePath }) => {
         }
     }, [undoHistory, undoIndex]);
 
-    // Export modified file
     const handleExport = useCallback(async () => {
         if (!hudData || !originalContent) return;
 
@@ -319,7 +293,6 @@ export const HUDEditor: React.FC<HUDEditorProps> = ({ filePath }) => {
         }
     }, [hudData, originalContent, filePath]);
 
-    // Reset to original
     const handleReset = useCallback(() => {
         if (originalData) {
             setHudData(JSON.parse(JSON.stringify(originalData)));
@@ -330,7 +303,6 @@ export const HUDEditor: React.FC<HUDEditorProps> = ({ filePath }) => {
         }
     }, [originalData]);
 
-    // Keyboard shortcuts
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.ctrlKey) {
@@ -355,7 +327,6 @@ export const HUDEditor: React.FC<HUDEditorProps> = ({ filePath }) => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [handleUndo, handleRedo, handleExport]);
 
-    // Get element statistics
     const stats = useMemo(() => {
         if (!hudData) return null;
 
@@ -414,9 +385,7 @@ export const HUDEditor: React.FC<HUDEditorProps> = ({ filePath }) => {
 
     return (
         <div className="hud-editor">
-            {/* Left Panel - Controls */}
             <div className="hud-editor__sidebar">
-                {/* Stats Panel */}
                 <div className="hud-editor__panel">
                     <div
                         className="hud-editor__panel-header"
@@ -447,7 +416,6 @@ export const HUDEditor: React.FC<HUDEditorProps> = ({ filePath }) => {
                     )}
                 </div>
 
-                {/* Search Panel */}
                 <div className="hud-editor__panel">
                     <h3>Search Elements</h3>
                     <input
@@ -488,7 +456,6 @@ export const HUDEditor: React.FC<HUDEditorProps> = ({ filePath }) => {
                     )}
                 </div>
 
-                {/* Visibility Controls */}
                 <div className="hud-editor__panel">
                     <h3>Visibility</h3>
                     <div className="hud-editor__visibility-controls">
@@ -508,7 +475,6 @@ export const HUDEditor: React.FC<HUDEditorProps> = ({ filePath }) => {
                     </div>
                 </div>
 
-                {/* Layer Controls */}
                 <div className="hud-editor__panel">
                     <h3>Layers</h3>
                     <div className="hud-editor__layer-list">
@@ -533,7 +499,6 @@ export const HUDEditor: React.FC<HUDEditorProps> = ({ filePath }) => {
                     </div>
                 </div>
 
-                {/* Action Buttons */}
                 <div className="hud-editor__actions">
                     <button
                         onClick={handleUndo}
@@ -574,7 +539,6 @@ export const HUDEditor: React.FC<HUDEditorProps> = ({ filePath }) => {
                 )}
             </div>
 
-            {/* Right Panel - Canvas */}
             <div className="hud-editor__canvas-container">
                 <HUDCanvas
                     hudData={hudData}

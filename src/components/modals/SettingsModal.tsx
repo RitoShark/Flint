@@ -1,8 +1,3 @@
-/**
- * Flint - Settings Modal Component
- * Left sidebar navigation + content panels.
- */
-
 import React, { useState, useEffect } from 'react';
 import { useConfigStore, useUxStore, useModalStore, useNotificationStore, useAppMetadataStore, useWadExplorerStore } from '../../lib/stores';
 import { useShallow } from 'zustand/react/shallow';
@@ -16,7 +11,6 @@ import {
     Button,
     Checkbox,
     Icon,
-    ProgressBar,
     type IconName,
     Modal,
     ModalBody,
@@ -28,7 +22,6 @@ import { triggerTutorialReplay } from '../overlays/TutorialOverlay';
 
 type SettingsTab = 'creator' | 'general' | 'theme' | 'paths' | 'integrations' | 'dev';
 
-// Extracted tab content - see ./settings/ for implementations.
 import { PathSettingItem, type PathSetting } from './settings/PathSettingItem';
 import { SchemaProgressView, SchemaResultView, type SchemaProgress } from './settings/SchemaViews';
 import { ThemePresetGrid } from './settings/ThemeTab';
@@ -63,12 +56,10 @@ export const SettingsModal: React.FC = () => {
     const [autoSyncToLauncher, setAutoSyncToLauncher] = useState(configStore.autoSyncToLauncher);
     const [celestialPath, setCelestialPath] = useState(configStore.celestialModPath || '');
     const [preferredLauncher, setPreferredLauncher] = useState<'ltk' | 'celestial' | null>(configStore.preferredLauncher);
-    // BIN engine is pinned to Jade — no UI selector; configStore default handles it.
     const [jadePath, setJadePath] = useState(configStore.jadePath || '');
     const [quartzPath, setQuartzPath] = useState(configStore.quartzPath || '');
     const [isValidating, setIsValidating] = useState(false);
 
-    // File-association status (Windows registry Open With)
     const [assocStatus, setAssocStatus] = useState<FileAssocStatus | null>(null);
     const [isRegisteringAssoc, setIsRegisteringAssoc] = useState(false);
 
@@ -86,6 +77,10 @@ export const SettingsModal: React.FC = () => {
     const [isAggregatingChampion, setIsAggregatingChampion] = useState(false);
     const [championSchemaProgress, setChampionSchemaProgress] = useState<SchemaProgress | null>(null);
     const [championSchemaResult, setChampionSchemaResult] = useState<api.ChampionSchemaStats | null>(null);
+
+    const [isAggregatingTft, setIsAggregatingTft] = useState(false);
+    const [tftSchemaProgress, setTftSchemaProgress] = useState<SchemaProgress | null>(null);
+    const [tftSchemaResult, setTftSchemaResult] = useState<api.TftSchemaStats | null>(null);
 
     const [isAggregatingLuabins, setIsAggregatingLuabins] = useState(false);
     const [luabinSchemaProgress, setLuabinSchemaProgress] = useState<SchemaProgress | null>(null);
@@ -114,11 +109,9 @@ export const SettingsModal: React.FC = () => {
         setAutoSyncToLauncher(configStore.autoSyncToLauncher);
         setCelestialPath(configStore.celestialModPath || '');
         setPreferredLauncher(configStore.preferredLauncher);
-        // binConverterEngine no longer user-controlled — pinned to 'jade'.
         setJadePath(configStore.jadePath || '');
         setQuartzPath(configStore.quartzPath || '');
         getVersion().then(setCurrentVersion).catch(() => setCurrentVersion('0.0.0'));
-        // Refresh file-association status when settings modal opens
         api.getFileAssociationStatus().then(setAssocStatus).catch(() => {});
     }, [isVisible, configStore.leaguePath, configStore.leaguePathPbe, configStore.defaultProjectPath, configStore.creatorName, configStore.creatorDescription, configStore.creatorHome, configStore.creatorTip, configStore.autoUpdateEnabled, verboseLoggingStore, configStore.ltkManagerModPath, configStore.autoSyncToLauncher, configStore.jadePath, configStore.quartzPath, configStore.selectedTheme]);
 
@@ -132,6 +125,13 @@ export const SettingsModal: React.FC = () => {
     useEffect(() => {
         const unlisten = listen<SchemaProgress>('champion-schema-progress', (event) => {
             setChampionSchemaProgress(event.payload);
+        });
+        return () => { unlisten.then((fn) => fn()); };
+    }, []);
+
+    useEffect(() => {
+        const unlisten = listen<SchemaProgress>('tft-schema-progress', (event) => {
+            setTftSchemaProgress(event.payload);
         });
         return () => { unlisten.then((fn) => fn()); };
     }, []);
@@ -182,7 +182,7 @@ export const SettingsModal: React.FC = () => {
                         showToast('success', 'PBE installation detected!');
                         return;
                     }
-                } catch { /* continue */ }
+                } catch { }
             }
         }
         showToast('error', 'Could not auto-detect PBE installation');
@@ -348,6 +348,26 @@ export const SettingsModal: React.FC = () => {
         }
     };
 
+    const handleAggregateTftSchema = async () => {
+        if (!leaguePath) {
+            showToast('error', 'League path not configured. Set it in the Paths tab first.');
+            return;
+        }
+        setIsAggregatingTft(true);
+        setTftSchemaProgress(null);
+        setTftSchemaResult(null);
+        try {
+            const stats = await api.aggregateTftBinSchema(leaguePath);
+            setTftSchemaResult(stats);
+            showToast('success', `TFT schema built: ${stats.classes_found.toLocaleString()} classes, ${stats.total_fields.toLocaleString()} fields`);
+        } catch (error) {
+            console.error('TFT schema aggregation failed:', error);
+            showToast('error', 'TFT schema aggregation failed. Check the log for details.');
+        } finally {
+            setIsAggregatingTft(false);
+        }
+    };
+
     const handleBuildLuabinSchema = async () => {
         if (!leaguePath) {
             showToast('error', 'League path not configured. Set it in the Paths tab first.');
@@ -420,10 +440,8 @@ export const SettingsModal: React.FC = () => {
         configStore.setPreferredLauncher(preferredLauncher);
         useAppMetadataStore.getState().setVerboseLogging(verboseLogging);
 
-        // BIN engine is pinned to 'jade' — no save needed.
         configStore.setJadePath(jadePath || null);
         configStore.setQuartzPath(quartzPath || null);
-        // selectedTheme is committed live by the preset cards — no need to re-save here.
 
         api.setLogLevel(verboseLogging).catch(() => {});
         showToast('success', 'Settings saved');
@@ -489,11 +507,21 @@ export const SettingsModal: React.FC = () => {
         browseTitle: string;
         directory: boolean;
         helpUrl?: string;
-        /** Marks the integration as a launcher target so the UI surfaces a
-         *  "Set as default launcher" pill on it. */
         kind?: 'launcher' | 'app';
     }
     const integrations: Integration[] = [
+        {
+            id: 'celestial',
+            name: 'Celestial',
+            tagline: "Divine Skins' all-in-one launcher. Detect or point Flint at its mod storage to sync from here.",
+            accent: '#A05CF6',
+            path: celestialPath,
+            setPath: setCelestialPath,
+            onDetect: handleDetectCelestial,
+            browseTitle: 'Select Celestial Mod Storage Folder',
+            directory: true,
+            kind: 'launcher',
+        },
         {
             id: 'ltk',
             name: 'LTK Manager',
@@ -505,18 +533,6 @@ export const SettingsModal: React.FC = () => {
             browseTitle: 'Select LTK Manager Mod Storage Folder',
             directory: true,
             helpUrl: 'https://github.com/LeagueToolkit/ltk-manager',
-            kind: 'launcher',
-        },
-        {
-            id: 'celestial',
-            name: 'Celestial',
-            tagline: "Divine Skins' all-in-one launcher. Detect or point Flint at its mod storage to sync from here.",
-            accent: '#A05CF6',
-            path: celestialPath,
-            setPath: setCelestialPath,
-            onDetect: handleDetectCelestial,
-            browseTitle: 'Select Celestial Mod Storage Folder',
-            directory: true,
             kind: 'launcher',
         },
         {
@@ -628,7 +644,6 @@ export const SettingsModal: React.FC = () => {
                                 />
                             </div>
 
-                            {/* Windows "Open with" file association card */}
                             <div className="settings-item">
                                 <label className="settings-item__label">
                                     <Icon name="link" />
@@ -897,8 +912,6 @@ export const SettingsModal: React.FC = () => {
                                         icon="refresh"
                                         onClick={() => {
                                             closeModal();
-                                            // Wait for the close animation to finish before opening the
-                                            // wizard so the two transitions don't overlap visually.
                                             setTimeout(() => {
                                                 useModalStore.getState().openModal('firstTimeSetup');
                                             }, 300);
@@ -925,8 +938,6 @@ export const SettingsModal: React.FC = () => {
                                     icon="info"
                                     onClick={() => {
                                         closeModal();
-                                        // Let the Settings modal finish closing so the tutorial
-                                        // spotlight can target real elements, not the modal stack.
                                         setTimeout(() => triggerTutorialReplay(), 320);
                                     }}
                                 >
@@ -1035,6 +1046,49 @@ export const SettingsModal: React.FC = () => {
                                 className="settings-item"
                                 style={{ marginTop: 16 }}
                             >
+                                <label className="settings-item__label">TFT BIN Schema Creator</label>
+                                <div className="settings-item__hint" style={{ marginBottom: 8 }}>
+                                    Scans only the Teamfight Tactics WADs — Companions.wad.client
+                                    (Little Legends / Tacticians) and the TFT game-mode map WADs
+                                    (Maps/Shipping/Map22) holding traits, items, augments, and unit
+                                    data. Parses every BIN, merges every property of every class
+                                    globally, and emits ONE synthetic ritobin file in real block
+                                    syntax (with brackets). Copy any block straight into a .ritobin file.
+                                </div>
+                                <Button
+                                    size="sm"
+                                    icon="download"
+                                    onClick={handleAggregateTftSchema}
+                                    disabled={isAggregatingTft || !leaguePath}
+                                >
+                                    {isAggregatingTft ? 'Building...' : 'Build TFT Schema'}
+                                </Button>
+                                {!leaguePath && (
+                                    <div className="settings-item__hint" style={{ color: 'var(--color-warning)', marginTop: 4 }}>
+                                        Configure League path in the Paths tab first
+                                    </div>
+                                )}
+                            </div>
+
+                            {isAggregatingTft && tftSchemaProgress && (
+                                <SchemaProgressView progress={tftSchemaProgress} />
+                            )}
+                            {tftSchemaResult && !isAggregatingTft && (
+                                <SchemaResultView
+                                    classes={tftSchemaResult.classes_found}
+                                    fields={tftSchemaResult.total_fields}
+                                    binsParsed={tftSchemaResult.bins_parsed}
+                                    binsFailed={tftSchemaResult.bins_failed}
+                                    wads={tftSchemaResult.wads_scanned}
+                                    outputPath={tftSchemaResult.output_path}
+                                    label="TFT BINs"
+                                />
+                            )}
+
+                            <div
+                                className="settings-item"
+                                style={{ marginTop: 16 }}
+                            >
                                 <label className="settings-item__label">Luabin Schema Aggregator</label>
                                 <div className="settings-item__hint" style={{ marginBottom: 8 }}>
                                     Walks every WAD in your League installation, finds all .luabin / .luabin64
@@ -1128,7 +1182,6 @@ export const SettingsModal: React.FC = () => {
                 </Button>
             </ModalFooter>
 
-            {/* Fullscreen UI primitives showcase (dev tab) */}
             <Modal
                 open={showUIPreview}
                 onClose={() => setShowUIPreview(false)}

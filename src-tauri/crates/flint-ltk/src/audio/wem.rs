@@ -5,7 +5,6 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Decoded audio ready for browser playback
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DecodedAudio {
     pub data: Vec<u8>,
@@ -13,7 +12,6 @@ pub struct DecodedAudio {
     pub sample_rate: Option<u32>,
 }
 
-/// Embedded codebook binary (packed_codebooks_aoTuV_603.bin)
 const CODEBOOK_DATA: &[u8] = include_bytes!("../../resources/packed_codebooks_aoTuV_603.bin");
 
 // ---------------------------------------------------------------------------
@@ -156,7 +154,6 @@ impl<'a> BitReader<'a> {
         }
         self.total_bits_read += 1;
         self.bits_left -= 1;
-        // Read MSB-first within each byte (matching JS getBit: 0x80 >>> bitsLeft)
         Ok(if (self.bit_buffer & (0x80 >> self.bits_left)) != 0 {
             1
         } else {
@@ -257,12 +254,10 @@ impl BitOggWriter {
             segments = 255;
         }
 
-        // Move payload data to correct position (after header + lacing)
         for i in 0..self.payload_bytes {
             self.page_buffer[27 + segments + i] = self.page_buffer[27 + 255 + i];
         }
 
-        // OGG page header
         self.page_buffer[0] = b'O';
         self.page_buffer[1] = b'g';
         self.page_buffer[2] = b'g';
@@ -373,11 +368,9 @@ impl CodebookLibrary {
     }
 
     fn rebuild(bis: &mut BitReader, bos: &mut BitOggWriter) -> Result<(), String> {
-        // IN: 4-bit dimensions, 14-bit entry count
         let dimensions = bis.read_bits(4)?;
         let entries = bis.read_bits(14)?;
 
-        // OUT: 24-bit identifier "BCV" (0x564342), 16-bit dimensions, 24-bit entries
         bos.write_bits(0x564342, 24);
         bos.write_bits(dimensions, 16);
         bos.write_bits(entries, 24);
@@ -616,35 +609,29 @@ struct WwiseRiffVorbis<'a> {
     data: &'a [u8],
     is_wav: bool,
 
-    // Chunk offsets & sizes
     data_offset: usize,
     data_size: usize,
 
-    // Audio properties
     channels: u32,
     sample_rate: u32,
     avg_bytes_per_second: u32,
     block_align: u16,
     bits_per_sample: u16,
 
-    // Vorbis properties
     setup_packet_offset: u32,
     first_audio_packet_offset: u32,
     blocksize_0_pow: u8,
     blocksize_1_pow: u8,
 
-    // Flags
     header_triad_present: bool,
     old_packet_headers: bool,
     no_granule: bool,
     mod_packets: bool,
 
-    // Loop
     loop_count: u32,
     loop_start: u32,
     loop_end: u32,
 
-    // Codebook library
     codebook_lib: &'a CodebookLibrary,
 }
 
@@ -658,7 +645,6 @@ impl<'a> WwiseRiffVorbis<'a> {
         if magic != b"RIFF" && magic != b"RIFX" {
             return Err("Missing RIFF header".into());
         }
-        // We only support little-endian RIFF (not RIFX)
         if magic == b"RIFX" {
             return Err("RIFX (big-endian) not supported".into());
         }
@@ -672,7 +658,6 @@ impl<'a> WwiseRiffVorbis<'a> {
             return Err("Missing WAVE header".into());
         }
 
-        // Find chunks
         let mut fmt_offset = 0usize;
         let mut fmt_size = 0usize;
         let mut smpl_offset = 0usize;
@@ -766,7 +751,6 @@ impl<'a> WwiseRiffVorbis<'a> {
             });
         }
 
-        // Read loop info from smpl
         let mut loop_count = 0u32;
         let mut loop_start = 0u32;
         let mut loop_end = 0u32;
@@ -778,7 +762,6 @@ impl<'a> WwiseRiffVorbis<'a> {
             }
         }
 
-        // Read vorb
         let valid_vorb_sizes: &[i32] = &[-1, 0x28, 0x2A, 0x2C, 0x32, 0x34];
         if !valid_vorb_sizes.contains(&vorb_size) {
             return Err(format!("Bad vorb size: {vorb_size}"));
@@ -874,7 +857,6 @@ impl<'a> WwiseRiffVorbis<'a> {
             mode_bits = result.1;
         }
 
-        // Audio pages
         let mut offset = self.data_offset + self.first_audio_packet_offset as usize;
         let data_end = self.data_offset + self.data_size;
 
@@ -900,7 +882,6 @@ impl<'a> WwiseRiffVorbis<'a> {
                 os.set_granule(granule);
             }
 
-            // First byte handling
             if self.mod_packets {
                 let mbf = mode_blockflag
                     .as_ref()
@@ -942,7 +923,6 @@ impl<'a> WwiseRiffVorbis<'a> {
                 os.write_bits(self.data[payload_offset] as u32, 8);
             }
 
-            // Remainder of packet
             for i in 1..size {
                 os.write_bits(self.data[payload_offset + i] as u32, 8);
             }
@@ -958,12 +938,10 @@ impl<'a> WwiseRiffVorbis<'a> {
         let total_size = 44 + self.data_size;
         let mut output = vec![0u8; total_size];
 
-        // RIFF header
         output[0..4].copy_from_slice(b"RIFF");
         write_u32_le(&mut output, 4, (total_size - 8) as u32);
         output[8..12].copy_from_slice(b"WAVE");
 
-        // fmt chunk
         output[12..16].copy_from_slice(b"fmt ");
         write_u32_le(&mut output, 16, 16);
         write_u16_le(&mut output, 20, 1); // PCM
@@ -973,7 +951,6 @@ impl<'a> WwiseRiffVorbis<'a> {
         write_u16_le(&mut output, 32, self.block_align);
         write_u16_le(&mut output, 34, self.bits_per_sample);
 
-        // data chunk
         output[36..40].copy_from_slice(b"data");
         write_u32_le(&mut output, 40, self.data_size as u32);
 
@@ -987,7 +964,6 @@ impl<'a> WwiseRiffVorbis<'a> {
         &self,
         os: &mut BitOggWriter,
     ) -> Result<(Vec<bool>, u32), String> {
-        // Identification packet
         self.write_vorbis_packet_header(os, 1);
 
         os.write_bits(0, 32); // version
@@ -1002,7 +978,6 @@ impl<'a> WwiseRiffVorbis<'a> {
 
         os.flush_page(false, false);
 
-        // Comment packet
         self.write_vorbis_packet_header(os, 3);
 
         let vendor = b"converted from Audiokinetic Wwise by ww2ogg (Rust)";
@@ -1032,7 +1007,6 @@ impl<'a> WwiseRiffVorbis<'a> {
         os.write_bits(1, 1); // framing
         os.flush_page(false, false);
 
-        // Setup packet
         self.write_vorbis_packet_header(os, 5);
 
         let setup_packet = PacketHeader::read(
@@ -1049,12 +1023,10 @@ impl<'a> WwiseRiffVorbis<'a> {
             .payload_offset(self.data_offset + self.setup_packet_offset as usize);
         let mut ss = BitReader::new(self.data, setup_payload);
 
-        // Codebook count
         let codebook_count_less1 = ss.read_bits(8)?;
         let codebook_count = codebook_count_less1 + 1;
         os.write_bits(codebook_count_less1, 8);
 
-        // Rebuild codebooks
         for _ in 0..codebook_count {
             let codebook_id = ss.read_bits(10)?;
             self.codebook_lib.rebuild_from_id(codebook_id as usize, os)?;
@@ -1064,7 +1036,6 @@ impl<'a> WwiseRiffVorbis<'a> {
         os.write_bits(0, 6); // count - 1
         os.write_bits(0, 16); // dummy
 
-        // Rebuild floors, residues, mappings, modes
         let result = self.rebuild_setup(&mut ss, os, codebook_count)?;
 
         os.write_bits(1, 1); // framing
@@ -1079,7 +1050,6 @@ impl<'a> WwiseRiffVorbis<'a> {
         os: &mut BitOggWriter,
         codebook_count: u32,
     ) -> Result<(Vec<bool>, u32), String> {
-        // Floor count
         let floor_count_less1 = ss.read_bits(6)?;
         let floor_count = floor_count_less1 + 1;
         os.write_bits(floor_count_less1, 6);
@@ -1141,7 +1111,6 @@ impl<'a> WwiseRiffVorbis<'a> {
             }
         }
 
-        // Residue count
         let residue_count_less1 = ss.read_bits(6)?;
         let residue_count = residue_count_less1 + 1;
         os.write_bits(residue_count_less1, 6);
@@ -1200,7 +1169,6 @@ impl<'a> WwiseRiffVorbis<'a> {
             }
         }
 
-        // Mapping count
         let mapping_count_less1 = ss.read_bits(6)?;
         let mapping_count = mapping_count_less1 + 1;
         os.write_bits(mapping_count_less1, 6);
@@ -1266,7 +1234,6 @@ impl<'a> WwiseRiffVorbis<'a> {
             }
         }
 
-        // Mode count
         let mode_count_less1 = ss.read_bits(6)?;
         let mode_count = mode_count_less1 + 1;
         os.write_bits(mode_count_less1, 6);
@@ -1313,7 +1280,6 @@ impl<'a> WwiseRiffVorbis<'a> {
 
         offset = info_packet.next_offset(offset);
 
-        // Comment packet
         let comment_packet = PacketHeader::read_old(self.data, offset)?;
         if comment_packet.granule != 0 {
             return Err("Comment packet granule != 0".into());
@@ -1331,7 +1297,6 @@ impl<'a> WwiseRiffVorbis<'a> {
 
         offset = comment_packet.next_offset(offset);
 
-        // Setup packet
         let setup_packet = PacketHeader::read_old(self.data, offset)?;
         if setup_packet.granule != 0 {
             return Err("Setup packet granule != 0".into());
@@ -1351,17 +1316,14 @@ impl<'a> WwiseRiffVorbis<'a> {
             os.write_bits(ss.read_bits(8)?, 8);
         }
 
-        // Codebook count
         let codebook_count_less1 = ss.read_bits(8)?;
         let codebook_count = codebook_count_less1 + 1;
         os.write_bits(codebook_count_less1, 8);
 
-        // Copy codebooks (triad mode = inline codebooks)
         for _ in 0..codebook_count {
             CodebookLibrary::copy_codebook(&mut ss, os)?;
         }
 
-        // Copy remaining bits
         while ss.total_bits_read() < setup_packet.size * 8 {
             os.write_bits(ss.read_bits(1)?, 1);
         }
@@ -1382,7 +1344,6 @@ impl<'a> WwiseRiffVorbis<'a> {
 // Public API
 // ---------------------------------------------------------------------------
 
-/// Decode WEM bytes to playable audio (OGG or WAV).
 pub fn decode_wem(wem_data: &[u8]) -> Result<DecodedAudio, String> {
     let codebook_lib = CodebookLibrary::load(CODEBOOK_DATA)?;
     let converter = WwiseRiffVorbis::parse(wem_data, &codebook_lib)?;

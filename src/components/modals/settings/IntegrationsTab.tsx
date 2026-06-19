@@ -1,14 +1,6 @@
-/**
- * IntegrationsTab - branded 'Connect' cards for each external app
- * (LTK Manager, Celestial launcher, Jade, Quartz). Surfaces auto-sync
- * toggle and the preferred-launcher selector.
- */
 import React from 'react';
 import { Button, Checkbox } from '../../ui';
 
-/* -------------------------------------------------------------------------- */
-/* Integrations tab — branded "Connect" cards for each external app           */
-/* -------------------------------------------------------------------------- */
 export type IntegrationDisplay = {
     id: 'ltk' | 'celestial' | 'jade' | 'quartz';
     name: string;
@@ -47,7 +39,7 @@ export const IntegrationsTab: React.FC<{
     const apps = integrations.filter((i) => i.kind !== 'launcher');
     const effective = preferredLauncher
         ?? (launchers.find((l) => l.path.trim().length > 0)?.id as 'ltk' | 'celestial' | undefined)
-        ?? 'ltk';
+        ?? 'celestial';
 
     const renderCard = (i: IntegrationDisplay, isLauncher: boolean) => {
         const connected = i.path.trim().length > 0;
