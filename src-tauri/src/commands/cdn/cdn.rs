@@ -141,14 +141,26 @@ pub struct CdnLoadResult {
 }
 
 async fn load_manifest_from_url(url: &str, state: &State<'_, CdnSessionState>) -> Result<CdnLoadResult, String> {
-    let bytes = http_client()
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| format!("manifest request: {e}"))?
-        .bytes()
-        .await
-        .map_err(|e| format!("manifest body: {e}"))?;
+    let file_name = url.split('/').last().unwrap_or("unknown.manifest");
+    let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
+    let manifest_dir = std::path::PathBuf::from(base).join("Flint").join("manifest");
+    let _ = std::fs::create_dir_all(&manifest_dir);
+    let manifest_path = manifest_dir.join(file_name);
+
+    let bytes: bytes::Bytes = if manifest_path.exists() {
+        std::fs::read(&manifest_path).map_err(|e| format!("failed to read cached manifest: {e}"))?.into()
+    } else {
+        let b = http_client()
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| format!("manifest request: {e}"))?
+            .bytes()
+            .await
+            .map_err(|e| format!("manifest body: {e}"))?;
+        let _ = std::fs::write(&manifest_path, &b);
+        b
+    };
     let manifest =
         flint_ltk::cdn::manifest::Manifest::from_bytes(&bytes).map_err(|e| e.to_string())?;
     let tree = tree_to_dto(&manifest.tree, "");
