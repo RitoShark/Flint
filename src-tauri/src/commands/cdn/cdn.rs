@@ -147,8 +147,8 @@ async fn load_manifest_from_url(url: &str, state: &State<'_, CdnSessionState>) -
     let _ = std::fs::create_dir_all(&manifest_dir);
     let manifest_path = manifest_dir.join(file_name);
 
-    let bytes: bytes::Bytes = if manifest_path.exists() {
-        std::fs::read(&manifest_path).map_err(|e| format!("failed to read cached manifest: {e}"))?.into()
+    let bytes: Vec<u8> = if manifest_path.exists() {
+        std::fs::read(&manifest_path).map_err(|e| format!("failed to read cached manifest: {e}"))?
     } else {
         let b = http_client()
             .get(url)
@@ -159,7 +159,7 @@ async fn load_manifest_from_url(url: &str, state: &State<'_, CdnSessionState>) -
             .await
             .map_err(|e| format!("manifest body: {e}"))?;
         let _ = std::fs::write(&manifest_path, &b);
-        b
+        b.to_vec()
     };
     let manifest =
         flint_ltk::cdn::manifest::Manifest::from_bytes(&bytes).map_err(|e| e.to_string())?;
