@@ -8,6 +8,7 @@ import {
 import type { FileEditorTarget } from '../../lib/types';
 import { BinEditor } from '../preview/BinEditor';
 import { LuaBin64Editor } from '../preview/LuaBin64Editor';
+import { ModPackageViewer } from '../preview/ModPackageViewer';
 import { Button, Field, FormGroup, FormLabel, Input, Textarea } from '../ui';
 
 // ─── mod.config.json structured editor ──────────────────────────────────
@@ -319,7 +320,7 @@ export const FileEditorPage: React.FC = () => {
                 display: 'flex',
                 flexDirection: 'column',
                 height: '100%',
-                overflowY: target.kind === 'binText' ? 'hidden' : 'auto',
+                overflowY: target.kind === 'binText' || target.kind === 'modPackage' ? 'hidden' : 'auto',
                 backgroundColor: 'var(--bg-primary)',
             }}
         >

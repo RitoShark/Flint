@@ -242,161 +242,9 @@ pub(crate) fn extract_champion_from_paths(paths: &[String]) -> Option<String> {
         .map(|(champ, _)| champ)
 }
 
-fn match_missing_files_from_league(
-    output_path: &Path,
-    league_path: &str,
-    hash_dir: &str,
-    champion: &str,
-    existing_hashes: &HashSet<u64>,
-) -> Result<(), String> {
-    use flint_ltk::wad_jade::adapter::find_champion_wad;
-    use walkdir::WalkDir;
-
-    tracing::info!("Matching missing files from League installation for {}", champion);
-
-    tracing::debug!("Looking for champion WAD in: {}", league_path);
-
-    let champion_wad = find_champion_wad(league_path, champion)
-        .ok_or_else(|| format!("Could not find {} WAD in League installation (league_path: {})", champion, league_path))?;
-
-    tracing::info!("Found champion WAD: {}", champion_wad.display());
-
-    let mut wad_reader = WadReader::open(champion_wad.to_str().unwrap())
-        .map_err(|e| format!("Failed to open champion WAD: {}", e))?;
-
-    let env = get_or_open_env(hash_dir)
-        .ok_or("Failed to open LMDB environment")?;
-
-    let mut linked_bin_paths = HashSet::new();
-
-    for entry in WalkDir::new(output_path)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path()
-                .extension()
-                .map(|ext| ext.eq_ignore_ascii_case("bin"))
-                .unwrap_or(false)
-        })
-    {
-        let bin_path = entry.path();
-
-        if let Ok(bin_data) = std::fs::read(bin_path) {
-            if let Ok(linked_paths) = extract_linked_bin_paths(&bin_data) {
-                for path in linked_paths {
-                    linked_bin_paths.insert(path);
-                }
-            }
-        }
-    }
-
-    if linked_bin_paths.is_empty() {
-        tracing::info!("No linked BIN paths found in extracted mod");
-        return Ok(());
-    }
-
-    tracing::info!("Found {} linked BIN references", linked_bin_paths.len());
-
-    let all_wad_hashes: Vec<u64> = wad_reader.chunks().iter().map(|c| c.path_hash).collect();
-    let all_wad_paths = resolve_hashes_lmdb(&all_wad_hashes, &env);
-
-    let mut path_to_hash: HashMap<String, u64> = HashMap::new();
-    for (hash, path) in all_wad_hashes.iter().zip(all_wad_paths.iter()) {
-        path_to_hash.insert(path.to_lowercase(), *hash);
-    }
-
-    let mut extracted_missing = 0;
-
-    for linked_path in &linked_bin_paths {
-        let linked_lower = linked_path.to_lowercase();
-
-        if let Some(&hash) = path_to_hash.get(&linked_lower) {
-            if existing_hashes.contains(&hash) {
-                continue;
-            }
-
-            let chunk_copy = wad_reader.chunks().get(hash).copied();
-
-            if let Some(chunk) = chunk_copy {
-                if let Ok(data) = wad_reader.wad_mut().load_chunk_decompressed(&chunk) {
-                    let file_path = output_path.join(linked_path.trim_start_matches('/'));
-                    if let Some(parent) = file_path.parent() {
-                        let _ = std::fs::create_dir_all(parent);
-                    }
-                    if std::fs::write(&file_path, data).is_ok() {
-                        tracing::debug!("Extracted missing file: {}", linked_path);
-                        extracted_missing += 1;
-                    }
-                }
-            }
-            continue;
-        }
-
-        if linked_lower.ends_with(".bin") {
-            let without_ext = linked_lower.strip_suffix(".bin").unwrap();
-            if let Some(&hash) = path_to_hash.get(without_ext) {
-                if existing_hashes.contains(&hash) {
-                    continue;
-                }
-
-                let chunk_copy = wad_reader.chunks().get(hash).copied();
-
-                if let Some(chunk) = chunk_copy {
-                    if let Ok(data) = wad_reader.wad_mut().load_chunk_decompressed(&chunk) {
-                        let file_path = output_path.join(linked_path.trim_start_matches('/'));
-                        if let Some(parent) = file_path.parent() {
-                            let _ = std::fs::create_dir_all(parent);
-                        }
-                        if std::fs::write(&file_path, data).is_ok() {
-                            tracing::debug!("Extracted missing file (without .bin): {}", linked_path);
-                            extracted_missing += 1;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    tracing::info!("Extracted {} missing linked files from League installation", extracted_missing);
-    Ok(())
-}
-
 fn is_unresolved_hash(path: &str) -> bool {
     let filename = path.rsplit('/').next().unwrap_or(path);
     filename.len() == 16 && filename.chars().all(|c| c.is_ascii_hexdigit())
-}
-
-fn extract_linked_bin_paths(bin_data: &[u8]) -> Result<Vec<String>, String> {
-    let mut linked_paths = Vec::new();
-
-    let text = String::from_utf8_lossy(bin_data);
-    let mut start = 0;
-
-    while let Some(pos) = text[start..].find("/skins/") {
-        let absolute_pos = start + pos;
-
-        let path_start = text[..absolute_pos]
-            .rfind(|c: char| !c.is_ascii() && c != '/' && c != '_' && c != '.' && !c.is_alphanumeric())
-            .map(|p| p + 1)
-            .unwrap_or(0);
-
-        if let Some(bin_end) = text[absolute_pos..].find(".bin") {
-            let path_end = absolute_pos + bin_end + 4;
-            let potential_path = &text[path_start..path_end];
-
-            if potential_path.starts_with("data/") || potential_path.starts_with("assets/") {
-                let path_str = potential_path.to_string();
-                if !linked_paths.contains(&path_str) {
-                    linked_paths.push(path_str);
-                    tracing::debug!("Found linked BIN path: {}", potential_path);
-                }
-            }
-        }
-
-        start = absolute_pos + 1;
-    }
-
-    Ok(linked_paths)
 }
 
 fn apply_refathering(
@@ -657,13 +505,21 @@ fn import_fantome_internal(
                 "message": "Matching missing files from League..."
             }));
 
-            match_missing_files_from_league(
+            let report = super::missing_files::recover_missing_files_from_league(
+                app,
+                "fantome-import-progress",
                 &wad_base,
                 league_path,
                 hash_dir,
                 &champion,
                 &existing_hashes,
-            ).map_err(|e| format!("Failed to match missing files: {}", e))?;
+            ).map_err(|e| format!("Failed to recover missing files: {}", e))?;
+
+            tracing::info!(
+                "Recovery: {} file(s) pulled from League across {} scanned BIN(s)",
+                report.recovered_files,
+                report.scanned_bins
+            );
         }
     }
 

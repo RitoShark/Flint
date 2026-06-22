@@ -360,6 +360,10 @@ fn main() {
             // ModPkg import commands
             commands::modpkg_import::analyze_modpkg,
             commands::modpkg_import::import_modpkg,
+            // ModPkg edit (minimal metadata editor) commands
+            commands::modpkg_edit::open_modpkg_session,
+            commands::modpkg_edit::save_modpkg_session,
+            commands::modpkg_edit::close_modpkg_session,
             // HUD Editor commands
             commands::hud::parse_hud_ritobin_file,
             commands::hud::save_hud_ritobin_file,

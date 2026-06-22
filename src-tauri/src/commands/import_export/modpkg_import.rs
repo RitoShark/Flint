@@ -267,6 +267,45 @@ fn import_modpkg_internal(
         }
     }
 
+    // Recover game files the ModPkg references but doesn't bundle, pulling them
+    // from the League install. Must run BEFORE refathering so the recovered files
+    // are organised and repathed alongside everything else.
+    if options.match_from_league {
+        if let Some(ref league_path) = options.league_path {
+            let _ = app.emit(
+                "modpkg-import-progress",
+                serde_json::json!({
+                    "status": "progress",
+                    "message": "Matching missing files from League..."
+                }),
+            );
+
+            let hash_dir = flint_ltk::hash::get_hash_dir()
+                .map(|p| p.to_string_lossy().into_owned())
+                .map_err(|e| format!("Hash directory not found: {}", e))?;
+
+            let existing_hashes: HashSet<u64> =
+                chunk_entries.iter().map(|(path_hash, _, _)| *path_hash).collect();
+
+            let report = super::missing_files::recover_missing_files_from_league(
+                app,
+                "modpkg-import-progress",
+                &wad_base,
+                league_path,
+                &hash_dir,
+                &champion,
+                &existing_hashes,
+            )
+            .map_err(|e| format!("Failed to recover missing files: {}", e))?;
+
+            tracing::info!(
+                "Recovery: {} file(s) pulled from League across {} scanned BIN(s)",
+                report.recovered_files,
+                report.scanned_bins
+            );
+        }
+    }
+
     let creator_name = metadata
         .as_ref()
         .and_then(|m| m.authors.first())

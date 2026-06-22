@@ -28,6 +28,7 @@ import { RecolorModal } from '../modals/RecolorModal';
 import { FixerModal } from '../modals/FixerModal';
 import { ProjectListModal } from '../modals/ProjectListModal';
 import { ModConfigEditorModal } from '../modals/ModConfigEditorModal';
+import { ImportModModal } from '../modals/ImportModModal';
 import { ThumbnailCropModal } from '../modals/ThumbnailCropModal';
 import { CheckpointModal } from '../modals/CheckpointModal';
 import { MapTexturesModal } from '../modals/MapTexturesModal';
@@ -64,6 +65,7 @@ const ActiveModal: React.FC<{ activeModal: string | null }> = React.memo(({ acti
         case 'fixer':            return <FixerModal />;
         case 'projectList':      return <ProjectListModal />;
         case 'modConfig':        return <ModConfigEditorModal />;
+        case 'importMod':        return <ImportModModal />;
         case 'renameProject':    return <RenameProjectModal />;
         case 'thumbnail':        return <ThumbnailCropModal />;
         case 'checkpoint':       return <CheckpointModal />;
@@ -289,6 +291,15 @@ export const App: React.FC = () => {
                     showToast('error', 'Failed to open WAD archive');
                     setReady('Error');
                 }
+                return;
+            }
+
+            // Mod packages (.fantome = ZIP of WADs, .modpkg = ModPkg archive) must NOT
+            // fall through to the BIN editor — it would try to parse a binary archive and
+            // crash. Route them to the read-only ModPackageViewer instead, which offers an
+            // "Import as Project" action.
+            if (lower.endsWith('.fantome') || lower.endsWith('.modpkg')) {
+                useNavigationStore.getState().navigateToFileEditor({ filePath, kind: 'modPackage' });
                 return;
             }
 

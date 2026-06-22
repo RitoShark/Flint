@@ -127,6 +127,11 @@ export const WelcomeScreen: React.FC = () => {
                             <span>Open Folder</span>
                             <span dangerouslySetInnerHTML={{ __html: getIcon('folderOpen2') }} />
                         </button>
+
+                        <button className="btn btn--secondary btn--large" onClick={() => openModal('importMod')}>
+                            <span>Import Mod</span>
+                            <span dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
+                        </button>
                     </div>
  
                     {recentProjects.length > 0 && (() => {
