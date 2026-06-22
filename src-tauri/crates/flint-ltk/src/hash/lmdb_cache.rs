@@ -190,7 +190,10 @@ fn open_read_db<'a>(
     name: &str,
 ) -> Option<(heed::RoTxn<'a>, Database<Bytes, Str>)> {
     let rtxn = env.read_txn().ok()?;
-    let db = env.open_database::<Bytes, Str>(&rtxn, Some(name)).ok().flatten()?;
+    if let Some(db) = env.open_database::<Bytes, Str>(&rtxn, Some(name)).ok().flatten() {
+        return Some((rtxn, db));
+    }
+    let db = env.open_database::<Bytes, Str>(&rtxn, None).ok().flatten()?;
     Some((rtxn, db))
 }
 

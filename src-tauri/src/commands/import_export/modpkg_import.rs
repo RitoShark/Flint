@@ -2,14 +2,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::BufReader;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter};
 
 use flint_ltk::ltk_types::Modpkg;
 
-use crate::commands::fantome_import::{
-    extract_champion_from_paths, extract_skin_id_from_path, ImportOptions,
+use crate::commands::import_export::fantome_import::{
+    extract_champion_from_paths, extract_skin_id_from_path, is_unresolved_hash, ImportOptions,
 };
+use flint_ltk::hash::{get_or_open_env, resolve_hashes_lmdb};
 use flint_ltk::project::Project;
 
 // =============================================================================
@@ -174,6 +175,11 @@ fn import_modpkg_internal(
         })
         .collect();
 
+    // We will extract files and scan them for hashes in a single pass later.
+    let hash_dir = flint_ltk::hash::get_hash_dir()
+        .map(|p| p.to_string_lossy().into_owned())
+        .map_err(|e| format!("Hash directory not found: {}", e))?;
+
     let total_files = chunk_entries.len();
 
     let _ = app.emit(
@@ -185,11 +191,36 @@ fn import_modpkg_internal(
     );
 
     let paths: Vec<String> = chunk_entries.iter().map(|(_, _, p)| p.clone()).collect();
-    let champion = extract_champion_from_paths(&paths)
-        .ok_or("Failed to detect champion from ModPkg paths")?;
+    let env = get_or_open_env(&hash_dir);
+    
+    let mut resolved_modpkg_paths: Vec<String> = Vec::with_capacity(paths.len());
+    for (i, path) in paths.iter().enumerate() {
+        if is_unresolved_hash(path) {
+            if let Some(ref env) = env {
+                let path_hash = chunk_entries[i].0;
+                let resolved = resolve_hashes_lmdb(&[path_hash], env);
+                if let Some(res) = resolved.first() {
+                    if !is_unresolved_hash(res) {
+                        resolved_modpkg_paths.push(res.to_string());
+                        continue;
+                    }
+                }
+            }
+        }
+        resolved_modpkg_paths.push(path.clone());
+    }
+    
+    // Update chunk_entries to use resolved paths
+    let chunk_entries: Vec<(u64, u64, String)> = chunk_entries.into_iter().enumerate().map(|(i, (ph, lh, _))| {
+        (ph, lh, resolved_modpkg_paths[i].clone())
+    }).collect();
+
+    let champion = options.champion.clone().or_else(|| {
+        extract_champion_from_paths(&resolved_modpkg_paths)
+    }).ok_or("Failed to detect champion from ModPkg paths, and no champion provided")?;
 
     let mut skin_id_set: HashSet<u32> = HashSet::new();
-    for path in &paths {
+    for path in &resolved_modpkg_paths {
         if let Some(skin_id) = extract_skin_id_from_path(path) {
             skin_id_set.insert(skin_id);
         }
@@ -216,6 +247,10 @@ fn import_modpkg_internal(
 
     let mut extracted_count = 0;
     let mut path_mappings = HashMap::new();
+    let mut unresolved_count = 0;
+
+    let mut game = std::collections::BTreeMap::new();
+    let mut bin = std::collections::BTreeMap::new();
 
     for (path_hash, layer_hash, path) in &chunk_entries {
         let path_lower = path.to_lowercase();
@@ -228,7 +263,41 @@ fn import_modpkg_internal(
             .load_chunk_decompressed_by_hash(*path_hash, *layer_hash)
             .map_err(|e| format!("Failed to decompress chunk '{}': {}", path, e))?;
 
-        let file_path = wad_base.join(path.trim_start_matches('/'));
+        if data.len() >= 4 {
+            let head = &data[..4];
+            let is_bin = head == b"PROP" || head == b"PTCH";
+            let is_skn = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) == 0x0011_2233;
+            if is_bin || is_skn {
+                crate::commands::wad::extract_hashes::scan_one(&data, &mut game, &mut bin);
+            }
+        }
+
+        let mut final_path = PathBuf::from(path.clone());
+        if is_unresolved_hash(path) {
+            unresolved_count += 1;
+            tracing::debug!("Unresolved hash in ModPkg: {}", path);
+            let ext = crate::commands::import_export::fantome_import::guess_extension(&data);
+            final_path.set_extension(ext);
+        }
+
+        let filename_len = final_path.to_string_lossy().len();
+
+        let out_path = if filename_len > 200 {
+            let parent = final_path.parent().unwrap_or_else(|| Path::new("data"));
+            let ext = final_path.extension().and_then(|e| e.to_str()).unwrap_or("bin");
+            let hash_name = format!("{:016x}.{}", path_hash, ext);
+            let hash_path = parent.join(&hash_name);
+
+            let orig = final_path.to_string_lossy().to_lowercase().replace('\\', "/");
+            let act  = hash_path.to_string_lossy().to_lowercase().replace('\\', "/");
+            path_mappings.insert(orig, act);
+
+            wad_base.join(hash_path)
+        } else {
+            wad_base.join(final_path)
+        };
+
+        let file_path = out_path;
         if let Some(parent) = file_path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create directory: {}", e))?;
@@ -236,8 +305,6 @@ fn import_modpkg_internal(
 
         std::fs::write(&file_path, &*data)
             .map_err(|e| format!("Failed to write file: {}", e))?;
-
-        path_mappings.insert(format!("{:016x}", path_hash), path.clone());
         extracted_count += 1;
 
         let progress_interval = (total_files / 10).max(50).min(total_files);
@@ -257,6 +324,13 @@ fn import_modpkg_internal(
         extracted_count,
         wad_folder_name
     );
+
+    if !game.is_empty() || !bin.is_empty() {
+        let hash_dir_path = Path::new(&hash_dir);
+        if let Err(e) = crate::commands::wad::extract_hashes::extract_and_merge_hashes(hash_dir_path, game, bin) {
+            tracing::warn!("Failed to auto-unhash modpkg files during import: {}", e);
+        }
+    }
 
     if let Some(thumb_data) = thumbnail {
         let thumb_path = project_path.join("thumbnail.webp");
@@ -306,25 +380,29 @@ fn import_modpkg_internal(
         }
     }
 
-    let creator_name = metadata
-        .as_ref()
-        .and_then(|m| m.authors.first())
-        .map(|a| a.name.as_str())
-        .or(options.creator_name.as_deref())
+    let creator_name = options.creator_name.as_deref()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            metadata.as_ref()
+                .and_then(|m| m.authors.first())
+                .map(|a| a.name.as_str())
+        })
         .unwrap_or("FlintUser");
 
-    let project_name = metadata
-        .as_ref()
-        .map(|m| {
-            if m.display_name.is_empty() {
-                &m.name
-            } else {
-                &m.display_name
-            }
+    let project_name = options.project_name.as_deref()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            metadata.as_ref()
+                .map(|m| {
+                    if m.display_name.is_empty() {
+                        &m.name
+                    } else {
+                        &m.display_name
+                    }
+                })
+                .filter(|n| !n.is_empty())
+                .map(|s| s.as_str())
         })
-        .filter(|n| !n.is_empty())
-        .map(|s| s.as_str())
-        .or(options.project_name.as_deref())
         .unwrap_or("ImportedMod");
 
     let description = metadata

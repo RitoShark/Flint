@@ -685,6 +685,14 @@ fn cleanup_unused_files(content_base: &Path, referenced_paths: &HashSet<String>,
             let rel_path = path.strip_prefix(content_base).ok()?;
             let normalized = normalize_path(&rel_path.to_string_lossy());
             let in_new_tree = normalized.to_lowercase().starts_with(&creator_prefix);
+            let filename = path.file_stem().unwrap_or_default().to_string_lossy();
+            let is_unresolved = filename.len() == 16 && filename.chars().all(|c| c.is_ascii_hexdigit());
+
+            if is_unresolved {
+                tracing::debug!("Preserving unresolved hash file: {}", path.display());
+                return None;
+            }
+
             if !expected_paths.contains(&normalized) || !in_new_tree {
                 Some(path.to_path_buf())
             } else {
@@ -771,6 +779,13 @@ fn cleanup_irrelevant_bins(content_base: &Path, champion: &str, target_skin_id: 
             if rel_str.contains("/skins/") &&
                (filename == target_skin_name || filename == target_skin_name_padded) {
                 tracing::debug!("Keeping main skin BIN: {}", rel_str);
+                continue;
+            }
+
+            let file_stem = path.file_stem().unwrap_or_default().to_string_lossy();
+            let is_unresolved = file_stem.len() == 16 && file_stem.chars().all(|c| c.is_ascii_hexdigit());
+            if is_unresolved {
+                tracing::debug!("Keeping unresolved hash BIN: {}", rel_str);
                 continue;
             }
 

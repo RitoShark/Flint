@@ -18,28 +18,28 @@ use crate::state::LmdbCacheState;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FantomeMetadata {
     #[serde(
-        rename = "Author",
+        alias = "Author",
         alias = "author",
         alias = "AUTHOR",
         default
     )]
     pub author: Option<String>,
     #[serde(
-        rename = "Name",
+        alias = "Name",
         alias = "name",
         alias = "NAME",
         default
     )]
     pub name: Option<String>,
     #[serde(
-        rename = "Description",
+        alias = "Description",
         alias = "description",
         alias = "DESCRIPTION",
         default
     )]
     pub description: Option<String>,
     #[serde(
-        rename = "Version",
+        alias = "Version",
         alias = "version",
         alias = "VERSION",
         default
@@ -62,6 +62,7 @@ pub struct ImportOptions {
     pub refather: bool,
     pub creator_name: Option<String>,
     pub project_name: Option<String>,
+    pub champion: Option<String>,
     pub target_skin_id: Option<u32>,
     pub cleanup_unused: bool,
     pub match_from_league: bool,
@@ -69,8 +70,22 @@ pub struct ImportOptions {
 }
 
 // =============================================================================
-// Fantome Package Handling
+// Extraction & Analysis
 // =============================================================================
+
+pub(crate) fn guess_extension(data: &[u8]) -> &'static str {
+    if data.len() >= 4 {
+        let head = &data[..4];
+        if head == b"PROP" || head == b"PTCH" { return "bin"; }
+        if head == b"DDS " { return "dds"; }
+        if head == b"OggS" { return "ogg"; }
+        if head == b"RIFF" { return "wem"; }
+        if head == b"BKHD" { return "bnk"; }
+        if u32::from_le_bytes([data[0], data[1], data[2], data[3]]) == 0x0011_2233 { return "skn"; }
+        if u32::from_le_bytes([data[0], data[1], data[2], data[3]]) == 0x0022_3344 { return "skl"; }
+    }
+    "dat"
+}
 
 fn read_fantome_metadata(fantome_path: &str) -> Option<FantomeMetadata> {
     let file = File::open(fantome_path).ok()?;
@@ -242,7 +257,7 @@ pub(crate) fn extract_champion_from_paths(paths: &[String]) -> Option<String> {
         .map(|(champ, _)| champ)
 }
 
-fn is_unresolved_hash(path: &str) -> bool {
+pub(crate) fn is_unresolved_hash(path: &str) -> bool {
     let filename = path.rsplit('/').next().unwrap_or(path);
     filename.len() == 16 && filename.chars().all(|c| c.is_ascii_hexdigit())
 }
@@ -404,6 +419,16 @@ fn import_fantome_internal(
 
     let (resolved_wad_path, _is_temp) = resolve_wad_path(wad_path)?;
 
+    let _ = app.emit("fantome-import-progress", serde_json::json!({
+        "status": "progress",
+        "message": "Extracting and registering path hashes..."
+    }));
+
+    let hash_dir_path = Path::new(hash_dir);
+    if let Err(e) = crate::commands::wad::extract_hashes::extract_hashes_from_wad_path(&resolved_wad_path, hash_dir_path) {
+        tracing::warn!("Failed to auto-unhash WAD file during import: {}", e);
+    }
+
     let mut reader = WadReader::open(resolved_wad_path.to_str().unwrap())
         .map_err(|e| format!("Failed to open WAD file: {}", e))?;
 
@@ -424,8 +449,9 @@ fn import_fantome_internal(
         (hashes, resolved_paths)
     };
 
-    let champion = extract_champion_from_paths(&resolved_paths)
-        .ok_or("Failed to detect champion from paths")?;
+    let champion = options.champion.clone().or_else(|| {
+        extract_champion_from_paths(&resolved_paths)
+    }).ok_or("Failed to detect champion from paths, and no champion provided")?;
 
     let champion_lower = champion.to_lowercase();
     let wad_folder_name = format!("{}.wad.client", champion_lower);
@@ -459,23 +485,39 @@ fn import_fantome_internal(
         let data = reader.wad_mut().load_chunk_decompressed(&chunk)
             .map_err(|e| format!("Failed to decompress chunk: {}", e))?;
 
+        let mut final_path = PathBuf::from(path.clone());
         if is_unresolved_hash(path) {
             unresolved_count += 1;
             tracing::debug!("Unresolved hash (custom path): {}", path);
+            let ext = guess_extension(&data);
+            final_path.set_extension(ext);
         }
 
-        let final_path = path.clone();
+        let filename_len = final_path.to_string_lossy().len();
 
-        let file_path = wad_base.join(final_path.trim_start_matches('/'));
-        if let Some(parent) = file_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create directory: {}", e))?;
+        let out_path = if filename_len > 200 {
+            let parent = final_path.parent().unwrap_or_else(|| Path::new("data"));
+            let ext = final_path.extension().and_then(|e| e.to_str()).unwrap_or("bin");
+            let hash_name = format!("{:016x}.{}", hash, ext);
+            let hash_path = parent.join(&hash_name);
+
+            let orig = final_path.to_string_lossy().to_lowercase().replace('\\', "/");
+            let act  = hash_path.to_string_lossy().to_lowercase().replace('\\', "/");
+            path_mappings.insert(orig, act);
+
+            wad_base.join(hash_path)
+        } else {
+            wad_base.join(final_path)
+        };
+
+        let file_path = out_path;
+        if let Some(p) = file_path.parent() {
+            std::fs::create_dir_all(p).unwrap_or_default();
         }
 
         std::fs::write(&file_path, &data)
-            .map_err(|e| format!("Failed to write file: {}", e))?;
+            .map_err(|e| format!("Failed to write extracted file: {}", e))?;
 
-        path_mappings.insert(format!("{:016x}", hash), final_path);
         extracted_count += 1;
 
         let progress_interval = (total_files / 10).max(50).min(total_files);
@@ -529,14 +571,20 @@ fn import_fantome_internal(
         None
     };
 
-    let creator_name = fantome_metadata.as_ref()
-        .and_then(|m| m.author.as_deref())
-        .or(options.creator_name.as_deref())
+    let creator_name = options.creator_name.as_deref()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            fantome_metadata.as_ref()
+                .and_then(|m| m.author.as_deref())
+        })
         .unwrap_or("FlintUser");
 
-    let project_name = fantome_metadata.as_ref()
-        .and_then(|m| m.name.as_deref())
-        .or(options.project_name.as_deref())
+    let project_name = options.project_name.as_deref()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            fantome_metadata.as_ref()
+                .and_then(|m| m.name.as_deref())
+        })
         .unwrap_or("ImportedMod");
 
     let description = fantome_metadata.as_ref()

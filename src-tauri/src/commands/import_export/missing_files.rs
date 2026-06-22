@@ -219,7 +219,7 @@ pub fn recover_missing_files_from_league(
                 }
             }
 
-            if report.recovered_files % 10 == 0 {
+            if report.recovered_files.is_multiple_of(10) {
                 emit(
                     app,
                     event_name,

@@ -127,7 +127,7 @@ fn scan_skn_bin_hashes(data: &[u8]) -> Vec<(u32, String)> {
     results
 }
 
-fn scan_one(
+pub(crate) fn scan_one(
     data: &[u8],
     game_out: &mut BTreeMap<u64, String>,
     bin_out: &mut BTreeMap<u32, String>,
@@ -252,30 +252,35 @@ fn merge_into_bin_lmdb(
     Ok(written)
 }
 
-// ─── Tauri commands ─────────────────────────────────────────────────────────
+pub(crate) fn extract_and_merge_hashes(
+    hash_dir: &Path,
+    game: BTreeMap<u64, String>,
+    bin: BTreeMap<u32, String>,
+) -> Result<(usize, usize), String> {
+    let game_for_lmdb = game.clone();
+    let bin_for_lmdb = bin.clone();
+    let (added_game, added_bin) = write_merged(hash_dir, game, bin)?;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ExtractHashesResult {
-    pub scanned: usize,
-    pub game_hashes_added: usize,
-    pub bin_hashes_added: usize,
-    pub output_files: Vec<String>,
+    let hash_dir_str = hash_dir.to_string_lossy().to_string();
+    if !game_for_lmdb.is_empty() {
+        if let Err(e) = merge_into_wad_lmdb(&hash_dir_str, &game_for_lmdb) {
+            tracing::warn!("Failed to merge extracted game hashes into LMDB: {}", e);
+        }
+    }
+    if !bin_for_lmdb.is_empty() {
+        if let Err(e) = merge_into_bin_lmdb(&hash_dir_str, &bin_for_lmdb) {
+            tracing::warn!("Failed to merge extracted bin hashes into LMDB: {}", e);
+        }
+    }
+
+    Ok((added_game, added_bin))
 }
 
-/// Extract path hashes from BIN/SKN chunks inside a single WAD archive and
-/// merge them into the user's hash directory.
-#[tauri::command]
-pub async fn extract_hashes_from_wad(
-    wad_path: String,
-) -> Result<ExtractHashesResult, String> {
-    let hash_dir = flint_ltk::hash::get_hash_dir()
-        .map_err(|e| format!("Failed to locate hash dir: {}", e))?;
-    fs::create_dir_all(&hash_dir)
-        .map_err(|e| format!("Failed to create hash dir {}: {}", hash_dir.display(), e))?;
-
-    tracing::info!("Extracting hashes from WAD: {}", wad_path);
-
-    let mut reader = WadReader::open(&wad_path)?;
+pub(crate) fn extract_hashes_from_wad_path(
+    wad_path: &Path,
+    hash_dir: &Path,
+) -> Result<(usize, usize, usize), String> {
+    let mut reader = WadReader::open(wad_path.to_str().ok_or("Invalid path")?)?;
     let chunks: Vec<_> = reader.chunks().iter().copied().collect();
 
     let mut game: BTreeMap<u64, String> = BTreeMap::new();
@@ -303,35 +308,44 @@ pub async fn extract_hashes_from_wad(
         scanned += 1;
     }
 
-    let game_count = game.len();
-    let bin_count = bin.len();
-    let game_for_lmdb = game.clone();
-    let bin_for_lmdb = bin.clone();
-    let (added_game, added_bin) = write_merged(&hash_dir, game, bin)?;
+    let (added_game, added_bin) = extract_and_merge_hashes(hash_dir, game, bin)?;
+    Ok((scanned, added_game, added_bin))
+}
 
-    let hash_dir_str = hash_dir.to_string_lossy().to_string();
-    if !game_for_lmdb.is_empty() {
-        if let Err(e) = merge_into_wad_lmdb(&hash_dir_str, &game_for_lmdb) {
-            tracing::warn!("Failed to merge extracted game hashes into LMDB: {}", e);
-        }
-    }
-    if !bin_for_lmdb.is_empty() {
-        if let Err(e) = merge_into_bin_lmdb(&hash_dir_str, &bin_for_lmdb) {
-            tracing::warn!("Failed to merge extracted bin hashes into LMDB: {}", e);
-        }
-    }
+// ─── Tauri commands ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExtractHashesResult {
+    pub scanned: usize,
+    pub game_hashes_added: usize,
+    pub bin_hashes_added: usize,
+    pub output_files: Vec<String>,
+}
+
+/// Extract path hashes from BIN/SKN chunks inside a single WAD archive and
+/// merge them into the user's hash directory.
+#[tauri::command]
+pub async fn extract_hashes_from_wad(
+    wad_path: String,
+) -> Result<ExtractHashesResult, String> {
+    let hash_dir = flint_ltk::hash::get_hash_dir()
+        .map_err(|e| format!("Failed to locate hash dir: {}", e))?;
+    fs::create_dir_all(&hash_dir)
+        .map_err(|e| format!("Failed to create hash dir {}: {}", hash_dir.display(), e))?;
+
+    tracing::info!("Extracting hashes from WAD: {}", wad_path);
+
+    let (scanned, added_game, added_bin) = extract_hashes_from_wad_path(Path::new(&wad_path), &hash_dir)?;
 
     tracing::info!(
-        "Extracted hashes: scanned={} game_total={} bin_total={} game_new={} bin_new={}",
+        "Extracted hashes: scanned={} game_new={} bin_new={}",
         scanned,
-        game_count,
-        bin_count,
         added_game,
         added_bin
     );
 
     let mut outputs = Vec::new();
-    if added_game > 0 || game_count > 0 {
+    if added_game > 0 {
         outputs.push(
             hash_dir
                 .join("hashes.extracted.txt")
@@ -339,7 +353,7 @@ pub async fn extract_hashes_from_wad(
                 .to_string(),
         );
     }
-    if added_bin > 0 || bin_count > 0 {
+    if added_bin > 0 {
         outputs.push(
             hash_dir
                 .join("hashes.binhashes.extracted.txt")

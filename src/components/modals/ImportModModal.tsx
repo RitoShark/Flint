@@ -233,6 +233,7 @@ export const ImportModModal: React.FC = () => {
             refather,
             creator_name: creatorName.trim() || null,
             project_name: projectName.trim() || null,
+            champion: champion.trim() || null,
             target_skin_id: targetSkinId,
             cleanup_unused: cleanupUnused,
             match_from_league: matchFromLeague,
