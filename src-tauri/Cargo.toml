@@ -15,9 +15,6 @@ path = "src/lib.rs"
 name = "flint"
 path = "src/main.rs"
 
-[[bin]]
-name = "bin_roundtrip_test"
-path = "src/bin/bin_roundtrip_test.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

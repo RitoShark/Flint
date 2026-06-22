@@ -102,8 +102,13 @@ fn write_chroma_links(project_path: &Path, links: &ChromaLinks) -> Result<(), St
     Ok(())
 }
 
-/// Walk `root` and collect every `.bin` file whose immediate parent directory
-/// is exactly `skin{skin_num}` (case-insensitive).
+/// Walk `root` and collect every `.bin` file that belongs to `skin{skin_num}`.
+///
+/// Two layouts are recognised:
+///   1. Directory-per-skin:  `…/skin{N}/anything.bin`
+///      → parent directory name == `skin{N}`
+///   2. WAD-extracted flat:  `…/skins/skin{N}.bin`
+///      → file stem == `skin{N}` and parent directory name == `skins`
 fn find_skin_bins(root: &Path, skin_num: u32) -> Vec<PathBuf> {
     let target_dir = format!("skin{}", skin_num).to_ascii_lowercase();
     let mut result = Vec::new();
@@ -121,8 +126,23 @@ fn find_skin_bins(root: &Path, skin_num: u32) -> Vec<PathBuf> {
             .and_then(|n| n.to_str())
             .unwrap_or("")
             .to_ascii_lowercase();
+
+        // Layout 1: file lives inside a skin{N}/ directory.
         if parent_name == target_dir {
             result.push(path.to_path_buf());
+            continue;
+        }
+
+        // Layout 2: file is named skin{N}.bin inside a "skins" directory.
+        if parent_name == "skins" {
+            let stem = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if stem == target_dir {
+                result.push(path.to_path_buf());
+            }
         }
     }
     result

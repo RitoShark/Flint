@@ -34,6 +34,7 @@ export const ChromaPortModal: React.FC = () => {
     const showToast = useNotificationStore((s) => s.showToast);
     const activeTabId = useProjectTabStore((s) => s.activeTabId);
     const openTabs = useProjectTabStore((s) => s.openTabs);
+    const setFileTree = useProjectTabStore((s) => s.setFileTree);
 
     const isVisible = activeModal === 'chromaPort';
 
@@ -163,6 +164,15 @@ export const ChromaPortModal: React.FC = () => {
                 project.skin_id,
                 Array.from(selected),
             );
+            // Refresh the VFS so the new skin directories appear in the file tree.
+            if (activeTabId) {
+                try {
+                    const files = await api.listProjectFiles(projectPath);
+                    setFileTree(activeTabId, files);
+                } catch {
+                    // Non-fatal — tree will catch up on next natural refresh.
+                }
+            }
             const n = selected.size;
             showToast(
                 'success',
