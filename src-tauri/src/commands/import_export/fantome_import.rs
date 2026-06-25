@@ -656,6 +656,18 @@ fn import_fantome_internal(
                 report.recovered_files,
                 report.scanned_bins
             );
+
+            if !report.still_missing.is_empty() {
+                tracing::warn!(
+                    "{} linked file(s) could not be recovered from League: {:?}",
+                    report.still_missing.len(),
+                    report.still_missing
+                );
+                let _ = app.emit("fantome-import-progress", serde_json::json!({
+                    "status": "progress",
+                    "message": format!("{} referenced file(s) could not be recovered", report.still_missing.len())
+                }));
+            }
         }
     }
 
