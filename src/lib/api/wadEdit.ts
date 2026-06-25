@@ -47,6 +47,15 @@ export async function removeSessionChunk(sessionId: string, pathHash: string): P
     return invokeCommand('remove_session_chunk', { sessionId, pathHash });
 }
 
+/** Rename (move) a chunk to a new project-relative path. Returns the new hash. */
+export async function renameSessionChunk(
+    sessionId: string,
+    oldPathHash: string,
+    newPath: string,
+): Promise<string> {
+    return invokeCommand('rename_session_chunk', { sessionId, oldPathHash, newPath });
+}
+
 export async function sessionDirtyChunks(sessionId: string): Promise<WadDirtyChunk[]> {
     return invokeCommand('session_dirty_chunks', { sessionId });
 }
