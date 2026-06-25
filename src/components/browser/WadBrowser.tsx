@@ -774,7 +774,7 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                 <span style={{ fontSize: '11px', color: 'var(--text-muted)', flex: 1 }}>
                     {totalChunks.toLocaleString()} files{selectedCount > 0 ? ` · ${selectedCount} selected` : ''}
                 </span>
-                {session.editSessionId && session.isDirty && (
+                {session.editSessionId && session.isDirty && !session.id.startsWith('archive-') && (
                     <button
                         className="btn btn--primary btn--sm"
                         onClick={handleSaveWad}
