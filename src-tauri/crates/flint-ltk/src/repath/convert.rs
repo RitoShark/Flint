@@ -125,18 +125,29 @@ pub fn convert_meshes_and_textures(wad_root: &Path) -> Result<(usize, usize)> {
     Ok((dds_n, sco_n))
 }
 
-/// Rewrite an asset-path string's extension: `.dds`→`.tex`, `.sco`→`.scb`.
+/// Rewrite an asset-path string's extension: `.dds`→`.tex`, `.sco`→`.scb`,
+/// but ONLY when the converted target file actually exists under `wad_root`
+/// (i.e. the per-file convert succeeded). If the target is missing the convert
+/// failed and we leave the working `.dds`/`.sco` ref untouched, so the BIN
+/// never points at a missing file.
+///
 /// Preserves the original-case stem; only the trailing extension is replaced.
 /// Returns true if the string changed.
-fn rewrite_ext(s: &mut String) -> bool {
+fn rewrite_ext(s: &mut String, wad_root: &Path) -> bool {
     let lower = s.to_lowercase();
-    if lower.ends_with(".dds") {
-        let stem = &s[..s.len() - 4];
-        *s = format!("{}.tex", stem);
-        true
+    let candidate = if lower.ends_with(".dds") {
+        format!("{}.tex", &s[..s.len() - 4])
     } else if lower.ends_with(".sco") {
-        let stem = &s[..s.len() - 4];
-        *s = format!("{}.scb", stem);
+        format!("{}.scb", &s[..s.len() - 4])
+    } else {
+        return false;
+    };
+    // Resolve the candidate to a disk path under wad_root and only flip the
+    // ref if the converted target exists.
+    let target_rel = candidate.replace('\\', "/");
+    let target_rel = target_rel.trim_start_matches('/');
+    if wad_root.join(target_rel).exists() {
+        *s = candidate;
         true
     } else {
         false
@@ -146,32 +157,32 @@ fn rewrite_ext(s: &mut String) -> bool {
 /// Walk a BIN value tree (mirrors `refather::repath_value`'s recursion exactly:
 /// String/List/Pointer/Embed/Option/Map arms) and rewrite `.dds`→`.tex` /
 /// `.sco`→`.scb` extensions on every asset-path string. Sets `*changed`.
-fn rewrite_value_exts(value: &mut BinValue, changed: &mut bool) {
+fn rewrite_value_exts(value: &mut BinValue, wad_root: &Path, changed: &mut bool) {
     match value {
         BinValue::String(s) => {
-            if crate::repath::refather::is_asset_path(s) && rewrite_ext(s) {
+            if crate::repath::refather::is_asset_path(s) && rewrite_ext(s, wad_root) {
                 *changed = true;
             }
         }
         BinValue::List { items, .. } => {
             for item in items.iter_mut() {
-                rewrite_value_exts(item, changed);
+                rewrite_value_exts(item, wad_root, changed);
             }
         }
         BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
             for v in fields.values_mut() {
-                rewrite_value_exts(v, changed);
+                rewrite_value_exts(v, wad_root, changed);
             }
         }
         BinValue::Option {
             value: Some(inner), ..
         } => {
-            rewrite_value_exts(inner, changed);
+            rewrite_value_exts(inner, wad_root, changed);
         }
         BinValue::Map { entries, .. } => {
             for (key, val) in entries.iter_mut() {
-                rewrite_value_exts(key, changed);
-                rewrite_value_exts(val, changed);
+                rewrite_value_exts(key, wad_root, changed);
+                rewrite_value_exts(val, wad_root, changed);
             }
         }
         _ => {}
@@ -202,7 +213,7 @@ pub fn rewrite_bin_extensions(wad_root: &Path) -> Result<usize> {
         // `for entry in bin.entries.iter_mut() { for value in entry.fields.values_mut() {...} }`.
         for entry in bin.entries.iter_mut() {
             for value in entry.fields.values_mut() {
-                rewrite_value_exts(value, &mut changed);
+                rewrite_value_exts(value, wad_root, &mut changed);
             }
         }
         if changed {
@@ -236,17 +247,41 @@ mod tests {
 
     #[test]
     fn rewrite_ext_preserves_stem_case() {
+        // The rewrite only flips when the converted target exists on disk, so
+        // create the .tex/.scb targets first under a temp wad_root.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("assets/X")).unwrap();
+        std::fs::write(root.join("assets/X/Body.tex"), b"x").unwrap();
+        std::fs::write(root.join("assets/X/Mesh.scb"), b"x").unwrap();
+
         let mut s = String::from("assets/X/Body.DDS");
-        assert!(rewrite_ext(&mut s));
+        assert!(rewrite_ext(&mut s, root));
         assert_eq!(s, "assets/X/Body.tex");
 
         let mut s = String::from("assets/X/Mesh.sco");
-        assert!(rewrite_ext(&mut s));
+        assert!(rewrite_ext(&mut s, root));
         assert_eq!(s, "assets/X/Mesh.scb");
 
         let mut s = String::from("assets/X/keep.bin");
-        assert!(!rewrite_ext(&mut s));
+        assert!(!rewrite_ext(&mut s, root));
         assert_eq!(s, "assets/X/keep.bin");
+    }
+
+    #[test]
+    fn rewrite_ext_skips_when_target_missing() {
+        // No .tex on disk → the convert "failed", so the .dds ref stays put.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("assets/X")).unwrap();
+
+        let mut s = String::from("assets/X/Body.dds");
+        assert!(!rewrite_ext(&mut s, root), "missing target must not flip");
+        assert_eq!(s, "assets/X/Body.dds");
+
+        let mut s = String::from("assets/X/Mesh.sco");
+        assert!(!rewrite_ext(&mut s, root), "missing target must not flip");
+        assert_eq!(s, "assets/X/Mesh.sco");
     }
 
     #[test]
@@ -275,6 +310,13 @@ mod tests {
         let bin_path = base.join("test.bin");
         std::fs::write(&bin_path, crate::bin::write_bin(&bin).unwrap()).unwrap();
 
+        // The rewrite is existence-aware: it only flips a ref when the
+        // converted target exists on disk (the convert succeeded). Create the
+        // .tex/.scb targets so the asset refs flip.
+        std::fs::create_dir_all(base.join("assets/x")).unwrap();
+        std::fs::write(base.join("assets/x/body.tex"), b"x").unwrap();
+        std::fs::write(base.join("assets/x/mesh.scb"), b"x").unwrap();
+
         let changed = rewrite_bin_extensions(base).unwrap();
         assert_eq!(changed, 1, "the one BIN must be rewritten");
 
@@ -293,6 +335,42 @@ mod tests {
             // `not/an/asset.dds` is not under assets/ or data/, so is_asset_path
             // rejects it and the extension stays .dds.
             BinValue::String(s) => assert_eq!(s, "not/an/asset.dds"),
+            v => panic!("expected String, got {:?}", v),
+        }
+    }
+
+    #[test]
+    fn rewrite_bin_extensions_skips_when_converted_target_missing() {
+        use ritoshark::bin::{Bin, BinEntry, BinValue};
+
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+
+        // A BIN referencing a .dds asset, but NO .tex target exists on disk
+        // (the per-file convert failed). The ref must stay .dds so the BIN
+        // never points at a missing file.
+        let mut fields = indexmap::IndexMap::new();
+        fields.insert(0x1111_1111u32, BinValue::String("assets/x/body.dds".into()));
+        let entry = BinEntry {
+            path_hash: 0xABCD_0001,
+            class_hash: 0xABCD_0002,
+            fields,
+        };
+        let bin = Bin {
+            entries: vec![entry],
+            ..Bin::new()
+        };
+
+        let bin_path = base.join("test.bin");
+        std::fs::write(&bin_path, crate::bin::write_bin(&bin).unwrap()).unwrap();
+
+        // Deliberately do NOT create assets/x/body.tex.
+        let changed = rewrite_bin_extensions(base).unwrap();
+        assert_eq!(changed, 0, "no BIN should change when the target is missing");
+
+        let reread = crate::bin::read_bin(&std::fs::read(&bin_path).unwrap()).unwrap();
+        match &reread.entries[0].fields[&0x1111_1111u32] {
+            BinValue::String(s) => assert_eq!(s, "assets/x/body.dds", "dangling .dds ref kept"),
             v => panic!("expected String, got {:?}", v),
         }
     }
