@@ -710,7 +710,6 @@ fn cleanup_unused_files(content_base: &Path, referenced_paths: &HashSet<String>,
             [raw, repathed]
         })
         .collect();
-    let creator_prefix = format!("assets/{}/", config.creator_name.replace(' ', "-").to_lowercase());
 
     // Walk serially (WalkDir holds file-handle state), then delete in parallel.
     let to_delete: Vec<PathBuf> = WalkDir::new(content_base)
@@ -729,7 +728,6 @@ fn cleanup_unused_files(content_base: &Path, referenced_paths: &HashSet<String>,
             }
             let rel_path = path.strip_prefix(content_base).ok()?;
             let normalized = normalize_path(&rel_path.to_string_lossy());
-            let in_new_tree = normalized.to_lowercase().starts_with(&creator_prefix);
             let filename = path.file_stem().unwrap_or_default().to_string_lossy();
             let is_unresolved = filename.len() == 16 && filename.chars().all(|c| c.is_ascii_hexdigit());
 
@@ -738,16 +736,13 @@ fn cleanup_unused_files(content_base: &Path, referenced_paths: &HashSet<String>,
                 return None;
             }
 
-            // A referenced file is kept whether it sits under its raw path or
-            // its repathed form (a not-yet-repathed reference still protects it).
+            // Referenced (raw OR repathed) → always keep.
             if expected_paths.contains(&normalized) {
                 return None;
             }
-            if !in_new_tree {
-                Some(path.to_path_buf())
-            } else {
-                None
-            }
+            // Not referenced → delete candidate (original behavior: non-expected was
+            // always deleted, in BOTH in_new_tree states).
+            Some(path.to_path_buf())
         })
         .collect();
 
@@ -1566,5 +1561,36 @@ mod tests {
         let removed = cleanup_unused_files(base, &referenced, "SirDexal/Renny", &config).unwrap();
         assert_eq!(removed, 0, "raw-referenced file must not be deleted");
         assert!(raw_file.exists(), "raw-referenced file should still exist");
+    }
+
+    #[test]
+    fn cleanup_unused_deletes_unreferenced_in_tree_file() {
+        use std::collections::HashSet;
+        let config = RepathConfig {
+            creator_name: "SirDexal".to_string(),
+            project_name: "Renny".to_string(),
+            champion: "Renekton".to_string(),
+            target_skin_id: 42,
+            cleanup_unused: true,
+            skip_bin_cleanup: false,
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+
+        // An UNREFERENCED orphan sitting INSIDE the new creator tree
+        // (assets/<creator>/<project>/...). The old code deleted it; the
+        // regression silently kept it. It must be deleted.
+        let orphan_rel = "assets/sirdexal/renny/particles/orphan.dds";
+        let orphan_file = base.join(orphan_rel);
+        std::fs::create_dir_all(orphan_file.parent().unwrap()).unwrap();
+        std::fs::write(&orphan_file, b"orphan").unwrap();
+
+        // Referenced set does NOT contain the orphan.
+        let referenced: HashSet<String> = HashSet::new();
+
+        let removed = cleanup_unused_files(base, &referenced, "SirDexal/Renny", &config).unwrap();
+        assert!(removed >= 1, "in-tree orphan must be deleted");
+        assert!(!orphan_file.exists(), "in-tree orphan should be gone");
     }
 }
