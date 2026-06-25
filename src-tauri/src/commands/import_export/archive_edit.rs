@@ -324,6 +324,7 @@ fn rebuild_fantome_zip(
     let out_file = std::fs::File::create(tmp).map_err(|e| format!("create tmp: {}", e))?;
     let mut zout = zip::ZipWriter::new(out_file);
 
+    let mut wrote_meta = false;
     for i in 0..zin.len() {
         let e = zin.by_index(i).map_err(|err| format!("entry: {}", err))?;
         let name = e.name().to_string();
@@ -336,6 +337,7 @@ fn rebuild_fantome_zip(
             .map_err(|err| format!("meta: {}", err))?;
             zout.write_all(meta_json.as_bytes())
                 .map_err(|err| format!("meta write: {}", err))?;
+            wrote_meta = true;
         } else if let Some(bytes) = edited.get(&base) {
             zout.start_file(
                 &name,
@@ -347,6 +349,15 @@ fn rebuild_fantome_zip(
         } else {
             zout.raw_copy_file(e).map_err(|err| format!("copy: {}", err))?;
         }
+    }
+    if !wrote_meta {
+        zout.start_file(
+            "META/info.json",
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated),
+        )
+        .map_err(|e| format!("meta: {}", e))?;
+        zout.write_all(meta_json.as_bytes())
+            .map_err(|e| format!("meta write: {}", e))?;
     }
     zout.finish().map_err(|e| format!("finish: {}", e))?;
     Ok(())
