@@ -6,6 +6,7 @@ import { CheckpointTimeline } from '../editor/CheckpointTimeline';
 import { WadPreviewPanel } from '../editor/WadPreviewPanel';
 import { WadBrowserPanel } from '../browser/WadBrowser';
 import { FileEditorPage } from '../editor/FileEditorPage';
+import { ArchiveEditor } from '../editor/ArchiveEditor';
 import { getIcon, icons } from '../../lib/ui-helpers/fileIcons';
 
 interface QuickActionCardProps {
@@ -159,6 +160,7 @@ const WadExtractMainView: React.FC = () => {
 
 export const CenterPanel: React.FC = () => {
     const currentView = useNavigationStore((s) => s.currentView);
+    const archiveTargetPath = useNavigationStore((s) => s.archiveTargetPath);
     const status = useAppMetadataStore((s) => s.status);
     const statusMessage = useAppMetadataStore((s) => s.statusMessage);
 
@@ -177,6 +179,10 @@ export const CenterPanel: React.FC = () => {
                 return <WadExtractMainView />;
             case 'file-editor':
                 return <FileEditorPage />;
+            case 'archive-editor':
+                return archiveTargetPath
+                    ? <ArchiveEditor key={archiveTargetPath} filePath={archiveTargetPath} />
+                    : <WelcomeScreen />;
             default:
                 return <WelcomeScreen />;
         }

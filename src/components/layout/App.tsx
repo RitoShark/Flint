@@ -294,12 +294,10 @@ export const App: React.FC = () => {
                 return;
             }
 
-            // Mod packages (.fantome = ZIP of WADs, .modpkg = ModPkg archive) must NOT
-            // fall through to the BIN editor — it would try to parse a binary archive and
-            // crash. Route them to the read-only ModPackageViewer instead, which offers an
-            // "Import as Project" action.
+            // Mod packages (.fantome = ZIP of WADs, .modpkg = ModPkg archive) open in the
+            // full archive editor: META + inner WADs, with live inner-WAD editing.
             if (lower.endsWith('.fantome') || lower.endsWith('.modpkg')) {
-                useNavigationStore.getState().navigateToFileEditor({ filePath, kind: 'modPackage' });
+                useNavigationStore.getState().navigateToArchiveEditor(filePath);
                 return;
             }
 
