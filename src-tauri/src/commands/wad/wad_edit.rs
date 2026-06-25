@@ -213,6 +213,67 @@ pub async fn remove_session_chunk(
     Ok(())
 }
 
+/// Rename (move) a chunk to a new project-relative path. Re-keys the chunk
+/// under the new path-hash (`xxhash64` of the lowercased path), carrying any
+/// pending `Write` bytes or — for an untouched original — staging a `Write`
+/// with the original's decompressed bytes under the new hash, plus a `Delete`
+/// of the old hash. Returns the new hash as `0x{:016x}`.
+#[tauri::command]
+pub async fn rename_session_chunk(
+    session_id: String,
+    old_path_hash: String,
+    new_path: String,
+    state: tauri::State<'_, WadEditState>,
+) -> Result<String, String> {
+    let _t = ipc_trace::enter("rename_session_chunk");
+    let old_hash = parse_hex_hash(&old_path_hash)?;
+    let new_key = new_path.replace('\\', "/").trim_start_matches('/').to_lowercase();
+    if new_key.is_empty() {
+        return Err("New path is empty".into());
+    }
+    let new_hash = xxhash_rust::xxh64::xxh64(new_key.as_bytes(), 0);
+
+    let session = state
+        .get(&session_id)
+        .ok_or_else(|| format!("No such session: {}", session_id))?;
+
+    // Resolve the bytes to carry to the new hash: a pending Write wins; an
+    // untouched original is read+decompressed from disk; a pending Delete means
+    // there's nothing to rename.
+    let (source_path, original) = {
+        let g = session.read();
+        let original = g.original_chunks.iter().find(|c| c.path_hash == old_hash).cloned();
+        (g.source_path.clone(), original)
+    };
+
+    let bytes: Vec<u8> = {
+        let g = session.read();
+        match g.deltas.get(&old_hash) {
+            Some(WadEditDelta::Write(b)) => b.clone(),
+            Some(WadEditDelta::Delete) => return Err("Cannot rename a deleted chunk".into()),
+            None => {
+                let chunk = original.ok_or_else(|| format!("Chunk not found: {}", old_path_hash))?;
+                read_chunk_decompressed_bytes(&source_path, &chunk)
+                    .map_err(|e| format!("Failed to read chunk to rename: {}", e))?
+            }
+        }
+    };
+
+    {
+        let mut g = session.write();
+        g.deltas.insert(new_hash, WadEditDelta::Write(bytes));
+        // Only stage a Delete of the old hash if it exists as an original;
+        // a brand-new (added) chunk being renamed just drops its old Write.
+        if g.original_chunks.iter().any(|c| c.path_hash == old_hash) {
+            g.deltas.insert(old_hash, WadEditDelta::Delete);
+        } else {
+            g.deltas.remove(&old_hash);
+        }
+    }
+
+    Ok(format!("0x{:016x}", new_hash))
+}
+
 #[tauri::command]
 pub async fn session_dirty_chunks(
     session_id: String,

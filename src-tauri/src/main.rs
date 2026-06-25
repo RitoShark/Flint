@@ -400,6 +400,7 @@ fn main() {
             commands::wad_edit::read_session_chunk,
             commands::wad_edit::write_session_chunk,
             commands::wad_edit::remove_session_chunk,
+            commands::wad_edit::rename_session_chunk,
             commands::wad_edit::session_dirty_chunks,
             commands::wad_edit::discard_session_changes,
             commands::wad_edit::save_session_to_path,
