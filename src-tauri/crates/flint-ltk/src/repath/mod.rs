@@ -5,6 +5,7 @@ pub mod refather;
 pub mod organizer;
 pub mod rename;
 pub mod path_variants;
+pub mod unhash;
 
 pub use organizer::{organize_project, OrganizerConfig};
 pub use rename::{rename_project_asset_prefix, RenameResult};
