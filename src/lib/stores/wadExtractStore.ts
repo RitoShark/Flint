@@ -7,7 +7,7 @@ interface WadExtractState {
   extractSessions: ExtractSession[];
   activeExtractId: string | null;
 
-  openSession: (id: string, wadPath: string) => void;
+  openSession: (id: string, wadPath: string, editSessionId?: string) => void;
   closeSession: (sessionId: string) => { newActiveId: string | null; remainingSessions: ExtractSession[] };
   switchSession: (sessionId: string) => void;
   setChunks: (sessionId: string, chunks: WadChunk[]) => void;
@@ -28,7 +28,7 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
   extractSessions: [],
   activeExtractId: null,
 
-  openSession: (id, wadPath) => {
+  openSession: (id, wadPath, editSessionId) => {
     const wadName = wadPath.split(/[\\/]/).pop() || wadPath;
 
     const config = useConfigStore.getState();
@@ -83,13 +83,17 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
       history: [''],
       historyIndex: 0,
       isDirty: false,
+      // When a backend edit session was opened by the caller (e.g. the archive
+      // editor's inner WAD), seed it directly so chunk ops route to it and we
+      // don't open a second redundant session below.
+      editSessionId,
     };
     set({
       extractSessions: [...get().extractSessions, newSession],
       activeExtractId: id,
     });
 
-    if (!readOnly) {
+    if (!readOnly && !editSessionId) {
       api.openWadEditSession(wadPath).then((res) => {
         set((state) => ({
           extractSessions: state.extractSessions.map((s) =>

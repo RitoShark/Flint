@@ -47,15 +47,15 @@ fn parse_hex_hash(s: &str) -> Result<u64, String> {
         .map_err(|e| format!("Invalid path_hash '{}': {}", s, e))
 }
 
-/// Open a WAD into a fresh in-memory edit session. Parses the TOC immediately
-/// but does not decompress anything.
-#[tauri::command]
-pub async fn open_wad_edit_session(
-    wad_path: String,
-    state: tauri::State<'_, WadEditState>,
+/// Open a WAD at `wad_path` into a fresh in-memory edit session against the
+/// given `WadEditState`. Parses the TOC immediately but does not decompress
+/// anything. Shared by the `open_wad_edit_session` command and the archive
+/// editor's `open_inner_wad` (both need an identical open path).
+pub fn open_wad_session_for_path(
+    wad_path: &str,
+    state: &WadEditState,
 ) -> Result<WadEditSessionInfo, String> {
-    let _t = ipc_trace::enter("open_wad_edit_session");
-    let path = PathBuf::from(&wad_path);
+    let path = PathBuf::from(wad_path);
     if !path.exists() {
         return Err(format!("WAD not found: {}", wad_path));
     }
@@ -92,9 +92,20 @@ pub async fn open_wad_edit_session(
     );
     Ok(WadEditSessionInfo {
         session_id: id,
-        source_path: wad_path,
+        source_path: wad_path.to_string(),
         initial_chunk_count: chunk_count,
     })
+}
+
+/// Open a WAD into a fresh in-memory edit session. Parses the TOC immediately
+/// but does not decompress anything.
+#[tauri::command]
+pub async fn open_wad_edit_session(
+    wad_path: String,
+    state: tauri::State<'_, WadEditState>,
+) -> Result<WadEditSessionInfo, String> {
+    let _t = ipc_trace::enter("open_wad_edit_session");
+    open_wad_session_for_path(&wad_path, &state)
 }
 
 #[tauri::command]
@@ -314,34 +325,16 @@ pub async fn discard_session_changes(
     Ok(())
 }
 
-/// Save the session as a fresh WAD at `output_path`, via write-then-rename so a
-/// crashed save can't leave a half-written file. The session stays open and is
-/// re-baselined to the output. Pass `output_path == source_path` to overwrite.
-#[tauri::command]
-pub async fn save_session_to_path(
-    session_id: String,
-    output_path: String,
-    state: tauri::State<'_, WadEditState>,
-) -> Result<SaveResult, String> {
-    let _t = ipc_trace::enter("save_session_to_path");
-
-    if let Ok(settings) = crate::commands::settings::get_settings() {
-        let normalized_out = output_path.to_lowercase().replace('\\', "/");
-        if let Some(ref lp) = settings.league_path {
-            let normalized_lp = lp.to_lowercase().replace('\\', "/");
-            if !normalized_lp.is_empty() && normalized_out.starts_with(&normalized_lp) {
-                return Err("Cannot write or save WAD files inside the League of Legends game directory.".to_string());
-            }
-        }
-        if let Some(ref lp_pbe) = settings.league_path_pbe {
-            let normalized_lp_pbe = lp_pbe.to_lowercase().replace('\\', "/");
-            if !normalized_lp_pbe.is_empty() && normalized_out.starts_with(&normalized_lp_pbe) {
-                return Err("Cannot write or save WAD files inside the League of Legends game directory.".to_string());
-            }
-        }
-    }
-
-    let session = state.get(&session_id)
+/// Serialize a session's current state (untouched originals + pending Writes,
+/// minus pending Deletes) into a fresh WAD byte buffer WITHOUT touching disk.
+/// Shared by `save_session_to_path` (which then write-then-renames) and the
+/// archive editor's `save_archive_session` (which embeds the bytes into the
+/// archive). Returns `(wad_bytes, chunk_count)`.
+pub async fn serialize_session_to_bytes(
+    session_id: &str,
+    state: &WadEditState,
+) -> Result<(Vec<u8>, usize), String> {
+    let session = state.get(session_id)
         .ok_or_else(|| format!("No such session: {}", session_id))?;
 
     // Collect everything we need under the lock, then drop the guard so
@@ -351,7 +344,7 @@ pub async fn save_session_to_path(
         (g.source_path.clone(), g.original_chunks.clone(), g.deltas.clone())
     };
 
-    let result: Result<(Vec<u8>, usize), String> = tokio::task::spawn_blocking(move || {
+    tokio::task::spawn_blocking(move || {
         use rayon::prelude::*;
 
         // Decompress untouched originals (not shadowed by a delta) across rayon;
@@ -384,10 +377,41 @@ pub async fn save_session_to_path(
         Ok::<_, String>((wad_bytes, chunk_count))
     })
     .await
-    .map_err(|e| format!("Save task panicked: {}", e))?;
+    .map_err(|e| format!("Save task panicked: {}", e))?
+}
 
-    let (wad_bytes, chunk_count) = result?;
+/// Save the session as a fresh WAD at `output_path`, via write-then-rename so a
+/// crashed save can't leave a half-written file. The session stays open and is
+/// re-baselined to the output. Pass `output_path == source_path` to overwrite.
+#[tauri::command]
+pub async fn save_session_to_path(
+    session_id: String,
+    output_path: String,
+    state: tauri::State<'_, WadEditState>,
+) -> Result<SaveResult, String> {
+    let _t = ipc_trace::enter("save_session_to_path");
+
+    if let Ok(settings) = crate::commands::settings::get_settings() {
+        let normalized_out = output_path.to_lowercase().replace('\\', "/");
+        if let Some(ref lp) = settings.league_path {
+            let normalized_lp = lp.to_lowercase().replace('\\', "/");
+            if !normalized_lp.is_empty() && normalized_out.starts_with(&normalized_lp) {
+                return Err("Cannot write or save WAD files inside the League of Legends game directory.".to_string());
+            }
+        }
+        if let Some(ref lp_pbe) = settings.league_path_pbe {
+            let normalized_lp_pbe = lp_pbe.to_lowercase().replace('\\', "/");
+            if !normalized_lp_pbe.is_empty() && normalized_out.starts_with(&normalized_lp_pbe) {
+                return Err("Cannot write or save WAD files inside the League of Legends game directory.".to_string());
+            }
+        }
+    }
+
+    let (wad_bytes, chunk_count) = serialize_session_to_bytes(&session_id, &state).await?;
     let total_bytes = wad_bytes.len() as u64;
+
+    let session = state.get(&session_id)
+        .ok_or_else(|| format!("No such session: {}", session_id))?;
 
     // Write-then-rename so the source WAD (if `output_path == source_path`)
     // can't get half-overwritten on a crash.

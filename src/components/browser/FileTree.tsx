@@ -448,6 +448,8 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
 
         if (isWadPath(lower)) {
             openWad(fullFilePath);
+        } else if (lower.endsWith('.fantome') || lower.endsWith('.modpkg')) {
+            nav.navigateToArchiveEditor(fullFilePath);
         } else if (node.name === 'mod.config.json') {
             nav.navigateToFileEditor({ filePath: fullFilePath, kind: 'modConfig', projectPath });
         } else if (BIN_TEXT_EXTS.some(ext => lower.endsWith(ext))) {

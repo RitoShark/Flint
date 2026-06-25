@@ -6,6 +6,7 @@ import { useUxStore } from './uxStore';
 import { useProjectTabStore } from './projectTabStore';
 import { useNavigationStore } from './navigationStore';
 import { useWadExtractStore } from './wadExtractStore';
+import { useArchiveEditStore } from './archiveEditStore';
 import { useWadExplorerStore } from './wadExplorerStore';
 import { useChampionStore } from './championStore';
 import { useModalStore } from './modalStore';
@@ -22,6 +23,7 @@ export {
   useProjectTabStore,
   useNavigationStore,
   useWadExtractStore,
+  useArchiveEditStore,
   useWadExplorerStore,
   useChampionStore,
   useModalStore,

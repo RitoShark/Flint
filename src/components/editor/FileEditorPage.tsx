@@ -319,7 +319,7 @@ export const FileEditorPage: React.FC = () => {
                 display: 'flex',
                 flexDirection: 'column',
                 height: '100%',
-                overflowY: target.kind === 'binText' || target.kind === 'modPackage' ? 'hidden' : 'auto',
+                overflowY: target.kind === 'binText' ? 'hidden' : 'auto',
                 backgroundColor: 'var(--bg-primary)',
             }}
         >
