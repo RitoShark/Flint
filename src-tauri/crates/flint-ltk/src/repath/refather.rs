@@ -479,7 +479,7 @@ fn collect_paths_from_value(value: &BinValue, paths: &mut Vec<String>) {
     }
 }
 
-fn is_asset_path(s: &str) -> bool {
+pub(crate) fn is_asset_path(s: &str) -> bool {
     if s.len() < 5 {
         return false;
     }
