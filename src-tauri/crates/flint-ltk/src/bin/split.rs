@@ -583,6 +583,16 @@ pub fn organize_vfx_in_folder(
         std::fs::write(&vfx_path, &vfx_bytes).map_err(|e| Error::io_with_path(e, &vfx_path))?;
     }
 
+    // Existence-based prune: drop any owner link whose target file is absent.
+    // Recovered/rewritten multi-bin links (live paths that differ from the
+    // consolidated source paths) never matched `deleted_links`, leaving dangling
+    // entries; remove them by checking the file on disk.
+    sources[owner_idx].bin.linked.retain(|link| {
+        let rel = link.replace('\\', "/");
+        let rel = rel.trim_start_matches('/');
+        project_root.join(rel).exists()
+    });
+
     {
         let owner_bytes = crate::bin::write_bin(&sources[owner_idx].bin)
             .map_err(|e| Error::InvalidInput(format!("Failed to serialize owner BIN: {}", e)))?;
@@ -734,5 +744,32 @@ mod organize_import_tests {
         let owner_after = crate::bin::read_bin(&std::fs::read(&owner_path).unwrap()).unwrap();
         assert!(owner_after.entries.iter().any(|e| e.path_hash == 3));
         assert!(owner_after.linked.iter().any(|d| d.eq_ignore_ascii_case("data/x_vfx.bin")));
+    }
+
+    #[test]
+    fn organize_prunes_links_to_missing_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let data = root.join("data");
+        std::fs::create_dir_all(&data).unwrap();
+
+        // Owner skin bin links a real sibling AND a dangling (never-existed) path.
+        // A VFX object on the owner makes consolidation actually run (otherwise the
+        // fn bails with "Nothing to consolidate" before reaching the prune).
+        let mut owner = ritoshark::bin::Bin::new();
+        owner.entries.push(entry(1, fnv1a_lower("VfxSystemDefinitionData")));
+        owner.linked.push("data/real_sibling.bin".to_string());
+        owner.linked.push("data/characters/yone/yone_multi_skins_root_gone.bin".to_string());
+        let owner_path = data.join("skin0.bin");
+        std::fs::write(&owner_path, crate::bin::write_bin(&owner).unwrap()).unwrap();
+        // The real sibling exists on disk; the multi-bin does not.
+        std::fs::write(data.join("real_sibling.bin"), crate::bin::write_bin(&ritoshark::bin::Bin::new()).unwrap()).unwrap();
+
+        let sources = vec![owner_path.clone()];
+        let _ = organize_vfx_in_folder(&sources, &owner_path, root, "yone_vfx.bin").unwrap();
+
+        let reread = crate::bin::read_bin(&std::fs::read(&owner_path).unwrap()).unwrap();
+        assert!(reread.linked.iter().any(|l| l == "data/real_sibling.bin"), "real sibling link kept");
+        assert!(!reread.linked.iter().any(|l| l.contains("yone_multi_skins_root_gone")), "dangling link pruned");
     }
 }
