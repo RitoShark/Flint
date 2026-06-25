@@ -50,6 +50,7 @@ export * from './ltk';
 export * from './wad';
 export * from './wadEdit';
 export * from './modpkgEdit';
+export * from './archiveEdit';
 export * from './bin';
 export * from './binSplit';
 export * from './file';
