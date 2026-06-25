@@ -704,7 +704,11 @@ fn cleanup_unused_files(content_base: &Path, referenced_paths: &HashSet<String>,
 
     let expected_paths: HashSet<String> = referenced_paths
         .iter()
-        .map(|p| normalize_path(&apply_prefix_to_path(p, prefix, config)))
+        .flat_map(|p| {
+            let raw = normalize_path(p);
+            let repathed = normalize_path(&apply_prefix_to_path(p, prefix, config));
+            [raw, repathed]
+        })
         .collect();
     let creator_prefix = format!("assets/{}/", config.creator_name.replace(' ', "-").to_lowercase());
 
@@ -734,7 +738,12 @@ fn cleanup_unused_files(content_base: &Path, referenced_paths: &HashSet<String>,
                 return None;
             }
 
-            if !expected_paths.contains(&normalized) || !in_new_tree {
+            // A referenced file is kept whether it sits under its raw path or
+            // its repathed form (a not-yet-repathed reference still protects it).
+            if expected_paths.contains(&normalized) {
+                return None;
+            }
+            if !in_new_tree {
                 Some(path.to_path_buf())
             } else {
                 None
@@ -1528,5 +1537,34 @@ mod tests {
         let removed = cleanup_irrelevant_bins(base, "x", 0, &keep).unwrap();
         assert_eq!(removed, 0, "referenced bin must not be deleted");
         assert!(victim.exists());
+    }
+
+    #[test]
+    fn cleanup_unused_keeps_raw_referenced_file() {
+        use std::collections::HashSet;
+        let config = RepathConfig {
+            creator_name: "SirDexal".to_string(),
+            project_name: "Renny".to_string(),
+            champion: "Renekton".to_string(),
+            target_skin_id: 42,
+            cleanup_unused: true,
+            skip_bin_cleanup: false,
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+
+        // A referenced asset present under its RAW (not-yet-repathed) path.
+        let raw_rel = "assets/characters/renekton/skins/skin17/particles/blade.dds";
+        let raw_file = base.join(raw_rel);
+        std::fs::create_dir_all(raw_file.parent().unwrap()).unwrap();
+        std::fs::write(&raw_file, b"raw").unwrap();
+
+        let mut referenced: HashSet<String> = HashSet::new();
+        referenced.insert(raw_rel.to_string());
+
+        let removed = cleanup_unused_files(base, &referenced, "SirDexal/Renny", &config).unwrap();
+        assert_eq!(removed, 0, "raw-referenced file must not be deleted");
+        assert!(raw_file.exists(), "raw-referenced file should still exist");
     }
 }
