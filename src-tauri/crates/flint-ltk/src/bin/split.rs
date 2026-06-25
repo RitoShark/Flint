@@ -587,11 +587,17 @@ pub fn organize_vfx_in_folder(
     // Recovered/rewritten multi-bin links (live paths that differ from the
     // consolidated source paths) never matched `deleted_links`, leaving dangling
     // entries; remove them by checking the file on disk.
-    sources[owner_idx].bin.linked.retain(|link| {
-        let rel = link.replace('\\', "/");
-        let rel = rel.trim_start_matches('/');
-        project_root.join(rel).exists()
-    });
+    //
+    // The check is CASE-INSENSITIVE: link paths are lowercased, but the
+    // on-disk filename may be authored with different casing (e.g. a freshly
+    // split file written under a verbatim, uppercase name). On a case-sensitive
+    // FS a plain `.exists()` would wrongly prune a link to a file that is
+    // genuinely present under different casing, so we fall back to a
+    // case-insensitive scan of the link's parent directory.
+    sources[owner_idx]
+        .bin
+        .linked
+        .retain(|link| link_target_exists(project_root, link));
 
     {
         let owner_bytes = crate::bin::write_bin(&sources[owner_idx].bin)
@@ -622,6 +628,36 @@ pub fn organize_vfx_in_folder(
         sources_deleted: to_delete,
         links_pruned,
         vfx_link_added: if vfx_count > 0 { vfx_link_rel } else { String::new() },
+    })
+}
+
+/// Does an owner `linked` entry resolve to a file under `project_root`?
+///
+/// First tries the direct path. If that misses (which on a case-sensitive FS
+/// can happen when the link is lowercased but the file is stored with
+/// different casing), falls back to a case-insensitive scan of the link's
+/// parent directory for a filename that matches case-insensitively.
+fn link_target_exists(project_root: &Path, link: &str) -> bool {
+    let rel = link.replace('\\', "/");
+    let rel = rel.trim_start_matches('/');
+    let full = project_root.join(rel);
+    if full.exists() {
+        return true;
+    }
+    let (Some(parent), Some(name)) = (full.parent(), full.file_name()) else {
+        return false;
+    };
+    let Some(name) = name.to_str() else {
+        return false;
+    };
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return false;
+    };
+    entries.filter_map(|e| e.ok()).any(|e| {
+        e.file_name()
+            .to_str()
+            .map(|n| n.eq_ignore_ascii_case(name))
+            .unwrap_or(false)
     })
 }
 
@@ -771,5 +807,36 @@ mod organize_import_tests {
         let reread = crate::bin::read_bin(&std::fs::read(&owner_path).unwrap()).unwrap();
         assert!(reread.linked.iter().any(|l| l == "data/real_sibling.bin"), "real sibling link kept");
         assert!(!reread.linked.iter().any(|l| l.contains("yone_multi_skins_root_gone")), "dangling link pruned");
+    }
+
+    #[test]
+    fn organize_keeps_link_with_different_casing() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let data = root.join("data");
+        std::fs::create_dir_all(&data).unwrap();
+
+        // Owner links the file in lowercase, but the file on disk is authored
+        // with mixed casing. The existence prune must keep it (case-insensitive).
+        let mut owner = ritoshark::bin::Bin::new();
+        owner.entries.push(entry(1, fnv1a_lower("VfxSystemDefinitionData")));
+        owner.linked.push("data/mixedcase_sibling.bin".to_string());
+        let owner_path = data.join("skin0.bin");
+        std::fs::write(&owner_path, crate::bin::write_bin(&owner).unwrap()).unwrap();
+        // The sibling exists under DIFFERENT casing than the (lowercased) link.
+        std::fs::write(
+            data.join("MixedCase_Sibling.bin"),
+            crate::bin::write_bin(&ritoshark::bin::Bin::new()).unwrap(),
+        )
+        .unwrap();
+
+        let sources = vec![owner_path.clone()];
+        let _ = organize_vfx_in_folder(&sources, &owner_path, root, "casing_vfx.bin").unwrap();
+
+        let reread = crate::bin::read_bin(&std::fs::read(&owner_path).unwrap()).unwrap();
+        assert!(
+            reread.linked.iter().any(|l| l == "data/mixedcase_sibling.bin"),
+            "link to a file present under different casing must be kept"
+        );
     }
 }
