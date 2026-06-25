@@ -62,6 +62,9 @@ export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
     const [selected, setSelected] = useState<Selection>('meta');
     const [busy, setBusy] = useState(false);
     const metaDebounceRef = useRef<number | null>(null);
+    // Track the seeded wadExtractStore session ids we created so we can close
+    // them (and their backend WAD edit sessions) on unmount.
+    const seededSessionIdsRef = useRef<Set<string>>(new Set());
 
     // Open the archive session on mount; close + clean up on unmount.
     useEffect(() => {
@@ -77,6 +80,14 @@ export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
             }
         })();
         return () => {
+            // Close any seeded extract sessions first (closeSession also closes
+            // their backend WAD edit session). The backend close_archive_session
+            // also removes them — double-remove is a harmless no-op.
+            const store = useWadExtractStore.getState();
+            seededSessionIdsRef.current.forEach((id) => {
+                try { store.closeSession(id); } catch { /* ignore */ }
+            });
+            seededSessionIdsRef.current.clear();
             if (sid) api.closeArchiveSession(sid).catch(() => {});
             reset();
         };
@@ -107,6 +118,7 @@ export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
                 useWadExtractStore.getState().switchSession(exId);
             } else {
                 useWadExtractStore.getState().openSession(exId, info.source_path, info.session_id);
+                seededSessionIdsRef.current.add(exId);
                 const chunks = await api.getWadChunks(info.source_path);
                 useWadExtractStore.getState().setChunks(exId, chunks);
             }

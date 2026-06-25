@@ -155,12 +155,22 @@ pub async fn write_archive_meta(session_id: String, meta_json: String) -> Result
 }
 
 #[tauri::command]
-pub async fn close_archive_session(session_id: String) -> Result<(), String> {
-    if let Some(s) = sessions()
+pub async fn close_archive_session(
+    session_id: String,
+    wad_state: tauri::State<'_, crate::state::WadEditState>,
+) -> Result<(), String> {
+    // Remove the ArchiveSession first, capturing what we need, and drop the
+    // guard before touching wad_state (don't hold the sessions() lock across it).
+    let removed = sessions()
         .lock()
         .map_err(|_| "poisoned".to_string())?
-        .remove(&session_id)
-    {
+        .remove(&session_id);
+    if let Some(s) = removed {
+        // Close every inner-WAD edit session this archive opened so their
+        // decompressed chunk bytes don't leak for the app lifetime.
+        for wad_session_id in s.open_wads.values() {
+            wad_state.remove(wad_session_id);
+        }
         let _ = std::fs::remove_dir_all(&s.temp_dir);
     }
     Ok(())
