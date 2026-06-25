@@ -42,6 +42,7 @@ fn resolve_linked_hash(
     path_to_hash: &HashMap<String, u64>,
     wad_reader: &mut WadReader,
     hash_dir: &str,
+    champion: &str,
 ) -> Option<(u64, String)> {
     // 1) Direct + suffix-stripped LMDB hits on the original key (cheapest).
     if let Some(h) = path_to_hash.get(linked_key).copied() {
@@ -68,6 +69,20 @@ fn resolve_linked_hash(
                 std::collections::BTreeMap::new(),
             );
             return Some((calc, variant));
+        }
+    }
+    // 3) Multi-bin: an old shared-bin link (e.g. `DATA/Yone_Skins_Root_Skins_Skin0_..bin`)
+    //    that Riot moved 2 folders deeper, renamed with `_multi_`, AND grew with
+    //    newer skins. Match by member-set containment against the live WAD names
+    //    (the keys of `path_to_hash`), taking the tightest superset.
+    if let Some(live) = flint_ltk::repath::path_variants::best_multi_bin_superset(
+        linked_key,
+        champion,
+        path_to_hash.keys().map(|s| s.as_str()),
+    ) {
+        if let Some(h) = path_to_hash.get(&live).copied() {
+            tracing::info!("Recovered multi-bin via superset match: {} -> {}", linked_key, live);
+            return Some((h, live));
         }
     }
     None
@@ -260,6 +275,10 @@ pub fn recover_missing_files_from_league(
     //    so their referenced assets are pulled in too.
     let mut queue: Vec<String> = linked.into_iter().collect();
     let mut seen: HashSet<String> = HashSet::new();
+    // old (lowercased) link path -> live path it was recovered at. Applied to
+    // every mod bin's `linked` list after recovery so the engine resolves the
+    // moved/renamed bins (e.g. rebased multi-bins).
+    let mut link_rewrites: HashMap<String, String> = HashMap::new();
 
     while let Some(linked_path) = queue.pop() {
         let key = linked_path.to_lowercase();
@@ -269,7 +288,8 @@ pub fn recover_missing_files_from_league(
 
         // Resolve through path variants (handles Riot's rebased shared-bin
         // layout); record an unrecoverable reference so the importer can warn.
-        let Some((hash, _matched)) = resolve_linked_hash(&key, &path_to_hash, &mut wad_reader, hash_dir)
+        let Some((hash, matched)) =
+            resolve_linked_hash(&key, &path_to_hash, &mut wad_reader, hash_dir, champion)
         else {
             report.still_missing.push(linked_path.clone());
             continue;
@@ -282,7 +302,16 @@ pub fn recover_missing_files_from_league(
         let Some(chunk) = wad_reader.chunks().get(hash).copied() else { continue };
         let Ok(data) = wad_reader.wad_mut().load_chunk_decompressed(&chunk) else { continue };
 
-        let file_path = output_path.join(linked_path.trim_start_matches('/'));
+        // Write the recovered file at the LIVE path Riot uses now (`matched`),
+        // not the old link string. When they differ (Riot moved/renamed the bin,
+        // e.g. a rebased multi-bin), record an old->live rewrite so the referring
+        // bins' `linked` lists are repointed and the engine resolves it.
+        let matched_rel = matched.trim_start_matches('/');
+        let old_rel = linked_path.trim_start_matches('/');
+        if !matched_rel.eq_ignore_ascii_case(old_rel) {
+            link_rewrites.insert(old_rel.to_lowercase(), matched_rel.to_string());
+        }
+        let file_path = output_path.join(matched_rel);
         if let Some(parent) = file_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -313,6 +342,50 @@ pub fn recover_missing_files_from_league(
                     format!("Recovering missing files... ({} so far)", report.recovered_files),
                 );
             }
+        }
+    }
+
+    // 4) Repoint moved/renamed links in the mod's own bins. For each bin, rewrite
+    //    any `linked` entry whose (lowercased, slash-normalized) path matches a
+    //    recovered old->live mapping, then write the bin back. This is what makes
+    //    a rebased multi-bin actually resolve at load time.
+    if !link_rewrites.is_empty() {
+        let mut rewritten_bins = 0usize;
+        for entry in WalkDir::new(output_path)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .map(|ext| ext.eq_ignore_ascii_case("bin"))
+                    .unwrap_or(false)
+            })
+        {
+            let bin_path = entry.path();
+            let Ok(data) = std::fs::read(bin_path) else { continue };
+            let Ok(mut bin) = flint_ltk::bin::read_bin(&data) else { continue };
+            let mut changed = false;
+            for link in bin.linked.iter_mut() {
+                let norm = link.replace('\\', "/").trim_start_matches('/').to_lowercase();
+                if let Some(live) = link_rewrites.get(&norm) {
+                    *link = live.clone();
+                    changed = true;
+                }
+            }
+            if changed {
+                if let Ok(bytes) = flint_ltk::bin::write_bin(&bin) {
+                    if std::fs::write(bin_path, &bytes).is_ok() {
+                        rewritten_bins += 1;
+                    }
+                }
+            }
+        }
+        if rewritten_bins > 0 {
+            tracing::info!(
+                "Repointed {} moved/renamed link(s) across {} mod BIN(s)",
+                link_rewrites.len(),
+                rewritten_bins
+            );
         }
     }
 
