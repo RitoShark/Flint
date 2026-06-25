@@ -3,6 +3,7 @@ import { useWadExtractStore } from './wadExtractStore';
 import { useWadExplorerStore } from './wadExplorerStore';
 import { useNavigationStore } from './navigationStore';
 import { useFileEditorStore } from './fileEditorStore';
+import { useArchiveTabStore } from './archiveTabStore';
 
 export function removeTabWithFallback(tabId: string) {
   const projectTab = useProjectTabStore.getState();
@@ -124,6 +125,37 @@ export function closeFileEditorWithFallback() {
   }
 }
 
+export function closeArchiveTabWithFallback(tabId: string) {
+  const projectTab = useProjectTabStore.getState();
+  const wadExtract = useWadExtractStore.getState();
+  const wadExplorer = useWadExplorerStore.getState();
+  const archiveTab = useArchiveTabStore.getState();
+  const navigation = useNavigationStore.getState();
+
+  const wasActive = archiveTab.activeArchiveTabId === tabId;
+  const { newActiveId, remaining } = archiveTab.removeArchiveTab(tabId);
+
+  if (wasActive || remaining.length === 0) {
+    if (remaining.length > 0 && newActiveId) {
+      navigation.setView('archive-editor');
+    } else if (projectTab.activeTabId && projectTab.openTabs.find(t => t.id === projectTab.activeTabId)) {
+      navigation.setView('preview');
+    } else if (projectTab.openTabs.length > 0) {
+      projectTab.switchTab(projectTab.openTabs[0].id);
+      navigation.setView('preview');
+    } else if (wadExtract.activeExtractId && wadExtract.extractSessions.find(s => s.id === wadExtract.activeExtractId)) {
+      navigation.setView('extract');
+    } else if (wadExtract.extractSessions.length > 0) {
+      wadExtract.switchSession(wadExtract.extractSessions[0].id);
+      navigation.setView('extract');
+    } else if (wadExplorer.isOpen) {
+      navigation.setView('wad-explorer');
+    } else {
+      navigation.setView('welcome');
+    }
+  }
+}
+
 export function openWadExplorer() {
   const wadExplorer = useWadExplorerStore.getState();
   const navigation = useNavigationStore.getState();
@@ -137,5 +169,6 @@ export const navigationCoordinator = {
   closeExtractSessionWithFallback,
   closeWadExplorerWithFallback,
   closeFileEditorWithFallback,
+  closeArchiveTabWithFallback,
   openWadExplorer,
 };
