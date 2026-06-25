@@ -364,6 +364,12 @@ fn main() {
             commands::modpkg_edit::open_modpkg_session,
             commands::modpkg_edit::save_modpkg_session,
             commands::modpkg_edit::close_modpkg_session,
+            // Fantome/ModPkg archive editor commands
+            commands::archive_edit::open_archive_session,
+            commands::archive_edit::write_archive_meta,
+            commands::archive_edit::close_archive_session,
+            commands::archive_edit::open_inner_wad,
+            commands::archive_edit::save_archive_session,
             // HUD Editor commands
             commands::hud::parse_hud_ritobin_file,
             commands::hud::save_hud_ritobin_file,
