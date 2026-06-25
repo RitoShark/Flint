@@ -1,3 +1,4 @@
+use flint_ltk::bin::split::{collect_folder_bins, find_wad_root, pick_owner_bin};
 use flint_ltk::bin::{
     analyze_multi, classify_vfx_objects, group_by_class, organize_vfx_in_folder, read_bin,
     split_bin, split_bin_multi,
@@ -5,7 +6,6 @@ use flint_ltk::bin::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use walkdir::WalkDir;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinSplitClassGroup {
@@ -19,21 +19,6 @@ pub struct BinSplitClassGroup {
 pub struct BinSplitAnalysis {
     pub total_objects: usize,
     pub groups: Vec<BinSplitClassGroup>,
-}
-
-fn find_wad_root(bin_path: &Path) -> PathBuf {
-    let mut cur = bin_path.parent();
-    while let Some(p) = cur {
-        if p.file_name()
-            .and_then(|n| n.to_str())
-            .map(|s| s.to_lowercase().ends_with(".wad.client"))
-            .unwrap_or(false)
-        {
-            return p.to_path_buf();
-        }
-        cur = p.parent();
-    }
-    bin_path.parent().unwrap_or(Path::new(".")).to_path_buf()
 }
 
 #[tauri::command]
@@ -95,44 +80,6 @@ pub struct BinSplitFolderAnalysis {
     pub total_objects: usize,
     pub groups: Vec<BinSplitClassGroup>,
     pub suggested_owner: String,
-}
-
-fn collect_folder_bins(folder: &Path) -> Vec<PathBuf> {
-    WalkDir::new(folder)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-        .filter_map(|e| {
-            let path = e.path();
-            let name = path.file_name()?.to_str()?.to_lowercase();
-            if !name.ends_with(".bin") {
-                return None;
-            }
-            let path_lower = path.to_string_lossy().to_lowercase().replace('\\', "/");
-            if path_lower.contains("/animations/") {
-                return None;
-            }
-            Some(path.to_path_buf())
-        })
-        .collect()
-}
-
-fn pick_owner_bin(sources: &[(PathBuf, usize)]) -> Option<PathBuf> {
-    let mut best: Option<(usize, PathBuf)> = None;
-    for (path, count) in sources {
-        let lower = path.to_string_lossy().to_lowercase().replace('\\', "/");
-        let looks_like_skin = lower.contains("/data/characters/")
-            && lower.contains("/skins/skin")
-            && lower.ends_with(".bin");
-        if !looks_like_skin {
-            continue;
-        }
-        match best {
-            Some((c, _)) if c >= *count => {}
-            _ => best = Some((*count, path.clone())),
-        }
-    }
-    best.map(|(_, p)| p)
 }
 
 #[tauri::command]

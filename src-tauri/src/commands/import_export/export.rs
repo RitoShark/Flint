@@ -64,6 +64,7 @@ pub async fn repath_project_cmd(
         wad_folder_override: None,
         skip_bin_cleanup: false,
         delete_sources: true,
+        consolidate_vfx: false,
     };
 
     let result = tokio::task::spawn_blocking(move || {

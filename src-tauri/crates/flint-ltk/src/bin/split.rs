@@ -623,3 +623,116 @@ fn paths_match(a: &Path, b: &Path) -> bool {
         _ => a == b,
     }
 }
+
+/// Collect every `.bin` under `folder`, excluding animation BINs (engine-format
+/// files that must not be consolidated). Returns absolute paths.
+pub fn collect_folder_bins(folder: &Path) -> Vec<PathBuf> {
+    walkdir::WalkDir::new(folder)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.path().extension().map(|x| x.eq_ignore_ascii_case("bin")).unwrap_or(false)
+                && !e.path().to_string_lossy().to_lowercase().replace('\\', "/").contains("/animations/")
+        })
+        .map(|e| e.path().to_path_buf())
+        .collect()
+}
+
+/// Pick the main skin BIN to own the consolidated VFX link: the bin under
+/// `/data/characters/.../skins/skin*` with the most objects. Falls back to the
+/// largest bin overall.
+pub fn pick_owner_bin(candidates: &[(PathBuf, usize)]) -> Option<PathBuf> {
+    let is_skin = |p: &Path| {
+        let s = p.to_string_lossy().to_lowercase().replace('\\', "/");
+        s.contains("/data/characters/") && s.contains("/skins/skin")
+    };
+    candidates
+        .iter()
+        .filter(|(p, _)| is_skin(p))
+        .max_by_key(|(_, n)| *n)
+        .or_else(|| candidates.iter().max_by_key(|(_, n)| *n))
+        .map(|(p, _)| p.clone())
+}
+
+/// The WAD-folder root for a folder inside a project's content tree — the
+/// nearest ancestor ending in `.wad.client`, else `folder` itself.
+pub fn find_wad_root(folder: &Path) -> PathBuf {
+    let mut cur = Some(folder);
+    while let Some(p) = cur {
+        if p.file_name().map(|n| n.to_string_lossy().ends_with(".wad.client")).unwrap_or(false) {
+            return p.to_path_buf();
+        }
+        cur = p.parent();
+    }
+    folder.to_path_buf()
+}
+
+#[cfg(test)]
+mod organize_import_tests {
+    use super::*;
+    use ritoshark::bin::{Bin, BinEntry};
+    use indexmap::IndexMap;
+
+    fn entry(path_hash: u32, class_hash: u32) -> BinEntry {
+        BinEntry { path_hash, class_hash, fields: IndexMap::new() }
+    }
+
+    fn write(path: &Path, bin: &Bin) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, crate::bin::write_bin(bin).unwrap()).unwrap();
+    }
+
+    /// Mirrors the import layout: a skin BIN (owner) plus a separate BIN holding
+    /// both a VFX-class object and a non-VFX object in the same folder. After
+    /// consolidation the VFX object moves into `data/<vfx>.bin`, the non-VFX
+    /// object merges into the owner, the now-empty source is deleted, and the
+    /// owner links the new VFX file.
+    #[test]
+    fn organize_import_layout_consolidates() {
+        let vfx_class = fnv1a_lower("VfxSystemDefinitionData");
+        let other_class = fnv1a_lower("SkinCharacterDataProperties");
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("x.wad.client");
+        let skins = root.join("data/characters/x/skins");
+
+        // Owner: the skin BIN with one non-VFX object.
+        let owner_path = skins.join("skin0.bin");
+        let mut owner = Bin::new();
+        owner.entries.push(entry(1, other_class));
+        write(&owner_path, &owner);
+
+        // Source: a separate BIN with a VFX object and a non-VFX object.
+        let src_path = skins.join("skin0_vfx_source.bin");
+        let mut src = Bin::new();
+        src.entries.push(entry(2, vfx_class));
+        src.entries.push(entry(3, other_class));
+        write(&src_path, &src);
+
+        let bins = collect_folder_bins(&root);
+        let project_root = find_wad_root(&skins);
+        assert_eq!(project_root, root);
+
+        let result = organize_vfx_in_folder(&bins, &owner_path, &project_root, "x_vfx.bin").unwrap();
+
+        assert_eq!(result.vfx_objects_moved, 1, "one VFX object should move");
+        assert_eq!(result.main_objects_merged, 1, "one non-VFX object should merge into the owner");
+
+        // The VFX BIN exists with the VFX object.
+        let vfx_out = root.join("data/x_vfx.bin");
+        assert!(vfx_out.exists(), "consolidated VFX BIN should be created");
+        let vfx_bin = crate::bin::read_bin(&std::fs::read(&vfx_out).unwrap()).unwrap();
+        assert!(vfx_bin.entries.iter().any(|e| e.class_hash == vfx_class));
+
+        // The empty source was deleted.
+        assert!(!src_path.exists(), "emptied source BIN should be deleted");
+        assert!(result.sources_deleted.iter().any(|p| p == &src_path));
+
+        // The owner gained the non-VFX object and links the VFX file.
+        let owner_after = crate::bin::read_bin(&std::fs::read(&owner_path).unwrap()).unwrap();
+        assert!(owner_after.entries.iter().any(|e| e.path_hash == 3));
+        assert!(owner_after.linked.iter().any(|d| d.eq_ignore_ascii_case("data/x_vfx.bin")));
+    }
+}

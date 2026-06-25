@@ -477,6 +477,21 @@ fn import_modpkg_internal(
                 report.recovered_files,
                 report.scanned_bins
             );
+
+            if !report.still_missing.is_empty() {
+                tracing::warn!(
+                    "{} linked file(s) could not be recovered from League: {:?}",
+                    report.still_missing.len(),
+                    report.still_missing
+                );
+                let _ = app.emit(
+                    "modpkg-import-progress",
+                    serde_json::json!({
+                        "status": "progress",
+                        "message": format!("{} referenced file(s) could not be recovered", report.still_missing.len())
+                    }),
+                );
+            }
         }
     }
 
@@ -550,6 +565,7 @@ fn import_modpkg_internal(
             wad_folder_override: None,
             skip_bin_cleanup: true,
             delete_sources: false,
+            consolidate_vfx: true,
         };
 
         organize_project(&content_path, &config, &path_mappings)

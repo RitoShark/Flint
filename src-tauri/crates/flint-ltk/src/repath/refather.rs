@@ -393,7 +393,8 @@ pub fn repath_project(
 
     if !config.skip_bin_cleanup {
         let t_step7 = std::time::Instant::now();
-        cleanup_irrelevant_bins(file_base, &config.champion, config.target_skin_id)?;
+        let keep = referenced_bin_keep_set(file_base);
+        cleanup_irrelevant_bins(file_base, &config.champion, config.target_skin_id, &keep)?;
         tracing::info!("[TIMING] step7 cleanup_irrelevant_bins: {:?}", t_step7.elapsed());
     } else {
         tracing::info!("Skipping cleanup_irrelevant_bins because skip_bin_cleanup is true");
@@ -720,10 +721,41 @@ fn cleanup_unused_files(content_base: &Path, referenced_paths: &HashSet<String>,
     Ok(removed)
 }
 
+/// Transitive closure of every BIN reachable from any BIN's `linked` list,
+/// as lowercased forward-slashed project-relative paths. Used to protect
+/// referenced bins from cleanup deletion.
+fn referenced_bin_keep_set(content_base: &Path) -> std::collections::HashSet<String> {
+    use std::collections::HashSet;
+    let mut keep: HashSet<String> = HashSet::new();
+    for entry in WalkDir::new(content_base)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.path()
+                .extension()
+                .map(|ext| ext.eq_ignore_ascii_case("bin"))
+                .unwrap_or(false)
+        })
+    {
+        let path = entry.path();
+        let Ok(data) = fs::read(path) else { continue };
+        let Ok(bin) = read_bin(&data) else { continue };
+        for dep in bin.linked {
+            keep.insert(dep.replace('\\', "/").trim_start_matches('/').to_lowercase());
+        }
+    }
+    keep
+}
+
 /// Whitelist approach: keeps the main skin BIN (skins/skin{ID}.bin), the
 /// animation BIN (animations/skin{ID}.bin), and the concat BIN (_Concat.bin);
 /// everything else is deleted.
-fn cleanup_irrelevant_bins(content_base: &Path, champion: &str, target_skin_id: u32) -> Result<usize> {
+fn cleanup_irrelevant_bins(
+    content_base: &Path,
+    champion: &str,
+    target_skin_id: u32,
+    keep: &std::collections::HashSet<String>,
+) -> Result<usize> {
     let mut removed = 0;
     let champion_lower = champion.to_lowercase();
 
@@ -775,6 +807,11 @@ fn cleanup_irrelevant_bins(content_base: &Path, champion: &str, target_skin_id: 
         if let Ok(rel_path) = path.strip_prefix(content_base) {
             let rel_str = rel_path.to_string_lossy().to_lowercase().replace('\\', "/");
             let filename = path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+
+            if keep.contains(&rel_str) {
+                tracing::debug!("Keeping referenced BIN (keep-set): {}", rel_str);
+                continue;
+            }
 
             if filename.contains("_concat") {
                 tracing::debug!("Keeping concat BIN: {}", rel_str);
@@ -1355,4 +1392,22 @@ mod tests {
         assert_ne!(hash, 0);
     }
 
+    #[test]
+    fn keep_set_protects_referenced_bin() {
+        use std::collections::HashSet;
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+        let skins = base.join("data/characters/x/skins");
+        std::fs::create_dir_all(&skins).unwrap();
+        // A "wrong skin" bin that cleanup would normally delete.
+        let victim = skins.join("skin99.bin");
+        std::fs::write(&victim, write_bin(&ritoshark::bin::Bin::new()).unwrap()).unwrap();
+
+        let mut keep: HashSet<String> = HashSet::new();
+        keep.insert("data/characters/x/skins/skin99.bin".to_string());
+
+        let removed = cleanup_irrelevant_bins(base, "x", 0, &keep).unwrap();
+        assert_eq!(removed, 0, "referenced bin must not be deleted");
+        assert!(victim.exists());
+    }
 }

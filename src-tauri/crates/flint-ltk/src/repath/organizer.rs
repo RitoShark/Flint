@@ -1,8 +1,6 @@
 //! Orchestrates concat and refather workflows with independent control.
 
-use crate::bin::concat::{
-    concatenate_linked_bins, ConcatResult,
-};
+use crate::bin::concat::{concatenate_linked_bins, ConcatResult};
 use crate::repath::refather::{repath_project, RepathConfig, RepathResult};
 use crate::error::Result;
 use std::collections::HashMap;
@@ -26,6 +24,10 @@ pub struct OrganizerConfig {
     pub wad_folder_override: Option<String>,
     pub skip_bin_cleanup: bool,
     pub delete_sources: bool,
+    /// When true, consolidate via the VFX-organize pass (VFX → data/<vfx>.bin,
+    /// everything else → main skin BIN). When false, use legacy concat. Only the
+    /// import pipeline sets this true; project-creation and export keep concat.
+    pub consolidate_vfx: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -73,8 +75,42 @@ pub fn organize_project(
         None
     };
 
+    // CONSOLIDATION: VFX-organize on the import path, legacy concat otherwise.
     if config.enable_concat {
-        if let Some(ref main_path) = main_bin_path {
+        if config.consolidate_vfx {
+            // *** Import path: VFX → data/<vfx>.bin, everything else → main skin BIN ***
+            let bins = crate::bin::split::collect_folder_bins(&file_base);
+            if bins.is_empty() {
+                tracing::warn!("Cannot consolidate: no BINs found under {}", file_base.display());
+            } else {
+                let owner = main_bin_path.clone().or_else(|| {
+                    let with_counts: Vec<(std::path::PathBuf, usize)> = bins
+                        .iter()
+                        .filter_map(|p| {
+                            let data = std::fs::read(p).ok()?;
+                            let bin = crate::bin::read_bin(&data).ok()?;
+                            Some((p.clone(), bin.entries.len()))
+                        })
+                        .collect();
+                    crate::bin::split::pick_owner_bin(&with_counts)
+                });
+                match owner {
+                    Some(owner_path) => {
+                        let project_root = crate::bin::split::find_wad_root(&file_base);
+                        let vfx_name = format!("{}_vfx.bin", config.project_name.replace(' ', "-").to_lowercase());
+                        match crate::bin::split::organize_vfx_in_folder(&bins, &owner_path, &project_root, &vfx_name) {
+                            Ok(r) => tracing::info!(
+                                "VFX consolidation: {} VFX moved, {} merged, {} sources removed",
+                                r.vfx_objects_moved, r.main_objects_merged, r.sources_deleted.len()
+                            ),
+                            Err(e) => tracing::warn!("VFX consolidation failed: {}", e),
+                        }
+                    }
+                    None => tracing::warn!("Cannot consolidate: no owner BIN found"),
+                }
+            }
+        } else if let Some(ref main_path) = main_bin_path {
+            // *** Project-creation / export path: legacy concat ***
             tracing::info!("Running BIN concatenation...");
             match concatenate_linked_bins(
                 main_path,
@@ -226,6 +262,7 @@ mod tests {
             wad_folder_override: None,
             skip_bin_cleanup: false,
             delete_sources: true,
+            consolidate_vfx: false,
         }
     }
 
