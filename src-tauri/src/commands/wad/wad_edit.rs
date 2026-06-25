@@ -233,6 +233,10 @@ pub async fn rename_session_chunk(
     }
     let new_hash = xxhash_rust::xxh64::xxh64(new_key.as_bytes(), 0);
 
+    if new_hash == old_hash {
+        return Ok(format!("0x{:016x}", new_hash));
+    }
+
     let session = state
         .get(&session_id)
         .ok_or_else(|| format!("No such session: {}", session_id))?;
