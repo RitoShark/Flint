@@ -74,17 +74,32 @@ pub struct ImportOptions {
 // =============================================================================
 
 pub(crate) fn guess_extension(data: &[u8]) -> &'static str {
-    if data.len() >= 4 {
-        let head = &data[..4];
-        if head == b"PROP" || head == b"PTCH" { return "bin"; }
-        if head == b"DDS " { return "dds"; }
-        if head == b"OggS" { return "ogg"; }
-        if head == b"RIFF" { return "wem"; }
-        if head == b"BKHD" { return "bnk"; }
-        if u32::from_le_bytes([data[0], data[1], data[2], data[3]]) == 0x0011_2233 { return "skn"; }
-        if u32::from_le_bytes([data[0], data[1], data[2], data[3]]) == 0x0022_3344 { return "skl"; }
+    use ritoshark::file::{FileKind, detect};
+    match detect(data) {
+        FileKind::PropBin | FileKind::PatchBin => "bin",
+        FileKind::Tex => "tex",
+        FileKind::Dds => "dds",
+        FileKind::SkinnedMesh => "skn",
+        FileKind::Skeleton => "skl",
+        FileKind::AnimUncompressed | FileKind::AnimCompressed => "anm",
+        FileKind::Bnk => "bnk",
+        FileKind::Wpk => "wpk",
+        FileKind::MapGeo => "mapgeo",
+        FileKind::StaticMeshText => "sco",
+        FileKind::StaticMeshBinary => "scb",
+        FileKind::Rst => "stringtable",
+        FileKind::Wad | FileKind::Rman | FileKind::Unknown => {
+            if data.len() >= 4 {
+                let head = &data[..4];
+                if head == b"OggS" { return "ogg"; }
+                if head == b"\x89PNG" { return "png"; }
+                if head == b"RIFF" { return "wem"; }
+                if data.starts_with(b"\xff\xd8\xff") { return "jpg"; }
+                if data.starts_with(b"{") { return "json"; }
+            }
+            "dat"
+        }
     }
-    "dat"
 }
 
 fn read_fantome_metadata(fantome_path: &str) -> Option<FantomeMetadata> {
@@ -205,7 +220,7 @@ pub(crate) fn extract_champion_from_path(path: &str) -> Option<String> {
     let lower = path.to_lowercase();
 
     if let Some(start_idx) = lower.find("characters/") {
-        let after_characters = &lower[start_idx + 11..];
+        let after_characters = &path[start_idx + 11..];
         if let Some(end_idx) = after_characters.find('/') {
             let champion = &after_characters[..end_idx];
             if !champion.is_empty() {
@@ -215,7 +230,7 @@ pub(crate) fn extract_champion_from_path(path: &str) -> Option<String> {
     }
 
     if let Some(start_idx) = lower.find("assets/characters/") {
-        let after_characters = &lower[start_idx + 18..];
+        let after_characters = &path[start_idx + 18..];
         if let Some(end_idx) = after_characters.find('/') {
             let champion = &after_characters[..end_idx];
             if !champion.is_empty() {
@@ -283,6 +298,8 @@ fn apply_refathering(
         target_skin_id,
         cleanup_unused: false,
         wad_folder_override: None,
+        skip_bin_cleanup: true,
+        delete_sources: false,
     };
 
     organize_project(content_path, &config, path_mappings)
@@ -419,16 +436,6 @@ fn import_fantome_internal(
 
     let (resolved_wad_path, _is_temp) = resolve_wad_path(wad_path)?;
 
-    let _ = app.emit("fantome-import-progress", serde_json::json!({
-        "status": "progress",
-        "message": "Extracting and registering path hashes..."
-    }));
-
-    let hash_dir_path = Path::new(hash_dir);
-    if let Err(e) = crate::commands::wad::extract_hashes::extract_hashes_from_wad_path(&resolved_wad_path, hash_dir_path) {
-        tracing::warn!("Failed to auto-unhash WAD file during import: {}", e);
-    }
-
     let mut reader = WadReader::open(resolved_wad_path.to_str().unwrap())
         .map_err(|e| format!("Failed to open WAD file: {}", e))?;
 
@@ -468,6 +475,7 @@ fn import_fantome_internal(
 
     let mut extracted_count = 0;
     let mut path_mappings = HashMap::new();
+    let mut unresolved_files = Vec::new();
 
     let mut unresolved_count = 0;
     let total_files = chunk_hashes.len();
@@ -486,8 +494,10 @@ fn import_fantome_internal(
             .map_err(|e| format!("Failed to decompress chunk: {}", e))?;
 
         let mut final_path = PathBuf::from(path.clone());
+        let mut is_unresolved = false;
         if is_unresolved_hash(path) {
             unresolved_count += 1;
+            is_unresolved = true;
             tracing::debug!("Unresolved hash (custom path): {}", path);
             let ext = guess_extension(&data);
             final_path.set_extension(ext);
@@ -507,16 +517,26 @@ fn import_fantome_internal(
 
             wad_base.join(hash_path)
         } else {
-            wad_base.join(final_path)
+            wad_base.join(&final_path)
         };
 
-        let file_path = out_path;
+        let file_path = out_path.clone();
         if let Some(p) = file_path.parent() {
             std::fs::create_dir_all(p).unwrap_or_default();
         }
 
         std::fs::write(&file_path, &data)
             .map_err(|e| format!("Failed to write extracted file: {}", e))?;
+
+        if is_unresolved {
+            let ext = final_path.extension().and_then(|e| e.to_str()).unwrap_or("dat").to_string();
+            unresolved_files.push((
+                *hash,
+                ext,
+                out_path,
+                path.clone(),
+            ));
+        }
 
         extracted_count += 1;
 
@@ -537,6 +557,80 @@ fn import_fantome_internal(
     }
 
     tracing::info!("Extracted {} files from Fantome WAD to {}", extracted_count, wad_folder_name);
+
+    // Drop the reader before hash extraction starts so the WAD file handle is released
+    drop(reader);
+
+    // Run extract_hashes_from_wad_path after extraction finishes
+    let _ = app.emit("fantome-import-progress", serde_json::json!({
+        "status": "progress",
+        "message": "Extracting and registering path hashes..."
+    }));
+
+    let hash_dir_path = Path::new(hash_dir);
+    if let Err(e) = crate::commands::wad::extract_hashes::extract_hashes_from_wad_path(&resolved_wad_path, hash_dir_path) {
+        tracing::warn!("Failed to auto-unhash WAD file during import: {}", e);
+    }
+
+    flint_ltk::hash::lmdb_cache::drop_lmdb_cache();
+
+    // Re-resolve unresolved paths and rename files on disk
+    if !unresolved_files.is_empty() {
+        if let Some(env) = get_or_open_env(hash_dir) {
+            let hashes_to_resolve: Vec<u64> = unresolved_files.iter().map(|(h, _, _, _)| *h).collect();
+            let newly_resolved = resolve_hashes_lmdb(&hashes_to_resolve, &env);
+
+            let mut resolved_count = 0;
+            for ((hash, guessed_ext, old_path_on_disk, original_path_key), resolved_path) in unresolved_files.iter().zip(newly_resolved.iter()) {
+                if !is_unresolved_hash(resolved_path) {
+                    // It is now resolved!
+                    let final_path = PathBuf::from(resolved_path.clone());
+                    let filename_len = final_path.to_string_lossy().len();
+
+                    if filename_len > 200 {
+                        let parent = final_path.parent().unwrap_or_else(|| Path::new("data"));
+                        let ext = final_path.extension().and_then(|e| e.to_str()).unwrap_or(guessed_ext.as_str());
+                        let hash_name = format!("{:016x}.{}", hash, ext);
+                        let hash_path = parent.join(&hash_name);
+
+                        let orig = final_path.to_string_lossy().to_lowercase().replace('\\', "/");
+                        let act  = hash_path.to_string_lossy().to_lowercase().replace('\\', "/");
+                        path_mappings.insert(orig, act);
+
+                        let new_out_path = wad_base.join(hash_path);
+                        if old_path_on_disk.exists() {
+                            if let Some(p) = new_out_path.parent() {
+                                std::fs::create_dir_all(p).unwrap_or_default();
+                            }
+                            if let Err(e) = std::fs::rename(old_path_on_disk, &new_out_path) {
+                                tracing::warn!("Failed to rename resolved long path file: {}", e);
+                            }
+                        }
+                    } else {
+                        let new_out_path = wad_base.join(&final_path);
+                        if old_path_on_disk.exists() {
+                            if let Some(p) = new_out_path.parent() {
+                                std::fs::create_dir_all(p).unwrap_or_default();
+                            }
+                            if let Err(e) = std::fs::rename(old_path_on_disk, &new_out_path) {
+                                tracing::warn!("Failed to rename resolved file to {}: {}", new_out_path.display(), e);
+                            } else {
+                                resolved_count += 1;
+                            }
+                        }
+                    }
+                } else {
+                    // Still unresolved. Add to path_mappings to map the extensionless path to the file with extension
+                    let orig = original_path_key.to_lowercase().replace('\\', "/");
+                    if let Ok(rel_path) = old_path_on_disk.strip_prefix(&wad_base) {
+                        let act = rel_path.to_string_lossy().to_lowercase().replace('\\', "/");
+                        path_mappings.insert(orig, act);
+                    }
+                }
+            }
+            tracing::info!("Re-resolved and renamed {}/{} unresolved files after hash extraction", resolved_count, unresolved_files.len());
+        }
+    }
 
     let existing_hashes: HashSet<u64> = chunk_hashes.iter().copied().collect();
 
@@ -635,6 +729,18 @@ fn import_fantome_internal(
         project.version = ver;
     }
 
+    // Extract thumbnail from the Fantome package if it exists
+    if wad_path.ends_with(".fantome") || wad_path.ends_with(".zip") {
+        let _ = app.emit("fantome-import-progress", serde_json::json!({
+            "status": "progress",
+            "message": "Extracting thumbnail image..."
+        }));
+
+        if let Err(e) = extract_and_save_fantome_thumbnail(wad_path, project_path) {
+            tracing::warn!("Failed to extract/save thumbnail from Fantome: {}", e);
+        }
+    }
+
     let _ = app.emit("fantome-import-progress", serde_json::json!({
         "status": "progress",
         "message": "Saving project metadata..."
@@ -652,3 +758,75 @@ fn import_fantome_internal(
 
     Ok(project)
 }
+
+fn extract_and_save_fantome_thumbnail(fantome_path: &str, project_path: &Path) -> Result<(), String> {
+    let file = File::open(fantome_path)
+        .map_err(|e| format!("Failed to open file: {}", e))?;
+    let mut archive = ZipArchive::new(BufReader::new(file))
+        .map_err(|e| format!("Failed to open zip archive: {}", e))?;
+
+    let mut thumb_entry_index = None;
+    for i in 0..archive.len() {
+        let file_entry = match archive.by_index(i) {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
+        let name = file_entry.name().to_lowercase();
+        if name == "meta/image.png"
+            || name == "meta/image.jpg"
+            || name == "meta/image.jpeg"
+            || name == "meta/thumbnail.png"
+            || name == "meta/thumbnail.jpg"
+            || name == "meta/thumbnail.jpeg"
+            || name == "meta/image.webp"
+            || name == "meta/thumbnail.webp"
+            || name == "image.png"
+            || name == "thumbnail.png"
+        {
+            thumb_entry_index = Some(i);
+            break;
+        }
+    }
+
+    if let Some(idx) = thumb_entry_index {
+        let mut file_entry = archive.by_index(idx)
+            .map_err(|e| format!("Failed to open zip entry: {}", e))?;
+        let mut img_bytes = Vec::new();
+        std::io::copy(&mut file_entry, &mut img_bytes)
+            .map_err(|e| format!("Failed to read image bytes: {}", e))?;
+
+        let thumb_path = project_path.join("thumbnail.webp");
+
+        // Try decoding using the image crate and converting to WebP
+        if let Ok(img) = image::load_from_memory(&img_bytes) {
+            let webp_file = File::create(&thumb_path)
+                .map_err(|e| format!("Failed to create thumbnail.webp: {}", e))?;
+            let mut writer = std::io::BufWriter::new(webp_file);
+            img.write_to(&mut writer, image::ImageFormat::WebP)
+                .map_err(|e| format!("Failed to write WebP image: {}", e))?;
+            tracing::info!("Saved converted thumbnail to {:?}", thumb_path);
+        } else {
+            // Fallback: write raw bytes as-is to thumbnail.webp
+            std::fs::write(&thumb_path, &img_bytes)
+                .map_err(|e| format!("Failed to write fallback thumbnail bytes: {}", e))?;
+            tracing::warn!("Failed to decode thumbnail image, saved raw bytes to {:?}", thumb_path);
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_champion_from_path() {
+        assert_eq!(extract_champion_from_path("assets/characters/Yone/Yone.bin"), Some("Yone".to_string()));
+        assert_eq!(extract_champion_from_path("data/characters/Evelynn/Evelynn.bin"), Some("Evelynn".to_string()));
+        assert_eq!(extract_champion_from_path("characters/AurelionSol/AurelionSol.bin"), Some("AurelionSol".to_string()));
+        assert_eq!(extract_champion_from_path("foo/bar/baz.txt"), None);
+    }
+}
+
+

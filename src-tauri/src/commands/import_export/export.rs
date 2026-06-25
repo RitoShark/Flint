@@ -62,6 +62,8 @@ pub async fn repath_project_cmd(
         target_skin_id: 0,
         cleanup_unused: true,
         wad_folder_override: None,
+        skip_bin_cleanup: false,
+        delete_sources: true,
     };
 
     let result = tokio::task::spawn_blocking(move || {

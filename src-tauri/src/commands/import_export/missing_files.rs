@@ -44,34 +44,46 @@ fn emit(app: &AppHandle, event_name: &str, message: String) {
 /// walks for `/skins/` anchors and grabs the surrounding `data/`- or `assets/`
 /// rooted path ending in `.bin`. It matches how League stores linked-BIN string
 /// references and avoids depending on a specific BIN schema version.
+fn eq_ignore_ascii_case(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.eq_ignore_ascii_case(y))
+}
+
+
 pub(crate) fn extract_linked_bin_paths(bin_data: &[u8]) -> Vec<String> {
     let mut linked_paths = Vec::new();
-    let text = String::from_utf8_lossy(bin_data);
-    let mut start = 0;
-
-    while let Some(pos) = text[start..].find("/skins/") {
-        let absolute_pos = start + pos;
-
-        let path_start = text[..absolute_pos]
-            .rfind(|c: char| !c.is_ascii() && c != '/' && c != '_' && c != '.' && !c.is_alphanumeric())
-            .map(|p| p + 1)
-            .unwrap_or(0);
-
-        if let Some(bin_end) = text[absolute_pos..].find(".bin") {
-            let path_end = absolute_pos + bin_end + 4;
-            let potential_path = &text[path_start..path_end];
-
-            if potential_path.starts_with("data/") || potential_path.starts_with("assets/") {
-                let path_str = potential_path.to_string();
-                if !linked_paths.contains(&path_str) {
-                    linked_paths.push(path_str);
+    let mut i = 0;
+    
+    while i < bin_data.len() {
+        let is_data = i + 5 <= bin_data.len() && eq_ignore_ascii_case(&bin_data[i..i+5], b"data/");
+        let is_assets = i + 7 <= bin_data.len() && eq_ignore_ascii_case(&bin_data[i..i+7], b"assets/");
+        
+        if is_data || is_assets {
+            let start = i;
+            let mut len = 0;
+            while i + len < bin_data.len() {
+                let b = bin_data[i + len];
+                if b.is_ascii_alphanumeric() || b == b'/' || b == b'_' || b == b'.' || b == b'-' || b == b'\\' {
+                    len += 1;
+                } else {
+                    break;
                 }
             }
+            if len > 4 {
+                if let Ok(path_str) = std::str::from_utf8(&bin_data[start..start + len]) {
+                    if path_str.to_ascii_lowercase().ends_with(".bin") {
+                        let path_str = path_str.to_string();
+                        if !linked_paths.contains(&path_str) {
+                            linked_paths.push(path_str);
+                        }
+                    }
+                }
+            }
+            i += len.max(1);
+        } else {
+            i += 1;
         }
-
-        start = absolute_pos + 1;
     }
-
+    
     linked_paths
 }
 
@@ -136,6 +148,11 @@ pub fn recover_missing_files_from_league(
             for lp in extract_linked_bin_paths(&bin_data) {
                 linked.insert(lp);
             }
+            if let Ok(bin) = flint_ltk::bin::read_bin(&bin_data) {
+                for lp in bin.linked {
+                    linked.insert(lp);
+                }
+            }
         }
         if let Ok(rel) = bin_path.strip_prefix(output_path) {
             mod_bin_rel_paths.push(rel.to_string_lossy().replace('\\', "/").to_lowercase());
@@ -152,6 +169,11 @@ pub fn recover_missing_files_from_league(
                 if let Ok(orig_data) = wad_reader.wad_mut().load_chunk_decompressed(&chunk) {
                     for lp in extract_linked_bin_paths(&orig_data) {
                         linked.insert(lp);
+                    }
+                    if let Ok(bin) = flint_ltk::bin::read_bin(&orig_data) {
+                        for lp in bin.linked {
+                            linked.insert(lp);
+                        }
                     }
                 }
             }
@@ -192,7 +214,28 @@ pub fn recover_missing_files_from_league(
         let hash = path_to_hash
             .get(&key)
             .copied()
-            .or_else(|| key.strip_suffix(".bin").and_then(|k| path_to_hash.get(k).copied()));
+            .or_else(|| key.strip_suffix(".bin").and_then(|k| path_to_hash.get(k).copied()))
+            .or_else(|| {
+                // If the path string is not resolved/unhashed in the LMDB mapping,
+                // calculate its xxhash64 directly and check if the WAD has a chunk for it!
+                let calculated_hash = xxhash_rust::xxh64::xxh64(key.as_bytes(), 0);
+                if wad_reader.get_chunk(calculated_hash).is_some() {
+                    tracing::info!("Discovered new hash-path mapping through link recovery: {:016x} -> {}", calculated_hash, key);
+                    
+                    // Merge new hash mapping into LMDB database on the fly
+                    let mut new_game = std::collections::BTreeMap::new();
+                    new_game.insert(calculated_hash, key.clone());
+                    let _ = crate::commands::wad::extract_hashes::extract_and_merge_hashes(
+                        Path::new(hash_dir),
+                        new_game,
+                        std::collections::BTreeMap::new(),
+                    );
+                    
+                    Some(calculated_hash)
+                } else {
+                    None
+                }
+            });
 
         let Some(hash) = hash else { continue };
         if existing_hashes.contains(&hash) {
@@ -215,6 +258,13 @@ pub fn recover_missing_files_from_league(
                 for lp in extract_linked_bin_paths(&data) {
                     if !seen.contains(&lp.to_lowercase()) {
                         queue.push(lp);
+                    }
+                }
+                if let Ok(bin) = flint_ltk::bin::read_bin(&data) {
+                    for lp in bin.linked {
+                        if !seen.contains(&lp.to_lowercase()) {
+                            queue.push(lp);
+                        }
                     }
                 }
             }
@@ -241,3 +291,20 @@ pub fn recover_missing_files_from_league(
 
     Ok(report)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_linked_bin_paths() {
+        let test_bin = b"some random garbage data/characters/yone/yone.bin and more garbage ASSETS/Skins/Skin0.bin and also DATA/Yone_Skins_Root_Skins.bin invalid data/foo.txt and assets/bar/baz.bin";
+        let extracted = extract_linked_bin_paths(test_bin);
+        assert_eq!(extracted.len(), 4);
+        assert_eq!(extracted[0], "data/characters/yone/yone.bin");
+        assert_eq!(extracted[1], "ASSETS/Skins/Skin0.bin");
+        assert_eq!(extracted[2], "DATA/Yone_Skins_Root_Skins.bin");
+        assert_eq!(extracted[3], "assets/bar/baz.bin");
+    }
+}
+

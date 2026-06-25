@@ -272,6 +272,7 @@ pub fn concatenate_linked_bins(
     champion: &str,
     content_base: &Path,
     path_mappings: &HashMap<String, String>,
+    delete_sources: bool,
 ) -> Result<ConcatResult> {
     tracing::info!(
         "Starting linked BIN concatenation for: {}",
@@ -298,24 +299,28 @@ pub fn concatenate_linked_bins(
     fs::write(main_bin_path, updated_data).map_err(|e| Error::io_with_path(e, main_bin_path))?;
     tracing::info!("Updated main BIN linked list: {}", main_bin_path.display());
 
-    let mut deleted_count = 0;
-    for source_path in &result.source_paths {
-        let full_path = content_base.join(source_path);
-        if full_path.exists() {
-            match fs::remove_file(&full_path) {
-                Ok(_) => {
-                    tracing::debug!("Deleted source BIN: {}", source_path);
-                    deleted_count += 1;
+    if delete_sources {
+        let mut deleted_count = 0;
+        for source_path in &result.source_paths {
+            let full_path = content_base.join(source_path);
+            if full_path.exists() {
+                match fs::remove_file(&full_path) {
+                    Ok(_) => {
+                        tracing::debug!("Deleted source BIN: {}", source_path);
+                        deleted_count += 1;
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to delete source BIN {}: {}", source_path, e);
+                    }
                 }
-                Err(e) => {
-                    tracing::warn!("Failed to delete source BIN {}: {}", source_path, e);
-                }
+            } else {
+                tracing::debug!("Source BIN already gone: {}", source_path);
             }
-        } else {
-            tracing::debug!("Source BIN already gone: {}", source_path);
         }
+        tracing::info!("Deleted {} source BINs after concatenation", deleted_count);
+    } else {
+        tracing::info!("Skipped deleting {} source BINs because delete_sources is false", result.source_paths.len());
     }
-    tracing::info!("Deleted {} source BINs after concatenation", deleted_count);
 
     Ok(result)
 }

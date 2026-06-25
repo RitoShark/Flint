@@ -247,7 +247,9 @@ fn import_modpkg_internal(
 
     let mut extracted_count = 0;
     let mut path_mappings = HashMap::new();
+    let mut unresolved_files = Vec::new();
     let mut unresolved_count = 0;
+    let total_files = chunk_entries.len();
 
     let mut game = std::collections::BTreeMap::new();
     let mut bin = std::collections::BTreeMap::new();
@@ -273,8 +275,10 @@ fn import_modpkg_internal(
         }
 
         let mut final_path = PathBuf::from(path.clone());
+        let mut is_unresolved = false;
         if is_unresolved_hash(path) {
             unresolved_count += 1;
+            is_unresolved = true;
             tracing::debug!("Unresolved hash in ModPkg: {}", path);
             let ext = crate::commands::import_export::fantome_import::guess_extension(&data);
             final_path.set_extension(ext);
@@ -294,10 +298,10 @@ fn import_modpkg_internal(
 
             wad_base.join(hash_path)
         } else {
-            wad_base.join(final_path)
+            wad_base.join(&final_path)
         };
 
-        let file_path = out_path;
+        let file_path = out_path.clone();
         if let Some(parent) = file_path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create directory: {}", e))?;
@@ -305,6 +309,17 @@ fn import_modpkg_internal(
 
         std::fs::write(&file_path, &*data)
             .map_err(|e| format!("Failed to write file: {}", e))?;
+
+        if is_unresolved {
+            let ext = final_path.extension().and_then(|e| e.to_str()).unwrap_or("dat").to_string();
+            unresolved_files.push((
+                *path_hash,
+                ext,
+                out_path,
+                path.clone(),
+            ));
+        }
+
         extracted_count += 1;
 
         let progress_interval = (total_files / 10).max(50).min(total_files);
@@ -319,12 +334,20 @@ fn import_modpkg_internal(
         }
     }
 
+    if unresolved_count > 0 {
+        tracing::warn!(
+            "Found {} unresolved hashes (custom repathed files) - preserving as-is",
+            unresolved_count
+        );
+    }
+
     tracing::info!(
         "Extracted {} files from ModPkg to {}",
         extracted_count,
         wad_folder_name
     );
 
+    // Merge discovered hashes into LMDB database immediately after extraction
     if !game.is_empty() || !bin.is_empty() {
         let hash_dir_path = Path::new(&hash_dir);
         if let Err(e) = crate::commands::wad::extract_hashes::extract_and_merge_hashes(hash_dir_path, game, bin) {
@@ -332,12 +355,89 @@ fn import_modpkg_internal(
         }
     }
 
+    flint_ltk::hash::lmdb_cache::drop_lmdb_cache();
+
+    // Re-resolve unresolved paths and rename files on disk
+    if !unresolved_files.is_empty() {
+        if let Some(env) = get_or_open_env(&hash_dir) {
+            let hashes_to_resolve: Vec<u64> = unresolved_files.iter().map(|(h, _, _, _)| *h).collect();
+            let newly_resolved = resolve_hashes_lmdb(&hashes_to_resolve, &env);
+
+            let mut resolved_count = 0;
+            for ((hash, guessed_ext, old_path_on_disk, original_path_key), resolved_path) in unresolved_files.iter().zip(newly_resolved.iter()) {
+                if !is_unresolved_hash(resolved_path) {
+                    // It is now resolved!
+                    let final_path = PathBuf::from(resolved_path.clone());
+                    let filename_len = final_path.to_string_lossy().len();
+
+                    if filename_len > 200 {
+                        let parent = final_path.parent().unwrap_or_else(|| Path::new("data"));
+                        let ext = final_path.extension().and_then(|e| e.to_str()).unwrap_or(guessed_ext.as_str());
+                        let hash_name = format!("{:016x}.{}", hash, ext);
+                        let hash_path = parent.join(&hash_name);
+
+                        let orig = final_path.to_string_lossy().to_lowercase().replace('\\', "/");
+                        let act  = hash_path.to_string_lossy().to_lowercase().replace('\\', "/");
+                        path_mappings.insert(orig, act);
+
+                        let new_out_path = wad_base.join(hash_path);
+                        if old_path_on_disk.exists() {
+                            if let Some(p) = new_out_path.parent() {
+                                std::fs::create_dir_all(p).unwrap_or_default();
+                            }
+                            if let Err(e) = std::fs::rename(old_path_on_disk, &new_out_path) {
+                                tracing::warn!("Failed to rename resolved long path file: {}", e);
+                            }
+                        }
+                    } else {
+                        let new_out_path = wad_base.join(&final_path);
+                        if old_path_on_disk.exists() {
+                            if let Some(p) = new_out_path.parent() {
+                                std::fs::create_dir_all(p).unwrap_or_default();
+                            }
+                            if let Err(e) = std::fs::rename(old_path_on_disk, &new_out_path) {
+                                tracing::warn!("Failed to rename resolved file to {}: {}", new_out_path.display(), e);
+                            } else {
+                                resolved_count += 1;
+                            }
+                        }
+                    }
+                } else {
+                    // Still unresolved. Add to path_mappings to map the extensionless path to the file with extension
+                    let orig = original_path_key.to_lowercase().replace('\\', "/");
+                    if let Ok(rel_path) = old_path_on_disk.strip_prefix(&wad_base) {
+                        let act = rel_path.to_string_lossy().to_lowercase().replace('\\', "/");
+                        path_mappings.insert(orig, act);
+                    }
+                }
+            }
+            tracing::info!("Re-resolved and renamed {}/{} unresolved files after hash extraction", resolved_count, unresolved_files.len());
+        }
+    }
+
     if let Some(thumb_data) = thumbnail {
         let thumb_path = project_path.join("thumbnail.webp");
-        if let Err(e) = std::fs::write(&thumb_path, &thumb_data) {
+        
+        // Try decoding using the image crate and converting to WebP
+        if let Ok(img) = image::load_from_memory(&thumb_data) {
+            match File::create(&thumb_path) {
+                Ok(webp_file) => {
+                    let mut writer = std::io::BufWriter::new(webp_file);
+                    if let Err(e) = img.write_to(&mut writer, image::ImageFormat::WebP) {
+                        tracing::warn!("Failed to write WebP thumbnail, saving raw: {}", e);
+                        let _ = std::fs::write(&thumb_path, &thumb_data);
+                    } else {
+                        tracing::info!("Saved converted thumbnail to WebP format from ModPkg");
+                    }
+                }
+                Err(_) => {
+                    let _ = std::fs::write(&thumb_path, &thumb_data);
+                }
+            }
+        } else if let Err(e) = std::fs::write(&thumb_path, &thumb_data) {
             tracing::warn!("Failed to save thumbnail: {}", e);
         } else {
-            tracing::info!("Saved thumbnail from ModPkg");
+            tracing::info!("Saved thumbnail from ModPkg as-is");
         }
     }
 
@@ -448,6 +548,8 @@ fn import_modpkg_internal(
             target_skin_id,
             cleanup_unused: false,
             wad_folder_override: None,
+            skip_bin_cleanup: true,
+            delete_sources: false,
         };
 
         organize_project(&content_path, &config, &path_mappings)

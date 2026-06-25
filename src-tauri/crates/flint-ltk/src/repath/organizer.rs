@@ -24,6 +24,8 @@ pub struct OrganizerConfig {
     /// Override the WAD folder name (e.g. "Companions.wad.client" for TFT).
     /// When None, defaults to "{champion}.wad.client".
     pub wad_folder_override: Option<String>,
+    pub skip_bin_cleanup: bool,
+    pub delete_sources: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -81,6 +83,7 @@ pub fn organize_project(
                 &champion_sanitized,
                 &file_base,
                 path_mappings,
+                config.delete_sources,
             ) {
                 Ok(concat_result) => {
                     tracing::info!(
@@ -108,6 +111,7 @@ pub fn organize_project(
             champion: champion_sanitized.clone(),
             target_skin_id: config.target_skin_id,
             cleanup_unused: config.cleanup_unused,
+            skip_bin_cleanup: config.skip_bin_cleanup,
         };
 
         match repath_project(content_base, &repath_config, path_mappings) {
@@ -220,6 +224,8 @@ mod tests {
             target_skin_id: 8,
             cleanup_unused: true,
             wad_folder_override: None,
+            skip_bin_cleanup: false,
+            delete_sources: true,
         }
     }
 

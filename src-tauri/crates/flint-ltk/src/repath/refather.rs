@@ -194,6 +194,7 @@ pub struct RepathConfig {
     pub champion: String,
     pub target_skin_id: u32,
     pub cleanup_unused: bool,
+    pub skip_bin_cleanup: bool,
 }
 
 impl RepathConfig {
@@ -390,9 +391,13 @@ pub fn repath_project(
         tracing::info!("[TIMING] step6 cleanup_unused_files ({} removed): {:?}", result.files_removed, t_step6.elapsed());
     }
 
-    let t_step7 = std::time::Instant::now();
-    cleanup_irrelevant_bins(file_base, &config.champion, config.target_skin_id)?;
-    tracing::info!("[TIMING] step7 cleanup_irrelevant_bins: {:?}", t_step7.elapsed());
+    if !config.skip_bin_cleanup {
+        let t_step7 = std::time::Instant::now();
+        cleanup_irrelevant_bins(file_base, &config.champion, config.target_skin_id)?;
+        tracing::info!("[TIMING] step7 cleanup_irrelevant_bins: {:?}", t_step7.elapsed());
+    } else {
+        tracing::info!("Skipping cleanup_irrelevant_bins because skip_bin_cleanup is true");
+    }
 
     let t_step8 = std::time::Instant::now();
     cleanup_empty_dirs(file_base)?;
@@ -959,6 +964,7 @@ mod tests {
             champion: "Renekton".to_string(),
             target_skin_id: 42,
             cleanup_unused: true,
+            skip_bin_cleanup: false,
         };
 
         assert_eq!(
@@ -997,6 +1003,7 @@ mod tests {
             champion: "Renekton".to_string(),
             target_skin_id: 42,
             cleanup_unused: true,
+            skip_bin_cleanup: false,
         };
 
         assert_eq!(
@@ -1026,6 +1033,7 @@ mod tests {
             champion: "Renekton".to_string(),
             target_skin_id: 42,
             cleanup_unused: true,
+            skip_bin_cleanup: false,
         };
 
         assert_eq!(
@@ -1065,6 +1073,7 @@ mod tests {
             champion: "Kayn".to_string(),
             target_skin_id: 20,
             cleanup_unused: true,
+            skip_bin_cleanup: false,
         };
 
         assert_eq!(
@@ -1121,6 +1130,7 @@ mod tests {
             champion: "Renekton".to_string(),
             target_skin_id: 42,
             cleanup_unused: true,
+            skip_bin_cleanup: false,
         };
 
         assert_eq!(
@@ -1254,6 +1264,7 @@ mod tests {
             champion: "Kayn".to_string(),
             target_skin_id: 20,
             cleanup_unused: true,
+            skip_bin_cleanup: false,
         };
 
         let asset_path = AssetPath::SoundSfx {
@@ -1274,6 +1285,7 @@ mod tests {
             champion: "Kayn".to_string(),
             target_skin_id: 20,
             cleanup_unused: true,
+            skip_bin_cleanup: false,
         };
 
         let original = "assets/sounds/wwise2016/vo/en_us/kayn_vo.wpk";

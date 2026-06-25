@@ -8,7 +8,6 @@ import {
 import type { FileEditorTarget } from '../../lib/types';
 import { BinEditor } from '../preview/BinEditor';
 import { LuaBin64Editor } from '../preview/LuaBin64Editor';
-import { ModPackageViewer } from '../preview/ModPackageViewer';
 import { Button, Field, FormGroup, FormLabel, Input, Textarea } from '../ui';
 
 // ─── mod.config.json structured editor ──────────────────────────────────
