@@ -268,6 +268,7 @@ pub async fn create_project(
             skip_bin_cleanup: false,
             delete_sources: true,
             consolidate_vfx: false,
+            cleanup_pipeline: false,
         };
 
         let assets_path_for_concat = project.assets_path();
@@ -310,6 +311,7 @@ pub async fn create_project(
                 skip_bin_cleanup: false,
                 delete_sources: true,
                 consolidate_vfx: false,
+                cleanup_pipeline: false,
             };
 
             let assets_path_for_repath = project.assets_path();

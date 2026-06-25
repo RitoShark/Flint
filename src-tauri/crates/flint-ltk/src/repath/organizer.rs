@@ -28,6 +28,9 @@ pub struct OrganizerConfig {
     /// everything else → main skin BIN). When false, use legacy concat. Only the
     /// import pipeline sets this true; project-creation and export keep concat.
     pub consolidate_vfx: bool,
+    /// When true, run the import cleanup pass (unhash, dds->tex, sco->scb, BIN
+    /// extension rewrite, 2x/4x strip) after consolidation+repath. Import only.
+    pub cleanup_pipeline: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -165,6 +168,17 @@ pub fn organize_project(
         }
     }
 
+    if config.cleanup_pipeline {
+        let wad_root = file_base.clone(); // the .wad.client folder used above
+        if let Ok(hash_dir) = crate::hash::get_hash_dir() {
+            let hash_dir = hash_dir.to_string_lossy().to_string();
+            if let Some(env) = crate::hash::lmdb_cache::get_or_open_env(&hash_dir) {
+                let resolve = |hs: &[u64]| crate::hash::lmdb_cache::resolve_hashes_lmdb(hs, &env);
+                let _ = crate::repath::cleanup::run_cleanup_pipeline(&wad_root, &resolve);
+            }
+        }
+    }
+
     tracing::info!("Project organization complete");
     Ok(result)
 }
@@ -263,6 +277,7 @@ mod tests {
             skip_bin_cleanup: false,
             delete_sources: true,
             consolidate_vfx: false,
+            cleanup_pipeline: false,
         }
     }
 

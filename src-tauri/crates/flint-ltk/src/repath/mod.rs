@@ -2,6 +2,7 @@
 //! conflicts between mods.
 
 pub mod refather;
+pub mod cleanup;
 pub mod convert;
 pub mod organizer;
 pub mod rename;

@@ -566,6 +566,7 @@ fn import_modpkg_internal(
             skip_bin_cleanup: true,
             delete_sources: false,
             consolidate_vfx: true,
+            cleanup_pipeline: true,
         };
 
         organize_project(&content_path, &config, &path_mappings)
