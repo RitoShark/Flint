@@ -67,10 +67,17 @@ enum AssetPath<'a> {
         subpath: &'a str,
     },
 
-    /// Non-champion assets (particles/, maps/, …) → creator-level shared/ folder.
+    /// Non-champion assets (maps/, …) → creator-level shared/ folder.
     Shared {
         /// Path after stripping "shared/" prefix if present.
         subpath: &'a str,
+    },
+
+    /// Author/shared VFX with a `particles/` segment → champion project folder.
+    /// Relocated under `ASSETS/{creator}/{project}/particles/<rest>`.
+    SharedParticles {
+        /// Path from the `particles/` segment onward (inclusive of `particles/`).
+        particles_tail: &'a str,
     },
 }
 
@@ -125,6 +132,14 @@ impl<'a> AssetPath<'a> {
 
         // Strip "shared/" prefix if present to avoid duplication.
         let subpath = Self::strip_prefix_ignore_case(stripped, "shared/").unwrap_or(stripped);
+
+        // Author/shared VFX (a `particles/` segment) relocate under the champion project.
+        if let Some(idx) = particles_segment_start(subpath) {
+            return Some(AssetPath::SharedParticles {
+                particles_tail: &subpath[idx..],
+            });
+        }
+
         Some(AssetPath::Shared { subpath })
     }
 
@@ -168,6 +183,9 @@ impl<'a> AssetPath<'a> {
             }
             AssetPath::Shared { subpath } => {
                 format!("ASSETS/{}/shared/{}", creator, subpath)
+            }
+            AssetPath::SharedParticles { particles_tail } => {
+                format!("ASSETS/{}/{}", config.prefix(), particles_tail)
             }
         }
     }
@@ -473,6 +491,23 @@ fn is_asset_path(s: &str) -> bool {
 /// Lowercase with forward slashes.
 fn normalize_path(s: &str) -> String {
     s.to_lowercase().replace('\\', "/")
+}
+
+/// Find the byte index where a `particles/` path segment begins (case-insensitive).
+/// A segment match requires `particles/` to be at the start of `subpath` or
+/// immediately preceded by `/` (so `myparticles/x` does NOT match).
+fn particles_segment_start(subpath: &str) -> Option<usize> {
+    let lower = subpath.to_lowercase();
+    let needle = "particles/";
+    let mut from = 0usize;
+    while let Some(rel) = lower[from..].find(needle) {
+        let idx = from + rel;
+        if idx == 0 || lower.as_bytes()[idx - 1] == b'/' {
+            return Some(idx);
+        }
+        from = idx + 1;
+    }
+    None
 }
 
 fn apply_prefix_to_path(path: &str, _prefix: &str, config: &RepathConfig) -> String {
@@ -1075,30 +1110,95 @@ mod tests {
 
         assert_eq!(
             apply_prefix_to_path(
-                "assets/particles/fire_vfx.dds",
-                "SirDexal/Renny",
-                &config
-            ),
-            "ASSETS/SirDexal/shared/particles/fire_vfx.dds"
-        );
-
-        assert_eq!(
-            apply_prefix_to_path(
                 "data/maps/summoners_rift/textures/grass.dds",
                 "SirDexal/Renny",
                 &config
             ),
             "ASSETS/SirDexal/shared/maps/summoners_rift/textures/grass.dds"
         );
+    }
 
-        // League's existing shared/ folder must not be duplicated to shared/shared/.
+    #[test]
+    fn particles_segment_start_unit() {
+        assert_eq!(particles_segment_start("particles/x"), Some(0));
+        assert_eq!(particles_segment_start("a/particles/x"), Some(2));
+        assert_eq!(particles_segment_start("a/b.dds"), None);
+        assert_eq!(particles_segment_start("myparticles/x"), None);
+    }
+
+    #[test]
+    fn shared_particles_relocate_under_project() {
+        let config = RepathConfig {
+            creator_name: "CZ".to_string(),
+            project_name: "Project-Yone".to_string(),
+            champion: "yone".to_string(),
+            target_skin_id: 1,
+            cleanup_unused: true,
+            skip_bin_cleanup: false,
+        };
+
         assert_eq!(
             apply_prefix_to_path(
-                "assets/shared/particles/fire.dds",
-                "SirDexal/Renny",
+                "assets/shared/sirdexal/project-yone/particles/ba-vfx/x.dds",
+                "CZ/Project-Yone",
                 &config
             ),
-            "ASSETS/SirDexal/shared/particles/fire.dds"
+            "ASSETS/CZ/Project-Yone/particles/ba-vfx/x.dds"
+        );
+    }
+
+    #[test]
+    fn shared_particles_at_root() {
+        let config = RepathConfig {
+            creator_name: "CZ".to_string(),
+            project_name: "Project-Yone".to_string(),
+            champion: "yone".to_string(),
+            target_skin_id: 1,
+            cleanup_unused: true,
+            skip_bin_cleanup: false,
+        };
+
+        assert_eq!(
+            apply_prefix_to_path("assets/particles/fire.dds", "CZ/Project-Yone", &config),
+            "ASSETS/CZ/Project-Yone/particles/fire.dds"
+        );
+    }
+
+    #[test]
+    fn shared_non_particle_unchanged() {
+        let config = RepathConfig {
+            creator_name: "CZ".to_string(),
+            project_name: "Project-Yone".to_string(),
+            champion: "yone".to_string(),
+            target_skin_id: 1,
+            cleanup_unused: true,
+            skip_bin_cleanup: false,
+        };
+
+        assert_eq!(
+            apply_prefix_to_path("assets/shared/maps/x.dds", "CZ/Project-Yone", &config),
+            "ASSETS/CZ/shared/maps/x.dds"
+        );
+    }
+
+    #[test]
+    fn target_champion_particle_unchanged() {
+        let config = RepathConfig {
+            creator_name: "CZ".to_string(),
+            project_name: "Project-Yone".to_string(),
+            champion: "yone".to_string(),
+            target_skin_id: 1,
+            cleanup_unused: true,
+            skip_bin_cleanup: false,
+        };
+
+        assert_eq!(
+            apply_prefix_to_path(
+                "assets/characters/yone/skins/skin0/particles/x.dds",
+                "CZ/Project-Yone",
+                &config
+            ),
+            "ASSETS/CZ/Project-Yone/particles/x.dds"
         );
     }
 
@@ -1253,13 +1353,13 @@ mod tests {
 
     #[test]
     fn test_asset_path_parse_shared() {
-        let path = "assets/particles/fire.dds";
+        let path = "assets/maps/sr/fire.dds";
         let parsed = AssetPath::parse(path, "Kayn");
 
         assert!(parsed.is_some());
         match parsed.unwrap() {
             AssetPath::Shared { subpath } => {
-                assert_eq!(subpath, "particles/fire.dds");
+                assert_eq!(subpath, "maps/sr/fire.dds");
             }
             _ => panic!("Expected Shared variant"),
         }
@@ -1267,15 +1367,34 @@ mod tests {
 
     #[test]
     fn test_asset_path_parse_shared_with_prefix() {
-        let path = "assets/shared/particles/fire.dds";
+        let path = "assets/shared/maps/sr/fire.dds";
         let parsed = AssetPath::parse(path, "Kayn");
 
         assert!(parsed.is_some());
         match parsed.unwrap() {
             AssetPath::Shared { subpath } => {
-                assert_eq!(subpath, "particles/fire.dds");
+                assert_eq!(subpath, "maps/sr/fire.dds");
             }
             _ => panic!("Expected Shared variant"),
+        }
+    }
+
+    #[test]
+    fn test_asset_path_parse_shared_particles() {
+        // A shared-category path with a particles/ segment routes to SharedParticles,
+        // carrying the tail from particles/ onward (inclusive).
+        match AssetPath::parse("assets/particles/fire.dds", "Kayn").unwrap() {
+            AssetPath::SharedParticles { particles_tail } => {
+                assert_eq!(particles_tail, "particles/fire.dds");
+            }
+            _ => panic!("Expected SharedParticles variant"),
+        }
+
+        match AssetPath::parse("assets/shared/sirdexal/proj/particles/x.dds", "Kayn").unwrap() {
+            AssetPath::SharedParticles { particles_tail } => {
+                assert_eq!(particles_tail, "particles/x.dds");
+            }
+            _ => panic!("Expected SharedParticles variant"),
         }
     }
 
