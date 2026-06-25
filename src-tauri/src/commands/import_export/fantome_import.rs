@@ -300,6 +300,7 @@ fn apply_refathering(
         wad_folder_override: None,
         skip_bin_cleanup: true,
         delete_sources: false,
+        consolidate_vfx: true,
     };
 
     organize_project(content_path, &config, path_mappings)
