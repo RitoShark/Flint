@@ -9,6 +9,7 @@ use std::path::Path;
 #[derive(Debug, Default, Clone)]
 pub struct CleanupReport {
     pub unhashed: usize,
+    pub deleted_orphans: usize,
     pub dds_to_tex: usize,
     pub sco_to_scb: usize,
     pub bins_ext_rewritten: usize,
@@ -19,8 +20,10 @@ pub fn run_cleanup_pipeline(
     wad_root: &Path,
     resolve: &dyn Fn(&[u64]) -> Vec<String>,
 ) -> CleanupReport {
+    let unhash_res = super::unhash::unhash_project_files(wad_root, resolve);
     let mut report = CleanupReport {
-        unhashed: super::unhash::unhash_project_files(wad_root, resolve),
+        unhashed: unhash_res.renamed,
+        deleted_orphans: unhash_res.deleted_orphans,
         ..CleanupReport::default()
     };
     match super::convert::convert_meshes_and_textures(wad_root) {
@@ -36,8 +39,8 @@ pub fn run_cleanup_pipeline(
     }
     report.hd_twins_removed = super::texclean::strip_hd_twins(wad_root);
     tracing::info!(
-        "Cleanup pipeline: {} unhashed, {} dds->tex, {} sco->scb, {} bins rewritten, {} HD twins removed",
-        report.unhashed, report.dds_to_tex, report.sco_to_scb, report.bins_ext_rewritten, report.hd_twins_removed
+        "Cleanup pipeline: {} unhashed, {} orphans deleted, {} dds->tex, {} sco->scb, {} bins rewritten, {} HD twins removed",
+        report.unhashed, report.deleted_orphans, report.dds_to_tex, report.sco_to_scb, report.bins_ext_rewritten, report.hd_twins_removed
     );
     report
 }
