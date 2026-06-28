@@ -102,11 +102,29 @@ pub fn parse_skn_file<P: AsRef<Path>>(path: P) -> anyhow::Result<SknMeshData> {
 
     let indices: Vec<u16> = mesh.indices().to_vec();
 
-    let aabb = mesh.bounding_box;
-    let bounding_box = [
-        [aabb.min.x, aabb.min.y, aabb.min.z],
-        [aabb.max.x, aabb.max.y, aabb.max.z],
-    ];
+    /* Recompute the AABB from the TRANSFORMED positions (X negated above) rather
+       than trusting `mesh.bounding_box`. The stored box is in League's
+       un-mirrored space, so reusing it puts the camera target on the wrong side
+       of the mesh; worse, Blender-exported SKNs (e.g. via the Aventurine tool)
+       frequently carry a zeroed/garbage box, which collapses camera framing so
+       you can't zoom or pan out. Mirrors scb.rs. */
+    let mut bb_min = [f32::MAX; 3];
+    let mut bb_max = [f32::MIN; 3];
+    for p in &positions {
+        for i in 0..3 {
+            if p[i] < bb_min[i] {
+                bb_min[i] = p[i];
+            }
+            if p[i] > bb_max[i] {
+                bb_max[i] = p[i];
+            }
+        }
+    }
+    if positions.is_empty() {
+        bb_min = [0.0; 3];
+        bb_max = [0.0; 3];
+    }
+    let bounding_box = [bb_min, bb_max];
 
     let bone_weights: Vec<[f32; 4]> = vertices
         .iter()
