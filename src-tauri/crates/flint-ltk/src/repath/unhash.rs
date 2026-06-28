@@ -27,9 +27,41 @@ const ASSET_EXTS: &[&str] = &[
     "tga", "bin", "troybin", "luabin", "stringtable", "json",
 ];
 
+/// Walk a `BinValue` tree and collect any `File(u64)` hashes into `set`.
+/// `File` is the only `BinValue` variant that holds a u64 WAD-style xxh64 file
+/// reference.  `Hash(u32)` and `Link(u32)` are FNV1a-32 entry/type hashes —
+/// NOT file path hashes — so they are intentionally skipped.
+fn collect_file_hashes_from_value(value: &crate::bin::BinValue, set: &mut HashSet<u64>) {
+    use crate::bin::BinValue;
+    match value {
+        BinValue::File(h) => { set.insert(*h); }
+        BinValue::List { items, .. } => {
+            for item in items {
+                collect_file_hashes_from_value(item, set);
+            }
+        }
+        BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
+            for v in fields.values() {
+                collect_file_hashes_from_value(v, set);
+            }
+        }
+        BinValue::Option { value: Some(inner), .. } => {
+            collect_file_hashes_from_value(inner, set);
+        }
+        BinValue::Map { entries, .. } => {
+            for (k, v) in entries {
+                collect_file_hashes_from_value(k, set);
+                collect_file_hashes_from_value(v, set);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Scan all `.bin` files under `wad_root` and return the set of u64 hashes that
 /// are referenced — either as bare 16-hex tokens or via `xxh64(lowercased path
-/// string)` for any asset-path-looking ASCII substring.
+/// string)` for any asset-path-looking ASCII substring, OR as structured
+/// `BinValue::File(u64)` values parsed from the binary BIN format.
 fn collect_referenced_hashes(wad_root: &Path) -> HashSet<u64> {
     let mut referenced: HashSet<u64> = HashSet::new();
 
@@ -43,7 +75,19 @@ fn collect_referenced_hashes(wad_root: &Path) -> HashSet<u64> {
         }
         let Ok(bytes) = std::fs::read(path) else { continue };
 
-        // Walk bytes collecting printable ASCII runs.
+        // --- Structured pass: parse the binary BIN and extract File(u64) values. ---
+        // Ignore parse errors; the byte-scan below acts as a fallback.
+        if let Ok(bin) = crate::bin::read_bin(&bytes) {
+            for entry in &bin.entries {
+                for value in entry.fields.values() {
+                    collect_file_hashes_from_value(value, &mut referenced);
+                }
+            }
+        }
+
+        // --- Byte-scan pass: walk bytes collecting printable ASCII runs. ---
+        // This catches bare 16-hex tokens and path strings even in files that
+        // fail the structured parse.
         let mut i = 0usize;
         while i < bytes.len() {
             // Collect an ASCII run.
@@ -92,6 +136,12 @@ fn collect_referenced_hashes(wad_root: &Path) -> HashSet<u64> {
 ///
 /// Unresolvable files that are not referenced by any surviving BIN are deleted
 /// as dead-weight orphans.
+///
+/// **Degraded-resolver guard**: if the resolver fails to resolve ANY of the
+/// hashed files (i.e. every hash in the batch comes back as its own hex stem),
+/// and there are at least 2 hashed files, this strongly indicates a corrupt or
+/// empty LMDB rather than a genuinely all-orphan project. In that case orphan
+/// deletion is skipped entirely (files are kept) and a warning is emitted.
 pub fn unhash_project_files(wad_root: &Path, resolve: &dyn Fn(&[u64]) -> Vec<String>) -> UnhashResult {
     // 1) Collect (hash, ext, disk_path) for every hashed file.
     let mut hashes: Vec<u64> = Vec::new();
@@ -125,8 +175,24 @@ pub fn unhash_project_files(wad_root: &Path, resolve: &dyn Fn(&[u64]) -> Vec<Str
         }
     }
 
+    // 3b) Degraded-resolver guard: if EVERY hashed file is unresolved and there
+    // are at least 2 of them, skip orphan deletion. A working resolver will
+    // resolve at least some files when a project has genuine assets; resolving
+    // nothing for a multi-file project almost certainly means the LMDB is empty
+    // or corrupt rather than every file being a genuine orphan.
+    let skip_orphan_delete = !hashes.is_empty()
+        && unresolved_hashes.len() == hashes.len()
+        && hashes.len() >= 2;
+    if skip_orphan_delete {
+        tracing::warn!(
+            "unhash: resolver returned unresolved hex stems for all {} hashed file(s) — \
+             likely a degraded/empty LMDB; skipping orphan deletion to avoid mass-deletion",
+            hashes.len()
+        );
+    }
+
     // 4) Build the referenced-hash set from surviving BINs (only if needed).
-    let referenced = if unresolved_hashes.is_empty() {
+    let referenced = if unresolved_hashes.is_empty() || skip_orphan_delete {
         HashSet::new()
     } else {
         collect_referenced_hashes(wad_root)
@@ -140,7 +206,12 @@ pub fn unhash_project_files(wad_root: &Path, resolve: &dyn Fn(&[u64]) -> Vec<Str
     for ((ext, disk_path), (path, &hash)) in entries.iter().zip(resolved.iter().zip(hashes.iter())) {
         let stem = Path::new(path).file_stem().and_then(|s| s.to_str()).unwrap_or("");
         if is_hash_stem(stem) {
-            // Unresolved — check BIN references.
+            // Unresolved — check degraded-resolver guard first.
+            if skip_orphan_delete {
+                // Guard active: leave ALL unresolved files; don't delete anything.
+                continue;
+            }
+            // Guard not active: check BIN references.
             if !referenced.contains(&hash) {
                 // Truly orphaned; delete it.
                 let _ = std::fs::remove_file(disk_path);
@@ -218,6 +289,7 @@ mod tests {
         std::fs::write(root.join(&name), b"X").unwrap();
         let resolve = |hs: &[u64]| hs.iter().map(|h| format!("{:016x}", h)).collect();
         // No BINs reference this hash → it must be deleted as an orphan.
+        // Note: only 1 hashed file, so the degraded-resolver guard (>=2) does NOT fire.
         let res = unhash_project_files(root, &resolve);
         assert_eq!(res.deleted_orphans, 1, "unreferenced unresolved hash deleted");
         assert!(!root.join(&name).exists(), "orphan file should be gone");
@@ -240,5 +312,70 @@ mod tests {
         let res = unhash_project_files(root, &resolve);
         assert_eq!(res.deleted_orphans, 0, "referenced unresolved hash must be kept");
         assert!(root.join(&name).exists(), "file referenced by a bin must survive");
+    }
+
+    /// FIX 1: When the resolver returns hex stems for ALL hashed files AND there
+    /// are >= 2 of them, skip orphan deletion (degraded-resolver guard).
+    #[test]
+    fn skips_orphan_delete_when_all_unresolved() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        // Three hashed files; resolver returns hex for all (simulates empty LMDB).
+        let h1 = 0x0000000000000001u64;
+        let h2 = 0x0000000000000002u64;
+        let h3 = 0x0000000000000003u64;
+        std::fs::write(root.join(format!("{:016x}.dds", h1)), b"A").unwrap();
+        std::fs::write(root.join(format!("{:016x}.dds", h2)), b"B").unwrap();
+        std::fs::write(root.join(format!("{:016x}.dds", h3)), b"C").unwrap();
+
+        // No BINs anywhere — all three would be "orphans" under a naive check.
+        let resolve = |hs: &[u64]| hs.iter().map(|h| format!("{:016x}", h)).collect();
+        let res = unhash_project_files(root, &resolve);
+
+        assert_eq!(res.deleted_orphans, 0, "degraded-resolver guard must prevent deletion");
+        // All three files must still exist on disk.
+        assert!(root.join(format!("{:016x}.dds", h1)).exists(), "file 1 must survive");
+        assert!(root.join(format!("{:016x}.dds", h2)).exists(), "file 2 must survive");
+        assert!(root.join(format!("{:016x}.dds", h3)).exists(), "file 3 must survive");
+    }
+
+    /// FIX 2: An orphan whose hash appears as a `BinValue::File(h)` in a real
+    /// binary-format BIN must be kept (structured-parse pass).
+    #[test]
+    fn keeps_orphan_referenced_by_binary_filehash() {
+        use crate::bin::{Bin, BinEntry, BinValue};
+        use indexmap::IndexMap;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        // The file hash we want to protect.
+        let h = 0xc0ffee00deadbeefu64;
+        let name = format!("{:016x}.dds", h);
+        std::fs::write(root.join(&name), b"ASSET").unwrap();
+
+        // Build a real PROP BIN that contains a BinValue::File(h) field.
+        let mut fields = IndexMap::new();
+        fields.insert(0x12345678u32, BinValue::File(h));
+        let mut bin = Bin::new();
+        bin.entries.push(BinEntry {
+            path_hash: 0xaabbccddu32,
+            class_hash: 0x11223344u32,
+            fields,
+        });
+        let bin_bytes = crate::bin::write_bin(&bin).expect("write_bin must succeed");
+        std::fs::write(root.join("skin0.bin"), &bin_bytes).unwrap();
+
+        // Resolver returns hex for the hashed file (simulates a miss in LMDB).
+        // Only 1 hashed file → degraded-resolver guard (>=2) does NOT fire.
+        let resolve = |hs: &[u64]| hs.iter().map(|h| format!("{:016x}", h)).collect();
+        let res = unhash_project_files(root, &resolve);
+
+        assert_eq!(
+            res.deleted_orphans, 0,
+            "file referenced by BinValue::File must not be deleted"
+        );
+        assert!(root.join(&name).exists(), "asset protected by binary File ref must survive");
     }
 }
