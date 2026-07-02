@@ -179,21 +179,54 @@ pub fn drop_lmdb_cache() {
         let mut g = bin_mutex().lock().unwrap_or_else(|e| e.into_inner());
         *g = None;
     }
+    // DB handles are tied to the dropped envs — a reopened env gets a new
+    // pointer and heed panics on a stale handle.
+    if let Some(m) = DB_HANDLES.get() {
+        m.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
     tracing::debug!("LMDB env caches cleared");
 }
 
 // ── Resolve helpers ───────────────────────────────────────────────────────────
+
+static DB_HANDLES: OnceLock<Mutex<HashMap<String, Database<Bytes, Str>>>> = OnceLock::new();
+
+/// Resolve the (named, else unnamed) DB handle for an env, opening it at most
+/// once per process behind a mutex.
+///
+/// SAFETY-CRITICAL: LMDB forbids concurrent `mdb_dbi_open` within a process —
+/// it mutates the env's dbi slot table without locking, and heed 0.20 adds no
+/// serialization. Unguarded concurrent first opens (e.g. rayon tasks in
+/// `resolve_hashes_lmdb_bulk`, or two parallel `load_all_wad_chunks` commands)
+/// corrupt the heap (observed STATUS_HEAP_CORRUPTION). The opening txn is
+/// COMMITTED so the dbi becomes env-global; the `Copy` handle is then shared.
+pub fn cached_db(env: &heed::Env, name: &str) -> Option<Database<Bytes, Str>> {
+    let key = format!("{}\u{1}{}", env.path().display(), name);
+    let mut g = DB_HANDLES
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if let Some(db) = g.get(&key) {
+        return Some(*db);
+    }
+    let rtxn = env.read_txn().ok()?;
+    let db = env
+        .open_database::<Bytes, Str>(&rtxn, Some(name))
+        .ok()
+        .flatten()
+        .or_else(|| env.open_database::<Bytes, Str>(&rtxn, None).ok().flatten())?;
+    rtxn.commit().ok()?;
+    g.insert(key, db);
+    Some(db)
+}
 
 /// Open a read txn and the named DB in one shot, with a shared lifetime.
 fn open_read_db<'a>(
     env: &'a heed::Env,
     name: &str,
 ) -> Option<(heed::RoTxn<'a>, Database<Bytes, Str>)> {
+    let db = cached_db(env, name)?;
     let rtxn = env.read_txn().ok()?;
-    if let Some(db) = env.open_database::<Bytes, Str>(&rtxn, Some(name)).ok().flatten() {
-        return Some((rtxn, db));
-    }
-    let db = env.open_database::<Bytes, Str>(&rtxn, None).ok().flatten()?;
     Some((rtxn, db))
 }
 
