@@ -1,8 +1,6 @@
 //! Orchestrates concat and refather workflows with independent control.
 
-use crate::bin::concat::{
-    concatenate_linked_bins, ConcatResult,
-};
+use crate::bin::concat::{concatenate_linked_bins, ConcatResult};
 use crate::repath::refather::{repath_project, RepathConfig, RepathResult};
 use crate::error::Result;
 use std::collections::HashMap;
@@ -24,6 +22,15 @@ pub struct OrganizerConfig {
     /// Override the WAD folder name (e.g. "Companions.wad.client" for TFT).
     /// When None, defaults to "{champion}.wad.client".
     pub wad_folder_override: Option<String>,
+    pub skip_bin_cleanup: bool,
+    pub delete_sources: bool,
+    /// When true, consolidate via the VFX-organize pass (VFX → data/<vfx>.bin,
+    /// everything else → main skin BIN). When false, use legacy concat. Only the
+    /// import pipeline sets this true; project-creation and export keep concat.
+    pub consolidate_vfx: bool,
+    /// When true, run the import cleanup pass (unhash, dds->tex, sco->scb, BIN
+    /// extension rewrite, 2x/4x strip) after consolidation+repath. Import only.
+    pub cleanup_pipeline: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -71,27 +78,95 @@ pub fn organize_project(
         None
     };
 
+    // Sub-champions only exist in regular champion WADs, not TFT or imports.
+    let sub_bins = if config.wad_folder_override.is_none() && !config.consolidate_vfx {
+        find_sub_skin_bins(&file_base, &champion_sanitized, config.target_skin_id)
+    } else {
+        Vec::new()
+    };
+
+    // CONSOLIDATION: VFX-organize on the import path, legacy concat otherwise.
     if config.enable_concat {
-        if let Some(ref main_path) = main_bin_path {
-            tracing::info!("Running BIN concatenation...");
-            match concatenate_linked_bins(
-                main_path,
-                &config.project_name,
-                &config.creator_name,
-                &champion_sanitized,
-                &file_base,
-                path_mappings,
-            ) {
-                Ok(concat_result) => {
-                    tracing::info!(
-                        "Concatenation complete: {} BINs merged into {}",
-                        concat_result.source_count,
-                        concat_result.concat_path
-                    );
-                    result.concat_result = Some(concat_result);
+        if config.consolidate_vfx {
+            // *** Import path: VFX → data/<vfx>.bin, everything else → main skin BIN ***
+            let bins = crate::bin::split::collect_folder_bins(&file_base);
+            if bins.is_empty() {
+                tracing::warn!("Cannot consolidate: no BINs found under {}", file_base.display());
+            } else {
+                let owner = main_bin_path.clone().or_else(|| {
+                    let with_counts: Vec<(std::path::PathBuf, usize)> = bins
+                        .iter()
+                        .filter_map(|p| {
+                            let data = std::fs::read(p).ok()?;
+                            let bin = crate::bin::read_bin(&data).ok()?;
+                            Some((p.clone(), bin.entries.len()))
+                        })
+                        .collect();
+                    crate::bin::split::pick_owner_bin(&with_counts)
+                });
+                match owner {
+                    Some(owner_path) => {
+                        let project_root = crate::bin::split::find_wad_root(&file_base);
+                        let vfx_name = format!("{}_vfx.bin", config.project_name.replace(' ', "-").to_lowercase());
+                        match crate::bin::split::organize_vfx_in_folder(&bins, &owner_path, &project_root, &vfx_name) {
+                            Ok(r) => tracing::info!(
+                                "VFX consolidation: {} VFX moved, {} merged, {} sources removed",
+                                r.vfx_objects_moved, r.main_objects_merged, r.sources_deleted.len()
+                            ),
+                            Err(e) => tracing::warn!("VFX consolidation failed: {}", e),
+                        }
+                    }
+                    None => tracing::warn!("Cannot consolidate: no owner BIN found"),
                 }
-                Err(e) => {
-                    tracing::warn!("Concatenation failed: {}", e);
+            }
+        } else if let Some(ref main_path) = main_bin_path {
+            // *** Project-creation / export path: legacy concat ***
+            // Shared Type-3 BINs can be linked from several roots, so sources
+            // are deleted only after every root has been concatenated.
+            tracing::info!("Running BIN concatenation...");
+            let mut source_paths: Vec<String> = Vec::new();
+
+            let roots = std::iter::once((config.project_name.clone(), main_path.clone()))
+                .chain(sub_bins.iter().map(|(sub, path)| {
+                    (format!("{}_{}", config.project_name, capitalize(sub)), path.clone())
+                }));
+
+            for (project_name, root) in roots {
+                match concatenate_linked_bins(
+                    &root,
+                    &project_name,
+                    &config.creator_name,
+                    &champion_sanitized,
+                    &file_base,
+                    path_mappings,
+                ) {
+                    Ok(concat_result) => {
+                        tracing::info!(
+                            "Concatenation complete: {} BINs merged into {}",
+                            concat_result.source_count,
+                            concat_result.concat_path
+                        );
+                        source_paths.extend(concat_result.source_paths.iter().cloned());
+                        if result.concat_result.is_none() {
+                            result.concat_result = Some(concat_result);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Concatenation failed for {}: {}", root.display(), e);
+                    }
+                }
+            }
+
+            if config.delete_sources {
+                source_paths.sort_unstable();
+                source_paths.dedup();
+                for source_path in &source_paths {
+                    let full_path = file_base.join(source_path);
+                    if full_path.exists() {
+                        if let Err(e) = std::fs::remove_file(&full_path) {
+                            tracing::warn!("Failed to delete source BIN {}: {}", source_path, e);
+                        }
+                    }
                 }
             }
         } else {
@@ -108,6 +183,8 @@ pub fn organize_project(
             champion: champion_sanitized.clone(),
             target_skin_id: config.target_skin_id,
             cleanup_unused: config.cleanup_unused,
+            skip_bin_cleanup: config.skip_bin_cleanup,
+            sub_characters: sub_bins.iter().map(|(sub, _)| sub.clone()).collect(),
         };
 
         match repath_project(content_base, &repath_config, path_mappings) {
@@ -125,8 +202,56 @@ pub fn organize_project(
         }
     }
 
+    if config.cleanup_pipeline {
+        let wad_root = file_base.clone(); // the .wad.client folder used above
+        if let Ok(hash_dir) = crate::hash::get_hash_dir() {
+            let hash_dir = hash_dir.to_string_lossy().to_string();
+            if let Some(env) = crate::hash::lmdb_cache::get_or_open_env(&hash_dir) {
+                let resolve = |hs: &[u64]| crate::hash::lmdb_cache::resolve_hashes_lmdb(hs, &env);
+                let _ = crate::repath::cleanup::run_cleanup_pipeline(&wad_root, &resolve);
+            }
+        }
+    }
+
     tracing::info!("Project organization complete");
     Ok(result)
+}
+
+/// Sub-champions (Tibbers, Skaarl, …) ship as `characters/<sub>/` trees inside
+/// the champion WAD with a `skins/skin{N}.bin` matching the target skin id.
+/// Returns `(lowercased character name, skin BIN path)` per sub.
+fn find_sub_skin_bins(file_base: &Path, champion: &str, skin_id: u32) -> Vec<(String, PathBuf)> {
+    let champion_lower = champion.to_lowercase();
+    let targets = [
+        format!("skins/skin{}.bin", skin_id),
+        format!("skins/skin{:02}.bin", skin_id),
+    ];
+
+    let mut seen = std::collections::HashSet::new();
+    let mut subs = Vec::new();
+    for entry in WalkDir::new(file_base).into_iter().filter_map(|e| e.ok()) {
+        let path = entry.path();
+        let Ok(rel) = path.strip_prefix(file_base) else { continue };
+        let rel_str = rel.to_string_lossy().to_lowercase().replace('\\', "/");
+        let Some(rest) = rel_str.strip_prefix("data/characters/") else { continue };
+        let Some((character, tail)) = rest.split_once('/') else { continue };
+        if character != champion_lower
+            && targets.iter().any(|t| tail == t)
+            && seen.insert(character.to_string())
+        {
+            tracing::info!("Detected sub-champion: {} ({})", character, rel_str);
+            subs.push((character.to_string(), path.to_path_buf()));
+        }
+    }
+    subs
+}
+
+fn capitalize(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
 }
 
 fn find_main_skin_bin(content_base: &Path, champion: &str, skin_id: u32) -> Option<PathBuf> {
@@ -220,7 +345,45 @@ mod tests {
             target_skin_id: 8,
             cleanup_unused: true,
             wad_folder_override: None,
+            skip_bin_cleanup: false,
+            delete_sources: true,
+            consolidate_vfx: false,
+            cleanup_pipeline: false,
         }
+    }
+
+    #[test]
+    fn find_sub_skin_bins_detects_companions() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+        for rel in [
+            "data/characters/annie/skins/skin22.bin",
+            "data/characters/annietibbers/skins/skin22.bin",
+            "data/characters/annietibbers/skins/skin03.bin",
+            "data/characters/petball/skins/skin03.bin",
+            "data/characters/sona/skins/skin5.bin",
+        ] {
+            let p = base.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, b"").unwrap();
+        }
+
+        let subs = find_sub_skin_bins(base, "annie", 22);
+        assert_eq!(subs.len(), 1);
+        assert_eq!(subs[0].0, "annietibbers");
+
+        let subs = find_sub_skin_bins(base, "annie", 3);
+        let mut names: Vec<&str> = subs.iter().map(|(s, _)| s.as_str()).collect();
+        names.sort_unstable();
+        assert_eq!(names, ["annietibbers", "petball"]);
+
+        assert!(find_sub_skin_bins(base, "annie", 7).is_empty());
+    }
+
+    #[test]
+    fn capitalize_first_char() {
+        assert_eq!(capitalize("annietibbers"), "Annietibbers");
+        assert_eq!(capitalize(""), "");
     }
 
     #[test]

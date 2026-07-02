@@ -124,7 +124,7 @@ export const WelcomeScreen: React.FC = () => {
                         </button>
 
                         <button className="btn btn--secondary btn--large" onClick={handleOpenProject}>
-                            <span>Open Folder</span>
+                            <span>Open Mods</span>
                             <span dangerouslySetInnerHTML={{ __html: getIcon('folderOpen2') }} />
                         </button>
                     </div>

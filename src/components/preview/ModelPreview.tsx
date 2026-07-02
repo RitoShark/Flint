@@ -658,13 +658,25 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             (minY + maxY) / 2,
             (minZ + maxZ) / 2
         );
-        const size = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 0.01) || 5;
+        const sizeX = maxX - minX;
+        const sizeY = maxY - minY;
+        const sizeZ = maxZ - minZ;
+        const size = Math.max(sizeX, sizeY, sizeZ, 0.01) || 5;
+        /* Y-weighted framing so tall/winged silhouettes (Aatrox, etc.) get the
+           extra vertical room they need instead of being clipped. */
+        const radius = Math.max(sizeY * 1.4, sizeX, sizeZ, 0.01) || 5;
 
         camera.target = center;
-        camera.radius = size * 2;
-        camera.lowerRadiusLimit = size * 0.1;
-        camera.upperRadiusLimit = size * 10.0;
-        camera.panningSensibility = 8000 / Math.max(camera.radius, 0.001);
+        camera.radius = radius;
+        /* Scale-aware limits + control speeds keyed off the framed radius so you
+           can always zoom/pan/orbit a model of any size. Generous upper limit so
+           a bad/tiny bbox never traps the camera. */
+        camera.lowerRadiusLimit = radius * 0.02;
+        camera.upperRadiusLimit = radius * 50.0;
+        camera.wheelPrecision = 80 / radius;
+        camera.pinchPrecision = 160 / radius;
+        camera.panningSensibility = 8000 / Math.max(radius, 0.001);
+        camera.speed = radius * 0.02;
         camera.alpha = Math.PI / 2 + Math.PI / 8;
         camera.beta = Math.PI / 3;
 
@@ -677,7 +689,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         }
         console.log(
             `[MeshPreview] camera: boxValid=${boxValid} size=${size.toFixed(3)} ` +
-            `radius=${camera.radius.toFixed(3)} target=(${center.x.toFixed(2)},${center.y.toFixed(2)},${center.z.toFixed(2)})`
+            `radius=${radius.toFixed(3)} target=(${center.x.toFixed(2)},${center.y.toFixed(2)},${center.z.toFixed(2)})`
         );
 
         if (showSkeleton && babylonSkeleton && meshes.length > 0) {

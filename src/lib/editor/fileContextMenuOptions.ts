@@ -338,11 +338,13 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             separator: true,
         });
     } else {
-        const BIN_TEXT_EXTS = ['.bin', '.ritobin', '.py', '.troybin'];
+        const BIN_TEXT_EXTS = ['.bin', '.ritobin', '.py'];
         const LUA_BIN_EXTS = ['.luabin', '.luabin64'];
-        const isBinText = BIN_TEXT_EXTS.some(e => fileName.toLowerCase().endsWith(e));
-        const isLuaBin = LUA_BIN_EXTS.some(e => fileName.toLowerCase().endsWith(e));
-        const isRawText = ['.json', '.txt', '.lua', '.py'].some(e => fileName.toLowerCase().endsWith(e));
+        const lowerName = fileName.toLowerCase();
+        const isBinText = BIN_TEXT_EXTS.some(e => lowerName.endsWith(e));
+        const isTroybin = lowerName.endsWith('.troybin');
+        const isLuaBin = LUA_BIN_EXTS.some(e => lowerName.endsWith(e));
+        const isRawText = ['.json', '.txt', '.lua', '.py'].some(e => lowerName.endsWith(e));
 
         if (isBinText) {
             options.push({
@@ -352,6 +354,19 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                     useNavigationStore.getState().navigateToFileEditor({
                         filePath: fullPath,
                         kind: 'binText',
+                        projectPath,
+                    });
+                },
+            });
+        } else if (isTroybin) {
+            // .troybin is a binary League config (read-only viewer), NOT ritobin text.
+            options.push({
+                label: 'View Troybin',
+                icon: getIcon('code'),
+                onClick: () => {
+                    useNavigationStore.getState().navigateToFileEditor({
+                        filePath: fullPath,
+                        kind: 'troybin',
                         projectPath,
                     });
                 },

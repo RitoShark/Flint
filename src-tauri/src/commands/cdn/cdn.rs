@@ -141,7 +141,7 @@ pub struct CdnLoadResult {
 }
 
 async fn load_manifest_from_url(url: &str, state: &State<'_, CdnSessionState>) -> Result<CdnLoadResult, String> {
-    let file_name = url.split('/').last().unwrap_or("unknown.manifest");
+    let file_name = url.split('/').next_back().unwrap_or("unknown.manifest");
     let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
     let manifest_dir = std::path::PathBuf::from(base).join("Flint").join("manifest");
     let _ = std::fs::create_dir_all(&manifest_dir);

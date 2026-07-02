@@ -258,42 +258,80 @@ export const WadExplorer: React.FC = () => {
     }, []);
 
     // ── Background bulk indexing for whole-game search ─────────────────────────
+    // Loaded in small batches so the tree is interactive after the first batch
+    // instead of freezing on one whole-game IPC payload (~450 WADs / ~1M chunks).
     useEffect(() => {
         if (wadExplorer.scanStatus !== 'ready') return;
         const idlePaths = wadExplorer.wads.filter(w => w.status === 'idle').map(w => w.path);
         if (idlePaths.length === 0) return;
 
-        useWadExplorerStore.getState().batchSetWadStatuses(
-            idlePaths.map(p => ({ wadPath: p, status: 'loading' as const })),
-        );
-
+        const BATCH_SIZE = 24;
         let cancelled = false;
+        const inFlight = new Set<string>();
+
+        // Marks a batch 'loading' and fires its request. Skips WADs that left
+        // 'idle' meanwhile (user-expanded WADs load themselves via loadWad).
+        const fire = (paths: string[]) => {
+            const store = useWadExplorerStore.getState();
+            const stillIdle = new Set(store.wads.filter(w => w.status === 'idle').map(w => w.path));
+            const batch = paths.filter(p => stillIdle.has(p));
+            if (batch.length === 0) return null;
+            for (const p of batch) inFlight.add(p);
+            store.batchSetWadStatuses(batch.map(p => ({ wadPath: p, status: 'loading' as const })));
+            return { batch, promise: api.loadAllWadChunks(batch) };
+        };
+
+        const batches: string[][] = [];
+        for (let i = 0; i < idlePaths.length; i += BATCH_SIZE) {
+            batches.push(idlePaths.slice(i, i + BATCH_SIZE));
+        }
+
         (async () => {
-            try {
-                const batches = await api.loadAllWadChunks(idlePaths);
-                if (cancelled) return;
-                useWadExplorerStore.getState().batchSetWadStatuses(
-                    batches.map(b => ({
-                        wadPath: b.path,
-                        status: (b.error ? 'error' : 'loaded') as WadExplorerWad['status'],
-                        chunks: b.chunks,
-                        error: b.error ?? undefined,
-                    })),
-                );
-            } catch (e) {
-                if (cancelled) return;
-                useWadExplorerStore.getState().batchSetWadStatuses(
-                    idlePaths.map(p => ({
-                        wadPath: p,
-                        status: 'error' as const,
-                        error: (e as Error).message,
-                    })),
-                );
+            // One request kept in flight ahead, so the backend + IPC of batch
+            // N+1 overlaps the decode + render of batch N.
+            let pending = fire(batches[0]);
+            for (let i = 0; i < batches.length && !cancelled; i++) {
+                const current = pending;
+                pending = i + 1 < batches.length ? fire(batches[i + 1]) : null;
+                if (!current) continue;
+                try {
+                    const results = await current.promise;
+                    if (cancelled) return;
+                    useWadExplorerStore.getState().batchSetWadStatuses(
+                        results.map(b => ({
+                            wadPath: b.path,
+                            status: (b.error ? 'error' : 'loaded') as WadExplorerWad['status'],
+                            chunks: b.chunks,
+                            error: b.error ?? undefined,
+                        })),
+                    );
+                } catch (e) {
+                    if (cancelled) return;
+                    useWadExplorerStore.getState().batchSetWadStatuses(
+                        current.batch.map(p => ({
+                            wadPath: p,
+                            status: 'error' as const,
+                            error: (e as Error).message,
+                        })),
+                    );
+                }
+                for (const p of current.batch) inFlight.delete(p);
             }
         })();
 
         return () => {
             cancelled = true;
+            // Reset abandoned in-flight batches so a remount re-indexes them
+            // instead of leaving them stranded in 'loading'.
+            if (inFlight.size > 0) {
+                const store = useWadExplorerStore.getState();
+                const reset = store.wads
+                    .filter(w => w.status === 'loading' && inFlight.has(w.path))
+                    .map(w => w.path);
+                if (reset.length > 0) {
+                    store.batchSetWadStatuses(reset.map(p => ({ wadPath: p, status: 'idle' as const })));
+                }
+            }
         };
     }, [wadExplorer.scanStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 

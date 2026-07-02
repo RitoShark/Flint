@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { ViewType, FileEditorTarget } from '../types';
 import { useFileEditorStore } from './fileEditorStore';
+import { useArchiveTabStore } from './archiveTabStore';
 
 interface NavigationState {
   currentView: ViewType;
@@ -14,6 +15,7 @@ interface NavigationState {
   navigateToExtract: () => void;
   navigateToWadExplorer: () => void;
   navigateToFileEditor: (target: FileEditorTarget) => void;
+  navigateToArchiveEditor: (path: string) => void;
 }
 
 export const useNavigationStore = create<NavigationState>((set) => ({
@@ -29,5 +31,9 @@ export const useNavigationStore = create<NavigationState>((set) => ({
   navigateToFileEditor: (target) => {
     useFileEditorStore.getState().openTarget(target);
     set({ currentView: 'file-editor' });
+  },
+  navigateToArchiveEditor: (path) => {
+    useArchiveTabStore.getState().openArchiveTab(path);
+    set({ currentView: 'archive-editor' });
   },
 }));

@@ -42,6 +42,9 @@ export type VFSNode = VFSFolder | VFSFile;
 // VFS tree builder
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ~10× faster than String.localeCompare when sorting tens of thousands of rows.
+const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
+
 export function buildVFSSubtree(chunks: WadChunk[], wadPath: string): VFSNode[] {
     const folderMap = new Map<string, VFSFolder>();
     const roots: VFSNode[] = [];
@@ -95,7 +98,7 @@ export function buildVFSSubtree(chunks: WadChunk[], wadPath: string): VFSNode[] 
     const sort = (nodes: VFSNode[]) => {
         nodes.sort((a, b) => {
             if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
-            return (a.name ?? '').localeCompare(b.name ?? '');
+            return collator.compare(a.name ?? '', b.name ?? '');
         });
         for (const n of nodes) {
             if (n.type === 'folder') sort(n.children);
@@ -221,6 +224,8 @@ export interface PreviewData {
     fileType: string;
     bytes: Uint8Array;
     imageUrl: string | null;
+    /** Decoded DDS/TEX pixels, rendered on a canvas (no PNG round trip). */
+    bitmap: ImageBitmap | null;
     text: string | null;
     dims: [number, number] | null;
 }

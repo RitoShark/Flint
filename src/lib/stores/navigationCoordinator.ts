@@ -3,6 +3,7 @@ import { useWadExtractStore } from './wadExtractStore';
 import { useWadExplorerStore } from './wadExplorerStore';
 import { useNavigationStore } from './navigationStore';
 import { useFileEditorStore } from './fileEditorStore';
+import { useArchiveTabStore } from './archiveTabStore';
 
 export function removeTabWithFallback(tabId: string) {
   const projectTab = useProjectTabStore.getState();
@@ -12,13 +13,24 @@ export function removeTabWithFallback(tabId: string) {
 
   const { newActiveId, remainingTabs } = projectTab.removeTab(tabId);
 
+  // "archive-" sessions are ArchiveEditor-internal (see closeArchiveTabWithFallback)
+  // — never a user-facing fallback target.
+  const userExtractSessions = wadExtract.extractSessions.filter(s => !s.id.startsWith('archive-'));
+  const fileEditor = useFileEditorStore.getState();
+
   if (projectTab.activeTabId === tabId || remainingTabs.length === 0) {
     if (remainingTabs.length > 0 && newActiveId) {
       navigation.setView('preview');
-    } else if (wadExtract.extractSessions.length > 0) {
-      const sessionId = wadExtract.activeExtractId ?? wadExtract.extractSessions[0].id;
+    } else if (userExtractSessions.length > 0) {
+      const activeIsUser = wadExtract.activeExtractId
+        && userExtractSessions.some(s => s.id === wadExtract.activeExtractId);
+      const sessionId = activeIsUser ? wadExtract.activeExtractId! : userExtractSessions[0].id;
       wadExtract.switchSession(sessionId);
       navigation.setView('extract');
+    } else if (fileEditor.tabs.length > 0) {
+      // Don't strand open standalone file tabs on the welcome screen.
+      fileEditor.switchTab(fileEditor.activeId ?? fileEditor.tabs[0].id);
+      navigation.setView('file-editor');
     } else if (wadExplorer.isOpen) {
       navigation.setView('wad-explorer');
     } else {
@@ -35,8 +47,14 @@ function performCloseExtractSession(sessionId: string) {
 
   const { newActiveId, remainingSessions } = wadExtract.closeSession(sessionId);
 
+  // Don't count ArchiveEditor-internal ("archive-") sessions as remaining tabs.
+  const userRemaining = remainingSessions.filter(s => !s.id.startsWith('archive-'));
+
   if (wadExtract.activeExtractId === sessionId || remainingSessions.length === 0) {
-    if (remainingSessions.length > 0 && newActiveId) {
+    if (userRemaining.length > 0 && newActiveId && userRemaining.some(s => s.id === newActiveId)) {
+      navigation.setView('extract');
+    } else if (userRemaining.length > 0) {
+      wadExtract.switchSession(userRemaining[0].id);
       navigation.setView('extract');
     } else if (projectTab.activeTabId && projectTab.openTabs.find(t => t.id === projectTab.activeTabId)) {
       navigation.setView('preview');
@@ -84,43 +102,116 @@ export function closeWadExplorerWithFallback() {
 
   wadExplorer.close();
 
+  // "archive-" sessions are ArchiveEditor-internal — never a fallback target.
+  const userExtractSessions = wadExtract.extractSessions.filter(s => !s.id.startsWith('archive-'));
+  const activeUserExtract = wadExtract.activeExtractId
+    && userExtractSessions.some(s => s.id === wadExtract.activeExtractId);
+
   if (projectTab.activeTabId && projectTab.openTabs.find(t => t.id === projectTab.activeTabId)) {
     navigation.setView('preview');
-  } else if (wadExtract.activeExtractId && wadExtract.extractSessions.find(s => s.id === wadExtract.activeExtractId)) {
+  } else if (activeUserExtract) {
     navigation.setView('extract');
   } else if (projectTab.openTabs.length > 0) {
     projectTab.switchTab(projectTab.openTabs[0].id);
     navigation.setView('preview');
-  } else if (wadExtract.extractSessions.length > 0) {
-    wadExtract.switchSession(wadExtract.extractSessions[0].id);
+  } else if (userExtractSessions.length > 0) {
+    wadExtract.switchSession(userExtractSessions[0].id);
     navigation.setView('extract');
   } else {
     navigation.setView('welcome');
   }
 }
 
-export function closeFileEditorWithFallback() {
+/**
+ * Close one standalone file-editor tab. If other file tabs remain, stay on the
+ * file-editor view (the store already picked a neighbor as active); only when
+ * the LAST file tab closes do we fall back to a project/extract/welcome view.
+ */
+export function closeFileEditorTabWithFallback(tabId: string) {
   const projectTab = useProjectTabStore.getState();
   const wadExtract = useWadExtractStore.getState();
   const wadExplorer = useWadExplorerStore.getState();
   const navigation = useNavigationStore.getState();
 
-  useFileEditorStore.getState().closeTarget();
+  const { remaining } = useFileEditorStore.getState().closeTab(tabId);
+
+  if (remaining.length > 0) {
+    // Neighbor tab is now active; keep showing the file editor.
+    navigation.setView('file-editor');
+    return;
+  }
+
+  // "archive-" sessions are ArchiveEditor-internal — never a fallback target.
+  const userExtractSessions = wadExtract.extractSessions.filter(s => !s.id.startsWith('archive-'));
+  const activeUserExtract = wadExtract.activeExtractId
+    && userExtractSessions.some(s => s.id === wadExtract.activeExtractId);
 
   if (projectTab.activeTabId && projectTab.openTabs.find(t => t.id === projectTab.activeTabId)) {
     navigation.setView('preview');
   } else if (projectTab.openTabs.length > 0) {
     projectTab.switchTab(projectTab.openTabs[0].id);
     navigation.setView('preview');
-  } else if (wadExtract.activeExtractId && wadExtract.extractSessions.find(s => s.id === wadExtract.activeExtractId)) {
+  } else if (activeUserExtract) {
     navigation.setView('extract');
-  } else if (wadExtract.extractSessions.length > 0) {
-    wadExtract.switchSession(wadExtract.extractSessions[0].id);
+  } else if (userExtractSessions.length > 0) {
+    wadExtract.switchSession(userExtractSessions[0].id);
     navigation.setView('extract');
   } else if (wadExplorer.isOpen) {
     navigation.setView('wad-explorer');
   } else {
     navigation.setView('welcome');
+  }
+}
+
+/** Close the ACTIVE file-editor tab (back-compat for callers without a tab id). */
+export function closeFileEditorWithFallback() {
+  const activeId = useFileEditorStore.getState().activeId;
+  if (activeId) {
+    closeFileEditorTabWithFallback(activeId);
+  }
+}
+
+export function closeArchiveTabWithFallback(tabId: string) {
+  const projectTab = useProjectTabStore.getState();
+  const wadExtract = useWadExtractStore.getState();
+  const wadExplorer = useWadExplorerStore.getState();
+  const archiveTab = useArchiveTabStore.getState();
+  const navigation = useNavigationStore.getState();
+
+  const wasActive = archiveTab.activeArchiveTabId === tabId;
+  const { newActiveId, remaining } = archiveTab.removeArchiveTab(tabId);
+
+  if (wasActive || remaining.length === 0) {
+    // Extract sessions the ArchiveEditor seeded for its inner WADs use an
+    // "archive-" id prefix. They're editor-internal (the ArchiveEditor tears
+    // them down on unmount), NOT user-facing WAD-viewer tabs — so they must
+    // never be a fallback target, or closing an archive tab after opening an
+    // inner WAD/file lands you on a stale/blank extract view instead of going
+    // back. Only real WAD-viewer sessions are fallback candidates.
+    const userExtractSessions = wadExtract.extractSessions.filter(
+      s => !s.id.startsWith('archive-'),
+    );
+    const activeUserExtract =
+      wadExtract.activeExtractId &&
+      userExtractSessions.find(s => s.id === wadExtract.activeExtractId);
+
+    if (remaining.length > 0 && newActiveId) {
+      navigation.setView('archive-editor');
+    } else if (projectTab.activeTabId && projectTab.openTabs.find(t => t.id === projectTab.activeTabId)) {
+      navigation.setView('preview');
+    } else if (projectTab.openTabs.length > 0) {
+      projectTab.switchTab(projectTab.openTabs[0].id);
+      navigation.setView('preview');
+    } else if (activeUserExtract) {
+      navigation.setView('extract');
+    } else if (userExtractSessions.length > 0) {
+      wadExtract.switchSession(userExtractSessions[0].id);
+      navigation.setView('extract');
+    } else if (wadExplorer.isOpen) {
+      navigation.setView('wad-explorer');
+    } else {
+      navigation.setView('welcome');
+    }
   }
 }
 
@@ -137,5 +228,7 @@ export const navigationCoordinator = {
   closeExtractSessionWithFallback,
   closeWadExplorerWithFallback,
   closeFileEditorWithFallback,
+  closeFileEditorTabWithFallback,
+  closeArchiveTabWithFallback,
   openWadExplorer,
 };

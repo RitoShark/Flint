@@ -573,10 +573,35 @@ pub async fn read_wad_chunk_data(
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+/// Pre-fault the WAD-hash LMDB into the OS page cache with one sequential
+/// read. Cold random b-tree lookups otherwise cost seconds on the first
+/// bulk resolve (measured 4.3s for a 306 MB data.mdb).
+fn warm_wad_lmdb_once() {
+    static WARMED: std::sync::Once = std::sync::Once::new();
+    WARMED.call_once(|| {
+        std::thread::spawn(|| {
+            let Ok(dir) = flint_ltk::hash::get_hash_dir() else { return };
+            let Ok(mut f) = std::fs::File::open(dir.join("hashes-wad.lmdb").join("data.mdb")) else { return };
+            let t = Instant::now();
+            let mut buf = vec![0u8; 4 << 20];
+            let mut total: u64 = 0;
+            use std::io::Read;
+            while let Ok(n) = f.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                total += n as u64;
+            }
+            tracing::info!("[TIMING] warmed LMDB page cache: {} MB in {:?}", total >> 20, t.elapsed());
+        });
+    });
+}
+
 /// Scan a game installation directory for all WAD archive files.
 #[tauri::command]
 pub async fn scan_game_wads(game_path: String) -> Result<Vec<GameWadInfo>, String> {
     let _t = ipc_trace::enter("scan_game_wads");
+    warm_wad_lmdb_once();
     let root = std::path::Path::new(&game_path).join("DATA").join("FINAL");
 
     if !root.exists() {

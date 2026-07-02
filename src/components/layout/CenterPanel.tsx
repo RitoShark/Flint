@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useProjectTabStore, useNavigationStore, useAppMetadataStore, useWadExtractStore } from '../../lib/stores';
+import { useProjectTabStore, useNavigationStore, useAppMetadataStore, useWadExtractStore, useArchiveTabStore } from '../../lib/stores';
 import { WelcomeScreen } from '../browser/WelcomeScreen';
 import { PreviewPanel } from '../editor/PreviewPanel';
 import { CheckpointTimeline } from '../editor/CheckpointTimeline';
 import { WadPreviewPanel } from '../editor/WadPreviewPanel';
 import { WadBrowserPanel } from '../browser/WadBrowser';
 import { FileEditorPage } from '../editor/FileEditorPage';
+import { ArchiveEditor } from '../editor/ArchiveEditor';
 import { getIcon, icons } from '../../lib/ui-helpers/fileIcons';
 
 interface QuickActionCardProps {
@@ -159,6 +160,11 @@ const WadExtractMainView: React.FC = () => {
 
 export const CenterPanel: React.FC = () => {
     const currentView = useNavigationStore((s) => s.currentView);
+    const openArchiveTabs = useArchiveTabStore((s) => s.openArchiveTabs);
+    const activeArchiveTabId = useArchiveTabStore((s) => s.activeArchiveTabId);
+    const activeArchiveTab = activeArchiveTabId
+        ? openArchiveTabs.find((t) => t.id === activeArchiveTabId) ?? null
+        : null;
     const status = useAppMetadataStore((s) => s.status);
     const statusMessage = useAppMetadataStore((s) => s.statusMessage);
 
@@ -177,6 +183,10 @@ export const CenterPanel: React.FC = () => {
                 return <WadExtractMainView />;
             case 'file-editor':
                 return <FileEditorPage />;
+            case 'archive-editor':
+                return activeArchiveTab
+                    ? <ArchiveEditor key={activeArchiveTab.filePath} filePath={activeArchiveTab.filePath} />
+                    : <WelcomeScreen />;
             default:
                 return <WelcomeScreen />;
         }

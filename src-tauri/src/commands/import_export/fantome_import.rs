@@ -18,28 +18,28 @@ use crate::state::LmdbCacheState;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FantomeMetadata {
     #[serde(
-        rename = "Author",
+        alias = "Author",
         alias = "author",
         alias = "AUTHOR",
         default
     )]
     pub author: Option<String>,
     #[serde(
-        rename = "Name",
+        alias = "Name",
         alias = "name",
         alias = "NAME",
         default
     )]
     pub name: Option<String>,
     #[serde(
-        rename = "Description",
+        alias = "Description",
         alias = "description",
         alias = "DESCRIPTION",
         default
     )]
     pub description: Option<String>,
     #[serde(
-        rename = "Version",
+        alias = "Version",
         alias = "version",
         alias = "VERSION",
         default
@@ -62,6 +62,7 @@ pub struct ImportOptions {
     pub refather: bool,
     pub creator_name: Option<String>,
     pub project_name: Option<String>,
+    pub champion: Option<String>,
     pub target_skin_id: Option<u32>,
     pub cleanup_unused: bool,
     pub match_from_league: bool,
@@ -69,8 +70,37 @@ pub struct ImportOptions {
 }
 
 // =============================================================================
-// Fantome Package Handling
+// Extraction & Analysis
 // =============================================================================
+
+pub(crate) fn guess_extension(data: &[u8]) -> &'static str {
+    use ritoshark::file::{FileKind, detect};
+    match detect(data) {
+        FileKind::PropBin | FileKind::PatchBin => "bin",
+        FileKind::Tex => "tex",
+        FileKind::Dds => "dds",
+        FileKind::SkinnedMesh => "skn",
+        FileKind::Skeleton => "skl",
+        FileKind::AnimUncompressed | FileKind::AnimCompressed => "anm",
+        FileKind::Bnk => "bnk",
+        FileKind::Wpk => "wpk",
+        FileKind::MapGeo => "mapgeo",
+        FileKind::StaticMeshText => "sco",
+        FileKind::StaticMeshBinary => "scb",
+        FileKind::Rst => "stringtable",
+        FileKind::Wad | FileKind::Rman | FileKind::Unknown => {
+            if data.len() >= 4 {
+                let head = &data[..4];
+                if head == b"OggS" { return "ogg"; }
+                if head == b"\x89PNG" { return "png"; }
+                if head == b"RIFF" { return "wem"; }
+                if data.starts_with(b"\xff\xd8\xff") { return "jpg"; }
+                if data.starts_with(b"{") { return "json"; }
+            }
+            "dat"
+        }
+    }
+}
 
 fn read_fantome_metadata(fantome_path: &str) -> Option<FantomeMetadata> {
     let file = File::open(fantome_path).ok()?;
@@ -127,6 +157,23 @@ fn read_fantome_metadata(fantome_path: &str) -> Option<FantomeMetadata> {
     None
 }
 
+/// If a zip entry belongs to a WAD stored as a FOLDER (`.../<name>.wad.client/…`),
+/// return the WAD folder's basename. Some fantomes ship the WAD unpacked as a
+/// directory tree; launchers pack it on import, and so do we.
+fn fantome_folder_wad_name(entry_name: &str) -> Option<String> {
+    let lower = entry_name.to_lowercase();
+    for marker in [".wad.client/", ".wad/"] {
+        if let Some(pos) = lower.find(marker) {
+            let dir_end = pos + marker.len() - 1;
+            let base = entry_name[..dir_end].rsplit('/').next().unwrap_or_default().to_string();
+            if !base.is_empty() {
+                return Some(base);
+            }
+        }
+    }
+    None
+}
+
 fn extract_fantome_wad(fantome_path: &str) -> Result<PathBuf, String> {
     let file = File::open(fantome_path)
         .map_err(|e| format!("Failed to open fantome file: {}", e))?;
@@ -134,38 +181,85 @@ fn extract_fantome_wad(fantome_path: &str) -> Result<PathBuf, String> {
     let mut archive = ZipArchive::new(BufReader::new(file))
         .map_err(|e| format!("Failed to read fantome archive: {}", e))?;
 
-    let mut wad_file_name = None;
+    let mut packed_wad_name: Option<String> = None;
+    let mut folder_wad_name: Option<String> = None;
     for i in 0..archive.len() {
         let file_entry = archive.by_index(i)
             .map_err(|e| format!("Failed to read archive entry: {}", e))?;
         let name = file_entry.name().to_string();
 
-        if name.ends_with(".wad.client") || name.ends_with(".wad") {
-            wad_file_name = Some(name.clone());
+        if !file_entry.is_dir() && (name.ends_with(".wad.client") || name.ends_with(".wad")) {
+            packed_wad_name = Some(name.clone());
             break;
         }
+        if folder_wad_name.is_none() {
+            folder_wad_name = fantome_folder_wad_name(&name);
+        }
     }
-
-    let wad_name = wad_file_name
-        .ok_or("No .wad.client file found in fantome package")?;
 
     let temp_dir = std::env::temp_dir().join("flint_fantome_import");
     std::fs::create_dir_all(&temp_dir)
         .map_err(|e| format!("Failed to create temp directory: {}", e))?;
 
+    // Packed-file WAD: copy the single entry out.
+    if let Some(wad_name) = packed_wad_name {
+        let wad_path = temp_dir.join(wad_name.replace('/', "_"));
+        let mut zip_file = archive.by_name(&wad_name)
+            .map_err(|e| format!("Failed to find WAD in archive: {}", e))?;
+        let mut wad_file = File::create(&wad_path)
+            .map_err(|e| format!("Failed to create temp WAD file: {}", e))?;
+        std::io::copy(&mut zip_file, &mut wad_file)
+            .map_err(|e| format!("Failed to extract WAD file: {}", e))?;
+        tracing::info!("Extracted WAD from fantome: {} -> {:?}", wad_name, wad_path);
+        return Ok(wad_path);
+    }
+
+    // Folder-form WAD: extract the sub-tree and PACK it into a real WAD (what
+    // launchers do on import) so the rest of the pipeline sees a valid WAD.
+    let wad_name = folder_wad_name
+        .ok_or("No .wad.client file or folder found in fantome package")?;
+    let scratch = temp_dir.join(format!("{}.waddir", wad_name.replace('/', "_")));
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch)
+        .map_err(|e| format!("Failed to create scratch directory: {}", e))?;
+
+    let marker_dir = format!("{}/", wad_name.to_lowercase());
+    let mut extracted = 0usize;
+    for i in 0..archive.len() {
+        let mut e = archive.by_index(i)
+            .map_err(|err| format!("Failed to read archive entry: {}", err))?;
+        let name = e.name().to_string();
+        if e.is_dir() || fantome_folder_wad_name(&name).as_deref() != Some(wad_name.as_str()) {
+            continue;
+        }
+        let lower = name.to_lowercase();
+        let Some(pos) = lower.find(&marker_dir) else { continue };
+        let rel = &name[pos + marker_dir.len()..];
+        if rel.is_empty() {
+            continue;
+        }
+        let dest = scratch.join(rel);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent).map_err(|err| format!("mkdir: {}", err))?;
+        }
+        let mut f = File::create(&dest).map_err(|err| format!("create: {}", err))?;
+        std::io::copy(&mut e, &mut f).map_err(|err| format!("extract: {}", err))?;
+        extracted += 1;
+    }
+    if extracted == 0 {
+        let _ = std::fs::remove_dir_all(&scratch);
+        return Err("No .wad.client file or folder found in fantome package".into());
+    }
+
+    let wad_bytes = flint_ltk::export::build_wad_from_directory(&scratch)?;
     let wad_path = temp_dir.join(wad_name.replace('/', "_"));
-
-    let mut zip_file = archive.by_name(&wad_name)
-        .map_err(|e| format!("Failed to find WAD in archive: {}", e))?;
-
-    let mut wad_file = File::create(&wad_path)
-        .map_err(|e| format!("Failed to create temp WAD file: {}", e))?;
-
-    std::io::copy(&mut zip_file, &mut wad_file)
-        .map_err(|e| format!("Failed to extract WAD file: {}", e))?;
-
-    tracing::info!("Extracted WAD from fantome: {} -> {:?}", wad_name, wad_path);
-
+    std::fs::write(&wad_path, &wad_bytes)
+        .map_err(|e| format!("Failed to write packed WAD: {}", e))?;
+    let _ = std::fs::remove_dir_all(&scratch);
+    tracing::info!(
+        "Packed folder-form WAD '{}' ({} files) from fantome -> {:?}",
+        wad_name, extracted, wad_path
+    );
     Ok(wad_path)
 }
 
@@ -190,7 +284,7 @@ pub(crate) fn extract_champion_from_path(path: &str) -> Option<String> {
     let lower = path.to_lowercase();
 
     if let Some(start_idx) = lower.find("characters/") {
-        let after_characters = &lower[start_idx + 11..];
+        let after_characters = &path[start_idx + 11..];
         if let Some(end_idx) = after_characters.find('/') {
             let champion = &after_characters[..end_idx];
             if !champion.is_empty() {
@@ -200,7 +294,7 @@ pub(crate) fn extract_champion_from_path(path: &str) -> Option<String> {
     }
 
     if let Some(start_idx) = lower.find("assets/characters/") {
-        let after_characters = &lower[start_idx + 18..];
+        let after_characters = &path[start_idx + 18..];
         if let Some(end_idx) = after_characters.find('/') {
             let champion = &after_characters[..end_idx];
             if !champion.is_empty() {
@@ -242,161 +336,9 @@ pub(crate) fn extract_champion_from_paths(paths: &[String]) -> Option<String> {
         .map(|(champ, _)| champ)
 }
 
-fn match_missing_files_from_league(
-    output_path: &Path,
-    league_path: &str,
-    hash_dir: &str,
-    champion: &str,
-    existing_hashes: &HashSet<u64>,
-) -> Result<(), String> {
-    use flint_ltk::wad_jade::adapter::find_champion_wad;
-    use walkdir::WalkDir;
-
-    tracing::info!("Matching missing files from League installation for {}", champion);
-
-    tracing::debug!("Looking for champion WAD in: {}", league_path);
-
-    let champion_wad = find_champion_wad(league_path, champion)
-        .ok_or_else(|| format!("Could not find {} WAD in League installation (league_path: {})", champion, league_path))?;
-
-    tracing::info!("Found champion WAD: {}", champion_wad.display());
-
-    let mut wad_reader = WadReader::open(champion_wad.to_str().unwrap())
-        .map_err(|e| format!("Failed to open champion WAD: {}", e))?;
-
-    let env = get_or_open_env(hash_dir)
-        .ok_or("Failed to open LMDB environment")?;
-
-    let mut linked_bin_paths = HashSet::new();
-
-    for entry in WalkDir::new(output_path)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path()
-                .extension()
-                .map(|ext| ext.eq_ignore_ascii_case("bin"))
-                .unwrap_or(false)
-        })
-    {
-        let bin_path = entry.path();
-
-        if let Ok(bin_data) = std::fs::read(bin_path) {
-            if let Ok(linked_paths) = extract_linked_bin_paths(&bin_data) {
-                for path in linked_paths {
-                    linked_bin_paths.insert(path);
-                }
-            }
-        }
-    }
-
-    if linked_bin_paths.is_empty() {
-        tracing::info!("No linked BIN paths found in extracted mod");
-        return Ok(());
-    }
-
-    tracing::info!("Found {} linked BIN references", linked_bin_paths.len());
-
-    let all_wad_hashes: Vec<u64> = wad_reader.chunks().iter().map(|c| c.path_hash).collect();
-    let all_wad_paths = resolve_hashes_lmdb(&all_wad_hashes, &env);
-
-    let mut path_to_hash: HashMap<String, u64> = HashMap::new();
-    for (hash, path) in all_wad_hashes.iter().zip(all_wad_paths.iter()) {
-        path_to_hash.insert(path.to_lowercase(), *hash);
-    }
-
-    let mut extracted_missing = 0;
-
-    for linked_path in &linked_bin_paths {
-        let linked_lower = linked_path.to_lowercase();
-
-        if let Some(&hash) = path_to_hash.get(&linked_lower) {
-            if existing_hashes.contains(&hash) {
-                continue;
-            }
-
-            let chunk_copy = wad_reader.chunks().get(hash).copied();
-
-            if let Some(chunk) = chunk_copy {
-                if let Ok(data) = wad_reader.wad_mut().load_chunk_decompressed(&chunk) {
-                    let file_path = output_path.join(linked_path.trim_start_matches('/'));
-                    if let Some(parent) = file_path.parent() {
-                        let _ = std::fs::create_dir_all(parent);
-                    }
-                    if std::fs::write(&file_path, data).is_ok() {
-                        tracing::debug!("Extracted missing file: {}", linked_path);
-                        extracted_missing += 1;
-                    }
-                }
-            }
-            continue;
-        }
-
-        if linked_lower.ends_with(".bin") {
-            let without_ext = linked_lower.strip_suffix(".bin").unwrap();
-            if let Some(&hash) = path_to_hash.get(without_ext) {
-                if existing_hashes.contains(&hash) {
-                    continue;
-                }
-
-                let chunk_copy = wad_reader.chunks().get(hash).copied();
-
-                if let Some(chunk) = chunk_copy {
-                    if let Ok(data) = wad_reader.wad_mut().load_chunk_decompressed(&chunk) {
-                        let file_path = output_path.join(linked_path.trim_start_matches('/'));
-                        if let Some(parent) = file_path.parent() {
-                            let _ = std::fs::create_dir_all(parent);
-                        }
-                        if std::fs::write(&file_path, data).is_ok() {
-                            tracing::debug!("Extracted missing file (without .bin): {}", linked_path);
-                            extracted_missing += 1;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    tracing::info!("Extracted {} missing linked files from League installation", extracted_missing);
-    Ok(())
-}
-
-fn is_unresolved_hash(path: &str) -> bool {
+pub(crate) fn is_unresolved_hash(path: &str) -> bool {
     let filename = path.rsplit('/').next().unwrap_or(path);
     filename.len() == 16 && filename.chars().all(|c| c.is_ascii_hexdigit())
-}
-
-fn extract_linked_bin_paths(bin_data: &[u8]) -> Result<Vec<String>, String> {
-    let mut linked_paths = Vec::new();
-
-    let text = String::from_utf8_lossy(bin_data);
-    let mut start = 0;
-
-    while let Some(pos) = text[start..].find("/skins/") {
-        let absolute_pos = start + pos;
-
-        let path_start = text[..absolute_pos]
-            .rfind(|c: char| !c.is_ascii() && c != '/' && c != '_' && c != '.' && !c.is_alphanumeric())
-            .map(|p| p + 1)
-            .unwrap_or(0);
-
-        if let Some(bin_end) = text[absolute_pos..].find(".bin") {
-            let path_end = absolute_pos + bin_end + 4;
-            let potential_path = &text[path_start..path_end];
-
-            if potential_path.starts_with("data/") || potential_path.starts_with("assets/") {
-                let path_str = potential_path.to_string();
-                if !linked_paths.contains(&path_str) {
-                    linked_paths.push(path_str);
-                    tracing::debug!("Found linked BIN path: {}", potential_path);
-                }
-            }
-        }
-
-        start = absolute_pos + 1;
-    }
-
-    Ok(linked_paths)
 }
 
 fn apply_refathering(
@@ -420,6 +362,10 @@ fn apply_refathering(
         target_skin_id,
         cleanup_unused: false,
         wad_folder_override: None,
+        skip_bin_cleanup: true,
+        delete_sources: false,
+        consolidate_vfx: true,
+        cleanup_pipeline: true,
     };
 
     organize_project(content_path, &config, path_mappings)
@@ -576,8 +522,9 @@ fn import_fantome_internal(
         (hashes, resolved_paths)
     };
 
-    let champion = extract_champion_from_paths(&resolved_paths)
-        .ok_or("Failed to detect champion from paths")?;
+    let champion = options.champion.clone().or_else(|| {
+        extract_champion_from_paths(&resolved_paths)
+    }).ok_or("Failed to detect champion from paths, and no champion provided")?;
 
     let champion_lower = champion.to_lowercase();
     let wad_folder_name = format!("{}.wad.client", champion_lower);
@@ -594,6 +541,7 @@ fn import_fantome_internal(
 
     let mut extracted_count = 0;
     let mut path_mappings = HashMap::new();
+    let mut unresolved_files = Vec::new();
 
     let mut unresolved_count = 0;
     let total_files = chunk_hashes.len();
@@ -611,23 +559,51 @@ fn import_fantome_internal(
         let data = reader.wad_mut().load_chunk_decompressed(&chunk)
             .map_err(|e| format!("Failed to decompress chunk: {}", e))?;
 
+        let mut final_path = PathBuf::from(path.clone());
+        let mut is_unresolved = false;
         if is_unresolved_hash(path) {
             unresolved_count += 1;
+            is_unresolved = true;
             tracing::debug!("Unresolved hash (custom path): {}", path);
+            let ext = guess_extension(&data);
+            final_path.set_extension(ext);
         }
 
-        let final_path = path.clone();
+        let filename_len = final_path.to_string_lossy().len();
 
-        let file_path = wad_base.join(final_path.trim_start_matches('/'));
-        if let Some(parent) = file_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create directory: {}", e))?;
+        let out_path = if filename_len > 200 {
+            let parent = final_path.parent().unwrap_or_else(|| Path::new("data"));
+            let ext = final_path.extension().and_then(|e| e.to_str()).unwrap_or("bin");
+            let hash_name = format!("{:016x}.{}", hash, ext);
+            let hash_path = parent.join(&hash_name);
+
+            let orig = final_path.to_string_lossy().to_lowercase().replace('\\', "/");
+            let act  = hash_path.to_string_lossy().to_lowercase().replace('\\', "/");
+            path_mappings.insert(orig, act);
+
+            wad_base.join(hash_path)
+        } else {
+            wad_base.join(&final_path)
+        };
+
+        let file_path = out_path.clone();
+        if let Some(p) = file_path.parent() {
+            std::fs::create_dir_all(p).unwrap_or_default();
         }
 
         std::fs::write(&file_path, &data)
-            .map_err(|e| format!("Failed to write file: {}", e))?;
+            .map_err(|e| format!("Failed to write extracted file: {}", e))?;
 
-        path_mappings.insert(format!("{:016x}", hash), final_path);
+        if is_unresolved {
+            let ext = final_path.extension().and_then(|e| e.to_str()).unwrap_or("dat").to_string();
+            unresolved_files.push((
+                *hash,
+                ext,
+                out_path,
+                path.clone(),
+            ));
+        }
+
         extracted_count += 1;
 
         let progress_interval = (total_files / 10).max(50).min(total_files);
@@ -648,6 +624,80 @@ fn import_fantome_internal(
 
     tracing::info!("Extracted {} files from Fantome WAD to {}", extracted_count, wad_folder_name);
 
+    // Drop the reader before hash extraction starts so the WAD file handle is released
+    drop(reader);
+
+    // Run extract_hashes_from_wad_path after extraction finishes
+    let _ = app.emit("fantome-import-progress", serde_json::json!({
+        "status": "progress",
+        "message": "Extracting and registering path hashes..."
+    }));
+
+    let hash_dir_path = Path::new(hash_dir);
+    if let Err(e) = crate::commands::wad::extract_hashes::extract_hashes_from_wad_path(&resolved_wad_path, hash_dir_path) {
+        tracing::warn!("Failed to auto-unhash WAD file during import: {}", e);
+    }
+
+    flint_ltk::hash::lmdb_cache::drop_lmdb_cache();
+
+    // Re-resolve unresolved paths and rename files on disk
+    if !unresolved_files.is_empty() {
+        if let Some(env) = get_or_open_env(hash_dir) {
+            let hashes_to_resolve: Vec<u64> = unresolved_files.iter().map(|(h, _, _, _)| *h).collect();
+            let newly_resolved = resolve_hashes_lmdb(&hashes_to_resolve, &env);
+
+            let mut resolved_count = 0;
+            for ((hash, guessed_ext, old_path_on_disk, original_path_key), resolved_path) in unresolved_files.iter().zip(newly_resolved.iter()) {
+                if !is_unresolved_hash(resolved_path) {
+                    // It is now resolved!
+                    let final_path = PathBuf::from(resolved_path.clone());
+                    let filename_len = final_path.to_string_lossy().len();
+
+                    if filename_len > 200 {
+                        let parent = final_path.parent().unwrap_or_else(|| Path::new("data"));
+                        let ext = final_path.extension().and_then(|e| e.to_str()).unwrap_or(guessed_ext.as_str());
+                        let hash_name = format!("{:016x}.{}", hash, ext);
+                        let hash_path = parent.join(&hash_name);
+
+                        let orig = final_path.to_string_lossy().to_lowercase().replace('\\', "/");
+                        let act  = hash_path.to_string_lossy().to_lowercase().replace('\\', "/");
+                        path_mappings.insert(orig, act);
+
+                        let new_out_path = wad_base.join(hash_path);
+                        if old_path_on_disk.exists() {
+                            if let Some(p) = new_out_path.parent() {
+                                std::fs::create_dir_all(p).unwrap_or_default();
+                            }
+                            if let Err(e) = std::fs::rename(old_path_on_disk, &new_out_path) {
+                                tracing::warn!("Failed to rename resolved long path file: {}", e);
+                            }
+                        }
+                    } else {
+                        let new_out_path = wad_base.join(&final_path);
+                        if old_path_on_disk.exists() {
+                            if let Some(p) = new_out_path.parent() {
+                                std::fs::create_dir_all(p).unwrap_or_default();
+                            }
+                            if let Err(e) = std::fs::rename(old_path_on_disk, &new_out_path) {
+                                tracing::warn!("Failed to rename resolved file to {}: {}", new_out_path.display(), e);
+                            } else {
+                                resolved_count += 1;
+                            }
+                        }
+                    }
+                } else {
+                    // Still unresolved. Add to path_mappings to map the extensionless path to the file with extension
+                    let orig = original_path_key.to_lowercase().replace('\\', "/");
+                    if let Ok(rel_path) = old_path_on_disk.strip_prefix(&wad_base) {
+                        let act = rel_path.to_string_lossy().to_lowercase().replace('\\', "/");
+                        path_mappings.insert(orig, act);
+                    }
+                }
+            }
+            tracing::info!("Re-resolved and renamed {}/{} unresolved files after hash extraction", resolved_count, unresolved_files.len());
+        }
+    }
+
     let existing_hashes: HashSet<u64> = chunk_hashes.iter().copied().collect();
 
     if options.match_from_league {
@@ -657,13 +707,33 @@ fn import_fantome_internal(
                 "message": "Matching missing files from League..."
             }));
 
-            match_missing_files_from_league(
+            let report = super::missing_files::recover_missing_files_from_league(
+                app,
+                "fantome-import-progress",
                 &wad_base,
                 league_path,
                 hash_dir,
                 &champion,
                 &existing_hashes,
-            ).map_err(|e| format!("Failed to match missing files: {}", e))?;
+            ).map_err(|e| format!("Failed to recover missing files: {}", e))?;
+
+            tracing::info!(
+                "Recovery: {} file(s) pulled from League across {} scanned BIN(s)",
+                report.recovered_files,
+                report.scanned_bins
+            );
+
+            if !report.still_missing.is_empty() {
+                tracing::warn!(
+                    "{} linked file(s) could not be recovered from League: {:?}",
+                    report.still_missing.len(),
+                    report.still_missing
+                );
+                let _ = app.emit("fantome-import-progress", serde_json::json!({
+                    "status": "progress",
+                    "message": format!("{} referenced file(s) could not be recovered", report.still_missing.len())
+                }));
+            }
         }
     }
 
@@ -673,14 +743,20 @@ fn import_fantome_internal(
         None
     };
 
-    let creator_name = fantome_metadata.as_ref()
-        .and_then(|m| m.author.as_deref())
-        .or(options.creator_name.as_deref())
+    let creator_name = options.creator_name.as_deref()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            fantome_metadata.as_ref()
+                .and_then(|m| m.author.as_deref())
+        })
         .unwrap_or("FlintUser");
 
-    let project_name = fantome_metadata.as_ref()
-        .and_then(|m| m.name.as_deref())
-        .or(options.project_name.as_deref())
+    let project_name = options.project_name.as_deref()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            fantome_metadata.as_ref()
+                .and_then(|m| m.name.as_deref())
+        })
         .unwrap_or("ImportedMod");
 
     let description = fantome_metadata.as_ref()
@@ -731,6 +807,18 @@ fn import_fantome_internal(
         project.version = ver;
     }
 
+    // Extract thumbnail from the Fantome package if it exists
+    if wad_path.ends_with(".fantome") || wad_path.ends_with(".zip") {
+        let _ = app.emit("fantome-import-progress", serde_json::json!({
+            "status": "progress",
+            "message": "Extracting thumbnail image..."
+        }));
+
+        if let Err(e) = extract_and_save_fantome_thumbnail(wad_path, project_path) {
+            tracing::warn!("Failed to extract/save thumbnail from Fantome: {}", e);
+        }
+    }
+
     let _ = app.emit("fantome-import-progress", serde_json::json!({
         "status": "progress",
         "message": "Saving project metadata..."
@@ -748,3 +836,75 @@ fn import_fantome_internal(
 
     Ok(project)
 }
+
+fn extract_and_save_fantome_thumbnail(fantome_path: &str, project_path: &Path) -> Result<(), String> {
+    let file = File::open(fantome_path)
+        .map_err(|e| format!("Failed to open file: {}", e))?;
+    let mut archive = ZipArchive::new(BufReader::new(file))
+        .map_err(|e| format!("Failed to open zip archive: {}", e))?;
+
+    let mut thumb_entry_index = None;
+    for i in 0..archive.len() {
+        let file_entry = match archive.by_index(i) {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
+        let name = file_entry.name().to_lowercase();
+        if name == "meta/image.png"
+            || name == "meta/image.jpg"
+            || name == "meta/image.jpeg"
+            || name == "meta/thumbnail.png"
+            || name == "meta/thumbnail.jpg"
+            || name == "meta/thumbnail.jpeg"
+            || name == "meta/image.webp"
+            || name == "meta/thumbnail.webp"
+            || name == "image.png"
+            || name == "thumbnail.png"
+        {
+            thumb_entry_index = Some(i);
+            break;
+        }
+    }
+
+    if let Some(idx) = thumb_entry_index {
+        let mut file_entry = archive.by_index(idx)
+            .map_err(|e| format!("Failed to open zip entry: {}", e))?;
+        let mut img_bytes = Vec::new();
+        std::io::copy(&mut file_entry, &mut img_bytes)
+            .map_err(|e| format!("Failed to read image bytes: {}", e))?;
+
+        let thumb_path = project_path.join("thumbnail.webp");
+
+        // Try decoding using the image crate and converting to WebP
+        if let Ok(img) = image::load_from_memory(&img_bytes) {
+            let webp_file = File::create(&thumb_path)
+                .map_err(|e| format!("Failed to create thumbnail.webp: {}", e))?;
+            let mut writer = std::io::BufWriter::new(webp_file);
+            img.write_to(&mut writer, image::ImageFormat::WebP)
+                .map_err(|e| format!("Failed to write WebP image: {}", e))?;
+            tracing::info!("Saved converted thumbnail to {:?}", thumb_path);
+        } else {
+            // Fallback: write raw bytes as-is to thumbnail.webp
+            std::fs::write(&thumb_path, &img_bytes)
+                .map_err(|e| format!("Failed to write fallback thumbnail bytes: {}", e))?;
+            tracing::warn!("Failed to decode thumbnail image, saved raw bytes to {:?}", thumb_path);
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_champion_from_path() {
+        assert_eq!(extract_champion_from_path("assets/characters/Yone/Yone.bin"), Some("Yone".to_string()));
+        assert_eq!(extract_champion_from_path("data/characters/Evelynn/Evelynn.bin"), Some("Evelynn".to_string()));
+        assert_eq!(extract_champion_from_path("characters/AurelionSol/AurelionSol.bin"), Some("AurelionSol".to_string()));
+        assert_eq!(extract_champion_from_path("foo/bar/baz.txt"), None);
+    }
+}
+
+

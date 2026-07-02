@@ -39,10 +39,50 @@ function hueFor(s: string): number {
     return h % 360;
 }
 
+function normalizeChampionAlias(alias: string): string {
+    if (!alias) return '';
+    const lower = alias.toLowerCase().replace(/['\s]/g, '');
+    
+    // Hardcoded overrides for champions with multiple capital letters or special casing in DDragon
+    const overrides: Record<string, string> = {
+        aurelionsol: 'AurelionSol',
+        belveth: 'BelVeth',
+        chogath: 'ChoGath',
+        drmundo: 'DrMundo',
+        jarvaniv: 'JarvanIV',
+        kaisa: 'KaiSa',
+        khazix: 'KhaZix',
+        kogmaw: 'KogMaw',
+        ksante: 'KSante',
+        leblanc: 'LeBlanc',
+        leesin: 'LeeSin',
+        masteryi: 'MasterYi',
+        missfortune: 'MissFortune',
+        nunu: 'Nunu',
+        reksai: 'RekSai',
+        renata: 'Renata',
+        renataglasc: 'Renata',
+        tahmkench: 'TahmKench',
+        twistedfate: 'TwistedFate',
+        velkoz: 'VelKoz',
+        xinzhao: 'XinZhao',
+        monkeyking: 'MonkeyKing',
+        wukong: 'MonkeyKing',
+    };
+
+    if (overrides[lower]) {
+        return overrides[lower];
+    }
+
+    // Default: Capitalize first letter (e.g. yone -> Yone)
+    return alias.charAt(0).toUpperCase() + alias.slice(1).toLowerCase();
+}
+
 /** Only valid for skin projects with a real champion alias; map /
  *  loading-screen projects fall back to the monogram tile. */
 function championSplashUrl(alias: string): string {
-    return `https://ddragon.leagueoflegends.com/cdn/img/champion/loading/${alias}_0.jpg`;
+    const normalized = normalizeChampionAlias(alias);
+    return `https://ddragon.leagueoflegends.com/cdn/img/champion/loading/${normalized}_0.jpg`;
 }
 
 /** Keyed by absolute project path. */
@@ -482,6 +522,7 @@ export const ProjectListModal: React.FC = () => {
                 refather: true,
                 creator_name: importCreatorName,
                 project_name: modName,
+                champion: champion || null,
                 target_skin_id: skinId,
                 cleanup_unused: false,
                 match_from_league: !isModpkg,

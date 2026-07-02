@@ -583,6 +583,22 @@ pub fn organize_vfx_in_folder(
         std::fs::write(&vfx_path, &vfx_bytes).map_err(|e| Error::io_with_path(e, &vfx_path))?;
     }
 
+    // Existence-based prune: drop any owner link whose target file is absent.
+    // Recovered/rewritten multi-bin links (live paths that differ from the
+    // consolidated source paths) never matched `deleted_links`, leaving dangling
+    // entries; remove them by checking the file on disk.
+    //
+    // The check is CASE-INSENSITIVE: link paths are lowercased, but the
+    // on-disk filename may be authored with different casing (e.g. a freshly
+    // split file written under a verbatim, uppercase name). On a case-sensitive
+    // FS a plain `.exists()` would wrongly prune a link to a file that is
+    // genuinely present under different casing, so we fall back to a
+    // case-insensitive scan of the link's parent directory.
+    sources[owner_idx]
+        .bin
+        .linked
+        .retain(|link| link_target_exists(project_root, link));
+
     {
         let owner_bytes = crate::bin::write_bin(&sources[owner_idx].bin)
             .map_err(|e| Error::InvalidInput(format!("Failed to serialize owner BIN: {}", e)))?;
@@ -615,11 +631,212 @@ pub fn organize_vfx_in_folder(
     })
 }
 
+/// Does an owner `linked` entry resolve to a file under `project_root`?
+///
+/// First tries the direct path. If that misses (which on a case-sensitive FS
+/// can happen when the link is lowercased but the file is stored with
+/// different casing), falls back to a case-insensitive scan of the link's
+/// parent directory for a filename that matches case-insensitively.
+fn link_target_exists(project_root: &Path, link: &str) -> bool {
+    let rel = link.replace('\\', "/");
+    let rel = rel.trim_start_matches('/');
+    let full = project_root.join(rel);
+    if full.exists() {
+        return true;
+    }
+    let (Some(parent), Some(name)) = (full.parent(), full.file_name()) else {
+        return false;
+    };
+    let Some(name) = name.to_str() else {
+        return false;
+    };
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return false;
+    };
+    entries.filter_map(|e| e.ok()).any(|e| {
+        e.file_name()
+            .to_str()
+            .map(|n| n.eq_ignore_ascii_case(name))
+            .unwrap_or(false)
+    })
+}
+
 /// Two paths are "the same" if canonicalize matches. Falls back to lexical
 /// equality when canonicalize fails (e.g. one input doesn't exist).
 fn paths_match(a: &Path, b: &Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
         (Ok(ca), Ok(cb)) => ca == cb,
         _ => a == b,
+    }
+}
+
+/// Collect every `.bin` under `folder`, excluding animation BINs (engine-format
+/// files that must not be consolidated). Returns absolute paths.
+pub fn collect_folder_bins(folder: &Path) -> Vec<PathBuf> {
+    walkdir::WalkDir::new(folder)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.path().extension().map(|x| x.eq_ignore_ascii_case("bin")).unwrap_or(false)
+                && !e.path().to_string_lossy().to_lowercase().replace('\\', "/").contains("/animations/")
+        })
+        .map(|e| e.path().to_path_buf())
+        .collect()
+}
+
+/// Pick the main skin BIN to own the consolidated VFX link: the bin under
+/// `/data/characters/.../skins/skin*` with the most objects. Falls back to the
+/// largest bin overall.
+pub fn pick_owner_bin(candidates: &[(PathBuf, usize)]) -> Option<PathBuf> {
+    let is_skin = |p: &Path| {
+        let s = p.to_string_lossy().to_lowercase().replace('\\', "/");
+        s.contains("/data/characters/") && s.contains("/skins/skin")
+    };
+    candidates
+        .iter()
+        .filter(|(p, _)| is_skin(p))
+        .max_by_key(|(_, n)| *n)
+        .or_else(|| candidates.iter().max_by_key(|(_, n)| *n))
+        .map(|(p, _)| p.clone())
+}
+
+/// The WAD-folder root for a folder inside a project's content tree — the
+/// nearest ancestor ending in `.wad.client`, else `folder` itself.
+pub fn find_wad_root(folder: &Path) -> PathBuf {
+    let mut cur = Some(folder);
+    while let Some(p) = cur {
+        if p.file_name().map(|n| n.to_string_lossy().ends_with(".wad.client")).unwrap_or(false) {
+            return p.to_path_buf();
+        }
+        cur = p.parent();
+    }
+    folder.to_path_buf()
+}
+
+#[cfg(test)]
+mod organize_import_tests {
+    use super::*;
+    use ritoshark::bin::{Bin, BinEntry};
+    use indexmap::IndexMap;
+
+    fn entry(path_hash: u32, class_hash: u32) -> BinEntry {
+        BinEntry { path_hash, class_hash, fields: IndexMap::new() }
+    }
+
+    fn write(path: &Path, bin: &Bin) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, crate::bin::write_bin(bin).unwrap()).unwrap();
+    }
+
+    /// Mirrors the import layout: a skin BIN (owner) plus a separate BIN holding
+    /// both a VFX-class object and a non-VFX object in the same folder. After
+    /// consolidation the VFX object moves into `data/<vfx>.bin`, the non-VFX
+    /// object merges into the owner, the now-empty source is deleted, and the
+    /// owner links the new VFX file.
+    #[test]
+    fn organize_import_layout_consolidates() {
+        let vfx_class = fnv1a_lower("VfxSystemDefinitionData");
+        let other_class = fnv1a_lower("SkinCharacterDataProperties");
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("x.wad.client");
+        let skins = root.join("data/characters/x/skins");
+
+        // Owner: the skin BIN with one non-VFX object.
+        let owner_path = skins.join("skin0.bin");
+        let mut owner = Bin::new();
+        owner.entries.push(entry(1, other_class));
+        write(&owner_path, &owner);
+
+        // Source: a separate BIN with a VFX object and a non-VFX object.
+        let src_path = skins.join("skin0_vfx_source.bin");
+        let mut src = Bin::new();
+        src.entries.push(entry(2, vfx_class));
+        src.entries.push(entry(3, other_class));
+        write(&src_path, &src);
+
+        let bins = collect_folder_bins(&root);
+        let project_root = find_wad_root(&skins);
+        assert_eq!(project_root, root);
+
+        let result = organize_vfx_in_folder(&bins, &owner_path, &project_root, "x_vfx.bin").unwrap();
+
+        assert_eq!(result.vfx_objects_moved, 1, "one VFX object should move");
+        assert_eq!(result.main_objects_merged, 1, "one non-VFX object should merge into the owner");
+
+        // The VFX BIN exists with the VFX object.
+        let vfx_out = root.join("data/x_vfx.bin");
+        assert!(vfx_out.exists(), "consolidated VFX BIN should be created");
+        let vfx_bin = crate::bin::read_bin(&std::fs::read(&vfx_out).unwrap()).unwrap();
+        assert!(vfx_bin.entries.iter().any(|e| e.class_hash == vfx_class));
+
+        // The empty source was deleted.
+        assert!(!src_path.exists(), "emptied source BIN should be deleted");
+        assert!(result.sources_deleted.iter().any(|p| p == &src_path));
+
+        // The owner gained the non-VFX object and links the VFX file.
+        let owner_after = crate::bin::read_bin(&std::fs::read(&owner_path).unwrap()).unwrap();
+        assert!(owner_after.entries.iter().any(|e| e.path_hash == 3));
+        assert!(owner_after.linked.iter().any(|d| d.eq_ignore_ascii_case("data/x_vfx.bin")));
+    }
+
+    #[test]
+    fn organize_prunes_links_to_missing_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let data = root.join("data");
+        std::fs::create_dir_all(&data).unwrap();
+
+        // Owner skin bin links a real sibling AND a dangling (never-existed) path.
+        // A VFX object on the owner makes consolidation actually run (otherwise the
+        // fn bails with "Nothing to consolidate" before reaching the prune).
+        let mut owner = ritoshark::bin::Bin::new();
+        owner.entries.push(entry(1, fnv1a_lower("VfxSystemDefinitionData")));
+        owner.linked.push("data/real_sibling.bin".to_string());
+        owner.linked.push("data/characters/yone/yone_multi_skins_root_gone.bin".to_string());
+        let owner_path = data.join("skin0.bin");
+        std::fs::write(&owner_path, crate::bin::write_bin(&owner).unwrap()).unwrap();
+        // The real sibling exists on disk; the multi-bin does not.
+        std::fs::write(data.join("real_sibling.bin"), crate::bin::write_bin(&ritoshark::bin::Bin::new()).unwrap()).unwrap();
+
+        let sources = vec![owner_path.clone()];
+        let _ = organize_vfx_in_folder(&sources, &owner_path, root, "yone_vfx.bin").unwrap();
+
+        let reread = crate::bin::read_bin(&std::fs::read(&owner_path).unwrap()).unwrap();
+        assert!(reread.linked.iter().any(|l| l == "data/real_sibling.bin"), "real sibling link kept");
+        assert!(!reread.linked.iter().any(|l| l.contains("yone_multi_skins_root_gone")), "dangling link pruned");
+    }
+
+    #[test]
+    fn organize_keeps_link_with_different_casing() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let data = root.join("data");
+        std::fs::create_dir_all(&data).unwrap();
+
+        // Owner links the file in lowercase, but the file on disk is authored
+        // with mixed casing. The existence prune must keep it (case-insensitive).
+        let mut owner = ritoshark::bin::Bin::new();
+        owner.entries.push(entry(1, fnv1a_lower("VfxSystemDefinitionData")));
+        owner.linked.push("data/mixedcase_sibling.bin".to_string());
+        let owner_path = data.join("skin0.bin");
+        std::fs::write(&owner_path, crate::bin::write_bin(&owner).unwrap()).unwrap();
+        // The sibling exists under DIFFERENT casing than the (lowercased) link.
+        std::fs::write(
+            data.join("MixedCase_Sibling.bin"),
+            crate::bin::write_bin(&ritoshark::bin::Bin::new()).unwrap(),
+        )
+        .unwrap();
+
+        let sources = vec![owner_path.clone()];
+        let _ = organize_vfx_in_folder(&sources, &owner_path, root, "casing_vfx.bin").unwrap();
+
+        let reread = crate::bin::read_bin(&std::fs::read(&owner_path).unwrap()).unwrap();
+        assert!(
+            reread.linked.iter().any(|l| l == "data/mixedcase_sibling.bin"),
+            "link to a file present under different casing must be kept"
+        );
     }
 }

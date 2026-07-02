@@ -28,6 +28,7 @@ import { RecolorModal } from '../modals/RecolorModal';
 import { FixerModal } from '../modals/FixerModal';
 import { ProjectListModal } from '../modals/ProjectListModal';
 import { ModConfigEditorModal } from '../modals/ModConfigEditorModal';
+import { ImportModModal } from '../modals/ImportModModal';
 import { ThumbnailCropModal } from '../modals/ThumbnailCropModal';
 import { CheckpointModal } from '../modals/CheckpointModal';
 import { MapTexturesModal } from '../modals/MapTexturesModal';
@@ -64,6 +65,7 @@ const ActiveModal: React.FC<{ activeModal: string | null }> = React.memo(({ acti
         case 'fixer':            return <FixerModal />;
         case 'projectList':      return <ProjectListModal />;
         case 'modConfig':        return <ModConfigEditorModal />;
+        case 'importMod':        return <ImportModModal />;
         case 'renameProject':    return <RenameProjectModal />;
         case 'thumbnail':        return <ThumbnailCropModal />;
         case 'checkpoint':       return <CheckpointModal />;
@@ -273,35 +275,57 @@ export const App: React.FC = () => {
         };
     }, []);
 
-    useEffect(() => {
-        const unlistenFileOpen = listen<string>('file-open-request', async (event) => {
-            const filePath = event.payload;
-            if (!filePath) return;
-            const lower = filePath.toLowerCase();
+    const handleFileOpenRequest = useCallback(async (filePath: string) => {
+        if (!filePath) return;
+        const lower = filePath.toLowerCase();
 
-            if (isWadPath(lower)) {
-                try {
-                    setWorking('Opening WAD...');
-                    await openWadInExtract(filePath);
-                    setReady('WAD opened');
-                } catch (err) {
-                    console.error('Failed to open WAD:', err);
-                    showToast('error', 'Failed to open WAD archive');
-                    setReady('Error');
-                }
-                return;
+        if (isWadPath(lower)) {
+            try {
+                setWorking('Opening WAD...');
+                await openWadInExtract(filePath);
+                setReady('WAD opened');
+            } catch (err) {
+                console.error('Failed to open WAD:', err);
+                showToast('error', 'Failed to open WAD archive');
+                setReady('Error');
             }
+            return;
+        }
 
-            let kind: 'raw' | 'binText' | 'luaBin64' = 'raw';
-            if (lower.endsWith('.bin') || lower.endsWith('.ritobin') || lower.endsWith('.py') || lower.endsWith('.troybin')) {
-                kind = 'binText';
-            } else if (lower.endsWith('.luabin') || lower.endsWith('.luabin64')) {
-                kind = 'luaBin64';
-            }
-            useNavigationStore.getState().navigateToFileEditor({ filePath, kind });
-        });
-        return () => { unlistenFileOpen.then((unlisten) => unlisten()); };
+        // Mod packages (.fantome = ZIP of WADs, .modpkg = ModPkg archive) open in the
+        // full archive editor: META + inner WADs, with live inner-WAD editing.
+        if (lower.endsWith('.fantome') || lower.endsWith('.modpkg')) {
+            useNavigationStore.getState().navigateToArchiveEditor(filePath);
+            return;
+        }
+
+        let kind: 'raw' | 'binText' | 'luaBin64' | 'troybin' = 'raw';
+        if (lower.endsWith('.troybin')) {
+            // .troybin is a binary League config with a dedicated read-only viewer;
+            // it is NOT ritobin text, so it must never reach the BinEditor.
+            kind = 'troybin';
+        } else if (lower.endsWith('.bin') || lower.endsWith('.ritobin') || lower.endsWith('.py')) {
+            kind = 'binText';
+        } else if (lower.endsWith('.luabin') || lower.endsWith('.luabin64')) {
+            kind = 'luaBin64';
+        }
+        useNavigationStore.getState().navigateToFileEditor({ filePath, kind });
     }, [setWorking, setReady, showToast]);
+
+    useEffect(() => {
+        const unlistenFileOpen = listen<string>('file-open-request', (event) => {
+            void handleFileOpenRequest(event.payload);
+        });
+        // On a cold start the webview boots long after the backend emits its
+        // fixed-delay `file-open-request`, so that event is lost. Now that the
+        // listener is mounted, PULL any pending "Open with" path from the
+        // backend — race-free regardless of boot time. (This is why double-
+        // clicking a file used to just open Flint; you had to double-click again.)
+        api.takePendingFileOpen()
+            .then((pending) => { if (pending) void handleFileOpenRequest(pending); })
+            .catch((err) => console.error('takePendingFileOpen failed:', err));
+        return () => { unlistenFileOpen.then((unlisten) => unlisten()); };
+    }, [handleFileOpenRequest]);
 
     const previewWatcherRunningRef = React.useRef(false);
     useEffect(() => {
@@ -525,6 +549,7 @@ export const App: React.FC = () => {
     const isWadExplorer = currentView === 'wad-explorer';
     const isExtractMode = currentView === 'extract';
     const isFileEditor = currentView === 'file-editor';
+    const isArchiveEditor = currentView === 'archive-editor';
     const isManifest = currentView === 'manifest';
     const hasProject = !isWadExplorer && !isManifest && currentView !== 'welcome';
 
@@ -573,7 +598,7 @@ export const App: React.FC = () => {
                 {isManifest && <ManifestBrowser />}
                 {!isWadExplorer && !isManifest && (
                     <>
-                        {hasProject && !isExtractMode && !isFileEditor && (
+                        {hasProject && !isExtractMode && !isFileEditor && !isArchiveEditor && (
                             <>
                                 <LeftPanel style={{ width: leftPanelWidth }} />
                                 <div

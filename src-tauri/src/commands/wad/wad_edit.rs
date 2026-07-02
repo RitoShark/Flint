@@ -12,11 +12,13 @@
 //!   4. `close_wad_edit_session(session_id)` — frees memory.
 
 use crate::core::ipc_trace;
-use crate::state::{WadEditDelta, WadEditSession, WadEditState};
+use crate::state::{WadEditBacking, WadEditDelta, WadEditSession, WadEditState};
+use flint_ltk::wad_jade::format::{WadChunk, WadCompression};
 use flint_ltk::wad_jade::read_chunk_decompressed_bytes;
 use flint_ltk::wad_jade::reader::read_wad_toc;
 use flint_ltk::wad_jade::writer::{write_wad, EntryToWrite};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use tauri::ipc::{InvokeBody, Request, Response};
 use uuid::Uuid;
@@ -47,15 +49,15 @@ fn parse_hex_hash(s: &str) -> Result<u64, String> {
         .map_err(|e| format!("Invalid path_hash '{}': {}", s, e))
 }
 
-/// Open a WAD into a fresh in-memory edit session. Parses the TOC immediately
-/// but does not decompress anything.
-#[tauri::command]
-pub async fn open_wad_edit_session(
-    wad_path: String,
-    state: tauri::State<'_, WadEditState>,
+/// Open a WAD at `wad_path` into a fresh in-memory edit session against the
+/// given `WadEditState`. Parses the TOC immediately but does not decompress
+/// anything. Shared by the `open_wad_edit_session` command and the archive
+/// editor's `open_inner_wad` (both need an identical open path).
+pub fn open_wad_session_for_path(
+    wad_path: &str,
+    state: &WadEditState,
 ) -> Result<WadEditSessionInfo, String> {
-    let _t = ipc_trace::enter("open_wad_edit_session");
-    let path = PathBuf::from(&wad_path);
+    let path = PathBuf::from(wad_path);
     if !path.exists() {
         return Err(format!("WAD not found: {}", wad_path));
     }
@@ -82,6 +84,7 @@ pub async fn open_wad_edit_session(
         source_path: path.clone(),
         original_chunks: toc.chunks,
         deltas: Default::default(),
+        backing: WadEditBacking::Wad,
     };
     let chunk_count = session.original_chunks.len();
     let id = state.insert(session);
@@ -92,9 +95,165 @@ pub async fn open_wad_edit_session(
     );
     Ok(WadEditSessionInfo {
         session_id: id,
-        source_path: wad_path,
+        source_path: wad_path.to_string(),
         initial_chunk_count: chunk_count,
     })
+}
+
+/// One chunk of a folder-backed WAD session, with its real (known) path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FolderWadChunk {
+    /// Hex-formatted 16-char hash (`xxhash64` of the lowercased WAD-relative path).
+    pub hash: String,
+    /// Real WAD-relative path (forward slashes) — no LMDB lookup needed.
+    pub path: String,
+    pub size: u64,
+}
+
+/// Open a WAD stored as a FOLDER tree of loose files into an edit session
+/// WITHOUT packing it into a `.wad.client`. Chunks map 1:1 to the loose files;
+/// their real paths are kept so the browser shows real paths (never hashed) and
+/// save writes the files straight back to the folder. Returns the session info
+/// plus the chunk list (so the caller need not re-derive paths via LMDB).
+pub fn open_folder_wad_session(
+    folder_root: &std::path::Path,
+    display_source: &str,
+    state: &WadEditState,
+) -> Result<(WadEditSessionInfo, Vec<FolderWadChunk>), String> {
+    if !folder_root.is_dir() {
+        return Err(format!("Not a folder: {}", folder_root.display()));
+    }
+
+    let mut original_chunks: Vec<WadChunk> = Vec::new();
+    let mut paths: HashMap<u64, String> = HashMap::new();
+    let mut chunk_list: Vec<FolderWadChunk> = Vec::new();
+
+    for entry in walkdir::WalkDir::new(folder_root)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_file())
+    {
+        let rel = entry
+            .path()
+            .strip_prefix(folder_root)
+            .map_err(|e| format!("strip prefix: {}", e))?
+            .to_string_lossy()
+            .replace('\\', "/");
+        if rel.is_empty() {
+            continue;
+        }
+        // WAD path hashing is xxhash64 of the LOWERCASED path (seed 0).
+        let hash = xxhash_rust::xxh64::xxh64(rel.to_lowercase().as_bytes(), 0);
+        let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+        original_chunks.push(WadChunk {
+            path_hash: hash,
+            data_offset: 0,
+            compressed_size: size,
+            uncompressed_size: size,
+            compression: WadCompression::None,
+        });
+        paths.insert(hash, rel.clone());
+        chunk_list.push(FolderWadChunk {
+            hash: format!("{:016x}", hash),
+            path: rel,
+            size,
+        });
+    }
+
+    if original_chunks.is_empty() {
+        return Err(format!("Folder WAD is empty: {}", folder_root.display()));
+    }
+
+    let chunk_count = original_chunks.len();
+    let session = WadEditSession {
+        session_id: Uuid::new_v4().to_string(),
+        source_path: PathBuf::from(display_source),
+        original_chunks,
+        deltas: Default::default(),
+        backing: WadEditBacking::Folder {
+            root: folder_root.to_path_buf(),
+            paths,
+        },
+    };
+    let id = state.insert(session);
+    tracing::info!(
+        "Folder WAD edit session opened: {} ({} files) id={}",
+        folder_root.display(), chunk_count, id
+    );
+    Ok((
+        WadEditSessionInfo {
+            session_id: id,
+            source_path: display_source.to_string(),
+            initial_chunk_count: chunk_count,
+        },
+        chunk_list,
+    ))
+}
+
+/// Return the real path list for a folder-backed session (reflecting pending
+/// renames/deletes/adds), so the browser shows real paths with no LMDB lookup.
+#[tauri::command]
+pub async fn folder_wad_chunks(
+    session_id: String,
+    state: tauri::State<'_, WadEditState>,
+) -> Result<Vec<FolderWadChunk>, String> {
+    let _t = ipc_trace::enter("folder_wad_chunks");
+    let session = state
+        .get(&session_id)
+        .ok_or_else(|| format!("No such session: {}", session_id))?;
+    let g = session.read();
+    let paths = match &g.backing {
+        WadEditBacking::Folder { paths, .. } => paths.clone(),
+        WadEditBacking::Wad => {
+            return Err("Session is not folder-backed".into());
+        }
+    };
+
+    // Start from originals not deleted, then layer in Write deltas (adds/edits).
+    let mut out: HashMap<u64, FolderWadChunk> = HashMap::new();
+    for chunk in &g.original_chunks {
+        if matches!(g.deltas.get(&chunk.path_hash), Some(WadEditDelta::Delete)) {
+            continue;
+        }
+        if let Some(p) = paths.get(&chunk.path_hash) {
+            out.insert(
+                chunk.path_hash,
+                FolderWadChunk {
+                    hash: format!("{:016x}", chunk.path_hash),
+                    path: p.clone(),
+                    size: chunk.uncompressed_size,
+                },
+            );
+        }
+    }
+    for (hash, delta) in g.deltas.iter() {
+        if let WadEditDelta::Write(bytes) = delta {
+            let path = paths
+                .get(hash)
+                .cloned()
+                .unwrap_or_else(|| format!("{:016x}", hash));
+            out.insert(
+                *hash,
+                FolderWadChunk {
+                    hash: format!("{:016x}", hash),
+                    path,
+                    size: bytes.len() as u64,
+                },
+            );
+        }
+    }
+    Ok(out.into_values().collect())
+}
+
+/// Open a WAD into a fresh in-memory edit session. Parses the TOC immediately
+/// but does not decompress anything.
+#[tauri::command]
+pub async fn open_wad_edit_session(
+    wad_path: String,
+    state: tauri::State<'_, WadEditState>,
+) -> Result<WadEditSessionInfo, String> {
+    let _t = ipc_trace::enter("open_wad_edit_session");
+    open_wad_session_for_path(&wad_path, &state)
 }
 
 #[tauri::command]
@@ -141,11 +300,18 @@ pub async fn read_session_chunk(
         .ok_or_else(|| format!("No such session: {}", session_id))?;
 
     // Take what we need under the lock then drop it before doing I/O.
-    let (delta, original_chunk, source_path) = {
+    let (delta, original_chunk, source_path, folder_file) = {
         let guard = session.read();
         let delta = guard.deltas.get(&hash).cloned();
         let chunk = guard.original_chunks.iter().find(|c| c.path_hash == hash).copied();
-        (delta, chunk, guard.source_path.clone())
+        // For a folder-backed session, resolve the loose file to read from disk.
+        let folder_file = match &guard.backing {
+            WadEditBacking::Folder { root, paths } => {
+                paths.get(&hash).map(|rel| root.join(rel))
+            }
+            WadEditBacking::Wad => None,
+        };
+        (delta, chunk, guard.source_path.clone(), folder_file)
     };
 
     match delta {
@@ -154,6 +320,14 @@ pub async fn read_session_chunk(
             "Chunk {:016x} was deleted in this session", hash
         )),
         None => {
+            // Folder-backed: read the loose file directly (no WAD decompression).
+            if let Some(file_path) = folder_file {
+                let bytes = tokio::task::spawn_blocking(move || std::fs::read(&file_path))
+                    .await
+                    .map_err(|e| format!("Read task panicked: {}", e))?
+                    .map_err(|e| format!("Failed to read folder chunk {:016x}: {}", hash, e))?;
+                return Ok(Response::new(bytes));
+            }
             let chunk = original_chunk.ok_or_else(|| format!(
                 "Chunk {:016x} not found in WAD or session deltas", hash
             ))?;
@@ -213,6 +387,85 @@ pub async fn remove_session_chunk(
     Ok(())
 }
 
+/// Rename (move) a chunk to a new project-relative path. Re-keys the chunk
+/// under the new path-hash (`xxhash64` of the lowercased path), carrying any
+/// pending `Write` bytes or — for an untouched original — staging a `Write`
+/// with the original's decompressed bytes under the new hash, plus a `Delete`
+/// of the old hash. Returns the new hash as `0x{:016x}`.
+#[tauri::command]
+pub async fn rename_session_chunk(
+    session_id: String,
+    old_path_hash: String,
+    new_path: String,
+    state: tauri::State<'_, WadEditState>,
+) -> Result<String, String> {
+    let _t = ipc_trace::enter("rename_session_chunk");
+    let old_hash = parse_hex_hash(&old_path_hash)?;
+    let new_key = new_path.replace('\\', "/").trim_start_matches('/').to_lowercase();
+    if new_key.is_empty() {
+        return Err("New path is empty".into());
+    }
+    let new_hash = xxhash_rust::xxh64::xxh64(new_key.as_bytes(), 0);
+
+    if new_hash == old_hash {
+        return Ok(format!("0x{:016x}", new_hash));
+    }
+
+    let session = state
+        .get(&session_id)
+        .ok_or_else(|| format!("No such session: {}", session_id))?;
+
+    // Resolve the bytes to carry to the new hash: a pending Write wins; an
+    // untouched original is read from its backing (folder file or WAD chunk); a
+    // pending Delete means there's nothing to rename.
+    let (source_path, original, folder_file) = {
+        let g = session.read();
+        let original = g.original_chunks.iter().find(|c| c.path_hash == old_hash).cloned();
+        let folder_file = match &g.backing {
+            WadEditBacking::Folder { root, paths } => paths.get(&old_hash).map(|rel| root.join(rel)),
+            WadEditBacking::Wad => None,
+        };
+        (g.source_path.clone(), original, folder_file)
+    };
+
+    let bytes: Vec<u8> = {
+        let g = session.read();
+        match g.deltas.get(&old_hash) {
+            Some(WadEditDelta::Write(b)) => b.clone(),
+            Some(WadEditDelta::Delete) => return Err("Cannot rename a deleted chunk".into()),
+            None => {
+                if let Some(file_path) = folder_file {
+                    std::fs::read(&file_path)
+                        .map_err(|e| format!("Failed to read folder chunk to rename: {}", e))?
+                } else {
+                    let chunk = original.ok_or_else(|| format!("Chunk not found: {}", old_path_hash))?;
+                    read_chunk_decompressed_bytes(&source_path, &chunk)
+                        .map_err(|e| format!("Failed to read chunk to rename: {}", e))?
+                }
+            }
+        }
+    };
+
+    {
+        let mut g = session.write();
+        g.deltas.insert(new_hash, WadEditDelta::Write(bytes));
+        // Only stage a Delete of the old hash if it exists as an original;
+        // a brand-new (added) chunk being renamed just drops its old Write.
+        if g.original_chunks.iter().any(|c| c.path_hash == old_hash) {
+            g.deltas.insert(old_hash, WadEditDelta::Delete);
+        } else {
+            g.deltas.remove(&old_hash);
+        }
+        // Record the new hash's real path for a folder-backed session so the
+        // browser shows the moved path and save writes it to the right place.
+        if let WadEditBacking::Folder { paths, .. } = &mut g.backing {
+            paths.insert(new_hash, new_key.clone());
+        }
+    }
+
+    Ok(format!("0x{:016x}", new_hash))
+}
+
 #[tauri::command]
 pub async fn session_dirty_chunks(
     session_id: String,
@@ -249,34 +502,16 @@ pub async fn discard_session_changes(
     Ok(())
 }
 
-/// Save the session as a fresh WAD at `output_path`, via write-then-rename so a
-/// crashed save can't leave a half-written file. The session stays open and is
-/// re-baselined to the output. Pass `output_path == source_path` to overwrite.
-#[tauri::command]
-pub async fn save_session_to_path(
-    session_id: String,
-    output_path: String,
-    state: tauri::State<'_, WadEditState>,
-) -> Result<SaveResult, String> {
-    let _t = ipc_trace::enter("save_session_to_path");
-
-    if let Ok(settings) = crate::commands::settings::get_settings() {
-        let normalized_out = output_path.to_lowercase().replace('\\', "/");
-        if let Some(ref lp) = settings.league_path {
-            let normalized_lp = lp.to_lowercase().replace('\\', "/");
-            if !normalized_lp.is_empty() && normalized_out.starts_with(&normalized_lp) {
-                return Err("Cannot write or save WAD files inside the League of Legends game directory.".to_string());
-            }
-        }
-        if let Some(ref lp_pbe) = settings.league_path_pbe {
-            let normalized_lp_pbe = lp_pbe.to_lowercase().replace('\\', "/");
-            if !normalized_lp_pbe.is_empty() && normalized_out.starts_with(&normalized_lp_pbe) {
-                return Err("Cannot write or save WAD files inside the League of Legends game directory.".to_string());
-            }
-        }
-    }
-
-    let session = state.get(&session_id)
+/// Serialize a session's current state (untouched originals + pending Writes,
+/// minus pending Deletes) into a fresh WAD byte buffer WITHOUT touching disk.
+/// Shared by `save_session_to_path` (which then write-then-renames) and the
+/// archive editor's `save_archive_session` (which embeds the bytes into the
+/// archive). Returns `(wad_bytes, chunk_count)`.
+pub async fn serialize_session_to_bytes(
+    session_id: &str,
+    state: &WadEditState,
+) -> Result<(Vec<u8>, usize), String> {
+    let session = state.get(session_id)
         .ok_or_else(|| format!("No such session: {}", session_id))?;
 
     // Collect everything we need under the lock, then drop the guard so
@@ -286,7 +521,7 @@ pub async fn save_session_to_path(
         (g.source_path.clone(), g.original_chunks.clone(), g.deltas.clone())
     };
 
-    let result: Result<(Vec<u8>, usize), String> = tokio::task::spawn_blocking(move || {
+    tokio::task::spawn_blocking(move || {
         use rayon::prelude::*;
 
         // Decompress untouched originals (not shadowed by a delta) across rayon;
@@ -319,10 +554,95 @@ pub async fn save_session_to_path(
         Ok::<_, String>((wad_bytes, chunk_count))
     })
     .await
-    .map_err(|e| format!("Save task panicked: {}", e))?;
+    .map_err(|e| format!("Save task panicked: {}", e))?
+}
 
-    let (wad_bytes, chunk_count) = result?;
+/// Serialize a FOLDER-backed session's current state into `(relative_path,
+/// bytes)` pairs — untouched loose files (read from disk) + pending Writes,
+/// minus pending Deletes. The caller writes these back as loose files (the
+/// archive editor re-zips them under `WAD/<name>.wad.client/`). Errors if the
+/// session isn't folder-backed.
+pub async fn serialize_folder_session_to_files(
+    session_id: &str,
+    state: &WadEditState,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let session = state
+        .get(session_id)
+        .ok_or_else(|| format!("No such session: {}", session_id))?;
+
+    let (root, paths, original_chunks, deltas) = {
+        let g = session.read();
+        match &g.backing {
+            WadEditBacking::Folder { root, paths } => (
+                root.clone(),
+                paths.clone(),
+                g.original_chunks.clone(),
+                g.deltas.clone(),
+            ),
+            WadEditBacking::Wad => return Err("Session is not folder-backed".into()),
+        }
+    };
+
+    tokio::task::spawn_blocking(move || {
+        let mut out: HashMap<u64, (String, Vec<u8>)> = HashMap::new();
+        // Untouched originals: read the loose file straight off disk.
+        for chunk in &original_chunks {
+            if deltas.contains_key(&chunk.path_hash) {
+                continue;
+            }
+            let Some(rel) = paths.get(&chunk.path_hash) else { continue };
+            let bytes = std::fs::read(root.join(rel))
+                .map_err(|e| format!("Failed to read folder chunk {}: {}", rel, e))?;
+            out.insert(chunk.path_hash, (rel.clone(), bytes));
+        }
+        // Pending Writes (edits + adds + rename targets).
+        for (hash, delta) in deltas.iter() {
+            if let WadEditDelta::Write(bytes) = delta {
+                let rel = paths
+                    .get(hash)
+                    .cloned()
+                    .unwrap_or_else(|| format!("{:016x}", hash));
+                out.insert(*hash, (rel, bytes.clone()));
+            }
+        }
+        Ok::<_, String>(out.into_values().collect())
+    })
+    .await
+    .map_err(|e| format!("Folder serialize task panicked: {}", e))?
+}
+
+/// Save the session as a fresh WAD at `output_path`, via write-then-rename so a
+/// crashed save can't leave a half-written file. The session stays open and is
+/// re-baselined to the output. Pass `output_path == source_path` to overwrite.
+#[tauri::command]
+pub async fn save_session_to_path(
+    session_id: String,
+    output_path: String,
+    state: tauri::State<'_, WadEditState>,
+) -> Result<SaveResult, String> {
+    let _t = ipc_trace::enter("save_session_to_path");
+
+    if let Ok(settings) = crate::commands::settings::get_settings() {
+        let normalized_out = output_path.to_lowercase().replace('\\', "/");
+        if let Some(ref lp) = settings.league_path {
+            let normalized_lp = lp.to_lowercase().replace('\\', "/");
+            if !normalized_lp.is_empty() && normalized_out.starts_with(&normalized_lp) {
+                return Err("Cannot write or save WAD files inside the League of Legends game directory.".to_string());
+            }
+        }
+        if let Some(ref lp_pbe) = settings.league_path_pbe {
+            let normalized_lp_pbe = lp_pbe.to_lowercase().replace('\\', "/");
+            if !normalized_lp_pbe.is_empty() && normalized_out.starts_with(&normalized_lp_pbe) {
+                return Err("Cannot write or save WAD files inside the League of Legends game directory.".to_string());
+            }
+        }
+    }
+
+    let (wad_bytes, chunk_count) = serialize_session_to_bytes(&session_id, &state).await?;
     let total_bytes = wad_bytes.len() as u64;
+
+    let session = state.get(&session_id)
+        .ok_or_else(|| format!("No such session: {}", session_id))?;
 
     // Write-then-rename so the source WAD (if `output_path == source_path`)
     // can't get half-overwritten on a crash.

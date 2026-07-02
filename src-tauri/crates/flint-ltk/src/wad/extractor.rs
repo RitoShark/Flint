@@ -480,6 +480,28 @@ fn collect_paths_from_value_into(value: &BinValue, out: &mut Vec<String>) {
     }
 }
 
+/// Glob the resolved WAD TOC for other characters shipping a
+/// `skins/skin{N}.bin` — those are sub-champions (Tibbers, Skaarl, …).
+fn find_sub_characters(resolved: &ResolvedHashes, champion_lower: &str, skin_id: u32) -> Vec<String> {
+    let tails = [
+        format!("skins/skin{}.bin", skin_id),
+        format!("skins/skin{:02}.bin", skin_id),
+    ];
+    let mut subs: Vec<String> = Vec::new();
+    for (_, p) in resolved.iter() {
+        let Some(rest) = p.strip_prefix("data/characters/") else { continue };
+        let Some((character, tail)) = rest.split_once('/') else { continue };
+        if character != champion_lower
+            && tails.iter().any(|t| tail == t)
+            && !subs.iter().any(|s| s == character)
+        {
+            tracing::info!("[selective] sub-champion detected: {}", character);
+            subs.push(character.to_string());
+        }
+    }
+    subs
+}
+
 /// Selective skin extraction: walk the seed BIN's reference graph in memory,
 /// collect every referenced asset + linked-BIN path via BFS, and extract only
 /// those chunks.
@@ -536,18 +558,28 @@ pub fn extract_skin_assets_selective(
     let mut bin_seen: HashSet<String> = HashSet::new();
     let mut queue: VecDeque<String> = VecDeque::new();
 
-    queue.push_back(seed.clone());
-    bin_seen.insert(seed.clone());
-
-    let anim_seeds = vec![
-        format!("data/characters/{}/animations/skin0.bin", champion_lower),
-        format!("data/characters/{}/animations/skin00.bin", champion_lower),
-        format!("data/characters/{}/animations/skin{}.bin", champion_lower, skin_id),
-        format!("data/characters/{}/animations/skin{:02}.bin", champion_lower, skin_id),
+    let character_seeds = |ch: &str| [
+        format!("data/characters/{}/skins/skin{}.bin", ch, skin_id),
+        format!("data/characters/{}/skins/skin{:02}.bin", ch, skin_id),
+        format!("data/characters/{}/animations/skin0.bin", ch),
+        format!("data/characters/{}/animations/skin00.bin", ch),
+        format!("data/characters/{}/animations/skin{}.bin", ch, skin_id),
+        format!("data/characters/{}/animations/skin{:02}.bin", ch, skin_id),
     ];
-    for anim_seed in anim_seeds {
-        if bin_seen.insert(anim_seed.clone()) {
-            queue.push_back(anim_seed);
+
+    let sub_characters = if is_tft {
+        Vec::new()
+    } else {
+        let all_hashes: Vec<u64> = by_hash.keys().copied().collect();
+        find_sub_characters(&resolve_paths(&all_hashes), &champion_lower, skin_id)
+    };
+
+    for s in character_seeds(&champion_lower)
+        .into_iter()
+        .chain(sub_characters.iter().flat_map(|sub| character_seeds(sub)))
+    {
+        if bin_seen.insert(s.clone()) {
+            queue.push_back(s);
         }
     }
 
@@ -816,6 +848,29 @@ pub fn resolve_wad_paths(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn find_sub_characters_globs_resolved_toc() {
+        let mut resolved = ResolvedHashes::new();
+        for (h, p) in [
+            (1u64, "data/characters/annie/skins/skin22.bin"),
+            (2, "data/characters/annietibbers/skins/skin22.bin"),
+            (3, "data/characters/annietibbers/skins/skin09.bin"),
+            (4, "data/characters/petball/skins/skin9.bin"),
+            (5, "assets/characters/annietibbers/skins/skin22/tibbers.skn"),
+            (6, "data/characters/annie/animations/skin22.bin"),
+        ] {
+            resolved.insert(h, p);
+        }
+
+        assert_eq!(find_sub_characters(&resolved, "annie", 22), vec!["annietibbers"]);
+
+        let mut subs = find_sub_characters(&resolved, "annie", 9);
+        subs.sort_unstable();
+        assert_eq!(subs, vec!["annietibbers", "petball"]);
+
+        assert!(find_sub_characters(&resolved, "annie", 7).is_empty());
+    }
 
     #[test]
     fn test_resolve_chunk_path_with_extension() {

@@ -153,6 +153,7 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
     const [isExtracting, setIsExtracting] = useState(false);
     const [isUnhashing, setIsUnhashing] = useState(false);
     const [isSavingWad, setIsSavingWad] = useState(false);
+    const [renamingHash, setRenamingHash] = useState<string | null>(null);
 
     const unknownChunksCount = useMemo(() => {
         if (!session) return 0;
@@ -208,6 +209,19 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
             setStatus('ready', '');
         }
     }, [session, showToast, setStatus]);
+
+    const handleRenameCommit = useCallback(async (chunk: WadChunk, newPath: string) => {
+        setRenamingHash(null);
+        const trimmed = newPath.trim();
+        if (!session?.editSessionId || !trimmed || trimmed === chunk.path) return;
+        try {
+            const newHash = await api.renameSessionChunk(session.editSessionId, chunk.hash, trimmed);
+            useWadExtractStore.getState().stageChunkRename(session.id, chunk.hash, newHash, trimmed);
+            showToast('success', 'Chunk renamed');
+        } catch (e) {
+            showToast('error', `Rename failed: ${(e as { message?: string })?.message ?? String(e)}`);
+        }
+    }, [session, showToast]);
 
     const nodes = useMemo(() => {
         if (!session) return [];
@@ -304,6 +318,11 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                     }
                 }
             },
+            ...(session.editSessionId ? [{
+                label: 'Rename / Move…',
+                icon: getIcon('wrench'),
+                onClick: () => setRenamingHash(chunk.hash),
+            }] : []),
             {
                 label: 'Copy',
                 icon: getIcon('copy'),
@@ -606,9 +625,24 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                                         style={{ marginRight: '6px', display: 'inline-flex', alignItems: 'center' }}
                                         dangerouslySetInnerHTML={{ __html: getFileIcon(chunk.path || '', false) }}
                                     />
-                                    <span className="file-tree__name" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: '12px' }}>
-                                        {displayName}
-                                    </span>
+                                    {renamingHash === chunk.hash ? (
+                                        <input
+                                            className="dl-input"
+                                            autoFocus
+                                            defaultValue={chunk.path ?? ''}
+                                            style={{ flex: 1, minWidth: 0, height: '22px', fontSize: '12px' }}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') handleRenameCommit(chunk, (e.target as HTMLInputElement).value);
+                                                else if (e.key === 'Escape') setRenamingHash(null);
+                                            }}
+                                            onBlur={(e) => handleRenameCommit(chunk, e.target.value)}
+                                        />
+                                    ) : (
+                                        <span className="file-tree__name" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: '12px' }}>
+                                            {displayName}
+                                        </span>
+                                    )}
                                     <span style={{ width: '60px', fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0, paddingLeft: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                         {ext}
                                     </span>
@@ -694,9 +728,24 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                                         style={{ marginRight: '6px', display: 'inline-flex', alignItems: 'center' }}
                                         dangerouslySetInnerHTML={{ __html: getFileIcon(node.name, false) }}
                                     />
-                                    <span className="file-tree__name" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: '12px' }}>
-                                        {node.name}
-                                    </span>
+                                    {renamingHash === node.chunk.hash ? (
+                                        <input
+                                            className="dl-input"
+                                            autoFocus
+                                            defaultValue={node.chunk.path ?? ''}
+                                            style={{ flex: 1, minWidth: 0, height: '22px', fontSize: '12px' }}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') handleRenameCommit(node.chunk, (e.target as HTMLInputElement).value);
+                                                else if (e.key === 'Escape') setRenamingHash(null);
+                                            }}
+                                            onBlur={(e) => handleRenameCommit(node.chunk, e.target.value)}
+                                        />
+                                    ) : (
+                                        <span className="file-tree__name" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: '12px' }}>
+                                            {node.name}
+                                        </span>
+                                    )}
                                     <span style={{ width: '60px', fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0, paddingLeft: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                         {ext}
                                     </span>
@@ -725,7 +774,7 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                 <span style={{ fontSize: '11px', color: 'var(--text-muted)', flex: 1 }}>
                     {totalChunks.toLocaleString()} files{selectedCount > 0 ? ` · ${selectedCount} selected` : ''}
                 </span>
-                {session.editSessionId && session.isDirty && (
+                {session.editSessionId && session.isDirty && !session.id.startsWith('archive-') && (
                     <button
                         className="btn btn--primary btn--sm"
                         onClick={handleSaveWad}

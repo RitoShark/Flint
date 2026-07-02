@@ -13,8 +13,10 @@
 //! Notification is triggered natively via shell32.dll SHChangeNotify without shelling out.
 
 use serde::{Deserialize, Serialize};
+use tauri::State;
 
 use crate::core::ipc_trace;
+use crate::state::PendingFileOpenState;
 
 struct AssocSpec {
     /// Extension with leading dot. Compound extensions (.wad.client) are accepted.
@@ -340,4 +342,14 @@ pub async fn get_file_association_status() -> Result<AssocStatus, String> {
             current_exe_path,
         })
     }
+}
+
+/// Drain the file path (if any) that Flint was launched with via "Open with" /
+/// a file association. The frontend calls this once its `file-open-request`
+/// listener is mounted, so a cold-start launch opens the file regardless of how
+/// long the webview took to boot (the fixed-delay event emit races that boot
+/// and is otherwise lost). Returns `None` when there's nothing pending.
+#[tauri::command]
+pub fn take_pending_file_open(pending: State<'_, PendingFileOpenState>) -> Option<String> {
+    pending.take()
 }

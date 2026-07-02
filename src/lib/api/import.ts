@@ -21,6 +21,7 @@ export interface ImportOptions {
     refather: boolean;
     creator_name: string | null;
     project_name: string | null;
+    champion: string | null;
     target_skin_id: number | null;
     cleanup_unused: boolean;
     match_from_league: boolean;

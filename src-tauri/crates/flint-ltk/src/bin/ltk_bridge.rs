@@ -153,14 +153,10 @@ pub fn load_bin_hashes() -> HashMapper {
         }
     };
 
-    let db = match env.open_database::<heed::types::Bytes, heed::types::Str>(&rtxn, Some("bin")) {
-        Ok(Some(d)) => d,
-        Ok(None) => {
+    let db = match crate::hash::lmdb_cache::cached_db(&env, "bin") {
+        Some(d) => d,
+        None => {
             tracing::warn!("BIN LMDB has no 'bin' named database");
-            return hashes;
-        }
-        Err(e) => {
-            tracing::warn!("Failed to open 'bin' named DB: {}", e);
             return hashes;
         }
     };

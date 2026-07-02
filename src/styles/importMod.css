@@ -1,0 +1,266 @@
+/* =============================================================================
+ * Import Mod Package modal + Mod Package viewer styles
+ * Uses base design tokens (--text-*, --bg-*, --border, --accent) from index.css.
+ * ========================================================================== */
+
+.import-mod {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+/* ── Drop zone (file selection step) ─────────────────────────────────────── */
+.import-mod__dropzone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 48px 24px;
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    background: var(--bg-secondary);
+    cursor: pointer;
+    transition: border-color 160ms ease, background 160ms ease;
+    text-align: center;
+}
+.import-mod__dropzone:hover {
+    border-color: var(--accent);
+    background: var(--bg-tertiary);
+}
+.import-mod__dropzone-icon {
+    font-size: 40px;
+    line-height: 1;
+}
+.import-mod__dropzone-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.import-mod__dropzone-hint {
+    font-size: 13px;
+    color: var(--text-secondary);
+    max-width: 360px;
+}
+.import-mod__dropzone-hint code,
+.import-mod__centered-sub code {
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--bg-tertiary);
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+}
+
+/* ── Centered status panels (analyzing / progress / complete / error) ────── */
+.import-mod__centered {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 40px 24px;
+    text-align: center;
+}
+.import-mod__centered-text {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.import-mod__centered-sub {
+    font-size: 13px;
+    color: var(--text-secondary);
+    max-width: 420px;
+}
+.import-mod__success-icon,
+.import-mod__error-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    font-size: 26px;
+    font-weight: 700;
+}
+.import-mod__success-icon {
+    background: color-mix(in srgb, var(--success, #3fb950) 18%, transparent);
+    color: var(--success, #3fb950);
+}
+.import-mod__error-icon {
+    background: color-mix(in srgb, var(--error, #f85149) 18%, transparent);
+    color: var(--error, #f85149);
+}
+.import-mod__error-text {
+    color: var(--error, #f85149);
+    white-space: pre-wrap;
+}
+
+/* Reuse the ProgressBar element but animate it as an indeterminate sweep. */
+.import-mod__progress-indeterminate {
+    width: 100%;
+    max-width: 360px;
+}
+.import-mod__progress-indeterminate .progress-bar__fill {
+    animation: import-mod-sweep 1.2s ease-in-out infinite;
+    width: 40% !important;
+}
+@keyframes import-mod-sweep {
+    0% { margin-left: -40%; }
+    100% { margin-left: 100%; }
+}
+
+/* ── Config step ─────────────────────────────────────────────────────────── */
+.import-mod__config {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.import-mod__summary {
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-secondary);
+}
+.import-mod__summary-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 16px;
+    align-items: center;
+    font-size: 13px;
+}
+.import-mod__summary-grid span {
+    color: var(--text-secondary);
+}
+.import-mod__summary-grid strong {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+.import-mod__options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 4px 0;
+}
+.import-mod__warning {
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    background: color-mix(in srgb, var(--warning, #d29922) 14%, transparent);
+    color: var(--warning, #d29922);
+}
+
+/* Collapsible file-path preview list */
+.import-mod__paths summary {
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    padding: 4px 0;
+}
+.import-mod__paths ul {
+    margin: 8px 0 0;
+    padding: 8px 12px;
+    max-height: 200px;
+    overflow: auto;
+    list-style: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-primary);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+.import-mod__paths li {
+    padding: 1px 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.import-mod__paths-more {
+    color: var(--text-tertiary, var(--text-secondary));
+    font-style: italic;
+}
+
+/* =============================================================================
+ * Mod Package viewer (file-editor view for .fantome / .modpkg)
+ * ========================================================================== */
+.mod-pkg-viewer {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    padding: 20px 24px;
+    gap: 16px;
+    overflow: auto;
+}
+.mod-pkg-viewer__header {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+}
+.mod-pkg-viewer__thumb {
+    width: 96px;
+    height: 96px;
+    border-radius: 10px;
+    object-fit: cover;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    flex-shrink: 0;
+}
+.mod-pkg-viewer__title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0 0 4px;
+}
+.mod-pkg-viewer__meta {
+    font-size: 13px;
+    color: var(--text-secondary);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+}
+.mod-pkg-viewer__section-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 0 0 8px;
+}
+.mod-pkg-viewer__form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 560px;
+}
+.mod-pkg-viewer__files {
+    flex: 1;
+    min-height: 160px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+.mod-pkg-viewer__file-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-bottom: 1px solid var(--border-soft, var(--border));
+}
+.mod-pkg-viewer__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+.mod-pkg-viewer__actions-left {
+    margin-right: auto;
+}
