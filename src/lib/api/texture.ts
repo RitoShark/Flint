@@ -16,6 +16,20 @@ export async function decodeBytesToPng(data: Uint8Array): Promise<DecodedTexture
     return invokeRaw('decode_bytes_to_png', data);
 }
 
+/** Decode DDS/TEX bytes to raw RGBA pixels (`[u32 w][u32 h][rgba…]` wire layout)
+ *  for direct canvas rendering — no PNG or base64 anywhere in the path. */
+export async function decodeBytesToRgba(
+    data: Uint8Array,
+): Promise<{ width: number; height: number; rgba: Uint8ClampedArray<ArrayBuffer> }> {
+    const buf = await invokeRaw<ArrayBuffer>('decode_bytes_to_rgba', data);
+    const view = new DataView(buf);
+    return {
+        width: view.getUint32(0, true),
+        height: view.getUint32(4, true),
+        rgba: new Uint8ClampedArray(buf, 8),
+    };
+}
+
 export async function getBundledFloorPng(): Promise<Uint8Array> {
     const buf = await invokeCommand<ArrayBuffer>('get_bundled_floor_png', {});
     return new Uint8Array(buf);

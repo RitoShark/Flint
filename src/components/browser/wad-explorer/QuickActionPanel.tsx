@@ -33,21 +33,29 @@ interface QuickActionPanelProps {
 export const QuickActionPanel: React.FC<QuickActionPanelProps> = ({ wads, onSetFilter, onOpenRecent }) => {
     const recentWads = useWadExplorerStore((s) => s.recentWads);
 
-    const loadedChunks = useMemo(() => {
-        const all: WadChunk[] = [];
+    // Per-WAD counts cached by chunks-array identity, so each batch of the
+    // background index only scans its own new chunks instead of re-running
+    // every regex over the whole game.
+    const countCacheRef = useRef(new WeakMap<WadChunk[], number[]>());
+    const counts = useMemo(() => {
+        const totals = QUICK_ACTIONS.map(() => 0);
         for (const w of wads) {
-            if (w.status === 'loaded') all.push(...w.chunks);
+            if (w.status !== 'loaded') continue;
+            let perWad = countCacheRef.current.get(w.chunks);
+            if (!perWad) {
+                perWad = QUICK_ACTIONS.map(qa => {
+                    let n = 0;
+                    for (const c of w.chunks) {
+                        if (c.path && qa.regex.test(c.path)) n++;
+                    }
+                    return n;
+                });
+                countCacheRef.current.set(w.chunks, perWad);
+            }
+            for (let i = 0; i < totals.length; i++) totals[i] += perWad[i];
         }
-        return all;
+        return QUICK_ACTIONS.map((qa, i) => ({ ...qa, count: totals[i] }));
     }, [wads]);
-
-    const counts = useMemo(() =>
-        QUICK_ACTIONS.map(qa => ({
-            ...qa,
-            count: loadedChunks.filter(c => c.path && qa.regex.test(c.path)).length,
-        })),
-        [loadedChunks]
-    );
 
     const totalLoaded = wads.filter(w => w.status === 'loaded').length;
     const totalWads = wads.length;

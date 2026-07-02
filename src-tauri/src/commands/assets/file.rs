@@ -428,7 +428,30 @@ pub async fn decode_bytes_to_png(request: tauri::ipc::Request<'_>) -> Result<Dec
     decode_texture_bytes_impl(data)
 }
 
+/// Decode raw DDS/TEX bytes to raw RGBA pixels for direct canvas rendering —
+/// skips PNG encode, base64, and the browser's PNG decode entirely.
+/// Response layout: `[u32 width][u32 height][width×height×4 RGBA bytes]`.
+#[tauri::command]
+pub async fn decode_bytes_to_rgba(request: tauri::ipc::Request<'_>) -> Result<tauri::ipc::Response, String> {
+    let _t = ipc_trace::enter("decode_bytes_to_rgba");
+    let data = match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => bytes.as_slice(),
+        tauri::ipc::InvokeBody::Json(_) => {
+            return Err("decode_bytes_to_rgba expects raw bytes; got JSON body".into())
+        }
+    };
+    let rgba = parse_texture_any(data)?
+        .decode_rgba()
+        .map_err(|e| format!("Failed to decode texture: {:?}", e))?;
 
+    let (width, height) = (rgba.width(), rgba.height());
+    let pixels = rgba.into_raw();
+    let mut buf = Vec::with_capacity(8 + pixels.len());
+    buf.extend_from_slice(&width.to_le_bytes());
+    buf.extend_from_slice(&height.to_le_bytes());
+    buf.extend_from_slice(&pixels);
+    Ok(tauri::ipc::Response::new(buf))
+}
 
 /// Read a text file and return its raw UTF-8 bytes as an IPC response.
 #[tauri::command]

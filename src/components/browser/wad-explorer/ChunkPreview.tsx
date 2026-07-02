@@ -14,6 +14,18 @@ import { MonacoBinViewer, MonacoTextViewer } from './MonacoViewers';
 import { detectType, formatBytes, type PreviewData } from './helpers';
 import type { WadDataSource } from './dataSource';
 
+const BitmapCanvas: React.FC<{ bitmap: ImageBitmap; style: React.CSSProperties }> = ({ bitmap, style }) => {
+    const ref = useRef<HTMLCanvasElement>(null);
+    useEffect(() => {
+        const canvas = ref.current;
+        if (!canvas) return;
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        canvas.getContext('2d')?.drawImage(bitmap, 0, 0);
+    }, [bitmap]);
+    return <canvas ref={ref} style={style} />;
+};
+
 export const ChunkPreview: React.FC<{
     wadPath: string;
     chunk: WadChunk;
@@ -28,6 +40,7 @@ export const ChunkPreview: React.FC<{
     const [zoom, setZoom] = useState<'fit' | number>('fit');
     const [extracting, setExtracting] = useState(false);
     const blobUrlRef = useRef<string | null>(null);
+    const bitmapRef = useRef<ImageBitmap | null>(null);
     const [modelPreviewPath, setModelPreviewPath] = useState<string | null>(null);
     const [modelTempDir, setModelTempDir] = useState<string | null>(null);
     const [modelLoading, setModelLoading] = useState(false);
@@ -54,12 +67,18 @@ export const ChunkPreview: React.FC<{
                 if (cancelled) return;
                 const fileType = detectType(bytes, chunk.path);
                 let imageUrl: string | null = null;
+                let bitmap: ImageBitmap | null = null;
                 let text: string | null = null;
                 let dims: [number, number] | null = null;
 
                 if (fileType === 'image/dds' || fileType === 'image/tex') {
-                    const decoded = await api.decodeBytesToPng(bytes);
-                    if (!cancelled) { imageUrl = `data:image/png;base64,${decoded.data}`; dims = [decoded.width, decoded.height]; }
+                    const { width, height, rgba } = await api.decodeBytesToRgba(bytes);
+                    if (!cancelled) {
+                        bitmap = await createImageBitmap(new ImageData(rgba, width, height));
+                        bitmapRef.current?.close();
+                        bitmapRef.current = bitmap;
+                        dims = [width, height];
+                    }
                 } else if (fileType === 'image/png' || fileType === 'image/jpeg') {
                     const mime = fileType === 'image/png' ? 'image/png' : 'image/jpeg';
                     const buf = new ArrayBuffer(bytes.byteLength);
@@ -81,7 +100,7 @@ export const ChunkPreview: React.FC<{
                     if (!cancelled) text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
                 }
 
-                if (!cancelled) setData({ fileType, bytes, imageUrl, text, dims });
+                if (!cancelled) setData({ fileType, bytes, imageUrl, bitmap, text, dims });
             } catch (e) {
                 if (!cancelled) setErr((e as Error).message ?? 'Failed to load preview');
             } finally {
@@ -95,7 +114,10 @@ export const ChunkPreview: React.FC<{
     // On-disk-only features (single-file extract, 3D model temp) need a local WAD path.
     const isLocal = !dataSource || dataSource.isLocal;
 
-    useEffect(() => () => { if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current); }, []);
+    useEffect(() => () => {
+        if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+        bitmapRef.current?.close();
+    }, []);
 
     const handleExtract = async () => {
         try {
@@ -118,7 +140,7 @@ export const ChunkPreview: React.FC<{
                 <button className="btn btn--sm" onClick={onClose} title="Close preview" style={{ padding: '2px 6px' }}>
                     <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
                 </button>
-                {data?.imageUrl && (
+                {(data?.imageUrl || data?.bitmap) && (
                     <>
                         {(['fit', 1, 2] as const).map(z => (
                             <button key={String(z)} className={`btn btn--sm ${zoom === z ? 'btn--active' : ''}`} onClick={() => setZoom(z)}>
@@ -150,9 +172,9 @@ export const ChunkPreview: React.FC<{
                     </div>
                 )}
                 {data && !loading && !err && (() => {
-                    const { fileType, bytes, imageUrl, text, dims } = data;
+                    const { fileType, bytes, imageUrl, bitmap, text, dims } = data;
 
-                    if (imageUrl) {
+                    if (imageUrl || bitmap) {
                         const imgStyle: React.CSSProperties = zoom === 'fit'
                             ? { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }
                             : { width: `${(dims?.[0] ?? 0) * (zoom as number)}px` };
@@ -166,14 +188,18 @@ export const ChunkPreview: React.FC<{
                                 }}
                                 style={{ overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}
                             >
-                                <img src={imageUrl} alt={fileName} draggable={false} style={imgStyle}
-                                    onLoad={e => {
-                                        if (!dims) {
-                                            const img = e.currentTarget;
-                                            setData(p => p ? { ...p, dims: [img.naturalWidth, img.naturalHeight] } : p);
-                                        }
-                                    }}
-                                />
+                                {bitmap ? (
+                                    <BitmapCanvas bitmap={bitmap} style={imgStyle} />
+                                ) : (
+                                    <img src={imageUrl!} alt={fileName} draggable={false} style={imgStyle}
+                                        onLoad={e => {
+                                            if (!dims) {
+                                                const img = e.currentTarget;
+                                                setData(p => p ? { ...p, dims: [img.naturalWidth, img.naturalHeight] } : p);
+                                            }
+                                        }}
+                                    />
+                                )}
                             </div>
                         );
                     }
