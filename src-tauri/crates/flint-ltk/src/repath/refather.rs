@@ -61,6 +61,12 @@ enum AssetPath<'a> {
         subpath: &'a str,
     },
 
+    /// Detected sub-champion (Tibbers, Skaarl, …) → `ASSETS/{creator}/{sub}/...`.
+    SubCharacter {
+        character: &'a str,
+        subpath: &'a str,
+    },
+
     /// `characters/{other_champion}/...` → creator-level shared-champion/ folder.
     OtherChampion {
         /// Everything after "characters/{champion}/".
@@ -82,7 +88,7 @@ enum AssetPath<'a> {
 }
 
 impl<'a> AssetPath<'a> {
-    fn parse(path: &'a str, target_champion: &str) -> Option<Self> {
+    fn parse(path: &'a str, target_champion: &str, sub_characters: &[String]) -> Option<Self> {
         let stripped = if path.len() >= 7 && path[..7].eq_ignore_ascii_case("assets/") {
             &path[7..]
         } else if path.len() >= 5 && path[..5].eq_ignore_ascii_case("data/") {
@@ -125,6 +131,8 @@ impl<'a> AssetPath<'a> {
                 };
 
                 return Some(AssetPath::TargetChampionSkin { skin_id, subpath });
+            } else if sub_characters.iter().any(|s| champion.eq_ignore_ascii_case(s)) {
+                return Some(AssetPath::SubCharacter { character: champion, subpath });
             } else {
                 return Some(AssetPath::OtherChampion { subpath });
             }
@@ -158,16 +166,15 @@ impl<'a> AssetPath<'a> {
                 format!("ASSETS/{}/hud/{}", prefix, filename)
             }
             AssetPath::TargetChampionSkin { subpath, .. } => {
-                let after_skins = Self::strip_prefix_ignore_case(subpath, "skins/")
-                    .unwrap_or(subpath);
-
-                let without_skin_folder = SKIN_FOLDER_RE.replace(after_skins, "").into_owned();
-
-                let without_base = strip_base_folder(&without_skin_folder);
-
-                let remapped = remap_animation_bin_filename(&without_base, config.target_skin_id);
-
-                format!("ASSETS/{}/{}", prefix, remapped)
+                format!("ASSETS/{}/{}", prefix, strip_skin_layout(subpath, config.target_skin_id))
+            }
+            AssetPath::SubCharacter { character, subpath } => {
+                format!(
+                    "ASSETS/{}/{}/{}",
+                    creator,
+                    character.to_lowercase(),
+                    strip_skin_layout(subpath, config.target_skin_id)
+                )
             }
             AssetPath::OtherChampion { subpath } => {
                 // Flatten: drop skins/ and skinN/ folders from other-champion assets.
@@ -213,6 +220,8 @@ pub struct RepathConfig {
     pub target_skin_id: u32,
     pub cleanup_unused: bool,
     pub skip_bin_cleanup: bool,
+    /// Lowercased sub-champion names (Tibbers, Skaarl, …) detected in the WAD.
+    pub sub_characters: Vec<String>,
 }
 
 impl RepathConfig {
@@ -277,21 +286,14 @@ pub fn repath_project(
 
     let mut bin_files: Vec<PathBuf> = Vec::new();
 
-    if let Some(ref main_path) = main_bin_path {
-        tracing::info!("Found main skin BIN: {}", main_path.display());
-        bin_files.push(main_path.clone());
-
-        if let Ok(data) = fs::read(main_path) {
+    let push_with_links = |root: PathBuf, bin_files: &mut Vec<PathBuf>| {
+        if let Ok(data) = fs::read(&root) {
             if let Ok(bin) = read_bin(&data) {
-                tracing::info!("Main skin BIN has {} dependencies", bin.linked.len());
-
                 for dep_path in &bin.linked {
                     let normalized_path = dep_path.to_lowercase().replace('\\', "/");
-
                     let actual_path = path_mappings.get(&normalized_path)
                         .cloned()
                         .unwrap_or_else(|| normalized_path.clone());
-                    
                     let full_path = file_base.join(&actual_path);
                     if full_path.exists() {
                         bin_files.push(full_path);
@@ -299,6 +301,19 @@ pub fn repath_project(
                         tracing::warn!("Linked BIN not found: {}", normalized_path);
                     }
                 }
+            }
+        }
+        bin_files.push(root);
+    };
+
+    if let Some(ref main_path) = main_bin_path {
+        tracing::info!("Found main skin BIN: {}", main_path.display());
+        push_with_links(main_path.clone(), &mut bin_files);
+
+        for sub in &config.sub_characters {
+            if let Some(sub_path) = find_main_skin_bin(file_base, sub, config.target_skin_id) {
+                tracing::info!("Found sub-champion skin BIN: {}", sub_path.display());
+                push_with_links(sub_path, &mut bin_files);
             }
         }
     } else {
@@ -511,7 +526,7 @@ fn particles_segment_start(subpath: &str) -> Option<usize> {
 }
 
 fn apply_prefix_to_path(path: &str, _prefix: &str, config: &RepathConfig) -> String {
-    if let Some(asset_path) = AssetPath::parse(path, &config.champion) {
+    if let Some(asset_path) = AssetPath::parse(path, &config.champion, &config.sub_characters) {
         asset_path.to_repathed(config)
     } else {
         tracing::warn!("Invalid asset path (no assets/ or data/ prefix): {}", path);
@@ -590,6 +605,14 @@ fn repath_value(value: &mut BinValue, existing_paths: &HashSet<String>, prefix: 
     }
 
     count
+}
+
+/// `skins/skinN/base/…` → flattened path with the animation BIN remapped to the target skin id.
+fn strip_skin_layout(subpath: &str, target_skin_id: u32) -> String {
+    let after_skins = AssetPath::strip_prefix_ignore_case(subpath, "skins/").unwrap_or(subpath);
+    let without_skin_folder = SKIN_FOLDER_RE.replace(after_skins, "").into_owned();
+    let without_base = strip_base_folder(&without_skin_folder);
+    remap_animation_bin_filename(&without_base, target_skin_id)
 }
 
 /// Strips a leading or mid-path "base/" folder. Case-insensitive.
@@ -1041,6 +1064,7 @@ mod tests {
             target_skin_id: 42,
             cleanup_unused: true,
             skip_bin_cleanup: false,
+            sub_characters: vec![],
         };
 
         assert_eq!(
@@ -1072,6 +1096,46 @@ mod tests {
     }
 
     #[test]
+    fn test_apply_prefix_to_path_sub_character() {
+        let config = RepathConfig {
+            creator_name: "SirDexal".to_string(),
+            project_name: "Anniversary".to_string(),
+            champion: "annie".to_string(),
+            target_skin_id: 22,
+            cleanup_unused: true,
+            skip_bin_cleanup: false,
+            sub_characters: vec!["annietibbers".to_string()],
+        };
+
+        assert_eq!(
+            apply_prefix_to_path(
+                "assets/characters/annietibbers/skins/skin22/tibbers.skn",
+                "SirDexal/Anniversary",
+                &config
+            ),
+            "ASSETS/SirDexal/annietibbers/tibbers.skn"
+        );
+
+        assert_eq!(
+            apply_prefix_to_path(
+                "data/characters/AnnieTibbers/animations/skin8.bin",
+                "SirDexal/Anniversary",
+                &config
+            ),
+            "ASSETS/SirDexal/annietibbers/animations/skin22.bin"
+        );
+
+        assert_eq!(
+            apply_prefix_to_path(
+                "assets/characters/sona/skins/skin5/sona.skn",
+                "SirDexal/Anniversary",
+                &config
+            ),
+            "ASSETS/SirDexal/shared-champion/sona.skn"
+        );
+    }
+
+    #[test]
     fn test_apply_prefix_to_path_other_champions() {
         let config = RepathConfig {
             creator_name: "SirDexal".to_string(),
@@ -1080,6 +1144,7 @@ mod tests {
             target_skin_id: 42,
             cleanup_unused: true,
             skip_bin_cleanup: false,
+            sub_characters: vec![],
         };
 
         assert_eq!(
@@ -1110,6 +1175,7 @@ mod tests {
             target_skin_id: 42,
             cleanup_unused: true,
             skip_bin_cleanup: false,
+            sub_characters: vec![],
         };
 
         assert_eq!(
@@ -1139,6 +1205,7 @@ mod tests {
             target_skin_id: 1,
             cleanup_unused: true,
             skip_bin_cleanup: false,
+            sub_characters: vec![],
         };
 
         assert_eq!(
@@ -1160,6 +1227,7 @@ mod tests {
             target_skin_id: 1,
             cleanup_unused: true,
             skip_bin_cleanup: false,
+            sub_characters: vec![],
         };
 
         assert_eq!(
@@ -1177,6 +1245,7 @@ mod tests {
             target_skin_id: 1,
             cleanup_unused: true,
             skip_bin_cleanup: false,
+            sub_characters: vec![],
         };
 
         assert_eq!(
@@ -1194,6 +1263,7 @@ mod tests {
             target_skin_id: 1,
             cleanup_unused: true,
             skip_bin_cleanup: false,
+            sub_characters: vec![],
         };
 
         assert_eq!(
@@ -1215,6 +1285,7 @@ mod tests {
             target_skin_id: 20,
             cleanup_unused: true,
             skip_bin_cleanup: false,
+            sub_characters: vec![],
         };
 
         assert_eq!(
@@ -1272,6 +1343,7 @@ mod tests {
             target_skin_id: 42,
             cleanup_unused: true,
             skip_bin_cleanup: false,
+            sub_characters: vec![],
         };
 
         assert_eq!(
@@ -1287,7 +1359,7 @@ mod tests {
     #[test]
     fn test_asset_path_parse_sound_sfx() {
         let path = "assets/sounds/wwise2016/sfx/characters/kayn/skins/skin20/kayn_skin20_sfx.bnk";
-        let parsed = AssetPath::parse(path, "Kayn");
+        let parsed = AssetPath::parse(path, "Kayn", &[]);
 
         assert!(parsed.is_some());
         match parsed.unwrap() {
@@ -1301,7 +1373,7 @@ mod tests {
     #[test]
     fn test_asset_path_parse_sound_vo() {
         let path = "assets/sounds/wwise2016/vo/en_us/characters/kayn/kayn_vo.wpk";
-        let parsed = AssetPath::parse(path, "Kayn");
+        let parsed = AssetPath::parse(path, "Kayn", &[]);
 
         assert!(parsed.is_some());
         match parsed.unwrap() {
@@ -1315,7 +1387,7 @@ mod tests {
     #[test]
     fn test_asset_path_parse_champion_hud() {
         let path = "assets/characters/renekton/hud/renekton_hud.dds";
-        let parsed = AssetPath::parse(path, "Renekton");
+        let parsed = AssetPath::parse(path, "Renekton", &[]);
 
         assert!(parsed.is_some());
         match parsed.unwrap() {
@@ -1329,7 +1401,7 @@ mod tests {
     #[test]
     fn test_asset_path_parse_target_champion_skin() {
         let path = "assets/characters/kayn/skins/skin20/particles/blade.dds";
-        let parsed = AssetPath::parse(path, "Kayn");
+        let parsed = AssetPath::parse(path, "Kayn", &[]);
 
         assert!(parsed.is_some());
         match parsed.unwrap() {
@@ -1344,7 +1416,7 @@ mod tests {
     #[test]
     fn test_asset_path_parse_other_champion() {
         let path = "assets/characters/sona/skins/skin5/particles/orb.dds";
-        let parsed = AssetPath::parse(path, "Kayn");
+        let parsed = AssetPath::parse(path, "Kayn", &[]);
 
         assert!(parsed.is_some());
         match parsed.unwrap() {
@@ -1358,7 +1430,7 @@ mod tests {
     #[test]
     fn test_asset_path_parse_shared() {
         let path = "assets/maps/sr/fire.dds";
-        let parsed = AssetPath::parse(path, "Kayn");
+        let parsed = AssetPath::parse(path, "Kayn", &[]);
 
         assert!(parsed.is_some());
         match parsed.unwrap() {
@@ -1372,7 +1444,7 @@ mod tests {
     #[test]
     fn test_asset_path_parse_shared_with_prefix() {
         let path = "assets/shared/maps/sr/fire.dds";
-        let parsed = AssetPath::parse(path, "Kayn");
+        let parsed = AssetPath::parse(path, "Kayn", &[]);
 
         assert!(parsed.is_some());
         match parsed.unwrap() {
@@ -1387,14 +1459,14 @@ mod tests {
     fn test_asset_path_parse_shared_particles() {
         // A shared-category path with a particles/ segment routes to SharedParticles,
         // carrying the tail from particles/ onward (inclusive).
-        match AssetPath::parse("assets/particles/fire.dds", "Kayn").unwrap() {
+        match AssetPath::parse("assets/particles/fire.dds", "Kayn", &[]).unwrap() {
             AssetPath::SharedParticles { particles_tail } => {
                 assert_eq!(particles_tail, "particles/fire.dds");
             }
             _ => panic!("Expected SharedParticles variant"),
         }
 
-        match AssetPath::parse("assets/shared/sirdexal/proj/particles/x.dds", "Kayn").unwrap() {
+        match AssetPath::parse("assets/shared/sirdexal/proj/particles/x.dds", "Kayn", &[]).unwrap() {
             AssetPath::SharedParticles { particles_tail } => {
                 assert_eq!(particles_tail, "particles/x.dds");
             }
@@ -1405,7 +1477,7 @@ mod tests {
     #[test]
     fn test_asset_path_parse_case_insensitive() {
         let path = "ASSETS/SOUNDS/wwise2016/VO/en_us/kayn_vo.wpk";
-        let parsed = AssetPath::parse(path, "Kayn");
+        let parsed = AssetPath::parse(path, "Kayn", &[]);
 
         assert!(parsed.is_some());
         match parsed.unwrap() {
@@ -1425,6 +1497,7 @@ mod tests {
             target_skin_id: 20,
             cleanup_unused: true,
             skip_bin_cleanup: false,
+            sub_characters: vec![],
         };
 
         let asset_path = AssetPath::SoundSfx {
@@ -1446,6 +1519,7 @@ mod tests {
             target_skin_id: 20,
             cleanup_unused: true,
             skip_bin_cleanup: false,
+            sub_characters: vec![],
         };
 
         let original = "assets/sounds/wwise2016/vo/en_us/kayn_vo.wpk";
@@ -1459,7 +1533,7 @@ mod tests {
     #[test]
     fn test_asset_path_invalid() {
         let path = "sounds/wwise2016/sfx/test.bnk";
-        let parsed = AssetPath::parse(path, "Kayn");
+        let parsed = AssetPath::parse(path, "Kayn", &[]);
         assert!(parsed.is_none());
     }
 
@@ -1544,6 +1618,7 @@ mod tests {
             target_skin_id: 42,
             cleanup_unused: true,
             skip_bin_cleanup: false,
+            sub_characters: vec![],
         };
 
         let dir = tempfile::tempdir().unwrap();
@@ -1573,6 +1648,7 @@ mod tests {
             target_skin_id: 42,
             cleanup_unused: true,
             skip_bin_cleanup: false,
+            sub_characters: vec![],
         };
 
         let dir = tempfile::tempdir().unwrap();
