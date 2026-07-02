@@ -9,7 +9,7 @@ use commands::project_watcher::WatcherState;
 use commands::settings::{initialize_app_home, get_flint_home};
 use flint_ltk::hash::get_hash_dir;
 use core::frontend_log::{FrontendLogLayer, set_app_handle};
-use state::{CdnSessionState, LmdbCacheState, WadCacheState, WadEditState};
+use state::{CdnSessionState, LmdbCacheState, PendingFileOpenState, WadCacheState, WadEditState};
 use tauri::{Emitter, Manager};
 use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter};
 
@@ -88,6 +88,8 @@ fn main() {
                         s.strip_prefix(r"\\?\").map(str::to_owned).unwrap_or(s)
                     })
                     .unwrap_or_else(|_| path.clone());
+                // Stash for pull-on-mount AND emit for an already-running frontend.
+                app.state::<PendingFileOpenState>().set(clean_path.clone());
                 let _ = app.emit("file-open-request", clean_path);
             }
         }))
@@ -96,6 +98,7 @@ fn main() {
         .manage(WatcherState::new())
         .manage(WadEditState::new())
         .manage(CdnSessionState::new())
+        .manage(PendingFileOpenState::new())
         .on_page_load(move |_webview, payload| {
             tracing::info!(
                 "[startup] webview page_load (event={:?}, url={}) +{}ms",
@@ -168,6 +171,10 @@ fn main() {
                 });
             if let Some(path) = pending_file_arg {
                 tracing::info!("CLI arg file: {}", path);
+                // Stash so the frontend can pull it once its listener mounts —
+                // on a cold start the webview boot far outlasts any fixed delay,
+                // so the event alone races the listener and is lost.
+                app.state::<PendingFileOpenState>().set(path.clone());
                 let h = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
@@ -410,10 +417,12 @@ fn main() {
             commands::wad_edit::session_dirty_chunks,
             commands::wad_edit::discard_session_changes,
             commands::wad_edit::save_session_to_path,
+            commands::wad_edit::folder_wad_chunks,
             // Windows file association (per-user, OpenWithProgids — non-default)
             commands::file_assoc::register_file_associations,
             commands::file_assoc::unregister_file_associations,
             commands::file_assoc::get_file_association_status,
+            commands::file_assoc::take_pending_file_open,
             // Dev commands (schema aggregation)
             commands::dev::aggregate_bin_schema,
             commands::champion_schema::aggregate_champion_bin_schema,

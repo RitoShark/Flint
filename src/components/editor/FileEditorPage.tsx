@@ -2,12 +2,13 @@ import React, { useCallback, useEffect, useState } from 'react';
 import * as api from '../../lib/api';
 import {
     useFileEditorStore,
-    useNavigationStore,
     useNotificationStore,
 } from '../../lib/stores';
+import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
 import type { FileEditorTarget } from '../../lib/types';
 import { BinEditor } from '../preview/BinEditor';
 import { LuaBin64Editor } from '../preview/LuaBin64Editor';
+import { TroybinViewer } from '../preview/TroybinViewer';
 import { Button, Field, FormGroup, FormLabel, Input, Textarea } from '../ui';
 
 // ─── mod.config.json structured editor ──────────────────────────────────
@@ -60,8 +61,6 @@ interface AuthorRow {
 const ModConfigEditor: React.FC<{ target: FileEditorTarget }> = ({ target }) => {
     const showToast = useNotificationStore((s) => s.showToast);
     const setDirty = useFileEditorStore((s) => s.setDirty);
-    const closeTarget = useFileEditorStore((s) => s.closeTarget);
-    const setView = useNavigationStore((s) => s.setView);
 
     const [config, setConfig] = useState<ModConfig | null>(null);
     const [displayName, setDisplayName] = useState('');
@@ -91,11 +90,10 @@ const ModConfigEditor: React.FC<{ target: FileEditorTarget }> = ({ target }) => 
             } catch (err) {
                 console.error('Failed to load mod.config.json:', err);
                 showToast('error', 'Failed to load mod.config.json');
-                closeTarget();
-                setView('preview');
+                navigationCoordinator.closeFileEditorWithFallback();
             }
         })();
-    }, [target.filePath, showToast, closeTarget, setView, setDirty]);
+    }, [target.filePath, showToast, setDirty]);
 
     const markDirty = useCallback(() => {
         setLocalDirty(true);
@@ -215,10 +213,7 @@ const ModConfigEditor: React.FC<{ target: FileEditorTarget }> = ({ target }) => 
             }}>
                 <Button
                     variant="secondary"
-                    onClick={() => {
-                        closeTarget();
-                        setView('preview');
-                    }}
+                    onClick={() => navigationCoordinator.closeFileEditorWithFallback()}
                     disabled={saving}
                 >
                     {localDirty ? 'Discard' : 'Close'}
@@ -236,8 +231,6 @@ const ModConfigEditor: React.FC<{ target: FileEditorTarget }> = ({ target }) => 
 const RawTextEditor: React.FC<{ target: FileEditorTarget }> = ({ target }) => {
     const showToast = useNotificationStore((s) => s.showToast);
     const setDirty = useFileEditorStore((s) => s.setDirty);
-    const closeTarget = useFileEditorStore((s) => s.closeTarget);
-    const setView = useNavigationStore((s) => s.setView);
 
     const [content, setContent] = useState<string>('');
     const [localDirty, setLocalDirty] = useState(false);
@@ -252,11 +245,10 @@ const RawTextEditor: React.FC<{ target: FileEditorTarget }> = ({ target }) => {
                 setDirty(false);
             } catch {
                 showToast('error', 'Failed to load file');
-                closeTarget();
-                setView('preview');
+                navigationCoordinator.closeFileEditorWithFallback();
             }
         })();
-    }, [target.filePath, showToast, closeTarget, setView, setDirty]);
+    }, [target.filePath, showToast, setDirty]);
 
     const handleSave = useCallback(async () => {
         setSaving(true);
@@ -288,7 +280,7 @@ const RawTextEditor: React.FC<{ target: FileEditorTarget }> = ({ target }) => {
                 paddingTop: 16,
                 borderTop: '1px solid var(--border)',
             }}>
-                <Button variant="secondary" onClick={() => { closeTarget(); setView('preview'); }} disabled={saving}>
+                <Button variant="secondary" onClick={() => navigationCoordinator.closeFileEditorWithFallback()} disabled={saving}>
                     {localDirty ? 'Discard' : 'Close'}
                 </Button>
                 <Button variant="primary" onClick={handleSave} disabled={!localDirty || saving}>
@@ -331,6 +323,9 @@ export const FileEditorPage: React.FC = () => {
                 )}
                 {target.kind === 'luaBin64' && (
                     <LuaBin64Editor key={target.filePath} filePath={target.filePath} hideFilename />
+                )}
+                {target.kind === 'troybin' && (
+                    <TroybinViewer key={target.filePath} filePath={target.filePath} />
                 )}
             </div>
         </div>

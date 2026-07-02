@@ -64,3 +64,13 @@ export async function unregisterFileAssociations(): Promise<FileAssocResult> {
 export async function getFileAssociationStatus(): Promise<FileAssocStatus> {
     return invokeCommand('get_file_association_status', {});
 }
+
+/**
+ * Drain the file path (if any) Flint was launched with via "Open with" / a file
+ * association. Call once the `file-open-request` listener is mounted so a
+ * cold-start launch opens the file even though the webview boot outlasts the
+ * backend's fixed-delay event emit. Returns null when nothing is pending.
+ */
+export async function takePendingFileOpen(): Promise<string | null> {
+    return invokeCommand('take_pending_file_open', {});
+}

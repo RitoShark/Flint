@@ -157,6 +157,23 @@ fn read_fantome_metadata(fantome_path: &str) -> Option<FantomeMetadata> {
     None
 }
 
+/// If a zip entry belongs to a WAD stored as a FOLDER (`.../<name>.wad.client/…`),
+/// return the WAD folder's basename. Some fantomes ship the WAD unpacked as a
+/// directory tree; launchers pack it on import, and so do we.
+fn fantome_folder_wad_name(entry_name: &str) -> Option<String> {
+    let lower = entry_name.to_lowercase();
+    for marker in [".wad.client/", ".wad/"] {
+        if let Some(pos) = lower.find(marker) {
+            let dir_end = pos + marker.len() - 1;
+            let base = entry_name[..dir_end].rsplit('/').next().unwrap_or_default().to_string();
+            if !base.is_empty() {
+                return Some(base);
+            }
+        }
+    }
+    None
+}
+
 fn extract_fantome_wad(fantome_path: &str) -> Result<PathBuf, String> {
     let file = File::open(fantome_path)
         .map_err(|e| format!("Failed to open fantome file: {}", e))?;
@@ -164,38 +181,85 @@ fn extract_fantome_wad(fantome_path: &str) -> Result<PathBuf, String> {
     let mut archive = ZipArchive::new(BufReader::new(file))
         .map_err(|e| format!("Failed to read fantome archive: {}", e))?;
 
-    let mut wad_file_name = None;
+    let mut packed_wad_name: Option<String> = None;
+    let mut folder_wad_name: Option<String> = None;
     for i in 0..archive.len() {
         let file_entry = archive.by_index(i)
             .map_err(|e| format!("Failed to read archive entry: {}", e))?;
         let name = file_entry.name().to_string();
 
-        if name.ends_with(".wad.client") || name.ends_with(".wad") {
-            wad_file_name = Some(name.clone());
+        if !file_entry.is_dir() && (name.ends_with(".wad.client") || name.ends_with(".wad")) {
+            packed_wad_name = Some(name.clone());
             break;
         }
+        if folder_wad_name.is_none() {
+            folder_wad_name = fantome_folder_wad_name(&name);
+        }
     }
-
-    let wad_name = wad_file_name
-        .ok_or("No .wad.client file found in fantome package")?;
 
     let temp_dir = std::env::temp_dir().join("flint_fantome_import");
     std::fs::create_dir_all(&temp_dir)
         .map_err(|e| format!("Failed to create temp directory: {}", e))?;
 
+    // Packed-file WAD: copy the single entry out.
+    if let Some(wad_name) = packed_wad_name {
+        let wad_path = temp_dir.join(wad_name.replace('/', "_"));
+        let mut zip_file = archive.by_name(&wad_name)
+            .map_err(|e| format!("Failed to find WAD in archive: {}", e))?;
+        let mut wad_file = File::create(&wad_path)
+            .map_err(|e| format!("Failed to create temp WAD file: {}", e))?;
+        std::io::copy(&mut zip_file, &mut wad_file)
+            .map_err(|e| format!("Failed to extract WAD file: {}", e))?;
+        tracing::info!("Extracted WAD from fantome: {} -> {:?}", wad_name, wad_path);
+        return Ok(wad_path);
+    }
+
+    // Folder-form WAD: extract the sub-tree and PACK it into a real WAD (what
+    // launchers do on import) so the rest of the pipeline sees a valid WAD.
+    let wad_name = folder_wad_name
+        .ok_or("No .wad.client file or folder found in fantome package")?;
+    let scratch = temp_dir.join(format!("{}.waddir", wad_name.replace('/', "_")));
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch)
+        .map_err(|e| format!("Failed to create scratch directory: {}", e))?;
+
+    let marker_dir = format!("{}/", wad_name.to_lowercase());
+    let mut extracted = 0usize;
+    for i in 0..archive.len() {
+        let mut e = archive.by_index(i)
+            .map_err(|err| format!("Failed to read archive entry: {}", err))?;
+        let name = e.name().to_string();
+        if e.is_dir() || fantome_folder_wad_name(&name).as_deref() != Some(wad_name.as_str()) {
+            continue;
+        }
+        let lower = name.to_lowercase();
+        let Some(pos) = lower.find(&marker_dir) else { continue };
+        let rel = &name[pos + marker_dir.len()..];
+        if rel.is_empty() {
+            continue;
+        }
+        let dest = scratch.join(rel);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent).map_err(|err| format!("mkdir: {}", err))?;
+        }
+        let mut f = File::create(&dest).map_err(|err| format!("create: {}", err))?;
+        std::io::copy(&mut e, &mut f).map_err(|err| format!("extract: {}", err))?;
+        extracted += 1;
+    }
+    if extracted == 0 {
+        let _ = std::fs::remove_dir_all(&scratch);
+        return Err("No .wad.client file or folder found in fantome package".into());
+    }
+
+    let wad_bytes = flint_ltk::export::build_wad_from_directory(&scratch)?;
     let wad_path = temp_dir.join(wad_name.replace('/', "_"));
-
-    let mut zip_file = archive.by_name(&wad_name)
-        .map_err(|e| format!("Failed to find WAD in archive: {}", e))?;
-
-    let mut wad_file = File::create(&wad_path)
-        .map_err(|e| format!("Failed to create temp WAD file: {}", e))?;
-
-    std::io::copy(&mut zip_file, &mut wad_file)
-        .map_err(|e| format!("Failed to extract WAD file: {}", e))?;
-
-    tracing::info!("Extracted WAD from fantome: {} -> {:?}", wad_name, wad_path);
-
+    std::fs::write(&wad_path, &wad_bytes)
+        .map_err(|e| format!("Failed to write packed WAD: {}", e))?;
+    let _ = std::fs::remove_dir_all(&scratch);
+    tracing::info!(
+        "Packed folder-form WAD '{}' ({} files) from fantome -> {:?}",
+        wad_name, extracted, wad_path
+    );
     Ok(wad_path)
 }
 

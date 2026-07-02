@@ -14,7 +14,7 @@ import type { FileTreeNode, ProjectTab } from '../../lib/types';
 const ROW_HEIGHT = 22;
 const ROW_OVERSCAN = 8;
 
-const BIN_TEXT_EXTS = ['.bin', '.ritobin', '.py', '.troybin'];
+const BIN_TEXT_EXTS = ['.bin', '.ritobin', '.py'];
 const LUA_BIN_EXTS = ['.luabin', '.luabin64'];
 
 function getActiveTab(activeTabId: string | null, openTabs: ProjectTab[]): ProjectTab | null {
@@ -452,6 +452,9 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
             nav.navigateToArchiveEditor(fullFilePath);
         } else if (node.name === 'mod.config.json') {
             nav.navigateToFileEditor({ filePath: fullFilePath, kind: 'modConfig', projectPath });
+        } else if (lower.endsWith('.troybin')) {
+            // .troybin is a binary League config with a read-only viewer, NOT ritobin text.
+            nav.navigateToFileEditor({ filePath: fullFilePath, kind: 'troybin', projectPath });
         } else if (BIN_TEXT_EXTS.some(ext => lower.endsWith(ext))) {
             nav.navigateToFileEditor({ filePath: fullFilePath, kind: 'binText', projectPath });
         } else if (LUA_BIN_EXTS.some(ext => lower.endsWith(ext))) {

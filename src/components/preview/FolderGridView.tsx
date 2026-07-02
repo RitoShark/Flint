@@ -186,7 +186,8 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
                 >
                     {entries.map((entry) => {
                         const isTexture = !entry.is_directory && TEXTURE_EXTS.has(entry.extension);
-                        const isBinText = !entry.is_directory && ['.bin', '.ritobin', '.py', '.troybin'].some(ext => entry.name.toLowerCase().endsWith(ext));
+                        const isBinText = !entry.is_directory && ['.bin', '.ritobin', '.py'].some(ext => entry.name.toLowerCase().endsWith(ext));
+                        const isTroybin = !entry.is_directory && entry.name.toLowerCase().endsWith('.troybin');
                         const isLuaBin = !entry.is_directory && ['.luabin', '.luabin64'].some(ext => entry.name.toLowerCase().endsWith(ext));
                         const isRawText = !entry.is_directory && ['.json', '.txt', '.lua', '.py'].some(ext => entry.name.toLowerCase().endsWith(ext)) && entry.name !== 'mod.config.json';
 
@@ -206,6 +207,12 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
                                 useNavigationStore.getState().navigateToFileEditor({
                                     filePath: entry.absolute_path,
                                     kind: 'binText',
+                                    projectPath,
+                                });
+                            } else if (isTroybin) {
+                                useNavigationStore.getState().navigateToFileEditor({
+                                    filePath: entry.absolute_path,
+                                    kind: 'troybin',
                                     projectPath,
                                 });
                             } else if (isLuaBin) {

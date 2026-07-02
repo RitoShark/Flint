@@ -119,7 +119,11 @@ export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
             } else {
                 useWadExtractStore.getState().openSession(exId, info.source_path, info.session_id);
                 seededSessionIdsRef.current.add(exId);
-                const chunks = await api.getWadChunks(info.source_path);
+                // Folder-backed WADs supply their REAL paths directly (no LMDB,
+                // no hashed `data/`). Packed WADs use the normal resolve path.
+                const chunks = info.is_folder && info.folder_chunks
+                    ? info.folder_chunks.map((c) => ({ hash: c.hash, path: c.path, size: c.size }))
+                    : await api.getWadChunks(info.source_path);
                 useWadExtractStore.getState().setChunks(exId, chunks);
             }
             openWad(name, info.session_id);

@@ -24,9 +24,32 @@ export async function writeArchiveMeta(sessionId: string, metaJson: string): Pro
     return invokeCommand('write_archive_meta', { sessionId, metaJson });
 }
 
-/** Extract an inner WAD to a temp file and open a live WAD edit session against it. */
-export async function openInnerWad(sessionId: string, wadName: string): Promise<WadEditSessionInfo> {
+/** One chunk of a folder-backed inner WAD, with its real (known) path. */
+export interface FolderWadChunk {
+    hash: string;
+    path: string;
+    size: number;
+}
+
+/**
+ * Result of opening an inner WAD. `is_folder` is true when the WAD came in as a
+ * loose FOLDER tree (edited in place, real paths preserved — no packing); then
+ * `folder_chunks` carries the real path list. A packed WAD leaves both unset and
+ * the caller uses the normal `getWadChunks` path.
+ */
+export interface InnerWadOpen extends WadEditSessionInfo {
+    is_folder: boolean;
+    folder_chunks: FolderWadChunk[] | null;
+}
+
+/** Open an inner WAD live (packed → WAD session; folder tree → folder-backed session). */
+export async function openInnerWad(sessionId: string, wadName: string): Promise<InnerWadOpen> {
     return invokeCommand('open_inner_wad', { sessionId, wadName });
+}
+
+/** Real path list for a folder-backed inner WAD session (reflects pending edits). */
+export async function folderWadChunks(sessionId: string): Promise<FolderWadChunk[]> {
+    return invokeCommand('folder_wad_chunks', { sessionId });
 }
 
 /** Rebuild the archive at `outputPath`, embedding any edited inner WADs + new meta. */

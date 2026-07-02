@@ -502,8 +502,8 @@ export const TitleBar: React.FC = () => {
         navigationCoordinator.closeArchiveTabWithFallback(tabId);
     }, []);
 
-    const fileEditorTarget = useFileEditorStore((s) => s.target);
-    const fileEditorDirty = useFileEditorStore((s) => s.dirty);
+    const fileEditorTabs = useFileEditorStore((s) => s.tabs);
+    const fileEditorActiveId = useFileEditorStore((s) => s.activeId);
     const openConfirmDialog = useModalStore((s) => s.openConfirmDialog);
 
     const isWadExplorerOpen = wadExplorerOpen;
@@ -515,22 +515,29 @@ export const TitleBar: React.FC = () => {
     const isArchiveActive = currentView === 'archive-editor';
     const manifestList = Object.values(cdnSessions);
 
-    const handleCloseFileEditor = useCallback((e: React.MouseEvent) => {
+    const handleSwitchFileEditor = useCallback((tabId: string) => {
+        useFileEditorStore.getState().switchTab(tabId);
+        useNavigationStore.getState().setView('file-editor');
+    }, []);
+
+    const handleCloseFileEditor = useCallback((e: React.MouseEvent, tabId: string) => {
         e.stopPropagation();
-        if (fileEditorDirty) {
+        const tab = useFileEditorStore.getState().tabs.find((t) => t.id === tabId);
+        const doClose = () => navigationCoordinator.closeFileEditorTabWithFallback(tabId);
+        if (tab?.dirty) {
             openConfirmDialog({
                 title: 'Discard changes?',
                 message: 'You have unsaved changes. Are you sure you want to discard them?',
                 confirmLabel: 'Discard',
                 danger: true,
-                onConfirm: () => navigationCoordinator.closeFileEditorWithFallback(),
+                onConfirm: doClose,
             });
         } else {
-            navigationCoordinator.closeFileEditorWithFallback();
+            doClose();
         }
-    }, [fileEditorDirty, openConfirmDialog]);
+    }, [openConfirmDialog]);
 
-    const hasTabs = openTabs.length > 0 || extractSessions.length > 0 || manifestList.length > 0 || openArchiveTabs.length > 0 || isWadExplorerOpen || !!fileEditorTarget;
+    const hasTabs = openTabs.length > 0 || extractSessions.length > 0 || manifestList.length > 0 || openArchiveTabs.length > 0 || isWadExplorerOpen || fileEditorTabs.length > 0;
 
     return (
         <div className="titlebar" data-tauri-drag-region>
@@ -582,22 +589,23 @@ export const TitleBar: React.FC = () => {
                             </div>
                         )}
 
-                        {fileEditorTarget && (
+                        {fileEditorTabs.map((tab) => (
                             <div
-                                className={`titlebar__tab ${isFileEditorActive ? 'titlebar__tab--active' : ''}`}
-                                onClick={() => useNavigationStore.getState().setView('file-editor')}
-                                onMouseDown={(e) => { if (e.button === 1) handleCloseFileEditor(e); }}
-                                title={fileEditorTarget.filePath}
+                                key={tab.id}
+                                className={`titlebar__tab ${tab.id === fileEditorActiveId && isFileEditorActive ? 'titlebar__tab--active' : ''}`}
+                                onClick={() => handleSwitchFileEditor(tab.id)}
+                                onMouseDown={(e) => { if (e.button === 1) handleCloseFileEditor(e, tab.id); }}
+                                title={tab.target.filePath}
                                 data-tauri-drag-region="false"
                             >
                                 <span className="titlebar__tab-icon" dangerouslySetInnerHTML={{ __html: getIcon('bin') }} />
                                 <span className="titlebar__tab-name">
-                                    {fileEditorTarget.filePath.split(/[/\\]/).pop()}
-                                    {fileEditorDirty && <span style={{ color: 'var(--accent-primary)', marginLeft: 3 }}>●</span>}
+                                    {tab.target.filePath.split(/[/\\]/).pop()}
+                                    {tab.dirty && <span style={{ color: 'var(--accent-primary)', marginLeft: 3 }}>●</span>}
                                 </span>
                                 <button
                                     className="titlebar__tab-close"
-                                    onClick={handleCloseFileEditor}
+                                    onClick={(e) => handleCloseFileEditor(e, tab.id)}
                                     title="Close file"
                                 >
                                     <svg viewBox="0 0 16 16" width="12" height="12">
@@ -605,7 +613,7 @@ export const TitleBar: React.FC = () => {
                                     </svg>
                                 </button>
                             </div>
-                        )}
+                        ))}
 
                         {openTabs.map(tab => (
                             <Tab

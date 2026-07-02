@@ -7,6 +7,28 @@ use flint_ltk::wad::cache::WadCache;
 use flint_ltk::wad_jade::format::WadChunk;
 use parking_lot::RwLock;
 
+/// Holds a file path handed to Flint via "Open with" / a file association at
+/// launch, until the frontend is mounted and pulls it. On a cold start the
+/// webview takes many seconds to boot, so emitting `file-open-request` on a
+/// fixed delay races the frontend's listener and is lost. Instead we ALSO stash
+/// the path here and let the frontend drain it once its listener exists
+/// (`take_pending_file_open`) — race-free regardless of boot time.
+#[derive(Clone, Default)]
+pub struct PendingFileOpenState(Arc<RwLock<Option<String>>>);
+
+impl PendingFileOpenState {
+    pub fn new() -> Self { Self::default() }
+
+    pub fn set(&self, path: String) {
+        *self.0.write() = Some(path);
+    }
+
+    /// Return the pending path (if any) and clear it, so it's delivered once.
+    pub fn take(&self) -> Option<String> {
+        self.0.write().take()
+    }
+}
+
 /// Global WAD metadata cache. WADs are immutable once written, so caching
 /// headers is safe.
 #[derive(Clone)]
@@ -81,6 +103,24 @@ pub enum WadEditDelta {
     Delete,
 }
 
+/// Backing store for a session's untouched chunks.
+#[derive(Debug, Clone)]
+pub enum WadEditBacking {
+    /// A packed `.wad.client` file. Untouched chunks are seeked+decompressed
+    /// from `source_path` on read.
+    Wad,
+    /// A WAD stored as a FOLDER tree of loose files (some `.fantome`s ship WADs
+    /// unpacked; launchers pack them on import). We edit the loose files
+    /// directly — no packing, so the real string paths are preserved. `root` is
+    /// the extracted folder; `paths` maps chunk hash → real WAD-relative path
+    /// (forward slashes) so the browser shows real paths without any LMDB
+    /// lookup, and save writes files back under those paths.
+    Folder {
+        root: PathBuf,
+        paths: HashMap<u64, String>,
+    },
+}
+
 /// One in-flight WAD edit session — holds the source TOC plus a delta map.
 #[derive(Debug)]
 pub struct WadEditSession {
@@ -91,6 +131,8 @@ pub struct WadEditSession {
     pub original_chunks: Vec<WadChunk>,
     /// hash → delta (Write replaces / adds, Delete removes).
     pub deltas: HashMap<u64, WadEditDelta>,
+    /// Where untouched chunks come from — a packed WAD file or a loose folder.
+    pub backing: WadEditBacking,
 }
 
 #[derive(Clone, Default)]
