@@ -74,7 +74,8 @@ a:focus-visible,
     transform var(--motion-fast);
 }
 
-/* Cursor-following radial glow — JS in src/lib/buttonGlow.ts updates --mx/--my */
+/* Cursor-following radial glow (opt-in via [data-button-glow="on"]).
+   JS in src/lib/ui-helpers/buttonGlow.ts updates --mx/--my. */
 .btn::after {
   content: '';
   position: absolute;
@@ -91,7 +92,7 @@ a:focus-visible,
   z-index: 0;
 }
 .btn > * { position: relative; z-index: 1; }
-.btn:hover:not(:disabled):not([aria-disabled="true"])::after { opacity: 1; }
+[data-button-glow="on"] .btn:hover:not(:disabled):not([aria-disabled="true"])::after { opacity: 1; }
 .btn:active:not(:disabled):not([aria-disabled="true"]) { transform: scale(0.985); transition-duration: 60ms; }
 
 .btn:disabled,

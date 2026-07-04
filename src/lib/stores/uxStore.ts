@@ -1,10 +1,13 @@
 import { create } from 'zustand';
+import { setButtonGlow } from '../ui-helpers/buttonGlow';
 
 const STORAGE_KEY = 'flint_ux_prefs_v1';
 
 export interface UxPrefs {
     glassmorphism: boolean;
     fpsMode: boolean;
+    /** Cursor-following radial glow on buttons. On by default (opt-out); force-disabled while fpsMode is on. */
+    buttonGlow: boolean;
     /** Hex string e.g. "#EF4444" — overrides --accent-primary. null = use theme default. */
     accentPrimary: string | null;
     /** Optional secondary accent. null = computed from primary. */
@@ -18,6 +21,7 @@ export interface UxPrefs {
 const DEFAULTS: UxPrefs = {
     glassmorphism: true,
     fpsMode: false,
+    buttonGlow: true,
     accentPrimary: null,
     accentSecondary: null,
     glassBlur: 14,
@@ -43,6 +47,7 @@ function writeStorage(prefs: UxPrefs) {
 interface UxState extends UxPrefs {
     setGlassmorphism: (on: boolean) => void;
     setFpsMode: (on: boolean) => void;
+    setButtonGlow: (on: boolean) => void;
     setAccentPrimary: (hex: string | null) => void;
     setAccentSecondary: (hex: string | null) => void;
     setGlassBlur: (px: number) => void;
@@ -54,14 +59,15 @@ const initial: UxPrefs = { ...DEFAULTS, ...readStorage() };
 
 export const useUxStore = create<UxState>()((set, get) => {
     const persist = () => {
-        const { glassmorphism, fpsMode, accentPrimary, accentSecondary, glassBlur, glassOpacity } = get();
-        writeStorage({ glassmorphism, fpsMode, accentPrimary, accentSecondary, glassBlur, glassOpacity });
+        const { glassmorphism, fpsMode, buttonGlow, accentPrimary, accentSecondary, glassBlur, glassOpacity } = get();
+        writeStorage({ glassmorphism, fpsMode, buttonGlow, accentPrimary, accentSecondary, glassBlur, glassOpacity });
         applyUxPrefs(get());
     };
     return {
         ...initial,
         setGlassmorphism: (on) => { set({ glassmorphism: on }); persist(); },
         setFpsMode: (on) => { set({ fpsMode: on }); persist(); },
+        setButtonGlow: (on) => { set({ buttonGlow: on }); persist(); },
         setAccentPrimary: (hex) => { set({ accentPrimary: hex }); persist(); },
         setAccentSecondary: (hex) => { set({ accentSecondary: hex }); persist(); },
         setGlassBlur: (px) => { set({ glassBlur: px }); persist(); },
@@ -74,6 +80,10 @@ export function applyUxPrefs(prefs: UxPrefs) {
     const root = document.documentElement;
     root.dataset.glass = prefs.glassmorphism ? 'on' : 'off';
     root.dataset.fps = prefs.fpsMode ? 'on' : 'off';
+    // FPS mode (older hardware / handhelds) always wins and force-disables the glow.
+    const glowActive = prefs.buttonGlow && !prefs.fpsMode;
+    root.dataset.buttonGlow = glowActive ? 'on' : 'off';
+    setButtonGlow(glowActive);
     root.style.setProperty('--ux-glass-blur', `${prefs.glassBlur}px`);
     root.style.setProperty('--ux-glass-opacity', String(prefs.glassOpacity));
 

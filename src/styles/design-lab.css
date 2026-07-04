@@ -233,7 +233,7 @@
     border-radius: inherit;
 }
 .dl-btn > * { position: relative; z-index: 2; }
-.dl-btn:hover:not(:disabled)::after { opacity: 1; }
+[data-button-glow="on"] .dl-btn:hover:not(:disabled)::after { opacity: 1; }
 
 .dl-btn:hover:not(:disabled) {
     border-color: color-mix(in oklab, var(--accent-primary) 45%, var(--border));

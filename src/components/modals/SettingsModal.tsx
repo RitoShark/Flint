@@ -870,6 +870,23 @@ export const SettingsModal: React.FC = () => {
                                 />
                             </div>
 
+                            <div className="settings-item">
+                                <label className="settings-item__label">
+                                    Button Glow
+                                    <span className="settings-item__badge">Performance</span>
+                                </label>
+                                <Checkbox
+                                    toggle
+                                    checked={ux.buttonGlow && !ux.fpsMode}
+                                    disabled={ux.fpsMode}
+                                    onChange={(e) => ux.setButtonGlow(e.target.checked)}
+                                    label="Cursor-following glow on buttons"
+                                    description={ux.fpsMode
+                                        ? 'Turned off automatically while FPS Mode is on, since the cursor-tracking listener costs frames.'
+                                        : 'Adds a soft radial glow that tracks your cursor across buttons. On by default — turn it off (or enable FPS Mode) to skip the cursor-tracking listener on slower machines.'}
+                                />
+                            </div>
+
                         </div>
                     )}
 
