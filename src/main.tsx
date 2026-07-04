@@ -7,7 +7,6 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { initializeLogger, initBackendLogListener } from './lib/util/logger';
-import { installButtonGlow } from './lib/ui-helpers/buttonGlow';
 import { AppProvider } from './lib/stores';
 import { bootUxPrefs } from './lib/stores/uxStore';
 import { App } from './components/layout/App';
@@ -45,8 +44,9 @@ const isMapPreview =
 console.log(`[startup] imports resolved in ${(performance.now() - __FLINT_JS_START).toFixed(1)}ms`);
 
 initializeLogger();
+// bootUxPrefs() applies the persisted button-glow preference, which attaches
+// the cursor listener only when the user has opted in.
 bootUxPrefs();
-installButtonGlow();
 
 const container = document.getElementById('app');
 if (!container) {

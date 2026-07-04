@@ -870,6 +870,20 @@ export const SettingsModal: React.FC = () => {
                                 />
                             </div>
 
+                            <div className="settings-item">
+                                <label className="settings-item__label">
+                                    Button Glow
+                                    <span className="settings-item__badge">Performance</span>
+                                </label>
+                                <Checkbox
+                                    toggle
+                                    checked={ux.buttonGlow}
+                                    onChange={(e) => ux.setButtonGlow(e.target.checked)}
+                                    label="Cursor-following glow on buttons"
+                                    description="Adds a soft radial glow that tracks your cursor across buttons. Off by default — the tracking listener can cause CPU/GPU spikes on older hardware and handheld devices."
+                                />
+                            </div>
+
                         </div>
                     )}
 

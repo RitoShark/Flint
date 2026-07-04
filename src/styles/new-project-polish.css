@@ -202,7 +202,7 @@ input.np-search:focus {
     transform: translateY(-1px) !important;
 }
 
-.np-champ-card:hover::after {
+[data-button-glow="on"] .np-champ-card:hover::after {
     opacity: 1;
 }
 
