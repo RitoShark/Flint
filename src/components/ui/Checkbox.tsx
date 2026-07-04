@@ -24,12 +24,14 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
         }
 
         return (
-            <label
-                className={`checkbox-label ${className}`.trim()}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
-            >
+            <label className={`checkbox-label ${className}`.trim()}>
                 <input ref={ref} type="checkbox" id={id} {...rest} />
-                {label && <span>{label}</span>}
+                {(label || description) && (
+                    <span className="checkbox-label__content">
+                        {label && <span className="checkbox-label__label">{label}</span>}
+                        {description && <span className="checkbox-label__description">{description}</span>}
+                    </span>
+                )}
             </label>
         );
     },

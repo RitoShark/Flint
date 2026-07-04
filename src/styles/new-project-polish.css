@@ -810,11 +810,10 @@ input.np-search:focus {
 }
 
 /* ─── LEVELS toggle (rich row) ─── */
-.np-form .np-map-toggle {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 12px;
+/* Card wrapper around the Checkbox primitive (.checkbox-label) */
+.np-form .np-map-toggle.checkbox-label {
     align-items: center;
+    gap: 12px;
     padding: 12px 14px;
     background: var(--bg-tertiary);
     border: 1px solid var(--border);
@@ -823,34 +822,12 @@ input.np-search:focus {
     transition: border-color var(--motion-fast), background var(--motion-fast);
 }
 
-.np-form .np-map-toggle:hover {
+.np-form .np-map-toggle.checkbox-label:hover {
     border-color: color-mix(in oklab, var(--accent-primary) 30%, var(--border));
 }
 
-.np-form .np-map-toggle input[type="checkbox"] {
-    width: 16px;
-    height: 16px;
-    accent-color: var(--accent-primary);
-    cursor: pointer;
-}
-
-.np-form .np-map-toggle__body {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.np-form .np-map-toggle__title {
-    font-size: 13px;
+.np-form .np-map-toggle .checkbox-label__label {
     font-weight: 600;
-    color: var(--text-primary);
-    line-height: 1.2;
-}
-
-.np-form .np-map-toggle__desc {
-    font-size: 11px;
-    color: var(--text-muted);
-    line-height: 1.4;
 }
 
 /* Stack the two-column grids on narrow modals */
