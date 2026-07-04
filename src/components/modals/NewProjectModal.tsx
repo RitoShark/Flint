@@ -17,7 +17,7 @@ import {
     type VideoMeta,
     type BudgetResult,
 } from '../../lib/data/spritesheet';
-import { Button, Icon, Picker } from '../ui';
+import { Button, Checkbox, Icon, Picker } from '../ui';
 
 import { compressDeflate, type ProjectType, SCALE_OPTIONS, FPS_OPTIONS } from './new-project/helpers';
 import { NameAndPathRow } from './new-project/NameAndPathRow';
@@ -1557,19 +1557,13 @@ export const NewProjectModal: React.FC = () => {
                                 </button>
                             </div>
 
-                            <label className="np-map-toggle">
-                                <input
-                                    type="checkbox"
-                                    checked={includeLevels}
-                                    onChange={(e) => setIncludeLevels(e.target.checked)}
-                                />
-                                <span className="np-map-toggle__body">
-                                    <span className="np-map-toggle__title">Include LEVELS WAD</span>
-                                    <span className="np-map-toggle__desc">
-                                        Pull lightmaps, lightgrid and grass-tint textures
-                                    </span>
-                                </span>
-                            </label>
+                            <Checkbox
+                                className="np-map-toggle"
+                                checked={includeLevels}
+                                onChange={(e) => setIncludeLevels(e.target.checked)}
+                                label="Include LEVELS WAD"
+                                description="Pull lightmaps, lightgrid and grass-tint textures"
+                            />
                         </section>
 
                         <div className="np-hint">

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { useModalStore } from '../../lib/stores';
-import { Button } from '../ui';
+import { Button, Checkbox } from '../ui';
 
 const DangerIcon = () => (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
@@ -60,15 +60,12 @@ export const ConfirmDialog: React.FC = () => {
                     <h3 className="confirm-dialog__title">{dialog.title}</h3>
                     <p className="confirm-dialog__message">{dialog.message}</p>
                     {dialog.showCheckbox && (
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px', fontSize: '13px', cursor: 'pointer', userSelect: 'none' }}>
-                            <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={(e) => setChecked(e.target.checked)}
-                                style={{ width: '14px', height: '14px', margin: 0 }}
-                            />
-                            <span>{dialog.checkboxLabel || "Don't show again"}</span>
-                        </label>
+                        <Checkbox
+                            className="confirm-dialog__checkbox"
+                            checked={checked}
+                            onChange={(e) => setChecked(e.target.checked)}
+                            label={dialog.checkboxLabel || "Don't show again"}
+                        />
                     )}
                 </div>
                 <div className="confirm-dialog__actions">

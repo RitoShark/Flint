@@ -7563,6 +7563,11 @@ input.np-search:focus {
   line-height: 1.5;
 }
 
+.confirm-dialog__checkbox {
+  margin-top: 12px;
+  font-size: var(--text-sm);
+}
+
 .confirm-dialog__actions {
   display: flex;
   gap: var(--space-sm);

@@ -294,6 +294,33 @@ input[type="checkbox"]:not(.settings-toggle input):not(.np-pbe-toggle__input):di
   box-shadow: none;
 }
 
+/* Layout for the Checkbox primitive (non-toggle): box + optional label/description */
+.checkbox-label {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+.checkbox-label input[type="checkbox"] {
+  margin-top: 1px;
+}
+.checkbox-label__content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.checkbox-label__label {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+.checkbox-label__description {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
 /* -----------------------------------------------------------------------------
    4. Custom radio
    ----------------------------------------------------------------------------- */
