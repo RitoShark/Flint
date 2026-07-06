@@ -428,13 +428,17 @@ pub async fn save_ritobin_to_bin(
         return Err("Path cannot be empty".to_string());
     }
 
-    let binary_data = {
-        let bin = flint_ltk::bin::text_to_tree(&content)
+    // Parse + encode is CPU-bound (ritobin text → tree → bytes). Run it on the
+    // blocking pool so a large BIN save doesn't stall the async runtime / UI.
+    let content_for_encode = content.clone();
+    let binary_data = tokio::task::spawn_blocking(move || {
+        let bin = flint_ltk::bin::text_to_tree(&content_for_encode)
             .map_err(|e| format!("Failed to parse text content: {}", e))?;
-
         flint_ltk::bin::write_bin_ltk(&bin)
-            .map_err(|e| format!("Failed to convert to binary: {}", e))?
-    };
+            .map_err(|e| format!("Failed to convert to binary: {}", e))
+    })
+    .await
+    .map_err(|e| format!("encode task join error: {}", e))??;
 
     // Mark both paths as expected self-writes so the watcher doesn't bounce
     // them back into the editor as external modifications.
@@ -462,12 +466,15 @@ pub async fn compile_ritobin_text_to_bytes(
     content: String,
 ) -> Result<tauri::ipc::Response, String> {
     let _t = ipc_trace::enter("compile_ritobin_text_to_bytes");
-    let binary_data = {
+    // CPU-bound parse + encode — off the async runtime (see save_ritobin_to_bin).
+    let binary_data = tokio::task::spawn_blocking(move || {
         let bin = flint_ltk::bin::text_to_tree(&content)
             .map_err(|e| format!("Failed to parse text content: {}", e))?;
         flint_ltk::bin::write_bin_ltk(&bin)
-            .map_err(|e| format!("Failed to convert to binary: {}", e))?
-    };
+            .map_err(|e| format!("Failed to convert to binary: {}", e))
+    })
+    .await
+    .map_err(|e| format!("encode task join error: {}", e))??;
     Ok(tauri::ipc::Response::new(binary_data))
 }
 
