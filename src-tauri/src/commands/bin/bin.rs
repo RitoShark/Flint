@@ -256,6 +256,26 @@ pub async fn convert_bin_bytes_to_text(
     Ok(text)
 }
 
+/// Re-resolve any `0x…` hash tokens in ritobin editor text against the cached
+/// BIN hash dictionary, returning the unhashed text and how many tokens changed.
+///
+/// Purely lexical (no tree parse) so it works on partially-edited text and only
+/// touches hash tokens. Used by the BIN editor's "Unhash" button — after a hash
+/// download the cache has more names than when the text was first converted.
+#[tauri::command]
+pub async fn unhash_bin_text(text: String) -> Result<UnhashResult, String> {
+    let _t = ipc_trace::enter("unhash_bin_text");
+    let (unhashed, replaced) = flint_ltk::bin::unhash_text_cached(&text);
+    tracing::debug!("unhash_bin_text: resolved {} hash token(s)", replaced);
+    Ok(UnhashResult { text: unhashed, replaced })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnhashResult {
+    pub text: String,
+    pub replaced: usize,
+}
+
 /// Convert in-memory BIN bytes to JSON format.
 #[tauri::command]
 pub async fn convert_bin_bytes_to_json(

@@ -48,3 +48,9 @@ export async function compileRitobinTextToBytes(content: string): Promise<Uint8A
     const buf = await invokeCommand<ArrayBuffer>('compile_ritobin_text_to_bytes', { content });
     return new Uint8Array(buf);
 }
+
+/** Re-resolve `0x…` hash tokens in ritobin text against the cached BIN hash
+ *  dictionary. Returns the unhashed text and how many tokens were replaced. */
+export async function unhashBinText(text: string): Promise<{ text: string; replaced: number }> {
+    return invokeCommand('unhash_bin_text', { text });
+}

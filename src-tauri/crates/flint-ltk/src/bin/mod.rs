@@ -11,6 +11,7 @@ pub use ltk_bridge::{
     get_cached_bin_hashes,
     reload_bin_hash_cache,
     text_to_tree,
+    unhash_text_cached,
     MAX_BIN_SIZE,
 };
 

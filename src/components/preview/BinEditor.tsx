@@ -1275,6 +1275,33 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         editorRef.current.focus();
     }, [bracketStatus]);
 
+    const [unhashing, setUnhashing] = useState(false);
+
+    const handleUnhash = useCallback(async () => {
+        const ed = editorRef.current;
+        if (!ed) return;
+        const current = ed.getModel()?.getValue() ?? content;
+        try {
+            setUnhashing(true);
+            setWorking('Unhashing BIN...');
+            const { text: unhashed, replaced } = await api.unhashBinText(current);
+            if (replaced === 0) {
+                showToast('info', 'No resolvable hashes found');
+                setReady('Ready');
+                return;
+            }
+            // Single undoable edit; the change listener syncs React `content`.
+            applyContentToEditor(ed, unhashed);
+            setReady(`Unhashed ${replaced}`);
+            showToast('success', `Unhashed ${replaced} hash${replaced === 1 ? '' : 'es'}`);
+        } catch (err) {
+            showToast('error', `Unhash failed: ${String(err)}`);
+            setReady('Ready');
+        } finally {
+            setUnhashing(false);
+        }
+    }, [content, setWorking, setReady, showToast]);
+
     const fileName = filePath.split('\\').pop() || filePath.split('/').pop() || 'file.bin';
 
     const bracketLabel = useMemo(() => {
@@ -1356,6 +1383,15 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                             Fix {'}'}
                         </button>
                     )}
+                    <button
+                        className="btn btn--sm"
+                        style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}
+                        onClick={handleUnhash}
+                        disabled={unhashing}
+                        title="Unhash: re-resolve any 0x… hash tokens against the known BIN hash dictionary"
+                    >
+                        {unhashing ? 'Unhashing…' : 'Unhash'}
+                    </button>
                     <button
                         className={`btn btn--sm${paletteOpen ? ' btn--primary' : ''}`}
                         style={!paletteOpen ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}

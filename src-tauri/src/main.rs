@@ -206,6 +206,7 @@ fn main() {
             commands::bin::read_bin_info,
             commands::bin::convert_bin_bytes_to_text,
             commands::bin::convert_bin_bytes_to_json,
+            commands::bin::unhash_bin_text,
             commands::bin::parse_bin_file_to_text,
             commands::bin::read_or_convert_bin,
             commands::bin::save_ritobin_to_bin,
