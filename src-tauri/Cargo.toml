@@ -3,7 +3,7 @@ members = [".", "crates/flint-ltk", "crates/ltk_inibin"]
 
 [package]
 name = "flint"
-version = "2.3.3"
+version = "2.3.4"
 edition = "2021"
 default-run = "flint"
 
