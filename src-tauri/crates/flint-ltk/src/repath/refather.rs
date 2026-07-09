@@ -433,6 +433,21 @@ pub fn repath_project(
         tracing::info!("Skipping cleanup_irrelevant_bins because skip_bin_cleanup is true");
     }
 
+    // Safety-net sweep (project creation only): after repath+relocate+cleanup,
+    // any non-BIN file still sitting under the ORIGINAL game-layout `characters/`
+    // tree is an un-relocated orphan (unreferenced HD twins like `2x_body1.tex`,
+    // or leftover clones whose real copy already moved to the project folder).
+    // `cleanup_unused_files` can miss these when a referenced sibling shares the
+    // directory; this pass removes exactly the orphaned originals.
+    if config.cleanup_unused {
+        let t_sweep = std::time::Instant::now();
+        let swept = sweep_source_tree_orphans(file_base, &existing_paths, &prefix, config);
+        if swept > 0 {
+            tracing::info!("Swept {} un-relocated orphan(s) from the source characters/ tree", swept);
+        }
+        tracing::info!("[TIMING] step7b sweep_source_tree_orphans ({} removed): {:?}", swept, t_sweep.elapsed());
+    }
+
     let t_step8 = std::time::Instant::now();
     cleanup_empty_dirs(file_base)?;
     tracing::info!("[TIMING] step8 cleanup_empty_dirs: {:?}", t_step8.elapsed());
@@ -783,9 +798,87 @@ fn cleanup_unused_files(content_base: &Path, referenced_paths: &HashSet<String>,
     Ok(removed)
 }
 
+/// Project-creation safety net: delete non-BIN files still sitting under the
+/// ORIGINAL game-layout `characters/` tree that were NOT relocated (i.e. their
+/// path is not referenced by any BIN). These are un-relocated orphans —
+/// unreferenced HD twins (`2x_`/`4x_`) or leftover clones whose real copy has
+/// already moved to the project folder. Scoped strictly to `assets/characters/`
+/// and `data/characters/` so it can never touch the relocated project tree.
+fn sweep_source_tree_orphans(
+    content_base: &Path,
+    referenced_paths: &HashSet<String>,
+    prefix: &str,
+    config: &RepathConfig,
+) -> usize {
+    use rayon::prelude::*;
+
+    // A file is "referenced" if its raw OR repathed form is in existing_paths.
+    let expected: HashSet<String> = referenced_paths
+        .iter()
+        .flat_map(|p| {
+            let raw = normalize_path(p);
+            let repathed = normalize_path(&apply_prefix_to_path(p, prefix, config));
+            [raw, repathed]
+        })
+        .collect();
+
+    let to_delete: Vec<PathBuf> = WalkDir::new(content_base)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter_map(|entry| {
+            let path = entry.path();
+            if !path.is_file() {
+                return None;
+            }
+            let rel = path.strip_prefix(content_base).ok()?;
+            let normalized = normalize_path(&rel.to_string_lossy());
+
+            // Only the original game-layout characters/ tree.
+            if !(normalized.starts_with("assets/characters/")
+                || normalized.starts_with("data/characters/"))
+            {
+                return None;
+            }
+            // Never touch BINs (cleanup_irrelevant_bins owns those).
+            if normalized.ends_with(".bin") {
+                return None;
+            }
+            // Preserve unresolved hash files (16-hex stem) — recovered later.
+            let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+            if stem.len() == 16 && stem.chars().all(|c| c.is_ascii_hexdigit()) {
+                return None;
+            }
+            // Referenced (raw or repathed) → keep; the relocate pass handles it.
+            if expected.contains(&normalized) {
+                return None;
+            }
+            Some(path.to_path_buf())
+        })
+        .collect();
+
+    to_delete
+        .par_iter()
+        .filter(|path| match fs::remove_file(path) {
+            Ok(()) => true,
+            Err(e) => {
+                tracing::warn!("Failed to sweep orphan {}: {}", path.display(), e);
+                false
+            }
+        })
+        .count()
+}
+
 /// Transitive closure of every BIN reachable from any BIN's `linked` list,
 /// as lowercased forward-slashed project-relative paths. Used to protect
 /// referenced bins from cleanup deletion.
+///
+/// Champion-root bins (`<champ>/<champ>.bin`, `root.bin`) are deliberately
+/// EXCLUDED: on the project-creation path the concat BIN replaces them, so the
+/// original champ root must still be deleted even though the skin BIN links it
+/// (`update_main_bin_links` keeps it as a link). Keeping it here would leave the
+/// stale `<champ>.bin` behind and pin the assets it references to their original
+/// (un-repathed) locations. Imports skip `cleanup_irrelevant_bins` entirely
+/// (`skip_bin_cleanup: true`), so this exclusion only affects project creation.
 fn referenced_bin_keep_set(content_base: &Path) -> std::collections::HashSet<String> {
     use std::collections::HashSet;
     let mut keep: HashSet<String> = HashSet::new();
@@ -803,6 +896,9 @@ fn referenced_bin_keep_set(content_base: &Path) -> std::collections::HashSet<Str
         let Ok(data) = fs::read(path) else { continue };
         let Ok(bin) = read_bin(&data) else { continue };
         for dep in bin.linked {
+            if crate::bin::classify_bin(&dep) == crate::bin::BinCategory::ChampionRoot {
+                continue;
+            }
             keep.insert(dep.replace('\\', "/").trim_start_matches('/').to_lowercase());
         }
     }
@@ -1590,6 +1686,166 @@ mod tests {
     }
 
     #[test]
+    fn repath_removes_unreferenced_hd_twins() {
+        // Project creation: a yone skin BIN references only base-res textures
+        // under characters/yone/skins/base/, with unreferenced 2x_/4x_ HD twins
+        // next to them. After repath the base-res move to the project folder and
+        // the orphan HD twins are cleaned up — NOT left on their original path.
+        use ritoshark::bin::{Bin, BinEntry};
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+        let wad = base.join("yone.wad.client");
+        let skinbase = wad.join("assets/characters/yone/skins/base");
+        std::fs::create_dir_all(&skinbase).unwrap();
+
+        for f in ["body1.tex", "2x_body1.tex", "4x_body1.tex", "cape.tex", "2x_cape.tex"] {
+            std::fs::write(skinbase.join(f), b"x").unwrap();
+        }
+
+        let skins_dir = wad.join("data/characters/yone/skins");
+        std::fs::create_dir_all(&skins_dir).unwrap();
+        let mut bin = Bin::new();
+        let mut fields = indexmap::IndexMap::new();
+        fields.insert(0xAAAA_u32, BinValue::String(
+            "ASSETS/Characters/Yone/Skins/Base/Body1.tex".to_string()));
+        fields.insert(0xBBBB_u32, BinValue::String(
+            "ASSETS/Characters/Yone/Skins/Base/Cape.tex".to_string()));
+        bin.entries.push(BinEntry { path_hash: 0x1234, class_hash: 0x5678, fields });
+        std::fs::write(skins_dir.join("skin0.bin"), write_bin(&bin).unwrap()).unwrap();
+
+        let config = RepathConfig {
+            creator_name: "CZ".to_string(),
+            project_name: "Project-Yone".to_string(),
+            champion: "yone".to_string(),
+            target_skin_id: 0,
+            cleanup_unused: true,
+            skip_bin_cleanup: false,
+            sub_characters: vec![],
+        };
+
+        repath_project(base, &config, &HashMap::new()).unwrap();
+
+        // No leftovers on the original character path.
+        let leftover = wad.join("assets/characters/yone/skins/base");
+        for f in ["body1.tex", "2x_body1.tex", "4x_body1.tex", "cape.tex", "2x_cape.tex"] {
+            assert!(!leftover.join(f).exists(), "orphan/original {f} must not be left behind");
+        }
+        // Referenced base-res moved to the project folder.
+        assert!(wad.join("assets/cz/project-yone/body1.tex").exists());
+        assert!(wad.join("assets/cz/project-yone/cape.tex").exists());
+    }
+
+    #[test]
+    fn repath_moves_other_champion_particle_without_leftover() {
+        // Reported case: an Akshan project whose skin BIN references a yasuo
+        // (other-champion) common particle. The yasuo file must MOVE to the
+        // shared-champion folder, leaving no clone on the original yasuo path.
+        use ritoshark::bin::{Bin, BinEntry};
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+        let wad = base.join("akshan.wad.client");
+
+        let yasuo_file = wad.join("assets/characters/yasuo/skins/base/particles/common_aura_self.tex");
+        std::fs::create_dir_all(yasuo_file.parent().unwrap()).unwrap();
+        std::fs::write(&yasuo_file, b"aura").unwrap();
+
+        let skins_dir = wad.join("data/characters/akshan/skins");
+        std::fs::create_dir_all(&skins_dir).unwrap();
+        let mut bin = Bin::new();
+        let mut fields = indexmap::IndexMap::new();
+        fields.insert(0xAAAA_u32, BinValue::String(
+            "ASSETS/Characters/Yasuo/Skins/Base/Particles/Common_Aura_Self.tex".to_string()));
+        bin.entries.push(BinEntry { path_hash: 0x1, class_hash: 0x2, fields });
+        std::fs::write(skins_dir.join("skin0.bin"), write_bin(&bin).unwrap()).unwrap();
+
+        let config = RepathConfig {
+            creator_name: "SirDexal".to_string(),
+            project_name: "Tesasasd".to_string(),
+            champion: "akshan".to_string(),
+            target_skin_id: 0,
+            cleanup_unused: true,
+            skip_bin_cleanup: false,
+            sub_characters: vec![],
+        };
+
+        repath_project(base, &config, &HashMap::new()).unwrap();
+
+        assert!(!yasuo_file.exists(), "original yasuo particle must not be left behind (no clone)");
+        assert!(
+            wad.join("assets/sirdexal/shared-champion/particles/common_aura_self.tex").exists(),
+            "particle must be relocated to the shared-champion folder"
+        );
+    }
+
+    #[test]
+    fn sweep_removes_stranded_twin_when_base_relocated() {
+        use std::collections::HashSet;
+        // The case strip_hd_twins MISSES: after repath the base-res texture has
+        // already moved to the project folder, so the 2x_ twin has no base
+        // sibling in its own directory. The source-tree orphan sweep still
+        // removes it because it's under characters/ and unreferenced.
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+
+        // base-res already relocated to the project folder (referenced).
+        let moved = base.join("assets/cz/project-yone/body1.tex");
+        std::fs::create_dir_all(moved.parent().unwrap()).unwrap();
+        std::fs::write(&moved, b"base").unwrap();
+
+        // stranded twin under the original characters/ tree (unreferenced).
+        let twin = base.join("assets/characters/yone/skins/base/2x_body1.tex");
+        std::fs::create_dir_all(twin.parent().unwrap()).unwrap();
+        std::fs::write(&twin, b"hd").unwrap();
+
+        let config = RepathConfig {
+            creator_name: "CZ".to_string(),
+            project_name: "Project-Yone".to_string(),
+            champion: "yone".to_string(),
+            target_skin_id: 0,
+            cleanup_unused: true,
+            skip_bin_cleanup: false,
+            sub_characters: vec![],
+        };
+
+        // existing_paths references only the relocated base-res copy.
+        let mut existing: HashSet<String> = HashSet::new();
+        existing.insert("assets/cz/project-yone/body1.tex".to_string());
+
+        let swept = sweep_source_tree_orphans(base, &existing, &config.prefix(), &config);
+        assert_eq!(swept, 1, "the stranded twin must be swept");
+        assert!(!twin.exists(), "stranded twin removed");
+        assert!(moved.exists(), "relocated base-res untouched (not under characters/)");
+    }
+
+    #[test]
+    fn sweep_keeps_referenced_other_champion_file() {
+        use std::collections::HashSet;
+        // A referenced other-champion file under characters/ must NOT be swept
+        // (relocate handles it; only truly-unreferenced orphans are removed).
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+        let f = base.join("assets/characters/yasuo/skins/base/particles/keep.tex");
+        std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+        std::fs::write(&f, b"x").unwrap();
+
+        let config = RepathConfig {
+            creator_name: "SirDexal".to_string(),
+            project_name: "P".to_string(),
+            champion: "akshan".to_string(),
+            target_skin_id: 0,
+            cleanup_unused: true,
+            skip_bin_cleanup: false,
+            sub_characters: vec![],
+        };
+
+        let mut existing: HashSet<String> = HashSet::new();
+        existing.insert("assets/characters/yasuo/skins/base/particles/keep.tex".to_string());
+
+        assert_eq!(sweep_source_tree_orphans(base, &existing, &config.prefix(), &config), 0);
+        assert!(f.exists(), "referenced file must survive the sweep");
+    }
+
+    #[test]
     fn keep_set_protects_referenced_bin() {
         use std::collections::HashSet;
         let dir = tempfile::tempdir().unwrap();
@@ -1606,6 +1862,40 @@ mod tests {
         let removed = cleanup_irrelevant_bins(base, "x", 0, &keep).unwrap();
         assert_eq!(removed, 0, "referenced bin must not be deleted");
         assert!(victim.exists());
+    }
+
+    #[test]
+    fn keep_set_excludes_champion_root() {
+        // The skin BIN links the champ root (concat -> root -> anim), but on
+        // project creation the concat replaces it, so the keep-set must NOT
+        // protect it — otherwise the stale <champ>.bin is left behind and pins
+        // its assets to their original (un-repathed) locations.
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+
+        let champ_dir = base.join("data/characters/aatrox");
+        std::fs::create_dir_all(champ_dir.join("skins")).unwrap();
+
+        // Champion root BIN — must be deleted.
+        let root_bin = champ_dir.join("aatrox.bin");
+        std::fs::write(&root_bin, write_bin(&ritoshark::bin::Bin::new()).unwrap()).unwrap();
+
+        // Skin BIN whose linked list references the champ root (the real layout).
+        let mut skin = ritoshark::bin::Bin::new();
+        skin.linked = vec!["data/characters/aatrox/aatrox.bin".to_string()];
+        let skin_bin = champ_dir.join("skins/skin0.bin");
+        std::fs::write(&skin_bin, write_bin(&skin).unwrap()).unwrap();
+
+        // Build the keep-set the way repath_project does.
+        let keep = referenced_bin_keep_set(base);
+        assert!(
+            !keep.contains("data/characters/aatrox/aatrox.bin"),
+            "champion root must be excluded from the keep-set"
+        );
+
+        cleanup_irrelevant_bins(base, "aatrox", 0, &keep).unwrap();
+        assert!(!root_bin.exists(), "champion root BIN must be deleted");
+        assert!(skin_bin.exists(), "target skin BIN must be kept");
     }
 
     #[test]
