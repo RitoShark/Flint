@@ -25,6 +25,14 @@ export interface VideoMeta {
     fps: number;
 }
 
+/**
+ * How a source frame is mapped into the (possibly differently-shaped) output frame.
+ * - `stretch`  — distort the source to fill the whole frame (may change aspect ratio).
+ * - `cover`    — scale to cover the frame, cropping the overflow (no distortion).
+ * - `contain`  — scale to fit inside the frame, letterboxing the remainder (no distortion, no crop).
+ */
+export type FitMode = 'stretch' | 'cover' | 'contain';
+
 export interface SpritesheetParams {
     file: File;
     trimStart: number;
@@ -34,12 +42,67 @@ export interface SpritesheetParams {
     grid: GridResult;
     frameW: number;
     frameH: number;
+    /** How the source video maps into each frame cell. Defaults to `stretch`. */
+    fitMode?: FitMode;
     onProgress?: (current: number, total: number) => void;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const MAX_TEXTURE_DIM = 16384;
+
+/** League loadscreens are authored 16:9. Forced-resolution presets, all 16:9. */
+export const LOADSCREEN_RESOLUTIONS = [
+    { label: '1920 × 1080', width: 1920, height: 1080 },
+    { label: '1280 × 720', width: 1280, height: 720 },
+] as const;
+
+// ─── Fit-mode geometry ───────────────────────────────────────────────────────
+
+export interface DrawRect {
+    dx: number;
+    dy: number;
+    dw: number;
+    dh: number;
+}
+
+/**
+ * Compute the destination rectangle for drawing a `srcW×srcH` source frame into
+ * a `frameW×frameH` cell under the given fit mode. The caller is expected to
+ * clear/letterbox the cell first (contain leaves gaps; cover overflows and is
+ * clipped by the caller's clip region).
+ */
+export function computeDrawRect(
+    srcW: number,
+    srcH: number,
+    frameW: number,
+    frameH: number,
+    fitMode: FitMode,
+): DrawRect {
+    if (fitMode === 'stretch' || srcW <= 0 || srcH <= 0) {
+        return { dx: 0, dy: 0, dw: frameW, dh: frameH };
+    }
+
+    const srcAspect = srcW / srcH;
+    const frameAspect = frameW / frameH;
+    const srcIsWider = srcAspect >= frameAspect;
+
+    // contain (fit inside, letterbox): a wider-than-frame source is limited by width.
+    // cover (fill, crop): the opposite axis — a wider source is limited by height.
+    const constrainByWidth = fitMode === 'contain' ? srcIsWider : !srcIsWider;
+
+    let dw: number;
+    let dh: number;
+    if (constrainByWidth) {
+        dw = frameW;
+        dh = frameW / srcAspect;
+    } else {
+        dh = frameH;
+        dw = frameH * srcAspect;
+    }
+
+    return { dx: (frameW - dw) / 2, dy: (frameH - dh) / 2, dw, dh };
+}
 
 // ─── Grid Calculation ────────────────────────────────────────────────────────
 
@@ -105,11 +168,17 @@ export function calculateBudget(params: {
     fps: number;
     trimStart: number;
     trimEnd: number;
+    /** When set, the frame is forced to these dimensions (before scale) instead
+     *  of following the source video's aspect ratio. Used for forced 16:9. */
+    forcedWidth?: number;
+    forcedHeight?: number;
 }): BudgetResult {
-    const { videoWidth, videoHeight, scaleFactor, fps, trimStart, trimEnd } = params;
+    const { videoWidth, videoHeight, scaleFactor, fps, trimStart, trimEnd, forcedWidth, forcedHeight } = params;
 
-    const frameW = Math.floor(videoWidth * scaleFactor);
-    const frameH = Math.floor(videoHeight * scaleFactor);
+    const baseW = forcedWidth ?? videoWidth;
+    const baseH = forcedHeight ?? videoHeight;
+    const frameW = Math.floor(baseW * scaleFactor);
+    const frameH = Math.floor(baseH * scaleFactor);
     const duration = trimEnd - trimStart;
     const totalFrames = Math.max(1, Math.floor(duration * fps));
 
@@ -193,6 +262,7 @@ function seekTo(video: HTMLVideoElement, time: number): Promise<void> {
 
 export async function generateSpritesheet(params: SpritesheetParams): Promise<HTMLCanvasElement> {
     const { file, trimStart, fps, grid, frameW, frameH, onProgress } = params;
+    const fitMode: FitMode = params.fitMode ?? 'stretch';
 
     const totalFrames = grid.cols * grid.rows;
 
@@ -236,7 +306,14 @@ export async function generateSpritesheet(params: SpritesheetParams): Promise<HT
             const x = col * frameW;
             const y = row * frameH;
 
-            sheetCtx.drawImage(video, x, y, frameW, frameH);
+            const rect = computeDrawRect(video.videoWidth, video.videoHeight, frameW, frameH, fitMode);
+            // Clip to the cell so `cover` overflow never bleeds into neighbours.
+            sheetCtx.save();
+            sheetCtx.beginPath();
+            sheetCtx.rect(x, y, frameW, frameH);
+            sheetCtx.clip();
+            sheetCtx.drawImage(video, x + rect.dx, y + rect.dy, rect.dw, rect.dh);
+            sheetCtx.restore();
 
             onProgress?.(i + 1, totalFrames);
         }

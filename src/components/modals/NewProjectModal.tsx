@@ -14,8 +14,11 @@ import {
     calculateBudget,
     getVideoMetadata,
     generateSpritesheet,
+    computeDrawRect,
+    LOADSCREEN_RESOLUTIONS,
     type VideoMeta,
     type BudgetResult,
+    type FitMode,
 } from '../../lib/data/spritesheet';
 import { Button, Checkbox, Icon, Picker } from '../ui';
 
@@ -168,6 +171,10 @@ export const NewProjectModal: React.FC = () => {
     const [trimEnd, setTrimEnd] = useState(0);
     const [scaleFactor, setScaleFactor] = useState(0.5);
     const [customFps, setCustomFps] = useState(30);
+    // Loadscreens are authored 16:9. Force it by default (opt-out for source AR).
+    const [force169, setForce169] = useState(true);
+    const [loadscreenResIdx, setLoadscreenResIdx] = useState(0); // 0 = 1920×1080, 1 = 1280×720
+    const [fitMode, setFitMode] = useState<FitMode>('cover');
     const [budget, setBudget] = useState<BudgetResult | null>(null);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [isGeneratingPreview, setIsGeneratingPreview] = useState(false);
@@ -292,6 +299,7 @@ export const NewProjectModal: React.FC = () => {
             setBudget(null);
             return;
         }
+        const forced = force169 ? LOADSCREEN_RESOLUTIONS[loadscreenResIdx] : undefined;
         const result = calculateBudget({
             videoWidth: videoMeta.width,
             videoHeight: videoMeta.height,
@@ -299,9 +307,11 @@ export const NewProjectModal: React.FC = () => {
             fps: customFps,
             trimStart,
             trimEnd,
+            forcedWidth: forced?.width,
+            forcedHeight: forced?.height,
         });
         setBudget(result);
-    }, [videoMeta, scaleFactor, customFps, trimStart, trimEnd]);
+    }, [videoMeta, scaleFactor, customFps, trimStart, trimEnd, force169, loadscreenResIdx]);
 
     useEffect(() => {
         loadVideoFromPathRef.current = async (path: string) => {
@@ -637,8 +647,9 @@ export const NewProjectModal: React.FC = () => {
         if (previewUrl) { URL.revokeObjectURL(previewUrl); setPreviewUrl(null); }
 
         try {
-            const outW = Math.floor(videoMeta.width * scaleFactor);
-            const outH = Math.floor(videoMeta.height * scaleFactor);
+            const forced = force169 ? LOADSCREEN_RESOLUTIONS[loadscreenResIdx] : undefined;
+            const outW = Math.floor((forced?.width ?? videoMeta.width) * scaleFactor);
+            const outH = Math.floor((forced?.height ?? videoMeta.height) * scaleFactor);
             const duration = trimEnd - trimStart;
             const totalFrames = Math.ceil(duration * customFps);
 
@@ -681,7 +692,9 @@ export const NewProjectModal: React.FC = () => {
                     video.currentTime = time;
                 });
 
-                ctx.drawImage(video, 0, 0, outW, outH);
+                const rect = computeDrawRect(video.videoWidth, video.videoHeight, outW, outH, fitMode);
+                ctx.clearRect(0, 0, outW, outH);
+                ctx.drawImage(video, rect.dx, rect.dy, rect.dw, rect.dh);
                 (stream.getVideoTracks()[0] as any).requestFrame?.();
 
                 await new Promise(r => setTimeout(r, frameInterval * 1000));
@@ -786,6 +799,7 @@ export const NewProjectModal: React.FC = () => {
                 grid: budget.grid,
                 frameW: budget.frameW,
                 frameH: budget.frameH,
+                fitMode,
                 onProgress: (cur, total) => setProgress(`Extracting frame ${cur}/${total}...`),
             });
 
@@ -1725,6 +1739,51 @@ export const NewProjectModal: React.FC = () => {
                                     </div>
                                 </div>
 
+                                <div className="np-ve-section">
+                                    <Checkbox
+                                        toggle
+                                        checked={force169}
+                                        onChange={(e) => setForce169(e.target.checked)}
+                                        label="Force 16:9 (recommended for loadscreens)"
+                                    />
+                                    {!force169 && (
+                                        <div className="budget-indicator__warning" style={{ marginTop: 6 }}>
+                                            Using the source video's aspect ratio. Non-16:9 loadscreens may look wrong in-game.
+                                        </div>
+                                    )}
+                                </div>
+
+                                {force169 && (
+                                    <div className="np-ve-row">
+                                        <div className="np-field np-field--grow">
+                                            <label className="np-label">Aspect ratio</label>
+                                            <Picker<string>
+                                                fullWidth
+                                                value={String(loadscreenResIdx)}
+                                                onChange={(v) => setLoadscreenResIdx(parseInt(v, 10))}
+                                                options={LOADSCREEN_RESOLUTIONS.map((r, i) => ({
+                                                    value: String(i),
+                                                    label: r.label,
+                                                    hint: '16:9',
+                                                }))}
+                                            />
+                                        </div>
+                                        <div className="np-field np-field--grow">
+                                            <label className="np-label">Fit</label>
+                                            <Picker<FitMode>
+                                                fullWidth
+                                                value={fitMode}
+                                                onChange={setFitMode}
+                                                options={[
+                                                    { value: 'cover', label: 'Fill', hint: 'Scale to cover, crop overflow' },
+                                                    { value: 'contain', label: 'Fit', hint: 'Letterbox, no crop' },
+                                                    { value: 'stretch', label: 'Stretch', hint: 'Distort to fill' },
+                                                ]}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div className="np-ve-row">
                                     <div className="np-field np-field--grow">
                                         <label className="np-label">Resolution</label>
@@ -1732,11 +1791,15 @@ export const NewProjectModal: React.FC = () => {
                                             fullWidth
                                             value={String(scaleFactor)}
                                             onChange={(v) => setScaleFactor(parseFloat(v))}
-                                            options={SCALE_OPTIONS.map((opt) => ({
-                                                value: String(opt.value),
-                                                label: opt.label,
-                                                hint: `${Math.floor(videoMeta.width * opt.value)}×${Math.floor(videoMeta.height * opt.value)}`,
-                                            }))}
+                                            options={SCALE_OPTIONS.map((opt) => {
+                                                const baseW = force169 ? LOADSCREEN_RESOLUTIONS[loadscreenResIdx].width : videoMeta.width;
+                                                const baseH = force169 ? LOADSCREEN_RESOLUTIONS[loadscreenResIdx].height : videoMeta.height;
+                                                return {
+                                                    value: String(opt.value),
+                                                    label: opt.label,
+                                                    hint: `${Math.floor(baseW * opt.value)}×${Math.floor(baseH * opt.value)}`,
+                                                };
+                                            })}
                                         />
                                     </div>
                                     <div className="np-field np-field--grow">
