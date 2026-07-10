@@ -12,4 +12,22 @@ describe('history', () => {
   });
   it('redo re-applies', () => { const h = createHistory(L(0)); h.set(L(5), true); h.undo(); h.redo(); expect(h.get()[0].x).toBe(5); });
   it('canUndo/canRedo flags', () => { const h = createHistory(L(0)); expect(h.canUndo()).toBe(false); h.set(L(1), true); expect(h.canUndo()).toBe(true); });
+  it('begin/commitGesture makes a drag-style edit undoable even after no-record frames', () => {
+    const h = createHistory(L(0));
+    h.begin();
+    h.set(L(3), false);   // drag frame
+    h.set(L(7), false);   // drag frame (final)
+    h.commitGesture();    // release
+    expect(h.get()[0].x).toBe(7);
+    expect(h.canUndo()).toBe(true);
+    h.undo();
+    expect(h.get()[0].x).toBe(0);   // back to the pre-gesture baseline
+  });
+  it('commitGesture with no net change records nothing', () => {
+    const h = createHistory(L(0));
+    h.begin();
+    h.set(L(0), false);
+    h.commitGesture();
+    expect(h.canUndo()).toBe(false);
+  });
 });

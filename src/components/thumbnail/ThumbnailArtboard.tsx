@@ -19,6 +19,10 @@ interface ThumbnailArtboardProps {
   selId: string | null;
   onSelect: (id: string | null) => void;
   onChange: (next: Layer[], record: boolean) => void;
+  /** Snapshot the pre-gesture baseline (call at drag/resize pointerdown, before the first move). */
+  onBeginGesture: () => void;
+  /** Record the gesture (baseline vs. final state) onto the undo stack (call on pointerup/release). */
+  onCommitGesture: () => void;
   /** Ref-like escape hatch so the host (ThumbnailEditor) can trigger fit/100%/fit-selection from a toolbar or keyboard handler. */
   controlsRef?: React.MutableRefObject<ThumbnailArtboardHandle | null>;
 }
@@ -39,7 +43,7 @@ function zrank(layer: Layer): number {
   }
 }
 
-export function ThumbnailArtboard({ layers, selId, onSelect, onChange, controlsRef }: ThumbnailArtboardProps) {
+export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGesture, onCommitGesture, controlsRef }: ThumbnailArtboardProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const stageWrapRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -233,6 +237,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, controlsR
   const startMove = useCallback((e: React.PointerEvent<HTMLDivElement>, layer: Layer) => {
     if (layer.locked) return;
     e.preventDefault();
+    onBeginGesture();
     const sx = e.clientX, sy = e.clientY, ox = layer.x, oy = layer.y;
     const el = e.currentTarget;
     el.classList.add('dragging');
@@ -258,17 +263,18 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, controlsR
       el.classList.remove('dragging');
       window.removeEventListener('pointermove', mv);
       window.removeEventListener('pointerup', up);
-      onChange(layersRef.current, true);
+      onCommitGesture();
     };
     window.addEventListener('pointermove', mv);
     window.addEventListener('pointerup', up);
-  }, [onChange]);
+  }, [onChange, onBeginGesture, onCommitGesture]);
 
   // ── Corner resize (startResize port) ──
   const startResize = useCallback((e: React.PointerEvent<HTMLDivElement>, layer: Layer, handle: ResizeHandle) => {
     if (layer.locked) return;
     e.preventDefault();
     e.stopPropagation();
+    onBeginGesture();
     const sx = e.clientX, sy = e.clientY;
     const { x, y, w, h } = layer;
     const aspect = w / Math.max(1, h);
@@ -295,11 +301,11 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, controlsR
     const up = () => {
       window.removeEventListener('pointermove', mv);
       window.removeEventListener('pointerup', up);
-      onChange(layersRef.current, true);
+      onCommitGesture();
     };
     window.addEventListener('pointermove', mv);
     window.addEventListener('pointerup', up);
-  }, [onChange]);
+  }, [onChange, onBeginGesture, onCommitGesture]);
 
   const handleElPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>, layer: Layer) => {
     if (panning) return;

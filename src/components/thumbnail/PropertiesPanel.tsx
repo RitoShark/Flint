@@ -8,9 +8,15 @@ export type LayerPatch = Partial<Layer>;
 export interface PropertiesPanelProps {
   layer: Layer | null;
   onChange: (patch: LayerPatch, record: boolean) => void;
+  /** Snapshot the pre-gesture baseline (call at slider pointerdown, before the first input). */
+  onBeginGesture: () => void;
+  /** Record the gesture (baseline vs. final state) onto the undo stack (call on slider pointerup). */
+  onCommitGesture: () => void;
 }
 
-function LockRow({ layer, onChange }: { layer: Layer; onChange: PropertiesPanelProps['onChange'] }) {
+type ChangeProps = { onChange: PropertiesPanelProps['onChange']; onBeginGesture: PropertiesPanelProps['onBeginGesture']; onCommitGesture: PropertiesPanelProps['onCommitGesture'] };
+
+function LockRow({ layer, onChange }: { layer: Layer } & Pick<ChangeProps, 'onChange'>) {
   return (
     <div className="tb-grp">
       <label>Placement</label>
@@ -27,7 +33,7 @@ function LockRow({ layer, onChange }: { layer: Layer; onChange: PropertiesPanelP
   );
 }
 
-function TextProps({ layer, onChange }: { layer: Extract<Layer, { type: 'text' }>; onChange: PropertiesPanelProps['onChange'] }) {
+function TextProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer: Extract<Layer, { type: 'text' }> } & ChangeProps) {
   return (
     <>
       <div className="tb-grp">
@@ -56,8 +62,9 @@ function TextProps({ layer, onChange }: { layer: Extract<Layer, { type: 'text' }
           min={8}
           max={120}
           value={layer.size}
+          onPointerDown={onBeginGesture}
           onChange={(e) => onChange({ size: Number(e.target.value) }, false)}
-          onPointerUp={(e) => onChange({ size: Number((e.target as HTMLInputElement).value) }, true)}
+          onPointerUp={onCommitGesture}
         />
       </div>
       <div className="tb-grp">
@@ -68,8 +75,9 @@ function TextProps({ layer, onChange }: { layer: Extract<Layer, { type: 'text' }
           min={0}
           max={16}
           value={layer.spacing}
+          onPointerDown={onBeginGesture}
           onChange={(e) => onChange({ spacing: Number(e.target.value) }, false)}
-          onPointerUp={(e) => onChange({ spacing: Number((e.target as HTMLInputElement).value) }, true)}
+          onPointerUp={onCommitGesture}
         />
       </div>
       <div className="tb-grp">
@@ -83,7 +91,7 @@ function TextProps({ layer, onChange }: { layer: Extract<Layer, { type: 'text' }
   );
 }
 
-function ModelProps({ layer, onChange }: { layer: Extract<Layer, { type: 'model' }>; onChange: PropertiesPanelProps['onChange'] }) {
+function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer: Extract<Layer, { type: 'model' }> } & ChangeProps) {
   return (
     <>
       <div className="tb-grp">
@@ -106,8 +114,9 @@ function ModelProps({ layer, onChange }: { layer: Extract<Layer, { type: 'model'
           min={0}
           max={layer.maxFrame}
           value={layer.frame}
+          onPointerDown={onBeginGesture}
           onChange={(e) => onChange({ frame: Number(e.target.value) }, false)}
-          onPointerUp={(e) => onChange({ frame: Number((e.target as HTMLInputElement).value) }, true)}
+          onPointerUp={onCommitGesture}
         />
       </div>
       <div className="tb-grp">
@@ -118,8 +127,9 @@ function ModelProps({ layer, onChange }: { layer: Extract<Layer, { type: 'model'
           min={20}
           max={300}
           value={layer.scale}
+          onPointerDown={onBeginGesture}
           onChange={(e) => onChange({ scale: Number(e.target.value) }, false)}
-          onPointerUp={(e) => onChange({ scale: Number((e.target as HTMLInputElement).value) }, true)}
+          onPointerUp={onCommitGesture}
         />
       </div>
       <div className="tb-grp">
@@ -130,15 +140,16 @@ function ModelProps({ layer, onChange }: { layer: Extract<Layer, { type: 'model'
           min={-180}
           max={180}
           value={layer.orbit}
+          onPointerDown={onBeginGesture}
           onChange={(e) => onChange({ orbit: Number(e.target.value) }, false)}
-          onPointerUp={(e) => onChange({ orbit: Number((e.target as HTMLInputElement).value) }, true)}
+          onPointerUp={onCommitGesture}
         />
       </div>
     </>
   );
 }
 
-function DiscProps({ layer, onChange }: { layer: Extract<Layer, { type: 'disc' }>; onChange: PropertiesPanelProps['onChange'] }) {
+function DiscProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer: Extract<Layer, { type: 'disc' }> } & ChangeProps) {
   return (
     <div className="tb-grp">
       <label>Opacity <b>{layer.opacity}%</b></label>
@@ -148,8 +159,9 @@ function DiscProps({ layer, onChange }: { layer: Extract<Layer, { type: 'disc' }
         min={0}
         max={100}
         value={layer.opacity}
+        onPointerDown={onBeginGesture}
         onChange={(e) => onChange({ opacity: Number(e.target.value) }, false)}
-        onPointerUp={(e) => onChange({ opacity: Number((e.target as HTMLInputElement).value) }, true)}
+        onPointerUp={onCommitGesture}
       />
     </div>
   );
@@ -186,7 +198,7 @@ const TITLES: Record<Layer['type'], string> = {
   deco: 'Corner texture',
 };
 
-export function PropertiesPanel({ layer, onChange }: PropertiesPanelProps) {
+export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGesture }: PropertiesPanelProps) {
   return (
     <div className="tb-side-sec tb-side-sec--props">
       <div className="tb-pane-h">{layer ? TITLES[layer.type] : 'Properties'}</div>
@@ -195,9 +207,9 @@ export function PropertiesPanel({ layer, onChange }: PropertiesPanelProps) {
           <div className="tb-empty-prop">Select a layer to edit it.</div>
         ) : (
           <>
-            {layer.type === 'text' && <TextProps layer={layer} onChange={onChange} />}
-            {layer.type === 'model' && <ModelProps layer={layer} onChange={onChange} />}
-            {layer.type === 'disc' && <DiscProps layer={layer} onChange={onChange} />}
+            {layer.type === 'text' && <TextProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
+            {layer.type === 'model' && <ModelProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
+            {layer.type === 'disc' && <DiscProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
             {layer.type === 'deco' && <DecoProps layer={layer} onChange={onChange} />}
             <LockRow layer={layer} onChange={onChange} />
           </>

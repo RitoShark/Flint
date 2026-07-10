@@ -56,6 +56,17 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
     forceRender(n => n + 1);
   };
 
+  const handleBeginGesture = useCallback(() => {
+    history.begin();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleCommitGesture = useCallback(() => {
+    history.commitGesture();
+    forceRender(n => n + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleDeleteLayer = useCallback((id: string) => {
     const next = removeLayer(history.get(), id);
     history.set(next, true);
@@ -183,6 +194,8 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
             selId={selId}
             onSelect={setSelId}
             onChange={handleChange}
+            onBeginGesture={handleBeginGesture}
+            onCommitGesture={handleCommitGesture}
             controlsRef={artboardControlsRef}
           />
         </div>
@@ -197,7 +210,12 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
             onDelete={handleDeleteLayer}
           />
           <div className="tb-side-split" title="Drag to resize" onPointerDown={handleSplitPointerDown} />
-          <PropertiesPanel layer={selectedLayer} onChange={handlePropsChange} />
+          <PropertiesPanel
+            layer={selectedLayer}
+            onChange={handlePropsChange}
+            onBeginGesture={handleBeginGesture}
+            onCommitGesture={handleCommitGesture}
+          />
         </div>
       </div>
       {project ? null : (
