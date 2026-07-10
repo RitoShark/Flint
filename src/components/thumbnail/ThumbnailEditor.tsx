@@ -7,6 +7,13 @@ import { loadPreset, presetToLayers, PresetId } from '../../lib/thumbnail/preset
 import { ThumbnailArtboard, ThumbnailArtboardHandle } from './ThumbnailArtboard';
 import { LayersPanel } from './LayersPanel';
 import { PropertiesPanel } from './PropertiesPanel';
+import { ThemePanel } from './ThemePanel';
+
+// Default preset id + starting hue for the seed layer stack (before any
+// preset has been explicitly applied) — matches riot.json's own hue so the
+// initial look is consistent with picking "Riot" from the dropdown.
+const DEFAULT_PRESET: PresetId = 'riot';
+const DEFAULT_HUE = 210;
 
 function seedLayers(sknPath: string): Layer[] {
   return [
@@ -48,6 +55,10 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
   const history = useMemo(() => createHistory(seedLayers(skn)), []);
   const [, forceRender] = useState(0);
   const [selId, setSelId] = useState<string | null>('hero');
+  // Global mod-hue theme (Task 12). Seeded from the default preset's hue;
+  // applying a preset re-seeds it from that preset's own `hue` field.
+  const [preset, setPreset] = useState<PresetId>(DEFAULT_PRESET);
+  const [hue, setHue] = useState<number>(DEFAULT_HUE);
   const artboardControlsRef = useRef<ThumbnailArtboardHandle | null>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const layersSecRef = useRef<HTMLDivElement>(null);
@@ -111,8 +122,8 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
   // reference), the current model layer(s) are carried over unchanged so
   // switching to Riot never drops the hero model from the stage.
   const handleApplyPreset = useCallback((id: PresetId) => {
-    const preset = loadPreset(id);
-    const presetLayers = presetToLayers(preset);
+    const loaded = loadPreset(id);
+    const presetLayers = presetToLayers(loaded);
     const hasModelLayer = presetLayers.some(l => l.type === 'model');
     const currentModels = history.get().filter((l): l is ModelLayer => l.type === 'model');
 
@@ -125,6 +136,8 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
 
     history.set(next, true);
     setSelId(next.find(l => l.type === 'model')?.id ?? next[0]?.id ?? null);
+    setPreset(id);
+    setHue(loaded.hue);
     forceRender(n => n + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skn]);
@@ -241,9 +254,12 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
             onBeginGesture={handleBeginGesture}
             onCommitGesture={handleCommitGesture}
             controlsRef={artboardControlsRef}
+            preset={preset}
+            hue={hue}
           />
         </div>
         <div className="tb-sidebar" ref={sidebarRef}>
+          <ThemePanel hue={hue} onChange={setHue} />
           <LayersPanel
             sectionRef={layersSecRef}
             layers={layers}

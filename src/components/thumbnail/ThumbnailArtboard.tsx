@@ -2,8 +2,18 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { DiscLayer, Layer, ModelLayer, TextLayer, updateLayer } from '../../lib/thumbnail/layers';
 import { AnimClip, createThumbnailScene, ThumbnailScene } from '../../lib/thumbnail/studioScene';
 import { fitFontSize, TextMeasure } from '../../lib/thumbnail/textFit';
+import { resolveTextColor, ThumbnailPresetId } from '../../lib/thumbnail/hue';
 import { DiscComposite } from './DiscComposite';
 import '../../styles/thumbnail.css';
+
+// Base cream/gold text color the whole thumbnail style family shares before
+// any hue theming is mixed in (was hardcoded as `.tb-el.text .tb-body`'s
+// `color: #f2ead9` in thumbnail.css — that CSS rule now only supplies the
+// text-shadow/layout; color is computed per-render from the hue so it can
+// react live to the ThemePanel slider). One shared base for every text
+// layer (title/subtitle/label alike) — simplest choice and matches what
+// the CSS previously hardcoded uniformly across all text layers.
+const TEXT_BASE_COLOR = '#f2ead9';
 
 // Fixed design canvas (16:9). Matches the prototype's CW/CH.
 export const STAGE_W = 640;
@@ -32,6 +42,12 @@ interface ThumbnailArtboardProps {
   onCommitGesture: () => void;
   /** Ref-like escape hatch so the host (ThumbnailEditor) can trigger fit/100%/fit-selection from a toolbar or keyboard handler. */
   controlsRef?: React.MutableRefObject<ThumbnailArtboardHandle | null>;
+  /** Active style — picks the text hue-mix intensity (Task 12: subtle for
+   *  'riot', significant for 'divine'). */
+  preset: ThumbnailPresetId;
+  /** Global mod-hue (0-360) driving text recolor (and, contract-permitting,
+   *  glow tint — see the reconciliation effect's glow comment below). */
+  hue: number;
 }
 
 // Line-height factor applied to the fitted font size when summing a text
@@ -80,7 +96,7 @@ function zrank(layer: Layer): number {
   }
 }
 
-export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGesture, onCommitGesture, controlsRef }: ThumbnailArtboardProps) {
+export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGesture, onCommitGesture, controlsRef, preset, hue }: ThumbnailArtboardProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const stageWrapRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -222,6 +238,16 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   // consume. Only `scale` and `orbit` visibly affect the render this task.
   // (sceneRef/modelBindingsRef/onChangeRef are declared above, near the
   // other refs, so getModelAnims can read them too.)
+  //
+  // Glow-color follow-up (Task 12): `resolveGlowColor(hue)` exists in
+  // hue.ts and IS used for the ThemePanel swatch, but the scene's
+  // `setGlow(id, on, intensity)` (studioScene.ts) has no color channel —
+  // no control in this codebase calls `setGlow` yet at all, so there is no
+  // existing on/off toggle for this task to tint. Extending the studio
+  // scene contract to accept a glow color is explicitly out of scope here
+  // (brief: "do NOT change studioScene's contract in this task") — a
+  // follow-up task should add a color param to `setGlow`/its host object
+  // and pass `resolveGlowColor(hue)` through once a glow control exists.
   useEffect(() => {
     const canvas = sceneCanvasRef.current;
     if (!canvas) return;
@@ -614,7 +640,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
               onPointerDown={(e) => handleElPointerDown(e, layer)}
               onDoubleClick={(e) => handleTextDoubleClick(e, layer)}
             >
-              <LayerBody layer={layer} />
+              <LayerBody layer={layer} preset={preset} hue={hue} />
             </div>
           ))}
           {/* Front band of the disc composite (the gold ring only) — see
@@ -649,7 +675,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   );
 }
 
-function LayerBody({ layer }: { layer: Layer }) {
+function LayerBody({ layer, preset, hue }: { layer: Layer; preset: ThumbnailPresetId; hue: number }) {
   if (layer.type === 'text') {
     // Auto-shrink (Task 11): the stored `layer.size` is the user's MAX —
     // the actually-rendered size shrinks (never grows past it) so every
@@ -657,10 +683,15 @@ function LayerBody({ layer }: { layer: Layer }) {
     // This is a render-only concern; `layer.size` itself is untouched.
     const lines = layer.text.split('\n');
     const fitted = fitFontSize(canvasMeasure(layer), lines, layer.w, layer.h, layer.size);
+    // Global mod-hue theme (Task 12): color is resolved per-render from the
+    // shared cream base + the active hue, mixed subtly for Riot / strongly
+    // for Divine (see hue.ts). No per-text color picker - the whole style
+    // reacts to the ONE ThemePanel slider.
+    const color = resolveTextColor(preset, hue, TEXT_BASE_COLOR);
     return (
       <div
         className="tb-body"
-        style={{ fontSize: fitted, fontFamily: layer.font, fontStyle: layer.italic ? 'italic' : 'normal', letterSpacing: layer.spacing }}
+        style={{ fontSize: fitted, fontFamily: layer.font, fontStyle: layer.italic ? 'italic' : 'normal', letterSpacing: layer.spacing, color }}
       >
         {lines.map((line, i) => (
           // Empty lines (a blank row from a plain Enter) still need to take

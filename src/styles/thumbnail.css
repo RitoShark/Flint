@@ -101,7 +101,10 @@
   flex-direction: column;
   justify-content: flex-end;
   align-items: flex-start;
-  color: #f2ead9;
+  /* color is set inline per-render (Task 12: ThumbnailArtboard's LayerBody
+     resolves it from the global hue via resolveTextColor — subtle for
+     Riot, significant for Divine) so it reacts live to the ThemePanel
+     slider without a CSS custom-property indirection. */
   text-shadow: 0 2px 12px rgba(0, 0, 0, .55);
   line-height: 1.1;
   font-weight: 800;
