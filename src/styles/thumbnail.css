@@ -1,0 +1,176 @@
+/* Thumbnail Creator — artboard structural styles.
+   Ported from .superpowers/brainstorm/1048-1783710866/content/editor-v10.html
+   Selection/handles read var(--accent-primary) so they track the active Flint theme. */
+
+.tb-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #0a0a0a;
+}
+
+/* Not flex-centered — JS explicitly pans/zooms via transform. */
+.tb-stage-wrap {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+  overflow: visible;
+}
+
+/* The visual crop: fixed 640x360 (16:9) design canvas. */
+.tb-stage {
+  position: relative;
+  width: 640px;
+  height: 360px;
+  border-radius: 5px;
+  overflow: hidden;
+  box-shadow: 0 10px 50px rgba(0, 0, 0, .7), 0 0 0 1px var(--border);
+}
+
+.tb-env {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 64% 42%, rgba(220, 80, 55, .32), transparent 52%),
+    linear-gradient(120deg, #2b1013 0%, #511a1e 42%, #1c0c0e 100%);
+}
+
+.tb-env .tb-env-lbl {
+  position: absolute;
+  left: 8px;
+  bottom: 6px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, .25);
+  font-family: var(--font-mono);
+}
+
+.tb-el {
+  position: absolute;
+  cursor: grab;
+  touch-action: none;
+}
+
+.tb-el.dragging {
+  cursor: grabbing;
+}
+
+.tb-el .tb-body {
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.tb-el.model .tb-body {
+  background: linear-gradient(180deg, rgba(200, 212, 235, .30), rgba(120, 132, 164, .16));
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, .5);
+  font-size: 11px;
+  text-align: center;
+  outline: 1px dashed rgba(255, 255, 255, .18);
+}
+
+.tb-el.text .tb-body {
+  display: flex;
+  align-items: flex-end;
+  white-space: nowrap;
+  color: #f2ead9;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, .55);
+  line-height: .95;
+  font-weight: 800;
+  height: 100%;
+}
+
+.tb-el.disc .tb-body {
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .45);
+  outline: 1px dashed rgba(255, 255, 255, .18);
+}
+
+.tb-body.deco-empty {
+  outline: 1.5px dashed color-mix(in oklab, var(--accent-primary) 55%, var(--border));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: color-mix(in oklab, var(--accent-primary) 45%, var(--text-muted));
+  font-size: 10px;
+  text-align: center;
+  padding: 4px;
+  line-height: 1.3;
+  background: color-mix(in oklab, var(--accent-primary) 6%, transparent);
+  border-radius: 4px;
+}
+
+.tb-el.locked {
+  opacity: 1;
+}
+
+/* ── Selection overlay: a SEPARATE sibling above every .tb-el, overflow visible.
+   Handles get their own pointerdown + stopPropagation so a handle press always
+   beats element selection, and stay grabbable even off-artboard. ── */
+.tb-sel-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 999;
+}
+
+.tb-selbox {
+  position: absolute;
+  outline: 1.5px solid var(--accent-primary);
+  border-radius: 4px;
+  pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .4);
+}
+
+.tb-selbox.locked {
+  outline-style: dashed;
+}
+
+.tb-selbox .tb-hnd {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  background: var(--accent-primary);
+  border: 1.5px solid #0a0a0a;
+  border-radius: 2px;
+  pointer-events: auto;
+}
+
+.tb-selbox .tb-hnd.tl { left: -6px; top: -6px; cursor: nwse-resize; }
+.tb-selbox .tb-hnd.tr { right: -6px; top: -6px; cursor: nesw-resize; }
+.tb-selbox .tb-hnd.bl { left: -6px; bottom: -6px; cursor: nesw-resize; }
+.tb-selbox .tb-hnd.br { right: -6px; bottom: -6px; cursor: nwse-resize; }
+
+.tb-lockbadge {
+  position: absolute;
+  top: -20px;
+  left: 0;
+  font-size: 9px;
+  font-family: var(--font-mono);
+  color: var(--accent-secondary);
+  background: rgba(0, 0, 0, .6);
+  padding: 1px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.tb-zoom-info {
+  position: absolute;
+  top: 14px;
+  right: 12px;
+  z-index: 20;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  background: color-mix(in oklab, var(--bg-tertiary) 70%, transparent);
+  padding: 3px 8px;
+  border-radius: 6px;
+  pointer-events: none;
+}
