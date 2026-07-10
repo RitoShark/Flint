@@ -91,15 +91,30 @@
   outline: 1px dashed rgba(255, 255, 255, .18);
 }
 
+/* Bottom-anchored multi-line text: a column flexed to the END of the box so
+   the LAST line stays pinned to the box's bottom edge and earlier lines
+   stack upward above it as rows are added (Task 11). Each row is its own
+   flex child so `white-space: nowrap` only affects that line, not the whole
+   block. */
 .tb-el.text .tb-body {
   display: flex;
-  align-items: flex-end;
-  white-space: nowrap;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-start;
   color: #f2ead9;
   text-shadow: 0 2px 12px rgba(0, 0, 0, .55);
-  line-height: .95;
+  line-height: 1.1;
   font-weight: 800;
   height: 100%;
+}
+
+.tb-el.text .tb-body .tb-line {
+  white-space: nowrap;
+}
+
+.tb-el.text .tb-body[contenteditable='true'] {
+  white-space: pre-wrap;
+  cursor: text;
 }
 
 .tb-el.disc .tb-body {

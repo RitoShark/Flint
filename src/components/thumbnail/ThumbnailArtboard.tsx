@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { DiscLayer, Layer, ModelLayer, updateLayer } from '../../lib/thumbnail/layers';
+import { DiscLayer, Layer, ModelLayer, TextLayer, updateLayer } from '../../lib/thumbnail/layers';
 import { AnimClip, createThumbnailScene, ThumbnailScene } from '../../lib/thumbnail/studioScene';
+import { fitFontSize, TextMeasure } from '../../lib/thumbnail/textFit';
 import { DiscComposite } from './DiscComposite';
 import '../../styles/thumbnail.css';
 
@@ -31,6 +32,36 @@ interface ThumbnailArtboardProps {
   onCommitGesture: () => void;
   /** Ref-like escape hatch so the host (ThumbnailEditor) can trigger fit/100%/fit-selection from a toolbar or keyboard handler. */
   controlsRef?: React.MutableRefObject<ThumbnailArtboardHandle | null>;
+}
+
+// Line-height factor applied to the fitted font size when summing a text
+// block's total height — mirrors the CSS `line-height: 1.1` on `.tb-body`
+// (see thumbnail.css) so the fit check and the actual rendered box agree.
+const TEXT_LINE_HEIGHT = 1.1;
+
+// Shared offscreen canvas 2D context for measuring real text width — one
+// instance reused across every fit computation instead of allocating a
+// canvas per call.
+let measureCtx: CanvasRenderingContext2D | null = null;
+function getMeasureCtx(): CanvasRenderingContext2D | null {
+  if (measureCtx) return measureCtx;
+  const canvas = document.createElement('canvas');
+  measureCtx = canvas.getContext('2d');
+  return measureCtx;
+}
+
+// Real `TextMeasure` used to fit a text layer's rendered font size: width
+// comes from `measureText` at the layer's font/weight/style, height is the
+// size scaled by the block's CSS line-height so multi-line totals match
+// what actually renders.
+function canvasMeasure(layer: TextLayer): TextMeasure {
+  return (text: string, size: number) => {
+    const ctx = getMeasureCtx();
+    if (!ctx) return { w: text.length * size * 0.6, h: size * TEXT_LINE_HEIGHT };
+    ctx.font = `${layer.italic ? 'italic ' : ''}800 ${size}px ${layer.font}`;
+    const w = ctx.measureText(text).width + Math.max(0, text.length - 1) * layer.spacing;
+    return { w, h: size * TEXT_LINE_HEIGHT };
+  };
 }
 
 // z-order within the stage, mirrors the prototype's zrank().
@@ -472,6 +503,11 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   }, [panning, onSelect, startMove]);
 
   // Inline text editing (dblclick), mirrors the prototype's contenteditable flow.
+  // Multi-line (Task 11): while editing, the body switches to plain text
+  // content (one line per `\n`) so the browser's native contentEditable
+  // caret/selection behavior stays simple; Enter inserts a newline instead
+  // of committing. Commit happens on blur or Escape; Shift+Enter also
+  // commits (per the brief) since Enter alone already means "newline".
   const handleTextDoubleClick = useCallback((e: React.MouseEvent<HTMLDivElement>, layer: Layer) => {
     if (layer.type !== 'text' || layer.locked) return;
     e.preventDefault();
@@ -479,6 +515,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     if (!body) return;
     body.style.pointerEvents = 'auto';
     body.contentEditable = 'true';
+    body.textContent = layer.text;
     body.focus();
     const range = document.createRange();
     range.selectNodeContents(body);
@@ -486,20 +523,37 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     sel?.removeAllRanges();
     sel?.addRange(range);
 
-    const done = () => {
+    let committed = false;
+    const commit = () => {
+      if (committed) return;
+      committed = true;
+      // `innerText` (not `textContent`) reflects the browser's own rendered
+      // line breaks from a plain-Enter contentEditable div (which inserts
+      // <div>/<br> boundaries, not literal "\n" characters), normalized to
+      // "\n". Chromium leaves one extra trailing "\n" for the caret-holding
+      // empty line at the very end of the div — strip exactly one.
+      const raw = body.innerText.replace(/\r\n/g, '\n');
+      const text = raw.endsWith('\n') ? raw.slice(0, -1) : raw;
       body.contentEditable = 'false';
       body.style.pointerEvents = 'none';
-      const next = updateLayer(layersRef.current, layer.id, { text: body.textContent ?? '' } as Partial<Layer>);
+      const next = updateLayer(layersRef.current, layer.id, { text } as Partial<Layer>);
       layersRef.current = next;
       onChange(next, true);
     };
-    body.addEventListener('blur', done, { once: true });
-    body.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Enter') {
+    const onBlur = () => commit();
+    const onKeyDown = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        body.blur();
+      } else if (ev.key === 'Enter' && ev.shiftKey) {
         ev.preventDefault();
         body.blur();
       }
-    });
+      // Plain Enter: let the browser insert a newline (default contentEditable
+      // behavior) — do NOT preventDefault, do NOT commit.
+    };
+    body.addEventListener('blur', onBlur, { once: true });
+    body.addEventListener('keydown', onKeyDown);
   }, [onChange]);
 
   const sorted = [...layers].filter(l => !l.hidden).sort((a, b) => zrank(a) - zrank(b));
@@ -597,12 +651,22 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
 
 function LayerBody({ layer }: { layer: Layer }) {
   if (layer.type === 'text') {
+    // Auto-shrink (Task 11): the stored `layer.size` is the user's MAX —
+    // the actually-rendered size shrinks (never grows past it) so every
+    // line fits the box width and the stacked lines fit the box height.
+    // This is a render-only concern; `layer.size` itself is untouched.
+    const lines = layer.text.split('\n');
+    const fitted = fitFontSize(canvasMeasure(layer), lines, layer.w, layer.h, layer.size);
     return (
       <div
         className="tb-body"
-        style={{ fontSize: layer.size, fontFamily: layer.font, fontStyle: layer.italic ? 'italic' : 'normal', letterSpacing: layer.spacing }}
+        style={{ fontSize: fitted, fontFamily: layer.font, fontStyle: layer.italic ? 'italic' : 'normal', letterSpacing: layer.spacing }}
       >
-        {layer.text}
+        {lines.map((line, i) => (
+          // Empty lines (a blank row from a plain Enter) still need to take
+          // up a row's height — nbsp keeps the flex row from collapsing.
+          <span className="tb-line" key={i}>{line.length > 0 ? line : ' '}</span>
+        ))}
       </div>
     );
   }
