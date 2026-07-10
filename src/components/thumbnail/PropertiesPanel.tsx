@@ -1,7 +1,10 @@
 import { ChangeEvent } from 'react';
 import { Layer } from '../../lib/thumbnail/layers';
+import { AnimClip } from '../../lib/thumbnail/studioScene';
 
-const ANIMS = ['idle1.anm', 'idle_in.anm', 'recall.anm', 'run.anm', 'spell1.anm'];
+// Fallback shown only while the real SKN hasn't loaded yet (or has no clips) —
+// keeps the dropdown non-empty instead of blank during that brief window.
+const FALLBACK_ANIMS = ['idle1.anm'];
 
 export type LayerPatch = Partial<Layer>;
 
@@ -12,6 +15,10 @@ export interface PropertiesPanelProps {
   onBeginGesture: () => void;
   /** Record the gesture (baseline vs. final state) onto the undo stack (call on slider pointerup). */
   onCommitGesture: () => void;
+  /** Real animation clips for the given model layer id, sourced from the
+   *  Babylon scene (Task 8/9) via ThumbnailArtboardHandle.getModelAnims.
+   *  Returns [] until the model has finished loading. */
+  getModelAnims?: (layerId: string) => AnimClip[];
 }
 
 type ChangeProps = { onChange: PropertiesPanelProps['onChange']; onBeginGesture: PropertiesPanelProps['onBeginGesture']; onCommitGesture: PropertiesPanelProps['onCommitGesture'] };
@@ -91,7 +98,16 @@ function TextProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer
   );
 }
 
-function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer: Extract<Layer, { type: 'model' }> } & ChangeProps) {
+function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture, getModelAnims }: { layer: Extract<Layer, { type: 'model' }> } & ChangeProps & { getModelAnims?: (layerId: string) => AnimClip[] }) {
+  const clips = getModelAnims?.(layer.id) ?? [];
+  // Dropdown value = animation_path (matches what studioScene.setModelAnim
+  // expects and what the reconciliation effect writes back onto layer.anim).
+  // Fall back to a static placeholder list while the model/clips haven't
+  // loaded yet, so the control isn't empty during that window.
+  const options = clips.length > 0
+    ? clips.map(c => ({ value: c.animation_path, label: c.name || c.animation_path.split(/[\\/]/).pop() || c.animation_path }))
+    : (layer.anim ? [{ value: layer.anim, label: layer.anim }] : FALLBACK_ANIMS.map(a => ({ value: a, label: a })));
+
   return (
     <>
       <div className="tb-grp">
@@ -101,8 +117,8 @@ function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture }: { laye
           value={layer.anim}
           onChange={(e) => onChange({ anim: e.target.value }, true)}
         >
-          {(ANIMS.includes(layer.anim) ? ANIMS : [layer.anim, ...ANIMS]).map(a => (
-            <option key={a} value={a}>{a}</option>
+          {options.map(o => (
+            <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
       </div>
@@ -198,7 +214,7 @@ const TITLES: Record<Layer['type'], string> = {
   deco: 'Corner texture',
 };
 
-export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGesture }: PropertiesPanelProps) {
+export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGesture, getModelAnims }: PropertiesPanelProps) {
   return (
     <div className="tb-side-sec tb-side-sec--props">
       <div className="tb-pane-h">{layer ? TITLES[layer.type] : 'Properties'}</div>
@@ -208,7 +224,7 @@ export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGestu
         ) : (
           <>
             {layer.type === 'text' && <TextProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
-            {layer.type === 'model' && <ModelProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
+            {layer.type === 'model' && <ModelProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} getModelAnims={getModelAnims} />}
             {layer.type === 'disc' && <DiscProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
             {layer.type === 'deco' && <DecoProps layer={layer} onChange={onChange} />}
             <LockRow layer={layer} onChange={onChange} />

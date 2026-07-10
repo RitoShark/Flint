@@ -7,7 +7,7 @@ import { ThumbnailArtboard, ThumbnailArtboardHandle } from './ThumbnailArtboard'
 import { LayersPanel } from './LayersPanel';
 import { PropertiesPanel } from './PropertiesPanel';
 
-function seedLayers(): Layer[] {
+function seedLayers(sknPath: string): Layer[] {
   return [
     {
       id: 'title',
@@ -31,10 +31,12 @@ function seedLayers(): Layer[] {
       rot: 0,
       locked: false,
       x: 388, y: 70, w: 230, h: 270,
-      sknPath: '',
-      anim: 'idle1.anm',
+      // Primary model: wired to the window's `skn` launch param so the
+      // artboard loads a real SKN on mount (see ThumbnailArtboard).
+      sknPath,
+      anim: '',
       frame: 0,
-      maxFrame: 120,
+      maxFrame: 0,
       scale: 100,
       orbit: 0,
     },
@@ -42,7 +44,7 @@ function seedLayers(): Layer[] {
 }
 
 export function ThumbnailEditor({ project, skn }: { project: string; skn: string }) {
-  const history = useMemo(() => createHistory(seedLayers()), []);
+  const history = useMemo(() => createHistory(seedLayers(skn)), []);
   const [, forceRender] = useState(0);
   const [selId, setSelId] = useState<string | null>('hero');
   const artboardControlsRef = useRef<ThumbnailArtboardHandle | null>(null);
@@ -215,6 +217,7 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
             onChange={handlePropsChange}
             onBeginGesture={handleBeginGesture}
             onCommitGesture={handleCommitGesture}
+            getModelAnims={(layerId) => artboardControlsRef.current?.getModelAnims(layerId) ?? []}
           />
         </div>
       </div>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Layer, updateLayer } from '../../lib/thumbnail/layers';
+import { Layer, ModelLayer, updateLayer } from '../../lib/thumbnail/layers';
+import { AnimClip, createThumbnailScene, ThumbnailScene } from '../../lib/thumbnail/studioScene';
 import '../../styles/thumbnail.css';
 
 // Fixed design canvas (16:9). Matches the prototype's CW/CH.
@@ -12,6 +13,10 @@ export interface ThumbnailArtboardHandle {
   fitView: () => void;
   fullView: () => void;
   fitSelection: () => void;
+  /** Real animation clips available for a `model` layer's currently loaded
+   *  SKN (empty until the scene has finished loading it). Backs the
+   *  PropertiesPanel anim dropdown. */
+  getModelAnims: (layerId: string) => AnimClip[];
 }
 
 interface ThumbnailArtboardProps {
@@ -47,6 +52,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   const viewportRef = useRef<HTMLDivElement>(null);
   const stageWrapRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  const sceneCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -62,6 +68,22 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   panRef.current = pan;
   layersRef.current = layers;
   selIdRef.current = selId;
+
+  // ── Babylon scene (Task 8) instance + layer-id -> scene-model-id bindings.
+  // Declared here (ahead of use) so both the controlsRef exposure effect and
+  // the reconciliation effect further down can reference them. See the
+  // reconciliation effect for the full placement-model writeup.
+  const sceneRef = useRef<ThumbnailScene | null>(null);
+  const modelBindingsRef = useRef<Map<string, { sceneId: string; sknPath: string; anim: string; frame: number; scale: number; orbit: number; x: number; y: number; w: number; h: number }>>(new Map());
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  const getModelAnims = useCallback((layerId: string): AnimClip[] => {
+    const scene = sceneRef.current;
+    const binding = modelBindingsRef.current.get(layerId);
+    if (!scene || !binding || !binding.sceneId) return [];
+    return scene.listAnims(binding.sceneId);
+  }, []);
 
   const applyPanZoom = useCallback((nz: number, npx: number, npy: number) => {
     zoomRef.current = nz;
@@ -114,13 +136,13 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     centerOn(L.x + L.w / 2, L.y + L.h / 2);
   }, [centerOn, fitView]);
 
-  // Expose fit/100%/fit-selection to the host (toolbar / keyboard shortcuts).
+  // Expose fit/100%/fit-selection/getModelAnims to the host (toolbar / keyboard shortcuts / PropertiesPanel).
   useEffect(() => {
-    if (controlsRef) controlsRef.current = { fitView, fullView, fitSelection };
+    if (controlsRef) controlsRef.current = { fitView, fullView, fitSelection, getModelAnims };
     return () => {
       if (controlsRef) controlsRef.current = null;
     };
-  }, [controlsRef, fitView, fullView, fitSelection]);
+  }, [controlsRef, fitView, fullView, fitSelection, getModelAnims]);
 
   // ── Fit once the viewport has real dimensions. Double-rAF handles the
   // normal first paint; a ResizeObserver catches the cold-WebView case where
@@ -153,6 +175,129 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, [centerOn]);
+
+  // ── Babylon scene (Task 8) instantiation + model-layer reconciliation ──
+  //
+  // Placement model: ONE shared Babylon scene/camera renders behind the DOM
+  // stage (a single <canvas> filling .tb-stage, painted first so every
+  // .tb-el sits above it in DOM order). `model` layers keep their existing
+  // DOM proxy box (drag/resize/select all still work exactly as before) —
+  // that proxy is now translucent so the real 3D render shows through it.
+  // x/y/w/h are NOT used to place the 3D render on screen (the scene has a
+  // single shared camera, per studioScene.ts's documented V1 contract) —
+  // they're forwarded to `setModelTransform` as data only, same as the
+  // scene host already expects, for the future compositor (Task 13) to
+  // consume. Only `scale` and `orbit` visibly affect the render this task.
+  // (sceneRef/modelBindingsRef/onChangeRef are declared above, near the
+  // other refs, so getModelAnims can read them too.)
+  useEffect(() => {
+    const canvas = sceneCanvasRef.current;
+    if (!canvas) return;
+    const scene = createThumbnailScene(canvas);
+    sceneRef.current = scene;
+    return () => {
+      sceneRef.current = null;
+      modelBindingsRef.current.clear();
+      scene.dispose();
+    };
+  }, []);
+
+  // Reconcile `model` layers -> scene models whenever layers change.
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const bindings = modelBindingsRef.current;
+    const modelLayers = layers.filter((l): l is ModelLayer => l.type === 'model');
+    const seenLayerIds = new Set<string>();
+
+    // Reserves a binding placeholder and kicks off addModel + initial anim
+    // load for a layer that has no scene model yet.
+    const loadModelForLayer = (layer: ModelLayer) => {
+      if (!layer.sknPath) return; // nothing to load yet
+      // Reserve the binding immediately so a second effect run (e.g. a
+      // fast prop change while the load is in flight) doesn't fire a
+      // duplicate addModel for the same layer.
+      const placeholder = { sceneId: '', sknPath: layer.sknPath, anim: layer.anim, frame: layer.frame, scale: layer.scale, orbit: layer.orbit, x: layer.x, y: layer.y, w: layer.w, h: layer.h };
+      bindings.set(layer.id, placeholder);
+      scene.addModel(layer.sknPath).then(async (handle) => {
+        if (modelBindingsRef.current.get(layer.id) !== placeholder) return; // layer removed/changed meanwhile
+        placeholder.sceneId = handle.id;
+        scene.setModelTransform(handle.id, { x: layer.x, y: layer.y, w: layer.w, h: layer.h, scale: layer.scale, orbit: layer.orbit });
+        const clips = scene.listAnims(handle.id);
+        const initialAnim = layer.anim || clips[0]?.animation_path || clips[0]?.name || '';
+        if (initialAnim) {
+          await scene.setModelAnim(handle.id, initialAnim);
+          if (modelBindingsRef.current.get(layer.id) !== placeholder) return;
+          const maxFrame = scene.getMaxFrame(handle.id);
+          placeholder.anim = initialAnim;
+          scene.setModelFrame(handle.id, layer.frame);
+          // Push the resolved anim/maxFrame back onto the layer so the
+          // PropertiesPanel dropdown/slider reflect the real clip list.
+          const current = layersRef.current.find(l => l.id === layer.id);
+          if (current && current.type === 'model') {
+            const next = updateLayer(layersRef.current, layer.id, { anim: initialAnim, maxFrame } as Partial<Layer>);
+            layersRef.current = next;
+            onChangeRef.current(next, false);
+          }
+        }
+      }).catch((e) => {
+        console.error('[ThumbnailArtboard] addModel failed for', layer.sknPath, e);
+      });
+    };
+
+    for (const layer of modelLayers) {
+      seenLayerIds.add(layer.id);
+      const existing = bindings.get(layer.id);
+
+      if (!existing) {
+        loadModelForLayer(layer);
+        continue;
+      }
+
+      if (!existing.sceneId) continue; // still loading
+
+      if (existing.sknPath !== layer.sknPath) {
+        // Model swapped to a different SKN — drop and reload immediately
+        // under the same layer id (don't wait for another effect pass).
+        scene.removeModel(existing.sceneId);
+        bindings.delete(layer.id);
+        loadModelForLayer(layer);
+        continue;
+      }
+
+      if (existing.x !== layer.x || existing.y !== layer.y || existing.w !== layer.w || existing.h !== layer.h || existing.scale !== layer.scale || existing.orbit !== layer.orbit) {
+        scene.setModelTransform(existing.sceneId, { x: layer.x, y: layer.y, w: layer.w, h: layer.h, scale: layer.scale, orbit: layer.orbit });
+        existing.x = layer.x; existing.y = layer.y; existing.w = layer.w; existing.h = layer.h;
+        existing.scale = layer.scale; existing.orbit = layer.orbit;
+      }
+      if (existing.anim !== layer.anim && layer.anim) {
+        existing.anim = layer.anim;
+        scene.setModelAnim(existing.sceneId, layer.anim).then(() => {
+          if (bindings.get(layer.id) !== existing) return;
+          const maxFrame = scene.getMaxFrame(existing.sceneId);
+          scene.setModelFrame(existing.sceneId, existing.frame);
+          const current = layersRef.current.find(l => l.id === layer.id);
+          if (current && current.type === 'model' && current.maxFrame !== maxFrame) {
+            const next = updateLayer(layersRef.current, layer.id, { maxFrame } as Partial<Layer>);
+            layersRef.current = next;
+            onChangeRef.current(next, false);
+          }
+        });
+      }
+      if (existing.frame !== layer.frame) {
+        existing.frame = layer.frame;
+        scene.setModelFrame(existing.sceneId, layer.frame);
+      }
+    }
+
+    // Any binding whose layer no longer exists (deleted) -> remove from scene.
+    for (const [layerId, binding] of bindings) {
+      if (!seenLayerIds.has(layerId)) {
+        if (binding.sceneId) scene.removeModel(binding.sceneId);
+        bindings.delete(layerId);
+      }
+    }
+  }, [layers]);
 
   // ── Alt+wheel zoom toward cursor ──
   useEffect(() => {
@@ -368,6 +513,13 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
           <div className="tb-env" onPointerDown={handleEnvPointerDown}>
             <span className="tb-env-lbl">environment slot</span>
           </div>
+          {/* Shared Babylon scene (Task 8) — one canvas behind every DOM
+              layer element, rendering all `model` layers' actual SKN
+              meshes. See the reconciliation effect above for how layer
+              props are pushed into the scene; x/y/w/h placement of the
+              rendered model within this canvas is a Task 13 (compositor)
+              concern, not this canvas's. */}
+          <canvas ref={sceneCanvasRef} className="tb-scene-canvas" />
           {sorted.map(layer => (
             <div
               key={layer.id}
