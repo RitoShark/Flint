@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Layer, ModelLayer, updateLayer } from '../../lib/thumbnail/layers';
+import { DiscLayer, Layer, ModelLayer, updateLayer } from '../../lib/thumbnail/layers';
 import { AnimClip, createThumbnailScene, ThumbnailScene } from '../../lib/thumbnail/studioScene';
 import { DiscComposite } from './DiscComposite';
 import '../../styles/thumbnail.css';
@@ -505,6 +505,19 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   const sorted = [...layers].filter(l => !l.hidden).sort((a, b) => zrank(a) - zrank(b));
   const selectedLayer = layers.find(l => l.id === selId) ?? null;
 
+  // The disc layer's gold RING renders as a SEPARATE front-band pass (see
+  // DiscComposite's `part` prop) so it paints above the model layers'
+  // `.tb-el` proxies (and the scene canvas underneath them) while the
+  // glow/black-fill pieces stay in the disc's normal `sorted` position
+  // behind the model (zrank 20 < model's 40). This is purely a render
+  // split — the disc stays ONE entry in `layers`/`sorted` (one selectable/
+  // lockable/deletable `.tb-el`, rendered by the main loop above); this
+  // overlay just re-paints the ring piece using the SAME layer's box, and
+  // is never itself an independent hit-target (pointer-events:none, no
+  // data-id, no pointer handlers) so it can't be selected, dragged, or
+  // otherwise diverge from the real disc element.
+  const discLayer = sorted.find((l): l is DiscLayer => l.type === 'disc') ?? null;
+
   return (
     <div
       className="tb-viewport"
@@ -550,6 +563,28 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
               <LayerBody layer={layer} />
             </div>
           ))}
+          {/* Front band of the disc composite (the gold ring only) — see
+              the `discLayer` comment above. Painted last in DOM order so it
+              sits above every model `.tb-el` (and the scene canvas), giving
+              the framing-ring-in-front-of-hero look while the glow/black
+              fill (rendered by the disc's normal .tb-el above) stay behind
+              the model. Not a `.tb-el`: no data-id, no pointer handlers,
+              pointer-events:none — clicking/dragging/selecting the disc is
+              still driven entirely by the single element in the main loop. */}
+          {discLayer && (
+            <div
+              className="tb-disc-front-overlay"
+              style={{
+                left: discLayer.x,
+                top: discLayer.y,
+                width: discLayer.w,
+                height: discLayer.h,
+                transform: `rotate(${discLayer.rot}deg)`,
+              }}
+            >
+              <DiscComposite layer={discLayer} part="front" />
+            </div>
+          )}
         </div>
         <SelOverlay
           layer={selectedLayer}
@@ -578,7 +613,7 @@ function LayerBody({ layer }: { layer: Layer }) {
   if (layer.type === 'disc') {
     return (
       <div className="tb-body">
-        <DiscComposite layer={layer} />
+        <DiscComposite layer={layer} part="back" />
       </div>
     );
   }

@@ -143,6 +143,17 @@
   z-index: 3;
 }
 
+/* Front band of the disc composite (Task 10 fix): the gold ring, painted
+   after every model .tb-el so it frames the hero instead of hiding behind
+   it. Positioned identically to a .tb-el (absolute, same box) but is never
+   a hit-target — the real disc .tb-el (glow + black fill) still owns
+   selection/drag/lock. */
+.tb-disc-front-overlay {
+  position: absolute;
+  pointer-events: none;
+  overflow: visible;
+}
+
 .tb-body.deco-empty {
   outline: 1.5px dashed color-mix(in oklab, var(--accent-primary) 55%, var(--border));
   display: flex;

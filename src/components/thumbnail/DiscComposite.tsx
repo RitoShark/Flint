@@ -42,8 +42,16 @@ function objectUrlFor(name: 'ring' | 'glow'): Promise<string> {
  *  the containing `.tb-el` box); this component fills that box (`inset:0`)
  *  and lays the three pieces out using percentage offsets derived from the
  *  fixed pixel offsets above, so it scales with the layer's box regardless
- *  of layer.w/h. */
-export function DiscComposite({ layer }: { layer: DiscLayer }) {
+ *  of layer.w/h.
+ *
+ *  The disc is ONE logical layer (one entry in `layers`, one selectable/
+ *  lockable/deletable unit), but its render is split across two z-bands so
+ *  the gold RING can sit in front of the model while the glow + black fill
+ *  stay behind it (see task-10 report). `part` selects which pieces this
+ *  instance paints; the caller renders two `DiscComposite`s (same `layer`,
+ *  same box) at two different points in DOM order — this component has no
+ *  opinion on z-order itself. */
+export function DiscComposite({ layer, part }: { layer: DiscLayer; part: 'back' | 'front' }) {
   const [ringUrl, setRingUrl] = useState<string | null>(null);
   const [glowUrl, setGlowUrl] = useState<string | null>(null);
 
@@ -65,17 +73,19 @@ export function DiscComposite({ layer }: { layer: DiscLayer }) {
 
   return (
     <div className="tb-disc-composite">
-      {glowUrl && (
+      {part === 'back' && glowUrl && (
         <div
           className="tb-disc-piece tb-disc-glow"
           style={{ ...pct(GLOW_OFFSET), backgroundImage: `url("${glowUrl}")` }}
         />
       )}
-      <div
-        className="tb-disc-piece tb-disc-black"
-        style={{ ...pct(BLACK_OFFSET), opacity: layer.opacity / 100 }}
-      />
-      {ringUrl && (
+      {part === 'back' && (
+        <div
+          className="tb-disc-piece tb-disc-black"
+          style={{ ...pct(BLACK_OFFSET), opacity: layer.opacity / 100 }}
+        />
+      )}
+      {part === 'front' && ringUrl && (
         <div
           className="tb-disc-piece tb-disc-ring"
           style={{ ...pct(RING_OFFSET), backgroundImage: `url("${ringUrl}")` }}
