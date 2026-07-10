@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import '../../styles/design-lab.css';
+import '../../styles/thumbnail.css';
 import { createHistory } from '../../lib/thumbnail/history';
-import { Layer } from '../../lib/thumbnail/layers';
+import { Layer, removeLayer, toggleLock, updateLayer } from '../../lib/thumbnail/layers';
 import { ThumbnailArtboard, ThumbnailArtboardHandle } from './ThumbnailArtboard';
+import { LayersPanel } from './LayersPanel';
+import { PropertiesPanel } from './PropertiesPanel';
 
 function seedLayers(): Layer[] {
   return [
@@ -43,6 +46,8 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
   const [, forceRender] = useState(0);
   const [selId, setSelId] = useState<string | null>('hero');
   const artboardControlsRef = useRef<ThumbnailArtboardHandle | null>(null);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const layersSecRef = useRef<HTMLDivElement>(null);
 
   const layers = history.get();
 
@@ -50,6 +55,61 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
     history.set(next, record);
     forceRender(n => n + 1);
   };
+
+  const handleDeleteLayer = useCallback((id: string) => {
+    const next = removeLayer(history.get(), id);
+    history.set(next, true);
+    setSelId(prev => (prev === id ? next[0]?.id ?? null : prev));
+    forceRender(n => n + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleToggleHidden = useCallback((id: string) => {
+    const current = history.get();
+    const target = current.find(l => l.id === id);
+    if (!target) return;
+    const next = updateLayer(current, id, { hidden: !target.hidden } as Partial<Layer>);
+    history.set(next, true);
+    forceRender(n => n + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleToggleLock = useCallback((id: string) => {
+    const next = toggleLock(history.get(), id);
+    history.set(next, true);
+    forceRender(n => n + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handlePropsChange = useCallback((patch: Partial<Layer>, record: boolean) => {
+    if (!selId) return;
+    const next = updateLayer(history.get(), selId, patch);
+    history.set(next, record);
+    forceRender(n => n + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selId]);
+
+  // ── Draggable Layers/Properties divider (ports the prototype's #sideSplit). ──
+  const handleSplitPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    (e.target as Element).setPointerCapture(e.pointerId);
+    e.preventDefault();
+    const onMove = (ev: PointerEvent) => {
+      const sidebar = sidebarRef.current;
+      const lsec = layersSecRef.current;
+      if (!sidebar || !lsec) return;
+      const rect = sidebar.getBoundingClientRect();
+      let h = ev.clientY - rect.top - 22; // minus the Layers header
+      h = Math.max(80, Math.min(rect.height - 120, h));
+      lsec.style.flex = `0 0 ${h}px`;
+      lsec.style.maxHeight = 'none';
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }, []);
 
   const undo = () => {
     history.undo();
@@ -94,16 +154,15 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
       }
       if (!editing && (e.key === 'Delete' || e.key === 'Backspace') && selId) {
         e.preventDefault();
-        const next = layers.filter(l => l.id !== selId);
-        history.set(next, true);
-        setSelId(next[0]?.id ?? null);
-        forceRender(n => n + 1);
+        handleDeleteLayer(selId);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selId, layers]);
+
+  const selectedLayer = layers.find(l => l.id === selId) ?? null;
 
   return (
     <div className="dl-root" style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -117,14 +176,29 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
         <button className="dl-btn dl-btn--sm" disabled={!history.canUndo()} onClick={undo} title="Undo (Ctrl+Z)">Undo</button>
         <button className="dl-btn dl-btn--sm" disabled={!history.canRedo()} onClick={redo} title="Redo (Ctrl+Shift+Z)">Redo</button>
       </div>
-      <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
-        <ThumbnailArtboard
-          layers={layers}
-          selId={selId}
-          onSelect={setSelId}
-          onChange={handleChange}
-          controlsRef={artboardControlsRef}
-        />
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+          <ThumbnailArtboard
+            layers={layers}
+            selId={selId}
+            onSelect={setSelId}
+            onChange={handleChange}
+            controlsRef={artboardControlsRef}
+          />
+        </div>
+        <div className="tb-sidebar" ref={sidebarRef}>
+          <LayersPanel
+            sectionRef={layersSecRef}
+            layers={layers}
+            selId={selId}
+            onSelect={setSelId}
+            onToggleHidden={handleToggleHidden}
+            onToggleLock={handleToggleLock}
+            onDelete={handleDeleteLayer}
+          />
+          <div className="tb-side-split" title="Drag to resize" onPointerDown={handleSplitPointerDown} />
+          <PropertiesPanel layer={selectedLayer} onChange={handlePropsChange} />
+        </div>
       </div>
       {project ? null : (
         <div style={{ padding: '4px 12px', fontSize: 11, color: 'var(--text-muted)' }}>No project path provided</div>

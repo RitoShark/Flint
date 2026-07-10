@@ -174,3 +174,253 @@
   border-radius: 6px;
   pointer-events: none;
 }
+
+/* ── Right sidebar: Layers (top) + draggable split + Properties (bottom).
+   Ported from the prototype's .sidebar/.side-sec/.side-split/.layer/.prop blocks. ── */
+
+.tb-sidebar {
+  width: 280px;
+  flex: 0 0 280px;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.tb-side-sec {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tb-side-sec--layers {
+  flex: 0 0 auto;
+  max-height: 44%;
+}
+
+.tb-side-sec--props {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.tb-side-scroll {
+  overflow: auto;
+  min-height: 0;
+}
+
+.tb-side-split {
+  height: 6px;
+  background: var(--border);
+  flex: 0 0 auto;
+  cursor: ns-resize;
+  position: relative;
+  touch-action: none;
+}
+
+.tb-side-split::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  width: 26px;
+  height: 2px;
+  transform: translateX(-50%);
+  background: var(--text-muted);
+  border-radius: 2px;
+  opacity: .5;
+}
+
+.tb-side-split:hover {
+  background: color-mix(in oklab, var(--accent-primary) 40%, var(--border));
+}
+
+.tb-pane-h {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  color: var(--text-muted);
+  margin: 0;
+  padding: 11px 12px 7px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  background: var(--bg-secondary);
+  z-index: 2;
+}
+
+.tb-lgroup {
+  font-size: 9.5px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  padding: 9px 12px 3px;
+}
+
+/* ── Layer row ── */
+
+.tb-layer {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 1px 6px;
+  padding: 6px 7px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  user-select: none;
+}
+
+.tb-layer:hover {
+  background: var(--bg-hover);
+}
+
+.tb-layer--sel {
+  background: color-mix(in oklab, var(--accent-primary) 15%, var(--bg-hover));
+  border-color: color-mix(in oklab, var(--accent-primary) 45%, var(--border));
+}
+
+.tb-layer--env {
+  cursor: default;
+  opacity: .75;
+}
+
+.tb-layer__eye {
+  width: 16px;
+  text-align: center;
+  opacity: .55;
+  font-size: 12px;
+}
+
+.tb-layer__eye:hover {
+  opacity: 1;
+}
+
+.tb-layer--hidden .tb-layer__nm,
+.tb-layer--hidden .tb-layer__ic {
+  opacity: .35;
+}
+
+.tb-layer__ic {
+  width: 15px;
+  text-align: center;
+  opacity: .8;
+  font-size: 12px;
+}
+
+.tb-layer__nm {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tb-layer__lock {
+  opacity: .35;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.tb-layer:hover .tb-layer__lock {
+  opacity: .7;
+}
+
+.tb-layer__lock:hover {
+  opacity: 1;
+}
+
+.tb-layer__lock--on {
+  opacity: .9;
+  color: var(--accent-secondary);
+}
+
+.tb-layer__del {
+  opacity: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 0 2px;
+}
+
+.tb-layer:hover .tb-layer__del {
+  opacity: .6;
+}
+
+.tb-layer__del:hover {
+  opacity: 1;
+  color: var(--color-danger);
+}
+
+/* ── Properties panel ── */
+
+.tb-prop {
+  padding: 4px 12px 16px;
+}
+
+.tb-grp {
+  margin-top: 12px;
+}
+
+.tb-grp label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 5px;
+}
+
+.tb-grp label b {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.tb-empty-prop {
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.tb-hint {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+.rng {
+  width: 100%;
+  accent-color: var(--accent-primary);
+  height: 20px;
+}
+
+.seg {
+  display: flex;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.seg div {
+  flex: 1;
+  text-align: center;
+  font-size: 11.5px;
+  padding: 5px 0;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.seg div.on {
+  background: var(--accent-primary);
+  color: #fff;
+  font-weight: 500;
+}
