@@ -25,22 +25,25 @@
  * so the screenshot Blob is likewise a fully opaque image. That opaque
  * canvas fills the whole stage and paints AFTER `.tb-env` but BEFORE the
  * `.tb-el` layers in DOM order, so today it already fully occludes
- * `.tb-env` and the disc's back pieces (glow + black fill) wherever the
- * canvas has pixels (everywhere) — those two pieces are invisible in the
- * live preview as it stands. (A future task wiring a real `env` layer image
- * through `setEnvImage` would flip the scene to a transparent clear color
- * and make them visible — out of scope here; see the `env` layer type that
- * already exists in `layers.ts` but has no UI yet.)
+ * `.tb-env` wherever the canvas has pixels (everywhere). The disc's back
+ * pieces (glow + black fill) are NOT occluded, though — they're painted by
+ * the disc's `.tb-el` (`LayerBody`'s `part="back"` `DiscComposite`), a DOM
+ * node that sits ABOVE the scene canvas in DOM order (zrank 20, same as
+ * every other `.tb-el`), so they composite on top of the screenshot and ARE
+ * visible in the live preview. (A future task wiring a real `env` layer
+ * image through `setEnvImage` would flip the scene to a transparent clear
+ * color and additionally reveal `.tb-env` itself — out of scope here; see
+ * the `env` layer type that already exists in `layers.ts` but has no UI
+ * yet.)
  *
  * So the draw order that reproduces the CURRENT preview pixel-for-pixel is:
  *   1. Scene screenshot (opaque — already includes the dark background AND
- *      the model; this alone already covers where `.tb-env` / disc-back
- *      would have shown through, matching today's preview exactly)
- *   2. Disc back pieces (glow + black fill) — kept for forward-compat with
- *      the day `.tb-env`/scene transparency is wired up; painted here even
- *      though they're currently fully hidden by (1), so this function's
- *      z-order is future-proof rather than silently dependent on the
- *      opaque-clearColor detail elsewhere.
+ *      the model; this alone already covers where `.tb-env` would have
+ *      shown through, matching today's preview exactly — `.tb-env` itself
+ *      stays hidden until a real `env` image is wired up)
+ *   2. Disc back pieces (glow + black fill) — drawn on top of the
+ *      screenshot, same as the preview's disc `.tb-el` painting above the
+ *      scene canvas, so they ARE visible here just like in the preview.
  *   3. Deco layers with `z: 'behind'` (zrank 12, below the disc even)
  *   4. Disc RING (front band) — zrank of the disc's overlay puts it above
  *      every model/deco-behind, matching `tb-disc-front-overlay` being
@@ -62,12 +65,13 @@
  * NOTE: on a 2D canvas, "paint order" and "code order" are the same thing
  * (later draws composite ON TOP), so step 2 (disc back pieces) is issued
  * AFTER step 1 (the screenshot) in `composeThumbnail`'s code, even though
- * conceptually the back pieces belong "behind" the model. This is
- * deliberately a no-op today (fully opaque screenshot = nothing shows
- * through), matching the live preview exactly; it stops being a no-op only
- * once the scene gains a real transparent background (see the `.tb-env`
- * paragraph above). Documented so nobody "fixes" the ordering later without
- * re-reading this comment.
+ * conceptually the back pieces belong "behind" the model. This mirrors the
+ * preview, where the disc `.tb-el` is likewise a DOM sibling painted after
+ * (on top of) the scene canvas — so the pieces show through only where the
+ * model doesn't cover them, in both preview and export. See the `.tb-env`
+ * paragraph above for the one piece (`.tb-env` itself) that stays hidden
+ * either way until a real `env` image is wired up. Documented so nobody
+ * "fixes" the ordering later without re-reading this comment.
  */
 
 import type { Layer, TextLayer, DiscLayer, DecoLayer } from './layers';
@@ -191,7 +195,12 @@ async function loadImageBitmapFromUrl(url: string): Promise<ImageBitmap> {
 function canvasMeasureFor(ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D, layer: TextLayer, scale: number): TextMeasure {
   return (text: string, size: number) => {
     ctx.font = `${layer.italic ? 'italic ' : ''}800 ${size}px ${layer.font}`;
-    const w = ctx.measureText(text).width + Math.max(0, text.length - 1) * layer.spacing * scale;
+    // letterSpacing is set here (not just in drawTextLayer) so measureText
+    // already includes the tracking between glyphs — matching what actually
+    // gets painted. Do NOT also add `(text.length-1)*spacing` on top of this;
+    // that would double-count now that the native letterSpacing is active.
+    ctx.letterSpacing = `${layer.spacing * scale}px`;
+    const w = ctx.measureText(text).width;
     return { w, h: size * TEXT_LINE_HEIGHT };
   };
 }
@@ -271,6 +280,11 @@ function drawTextLayer(
   }
 
   ctx.font = `${layer.italic ? 'italic ' : ''}800 ${fitted}px ${layer.font}`;
+  // Match the live preview's CSS `letter-spacing: <spacing>px` (ThumbnailArtboard's
+  // `.tb-body` style) and the measurement above — without this, fillText paints
+  // with zero tracking and the export reads tighter than both the preview and
+  // the fit computation that reserved room for it.
+  ctx.letterSpacing = `${layer.spacing * scale}px`;
   ctx.fillStyle = color;
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
