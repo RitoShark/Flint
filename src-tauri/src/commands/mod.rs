@@ -12,7 +12,7 @@ pub mod editor;
 pub mod system;
 pub mod cdn;
 
-pub use project::{map_project, map_preview, map_tiles, project_watcher, checkpoint, compare, chroma};
+pub use project::{map_project, map_preview, map_tiles, thumbnail_window, project_watcher, checkpoint, compare, chroma};
 pub use wad::{wad_edit, extract_hashes};
 pub use assets::{file, texture_convert, format_converters, mesh};
 pub use bin::bin_split;
