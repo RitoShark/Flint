@@ -220,14 +220,25 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       const placeholder = { sceneId: '', sknPath: layer.sknPath, anim: layer.anim, frame: layer.frame, scale: layer.scale, orbit: layer.orbit, x: layer.x, y: layer.y, w: layer.w, h: layer.h };
       bindings.set(layer.id, placeholder);
       scene.addModel(layer.sknPath).then(async (handle) => {
-        if (modelBindingsRef.current.get(layer.id) !== placeholder) return; // layer removed/changed meanwhile
+        if (modelBindingsRef.current.get(layer.id) !== placeholder) {
+          // Layer removed/changed while this load was in flight — addModel
+          // already registered real meshes/materials/textures in the scene
+          // under handle.id, so we must remove them here or they leak.
+          scene.removeModel(handle.id);
+          return;
+        }
         placeholder.sceneId = handle.id;
         scene.setModelTransform(handle.id, { x: layer.x, y: layer.y, w: layer.w, h: layer.h, scale: layer.scale, orbit: layer.orbit });
         const clips = scene.listAnims(handle.id);
         const initialAnim = layer.anim || clips[0]?.animation_path || clips[0]?.name || '';
         if (initialAnim) {
           await scene.setModelAnim(handle.id, initialAnim);
-          if (modelBindingsRef.current.get(layer.id) !== placeholder) return;
+          if (modelBindingsRef.current.get(layer.id) !== placeholder) {
+            // Same abandonment case, but discovered after the anim load —
+            // still clean up the model we created.
+            scene.removeModel(handle.id);
+            return;
+          }
           const maxFrame = scene.getMaxFrame(handle.id);
           placeholder.anim = initialAnim;
           scene.setModelFrame(handle.id, layer.frame);
