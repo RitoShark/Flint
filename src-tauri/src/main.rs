@@ -240,6 +240,7 @@ fn main() {
             commands::map_preview::open_map_preview_window,
             commands::map_preview::resolve_map_texture_path,
             commands::thumbnail_window::open_thumbnail_window,
+            commands::thumbnail_window::load_thumbnail_asset,
             commands::map_tiles::combine_ground_to_psd,
             commands::map_tiles::apply_psd_to_textures,
             commands::map_tiles::ground_psd_exists,

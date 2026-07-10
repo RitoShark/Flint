@@ -9,3 +9,13 @@ import { invokeCommand } from './core';
 export async function openThumbnailWindow(project: string, skn: string): Promise<void> {
     return invokeCommand('open_thumbnail_window', { projectPath: project, sknPath: skn });
 }
+
+/**
+ * Loads a bundled disc-composite asset ("ring" | "glow") as raw WebP bytes.
+ * Backed by `load_thumbnail_asset` (raw-bytes IPC, `include_bytes!`'d into
+ * the binary — see CLAUDE.md "Raw-bytes IPC").
+ */
+export async function loadThumbnailAsset(name: 'ring' | 'glow'): Promise<Uint8Array> {
+    const buf = await invokeCommand<ArrayBuffer>('load_thumbnail_asset', { name });
+    return new Uint8Array(buf);
+}

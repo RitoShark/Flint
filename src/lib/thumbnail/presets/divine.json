@@ -1,0 +1,51 @@
+{
+  "preset": "divine",
+  "font": "Albiero",
+  "hue": 95,
+  "canvas": { "w": 640, "h": 360, "ratio": "16:9" },
+  "layers": [
+    {
+      "id": "divine-label",
+      "type": "text",
+      "name": "Label",
+      "hidden": false,
+      "rot": 0,
+      "locked": false,
+      "x": 34, "y": 236, "w": 220, "h": 30,
+      "text": "TEEMO",
+      "size": 22,
+      "font": "Albiero",
+      "italic": false,
+      "spacing": 3
+    },
+    {
+      "id": "divine-title",
+      "type": "text",
+      "name": "Title",
+      "hidden": false,
+      "rot": 0,
+      "locked": false,
+      "x": 32, "y": 264, "w": 320, "h": 64,
+      "text": "DART MONKEY",
+      "size": 40,
+      "font": "Albiero",
+      "italic": false,
+      "spacing": 1
+    },
+    {
+      "id": "divine-hero",
+      "type": "model",
+      "name": "Hero — big",
+      "hidden": false,
+      "rot": 0,
+      "locked": false,
+      "x": 340, "y": 40, "w": 280, "h": 320,
+      "sknPath": "",
+      "anim": "",
+      "frame": 0,
+      "maxFrame": 0,
+      "scale": 100,
+      "orbit": 0
+    }
+  ]
+}

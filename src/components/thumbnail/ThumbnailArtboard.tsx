@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Layer, ModelLayer, updateLayer } from '../../lib/thumbnail/layers';
 import { AnimClip, createThumbnailScene, ThumbnailScene } from '../../lib/thumbnail/studioScene';
+import { DiscComposite } from './DiscComposite';
 import '../../styles/thumbnail.css';
 
 // Fixed design canvas (16:9). Matches the prototype's CW/CH.
@@ -575,7 +576,11 @@ function LayerBody({ layer }: { layer: Layer }) {
     return <div className="tb-body">{layer.name.split('—')[0].trim()}</div>;
   }
   if (layer.type === 'disc') {
-    return <div className="tb-body" />;
+    return (
+      <div className="tb-body">
+        <DiscComposite layer={layer} />
+      </div>
+    );
   }
   // deco
   return <div className="tb-body deco-empty">{layer.asset ? '' : 'corner PNG slot'}</div>;

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import '../../styles/design-lab.css';
 import '../../styles/thumbnail.css';
 import { createHistory } from '../../lib/thumbnail/history';
-import { Layer, removeLayer, toggleLock, updateLayer } from '../../lib/thumbnail/layers';
+import { Layer, ModelLayer, removeLayer, toggleLock, updateLayer } from '../../lib/thumbnail/layers';
+import { loadPreset, presetToLayers, PresetId } from '../../lib/thumbnail/preset';
 import { ThumbnailArtboard, ThumbnailArtboardHandle } from './ThumbnailArtboard';
 import { LayersPanel } from './LayersPanel';
 import { PropertiesPanel } from './PropertiesPanel';
@@ -102,6 +103,32 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selId]);
 
+  // Swap the whole layer stack for a shipped preset. A preset's `model`
+  // layer(s) (if any) ship with an empty `sknPath` (presets are hero-model
+  // agnostic — see divine.json) — filled in with the CURRENT hero's SKN so
+  // the picker never blanks out the loaded model. If the preset has no
+  // model layer at all (riot.json: disc + text only, per the saved
+  // reference), the current model layer(s) are carried over unchanged so
+  // switching to Riot never drops the hero model from the stage.
+  const handleApplyPreset = useCallback((id: PresetId) => {
+    const preset = loadPreset(id);
+    const presetLayers = presetToLayers(preset);
+    const hasModelLayer = presetLayers.some(l => l.type === 'model');
+    const currentModels = history.get().filter((l): l is ModelLayer => l.type === 'model');
+
+    const filled = presetLayers.map(l =>
+      l.type === 'model' && !l.sknPath
+        ? { ...l, sknPath: currentModels[0]?.sknPath ?? skn }
+        : l
+    );
+    const next = hasModelLayer ? filled : [...filled, ...currentModels];
+
+    history.set(next, true);
+    setSelId(next.find(l => l.type === 'model')?.id ?? next[0]?.id ?? null);
+    forceRender(n => n + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skn]);
+
   // ── Draggable Layers/Properties divider (ports the prototype's #sideSplit). ──
   const handleSplitPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     (e.target as Element).setPointerCapture(e.pointerId);
@@ -182,6 +209,21 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
       <div style={{ padding: 12, borderBottom: '1px solid var(--border)', display: 'flex', gap: 8, alignItems: 'center' }}>
         <strong>Thumbnail Creator</strong>
         <span className="dl-badge">{skn.split(/[\\/]/).pop()}</span>
+        <select
+          className="dl-select"
+          style={{ width: 110, height: 28 }}
+          defaultValue=""
+          onChange={(e) => {
+            const id = e.target.value as PresetId;
+            if (id === 'riot' || id === 'divine') handleApplyPreset(id);
+            e.target.value = '';
+          }}
+          title="Apply a preset"
+        >
+          <option value="" disabled>Preset…</option>
+          <option value="riot">Riot</option>
+          <option value="divine">Divine</option>
+        </select>
         <div style={{ flex: 1 }} />
         <button className="dl-btn dl-btn--sm" onClick={() => artboardControlsRef.current?.fitView()} title="Fit (Ctrl+0)">Fit</button>
         <button className="dl-btn dl-btn--sm" onClick={() => artboardControlsRef.current?.fullView()} title="100% (Ctrl+1)">100%</button>

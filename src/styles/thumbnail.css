@@ -103,9 +103,44 @@
 }
 
 .tb-el.disc .tb-body {
+  overflow: visible;
+}
+
+/* Fixed ring + glow + black-fill composite (Task 10). Sub-pieces are
+   positioned in DiscComposite.tsx as percentage offsets of the disc
+   layer's own box, so this container just needs to let them escape its
+   own bounds (the glow/black pieces extend past the ring's box per the
+   saved preset geometry). */
+.tb-disc-composite {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.tb-disc-piece {
+  position: absolute;
+}
+
+.tb-disc-piece.tb-disc-glow {
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  z-index: 1;
+}
+
+.tb-disc-piece.tb-disc-black {
+  background: #000;
   border-radius: 50%;
-  background: rgba(0, 0, 0, .45);
-  outline: 1px dashed rgba(255, 255, 255, .18);
+  z-index: 2;
+}
+
+.tb-disc-piece.tb-disc-ring {
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  z-index: 3;
 }
 
 .tb-body.deco-empty {

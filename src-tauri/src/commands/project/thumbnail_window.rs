@@ -55,6 +55,25 @@ pub async fn open_thumbnail_window(
     Ok(())
 }
 
+// Bundled disc composite assets (lossless WebP, RGBA). Same `include_bytes!`
+// pattern as `FLOOR_PNG` / `BASE_MASK_TEX` — small, fixed, ship-with-binary
+// assets don't need the `resource_dir()` external-file indirection.
+static RING_WEBP: &[u8] = include_bytes!("../../../resources/thumbnail/ring.webp");
+static GLOW_WEBP: &[u8] = include_bytes!("../../../resources/thumbnail/glow.webp");
+
+/// Serve a bundled thumbnail disc-composite asset (`ring` or `glow`) as raw
+/// WebP bytes. Raw-bytes IPC per CLAUDE.md — frontend decodes via
+/// `invokeCommand<ArrayBuffer>`.
+#[tauri::command]
+pub fn load_thumbnail_asset(name: String) -> Result<tauri::ipc::Response, String> {
+    let bytes: &[u8] = match name.as_str() {
+        "ring" => RING_WEBP,
+        "glow" => GLOW_WEBP,
+        other => return Err(format!("Unknown thumbnail asset \"{other}\"")),
+    };
+    Ok(tauri::ipc::Response::new(bytes.to_vec()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -62,5 +81,17 @@ mod tests {
     fn encodes_reserved_chars() {
         assert_eq!(encode_query_component("a/b c"), "a%2Fb%20c");
         assert_eq!(encode_query_component("Skin.skn"), "Skin.skn");
+    }
+
+    #[test]
+    fn rejects_unknown_asset_name() {
+        let err = load_thumbnail_asset("evil".to_string()).unwrap_err();
+        assert!(err.contains("Unknown thumbnail asset"));
+    }
+
+    #[test]
+    fn serves_known_assets() {
+        assert!(load_thumbnail_asset("ring".to_string()).is_ok());
+        assert!(load_thumbnail_asset("glow".to_string()).is_ok());
     }
 }
