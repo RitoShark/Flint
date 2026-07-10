@@ -29,6 +29,10 @@ export interface ThumbnailArtboardHandle {
    *  SKN (empty until the scene has finished loading it). Backs the
    *  PropertiesPanel anim dropdown. */
   getModelAnims: (layerId: string) => AnimClip[];
+  /** The live Babylon scene instance (Task 8/9), for the compositor
+   *  (Task 13) to call `screenshot(w, h)` on. Null until the scene-creation
+   *  effect has run (always true by the time a user could click Export). */
+  getScene: () => ThumbnailScene | null;
 }
 
 interface ThumbnailArtboardProps {
@@ -133,6 +137,8 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     return scene.listAnims(binding.sceneId);
   }, []);
 
+  const getScene = useCallback((): ThumbnailScene | null => sceneRef.current, []);
+
   const applyPanZoom = useCallback((nz: number, npx: number, npy: number) => {
     zoomRef.current = nz;
     panRef.current = { x: npx, y: npy };
@@ -186,11 +192,11 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
 
   // Expose fit/100%/fit-selection/getModelAnims to the host (toolbar / keyboard shortcuts / PropertiesPanel).
   useEffect(() => {
-    if (controlsRef) controlsRef.current = { fitView, fullView, fitSelection, getModelAnims };
+    if (controlsRef) controlsRef.current = { fitView, fullView, fitSelection, getModelAnims, getScene };
     return () => {
       if (controlsRef) controlsRef.current = null;
     };
-  }, [controlsRef, fitView, fullView, fitSelection, getModelAnims]);
+  }, [controlsRef, fitView, fullView, fitSelection, getModelAnims, getScene]);
 
   // ── Fit once the viewport has real dimensions. Double-rAF handles the
   // normal first paint; a ResizeObserver catches the cold-WebView case where

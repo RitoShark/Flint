@@ -1,4 +1,5 @@
 import { invokeCommand } from './core';
+import { saveFileBytes } from './file';
 
 /**
  * Opens the standalone Thumbnail Creator window for the given .skn model.
@@ -18,4 +19,14 @@ export async function openThumbnailWindow(project: string, skn: string): Promise
 export async function loadThumbnailAsset(name: 'ring' | 'glow'): Promise<Uint8Array> {
     const buf = await invokeCommand<ArrayBuffer>('load_thumbnail_asset', { name });
     return new Uint8Array(buf);
+}
+
+/**
+ * Saves the composited poster (Task 13, `composeThumbnail`) to an absolute
+ * path on disk. Thin wrapper over the existing `save_file_bytes` raw-bytes
+ * IPC command (see CLAUDE.md "Raw-bytes IPC") — reuses `saveFileBytes` from
+ * `api/file.ts` rather than re-implementing the same `invokeRaw` call.
+ */
+export async function saveThumbnail(bytes: Uint8Array, path: string): Promise<void> {
+    return saveFileBytes(path, bytes);
 }

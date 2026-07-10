@@ -1,13 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { save } from '@tauri-apps/plugin-dialog';
 import '../../styles/design-lab.css';
 import '../../styles/thumbnail.css';
 import { createHistory } from '../../lib/thumbnail/history';
 import { Layer, ModelLayer, removeLayer, toggleLock, updateLayer } from '../../lib/thumbnail/layers';
 import { loadPreset, presetToLayers, PresetId } from '../../lib/thumbnail/preset';
+import { composeThumbnail, ExportFormat, resolveOutputSize } from '../../lib/thumbnail/export';
+import { saveThumbnail } from '../../lib/api/thumbnail';
 import { ThumbnailArtboard, ThumbnailArtboardHandle } from './ThumbnailArtboard';
 import { LayersPanel } from './LayersPanel';
 import { PropertiesPanel } from './PropertiesPanel';
 import { ThemePanel } from './ThemePanel';
+
+type ExportFormatId = 'webp' | 'png' | 'jpg';
+type ExportRatioId = '16:9' | '16:10' | '4:3' | '1:1';
+
+const FORMAT_MIME: Record<ExportFormatId, ExportFormat> = {
+  webp: 'image/webp',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+};
 
 // Default preset id + starting hue for the seed layer stack (before any
 // preset has been explicitly applied) — matches riot.json's own hue so the
@@ -62,6 +74,12 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
   const artboardControlsRef = useRef<ThumbnailArtboardHandle | null>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const layersSecRef = useRef<HTMLDivElement>(null);
+
+  // Export (Task 13). Default format is WebP per the brief.
+  const [exportFormat, setExportFormat] = useState<ExportFormatId>('webp');
+  const [exportRatio, setExportRatio] = useState<ExportRatioId>('16:9');
+  const [exporting, setExporting] = useState(false);
+  const [exportStatus, setExportStatus] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
 
   const layers = history.get();
 
@@ -141,6 +159,50 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
     forceRender(n => n + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skn]);
+
+  // Export the current stage as a composited poster (Task 13). Deselects
+  // first so the sel-overlay handles never influence the artboard's own
+  // internal state, though composeThumbnail never reads DOM selection —
+  // this is just to avoid a distracting "still selected" state on return.
+  const handleExport = useCallback(async () => {
+    const scene = artboardControlsRef.current?.getScene();
+    if (!scene) {
+      setExportStatus({ kind: 'error', message: 'Scene not ready yet — try again in a moment.' });
+      return;
+    }
+
+    const projectName = skn.split(/[\\/]/).pop()?.replace(/\.skn$/i, '') || 'thumbnail';
+    const outputPath = await save({
+      title: 'Export Thumbnail',
+      defaultPath: `${projectName}.${exportFormat}`,
+      filters: [{ name: exportFormat.toUpperCase(), extensions: [exportFormat] }],
+    });
+    if (!outputPath) return;
+
+    setExporting(true);
+    setExportStatus(null);
+    try {
+      const { w, h } = resolveOutputSize(exportRatio);
+      const blob = await composeThumbnail({
+        scene,
+        layers: history.get(),
+        preset,
+        hue,
+        outW: w,
+        outH: h,
+        format: FORMAT_MIME[exportFormat],
+      });
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      await saveThumbnail(bytes, outputPath);
+      setExportStatus({ kind: 'success', message: `Exported to ${outputPath}` });
+    } catch (err) {
+      console.error('Thumbnail export failed:', err);
+      setExportStatus({ kind: 'error', message: err instanceof Error ? err.message : 'Export failed' });
+    } finally {
+      setExporting(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skn, exportFormat, exportRatio, preset, hue]);
 
   // ── Draggable Layers/Properties divider (ports the prototype's #sideSplit). ──
   const handleSplitPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -243,7 +305,51 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
         <button className="dl-btn dl-btn--sm" onClick={() => artboardControlsRef.current?.fitSelection()} title="Fit selection (Ctrl+9)">Fit sel</button>
         <button className="dl-btn dl-btn--sm" disabled={!history.canUndo()} onClick={undo} title="Undo (Ctrl+Z)">Undo</button>
         <button className="dl-btn dl-btn--sm" disabled={!history.canRedo()} onClick={redo} title="Redo (Ctrl+Shift+Z)">Redo</button>
+        <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)', margin: '0 4px' }} />
+        <select
+          className="dl-select"
+          style={{ width: 78, height: 28 }}
+          value={exportRatio}
+          onChange={(e) => setExportRatio(e.target.value as ExportRatioId)}
+          title="Output aspect ratio"
+        >
+          <option value="16:9">16:9</option>
+          <option value="16:10">16:10</option>
+          <option value="4:3">4:3</option>
+          <option value="1:1">1:1</option>
+        </select>
+        <select
+          className="dl-select"
+          style={{ width: 78, height: 28 }}
+          value={exportFormat}
+          onChange={(e) => setExportFormat(e.target.value as ExportFormatId)}
+          title="Output format"
+        >
+          <option value="webp">WebP</option>
+          <option value="png">PNG</option>
+          <option value="jpg">JPG</option>
+        </select>
+        <button
+          className="dl-btn dl-btn--primary dl-btn--sm"
+          onClick={handleExport}
+          disabled={exporting}
+          title="Export composited poster"
+        >
+          {exporting ? 'Exporting…' : 'Export'}
+        </button>
       </div>
+      {exportStatus && (
+        <div
+          style={{
+            padding: '6px 12px',
+            fontSize: 12,
+            color: exportStatus.kind === 'error' ? 'var(--color-danger, #F85149)' : 'var(--accent-primary)',
+            borderBottom: '1px solid var(--border)',
+          }}
+        >
+          {exportStatus.message}
+        </div>
+      )}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
           <ThumbnailArtboard
