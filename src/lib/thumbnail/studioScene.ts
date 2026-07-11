@@ -90,6 +90,11 @@ export interface ThumbnailScene {
     setModelTransform(id: string, patch: ModelTransformPatch): void;
     setModelAnim(id: string, anim: string): Promise<void>;
     setModelFrame(id: string, frame: number): void;
+    /** Give interactive camera control (orbit/pan/zoom) to ONE model, or null
+     *  to detach. Double-click a model on the artboard to enter its view. */
+    setControlModel(id: string | null): void;
+    /** Re-frame a model to its default centered pose (reset an orbit). */
+    resetModelView(id: string): void;
     listAnims(id: string): AnimClip[];
     /** Submesh list for a model with per-submesh hidden state (drives the
      *  mesh-visibility popup). Empty until the model has loaded. */
@@ -134,6 +139,10 @@ interface ModelState {
     maxFrame: number;
     pendingFrame: number | null;
     glowOn: boolean;
+    /** Once the user manually orbits/pans this model (double-click → drag),
+     *  stop auto-reframing it on box/viewport changes so we don't fight the
+     *  pose they set. */
+    userFramed: boolean;
     // Artboard placement (design-space box) → drives this model's viewport.
     x: number;
     y: number;
@@ -236,6 +245,10 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         // flip Y: design-space top → viewport bottom
         const vy = 1 - (y / sh) - vh;
         m.camera.viewport = new Viewport(vx, vy, vw, vh);
+        // Re-frame so the model stays centered/fully-fit for the box's new
+        // aspect — unless the user has taken manual control of this model's
+        // camera (then keep their pose).
+        if (!m.userFramed) frameCamera(m.camera, m.bbox, viewportAspectOf(m));
     }
 
     // ── Environment background ──────────────────────────────────────
@@ -337,10 +350,13 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         }
     }
 
-    /** Y-weighted bbox framing on a SPECIFIC camera, identical to
-     *  ModelPreview.tsx's logic — tall/winged silhouettes get vertical
-     *  headroom. Frames the given camera so the model fills its viewport. */
-    function frameCamera(cam: ArcRotateCamera, bbox: [[number, number, number], [number, number, number]]): void {
+    /** Frame a camera on a bbox so the model is CENTERED and fully fits the
+     *  camera's viewport. Accounts for the viewport's aspect ratio (a portrait
+     *  box needs a larger radius to fit the model's width, a landscape box to
+     *  fit its height) — otherwise a tall model in a narrow box sits
+     *  off-center / clipped. `viewportAspect` = viewport width / height in
+     *  PIXELS (box.w*canvasW) / (box.h*canvasH). */
+    function frameCamera(cam: ArcRotateCamera, bbox: [[number, number, number], [number, number, number]], viewportAspect: number): void {
         let [[minX, minY, minZ], [maxX, maxY, maxZ]] = bbox;
         const boxValid =
             [minX, minY, minZ, maxX, maxY, maxZ].every(Number.isFinite) &&
@@ -353,11 +369,26 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         const sizeX = maxX - minX;
         const sizeY = maxY - minY;
         const sizeZ = maxZ - minZ;
-        const radius = Math.max(sizeY * 1.4, sizeX, sizeZ, 0.01) || 5;
+
+        // Half-extents the camera must fit. Use the larger of X/Z for the
+        // horizontal silhouette (the model can face any way at alpha).
+        const halfH = Math.max(sizeY, 0.01) / 2;
+        const halfW = Math.max(sizeX, sizeZ, 0.01) / 2;
+
+        // ArcRotateCamera vertical FOV (radians). Horizontal FOV derives from
+        // the viewport aspect. Radius to fit height, radius to fit width, take
+        // the larger so BOTH fit → model fully framed and centered.
+        const fovY = cam.fov || 0.8;
+        const aspect = Number.isFinite(viewportAspect) && viewportAspect > 0 ? viewportAspect : 1;
+        const fovX = 2 * Math.atan(Math.tan(fovY / 2) * aspect);
+        const radiusForH = halfH / Math.tan(fovY / 2);
+        const radiusForW = halfW / Math.tan(fovX / 2);
+        // 1.12 = small margin so the silhouette isn't flush against the edges.
+        const radius = Math.max(radiusForH, radiusForW, 0.01) * 1.12 || 5;
 
         cam.target = center;
         cam.radius = radius;
-        cam.lowerRadiusLimit = radius * 0.02;
+        cam.lowerRadiusLimit = radius * 0.05;
         cam.upperRadiusLimit = radius * 50.0;
         cam.wheelPrecision = 80 / radius;
         cam.pinchPrecision = 160 / radius;
@@ -365,6 +396,15 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         cam.speed = radius * 0.02;
         cam.alpha = Math.PI / 2 + Math.PI / 8;
         cam.beta = Math.PI / 3;
+    }
+
+    /** Pixel aspect (w/h) of a model's current viewport box on the canvas. */
+    function viewportAspectOf(m: ModelState): number {
+        const cw = engine.getRenderWidth() || stageDims.w;
+        const ch = engine.getRenderHeight() || stageDims.h;
+        const boxW = (m.w > 0 ? m.w : stageDims.w) / stageDims.w * cw;
+        const boxH = (m.h > 0 ? m.h : stageDims.h) / stageDims.h * ch;
+        return boxH > 0 ? boxW / boxH : 1;
     }
 
     function applyTexturesAndMaterials(meshes: Mesh[], meshData: SknMeshData): Texture[] {
@@ -530,12 +570,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             mesh.alwaysSelectAsActiveMesh = true;
         }
 
-        console.log(`[studioScene] addModel ${id}: meshes=${meshes.length} layerMask=0x${layerMask.toString(16)} ` +
-            `bbox=${JSON.stringify(bbox)} ` +
-            `verts=${meshes.map(m => m.getTotalVertices()).join(',')} ` +
-            `vis=${meshes.map(m => m.isVisible).join(',')} ` +
-            `enabled=${meshes.map(m => m.isEnabled()).join(',')}`);
-
         const camera = new ArcRotateCamera(
             `thumbnail-cam-${id}`,
             Math.PI / 2 + Math.PI / 8,
@@ -546,13 +580,10 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         );
         camera.layerMask = layerMask;
         camera.wheelDeltaPercentage = 0.05;
-        frameCamera(camera, bbox);
-
-        // First model's camera receives user input; the rest are display-only.
-        if (!controlCamera) {
-            controlCamera = camera;
-            camera.attachControl(canvas, true);
-        }
+        // Framing is applied by applyViewport (below) once the box is known so
+        // it can account for the viewport aspect. Cameras are display-only by
+        // default; a model becomes interactive only when setControlModel(id)
+        // is called (double-click a model to orbit/pan it).
 
         const state: ModelState = {
             id,
@@ -573,6 +604,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             maxFrame: 0,
             pendingFrame: null,
             glowOn: false,
+            userFramed: false,
             x: 0,
             y: 0,
             w: 0,
@@ -590,15 +622,43 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
     function removeModel(id: string): void {
         const m = models.get(id);
         if (!m) return;
+        // controlCamera is set null inside disposeModel if it was the one.
         disposeModel(m);
         models.delete(id);
-        // If the control camera was removed, promote another model's camera.
-        if (!controlCamera && models.size > 0) {
-            const next = models.values().next().value as ModelState;
-            controlCamera = next.camera;
-            next.camera.attachControl(canvas, true);
-        }
         refreshActiveCameras();
+    }
+
+    // ── Per-model interactive control (double-click a model to orbit/pan it) ──
+    // Only ONE model is interactive at a time. Attaching control to a model's
+    // camera lets the user orbit (drag) / pan (right-drag or ctrl-drag) / zoom
+    // (wheel) WITHIN that model's viewport box. Passing null detaches (back to
+    // display-only). The first manual orbit marks the model `userFramed` so
+    // box/aspect changes stop auto-reframing it.
+    function setControlModel(id: string | null): void {
+        // Detach whatever camera currently has control.
+        if (controlCamera) {
+            controlCamera.detachControl();
+            controlCamera = null;
+        }
+        if (!id) return;
+        const m = models.get(id);
+        if (!m) return;
+        controlCamera = m.camera;
+        m.camera.attachControl(canvas, /* noPreventDefault */ false);
+        // Any camera-matrix change from here = user took manual control.
+        m.camera.onViewMatrixChangedObservable.addOnce(() => {
+            const mm = models.get(id);
+            if (mm) mm.userFramed = true;
+        });
+    }
+
+    /** Re-frame a model to its default centered pose (double-click again to
+     *  reset an orbit). Clears userFramed so box changes auto-frame again. */
+    function resetModelView(id: string): void {
+        const m = models.get(id);
+        if (!m) return;
+        m.userFramed = false;
+        frameCamera(m.camera, m.bbox, viewportAspectOf(m));
     }
 
     function setModelTransform(id: string, patch: ModelTransformPatch): void {
@@ -756,6 +816,8 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         setModelTransform,
         setModelAnim,
         setModelFrame,
+        setControlModel,
+        resetModelView,
         listAnims,
         listMeshes,
         setMeshHidden,

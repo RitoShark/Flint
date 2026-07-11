@@ -112,6 +112,13 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoomLabel, setZoomLabel] = useState('100%');
+  // The model layer currently in interactive orbit mode (double-clicked), or
+  // null. In orbit mode the Babylon camera for that model receives drag/wheel
+  // (rotate/pan/zoom the model inside its box); the DOM proxy passes pointers
+  // through to the scene canvas.
+  const [orbitLayerId, setOrbitLayerId] = useState<string | null>(null);
+  const orbitLayerIdRef = useRef<string | null>(null);
+  orbitLayerIdRef.current = orbitLayerId;
 
   // Live refs mirroring state so pointer-event handlers (added once, closed over
   // stale state otherwise) always read the latest values without re-binding.
@@ -148,6 +155,28 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   }, []);
 
   const getScene = useCallback((): ThumbnailScene | null => sceneRef.current, []);
+
+  // Enter/exit interactive orbit for a model layer. Enter attaches the scene's
+  // camera control to that model (drag=rotate, wheel=zoom, right/ctrl-drag=pan);
+  // exit detaches. Double-clicking the SAME model that's already orbiting
+  // resets its view to the default centered pose.
+  const enterOrbit = useCallback((layerId: string) => {
+    const scene = sceneRef.current;
+    const binding = modelBindingsRef.current.get(layerId);
+    if (!scene || !binding || !binding.sceneId) return;
+    if (orbitLayerIdRef.current === layerId) {
+      scene.resetModelView(binding.sceneId);
+      return;
+    }
+    scene.setControlModel(binding.sceneId);
+    setOrbitLayerId(layerId);
+  }, []);
+
+  const exitOrbit = useCallback(() => {
+    if (!orbitLayerIdRef.current) return;
+    sceneRef.current?.setControlModel(null);
+    setOrbitLayerId(null);
+  }, []);
 
   const applyPanZoom = useCallback((nz: number, npx: number, npy: number) => {
     zoomRef.current = nz;
@@ -436,12 +465,13 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       e.preventDefault();
       return;
     }
-    // Click on empty viewport/stage-wrap background clears selection.
+    // Click on empty viewport/stage-wrap background clears selection + exits orbit.
     const targetEl = e.target as HTMLElement;
     if ((targetEl === viewportRef.current || targetEl.classList.contains('tb-stage-wrap')) && !spaceHeld && e.button === 0) {
+      exitOrbit();
       onSelect(null);
     }
-  }, [spaceHeld, onSelect]);
+  }, [spaceHeld, onSelect, exitOrbit]);
 
   const handleViewportPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (!panning || !panStateRef.current) return;
@@ -454,10 +484,22 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     panStateRef.current = null;
   }, []);
 
-  // Env background click also clears selection (mirrors the prototype's env pointerdown).
+  // Env background click also clears selection + exits orbit.
   const handleEnvPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (!spaceHeld && e.button === 0) onSelect(null);
-  }, [spaceHeld, onSelect]);
+    if (!spaceHeld && e.button === 0) { exitOrbit(); onSelect(null); }
+  }, [spaceHeld, onSelect, exitOrbit]);
+
+  // Escape exits orbit mode.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && orbitLayerIdRef.current) {
+        e.preventDefault();
+        exitOrbit();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [exitOrbit]);
 
   // ── Drag-move (startMove port) ──
   const startMove = useCallback((e: React.PointerEvent<HTMLDivElement>, layer: Layer) => {
@@ -535,10 +577,16 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
 
   const handleElPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>, layer: Layer) => {
     if (panning) return;
+    // While a model is in orbit mode, its DOM proxy is pointer-events:none so
+    // this never fires for it — but guard anyway: don't drag-move the model
+    // that's being orbited (Babylon owns the drag).
+    if (orbitLayerIdRef.current === layer.id) return;
+    // Clicking a DIFFERENT layer exits orbit mode.
+    if (orbitLayerIdRef.current && orbitLayerIdRef.current !== layer.id) exitOrbit();
     if (selIdRef.current !== layer.id) onSelect(layer.id);
     if (layer.locked) return;
     startMove(e, layer);
-  }, [panning, onSelect, startMove]);
+  }, [panning, onSelect, startMove, exitOrbit]);
 
   // Inline text editing (dblclick), mirrors the prototype's contenteditable flow.
   // Multi-line (Task 11): while editing, the body switches to plain text
@@ -636,11 +684,11 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
               props are pushed into the scene; x/y/w/h placement of the
               rendered model within this canvas is a Task 13 (compositor)
               concern, not this canvas's. */}
-          <canvas ref={sceneCanvasRef} className="tb-scene-canvas" />
+          <canvas ref={sceneCanvasRef} className={`tb-scene-canvas${orbitLayerId ? ' tb-scene-canvas--orbit' : ''}`} />
           {sorted.map(layer => (
             <div
               key={layer.id}
-              className={`tb-el ${layer.type}${layer.id === selId ? ' selected' : ''}${layer.locked ? ' locked' : ''}`}
+              className={`tb-el ${layer.type}${layer.id === selId ? ' selected' : ''}${layer.locked ? ' locked' : ''}${layer.id === orbitLayerId ? ' orbiting' : ''}`}
               data-id={layer.id}
               style={{
                 left: layer.x,
@@ -650,7 +698,10 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
                 transform: `rotate(${layer.rot}deg)`,
               }}
               onPointerDown={(e) => handleElPointerDown(e, layer)}
-              onDoubleClick={(e) => handleTextDoubleClick(e, layer)}
+              onDoubleClick={(e) => {
+                if (layer.type === 'text') handleTextDoubleClick(e, layer);
+                else if (layer.type === 'model') enterOrbit(layer.id);
+              }}
             >
               <LayerBody layer={layer} preset={preset} hue={hue} />
             </div>
@@ -683,6 +734,11 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
           onHandlePointerDown={startResize}
         />
       </div>
+      {orbitLayerId && (
+        <div className="tb-orbit-hint">
+          Orbiting model · drag to rotate · wheel to zoom · double-click to reset · Esc to exit
+        </div>
+      )}
     </div>
   );
 }

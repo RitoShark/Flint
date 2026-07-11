@@ -32,22 +32,13 @@ const FORMAT_MIME: Record<ExportFormatId, ExportFormat> = {
 const DEFAULT_PRESET: PresetId = 'riot';
 const DEFAULT_HUE = 210;
 
+// The default composition = the Riot style (its disc + text layers, loaded
+// from riot.json so they stay in sync) PLUS the two default models (big hero +
+// smaller full body). So the editor opens ALREADY in Riot with both models —
+// the user never has to pick a preset, and the full body is present by default.
 function seedLayers(sknPath: string): Layer[] {
-  return [
-    {
-      id: 'title',
-      type: 'text',
-      name: 'Title',
-      hidden: false,
-      rot: 0,
-      locked: false,
-      x: 34, y: 288, w: 280, h: 56,
-      text: 'NEW SKIN',
-      size: 40,
-      font: 'Beaufort for LOL',
-      italic: false,
-      spacing: 1,
-    },
+  const riotLayers = presetToLayers(loadPreset('riot'));
+  const models: Layer[] = [
     {
       id: 'hero',
       type: 'model',
@@ -84,6 +75,9 @@ function seedLayers(sknPath: string): Layer[] {
       orbit: 0,
     },
   ];
+  // Models first (so they sit under the disc/text in z-order via zrank), then
+  // the Riot disc + text.
+  return [...models, ...riotLayers];
 }
 
 export function ThumbnailEditor({ project, skn }: { project: string; skn: string }) {

@@ -59,6 +59,31 @@
   pointer-events: none;
 }
 
+/* In orbit mode the canvas captures pointer events so the Babylon camera for
+   the double-clicked model receives drag/wheel (rotate/pan/zoom). */
+.tb-scene-canvas--orbit {
+  pointer-events: auto;
+  cursor: grab;
+}
+
+.tb-scene-canvas--orbit:active {
+  cursor: grabbing;
+}
+
+/* The model being orbited: its DOM proxy passes pointers through to the canvas
+   so it doesn't intercept the camera drag, and it shows an accent ring so it's
+   clear which model is live. */
+.tb-el.model.orbiting {
+  pointer-events: none;
+  z-index: 5;
+}
+
+.tb-el.model.orbiting .tb-body {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+  border-radius: 6px;
+}
+
 .tb-el {
   position: absolute;
   cursor: grab;
@@ -240,6 +265,26 @@
   border-radius: 4px;
   white-space: nowrap;
   pointer-events: none;
+}
+
+.tb-orbit-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 11px;
+  color: var(--text-primary);
+  background: color-mix(in oklab, var(--accent-primary) 22%, var(--bg-secondary));
+  border: 1px solid color-mix(in oklab, var(--accent-primary) 50%, var(--border));
+  border-radius: 999px;
+  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, .6);
+  pointer-events: none;
+  white-space: nowrap;
 }
 
 .tb-zoom-info {
