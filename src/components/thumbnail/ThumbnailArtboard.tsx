@@ -168,13 +168,13 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     return scene.listMeshes(binding.sceneId);
   }, []);
 
-  const faceModelToCamera = useCallback((layerId: string): number | null => {
+  const faceModelToCamera = useCallback((layerId: string): { orbit: number; tiltX: number } | null => {
     const scene = sceneRef.current;
     const binding = modelBindingsRef.current.get(layerId);
     if (!scene || !binding || !binding.sceneId) return null;
-    const deg = scene.faceModelToCamera(binding.sceneId);
-    if (deg !== null) binding.orbit = deg; // keep the binding in sync so reconcile doesn't re-push a stale orbit
-    return deg;
+    const res = scene.faceModelToCamera(binding.sceneId);
+    if (res) { binding.orbit = res.orbit; binding.tiltX = res.tiltX; } // keep binding in sync so reconcile doesn't re-push stale values
+    return res;
   }, []);
 
   const getScene = useCallback((): ThumbnailScene | null => sceneRef.current, []);
@@ -193,13 +193,13 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     onChangeRef.current(next, record);
   }, []);
 
-  // Face camera for the selected model, persisting the returned Turn (orbit).
+  // Face camera for the selected model, persisting the returned Turn + Tilt.
   const faceSelectedModel = useCallback(() => {
     const id = selIdRef.current;
     if (!id) return;
-    const deg = faceModelToCamera(id);
-    if (deg === null) return;
-    patchModelLayer(id, { orbit: deg }, true);
+    const res = faceModelToCamera(id);
+    if (!res) return;
+    patchModelLayer(id, { orbit: res.orbit, tiltX: res.tiltX }, true);
   }, [faceModelToCamera, patchModelLayer]);
 
   // Enter/exit interactive orbit for a model layer. Enter attaches the scene's
@@ -396,17 +396,18 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
           const maxFrame = scene.getMaxFrame(handle.id);
           placeholder.anim = initialAnim;
           scene.setModelFrame(handle.id, layer.frame);
-          // Auto-face on first setup (persist the yaw onto the layer + binding).
+          // Auto-face on first setup (persist yaw + tilt onto layer + binding).
           let autoOrbit = layer.orbit;
+          let autoTilt = layer.tiltX ?? 0;
           if (isFresh) {
-            const deg = scene.faceModelToCamera(handle.id);
-            if (deg !== null) { autoOrbit = deg; placeholder.orbit = deg; }
+            const res = scene.faceModelToCamera(handle.id);
+            if (res) { autoOrbit = res.orbit; autoTilt = res.tiltX; placeholder.orbit = res.orbit; placeholder.tiltX = res.tiltX; }
           }
-          // Push the resolved anim/maxFrame (+ auto-orbit) back onto the layer
-          // so the PropertiesPanel dropdown/slider reflect the real state.
+          // Push the resolved anim/maxFrame (+ auto orbit/tilt) back onto the
+          // layer so the PropertiesPanel sliders reflect the real state.
           const current = layersRef.current.find(l => l.id === layer.id);
           if (current && current.type === 'model') {
-            const next = updateLayer(layersRef.current, layer.id, { anim: initialAnim, maxFrame, orbit: autoOrbit } as Partial<Layer>);
+            const next = updateLayer(layersRef.current, layer.id, { anim: initialAnim, maxFrame, orbit: autoOrbit, tiltX: autoTilt } as Partial<Layer>);
             layersRef.current = next;
             onChangeRef.current(next, false);
           }

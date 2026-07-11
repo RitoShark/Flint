@@ -97,11 +97,11 @@ export interface ThumbnailScene {
     setControlModel(id: string | null): void;
     /** Re-frame a model to its default centered pose (reset an orbit). */
     resetModelView(id: string): void;
-    /** Auto-rotate the model so its face/front points at the camera (like
-     *  Maya's "look at face" on the view cube). Returns the yaw (Turn/orbit,
-     *  degrees) it applied so the caller can persist it to the layer, or null
-     *  if the facing couldn't be detected. */
-    faceModelToCamera(id: string): number | null;
+    /** Auto-rotate the model so its face points at the camera (like Maya's
+     *  "look at face" on the view cube) — solves BOTH yaw and pitch. Returns
+     *  the applied { orbit, tiltX } (degrees) so the caller can persist them,
+     *  or null if the face normal couldn't be detected. */
+    faceModelToCamera(id: string): { orbit: number; tiltX: number } | null;
     /** Switch a model's framing between whole-body ('full') and head/face
      *  close-up ('head', auto-detects the head bone). */
     setModelFocus(id: string, mode: 'full' | 'head'): void;
@@ -143,10 +143,6 @@ interface ModelState {
     boneIndexByHash: Map<number, number>;
     bones: Bone[];
     joints: BoneData[];
-    /** Kept for face-direction detection (average forward NORMAL of the head/
-     *  face submesh, XZ-projected). Vertex normals + per-submesh ranges. */
-    normals: Float32Array;
-    materials: { name: string; start_vertex: number; vertex_count: number }[];
     textures: Texture[];
     clips: AnimClip[];
     hiddenMeshes: Set<string>;
@@ -308,14 +304,14 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         const s = (m.scale || 100) / 100;
         if (m.focusMode === 'head') {
             const head = findHeadFocus(m);
-            if (head) {
-                // Slight zoom so it's head + shoulders, not an extreme close-up.
-                // Use a near-eye-level beta (~84° vs the full-body 60°) so the
-                // camera looks at the FACE straight-on instead of down at the
-                // scalp — the head reads as looking up toward the viewer.
-                frameCamera(m.camera, m.bbox, aspect, head.scale(s), 1.6, Math.PI / 2.15);
-                return;
-            }
+            // Head mode looks at the FACE from slightly BELOW horizontal
+            // (beta ≈ 95°, vs the full-body 60° which looks DOWN at the scalp)
+            // so the camera is angled UP toward the face — even when no head
+            // bone is found we still use the level angle (the whole-model
+            // fallback target keeps it framed).
+            const headBeta = Math.PI / 1.9;
+            frameCamera(m.camera, m.bbox, aspect, head ? head.scale(s) : null, head ? 1.6 : 1, headBeta);
+            return;
         }
         frameCamera(m.camera, m.bbox, aspect);
     }
@@ -510,76 +506,102 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         return null;
     }
 
-    // Restored VERBATIM from the last working build (commit e4a4e45). The
-    // position-centroid rewrite that replaced this turned the model to face the
-    // exact OPPOSITE way — this normals-based version is the one that worked.
-    const FACE_MESH_HINTS = ['face', 'head', 'hair', 'helmet', 'hood', 'mask'];
-    const BODY_MESH_HINTS = ['body', 'base', 'torso', 'chest', 'cape'];
+    // Bone-name fragments used to build the head look-frame. League models are
+    // usually ONE mesh (e.g. `kayn_body`), so there is no "face" submesh to
+    // sniff — the facing must come from the SKELETON, like selecting the head
+    // bone in Maya. We use head + neck (up axis) + eyes/face (forward axis).
+    const HEAD_BONE = ['head', 'buffbone_glb_head', 'c_head'];
+    const NECK_BONE = ['neck', 'c_neck', 'spine'];
+    const FWD_BONE = ['eye', 'face', 'jaw', 'nose', 'brow', 'mouth', 'buffbone_glb_face'];
 
-    /** Average vertex NORMAL over a set of submeshes, projected onto the
-     *  horizontal (XZ) plane and normalized — the direction the character
-     *  faces in model space. Positions are X-mirrored on load, and the normal's
-     *  X is mirrored with them, so this is already in the loaded mesh's space.
-     *  Returns null if no usable normal (degenerate). */
-    function averageFacing(m: ModelState, hints: string[]): { x: number; z: number } | null {
-        const subs = m.materials.filter(s => {
-            const n = s.name.toLowerCase();
+    function findBonePos(m: ModelState, hints: string[]): Vector3 | null {
+        for (const hint of hints) {
+            const b = m.joints.find(j => j.name.toLowerCase().includes(hint));
+            if (b) { const [x, y, z] = b.world_position; return new Vector3(x, y, z); }
+        }
+        return null;
+    }
+    /** Centroid of ALL bones whose name matches any hint (e.g. both eyes). */
+    function findBoneCentroid(m: ModelState, hints: string[]): Vector3 | null {
+        const matches = m.joints.filter(j => {
+            const n = j.name.toLowerCase();
             return hints.some(h => n.includes(h));
         });
-        const ranges = subs.length > 0 ? subs : m.materials;
-        let ax = 0;
-        let az = 0;
-        let count = 0;
-        for (const s of ranges) {
-            const end = s.start_vertex + s.vertex_count;
-            for (let v = s.start_vertex; v < end; v++) {
-                const nx = m.normals[v * 3];
-                const nz = m.normals[v * 3 + 2];
-                if (!Number.isFinite(nx) || !Number.isFinite(nz)) continue;
-                // X-mirror the normal to match the X-mirrored positions.
-                ax += -nx;
-                az += nz;
-                count++;
-            }
-        }
-        if (count === 0) return null;
-        ax /= count;
-        az /= count;
-        const len = Math.hypot(ax, az);
-        if (len < 1e-4) return null;
-        return { x: ax / len, z: az / len };
+        if (matches.length === 0) return null;
+        let x = 0, y = 0, z = 0;
+        for (const b of matches) { x += b.world_position[0]; y += b.world_position[1]; z += b.world_position[2]; }
+        return new Vector3(x / matches.length, y / matches.length, z / matches.length);
     }
 
-    /** Auto-rotate the model so its face points toward the camera. The camera
-     *  orbits at a FIXED alpha (Math.PI/2 + Math.PI/8) looking at the model, so
-     *  its horizontal view direction (from camera toward the model, in world
-     *  XZ) is fixed. We solve for the yaw (mesh.rotation.y) that turns the
-     *  model's facing vector to point back at the camera (opposite the view
-     *  dir), then persist it as `orbit`. Returns the applied degrees or null. */
-    function faceModelToCamera(id: string): number | null {
+    /** The head's LOOK direction in model space (unit 3D), derived from bones
+     *  the way Maya's "look at face on the view cube" does — NOT from mesh
+     *  submeshes (League models are usually one mesh). forward = (face/eyes −
+     *  head); if no face bone, forward is the horizontal component of the
+     *  head-above-neck offset's perpendicular… but in practice League always
+     *  has eye/face bones, so (eyes − head) is the reliable look vector.
+     *  Returns null if the skeleton lacks the needed bones. */
+    function headLookDir(m: ModelState): { x: number; y: number; z: number } | null {
+        if (!m.joints || m.joints.length === 0) return null;
+        const head = findBonePos(m, HEAD_BONE);
+        if (!head) return null;
+        const fwdRef = findBoneCentroid(m, FWD_BONE);
+        let dir: Vector3 | null = null;
+        if (fwdRef) {
+            dir = fwdRef.subtract(head);
+        } else {
+            // No face/eye bone: approximate forward as horizontal, perpendicular
+            // to the neck→head up axis, pointing along model +Z (League front).
+            const neck = findBonePos(m, NECK_BONE);
+            if (!neck) return null;
+            dir = new Vector3(0, 0, 1);
+        }
+        const len = dir.length();
+        if (len < 1e-4) return null;
+        return { x: dir.x / len, y: dir.y / len, z: dir.z / len };
+    }
+
+    /** Auto-rotate the model so its head/face points at the camera — solving
+     *  BOTH yaw (Turn/Y) and pitch (Tilt/X). Uses the SKELETON look direction
+     *  (head + face/eye bones), matching how you'd select the head bone in Maya
+     *  and aim its face at the view cube. Persists orbit+tiltX and returns the
+     *  applied values (null if the skeleton has no head bone). */
+    function faceModelToCamera(id: string): { orbit: number; tiltX: number } | null {
         const m = models.get(id);
         if (!m) return null;
-        const facing = averageFacing(m, FACE_MESH_HINTS) ?? averageFacing(m, BODY_MESH_HINTS);
-        if (!facing) return null;
+        const f = headLookDir(m);
+        if (!f) return null;
 
-        // Camera alpha is fixed at CAM_ALPHA. ArcRotateCamera position (relative
-        // to target) is (r·sinβ·cosα, r·cosβ, r·sinβ·sinα); its horizontal
-        // component points FROM target TO camera along (cosα, sinα) in XZ. We
-        // want the model's facing to point at the camera → align `facing` with
-        // (cosα, sinα).
-        const camDirX = Math.cos(CAM_ALPHA);
-        const camDirZ = Math.sin(CAM_ALPHA);
-        // Current facing angle and desired camera angle in the XZ plane.
-        const faceAngle = Math.atan2(facing.z, facing.x);
-        const camAngle = Math.atan2(camDirZ, camDirX);
-        // A positive mesh.rotation.y rotates (x,z) by -yaw around +Y in
-        // Babylon's left-handed space; solve so facing lands on the cam dir.
-        let yaw = faceAngle - camAngle;
-        // Normalize to (-PI, PI].
-        yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw));
-        const deg = Math.round((yaw * 180) / Math.PI);
-        setModelTransform(id, { orbit: deg });
-        return deg;
+        // Camera position direction (unit) from the target, at the head-focus
+        // beta if we're in head mode, else the full-body beta.
+        const beta = m.focusMode === 'head' ? Math.PI / 1.9 : Math.PI / 3;
+        const cam = {
+            x: Math.sin(beta) * Math.cos(CAM_ALPHA),
+            y: Math.cos(beta),
+            z: Math.sin(beta) * Math.sin(CAM_ALPHA),
+        };
+
+        // 1) YAW (about +Y): align the horizontal (XZ) projection of the face
+        //    normal with the camera's XZ direction. Babylon LH: a +yaw rotates
+        //    (x,z)→(x·cosθ+z·sinθ, −x·sinθ+z·cosθ), i.e. the angle atan2(z,x)
+        //    DECREASES by θ. So θ = faceAngle − camAngle.
+        const faceAngleXZ = Math.atan2(f.z, f.x);
+        const camAngleXZ = Math.atan2(cam.z, cam.x);
+        let yaw = Math.atan2(Math.sin(faceAngleXZ - camAngleXZ), Math.cos(faceAngleXZ - camAngleXZ));
+
+        // 2) PITCH (about +X): after yaw, the face normal's horizontal length is
+        //    hypot(f.x,f.z); tilt it up/down so its Y matches the camera dir's
+        //    elevation. Pitch = camElev − faceElev, where elev = atan2(y, |xz|).
+        const faceElev = Math.atan2(f.y, Math.hypot(f.x, f.z));
+        const camElev = Math.atan2(cam.y, Math.hypot(cam.x, cam.z));
+        // Babylon +X pitch tips the model's +Z toward −Y; sign chosen so the
+        // face lifts to meet the camera elevation.
+        let pitch = faceElev - camElev;
+        pitch = Math.atan2(Math.sin(pitch), Math.cos(pitch));
+
+        const orbitDeg = Math.round((yaw * 180) / Math.PI);
+        const tiltDeg = Math.round((pitch * 180) / Math.PI);
+        setModelTransform(id, { orbit: orbitDeg, tiltX: tiltDeg });
+        return { orbit: orbitDeg, tiltX: tiltDeg };
     }
 
     /** Pixel aspect (w/h) of a model's current viewport box on the canvas. */
@@ -775,8 +797,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             boneIndexByHash,
             bones,
             joints,
-            normals: meshData.normals,
-            materials: meshData.materials.map(mm => ({ name: mm.name, start_vertex: mm.start_vertex, vertex_count: mm.vertex_count })),
             textures,
             clips: animResult.clips,
             hiddenMeshes: new Set(),
