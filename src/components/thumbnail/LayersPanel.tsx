@@ -26,8 +26,8 @@ function groupLayers(layers: Layer[]): LayerGroup[] {
 
 function iconFor(type: Layer['type']): DlIconName {
   switch (type) {
-    case 'text': return 'text';
-    case 'model': return 'model';
+    case 'text': return 'layerText';
+    case 'model': return 'layerModel';
     case 'disc': return 'contrast';
     case 'deco': return 'picture';
     default: return 'image';

@@ -231,8 +231,8 @@ const TITLES: Record<Layer['type'], string> = {
 };
 
 const TITLE_ICON: Record<Layer['type'], Parameters<typeof DlIcon>[0]['name']> = {
-  text: 'text',
-  model: 'model',
+  text: 'layerText',
+  model: 'layerModel',
   disc: 'contrast',
   deco: 'picture',
 };

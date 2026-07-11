@@ -7,6 +7,9 @@ export type { DlButtonProps, DlButtonVariant, DlButtonSize, DlIconButtonProps } 
 export { DlSelect } from './DlSelect';
 export type { DlSelectProps, DlSelectOption } from './DlSelect';
 
+export { DlMenu } from './DlMenu';
+export type { DlMenuProps, DlMenuItem } from './DlMenu';
+
 export { DlSlider } from './DlSlider';
 export type { DlSliderProps } from './DlSlider';
 

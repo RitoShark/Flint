@@ -524,6 +524,38 @@
 /* Redo = the history glyph mirrored. */
 .tb-redo .dl-icon { transform: scaleX(-1); }
 
+/* ── Floating zoom + history bar (bottom-left of the canvas) ── */
+
+.tb-floatbar {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px;
+  background: color-mix(in oklab, var(--bg-secondary) 88%, transparent);
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, .6);
+}
+
+.tb-floatbar__group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
+}
+
+.tb-floatbar__group:first-child {
+  padding-left: 0;
+  border-left: none;
+}
+
 /* ── Status banner ── */
 
 .tb-status {
