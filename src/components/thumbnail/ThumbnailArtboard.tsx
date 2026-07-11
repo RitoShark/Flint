@@ -150,7 +150,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   // the reconciliation effect further down can reference them. See the
   // reconciliation effect for the full placement-model writeup.
   const sceneRef = useRef<ThumbnailScene | null>(null);
-  const modelBindingsRef = useRef<Map<string, { sceneId: string; sknPath: string; anim: string; frame: number; scale: number; orbit: number; tiltX: number; rollZ: number; x: number; y: number; w: number; h: number; hiddenMeshes: string; focusMode: string }>>(new Map());
+  const modelBindingsRef = useRef<Map<string, { sceneId: string; sknPath: string; anim: string; frame: number; scale: number; orbit: number; tiltX: number; rollZ: number; x: number; y: number; w: number; h: number; hiddenMeshes: string; focusMode: string; hidden: boolean }>>(new Map());
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
@@ -355,7 +355,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       // Reserve the binding immediately so a second effect run (e.g. a
       // fast prop change while the load is in flight) doesn't fire a
       // duplicate addModel for the same layer.
-      const placeholder = { sceneId: '', sknPath: layer.sknPath, anim: layer.anim, frame: layer.frame, scale: layer.scale, orbit: layer.orbit, tiltX: layer.tiltX ?? 0, rollZ: layer.rollZ ?? 0, x: layer.x, y: layer.y, w: layer.w, h: layer.h, hiddenMeshes: JSON.stringify(layer.hiddenMeshes ?? []), focusMode: layer.focusMode ?? 'full' };
+      const placeholder = { sceneId: '', sknPath: layer.sknPath, anim: layer.anim, frame: layer.frame, scale: layer.scale, orbit: layer.orbit, tiltX: layer.tiltX ?? 0, rollZ: layer.rollZ ?? 0, x: layer.x, y: layer.y, w: layer.w, h: layer.h, hiddenMeshes: JSON.stringify(layer.hiddenMeshes ?? []), focusMode: layer.focusMode ?? 'full', hidden: !!layer.hidden };
       bindings.set(layer.id, placeholder);
       scene.addModel(layer.sknPath).then(async (handle) => {
         if (modelBindingsRef.current.get(layer.id) !== placeholder) {
@@ -370,6 +370,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
         if (layer.hiddenMeshes && layer.hiddenMeshes.length > 0) {
           scene.setHiddenMeshes(handle.id, layer.hiddenMeshes);
         }
+        if (layer.hidden) scene.setModelVisible(handle.id, false);
         if (layer.focusMode === 'head') {
           scene.setModelFocus(handle.id, 'head');
         }
@@ -467,6 +468,13 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       if (existing.focusMode !== focus) {
         existing.focusMode = focus;
         scene.setModelFocus(existing.sceneId, focus);
+      }
+      const hidden = !!layer.hidden;
+      if (existing.hidden !== hidden) {
+        existing.hidden = hidden;
+        // Layers-panel eye toggle: hide/show the whole 3D model, not just its
+        // DOM proxy box (which `sorted` already drops when hidden).
+        scene.setModelVisible(existing.sceneId, !hidden);
       }
     }
 

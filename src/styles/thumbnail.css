@@ -562,16 +562,10 @@
 
 .tb-slidernum__in {
   flex: none;
-  width: 58px;
-  padding: 4px 6px;
-  text-align: right;
+  width: 72px;
+  padding: 4px 8px;
+  text-align: center;
   font-variant-numeric: tabular-nums;
-}
-
-/* Trim the number input's spin buttons so it stays compact. */
-.tb-slidernum__in::-webkit-outer-spin-button,
-.tb-slidernum__in::-webkit-inner-spin-button {
-  margin: 0;
 }
 
 .tb-empty-prop {

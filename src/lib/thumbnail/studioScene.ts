@@ -113,6 +113,8 @@ export interface ThumbnailScene {
     setMeshHidden(id: string, meshName: string, hidden: boolean): void;
     /** Bulk-apply the hidden-submesh set (names not present are shown). */
     setHiddenMeshes(id: string, hiddenNames: string[]): void;
+    /** Show/hide the WHOLE model (Layers-panel eye toggle on a model layer). */
+    setModelVisible(id: string, visible: boolean): void;
     /** Highest scrubbable frame index (frame_count - 1) of the model's
      *  CURRENTLY selected animation; 0 if no clip is loaded. */
     getMaxFrame(id: string): number;
@@ -141,13 +143,16 @@ interface ModelState {
     boneIndexByHash: Map<number, number>;
     bones: Bone[];
     joints: BoneData[];
-    /** Kept for face-direction detection: (face-submesh centroid − whole
-     *  centroid) → forward vector. Vertex positions + per-submesh ranges. */
-    positions: Float32Array;
+    /** Kept for face-direction detection (average forward NORMAL of the head/
+     *  face submesh, XZ-projected). Vertex normals + per-submesh ranges. */
+    normals: Float32Array;
     materials: { name: string; start_vertex: number; vertex_count: number }[];
     textures: Texture[];
     clips: AnimClip[];
     hiddenMeshes: Set<string>;
+    /** Whole-model visibility from the Layers-panel eye toggle (true = the
+     *  entire model is hidden, overriding per-submesh visibility). */
+    layerHidden: boolean;
     player: AnimationPlayer | null;
     fps: number;
     maxFrame: number;
@@ -305,7 +310,10 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             const head = findHeadFocus(m);
             if (head) {
                 // Slight zoom so it's head + shoulders, not an extreme close-up.
-                frameCamera(m.camera, m.bbox, aspect, head.scale(s), 1.6);
+                // Use a near-eye-level beta (~84° vs the full-body 60°) so the
+                // camera looks at the FACE straight-on instead of down at the
+                // scalp — the head reads as looking up toward the viewer.
+                frameCamera(m.camera, m.bbox, aspect, head.scale(s), 1.6, Math.PI / 2.15);
                 return;
             }
         }
@@ -432,6 +440,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         viewportAspect: number,
         focus?: Vector3 | null,
         zoom = 1,
+        beta = Math.PI / 3,
     ): void {
         let [[minX, minY, minZ], [maxX, maxY, maxZ]] = bbox;
         const boxValid =
@@ -468,7 +477,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         cam.panningSensibility = 3000 / Math.max(radius, 0.001);
         cam.speed = radius * 0.02;
         cam.alpha = CAM_ALPHA;
-        cam.beta = Math.PI / 3;
+        cam.beta = beta;
         // Free horizontal orbit; keep vertical within a natural range so the
         // user can't flip under/over the model.
         cam.lowerBetaLimit = 0.15;
@@ -501,53 +510,44 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         return null;
     }
 
-    // Submesh-name fragments (lowercased) that mark the head/face region — its
-    // vertices cluster on the FRONT of the character, so (face centroid − whole
-    // centroid) is a robust "which way does it look" vector.
-    const FACE_MESH_HINTS = ['face', 'head', 'hair', 'helmet', 'hood', 'mask', 'eye', 'horn'];
+    // Restored VERBATIM from the last working build (commit e4a4e45). The
+    // position-centroid rewrite that replaced this turned the model to face the
+    // exact OPPOSITE way — this normals-based version is the one that worked.
+    const FACE_MESH_HINTS = ['face', 'head', 'hair', 'helmet', 'hood', 'mask'];
+    const BODY_MESH_HINTS = ['body', 'base', 'torso', 'chest', 'cape'];
 
-    /** Centroid (XZ) of a set of submesh vertex positions. Positions are
-     *  X-mirrored on load, so this is already in the loaded mesh's space. */
-    function centroidXZ(m: ModelState, ranges: { start_vertex: number; vertex_count: number }[]): { x: number; z: number; n: number } {
-        let cx = 0;
-        let cz = 0;
-        let n = 0;
+    /** Average vertex NORMAL over a set of submeshes, projected onto the
+     *  horizontal (XZ) plane and normalized — the direction the character
+     *  faces in model space. Positions are X-mirrored on load, and the normal's
+     *  X is mirrored with them, so this is already in the loaded mesh's space.
+     *  Returns null if no usable normal (degenerate). */
+    function averageFacing(m: ModelState, hints: string[]): { x: number; z: number } | null {
+        const subs = m.materials.filter(s => {
+            const n = s.name.toLowerCase();
+            return hints.some(h => n.includes(h));
+        });
+        const ranges = subs.length > 0 ? subs : m.materials;
+        let ax = 0;
+        let az = 0;
+        let count = 0;
         for (const s of ranges) {
             const end = s.start_vertex + s.vertex_count;
             for (let v = s.start_vertex; v < end; v++) {
-                const px = m.positions[v * 3];
-                const pz = m.positions[v * 3 + 2];
-                if (!Number.isFinite(px) || !Number.isFinite(pz)) continue;
-                cx += px; cz += pz; n++;
+                const nx = m.normals[v * 3];
+                const nz = m.normals[v * 3 + 2];
+                if (!Number.isFinite(nx) || !Number.isFinite(nz)) continue;
+                // X-mirror the normal to match the X-mirrored positions.
+                ax += -nx;
+                az += nz;
+                count++;
             }
         }
-        return n > 0 ? { x: cx / n, z: cz / n, n } : { x: 0, z: 0, n: 0 };
-    }
-
-    /** The direction the character faces in model space (XZ, normalized).
-     *  Computed as (face-submesh centroid − whole-model centroid): the face
-     *  geometry sits on the FRONT of the head, so that offset points forward.
-     *  This is FAR more robust than averaging normals (which cancel out over a
-     *  closed surface). Returns null only if there's no geometry at all. */
-    function modelFacing(m: ModelState): { x: number; z: number } | null {
-        if (m.materials.length === 0) return null;
-        const faceSubs = m.materials.filter(s => {
-            const n = s.name.toLowerCase();
-            return FACE_MESH_HINTS.some(h => n.includes(h));
-        });
-        const whole = centroidXZ(m, m.materials);
-        if (whole.n === 0) return null;
-        const face = faceSubs.length > 0 ? centroidXZ(m, faceSubs) : whole;
-        let dx = face.x - whole.x;
-        let dz = face.z - whole.z;
-        let len = Math.hypot(dx, dz);
-        if (len < 1e-3) {
-            // Face centroid ≈ model centroid (symmetric / no face submesh) —
-            // fall back to the widest horizontal spread axis's… just default to
-            // facing +Z so the button still does something predictable.
-            dx = 0; dz = 1; len = 1;
-        }
-        return { x: dx / len, z: dz / len };
+        if (count === 0) return null;
+        ax /= count;
+        az /= count;
+        const len = Math.hypot(ax, az);
+        if (len < 1e-4) return null;
+        return { x: ax / len, z: az / len };
     }
 
     /** Auto-rotate the model so its face points toward the camera. The camera
@@ -559,7 +559,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
     function faceModelToCamera(id: string): number | null {
         const m = models.get(id);
         if (!m) return null;
-        const facing = modelFacing(m);
+        const facing = averageFacing(m, FACE_MESH_HINTS) ?? averageFacing(m, BODY_MESH_HINTS);
         if (!facing) return null;
 
         // Camera alpha is fixed at CAM_ALPHA. ArcRotateCamera position (relative
@@ -775,11 +775,12 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             boneIndexByHash,
             bones,
             joints,
-            positions: meshData.positions,
+            normals: meshData.normals,
             materials: meshData.materials.map(mm => ({ name: mm.name, start_vertex: mm.start_vertex, vertex_count: mm.vertex_count })),
             textures,
             clips: animResult.clips,
             hiddenMeshes: new Set(),
+            layerHidden: false,
             player: null,
             fps: 0,
             maxFrame: 0,
@@ -980,7 +981,21 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         if (!m) return;
         const next = new Set(hiddenNames);
         m.hiddenMeshes = next;
+        if (m.layerHidden) return; // whole model hidden — keep everything off
         for (const mesh of m.meshes) applyMeshVisibility(mesh, next.has(mesh.name));
+    }
+
+    /** Show/hide the ENTIRE model (driven by the Layers-panel eye toggle on the
+     *  model layer). Hiding it turns off every submesh's render; showing it
+     *  restores per-submesh visibility (respecting the hiddenMeshes set). */
+    function setModelVisible(id: string, visible: boolean): void {
+        const m = models.get(id);
+        if (!m) return;
+        m.layerHidden = !visible;
+        for (const mesh of m.meshes) {
+            const hidden = !visible || m.hiddenMeshes.has(mesh.name);
+            applyMeshVisibility(mesh, hidden);
+        }
     }
 
     function getMaxFrame(id: string): number {
@@ -1063,6 +1078,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         listMeshes,
         setMeshHidden,
         setHiddenMeshes,
+        setModelVisible,
         getMaxFrame,
         setEnvImage,
         setGlow,
