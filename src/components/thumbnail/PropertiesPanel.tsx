@@ -1,6 +1,7 @@
 import { ChangeEvent } from 'react';
 import { Layer } from '../../lib/thumbnail/layers';
 import { AnimClip } from '../../lib/thumbnail/studioScene';
+import { DlIcon, DlSegmented, DlSelect, DlSlider } from '../ui/design-lab';
 
 // Fallback shown only while the real SKN hasn't loaded yet (or has no clips) —
 // keeps the dropdown non-empty instead of blank during that brief window.
@@ -23,19 +24,31 @@ export interface PropertiesPanelProps {
 
 type ChangeProps = { onChange: PropertiesPanelProps['onChange']; onBeginGesture: PropertiesPanelProps['onBeginGesture']; onCommitGesture: PropertiesPanelProps['onCommitGesture'] };
 
+/**
+ * Placement lock — the SAME state the eye/lock icons in the Layers panel drive
+ * (both read/write `layer.locked`). Shown at the top so the current lock state
+ * is unambiguous, and the editing controls below are disabled/dimmed while
+ * locked so a locked layer never *looks* editable.
+ */
 function LockRow({ layer, onChange }: { layer: Layer } & Pick<ChangeProps, 'onChange'>) {
   return (
     <div className="tb-grp">
       <label>Placement</label>
-      <div className="seg">
-        <div className={layer.locked ? '' : 'on'} onClick={() => onChange({ locked: false } as LayerPatch, true)}>
-          Editable
-        </div>
-        <div className={layer.locked ? 'on' : ''} onClick={() => onChange({ locked: true } as LayerPatch, true)}>
-          🔒 Locked
-        </div>
+      <DlSegmented
+        fill
+        aria-label="Placement lock"
+        value={layer.locked ? 'locked' : 'editable'}
+        onChange={(v) => onChange({ locked: v === 'locked' } as LayerPatch, true)}
+        options={[
+          { value: 'editable', label: 'Editable', icon: 'lockOpen' },
+          { value: 'locked', label: 'Locked', icon: 'lockClosed' },
+        ]}
+      />
+      <div className="tb-hint">
+        {layer.locked
+          ? 'Locked — pinned in place. It can be selected but not moved or resized. Switch to Editable to reposition it.'
+          : 'Editable — drag or resize it on the artboard.'}
       </div>
-      <div className="tb-hint">Locked = pinned in place; it can be selected but not moved or resized.</div>
     </div>
   );
 }
@@ -63,36 +76,40 @@ function TextProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer
       </div>
       <div className="tb-grp">
         <label>Size <b>{layer.size}px</b></label>
-        <input
-          className="rng"
-          type="range"
+        <DlSlider
           min={8}
           max={120}
           value={layer.size}
+          bubble={`${layer.size}px`}
           onPointerDown={onBeginGesture}
-          onChange={(e) => onChange({ size: Number(e.target.value) }, false)}
+          onChange={(v) => onChange({ size: v }, false)}
           onPointerUp={onCommitGesture}
         />
       </div>
       <div className="tb-grp">
         <label>Letter spacing <b>{layer.spacing}px</b></label>
-        <input
-          className="rng"
-          type="range"
+        <DlSlider
           min={0}
           max={16}
           value={layer.spacing}
+          bubble={`${layer.spacing}px`}
           onPointerDown={onBeginGesture}
-          onChange={(e) => onChange({ spacing: Number(e.target.value) }, false)}
+          onChange={(v) => onChange({ spacing: v }, false)}
           onPointerUp={onCommitGesture}
         />
       </div>
       <div className="tb-grp">
         <label>Style</label>
-        <div className="seg">
-          <div className={layer.italic ? '' : 'on'} onClick={() => onChange({ italic: false }, true)}>Regular</div>
-          <div className={layer.italic ? 'on' : ''} onClick={() => onChange({ italic: true }, true)}>Italic</div>
-        </div>
+        <DlSegmented
+          fill
+          aria-label="Text style"
+          value={layer.italic ? 'italic' : 'regular'}
+          onChange={(v) => onChange({ italic: v === 'italic' }, true)}
+          options={[
+            { value: 'regular', label: 'Regular' },
+            { value: 'italic', label: 'Italic' },
+          ]}
+        />
       </div>
     </>
   );
@@ -112,52 +129,46 @@ function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture, getModel
     <>
       <div className="tb-grp">
         <label>Animation</label>
-        <select
-          className="dl-select"
-          value={layer.anim}
-          onChange={(e) => onChange({ anim: e.target.value }, true)}
-        >
-          {options.map(o => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
+        <DlSelect
+          width="100%"
+          value={layer.anim || (options[0]?.value ?? null)}
+          onChange={(v) => onChange({ anim: v }, true)}
+          options={options}
+        />
       </div>
       <div className="tb-grp">
         <label>Frame <b>{layer.frame} / {layer.maxFrame}</b></label>
-        <input
-          className="rng"
-          type="range"
+        <DlSlider
           min={0}
           max={layer.maxFrame}
           value={layer.frame}
+          bubble={`${layer.frame}`}
           onPointerDown={onBeginGesture}
-          onChange={(e) => onChange({ frame: Number(e.target.value) }, false)}
+          onChange={(v) => onChange({ frame: v }, false)}
           onPointerUp={onCommitGesture}
         />
       </div>
       <div className="tb-grp">
         <label>Scale <b>{(layer.scale / 100).toFixed(2)}&times;</b></label>
-        <input
-          className="rng"
-          type="range"
+        <DlSlider
           min={20}
           max={300}
           value={layer.scale}
+          bubble={`${(layer.scale / 100).toFixed(2)}×`}
           onPointerDown={onBeginGesture}
-          onChange={(e) => onChange({ scale: Number(e.target.value) }, false)}
+          onChange={(v) => onChange({ scale: v }, false)}
           onPointerUp={onCommitGesture}
         />
       </div>
       <div className="tb-grp">
         <label>Orbit <b>{layer.orbit}&deg;</b></label>
-        <input
-          className="rng"
-          type="range"
+        <DlSlider
           min={-180}
           max={180}
           value={layer.orbit}
+          bubble={`${layer.orbit}°`}
           onPointerDown={onBeginGesture}
-          onChange={(e) => onChange({ orbit: Number(e.target.value) }, false)}
+          onChange={(v) => onChange({ orbit: v }, false)}
           onPointerUp={onCommitGesture}
         />
       </div>
@@ -168,15 +179,14 @@ function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture, getModel
 function DiscProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer: Extract<Layer, { type: 'disc' }> } & ChangeProps) {
   return (
     <div className="tb-grp">
-      <label>Opacity <b>{layer.opacity}%</b></label>
-      <input
-        className="rng"
-        type="range"
+      <label>Interior darkness <b>{layer.opacity}%</b></label>
+      <DlSlider
         min={0}
         max={100}
         value={layer.opacity}
+        bubble={`${layer.opacity}%`}
         onPointerDown={onBeginGesture}
-        onChange={(e) => onChange({ opacity: Number(e.target.value) }, false)}
+        onChange={(v) => onChange({ opacity: v }, false)}
         onPointerUp={onCommitGesture}
       />
     </div>
@@ -198,10 +208,16 @@ function DecoProps({ layer, onChange }: { layer: Extract<Layer, { type: 'deco' }
       </div>
       <div className="tb-grp">
         <label>Depth</label>
-        <div className="seg">
-          <div className={layer.z === 'behind' ? 'on' : ''} onClick={() => onChange({ z: 'behind' }, true)}>Behind models</div>
-          <div className={layer.z === 'front' ? 'on' : ''} onClick={() => onChange({ z: 'front' }, true)}>In front</div>
-        </div>
+        <DlSegmented
+          fill
+          aria-label="Decoration depth"
+          value={layer.z}
+          onChange={(v) => onChange({ z: v as 'behind' | 'front' }, true)}
+          options={[
+            { value: 'behind', label: 'Behind models' },
+            { value: 'front', label: 'In front' },
+          ]}
+        />
       </div>
     </>
   );
@@ -214,20 +230,34 @@ const TITLES: Record<Layer['type'], string> = {
   deco: 'Corner texture',
 };
 
+const TITLE_ICON: Record<Layer['type'], Parameters<typeof DlIcon>[0]['name']> = {
+  text: 'text',
+  model: 'model',
+  disc: 'contrast',
+  deco: 'picture',
+};
+
 export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGesture, getModelAnims }: PropertiesPanelProps) {
+  // The Placement lock at the top reflects the SAME `layer.locked` the Layers
+  // panel toggles — so lock state reads identically in both places (the user's
+  // "is it locked or editable?" confusion came from those two controls not
+  // obviously being the same thing). Locking gates on-artboard move/resize
+  // only; content (text, font, animation, opacity) stays editable.
   return (
     <div className="tb-side-sec tb-side-sec--props">
-      <div className="tb-pane-h">{layer ? TITLES[layer.type] : 'Properties'}</div>
+      <div className="tb-pane-h">
+        {layer ? <><DlIcon name={TITLE_ICON[layer.type]} size={13} style={{ marginRight: 6 }} />{TITLES[layer.type]}</> : 'Properties'}
+      </div>
       <div className="tb-prop tb-side-scroll">
         {!layer ? (
           <div className="tb-empty-prop">Select a layer to edit it.</div>
         ) : (
           <>
+            <LockRow layer={layer} onChange={onChange} />
             {layer.type === 'text' && <TextProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
             {layer.type === 'model' && <ModelProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} getModelAnims={getModelAnims} />}
             {layer.type === 'disc' && <DiscProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
             {layer.type === 'deco' && <DecoProps layer={layer} onChange={onChange} />}
-            <LockRow layer={layer} onChange={onChange} />
           </>
         )}
       </div>

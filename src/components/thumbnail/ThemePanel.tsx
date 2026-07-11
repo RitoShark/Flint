@@ -1,4 +1,5 @@
 import { resolveGlowColor } from '../../lib/thumbnail/hue';
+import { DlIcon, DlSlider } from '../ui/design-lab';
 
 interface ThemePanelProps {
   hue: number;
@@ -13,12 +14,13 @@ interface ThemePanelProps {
  */
 export function ThemePanel({ hue, onChange }: ThemePanelProps) {
   const swatch = resolveGlowColor(hue);
-  const pct = (hue / 360) * 100;
 
   return (
-    <div className="dl-card" style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div className="dl-card" style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Theme hue</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>
+          <DlIcon name="color-palette" size={14} />Theme hue
+        </span>
         <div
           title={swatch}
           style={{
@@ -32,17 +34,15 @@ export function ThemePanel({ hue, onChange }: ThemePanelProps) {
           }}
         />
       </div>
-      <div className="dl-slider dl-slider--hue" style={{ ['--_value' as never]: `${pct}%` }}>
-        <input
-          type="range"
-          min={0}
-          max={360}
-          value={hue}
-          onChange={(e) => onChange(parseInt(e.target.value, 10))}
-          aria-label="Theme hue"
-        />
-        <span className="dl-slider__bubble">{Math.round(hue)}&deg;</span>
-      </div>
+      <DlSlider
+        hue
+        min={0}
+        max={360}
+        value={hue}
+        bubble={`${Math.round(hue)}°`}
+        aria-label="Theme hue"
+        onChange={onChange}
+      />
     </div>
   );
 }

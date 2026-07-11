@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { save } from '@tauri-apps/plugin-dialog';
+import { open, save } from '@tauri-apps/plugin-dialog';
+import { readTextFile, writeTextFile } from '../../lib/api/file';
 import '../../styles/design-lab.css';
 import '../../styles/thumbnail.css';
 import { createHistory } from '../../lib/thumbnail/history';
 import { Layer, ModelLayer, removeLayer, toggleLock, updateLayer } from '../../lib/thumbnail/layers';
 import { loadPreset, presetToLayers, PresetId } from '../../lib/thumbnail/preset';
+import { buildPresetFile, parsePresetFile, PresetFile, suggestPresetFilename } from '../../lib/thumbnail/presetFile';
 import { composeThumbnail, ExportFormat, resolveOutputSize } from '../../lib/thumbnail/export';
 import { saveThumbnail } from '../../lib/api/thumbnail';
 import { ThumbnailArtboard, ThumbnailArtboardHandle } from './ThumbnailArtboard';
 import { LayersPanel } from './LayersPanel';
 import { PropertiesPanel } from './PropertiesPanel';
 import { ThemePanel } from './ThemePanel';
+import { SavePresetModal } from './SavePresetModal';
+import { DlButton, DlIcon, DlIconButton, DlSelect } from '../ui/design-lab';
 
 type ExportFormatId = 'webp' | 'png' | 'jpg';
 type ExportRatioId = '16:9' | '16:10' | '4:3' | '1:1';
@@ -80,6 +84,11 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
   const [exportRatio, setExportRatio] = useState<ExportRatioId>('16:9');
   const [exporting, setExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
+
+  // User presets: built-in styles plus any the user saved/imported this session
+  // (kept in memory; a saved/exported preset is also written to disk as JSON).
+  const [userPresets, setUserPresets] = useState<PresetFile[]>([]);
+  const [showSavePreset, setShowSavePreset] = useState(false);
 
   const layers = history.get();
 
@@ -159,6 +168,98 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
     forceRender(n => n + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skn]);
+
+  // Apply a user-saved / imported preset file. Same model-fill behaviour as
+  // handleApplyPreset: preset model layers ship with an empty sknPath, so we
+  // reuse the current hero's SKN; presets with no model layer keep the
+  // current models on stage.
+  const applyPresetFile = useCallback((file: PresetFile) => {
+    const hasModelLayer = file.layers.some(l => l.type === 'model');
+    const currentModels = history.get().filter((l): l is ModelLayer => l.type === 'model');
+    const filled = file.layers.map(l =>
+      l.type === 'model' && !l.sknPath
+        ? { ...l, sknPath: currentModels[0]?.sknPath ?? skn }
+        : l
+    );
+    const next = hasModelLayer ? filled : [...filled, ...currentModels];
+    history.set(next, true);
+    setSelId(next.find(l => l.type === 'model')?.id ?? next[0]?.id ?? null);
+    setPreset(file.base);
+    setHue(file.hue);
+    forceRender(n => n + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skn]);
+
+  // Unified preset picker: built-in ids + any user preset (prefixed "user:").
+  const handlePresetPick = useCallback((value: string) => {
+    if (value === 'riot' || value === 'divine') {
+      handleApplyPreset(value);
+      return;
+    }
+    if (value.startsWith('user:')) {
+      const idx = Number(value.slice(5));
+      const file = userPresets[idx];
+      if (file) applyPresetFile(file);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handleApplyPreset, applyPresetFile, userPresets]);
+
+  // Build the current composition into a portable preset file (shared by
+  // "Save preset" — kept in the session list — and "Export preset" — written
+  // to a user-chosen .json on disk).
+  const currentAsPresetFile = useCallback((name: string): PresetFile => {
+    const fontLayer = history.get().find((l): l is Extract<Layer, { type: 'text' }> => l.type === 'text');
+    return buildPresetFile({
+      name,
+      base: preset,
+      font: fontLayer?.font ?? 'Beaufort for LOL',
+      hue,
+      layers: history.get(),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preset, hue]);
+
+  const handleSavePreset = useCallback((name: string) => {
+    const file = currentAsPresetFile(name);
+    setUserPresets(prev => [...prev, file]);
+    setShowSavePreset(false);
+    setExportStatus({ kind: 'success', message: `Saved preset "${file.name}" — pick it from the preset menu.` });
+  }, [currentAsPresetFile]);
+
+  const handleExportPreset = useCallback(async () => {
+    const defaultName = skn.split(/[\\/]/).pop()?.replace(/\.skn$/i, '') || 'preset';
+    const outputPath = await save({
+      title: 'Export Preset',
+      defaultPath: suggestPresetFilename(defaultName),
+      filters: [{ name: 'Thumbnail Preset', extensions: ['json'] }],
+    });
+    if (!outputPath) return;
+    try {
+      const file = currentAsPresetFile(defaultName);
+      await writeTextFile(outputPath, JSON.stringify(file, null, 2));
+      setExportStatus({ kind: 'success', message: `Exported preset to ${outputPath}` });
+    } catch (err) {
+      setExportStatus({ kind: 'error', message: err instanceof Error ? err.message : 'Preset export failed' });
+    }
+  }, [skn, currentAsPresetFile]);
+
+  const handleImportPreset = useCallback(async () => {
+    const picked = await open({
+      title: 'Import Preset',
+      multiple: false,
+      filters: [{ name: 'Thumbnail Preset', extensions: ['json'] }],
+    });
+    if (!picked || typeof picked !== 'string') return;
+    try {
+      const text = await readTextFile(picked);
+      const file = parsePresetFile(text);
+      setUserPresets(prev => [...prev, file]);
+      applyPresetFile(file);
+      setExportStatus({ kind: 'success', message: `Imported and applied "${file.name}".` });
+    } catch (err) {
+      setExportStatus({ kind: 'error', message: err instanceof Error ? err.message : 'Preset import failed' });
+    }
+  }, [applyPresetFile]);
 
   // Export the current stage as a composited poster (Task 13). Deselects
   // first so the sel-overlay handles never influence the artboard's own
@@ -281,73 +382,78 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
 
   return (
     <div className="dl-root" style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: 12, borderBottom: '1px solid var(--border)', display: 'flex', gap: 8, alignItems: 'center' }}>
-        <strong>Thumbnail Creator</strong>
+      <div className="tb-toolbar">
+        <span className="tb-toolbar__title"><DlIcon name="picture" size={16} />Thumbnail Creator</span>
         <span className="dl-badge">{skn.split(/[\\/]/).pop()}</span>
-        <select
-          className="dl-select"
-          style={{ width: 110, height: 28 }}
-          defaultValue=""
-          onChange={(e) => {
-            const id = e.target.value as PresetId;
-            if (id === 'riot' || id === 'divine') handleApplyPreset(id);
-            e.target.value = '';
-          }}
-          title="Apply a preset"
-        >
-          <option value="" disabled>Preset…</option>
-          <option value="riot">Riot</option>
-          <option value="divine">Divine</option>
-        </select>
+
+        <div className="tb-toolbar__group">
+          <DlSelect
+            width={150}
+            resetAfterSelect
+            title="Apply a preset"
+            placeholder="Preset…"
+            value={null}
+            onChange={handlePresetPick}
+            options={[
+              { value: 'riot', label: 'Riot style', icon: 'color-palette' },
+              { value: 'divine', label: 'Divine style', icon: 'color-palette' },
+              ...userPresets.map((p, i) => ({ value: `user:${i}`, label: p.name, icon: 'save' as const })),
+            ]}
+          />
+          <DlIconButton icon="save" title="Save current layout as a preset" onClick={() => setShowSavePreset(true)} />
+          <DlIconButton icon="export" title="Export preset to a .json file" onClick={handleExportPreset} />
+          <DlIconButton icon="download" title="Import a preset from a .json file" onClick={handleImportPreset} />
+        </div>
+
         <div style={{ flex: 1 }} />
-        <button className="dl-btn dl-btn--sm" onClick={() => artboardControlsRef.current?.fitView()} title="Fit (Ctrl+0)">Fit</button>
-        <button className="dl-btn dl-btn--sm" onClick={() => artboardControlsRef.current?.fullView()} title="100% (Ctrl+1)">100%</button>
-        <button className="dl-btn dl-btn--sm" onClick={() => artboardControlsRef.current?.fitSelection()} title="Fit selection (Ctrl+9)">Fit sel</button>
-        <button className="dl-btn dl-btn--sm" disabled={!history.canUndo()} onClick={undo} title="Undo (Ctrl+Z)">Undo</button>
-        <button className="dl-btn dl-btn--sm" disabled={!history.canRedo()} onClick={redo} title="Redo (Ctrl+Shift+Z)">Redo</button>
-        <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)', margin: '0 4px' }} />
-        <select
-          className="dl-select"
-          style={{ width: 78, height: 28 }}
-          value={exportRatio}
-          onChange={(e) => setExportRatio(e.target.value as ExportRatioId)}
-          title="Output aspect ratio"
-        >
-          <option value="16:9">16:9</option>
-          <option value="16:10">16:10</option>
-          <option value="4:3">4:3</option>
-          <option value="1:1">1:1</option>
-        </select>
-        <select
-          className="dl-select"
-          style={{ width: 78, height: 28 }}
-          value={exportFormat}
-          onChange={(e) => setExportFormat(e.target.value as ExportFormatId)}
-          title="Output format"
-        >
-          <option value="webp">WebP</option>
-          <option value="png">PNG</option>
-          <option value="jpg">JPG</option>
-        </select>
-        <button
-          className="dl-btn dl-btn--primary dl-btn--sm"
-          onClick={handleExport}
-          disabled={exporting}
-          title="Export composited poster"
-        >
-          {exporting ? 'Exporting…' : 'Export'}
-        </button>
+
+        <div className="tb-toolbar__group">
+          <DlButton size="sm" variant="ghost" onClick={() => artboardControlsRef.current?.fitView()} title="Fit artboard (Ctrl+0)">Fit</DlButton>
+          <DlButton size="sm" variant="ghost" onClick={() => artboardControlsRef.current?.fullView()} title="Zoom to 100% (Ctrl+1)">100%</DlButton>
+          <DlButton size="sm" variant="ghost" onClick={() => artboardControlsRef.current?.fitSelection()} title="Fit selection (Ctrl+9)">Fit sel</DlButton>
+        </div>
+
+        <div className="tb-toolbar__group">
+          <DlIconButton icon="history" title="Undo (Ctrl+Z)" disabled={!history.canUndo()} onClick={undo} />
+          <DlIconButton icon="history" title="Redo (Ctrl+Shift+Z)" disabled={!history.canRedo()} onClick={redo} className="tb-redo" />
+        </div>
+
+        <div className="tb-toolbar__group">
+          <DlSelect
+            width={92}
+            title="Output aspect ratio"
+            value={exportRatio}
+            onChange={(v) => setExportRatio(v as ExportRatioId)}
+            options={[
+              { value: '16:9', label: '16:9' },
+              { value: '16:10', label: '16:10' },
+              { value: '4:3', label: '4:3' },
+              { value: '1:1', label: '1:1' },
+            ]}
+          />
+          <DlSelect
+            width={100}
+            title="Output format"
+            value={exportFormat}
+            onChange={(v) => setExportFormat(v as ExportFormatId)}
+            options={[
+              { value: 'webp', label: 'WebP' },
+              { value: 'png', label: 'PNG' },
+              { value: 'jpg', label: 'JPG' },
+            ]}
+          />
+          <DlButton variant="primary" icon="picture" loading={exporting} onClick={handleExport} title="Export composited poster">
+            {exporting ? 'Exporting…' : 'Export'}
+          </DlButton>
+        </div>
       </div>
       {exportStatus && (
-        <div
-          style={{
-            padding: '6px 12px',
-            fontSize: 12,
-            color: exportStatus.kind === 'error' ? 'var(--color-danger, #F85149)' : 'var(--accent-primary)',
-            borderBottom: '1px solid var(--border)',
-          }}
-        >
-          {exportStatus.message}
+        <div className={`tb-status tb-status--${exportStatus.kind}`}>
+          <DlIcon name={exportStatus.kind === 'error' ? 'error' : 'success'} size={14} />
+          <span>{exportStatus.message}</span>
+          <button className="tb-status__close" title="Dismiss" onClick={() => setExportStatus(null)}>
+            <DlIcon name="close" size={12} />
+          </button>
         </div>
       )}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
@@ -387,6 +493,13 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
       </div>
       {project ? null : (
         <div style={{ padding: '4px 12px', fontSize: 11, color: 'var(--text-muted)' }}>No project path provided</div>
+      )}
+      {showSavePreset && (
+        <SavePresetModal
+          initialName={skn.split(/[\\/]/).pop()?.replace(/\.skn$/i, '') || 'My preset'}
+          onSave={handleSavePreset}
+          onClose={() => setShowSavePreset(false)}
+        />
       )}
     </div>
   );

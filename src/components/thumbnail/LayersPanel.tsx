@@ -1,5 +1,6 @@
 import { Ref } from 'react';
 import { Layer } from '../../lib/thumbnail/layers';
+import { DlIcon, type DlIconName } from '../ui/design-lab';
 
 interface LayerGroup {
   title: string;
@@ -23,13 +24,13 @@ function groupLayers(layers: Layer[]): LayerGroup[] {
   ];
 }
 
-function iconFor(type: Layer['type']): string {
+function iconFor(type: Layer['type']): DlIconName {
   switch (type) {
-    case 'text': return 'T';
-    case 'model': return '◉';
-    case 'disc': return '⬤';
-    case 'deco': return '▧';
-    default: return '🖼';
+    case 'text': return 'text';
+    case 'model': return 'model';
+    case 'disc': return 'contrast';
+    case 'deco': return 'picture';
+    default: return 'image';
   }
 }
 
@@ -48,29 +49,32 @@ function LayerRow({ layer, selected, onSelect, onToggleHidden, onToggleLock, onD
       className={`tb-layer${selected ? ' tb-layer--sel' : ''}${layer.hidden ? ' tb-layer--hidden' : ''}`}
       onClick={() => onSelect(layer.id)}
     >
-      <span
-        className="tb-layer__eye"
+      <button
+        type="button"
+        className="tb-layer__btn tb-layer__eye"
         title={layer.hidden ? 'Hidden — click to show' : 'Visible — click to hide'}
         onClick={(e) => { e.stopPropagation(); onToggleHidden(layer.id); }}
       >
-        {layer.hidden ? '◌' : '👁'}
-      </span>
-      <span className="tb-layer__ic">{iconFor(layer.type)}</span>
+        <DlIcon name={layer.hidden ? 'eye-off' : 'eye'} size={14} />
+      </button>
+      <span className="tb-layer__ic"><DlIcon name={iconFor(layer.type)} size={14} /></span>
       <span className="tb-layer__nm">{layer.name}</span>
-      <span
-        className={`tb-layer__lock${layer.locked ? ' tb-layer__lock--on' : ''}`}
+      <button
+        type="button"
+        className={`tb-layer__btn tb-layer__lock${layer.locked ? ' tb-layer__lock--on' : ''}`}
         title={layer.locked ? 'Locked — click to unlock' : 'Click to lock placement'}
         onClick={(e) => { e.stopPropagation(); onToggleLock(layer.id); }}
       >
-        {layer.locked ? '🔒' : '🔓'}
-      </span>
-      <span
-        className="tb-layer__del"
+        <DlIcon name={layer.locked ? 'lockClosed' : 'lockOpen'} size={14} />
+      </button>
+      <button
+        type="button"
+        className="tb-layer__btn tb-layer__del"
         title="Delete layer"
         onClick={(e) => { e.stopPropagation(); onDelete(layer.id); }}
       >
-        ✕
-      </span>
+        <DlIcon name="close" size={14} />
+      </button>
     </div>
   );
 }
@@ -114,8 +118,8 @@ export function LayersPanel({ layers, selId, onSelect, onToggleHidden, onToggleL
         <div>
           <div className="tb-lgroup">Background</div>
           <div className="tb-layer tb-layer--env">
-            <span className="tb-layer__eye">👁</span>
-            <span className="tb-layer__ic">🖼</span>
+            <span className="tb-layer__btn tb-layer__eye"><DlIcon name="eye" size={14} /></span>
+            <span className="tb-layer__ic"><DlIcon name="picture" size={14} /></span>
             <span className="tb-layer__nm">Environment</span>
           </div>
         </div>
