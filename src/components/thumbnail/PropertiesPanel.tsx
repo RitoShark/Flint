@@ -106,7 +106,7 @@ function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture, onOpenMo
         />
       </div>
       <div className="tb-grp">
-        <label>Orbit <b>{layer.orbit}&deg;</b></label>
+        <label>Turn — Y <b>{layer.orbit}&deg;</b></label>
         <DlSlider
           min={-180}
           max={180}
@@ -116,6 +116,20 @@ function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture, onOpenMo
           onChange={(v) => onChange({ orbit: v }, false)}
           onPointerUp={onCommitGesture}
         />
+        <div className="tb-hint">Rotate the character left/right — straighten a diagonal pose to face front.</div>
+      </div>
+      <div className="tb-grp">
+        <label>Tilt — X <b>{layer.tiltX ?? 0}&deg;</b></label>
+        <DlSlider
+          min={-180}
+          max={180}
+          value={layer.tiltX ?? 0}
+          bubble={`${layer.tiltX ?? 0}°`}
+          onPointerDown={onBeginGesture}
+          onChange={(v) => onChange({ tiltX: v }, false)}
+          onPointerUp={onCommitGesture}
+        />
+        <div className="tb-hint">Lean the character forward/back.</div>
       </div>
     </>
   );

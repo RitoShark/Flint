@@ -74,6 +74,7 @@ export interface ModelTransformPatch {
     h?: number;
     scale?: number;
     orbit?: number;
+    tiltX?: number;
 }
 
 /** The artboard's design-space dimensions (STAGE_W × STAGE_H). Model boxes
@@ -90,8 +91,8 @@ export interface ThumbnailScene {
     setModelTransform(id: string, patch: ModelTransformPatch): void;
     setModelAnim(id: string, anim: string): Promise<void>;
     setModelFrame(id: string, frame: number): void;
-    /** Give interactive camera control (orbit/pan/zoom) to ONE model, or null
-     *  to detach. Double-click a model on the artboard to enter its view. */
+    /** Enter/exit interactive mode for ONE model (null to clear). Right-drag
+     *  pans; rotation is via the Properties sliders (orbit/tiltX). */
     setControlModel(id: string | null): void;
     /** Re-frame a model to its default centered pose (reset an orbit). */
     resetModelView(id: string): void;
@@ -156,6 +157,7 @@ interface ModelState {
     h: number;
     scale: number;
     orbit: number;
+    tiltX: number;
 }
 
 let modelSeq = 0;
@@ -674,6 +676,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             h: 0,
             scale: 1,
             orbit: 0,
+            tiltX: 0,
         };
         models.set(id, state);
         applyViewport(state);
@@ -715,18 +718,16 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         const m = models.get(id);
         if (!m) return;
         controlCamera = m.camera;
-        // Attach ONLY the pointer (rotate/pan) inputs — NOT the mousewheel.
-        // The artboard intercepts the wheel in orbit mode and drives the
-        // model's `scale` property instead (wheel = scale, kept in sync with
-        // the Properties slider). `useCtrlForPanning=false` keeps left-drag =
-        // rotate, right-drag = pan.
+        // Attach Babylon control so RIGHT-DRAG PANS (the old, good pan). But
+        // DISABLE rotation-by-drag (angularSensibility → Infinity) — rotation
+        // is done on the Properties panel via the Turn (Y) / Tilt (X) sliders,
+        // not by dragging (the user found drag-rotate confusing). Wheel is
+        // removed here too; the artboard intercepts it to drive `scale`.
         m.camera.attachControl(canvas, /* noPreventDefault */ false);
         m.camera.inputs.removeByType('ArcRotateCameraMouseWheelInput');
-        // Any camera-matrix change from here = user took manual control.
-        m.camera.onViewMatrixChangedObservable.addOnce(() => {
-            const mm = models.get(id);
-            if (mm) mm.userFramed = true;
-        });
+        m.camera.angularSensibilityX = Number.POSITIVE_INFINITY;
+        m.camera.angularSensibilityY = Number.POSITIVE_INFINITY;
+        m.userFramed = true;
     }
 
     /** Re-frame a model to its default centered pose (double-click again to
@@ -760,7 +761,15 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         }
         if (patch.orbit !== undefined) {
             m.orbit = patch.orbit;
-            for (const mesh of m.meshes) mesh.rotation.y = patch.orbit;
+            // orbit (Turn / yaw) is in DEGREES (slider -180..180) → radians.
+            const rad = (patch.orbit * Math.PI) / 180;
+            for (const mesh of m.meshes) mesh.rotation.y = rad;
+        }
+        if (patch.tiltX !== undefined) {
+            m.tiltX = patch.tiltX;
+            // tiltX (Tilt / pitch) in DEGREES → radians.
+            const rad = (patch.tiltX * Math.PI) / 180;
+            for (const mesh of m.meshes) mesh.rotation.x = rad;
         }
     }
 

@@ -136,7 +136,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   // the reconciliation effect further down can reference them. See the
   // reconciliation effect for the full placement-model writeup.
   const sceneRef = useRef<ThumbnailScene | null>(null);
-  const modelBindingsRef = useRef<Map<string, { sceneId: string; sknPath: string; anim: string; frame: number; scale: number; orbit: number; x: number; y: number; w: number; h: number; hiddenMeshes: string; focusMode: string }>>(new Map());
+  const modelBindingsRef = useRef<Map<string, { sceneId: string; sknPath: string; anim: string; frame: number; scale: number; orbit: number; tiltX: number; x: number; y: number; w: number; h: number; hiddenMeshes: string; focusMode: string }>>(new Map());
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
@@ -309,7 +309,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       // Reserve the binding immediately so a second effect run (e.g. a
       // fast prop change while the load is in flight) doesn't fire a
       // duplicate addModel for the same layer.
-      const placeholder = { sceneId: '', sknPath: layer.sknPath, anim: layer.anim, frame: layer.frame, scale: layer.scale, orbit: layer.orbit, x: layer.x, y: layer.y, w: layer.w, h: layer.h, hiddenMeshes: JSON.stringify(layer.hiddenMeshes ?? []), focusMode: layer.focusMode ?? 'full' };
+      const placeholder = { sceneId: '', sknPath: layer.sknPath, anim: layer.anim, frame: layer.frame, scale: layer.scale, orbit: layer.orbit, tiltX: layer.tiltX ?? 0, x: layer.x, y: layer.y, w: layer.w, h: layer.h, hiddenMeshes: JSON.stringify(layer.hiddenMeshes ?? []), focusMode: layer.focusMode ?? 'full' };
       bindings.set(layer.id, placeholder);
       scene.addModel(layer.sknPath).then(async (handle) => {
         if (modelBindingsRef.current.get(layer.id) !== placeholder) {
@@ -320,7 +320,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
           return;
         }
         placeholder.sceneId = handle.id;
-        scene.setModelTransform(handle.id, { x: layer.x, y: layer.y, w: layer.w, h: layer.h, scale: layer.scale, orbit: layer.orbit });
+        scene.setModelTransform(handle.id, { x: layer.x, y: layer.y, w: layer.w, h: layer.h, scale: layer.scale, orbit: layer.orbit, tiltX: layer.tiltX ?? 0 });
         if (layer.hiddenMeshes && layer.hiddenMeshes.length > 0) {
           scene.setHiddenMeshes(handle.id, layer.hiddenMeshes);
         }
@@ -374,10 +374,10 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
         continue;
       }
 
-      if (existing.x !== layer.x || existing.y !== layer.y || existing.w !== layer.w || existing.h !== layer.h || existing.scale !== layer.scale || existing.orbit !== layer.orbit) {
-        scene.setModelTransform(existing.sceneId, { x: layer.x, y: layer.y, w: layer.w, h: layer.h, scale: layer.scale, orbit: layer.orbit });
+      if (existing.x !== layer.x || existing.y !== layer.y || existing.w !== layer.w || existing.h !== layer.h || existing.scale !== layer.scale || existing.orbit !== layer.orbit || existing.tiltX !== (layer.tiltX ?? 0)) {
+        scene.setModelTransform(existing.sceneId, { x: layer.x, y: layer.y, w: layer.w, h: layer.h, scale: layer.scale, orbit: layer.orbit, tiltX: layer.tiltX ?? 0 });
         existing.x = layer.x; existing.y = layer.y; existing.w = layer.w; existing.h = layer.h;
-        existing.scale = layer.scale; existing.orbit = layer.orbit;
+        existing.scale = layer.scale; existing.orbit = layer.orbit; existing.tiltX = layer.tiltX ?? 0;
       }
       if (existing.anim !== layer.anim && layer.anim) {
         existing.anim = layer.anim;
@@ -490,6 +490,10 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   }, []);
 
   const handleViewportPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    // During orbit, the middle-mouse / space pan of the ARTBOARD is disabled —
+    // it moved the whole board while you were trying to interact with the
+    // model (dumb). Camera pan uses right-drag on the model instead.
+    if (e.button === 1 && orbitLayerIdRef.current) { e.preventDefault(); return; }
     if (e.button === 1 || (e.button === 0 && spaceHeld)) {
       panStateRef.current = { x: e.clientX, y: e.clientY, px: panRef.current.x, py: panRef.current.y };
       setPanning(true);
@@ -773,7 +777,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       </div>
       {orbitLayerId && (
         <div className="tb-orbit-hint">
-          <span>Orbiting · drag to rotate · wheel to zoom · double-click to reset</span>
+          <span>Editing model · right-drag to pan · wheel to scale · Turn/Tilt/Scale on the right · dbl-click to reset</span>
           <button className="tb-orbit-hint__exit" onClick={exitOrbit}>Done (Esc)</button>
         </div>
       )}

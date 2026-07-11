@@ -29,7 +29,10 @@ export interface ModelLayer extends BaseLayer {
   frame: number;
   maxFrame: number;
   scale: number;
+  /** Turn / yaw rotation in degrees (-180..180) — face the character left/right. */
   orbit: number;
+  /** Tilt / pitch rotation in degrees (-180..180) — lean the character fwd/back. */
+  tiltX?: number;
   /** Submesh (material) names hidden for this model. Empty/undefined = all
    *  submeshes visible. Driven by the mesh-visibility popup. */
   hiddenMeshes?: string[];
