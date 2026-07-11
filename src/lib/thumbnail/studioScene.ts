@@ -173,7 +173,14 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         premultipliedAlpha: false,
     });
     const scene = new Scene(engine);
-    scene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0);
+    // Transparent clear so the ONLY opaque pixels on the canvas are the models
+    // themselves. This lets DOM layers painted BEHIND the canvas (the disc /
+    // "circle" background separator) show through everywhere the models don't
+    // cover — so the hero renders ON TOP of the circle, with the circle
+    // visible around it. The dark backdrop instead comes from `.tb-env` (a DOM
+    // layer below everything).
+    scene.clearColor = new Color4(0, 0, 0, 0);
+    scene.autoClear = true;
 
     // A model with no explicit box fills the whole stage; the first model
     // added seeds a default so it's visible before the artboard reconciles
@@ -296,7 +303,9 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             bgLayer = null;
         }
         if (!path) {
-            scene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0);
+            // Keep the canvas transparent (models are the only opaque pixels);
+            // the dark backdrop is the DOM `.tb-env` layer below the canvas.
+            scene.clearColor = new Color4(0, 0, 0, 0);
             return;
         }
         scene.clearColor = new Color4(0, 0, 0, 0);
@@ -396,6 +405,14 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         cam.speed = radius * 0.02;
         cam.alpha = Math.PI / 2 + Math.PI / 8;
         cam.beta = Math.PI / 3;
+        // Near/far clip relative to the model size so the near plane never
+        // slices through the mesh when zoomed in ("back of the model fades /
+        // goes through a wall"), and the far plane never culls it when zoomed
+        // out. minZ must stay > 0. Model span ~= radius; a near plane at
+        // radius/1000 clears any close orbit, far at radius*100 covers any
+        // zoom-out.
+        cam.minZ = Math.max(radius / 1000, 0.001);
+        cam.maxZ = radius * 100;
     }
 
     /** Pixel aspect (w/h) of a model's current viewport box on the canvas. */

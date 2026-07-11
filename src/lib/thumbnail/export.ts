@@ -356,26 +356,43 @@ export async function composeThumbnail(opts: ComposeOptions): Promise<Blob> {
   // wiring the real image loader later is a one-line change here.
   const decoBitmaps = new Map<string, ImageBitmap | null>();
 
-  // 1. Scene screenshot (model + baked-in background) — the base of the
-  //    composite. See module doc comment for why this alone already
-  //    matches the live preview's env/disc-back layering today.
+  // The layering now matches the live preview exactly (the scene canvas is
+  // TRANSPARENT — only model pixels are opaque — so the disc "circle" is a
+  // BACKGROUND separator painted BEHIND the models, and the hero renders on
+  // top of it):
+  //
+  //   1. dark environment backdrop (mirrors the `.tb-env` DOM layer)
+  //   2. deco (behind)
+  //   3. the full disc: glow + darkened fill + gold ring (the "circle")
+  //   4. the model screenshot (transparent bg; models composite over the disc)
+  //   5. deco (front)
+  //   6. text
+
+  // 1. Environment backdrop — solid dark fill (the `.tb-env` gradient is
+  //    cosmetic; a flat dark base matches the composed look closely and is
+  //    fully opaque so nothing shows through the final image).
+  ctx.save();
+  ctx.fillStyle = '#141414';
+  ctx.fillRect(0, 0, outW, outH);
+  ctx.restore();
+
+  // 2. Deco behind everything.
+  for (const d of decoBehind) drawDecoLayer(ctx, d, outW, outH, decoBitmaps.get(d.id) ?? null);
+
+  // 3. The full disc "circle" (glow, darkened fill, ring) — the background
+  //    separator, painted BEHIND the models.
+  if (discLayer) {
+    drawDiscPiece(ctx, discLayer, GLOW_OFFSET, outW, outH, glowBitmap, 1);
+    drawDiscPiece(ctx, discLayer, BLACK_OFFSET, outW, outH, null, discLayer.opacity / 100);
+    drawDiscPiece(ctx, discLayer, RING_OFFSET, outW, outH, ringBitmap, 1);
+  }
+
+  // 4. Model screenshot (transparent background) composited over the disc.
   const shotBlob = await scene.screenshot(outW, outH);
   const shotBitmap = await createImageBitmap(shotBlob);
   ctx.drawImage(shotBitmap, 0, 0, outW, outH);
 
-  // 2. Disc back pieces (glow, then black fill) — forward-compat, see doc.
-  if (discLayer) {
-    drawDiscPiece(ctx, discLayer, GLOW_OFFSET, outW, outH, glowBitmap, 1);
-    drawDiscPiece(ctx, discLayer, BLACK_OFFSET, outW, outH, null, discLayer.opacity / 100);
-  }
-
-  // 3. Deco layers behind the model/ring.
-  for (const d of decoBehind) drawDecoLayer(ctx, d, outW, outH, decoBitmaps.get(d.id) ?? null);
-
-  // 4. Disc ring (front band).
-  if (discLayer) drawDiscPiece(ctx, discLayer, RING_OFFSET, outW, outH, ringBitmap, 1);
-
-  // 5. Deco layers in front.
+  // 5. Deco in front of the models.
   for (const d of decoFront) drawDecoLayer(ctx, d, outW, outH, decoBitmaps.get(d.id) ?? null);
 
   // 6. Text, always last.

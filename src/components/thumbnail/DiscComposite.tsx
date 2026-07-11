@@ -51,7 +51,7 @@ function objectUrlFor(name: 'ring' | 'glow'): Promise<string> {
  *  instance paints; the caller renders two `DiscComposite`s (same `layer`,
  *  same box) at two different points in DOM order — this component has no
  *  opinion on z-order itself. */
-export function DiscComposite({ layer, part }: { layer: DiscLayer; part: 'back' | 'front' }) {
+export function DiscComposite({ layer, part }: { layer: DiscLayer; part: 'back' | 'front' | 'full' }) {
   const [ringUrl, setRingUrl] = useState<string | null>(null);
   const [glowUrl, setGlowUrl] = useState<string | null>(null);
 
@@ -71,21 +71,24 @@ export function DiscComposite({ layer, part }: { layer: DiscLayer; part: 'back' 
     height: `${(offset.h / h) * 100}%`,
   });
 
+  const showBack = part === 'back' || part === 'full';
+  const showRing = part === 'front' || part === 'full';
+
   return (
     <div className="tb-disc-composite">
-      {part === 'back' && glowUrl && (
+      {showBack && glowUrl && (
         <div
           className="tb-disc-piece tb-disc-glow"
           style={{ ...pct(GLOW_OFFSET), backgroundImage: `url("${glowUrl}")` }}
         />
       )}
-      {part === 'back' && (
+      {showBack && (
         <div
           className="tb-disc-piece tb-disc-black"
           style={{ ...pct(BLACK_OFFSET), opacity: layer.opacity / 100 }}
         />
       )}
-      {part === 'front' && ringUrl && (
+      {showRing && ringUrl && (
         <div
           className="tb-disc-piece tb-disc-ring"
           style={{ ...pct(RING_OFFSET), backgroundImage: `url("${ringUrl}")` }}

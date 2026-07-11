@@ -57,6 +57,8 @@
   height: 100%;
   display: block;
   pointer-events: none;
+  /* Above the disc "circle" background (z 0), below the DOM layer proxies. */
+  z-index: 1;
 }
 
 /* In orbit mode the canvas captures pointer events so the Babylon camera for
@@ -88,6 +90,9 @@
   position: absolute;
   cursor: grab;
   touch-action: none;
+  /* Above the scene canvas (z 1) so text/model/disc proxies + their overlays
+     sit on top of the 3D render in the DOM. */
+  z-index: 2;
 }
 
 .tb-el.dragging {
@@ -154,6 +159,16 @@
    layer's own box, so this container just needs to let them escape its
    own bounds (the glow/black pieces extend past the ring's box per the
    saved preset geometry). */
+/* The disc VISUAL, painted behind the (transparent) scene canvas so the hero
+   renders on top of the circle. Absolutely positioned in the stage; the
+   selectable disc `.tb-el` proxy sits above with its own box. */
+.tb-disc-bg {
+  position: absolute;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 0;
+}
+
 .tb-disc-composite {
   position: relative;
   width: 100%;
@@ -191,12 +206,6 @@
    it. Positioned identically to a .tb-el (absolute, same box) but is never
    a hit-target — the real disc .tb-el (glow + black fill) still owns
    selection/drag/lock. */
-.tb-disc-front-overlay {
-  position: absolute;
-  pointer-events: none;
-  overflow: visible;
-}
-
 .tb-body.deco-empty {
   outline: 1.5px dashed color-mix(in oklab, var(--accent-primary) 55%, var(--border));
   display: flex;

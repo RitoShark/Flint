@@ -678,6 +678,27 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
           <div className="tb-env" onPointerDown={handleEnvPointerDown}>
             <span className="tb-env-lbl">environment slot</span>
           </div>
+          {/* Disc ("circle") — the BACKGROUND SEPARATOR for the hero. Painted
+              BETWEEN the env and the (transparent) scene canvas, so the full
+              circle (glow + darkened fill + gold ring) sits BEHIND the models:
+              the hero renders ON TOP of the circle, with the circle visible
+              around it. The selectable/deletable disc hit-proxy is still a
+              `.tb-el` in the `sorted` map below (its LayerBody is empty — the
+              visual lives here). */}
+          {discLayer && !discLayer.hidden && (
+            <div
+              className="tb-disc-bg"
+              style={{
+                left: discLayer.x,
+                top: discLayer.y,
+                width: discLayer.w,
+                height: discLayer.h,
+                transform: `rotate(${discLayer.rot}deg)`,
+              }}
+            >
+              <DiscComposite layer={discLayer} part="full" />
+            </div>
+          )}
           {/* Shared Babylon scene (Task 8) — one canvas behind every DOM
               layer element, rendering all `model` layers' actual SKN
               meshes. See the reconciliation effect above for how layer
@@ -706,28 +727,6 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
               <LayerBody layer={layer} preset={preset} hue={hue} />
             </div>
           ))}
-          {/* Front band of the disc composite (the gold ring only) — see
-              the `discLayer` comment above. Painted last in DOM order so it
-              sits above every model `.tb-el` (and the scene canvas), giving
-              the framing-ring-in-front-of-hero look while the glow/black
-              fill (rendered by the disc's normal .tb-el above) stay behind
-              the model. Not a `.tb-el`: no data-id, no pointer handlers,
-              pointer-events:none — clicking/dragging/selecting the disc is
-              still driven entirely by the single element in the main loop. */}
-          {discLayer && (
-            <div
-              className="tb-disc-front-overlay"
-              style={{
-                left: discLayer.x,
-                top: discLayer.y,
-                width: discLayer.w,
-                height: discLayer.h,
-                transform: `rotate(${discLayer.rot}deg)`,
-              }}
-            >
-              <DiscComposite layer={discLayer} part="front" />
-            </div>
-          )}
         </div>
         <SelOverlay
           layer={selectedLayer}
@@ -774,11 +773,11 @@ function LayerBody({ layer, preset, hue }: { layer: Layer; preset: ThumbnailPres
     return <div className="tb-body">{layer.name.split('—')[0].trim()}</div>;
   }
   if (layer.type === 'disc') {
-    return (
-      <div className="tb-body">
-        <DiscComposite layer={layer} part="back" />
-      </div>
-    );
+    // The disc's VISUAL is painted behind the scene canvas (see the
+    // `.tb-disc-bg` element in the artboard) so the hero renders on top of the
+    // circle. This `.tb-el` is just the transparent selection/drag hit-proxy —
+    // empty body.
+    return <div className="tb-body tb-disc-proxy" />;
   }
   // deco
   return <div className="tb-body deco-empty">{layer.asset ? '' : 'corner PNG slot'}</div>;
