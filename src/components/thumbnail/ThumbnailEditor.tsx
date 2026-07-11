@@ -14,6 +14,7 @@ import { LayersPanel } from './LayersPanel';
 import { PropertiesPanel } from './PropertiesPanel';
 import { ThemePanel } from './ThemePanel';
 import { SavePresetModal } from './SavePresetModal';
+import { ModelStudioModal } from './ModelStudioModal';
 import { DlButton, DlIcon, DlIconButton, DlMenu, DlSelect } from '../ui/design-lab';
 
 type ExportFormatId = 'webp' | 'png' | 'jpg';
@@ -54,9 +55,27 @@ function seedLayers(sknPath: string): Layer[] {
       hidden: false,
       rot: 0,
       locked: false,
-      x: 388, y: 70, w: 230, h: 270,
+      x: 360, y: 40, w: 270, h: 300,
       // Primary model: wired to the window's `skn` launch param so the
-      // artboard loads a real SKN on mount (see ThumbnailArtboard).
+      // artboard loads a real SKN on mount (see ThumbnailArtboard). Its own
+      // camera viewport = this box (see studioScene.ts per-model cameras).
+      sknPath,
+      anim: '',
+      frame: 0,
+      maxFrame: 0,
+      scale: 100,
+      orbit: 0,
+    },
+    {
+      id: 'fullbody',
+      type: 'model',
+      name: 'Full body',
+      hidden: false,
+      rot: 0,
+      locked: false,
+      // Smaller full-body model at bottom-left (the "whole body" companion to
+      // the big hero), the second default model per the composition brief.
+      x: 40, y: 110, w: 150, h: 230,
       sknPath,
       anim: '',
       frame: 0,
@@ -98,6 +117,9 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
     const id = `user-${presetIdRef.current++}`;
     setUserPresets(prev => [...prev, { id, file }]);
   }, []);
+
+  // Which model layer id has the mesh & animation studio popup open (null = closed).
+  const [studioLayerId, setStudioLayerId] = useState<string | null>(null);
 
   const layers = history.get();
 
@@ -385,6 +407,9 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
   }, [selId, layers]);
 
   const selectedLayer = layers.find(l => l.id === selId) ?? null;
+  const studioModelLayer = studioLayerId
+    ? (layers.find(l => l.id === studioLayerId && l.type === 'model') as ModelLayer | undefined) ?? null
+    : null;
 
   return (
     <div className="dl-root" style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -467,8 +492,8 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
               <DlButton size="sm" variant="ghost" onClick={() => artboardControlsRef.current?.fitSelection()} title="Fit selection (Ctrl+9)">Fit sel</DlButton>
             </div>
             <div className="tb-floatbar__group">
-              <DlIconButton size="sm" icon="history" title="Undo (Ctrl+Z)" disabled={!history.canUndo()} onClick={undo} />
               <DlIconButton size="sm" icon="history" title="Redo (Ctrl+Shift+Z)" disabled={!history.canRedo()} onClick={redo} className="tb-redo" />
+              <DlIconButton size="sm" icon="history" title="Undo (Ctrl+Z)" disabled={!history.canUndo()} onClick={undo} />
             </div>
           </div>
         </div>
@@ -489,7 +514,7 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
             onChange={handlePropsChange}
             onBeginGesture={handleBeginGesture}
             onCommitGesture={handleCommitGesture}
-            getModelAnims={(layerId) => artboardControlsRef.current?.getModelAnims(layerId) ?? []}
+            onOpenModelStudio={selectedLayer?.type === 'model' ? () => setStudioLayerId(selectedLayer.id) : undefined}
           />
         </div>
       </div>
@@ -501,6 +526,21 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
           initialName={skn.split(/[\\/]/).pop()?.replace(/\.skn$/i, '') || 'My preset'}
           onSave={handleSavePreset}
           onClose={() => setShowSavePreset(false)}
+        />
+      )}
+      {studioModelLayer && (
+        <ModelStudioModal
+          layer={studioModelLayer}
+          getMeshes={() => artboardControlsRef.current?.getModelMeshes(studioModelLayer.id) ?? []}
+          getClips={() => artboardControlsRef.current?.getModelAnims(studioModelLayer.id) ?? []}
+          onChange={(patch, record) => {
+            const next = updateLayer(history.get(), studioModelLayer.id, patch as Partial<Layer>);
+            history.set(next, record);
+            forceRender(n => n + 1);
+          }}
+          onBeginGesture={handleBeginGesture}
+          onCommitGesture={handleCommitGesture}
+          onClose={() => setStudioLayerId(null)}
         />
       )}
     </div>

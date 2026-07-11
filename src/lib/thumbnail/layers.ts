@@ -30,6 +30,9 @@ export interface ModelLayer extends BaseLayer {
   maxFrame: number;
   scale: number;
   orbit: number;
+  /** Submesh (material) names hidden for this model. Empty/undefined = all
+   *  submeshes visible. Driven by the mesh-visibility popup. */
+  hiddenMeshes?: string[];
 }
 
 export interface DiscLayer extends BaseLayer {

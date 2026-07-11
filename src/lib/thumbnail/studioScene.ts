@@ -8,28 +8,26 @@
  * `createEngine`) and the SKN/anim IPC commands verbatim — the load
  * sequence mirrors `ModelPreview.tsx` (lines ~450-760).
  *
- * Placement model: ONE shared scene + ONE ArcRotateCamera (framed on the
- * first model added / whichever model is re-framed). Each model's artboard
- * x/y/w/h + per-model `orbit` are stored on its `ModelState` and returned to
- * the caller (`ModelHandle`) as plain data — the Thumbnail Creator's
- * compositor (Task 13) is responsible for placing each model's rendered
- * region on the artboard canvas. A full per-model `RenderTargetTexture`
- * approach (separate camera/light rig per model, composited post-render)
- * was considered but is disproportionate: `layers.ts`'s `ModelLayer` already
- * models x/y/w/h/scale/orbit as plain per-layer data, implying the
- * compositor — not the scene host — owns final screen-space placement.
+ * Placement model: ONE shared scene, but ONE ArcRotateCamera PER MODEL. Each
+ * camera renders into its own screen-space `viewport` (derived from the
+ * model layer's artboard x/y/w/h) and, via a unique `layerMask` bit, sees
+ * ONLY its own model's meshes. So every model lands exactly where its box is
+ * on the artboard, framed on its own bounding box — two models never overlap
+ * at the origin (the old single-shared-camera bug), and a model dragged to a
+ * new box moves with it. `scene.activeCameras` holds all model cameras; a
+ * dummy fallback camera keeps the scene renderable when no model is loaded.
  */
 
 import '@babylonjs/core';
 
+import { Engine } from '@babylonjs/core/Engines/engine';
 import { Scene } from '@babylonjs/core/scene';
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
 import { GlowLayer } from '@babylonjs/core/Layers/glowLayer';
 import { Layer } from '@babylonjs/core/Layers/layer';
-import { Tools } from '@babylonjs/core/Misc/tools';
-import { Vector3, Color3, Color4 } from '@babylonjs/core/Maths/math';
+import { Vector3, Color3, Color4, Viewport } from '@babylonjs/core/Maths/math';
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
 import { Material } from '@babylonjs/core/Materials/material';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
@@ -38,7 +36,6 @@ import type { Skeleton } from '@babylonjs/core/Bones/skeleton';
 import type { Bone } from '@babylonjs/core/Bones/bone';
 import { convertFileSrc } from '@tauri-apps/api/core';
 
-import { createEngine } from '../babylon/engine';
 import { buildSknMeshes, type MeshDTO } from '../babylon/meshBuilder';
 import { buildBabylonSkeleton, type BoneData } from '../babylon/skeletonBuilder';
 import { AnimationPlayer, type BakedAnimationDTO } from '../babylon/animationPlayer';
@@ -53,6 +50,12 @@ export interface AnimClip {
     name: string;
     track_name: string | null;
     animation_path: string;
+}
+
+export interface MeshInfo {
+    /** Submesh (material) name — stable id used by setMeshHidden. */
+    name: string;
+    hidden: boolean;
 }
 
 export interface ModelHandle {
@@ -73,6 +76,14 @@ export interface ModelTransformPatch {
     orbit?: number;
 }
 
+/** The artboard's design-space dimensions (STAGE_W × STAGE_H). Model boxes
+ *  (x/y/w/h) are expressed in this space; the scene converts them to Babylon
+ *  camera viewports (normalized 0-1, bottom-left origin). */
+export interface StageDims {
+    w: number;
+    h: number;
+}
+
 export interface ThumbnailScene {
     addModel(sknPath: string): Promise<ModelHandle>;
     removeModel(id: string): void;
@@ -80,10 +91,15 @@ export interface ThumbnailScene {
     setModelAnim(id: string, anim: string): Promise<void>;
     setModelFrame(id: string, frame: number): void;
     listAnims(id: string): AnimClip[];
+    /** Submesh list for a model with per-submesh hidden state (drives the
+     *  mesh-visibility popup). Empty until the model has loaded. */
+    listMeshes(id: string): MeshInfo[];
+    /** Show/hide a single submesh by name. */
+    setMeshHidden(id: string, meshName: string, hidden: boolean): void;
+    /** Bulk-apply the hidden-submesh set (names not present are shown). */
+    setHiddenMeshes(id: string, hiddenNames: string[]): void;
     /** Highest scrubbable frame index (frame_count - 1) of the model's
-     *  CURRENTLY selected animation; 0 if no clip is loaded. Additive to
-     *  the base contract — `setModelAnim` resolves `Promise<void>`, so
-     *  this is how a caller re-reads the max after switching clips. */
+     *  CURRENTLY selected animation; 0 if no clip is loaded. */
     getMaxFrame(id: string): number;
     setEnvImage(path: string | null, fit: BackgroundFit): void;
     setGlow(id: string, on: boolean, intensity: number): void;
@@ -98,6 +114,13 @@ export interface ThumbnailScene {
 interface ModelState {
     id: string;
     sknPath: string;
+    camera: ArcRotateCamera;
+    /** Unique renderingGroup/layerMask bit so this model's camera renders
+     *  only this model's meshes. */
+    layerMask: number;
+    /** Model-space bounding box (X-mirrored on load, same as the meshes) —
+     *  used to (re)frame this model's own camera. */
+    bbox: [[number, number, number], [number, number, number]];
     meshes: Mesh[];
     skeleton: Skeleton | null;
     boneIndexByHash: Map<number, number>;
@@ -105,19 +128,13 @@ interface ModelState {
     joints: BoneData[];
     textures: Texture[];
     clips: AnimClip[];
+    hiddenMeshes: Set<string>;
     player: AnimationPlayer | null;
-    /** fps of the currently loaded clip — needed to convert a scrub frame
-     *  index to seconds (`AnimationPlayer.time`), since `AnimationPlayer`
-     *  itself doesn't expose fps publicly. */
     fps: number;
-    /** frame_count - 1 of the currently loaded clip; 0 with no clip loaded. */
     maxFrame: number;
-    /** frame explicitly requested via setModelFrame, applied once the
-     *  player for the (possibly still-loading) clip exists. */
     pendingFrame: number | null;
     glowOn: boolean;
-    // Artboard placement, stored for the compositor (Task 13) — not
-    // consumed by this scene host directly (single shared camera).
+    // Artboard placement (design-space box) → drives this model's viewport.
     x: number;
     y: number;
     w: number;
@@ -128,22 +145,47 @@ interface ModelState {
 
 let modelSeq = 0;
 
-export function createThumbnailScene(canvas: HTMLCanvasElement): ThumbnailScene {
-    const engine = createEngine(canvas);
+export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims): ThumbnailScene {
+    const stageDims: StageDims = { w: stage.w || 640, h: stage.h || 360 };
+
+    // preserveDrawingBuffer:true is REQUIRED here (unlike the shared
+    // createEngine): the thumbnail scene renders MULTIPLE cameras into
+    // separate viewports via scene.activeCameras, and Babylon's
+    // CreateScreenshotUsingRenderTarget forces a SINGLE-camera render
+    // (it nulls scene.activeCameras internally). So export instead reads the
+    // live multi-viewport canvas back directly — which needs the drawing
+    // buffer preserved.
+    const engine = new Engine(canvas, true, {
+        preserveDrawingBuffer: true,
+        stencil: false,
+        antialias: true,
+        adaptToDeviceRatio: true,
+        alpha: true,
+        premultipliedAlpha: false,
+    });
     const scene = new Scene(engine);
     scene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0);
 
-    const camera = new ArcRotateCamera(
-        'thumbnail-cam',
+    // A model with no explicit box fills the whole stage; the first model
+    // added seeds a default so it's visible before the artboard reconciles
+    // its real x/y/w/h. The base layerMask bit reserved for "everything".
+    const ALL_MASK = 0x0fffffff;
+
+    // Fallback camera keeps the scene renderable (and screenshot-able) when
+    // no model is loaded; removed from activeCameras once models exist.
+    const fallbackCamera = new ArcRotateCamera(
+        'thumbnail-fallback-cam',
         Math.PI / 2 + Math.PI / 8,
         Math.PI / 3,
         5,
         Vector3.Zero(),
         scene,
     );
-    camera.attachControl(canvas, true);
-    camera.wheelDeltaPercentage = 0.05;
-    camera.panningSensibility = 100;
+    fallbackCamera.layerMask = ALL_MASK;
+
+    // The user only ever interacts with the FIRST model's camera (controls
+    // attach to it); other cameras are display-only viewports.
+    let controlCamera: ArcRotateCamera | null = null;
 
     const ambientLight = new HemisphericLight('thumbnail-ambient', new Vector3(0, 1, 0), scene);
     ambientLight.intensity = 1.2;
@@ -162,11 +204,41 @@ export function createThumbnailScene(canvas: HTMLCanvasElement): ThumbnailScene 
     glowLayer.intensity = 0.8;
     glowLayer.isEnabled = false;
 
+    const models = new Map<string, ModelState>();
+
+    // scene.activeCameras drives multi-viewport rendering. Rebuild it from the
+    // live model set (or the fallback when empty). Order doesn't matter since
+    // viewports don't overlap in practice, but keep the control camera first.
+    function refreshActiveCameras(): void {
+        const cams = [...models.values()].map(m => m.camera);
+        if (cams.length === 0) {
+            scene.activeCameras = [fallbackCamera];
+        } else {
+            scene.activeCameras = cams;
+        }
+    }
+    refreshActiveCameras();
+
+    // ── Per-model camera viewport ────────────────────────────────────────
+    // Convert a model's design-space box (top-left origin, STAGE_W×STAGE_H)
+    // into a Babylon viewport (normalized 0-1, BOTTOM-left origin). A zero/
+    // unset box means "fill the whole stage".
+    function applyViewport(m: ModelState): void {
+        const sw = stageDims.w;
+        const sh = stageDims.h;
+        let { x, y, w, h } = m;
+        if (w <= 0 || h <= 0) {
+            x = 0; y = 0; w = sw; h = sh;
+        }
+        const vx = x / sw;
+        const vw = w / sw;
+        const vh = h / sh;
+        // flip Y: design-space top → viewport bottom
+        const vy = 1 - (y / sh) - vh;
+        m.camera.viewport = new Viewport(vx, vy, vw, vh);
+    }
+
     // ── Environment background ──────────────────────────────────────
-    // Same NDC-quad + counter-texture-matrix trick as Jade's studioScene:
-    // the Layer's `scale`/`offset` size+position the quad, and the texture
-    // matrix counteracts Babylon's UV-to-quad coupling so cover/contain/
-    // stretch fit the FULL image regardless of quad size.
     let bgLayer: Layer | null = null;
     let bgFit: BackgroundFit = 'cover';
 
@@ -246,8 +318,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement): ThumbnailScene 
     };
     window.addEventListener('resize', handleResize);
 
-    const models = new Map<string, ModelState>();
-
     function disposeModel(m: ModelState): void {
         for (const mesh of m.meshes) {
             const mat = mesh.material as PBRMaterial | null;
@@ -259,11 +329,18 @@ export function createThumbnailScene(canvas: HTMLCanvasElement): ThumbnailScene 
         }
         for (const tex of m.textures) tex.dispose();
         m.skeleton?.dispose();
+        if (m.camera !== controlCamera) {
+            m.camera.dispose();
+        } else {
+            m.camera.dispose();
+            controlCamera = null;
+        }
     }
 
-    /** Y-weighted bbox framing, identical to ModelPreview.tsx's camera
-     *  logic — tall/winged silhouettes get extra vertical headroom. */
-    function frameCameraOnBBox(bbox: [[number, number, number], [number, number, number]]): void {
+    /** Y-weighted bbox framing on a SPECIFIC camera, identical to
+     *  ModelPreview.tsx's logic — tall/winged silhouettes get vertical
+     *  headroom. Frames the given camera so the model fills its viewport. */
+    function frameCamera(cam: ArcRotateCamera, bbox: [[number, number, number], [number, number, number]]): void {
         let [[minX, minY, minZ], [maxX, maxY, maxZ]] = bbox;
         const boxValid =
             [minX, minY, minZ, maxX, maxY, maxZ].every(Number.isFinite) &&
@@ -278,16 +355,16 @@ export function createThumbnailScene(canvas: HTMLCanvasElement): ThumbnailScene 
         const sizeZ = maxZ - minZ;
         const radius = Math.max(sizeY * 1.4, sizeX, sizeZ, 0.01) || 5;
 
-        camera.target = center;
-        camera.radius = radius;
-        camera.lowerRadiusLimit = radius * 0.02;
-        camera.upperRadiusLimit = radius * 50.0;
-        camera.wheelPrecision = 80 / radius;
-        camera.pinchPrecision = 160 / radius;
-        camera.panningSensibility = 8000 / Math.max(radius, 0.001);
-        camera.speed = radius * 0.02;
-        camera.alpha = Math.PI / 2 + Math.PI / 8;
-        camera.beta = Math.PI / 3;
+        cam.target = center;
+        cam.radius = radius;
+        cam.lowerRadiusLimit = radius * 0.02;
+        cam.upperRadiusLimit = radius * 50.0;
+        cam.wheelPrecision = 80 / radius;
+        cam.pinchPrecision = 160 / radius;
+        cam.panningSensibility = 8000 / Math.max(radius, 0.001);
+        cam.speed = radius * 0.02;
+        cam.alpha = Math.PI / 2 + Math.PI / 8;
+        cam.beta = Math.PI / 3;
     }
 
     function applyTexturesAndMaterials(meshes: Mesh[], meshData: SknMeshData): Texture[] {
@@ -425,9 +502,44 @@ export function createThumbnailScene(canvas: HTMLCanvasElement): ThumbnailScene 
         const textures = applyTexturesAndMaterials(meshes, meshData);
 
         const id = `model-${++modelSeq}`;
+
+        // Recompute the bbox from the actual (X-mirrored) vertex positions
+        // rather than trusting the stored box — same reasoning as
+        // ModelPreview/skn.rs: positions are negated on X at load, and some
+        // SKNs ship a zeroed/garbage box that would collapse framing.
+        const bbox = computeBBox(meshes) ?? meshData.bounding_box;
+
+        // Unique layerMask bit for this model so its camera sees only it.
+        // Bit index = model index (wraps after 27; far more than any real
+        // thumbnail needs).
+        const bitIndex = (modelSeq - 1) % 27;
+        const layerMask = 1 << bitIndex;
+        for (const mesh of meshes) mesh.layerMask = layerMask;
+
+        const camera = new ArcRotateCamera(
+            `thumbnail-cam-${id}`,
+            Math.PI / 2 + Math.PI / 8,
+            Math.PI / 3,
+            5,
+            Vector3.Zero(),
+            scene,
+        );
+        camera.layerMask = layerMask;
+        camera.wheelDeltaPercentage = 0.05;
+        frameCamera(camera, bbox);
+
+        // First model's camera receives user input; the rest are display-only.
+        if (!controlCamera) {
+            controlCamera = camera;
+            camera.attachControl(canvas, true);
+        }
+
         const state: ModelState = {
             id,
             sknPath,
+            camera,
+            layerMask,
+            bbox,
             meshes,
             skeleton,
             boneIndexByHash,
@@ -435,6 +547,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement): ThumbnailScene 
             joints,
             textures,
             clips: animResult.clips,
+            hiddenMeshes: new Set(),
             player: null,
             fps: 0,
             maxFrame: 0,
@@ -448,11 +561,8 @@ export function createThumbnailScene(canvas: HTMLCanvasElement): ThumbnailScene 
             orbit: 0,
         };
         models.set(id, state);
-
-        // Frame the camera on this model — with a single shared camera, the
-        // most-recently-added model wins (matches ModelPreview's single-model
-        // framing behavior; multi-model framing is a compositor concern).
-        frameCameraOnBBox(meshData.bounding_box);
+        applyViewport(state);
+        refreshActiveCameras();
 
         return { id, maxFrame: 0 };
     }
@@ -460,19 +570,26 @@ export function createThumbnailScene(canvas: HTMLCanvasElement): ThumbnailScene 
     function removeModel(id: string): void {
         const m = models.get(id);
         if (!m) return;
-        // AnimationPlayer holds no scene resources of its own (just bone
-        // refs) — disposing the mesh/skeleton is sufficient teardown.
         disposeModel(m);
         models.delete(id);
+        // If the control camera was removed, promote another model's camera.
+        if (!controlCamera && models.size > 0) {
+            const next = models.values().next().value as ModelState;
+            controlCamera = next.camera;
+            next.camera.attachControl(canvas, true);
+        }
+        refreshActiveCameras();
     }
 
     function setModelTransform(id: string, patch: ModelTransformPatch): void {
         const m = models.get(id);
         if (!m) return;
-        if (patch.x !== undefined) m.x = patch.x;
-        if (patch.y !== undefined) m.y = patch.y;
-        if (patch.w !== undefined) m.w = patch.w;
-        if (patch.h !== undefined) m.h = patch.h;
+        let boxChanged = false;
+        if (patch.x !== undefined) { m.x = patch.x; boxChanged = true; }
+        if (patch.y !== undefined) { m.y = patch.y; boxChanged = true; }
+        if (patch.w !== undefined) { m.w = patch.w; boxChanged = true; }
+        if (patch.h !== undefined) { m.h = patch.h; boxChanged = true; }
+        if (boxChanged) applyViewport(m);
         if (patch.scale !== undefined) {
             m.scale = patch.scale;
             for (const mesh of m.meshes) mesh.scaling.set(patch.scale, patch.scale, patch.scale);
@@ -495,8 +612,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement): ThumbnailScene 
             path: clip.animation_path,
             basePath: m.sknPath,
         });
-        // sknPath may have changed underneath an in-flight load if the model
-        // was removed — guard against a stale write.
         if (!models.has(id)) return;
 
         const player = new AnimationPlayer(baked, m.boneIndexByHash, m.bones, m.joints);
@@ -511,15 +626,10 @@ export function createThumbnailScene(canvas: HTMLCanvasElement): ThumbnailScene 
         }
     }
 
-    /** Frame-scrub recipe: pause the player, set `time = frame / fps`
-     *  (seconds), then `tick(0)` to apply the pose at that time without
-     *  advancing it. */
     function setModelFrame(id: string, frame: number): void {
         const m = models.get(id);
         if (!m) return;
         if (!m.player) {
-            // No clip loaded yet — remember the request so a subsequent
-            // setModelAnim can seek to it immediately.
             m.pendingFrame = frame;
             return;
         }
@@ -530,6 +640,30 @@ export function createThumbnailScene(canvas: HTMLCanvasElement): ThumbnailScene 
 
     function listAnims(id: string): AnimClip[] {
         return models.get(id)?.clips ?? [];
+    }
+
+    function listMeshes(id: string): MeshInfo[] {
+        const m = models.get(id);
+        if (!m) return [];
+        return m.meshes.map(mesh => ({ name: mesh.name, hidden: m.hiddenMeshes.has(mesh.name) }));
+    }
+
+    function setMeshHidden(id: string, meshName: string, hidden: boolean): void {
+        const m = models.get(id);
+        if (!m) return;
+        if (hidden) m.hiddenMeshes.add(meshName);
+        else m.hiddenMeshes.delete(meshName);
+        for (const mesh of m.meshes) {
+            if (mesh.name === meshName) mesh.setEnabled(!hidden);
+        }
+    }
+
+    function setHiddenMeshes(id: string, hiddenNames: string[]): void {
+        const m = models.get(id);
+        if (!m) return;
+        const next = new Set(hiddenNames);
+        m.hiddenMeshes = next;
+        for (const mesh of m.meshes) mesh.setEnabled(!next.has(mesh.name));
     }
 
     function getMaxFrame(id: string): number {
@@ -556,22 +690,31 @@ export function createThumbnailScene(canvas: HTMLCanvasElement): ThumbnailScene 
     }
 
     async function screenshot(w: number, h: number): Promise<Blob> {
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-            try {
-                Tools.CreateScreenshotUsingRenderTarget(
-                    engine,
-                    camera,
-                    { width: w, height: h },
-                    (data) => resolve(data),
-                    'image/png',
-                    4,
-                );
-            } catch (e) {
-                reject(e);
-            }
+        // Read the LIVE multi-viewport canvas (see the engine construction
+        // note): render one fresh frame so the drawing buffer is current,
+        // then grab it via a temp 2D canvas scaled to the requested output
+        // size. This preserves every model's per-camera viewport — unlike
+        // CreateScreenshotUsingRenderTarget, which would only capture one
+        // camera. The 2D copy must happen in the SAME frame as the render
+        // (preserveDrawingBuffer keeps it valid across the await, but we
+        // render explicitly to be safe).
+        scene.render();
+        const gl = engine.getRenderingCanvas();
+        if (!gl) throw new Error('screenshot: no rendering canvas');
+        const out = document.createElement('canvas');
+        out.width = w;
+        out.height = h;
+        const ctx = out.getContext('2d');
+        if (!ctx) throw new Error('screenshot: no 2D context');
+        // The scene canvas already has the dark clear color baked in (opaque),
+        // so drawing it scaled to the output size reproduces the preview.
+        ctx.drawImage(gl, 0, 0, gl.width, gl.height, 0, 0, w, h);
+        return new Promise<Blob>((resolve, reject) => {
+            out.toBlob(
+                (blob) => (blob ? resolve(blob) : reject(new Error('screenshot: toBlob returned null'))),
+                'image/png',
+            );
         });
-        const res = await fetch(dataUrl);
-        return res.blob();
     }
 
     function dispose(): void {
@@ -594,10 +737,34 @@ export function createThumbnailScene(canvas: HTMLCanvasElement): ThumbnailScene 
         setModelAnim,
         setModelFrame,
         listAnims,
+        listMeshes,
+        setMeshHidden,
+        setHiddenMeshes,
         getMaxFrame,
         setEnvImage,
         setGlow,
         screenshot,
         dispose,
     };
+}
+
+/** Recompute an AABB from actual mesh vertex positions (post X-mirror), so
+ *  framing never trusts a zeroed/garbage stored bbox. Returns null if no
+ *  mesh has positions. */
+function computeBBox(meshes: Mesh[]): [[number, number, number], [number, number, number]] | null {
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    let any = false;
+    for (const mesh of meshes) {
+        const info = mesh.getBoundingInfo?.();
+        if (!info) continue;
+        const bb = info.boundingBox;
+        const lo = bb.minimumWorld;
+        const hi = bb.maximumWorld;
+        minX = Math.min(minX, lo.x); minY = Math.min(minY, lo.y); minZ = Math.min(minZ, lo.z);
+        maxX = Math.max(maxX, hi.x); maxY = Math.max(maxY, hi.y); maxZ = Math.max(maxZ, hi.z);
+        any = true;
+    }
+    if (!any || !Number.isFinite(minX)) return null;
+    return [[minX, minY, minZ], [maxX, maxY, maxZ]];
 }

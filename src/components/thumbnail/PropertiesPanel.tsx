@@ -1,11 +1,6 @@
 import { ChangeEvent } from 'react';
 import { Layer } from '../../lib/thumbnail/layers';
-import { AnimClip } from '../../lib/thumbnail/studioScene';
-import { DlIcon, DlSegmented, DlSelect, DlSlider } from '../ui/design-lab';
-
-// Fallback shown only while the real SKN hasn't loaded yet (or has no clips) —
-// keeps the dropdown non-empty instead of blank during that brief window.
-const FALLBACK_ANIMS = ['idle1.anm'];
+import { DlIcon, DlSegmented, DlButton, DlSlider } from '../ui/design-lab';
 
 export type LayerPatch = Partial<Layer>;
 
@@ -16,10 +11,8 @@ export interface PropertiesPanelProps {
   onBeginGesture: () => void;
   /** Record the gesture (baseline vs. final state) onto the undo stack (call on slider pointerup). */
   onCommitGesture: () => void;
-  /** Real animation clips for the given model layer id, sourced from the
-   *  Babylon scene (Task 8/9) via ThumbnailArtboardHandle.getModelAnims.
-   *  Returns [] until the model has finished loading. */
-  getModelAnims?: (layerId: string) => AnimClip[];
+  /** Open the mesh & animation studio popup for the current model layer. */
+  onOpenModelStudio?: () => void;
 }
 
 type ChangeProps = { onChange: PropertiesPanelProps['onChange']; onBeginGesture: PropertiesPanelProps['onBeginGesture']; onCommitGesture: PropertiesPanelProps['onCommitGesture'] };
@@ -115,38 +108,19 @@ function TextProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer
   );
 }
 
-function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture, getModelAnims }: { layer: Extract<Layer, { type: 'model' }> } & ChangeProps & { getModelAnims?: (layerId: string) => AnimClip[] }) {
-  const clips = getModelAnims?.(layer.id) ?? [];
-  // Dropdown value = animation_path (matches what studioScene.setModelAnim
-  // expects and what the reconciliation effect writes back onto layer.anim).
-  // Fall back to a static placeholder list while the model/clips haven't
-  // loaded yet, so the control isn't empty during that window.
-  const options = clips.length > 0
-    ? clips.map(c => ({ value: c.animation_path, label: c.name || c.animation_path.split(/[\\/]/).pop() || c.animation_path }))
-    : (layer.anim ? [{ value: layer.anim, label: layer.anim }] : FALLBACK_ANIMS.map(a => ({ value: a, label: a })));
-
+function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture, onOpenModelStudio }: { layer: Extract<Layer, { type: 'model' }> } & ChangeProps & { onOpenModelStudio?: () => void }) {
+  const hiddenCount = layer.hiddenMeshes?.length ?? 0;
   return (
     <>
       <div className="tb-grp">
-        <label>Animation</label>
-        <DlSelect
-          width="100%"
-          value={layer.anim || (options[0]?.value ?? null)}
-          onChange={(v) => onChange({ anim: v }, true)}
-          options={options}
-        />
-      </div>
-      <div className="tb-grp">
-        <label>Frame <b>{layer.frame} / {layer.maxFrame}</b></label>
-        <DlSlider
-          min={0}
-          max={layer.maxFrame}
-          value={layer.frame}
-          bubble={`${layer.frame}`}
-          onPointerDown={onBeginGesture}
-          onChange={(v) => onChange({ frame: v }, false)}
-          onPointerUp={onCommitGesture}
-        />
+        <label>Meshes &amp; animation</label>
+        <DlButton fullWidth variant="secondary" icon="settings" onClick={onOpenModelStudio}>
+          Edit meshes &amp; animation…
+        </DlButton>
+        <div className="tb-hint">
+          {layer.anim ? `Clip: ${layer.anim.split(/[\\/]/).pop()} · frame ${layer.frame}/${layer.maxFrame}` : 'No animation selected'}
+          {hiddenCount > 0 ? ` · ${hiddenCount} mesh${hiddenCount === 1 ? '' : 'es'} hidden` : ''}
+        </div>
       </div>
       <div className="tb-grp">
         <label>Scale <b>{(layer.scale / 100).toFixed(2)}&times;</b></label>
@@ -237,7 +211,7 @@ const TITLE_ICON: Record<Layer['type'], Parameters<typeof DlIcon>[0]['name']> = 
   deco: 'picture',
 };
 
-export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGesture, getModelAnims }: PropertiesPanelProps) {
+export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGesture, onOpenModelStudio }: PropertiesPanelProps) {
   // The Placement lock at the top reflects the SAME `layer.locked` the Layers
   // panel toggles — so lock state reads identically in both places (the user's
   // "is it locked or editable?" confusion came from those two controls not
@@ -255,7 +229,7 @@ export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGestu
           <>
             <LockRow layer={layer} onChange={onChange} />
             {layer.type === 'text' && <TextProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
-            {layer.type === 'model' && <ModelProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} getModelAnims={getModelAnims} />}
+            {layer.type === 'model' && <ModelProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} onOpenModelStudio={onOpenModelStudio} />}
             {layer.type === 'disc' && <DiscProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
             {layer.type === 'deco' && <DecoProps layer={layer} onChange={onChange} />}
           </>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { DiscLayer, Layer, ModelLayer, TextLayer, updateLayer } from '../../lib/thumbnail/layers';
-import { AnimClip, createThumbnailScene, ThumbnailScene } from '../../lib/thumbnail/studioScene';
+import { AnimClip, createThumbnailScene, MeshInfo, ThumbnailScene } from '../../lib/thumbnail/studioScene';
 import { fitFontSize, TextMeasure } from '../../lib/thumbnail/textFit';
 import { resolveTextColor, ThumbnailPresetId } from '../../lib/thumbnail/hue';
 import { DiscComposite } from './DiscComposite';
@@ -29,6 +29,9 @@ export interface ThumbnailArtboardHandle {
    *  SKN (empty until the scene has finished loading it). Backs the
    *  PropertiesPanel anim dropdown. */
   getModelAnims: (layerId: string) => AnimClip[];
+  /** Submesh list (with per-submesh hidden state) for a `model` layer's
+   *  loaded SKN — backs the mesh-visibility popup. Empty until loaded. */
+  getModelMeshes: (layerId: string) => MeshInfo[];
   /** The live Babylon scene instance (Task 8/9), for the compositor
    *  (Task 13) to call `screenshot(w, h)` on. Null until the scene-creation
    *  effect has run (always true by the time a user could click Export). */
@@ -126,7 +129,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   // the reconciliation effect further down can reference them. See the
   // reconciliation effect for the full placement-model writeup.
   const sceneRef = useRef<ThumbnailScene | null>(null);
-  const modelBindingsRef = useRef<Map<string, { sceneId: string; sknPath: string; anim: string; frame: number; scale: number; orbit: number; x: number; y: number; w: number; h: number }>>(new Map());
+  const modelBindingsRef = useRef<Map<string, { sceneId: string; sknPath: string; anim: string; frame: number; scale: number; orbit: number; x: number; y: number; w: number; h: number; hiddenMeshes: string }>>(new Map());
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
@@ -135,6 +138,13 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     const binding = modelBindingsRef.current.get(layerId);
     if (!scene || !binding || !binding.sceneId) return [];
     return scene.listAnims(binding.sceneId);
+  }, []);
+
+  const getModelMeshes = useCallback((layerId: string): MeshInfo[] => {
+    const scene = sceneRef.current;
+    const binding = modelBindingsRef.current.get(layerId);
+    if (!scene || !binding || !binding.sceneId) return [];
+    return scene.listMeshes(binding.sceneId);
   }, []);
 
   const getScene = useCallback((): ThumbnailScene | null => sceneRef.current, []);
@@ -192,11 +202,11 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
 
   // Expose fit/100%/fit-selection/getModelAnims to the host (toolbar / keyboard shortcuts / PropertiesPanel).
   useEffect(() => {
-    if (controlsRef) controlsRef.current = { fitView, fullView, fitSelection, getModelAnims, getScene };
+    if (controlsRef) controlsRef.current = { fitView, fullView, fitSelection, getModelAnims, getModelMeshes, getScene };
     return () => {
       if (controlsRef) controlsRef.current = null;
     };
-  }, [controlsRef, fitView, fullView, fitSelection, getModelAnims, getScene]);
+  }, [controlsRef, fitView, fullView, fitSelection, getModelAnims, getModelMeshes, getScene]);
 
   // ── Fit once the viewport has real dimensions. Double-rAF handles the
   // normal first paint; a ResizeObserver catches the cold-WebView case where
@@ -232,32 +242,20 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
 
   // ── Babylon scene (Task 8) instantiation + model-layer reconciliation ──
   //
-  // Placement model: ONE shared Babylon scene/camera renders behind the DOM
-  // stage (a single <canvas> filling .tb-stage, painted first so every
-  // .tb-el sits above it in DOM order). `model` layers keep their existing
-  // DOM proxy box (drag/resize/select all still work exactly as before) —
-  // that proxy is now translucent so the real 3D render shows through it.
-  // x/y/w/h are NOT used to place the 3D render on screen (the scene has a
-  // single shared camera, per studioScene.ts's documented V1 contract) —
-  // they're forwarded to `setModelTransform` as data only, same as the
-  // scene host already expects, for the future compositor (Task 13) to
-  // consume. Only `scale` and `orbit` visibly affect the render this task.
-  // (sceneRef/modelBindingsRef/onChangeRef are declared above, near the
-  // other refs, so getModelAnims can read them too.)
-  //
-  // Glow-color follow-up (Task 12): `resolveGlowColor(hue)` exists in
-  // hue.ts and IS used for the ThemePanel swatch, but the scene's
-  // `setGlow(id, on, intensity)` (studioScene.ts) has no color channel —
-  // no control in this codebase calls `setGlow` yet at all, so there is no
-  // existing on/off toggle for this task to tint. Extending the studio
-  // scene contract to accept a glow color is explicitly out of scope here
-  // (brief: "do NOT change studioScene's contract in this task") — a
-  // follow-up task should add a color param to `setGlow`/its host object
-  // and pass `resolveGlowColor(hue)` through once a glow control exists.
+  // Placement model: ONE shared Babylon scene renders behind the DOM stage
+  // (a single <canvas> filling .tb-stage, painted first so every .tb-el sits
+  // above it in DOM order), but each `model` layer gets its OWN camera whose
+  // screen-space viewport is derived from that layer's x/y/w/h box (see
+  // studioScene.ts). So the 3D render for each model lands exactly inside its
+  // artboard box — dragging/resizing the box moves/resizes the render, and
+  // multiple models no longer overlap at the origin. The DOM proxy box stays
+  // (translucent) purely for drag/resize/select hit-testing; the real render
+  // shows through it. `scale`/`orbit`/`hiddenMeshes` are also forwarded to
+  // the scene. (sceneRef/modelBindingsRef/onChangeRef are declared above.)
   useEffect(() => {
     const canvas = sceneCanvasRef.current;
     if (!canvas) return;
-    const scene = createThumbnailScene(canvas);
+    const scene = createThumbnailScene(canvas, { w: STAGE_W, h: STAGE_H });
     sceneRef.current = scene;
     return () => {
       sceneRef.current = null;
@@ -281,7 +279,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       // Reserve the binding immediately so a second effect run (e.g. a
       // fast prop change while the load is in flight) doesn't fire a
       // duplicate addModel for the same layer.
-      const placeholder = { sceneId: '', sknPath: layer.sknPath, anim: layer.anim, frame: layer.frame, scale: layer.scale, orbit: layer.orbit, x: layer.x, y: layer.y, w: layer.w, h: layer.h };
+      const placeholder = { sceneId: '', sknPath: layer.sknPath, anim: layer.anim, frame: layer.frame, scale: layer.scale, orbit: layer.orbit, x: layer.x, y: layer.y, w: layer.w, h: layer.h, hiddenMeshes: JSON.stringify(layer.hiddenMeshes ?? []) };
       bindings.set(layer.id, placeholder);
       scene.addModel(layer.sknPath).then(async (handle) => {
         if (modelBindingsRef.current.get(layer.id) !== placeholder) {
@@ -293,6 +291,9 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
         }
         placeholder.sceneId = handle.id;
         scene.setModelTransform(handle.id, { x: layer.x, y: layer.y, w: layer.w, h: layer.h, scale: layer.scale, orbit: layer.orbit });
+        if (layer.hiddenMeshes && layer.hiddenMeshes.length > 0) {
+          scene.setHiddenMeshes(handle.id, layer.hiddenMeshes);
+        }
         const clips = scene.listAnims(handle.id);
         const initialAnim = layer.anim || clips[0]?.animation_path || clips[0]?.name || '';
         if (initialAnim) {
@@ -362,6 +363,11 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       if (existing.frame !== layer.frame) {
         existing.frame = layer.frame;
         scene.setModelFrame(existing.sceneId, layer.frame);
+      }
+      const hiddenKey = JSON.stringify(layer.hiddenMeshes ?? []);
+      if (existing.hiddenMeshes !== hiddenKey) {
+        existing.hiddenMeshes = hiddenKey;
+        scene.setHiddenMeshes(existing.sceneId, layer.hiddenMeshes ?? []);
       }
     }
 

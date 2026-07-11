@@ -11,6 +11,7 @@ export interface DlButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButto
     iconRight?: DlIconName;
     active?: boolean;
     loading?: boolean;
+    fullWidth?: boolean;
     children?: React.ReactNode;
 }
 
@@ -33,7 +34,7 @@ const SIZE: Record<DlButtonSize, string> = {
  */
 export const DlButton = React.forwardRef<HTMLButtonElement, DlButtonProps>(
     (
-        { variant = 'secondary', size = 'md', icon, iconRight, active, loading, className = '', type = 'button', children, disabled, ...rest },
+        { variant = 'secondary', size = 'md', icon, iconRight, active, loading, fullWidth, className = '', type = 'button', style, children, disabled, ...rest },
         ref,
     ) => {
         const cls = [
@@ -46,8 +47,9 @@ export const DlButton = React.forwardRef<HTMLButtonElement, DlButtonProps>(
         ]
             .filter(Boolean)
             .join(' ');
+        const mergedStyle = fullWidth ? { width: '100%', justifyContent: 'center', ...style } : style;
         return (
-            <button ref={ref} type={type} className={cls} disabled={disabled || loading} {...rest}>
+            <button ref={ref} type={type} className={cls} style={mergedStyle} disabled={disabled || loading} {...rest}>
                 {icon && <DlIcon name={icon} />}
                 {children != null && <span>{children}</span>}
                 {iconRight && <DlIcon name={iconRight} />}
