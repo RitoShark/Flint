@@ -174,7 +174,8 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
 
   const exitOrbit = useCallback(() => {
     if (!orbitLayerIdRef.current) return;
-    sceneRef.current?.setControlModel(null);
+    try { sceneRef.current?.setControlModel(null); } catch { /* ignore */ }
+    orbitLayerIdRef.current = null;
     setOrbitLayerId(null);
   }, []);
 
@@ -417,6 +418,29 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     }
   }, [layers]);
 
+  // ── Orbit-mode wheel = adjust the orbited model's SCALE (not the artboard
+  // zoom / camera radius) so wheel stays in sync with the Properties slider. ──
+  useEffect(() => {
+    const canvas = sceneCanvasRef.current;
+    if (!canvas) return;
+    const onWheel = (e: WheelEvent) => {
+      const orbitId = orbitLayerIdRef.current;
+      if (!orbitId) return; // only in orbit mode
+      e.preventDefault();
+      e.stopPropagation();
+      const layer = layersRef.current.find(l => l.id === orbitId);
+      if (!layer || layer.type !== 'model') return;
+      const factor = e.deltaY < 0 ? 1.08 : 1 / 1.08;
+      const next = Math.round(Math.min(600, Math.max(20, layer.scale * factor)));
+      const updated = updateLayer(layersRef.current, orbitId, { scale: next } as Partial<Layer>);
+      layersRef.current = updated;
+      onChangeRef.current(updated, true);
+    };
+    // Capture phase so this runs BEFORE Babylon's canvas wheel listeners.
+    canvas.addEventListener('wheel', onWheel, { passive: false, capture: true });
+    return () => canvas.removeEventListener('wheel', onWheel, { capture: true } as EventListenerOptions);
+  }, []);
+
   // ── Alt+wheel zoom toward cursor ──
   useEffect(() => {
     const vp = viewportRef.current;
@@ -473,13 +497,16 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       e.preventDefault();
       return;
     }
-    // Click on empty viewport/stage-wrap background clears selection + exits orbit.
+    // While orbiting, do NOT let a background click tear down the orbit here —
+    // it races with Babylon's pointer capture on the canvas and left the scene
+    // in a stuck state. Orbit exits only via the Done button / Escape.
+    if (orbitLayerIdRef.current) return;
+    // Click on empty viewport/stage-wrap background clears selection.
     const targetEl = e.target as HTMLElement;
     if ((targetEl === viewportRef.current || targetEl.classList.contains('tb-stage-wrap')) && !spaceHeld && e.button === 0) {
-      exitOrbit();
       onSelect(null);
     }
-  }, [spaceHeld, onSelect, exitOrbit]);
+  }, [spaceHeld, onSelect]);
 
   const handleViewportPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (!panning || !panStateRef.current) return;
@@ -492,10 +519,11 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     panStateRef.current = null;
   }, []);
 
-  // Env background click also clears selection + exits orbit.
+  // Env background click clears selection (orbit exits only via Done/Esc).
   const handleEnvPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (!spaceHeld && e.button === 0) { exitOrbit(); onSelect(null); }
-  }, [spaceHeld, onSelect, exitOrbit]);
+    if (orbitLayerIdRef.current) return;
+    if (!spaceHeld && e.button === 0) { onSelect(null); }
+  }, [spaceHeld, onSelect]);
 
   // Escape exits orbit mode.
   useEffect(() => {
@@ -585,16 +613,18 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
 
   const handleElPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>, layer: Layer) => {
     if (panning) return;
-    // While a model is in orbit mode, its DOM proxy is pointer-events:none so
-    // this never fires for it — but guard anyway: don't drag-move the model
-    // that's being orbited (Babylon owns the drag).
-    if (orbitLayerIdRef.current === layer.id) return;
-    // Clicking a DIFFERENT layer exits orbit mode.
-    if (orbitLayerIdRef.current && orbitLayerIdRef.current !== layer.id) exitOrbit();
+    // Orbit mode LOCKS selection: while a model is being orbited, no other
+    // layer can be selected/dragged and orbit doesn't get knocked out by a
+    // stray click. Swallow the event entirely (Esc or clicking empty
+    // background is the only way out — see exitOrbit call sites).
+    if (orbitLayerIdRef.current) {
+      e.stopPropagation();
+      return;
+    }
     if (selIdRef.current !== layer.id) onSelect(layer.id);
     if (layer.locked) return;
     startMove(e, layer);
-  }, [panning, onSelect, startMove, exitOrbit]);
+  }, [panning, onSelect, startMove]);
 
   // Inline text editing (dblclick), mirrors the prototype's contenteditable flow.
   // Multi-line (Task 11): while editing, the body switches to plain text
@@ -682,7 +712,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
         ref={stageWrapRef}
         style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
       >
-        <div className="tb-stage" ref={stageRef}>
+        <div className={`tb-stage${orbitLayerId ? ' tb-stage--orbiting' : ''}`} ref={stageRef}>
           <div className="tb-env" onPointerDown={handleEnvPointerDown}>
             <span className="tb-env-lbl">environment slot</span>
           </div>
@@ -737,13 +767,14 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
           ))}
         </div>
         <SelOverlay
-          layer={selectedLayer}
+          layer={orbitLayerId ? null : selectedLayer}
           onHandlePointerDown={startResize}
         />
       </div>
       {orbitLayerId && (
         <div className="tb-orbit-hint">
-          Orbiting model · drag to rotate · wheel to zoom · double-click to reset · Esc to exit
+          <span>Orbiting · drag to rotate · wheel to zoom · double-click to reset</span>
+          <button className="tb-orbit-hint__exit" onClick={exitOrbit}>Done (Esc)</button>
         </div>
       )}
     </div>

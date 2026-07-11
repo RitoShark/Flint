@@ -97,7 +97,7 @@ function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture, onOpenMo
         <label>Scale <b>{(layer.scale / 100).toFixed(2)}&times;</b></label>
         <DlSlider
           min={20}
-          max={300}
+          max={600}
           value={layer.scale}
           bubble={`${(layer.scale / 100).toFixed(2)}×`}
           onPointerDown={onBeginGesture}

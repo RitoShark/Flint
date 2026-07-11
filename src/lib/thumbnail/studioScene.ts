@@ -265,14 +265,19 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
     }
 
     /** (Re)frame a model per its focusMode: 'head' targets the detected head
-     *  bone with a slight zoom (splash crop); 'full' fits the whole model. */
+     *  bone with a slight zoom (splash crop); 'full' fits the whole model.
+     *  Framing uses the UNSCALED bbox so the `scale` slider visibly changes how
+     *  big the model reads in its box (a smaller scale leaves headroom). The
+     *  head focus point IS scaled by `m.scale/100`, because the mesh is
+     *  rendered scaled and the head bone's stored position is unscaled. */
     function reframeModel(m: ModelState): void {
         const aspect = viewportAspectOf(m);
+        const s = (m.scale || 100) / 100;
         if (m.focusMode === 'head') {
             const head = findHeadFocus(m);
             if (head) {
                 // Slight zoom so it's head + shoulders, not an extreme close-up.
-                frameCamera(m.camera, m.bbox, aspect, head, 1.6);
+                frameCamera(m.camera, m.bbox, aspect, head.scale(s), 1.6);
                 return;
             }
         }
@@ -380,11 +385,13 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         }
     }
 
-    /** Frame a camera on a bbox so the model is CENTERED and fully fits the
-     *  camera's viewport. Accounts for the viewport's aspect ratio (a portrait
-     *  box needs a larger radius to fit the model's width, a landscape box to
-     *  fit its height). `focus` optionally overrides the target (e.g. the head
-     *  bone) and `zoom` (>1) tightens the framing around it. */
+    /** Point a FIXED camera at a model so it's centered in its viewport. This
+     *  is a 2D compositor, not a photographic camera: the camera distance is
+     *  LOCKED (no dolly/zoom) — the model's on-screen SIZE is controlled purely
+     *  by its `scale` (mesh scaling). So the radius here just fits the UNSCALED
+     *  reference bbox to the viewport once; `scale` then grows/shrinks the model
+     *  within the box, and orbiting only rotates (alpha/beta). `focus` overrides
+     *  the target (head bone); `zoom` shifts the reference fit a touch. */
     function frameCamera(
         cam: ArcRotateCamera,
         bbox: [[number, number, number], [number, number, number]],
@@ -405,28 +412,21 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         const sizeY = maxY - minY;
         const sizeZ = maxZ - minZ;
 
-        // Half-extents the camera must fit. Use the larger of X/Z for the
-        // horizontal silhouette (the model can face any way at alpha).
         const halfH = Math.max(sizeY, 0.01) / 2;
         const halfW = Math.max(sizeX, sizeZ, 0.01) / 2;
 
-        // ArcRotateCamera vertical FOV (radians). Horizontal FOV derives from
-        // the viewport aspect. Radius to fit height, radius to fit width, take
-        // the larger so BOTH fit → model fully framed and centered.
         const fovY = cam.fov || 0.8;
         const aspect = Number.isFinite(viewportAspect) && viewportAspect > 0 ? viewportAspect : 1;
         const fovX = 2 * Math.atan(Math.tan(fovY / 2) * aspect);
         const radiusForH = halfH / Math.tan(fovY / 2);
         const radiusForW = halfW / Math.tan(fovX / 2);
-        // 1.25 base margin (a touch more zoomed OUT than before — models were
-        // spawning too tight/big). Divided by `zoom` so a head-focus (zoom>1)
-        // pulls in closer.
         const radius = (Math.max(radiusForH, radiusForW, 0.01) * 1.25 || 5) / Math.max(0.1, zoom);
 
         cam.target = center;
         cam.radius = radius;
-        cam.lowerRadiusLimit = radius * 0.05;
-        cam.upperRadiusLimit = radius * 50.0;
+        // LOCK the distance — no dolly. Size = scale, not camera distance.
+        cam.lowerRadiusLimit = radius;
+        cam.upperRadiusLimit = radius;
         cam.wheelPrecision = 80 / radius;
         cam.pinchPrecision = 160 / radius;
         cam.panningSensibility = 3000 / Math.max(radius, 0.001);
@@ -450,16 +450,16 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
     // specific first. Used to auto-focus the hero on its head.
     const HEAD_BONE_HINTS = ['head', 'neck', 'hair', 'face', 'jaw'];
 
-    /** Find a head-ish bone's world position (X-mirrored to match the loaded,
-     *  X-negated meshes). Returns null if no skeleton / no match. */
+    /** Find a head-ish bone's world position. The backend (skl.rs) already
+     *  X-negates `world_position` to match the X-negated meshes, so use it
+     *  DIRECTLY (do NOT re-negate). Returns null if no skeleton / no match. */
     function findHeadFocus(m: ModelState): Vector3 | null {
         if (!m.joints || m.joints.length === 0) return null;
         for (const hint of HEAD_BONE_HINTS) {
             const bone = m.joints.find(j => j.name.toLowerCase().includes(hint));
             if (bone) {
                 const [x, y, z] = bone.world_position;
-                // meshes load with position.x negated (League LH → Babylon RH).
-                return new Vector3(-x, y, z);
+                return new Vector3(x, y, z);
             }
         }
         return null;
@@ -610,18 +610,13 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
 
         const id = `model-${++modelSeq}`;
 
-        // Flush world matrices + bounding info so computeBBox reads real
-        // world-space extents (not a stale/identity box).
-        for (const mesh of meshes) {
-            mesh.computeWorldMatrix(true);
-            mesh.refreshBoundingInfo();
-        }
-
-        // Recompute the bbox from the actual (X-mirrored) vertex positions
-        // rather than trusting the stored box — same reasoning as
-        // ModelPreview/skn.rs: positions are negated on X at load, and some
-        // SKNs ship a zeroed/garbage box that would collapse framing.
-        const bbox = computeBBox(meshes) ?? meshData.bounding_box;
+        // Use meshData.bounding_box DIRECTLY (same as ModelPreview). The
+        // backend (skn.rs) already recomputes this AABB from the X-negated
+        // vertex positions, so it's in the exact same space as the loaded
+        // meshes and correctly centered. Recomputing it from Babylon's
+        // (not-yet-flushed) bounding info was returning an origin/stale box —
+        // which is why models spawned at 0,0.
+        const bbox = meshData.bounding_box;
 
         // Unique layerMask bit for this model so its camera sees only it.
         // Bit index = model index (wraps after 27; far more than any real
@@ -720,7 +715,13 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         const m = models.get(id);
         if (!m) return;
         controlCamera = m.camera;
+        // Attach ONLY the pointer (rotate/pan) inputs — NOT the mousewheel.
+        // The artboard intercepts the wheel in orbit mode and drives the
+        // model's `scale` property instead (wheel = scale, kept in sync with
+        // the Properties slider). `useCtrlForPanning=false` keeps left-drag =
+        // rotate, right-drag = pan.
         m.camera.attachControl(canvas, /* noPreventDefault */ false);
+        m.camera.inputs.removeByType('ArcRotateCameraMouseWheelInput');
         // Any camera-matrix change from here = user took manual control.
         m.camera.onViewMatrixChangedObservable.addOnce(() => {
             const mm = models.get(id);
@@ -748,7 +749,14 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         if (boxChanged) applyViewport(m);
         if (patch.scale !== undefined) {
             m.scale = patch.scale;
-            for (const mesh of m.meshes) mesh.scaling.set(patch.scale, patch.scale, patch.scale);
+            // `scale` is a percentage (100 = 1.0×). Framing uses the UNSCALED
+            // model, so scale then visibly shrinks/grows it within the box —
+            // a smaller scale leaves headroom (the model reads smaller).
+            const s = patch.scale / 100;
+            for (const mesh of m.meshes) mesh.scaling.set(s, s, s);
+            // Re-frame (head focus depends on scale) unless the user has taken
+            // manual camera control.
+            if (!m.userFramed) reframeModel(m);
         }
         if (patch.orbit !== undefined) {
             m.orbit = patch.orbit;
@@ -905,25 +913,4 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         screenshot,
         dispose,
     };
-}
-
-/** Recompute an AABB from actual mesh vertex positions (post X-mirror), so
- *  framing never trusts a zeroed/garbage stored bbox. Returns null if no
- *  mesh has positions. */
-function computeBBox(meshes: Mesh[]): [[number, number, number], [number, number, number]] | null {
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-    let any = false;
-    for (const mesh of meshes) {
-        const info = mesh.getBoundingInfo?.();
-        if (!info) continue;
-        const bb = info.boundingBox;
-        const lo = bb.minimumWorld;
-        const hi = bb.maximumWorld;
-        minX = Math.min(minX, lo.x); minY = Math.min(minY, lo.y); minZ = Math.min(minZ, lo.z);
-        maxX = Math.max(maxX, hi.x); maxY = Math.max(maxY, hi.y); maxZ = Math.max(maxZ, hi.z);
-        any = true;
-    }
-    if (!any || !Number.isFinite(minX)) return null;
-    return [[minX, minY, minZ], [maxX, maxY, maxZ]];
 }

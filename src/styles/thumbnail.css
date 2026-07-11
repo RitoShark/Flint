@@ -72,6 +72,14 @@
   cursor: grabbing;
 }
 
+/* Orbit mode LOCKS every layer: no other .tb-el can be clicked/selected/
+   dragged (their pointer events pass through to the scene canvas so you can
+   orbit freely even over another layer's box). Selection is frozen on the
+   orbited model. */
+.tb-stage--orbiting .tb-el {
+  pointer-events: none;
+}
+
 /* The model being orbited: its DOM proxy passes pointers through to the canvas
    so it doesn't intercept the camera drag, and it shows an accent ring so it's
    clear which model is live. */
@@ -284,16 +292,30 @@
   z-index: 40;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
+  gap: 10px;
+  padding: 6px 8px 6px 14px;
   font-size: 11px;
   color: var(--text-primary);
   background: color-mix(in oklab, var(--accent-primary) 22%, var(--bg-secondary));
   border: 1px solid color-mix(in oklab, var(--accent-primary) 50%, var(--border));
   border-radius: 999px;
   box-shadow: 0 8px 24px -8px rgba(0, 0, 0, .6);
-  pointer-events: none;
   white-space: nowrap;
+}
+
+.tb-orbit-hint__exit {
+  padding: 3px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent-primary);
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.tb-orbit-hint__exit:hover {
+  background: color-mix(in oklab, #fff 12%, var(--accent-primary));
 }
 
 .tb-zoom-info {
