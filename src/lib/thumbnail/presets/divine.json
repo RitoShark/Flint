@@ -31,21 +31,6 @@
       "font": "Albiero",
       "italic": false,
       "spacing": 1
-    },
-    {
-      "id": "divine-hero",
-      "type": "model",
-      "name": "Hero — big",
-      "hidden": false,
-      "rot": 0,
-      "locked": false,
-      "x": 340, "y": 40, "w": 280, "h": 320,
-      "sknPath": "",
-      "anim": "",
-      "frame": 0,
-      "maxFrame": 0,
-      "scale": 100,
-      "orbit": 0
     }
   ]
 }

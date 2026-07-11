@@ -115,6 +115,8 @@ export const icons = {
     // unlike the colorful file-tree `text`/`model` icons.
     layerText: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 4h10M8 4v9M6 13h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`,
     layerModel: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 1.5L14 5v6l-6 3.5L2 11V5l6-3.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M2 5l6 3.5L14 5M8 8.5V14.5" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>`,
+    // Crosshair — "aim the camera at the face" (Face camera button).
+    target: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.2"/><circle cx="8" cy="8" r="1.5" fill="currentColor"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`,
 };
 
 // =============================================================================

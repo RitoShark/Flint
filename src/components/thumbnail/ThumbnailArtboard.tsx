@@ -32,6 +32,10 @@ export interface ThumbnailArtboardHandle {
   /** Submesh list (with per-submesh hidden state) for a `model` layer's
    *  loaded SKN — backs the mesh-visibility popup. Empty until loaded. */
   getModelMeshes: (layerId: string) => MeshInfo[];
+  /** Auto-rotate a `model` layer so its face points at the camera; returns the
+   *  applied Turn (orbit, degrees) so the caller can persist it to the layer,
+   *  or null if the facing couldn't be detected / model not loaded. */
+  faceModelToCamera: (layerId: string) => number | null;
   /** The live Babylon scene instance (Task 8/9), for the compositor
    *  (Task 13) to call `screenshot(w, h)` on. Null until the scene-creation
    *  effect has run (always true by the time a user could click Export). */
@@ -154,6 +158,15 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     return scene.listMeshes(binding.sceneId);
   }, []);
 
+  const faceModelToCamera = useCallback((layerId: string): number | null => {
+    const scene = sceneRef.current;
+    const binding = modelBindingsRef.current.get(layerId);
+    if (!scene || !binding || !binding.sceneId) return null;
+    const deg = scene.faceModelToCamera(binding.sceneId);
+    if (deg !== null) binding.orbit = deg; // keep the binding in sync so reconcile doesn't re-push a stale orbit
+    return deg;
+  }, []);
+
   const getScene = useCallback((): ThumbnailScene | null => sceneRef.current, []);
 
   // Enter/exit interactive orbit for a model layer. Enter attaches the scene's
@@ -232,11 +245,11 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
 
   // Expose fit/100%/fit-selection/getModelAnims to the host (toolbar / keyboard shortcuts / PropertiesPanel).
   useEffect(() => {
-    if (controlsRef) controlsRef.current = { fitView, fullView, fitSelection, getModelAnims, getModelMeshes, getScene };
+    if (controlsRef) controlsRef.current = { fitView, fullView, fitSelection, getModelAnims, getModelMeshes, faceModelToCamera, getScene };
     return () => {
       if (controlsRef) controlsRef.current = null;
     };
-  }, [controlsRef, fitView, fullView, fitSelection, getModelAnims, getModelMeshes, getScene]);
+  }, [controlsRef, fitView, fullView, fitSelection, getModelAnims, getModelMeshes, faceModelToCamera, getScene]);
 
   // ── Fit once the viewport has real dimensions. Double-rAF handles the
   // normal first paint; a ResizeObserver catches the cold-WebView case where
@@ -440,6 +453,79 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     canvas.addEventListener('wheel', onWheel, { passive: false, capture: true });
     return () => canvas.removeEventListener('wheel', onWheel, { capture: true } as EventListenerOptions);
   }, []);
+
+  // ── Orbit-mode LEFT-drag = Turn (yaw / orbit); ALT+LEFT-drag = Tilt (pitch /
+  // tiltX). Right-drag stays with Babylon (pan). We intercept LEFT-button
+  // drags on the scene canvas in capture phase so Babylon never sees them
+  // (drag-rotate is disabled on the camera anyway) and translate horizontal
+  // pixels → degrees, driving the SAME layer fields the Properties sliders use
+  // (so orbit/tilt stay in sync everywhere). ──
+  useEffect(() => {
+    const canvas = sceneCanvasRef.current;
+    if (!canvas) return;
+    let dragging: { startX: number; startY: number; orbit0: number; tilt0: number; alt: boolean } | null = null;
+    const DEG_PER_PX = 0.5; // drag feel — half a degree per pixel
+
+    const wrap = (deg: number) => {
+      let d = ((deg + 180) % 360 + 360) % 360 - 180; // normalize to (-180,180]
+      if (d <= -180) d += 360;
+      return Math.round(d);
+    };
+
+    const onDown = (e: PointerEvent) => {
+      const orbitId = orbitLayerIdRef.current;
+      if (!orbitId || e.button !== 0) return; // left-button only, orbit mode only
+      const layer = layersRef.current.find(l => l.id === orbitId);
+      if (!layer || layer.type !== 'model') return;
+      e.preventDefault();
+      e.stopPropagation();
+      onBeginGesture();
+      dragging = {
+        startX: e.clientX,
+        startY: e.clientY,
+        orbit0: layer.orbit ?? 0,
+        tilt0: layer.tiltX ?? 0,
+        alt: e.altKey,
+      };
+      canvas.setPointerCapture(e.pointerId);
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!dragging) return;
+      const orbitId = orbitLayerIdRef.current;
+      if (!orbitId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      // Alt state is latched at press-down so a mid-drag Alt tap doesn't jump
+      // between axes.
+      if (dragging.alt) {
+        const tilt = wrap(dragging.tilt0 + (e.clientY - dragging.startY) * DEG_PER_PX);
+        const next = updateLayer(layersRef.current, orbitId, { tiltX: tilt } as Partial<Layer>);
+        layersRef.current = next;
+        onChangeRef.current(next, false);
+      } else {
+        const orbit = wrap(dragging.orbit0 + (e.clientX - dragging.startX) * DEG_PER_PX);
+        const next = updateLayer(layersRef.current, orbitId, { orbit } as Partial<Layer>);
+        layersRef.current = next;
+        onChangeRef.current(next, false);
+      }
+    };
+    const onUp = (e: PointerEvent) => {
+      if (!dragging) return;
+      dragging = null;
+      try { canvas.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+      onCommitGesture();
+    };
+    canvas.addEventListener('pointerdown', onDown, { capture: true });
+    canvas.addEventListener('pointermove', onMove, { capture: true });
+    canvas.addEventListener('pointerup', onUp, { capture: true });
+    canvas.addEventListener('pointercancel', onUp, { capture: true });
+    return () => {
+      canvas.removeEventListener('pointerdown', onDown, { capture: true } as EventListenerOptions);
+      canvas.removeEventListener('pointermove', onMove, { capture: true } as EventListenerOptions);
+      canvas.removeEventListener('pointerup', onUp, { capture: true } as EventListenerOptions);
+      canvas.removeEventListener('pointercancel', onUp, { capture: true } as EventListenerOptions);
+    };
+  }, [onBeginGesture, onCommitGesture]);
 
   // ── Alt+wheel zoom toward cursor ──
   useEffect(() => {
@@ -777,7 +863,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       </div>
       {orbitLayerId && (
         <div className="tb-orbit-hint">
-          <span>Editing model · right-drag to pan · wheel to scale · Turn/Tilt/Scale on the right · dbl-click to reset</span>
+          <span>Editing model · left-drag = turn · alt+left-drag = tilt · right-drag = pan · wheel = scale · dbl-click to reset</span>
           <button className="tb-orbit-hint__exit" onClick={exitOrbit}>Done (Esc)</button>
         </div>
       )}

@@ -47,7 +47,7 @@ function seedLayers(sknPath: string): Layer[] {
       hidden: false,
       rot: 0,
       locked: false,
-      // Box + head-focus tuned to the reference layout (size-test preset): a
+      // Box + head-focus from the tuned reference layout ("new test" preset): a
       // large box overlapping the disc, framed on the head so it spawns at a
       // sensible splash-crop size rather than a huge full body.
       x: 257, y: -2, w: 385, h: 363,
@@ -66,13 +66,14 @@ function seedLayers(sknPath: string): Layer[] {
       hidden: false,
       rot: 0,
       locked: false,
-      // Smaller full-body companion at bottom-left (whole body, not head).
-      x: 101, y: 46, w: 150, h: 230,
+      // Full-body companion — same box/scale the user dialed in on the "new
+      // test" reference (big soft full body behind the text column).
+      x: 2, y: 2, w: 398, h: 354,
       sknPath,
       anim: '',
       frame: 0,
       maxFrame: 0,
-      scale: 250,
+      scale: 125,
       orbit: 0,
       focusMode: 'full',
     },
@@ -174,6 +175,22 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
     if (!selId) return;
     const next = updateLayer(history.get(), selId, patch);
     history.set(next, record);
+    forceRender(n => n + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selId]);
+
+  // "Face camera": auto-rotate the selected model so its face points at the
+  // camera. The scene computes + applies the yaw; we persist the returned Turn
+  // (orbit) onto the layer so the Properties slider + undo stack stay in sync.
+  const handleFaceCamera = useCallback(() => {
+    if (!selId) return;
+    const deg = artboardControlsRef.current?.faceModelToCamera(selId);
+    if (deg === null || deg === undefined) {
+      setExportStatus({ kind: 'error', message: "Couldn't detect the model's facing to auto-rotate." });
+      return;
+    }
+    const next = updateLayer(history.get(), selId, { orbit: deg } as Partial<Layer>);
+    history.set(next, true);
     forceRender(n => n + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selId]);
@@ -529,6 +546,7 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
             onBeginGesture={handleBeginGesture}
             onCommitGesture={handleCommitGesture}
             onOpenModelStudio={selectedLayer?.type === 'model' ? () => setStudioLayerId(selectedLayer.id) : undefined}
+            onFaceCamera={selectedLayer?.type === 'model' ? handleFaceCamera : undefined}
           />
         </div>
       </div>

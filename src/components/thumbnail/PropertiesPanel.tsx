@@ -13,6 +13,8 @@ export interface PropertiesPanelProps {
   onCommitGesture: () => void;
   /** Open the mesh & animation studio popup for the current model layer. */
   onOpenModelStudio?: () => void;
+  /** Auto-rotate the current model layer so its face points at the camera. */
+  onFaceCamera?: () => void;
 }
 
 type ChangeProps = { onChange: PropertiesPanelProps['onChange']; onBeginGesture: PropertiesPanelProps['onBeginGesture']; onCommitGesture: PropertiesPanelProps['onCommitGesture'] };
@@ -79,7 +81,7 @@ function TextProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer
   );
 }
 
-function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture, onOpenModelStudio }: { layer: Extract<Layer, { type: 'model' }> } & ChangeProps & { onOpenModelStudio?: () => void }) {
+function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture, onOpenModelStudio, onFaceCamera }: { layer: Extract<Layer, { type: 'model' }> } & ChangeProps & { onOpenModelStudio?: () => void; onFaceCamera?: () => void }) {
   const hiddenCount = layer.hiddenMeshes?.length ?? 0;
   return (
     <>
@@ -116,7 +118,10 @@ function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture, onOpenMo
           onChange={(v) => onChange({ orbit: v }, false)}
           onPointerUp={onCommitGesture}
         />
-        <div className="tb-hint">Rotate the character left/right — straighten a diagonal pose to face front.</div>
+        <DlButton fullWidth size="sm" variant="ghost" icon="target" onClick={onFaceCamera} title="Auto-rotate so the character's face points at the camera">
+          Face camera
+        </DlButton>
+        <div className="tb-hint">Rotate the character left/right — straighten a diagonal pose to face front. “Face camera” auto-turns them toward you.</div>
       </div>
       <div className="tb-grp">
         <label>Tilt — X <b>{layer.tiltX ?? 0}&deg;</b></label>
@@ -196,7 +201,7 @@ const TITLE_ICON: Record<Layer['type'], Parameters<typeof DlIcon>[0]['name']> = 
   deco: 'picture',
 };
 
-export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGesture, onOpenModelStudio }: PropertiesPanelProps) {
+export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGesture, onOpenModelStudio, onFaceCamera }: PropertiesPanelProps) {
   // Lock is driven entirely from the Layers panel's lock icon — no lock control
   // here (it was redundant and confusing). Properties shows only the layer's
   // own editable attributes.
@@ -211,7 +216,7 @@ export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGestu
         ) : (
           <>
             {layer.type === 'text' && <TextProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
-            {layer.type === 'model' && <ModelProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} onOpenModelStudio={onOpenModelStudio} />}
+            {layer.type === 'model' && <ModelProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} onOpenModelStudio={onOpenModelStudio} onFaceCamera={onFaceCamera} />}
             {layer.type === 'disc' && <DiscProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
             {layer.type === 'deco' && <DecoProps layer={layer} onChange={onChange} />}
           </>

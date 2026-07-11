@@ -96,6 +96,11 @@ export interface ThumbnailScene {
     setControlModel(id: string | null): void;
     /** Re-frame a model to its default centered pose (reset an orbit). */
     resetModelView(id: string): void;
+    /** Auto-rotate the model so its face/front points at the camera (like
+     *  Maya's "look at face" on the view cube). Returns the yaw (Turn/orbit,
+     *  degrees) it applied so the caller can persist it to the layer, or null
+     *  if the facing couldn't be detected. */
+    faceModelToCamera(id: string): number | null;
     /** Switch a model's framing between whole-body ('full') and head/face
      *  close-up ('head', auto-detects the head bone). */
     setModelFocus(id: string, mode: 'full' | 'head'): void;
@@ -135,6 +140,11 @@ interface ModelState {
     boneIndexByHash: Map<number, number>;
     bones: Bone[];
     joints: BoneData[];
+    /** Kept for face-direction detection (average forward of the head/face
+     *  submesh, XZ-projected) — vertex positions/normals + submesh ranges. */
+    positions: Float32Array;
+    normals: Float32Array;
+    materials: { name: string; start_vertex: number; vertex_count: number }[];
     textures: Texture[];
     clips: AnimClip[];
     hiddenMeshes: Set<string>;
@@ -161,6 +171,11 @@ interface ModelState {
 }
 
 let modelSeq = 0;
+
+// Fixed horizontal orbit angle every model camera starts at (and the fallback
+// uses). Kept as one constant so the face-to-camera solver knows exactly where
+// the camera sits without re-deriving it.
+const CAM_ALPHA = Math.PI / 2 + Math.PI / 8;
 
 export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims): ThumbnailScene {
     const stageDims: StageDims = { w: stage.w || 640, h: stage.h || 360 };
@@ -199,7 +214,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
     // no model is loaded; removed from activeCameras once models exist.
     const fallbackCamera = new ArcRotateCamera(
         'thumbnail-fallback-cam',
-        Math.PI / 2 + Math.PI / 8,
+        CAM_ALPHA,
         Math.PI / 3,
         5,
         Vector3.Zero(),
@@ -433,7 +448,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         cam.pinchPrecision = 160 / radius;
         cam.panningSensibility = 3000 / Math.max(radius, 0.001);
         cam.speed = radius * 0.02;
-        cam.alpha = Math.PI / 2 + Math.PI / 8;
+        cam.alpha = CAM_ALPHA;
         cam.beta = Math.PI / 3;
         // Free horizontal orbit; keep vertical within a natural range so the
         // user can't flip under/over the model.
@@ -465,6 +480,78 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             }
         }
         return null;
+    }
+
+    // Submesh-name fragments (lowercased) that mark the head/face region — its
+    // average normal is the most reliable "which way is the character looking"
+    // signal (the face is a big front-facing surface). Body is the fallback.
+    const FACE_MESH_HINTS = ['face', 'head', 'hair', 'helmet', 'hood', 'mask'];
+    const BODY_MESH_HINTS = ['body', 'base', 'torso', 'chest', 'cape'];
+
+    /** Average vertex NORMAL over a set of submeshes, projected onto the
+     *  horizontal (XZ) plane and normalized — the direction the character
+     *  faces in model space. Positions are X-mirrored on load, and the normal's
+     *  X is mirrored with them, so this is already in the loaded mesh's space.
+     *  Returns null if no usable normal (degenerate). */
+    function averageFacing(m: ModelState, hints: string[]): { x: number; z: number } | null {
+        const subs = m.materials.filter(s => {
+            const n = s.name.toLowerCase();
+            return hints.some(h => n.includes(h));
+        });
+        const ranges = subs.length > 0 ? subs : m.materials;
+        let ax = 0;
+        let az = 0;
+        let count = 0;
+        for (const s of ranges) {
+            const end = s.start_vertex + s.vertex_count;
+            for (let v = s.start_vertex; v < end; v++) {
+                const nx = m.normals[v * 3];
+                const nz = m.normals[v * 3 + 2];
+                if (!Number.isFinite(nx) || !Number.isFinite(nz)) continue;
+                // X-mirror the normal to match the X-mirrored positions.
+                ax += -nx;
+                az += nz;
+                count++;
+            }
+        }
+        if (count === 0) return null;
+        ax /= count;
+        az /= count;
+        const len = Math.hypot(ax, az);
+        if (len < 1e-4) return null;
+        return { x: ax / len, z: az / len };
+    }
+
+    /** Auto-rotate the model so its face points toward the camera. The camera
+     *  orbits at a FIXED alpha (Math.PI/2 + Math.PI/8) looking at the model, so
+     *  its horizontal view direction (from camera toward the model, in world
+     *  XZ) is fixed. We solve for the yaw (mesh.rotation.y) that turns the
+     *  model's facing vector to point back at the camera (opposite the view
+     *  dir), then persist it as `orbit`. Returns the applied degrees or null. */
+    function faceModelToCamera(id: string): number | null {
+        const m = models.get(id);
+        if (!m) return null;
+        const facing = averageFacing(m, FACE_MESH_HINTS) ?? averageFacing(m, BODY_MESH_HINTS);
+        if (!facing) return null;
+
+        // Camera alpha is fixed at CAM_ALPHA. ArcRotateCamera position (relative
+        // to target) is (r·sinβ·cosα, r·cosβ, r·sinβ·sinα); its horizontal
+        // component points FROM target TO camera along (cosα, sinα) in XZ. We
+        // want the model's facing to point at the camera → align `facing` with
+        // (cosα, sinα).
+        const camDirX = Math.cos(CAM_ALPHA);
+        const camDirZ = Math.sin(CAM_ALPHA);
+        // Current facing angle and desired camera angle in the XZ plane.
+        const faceAngle = Math.atan2(facing.z, facing.x);
+        const camAngle = Math.atan2(camDirZ, camDirX);
+        // A positive mesh.rotation.y rotates (x,z) by -yaw around +Y in
+        // Babylon's left-handed space; solve so facing lands on the cam dir.
+        let yaw = faceAngle - camAngle;
+        // Normalize to (-PI, PI].
+        yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw));
+        const deg = Math.round((yaw * 180) / Math.PI);
+        setModelTransform(id, { orbit: deg });
+        return deg;
     }
 
     /** Pixel aspect (w/h) of a model's current viewport box on the canvas. */
@@ -636,7 +723,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
 
         const camera = new ArcRotateCamera(
             `thumbnail-cam-${id}`,
-            Math.PI / 2 + Math.PI / 8,
+            CAM_ALPHA,
             Math.PI / 3,
             5,
             Vector3.Zero(),
@@ -660,6 +747,9 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             boneIndexByHash,
             bones,
             joints,
+            positions: meshData.positions,
+            normals: meshData.normals,
+            materials: meshData.materials.map(mm => ({ name: mm.name, start_vertex: mm.start_vertex, vertex_count: mm.vertex_count })),
             textures,
             clips: animResult.clips,
             hiddenMeshes: new Set(),
@@ -911,6 +1001,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         setModelFrame,
         setControlModel,
         resetModelView,
+        faceModelToCamera,
         setModelFocus,
         listAnims,
         listMeshes,
