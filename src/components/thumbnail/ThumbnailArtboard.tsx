@@ -4,6 +4,8 @@ import { AnimClip, createThumbnailScene, MeshInfo, ThumbnailScene } from '../../
 import { fitFontSize, TextMeasure } from '../../lib/thumbnail/textFit';
 import { resolveTextColor, ThumbnailPresetId } from '../../lib/thumbnail/hue';
 import { DiscComposite } from './DiscComposite';
+import { ModelStudioModal } from './ModelStudioModal';
+import { DlIcon } from '../ui/design-lab';
 import '../../styles/thumbnail.css';
 
 // Base cream/gold text color the whole thumbnail style family shares before
@@ -26,16 +28,9 @@ export interface ThumbnailArtboardHandle {
   fullView: () => void;
   fitSelection: () => void;
   /** Real animation clips available for a `model` layer's currently loaded
-   *  SKN (empty until the scene has finished loading it). Backs the
-   *  PropertiesPanel anim dropdown. */
-  getModelAnims: (layerId: string) => AnimClip[];
-  /** Submesh list (with per-submesh hidden state) for a `model` layer's
-   *  loaded SKN — backs the mesh-visibility popup. Empty until loaded. */
-  getModelMeshes: (layerId: string) => MeshInfo[];
-  /** Auto-rotate a `model` layer so its face points at the camera; returns the
-   *  applied Turn (orbit, degrees) so the caller can persist it to the layer,
-   *  or null if the facing couldn't be detected / model not loaded. */
-  faceModelToCamera: (layerId: string) => number | null;
+   *  SKN (empty until the scene has finished loading it). The mesh/anim editor
+   *  + Face-camera now live inside the artboard's own model toolbar, so these
+   *  getters are internal — only `getScene` is still needed by the host. */
   /** The live Babylon scene instance (Task 8/9), for the compositor
    *  (Task 13) to call `screenshot(w, h)` on. Null until the scene-creation
    *  effect has run (always true by the time a user could click Export). */
@@ -169,6 +164,29 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
 
   const getScene = useCallback((): ThumbnailScene | null => sceneRef.current, []);
 
+  // ── Floating model toolbar (top-left of the artboard) — shown when a model
+  // layer is selected. Hosts the ⚙ mesh/animation popover trigger + the Face
+  // camera button, right over the canvas (not in the properties panel). ──
+  const [studioOpen, setStudioOpen] = useState(false);
+  const studioBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Patch just the selected MODEL layer (studio edits: hiddenMeshes/anim/frame/
+  // focusMode) via the same updateLayer→onChange path everything else uses.
+  const patchModelLayer = useCallback((id: string, patch: Partial<ModelLayer>, record: boolean) => {
+    const next = updateLayer(layersRef.current, id, patch as Partial<Layer>);
+    layersRef.current = next;
+    onChangeRef.current(next, record);
+  }, []);
+
+  // Face camera for the selected model, persisting the returned Turn (orbit).
+  const faceSelectedModel = useCallback(() => {
+    const id = selIdRef.current;
+    if (!id) return;
+    const deg = faceModelToCamera(id);
+    if (deg === null) return;
+    patchModelLayer(id, { orbit: deg }, true);
+  }, [faceModelToCamera, patchModelLayer]);
+
   // Enter/exit interactive orbit for a model layer. Enter attaches the scene's
   // camera control to that model (drag=rotate, wheel=zoom, right/ctrl-drag=pan);
   // exit detaches. Double-clicking the SAME model that's already orbiting
@@ -245,11 +263,11 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
 
   // Expose fit/100%/fit-selection/getModelAnims to the host (toolbar / keyboard shortcuts / PropertiesPanel).
   useEffect(() => {
-    if (controlsRef) controlsRef.current = { fitView, fullView, fitSelection, getModelAnims, getModelMeshes, faceModelToCamera, getScene };
+    if (controlsRef) controlsRef.current = { fitView, fullView, fitSelection, getScene };
     return () => {
       if (controlsRef) controlsRef.current = null;
     };
-  }, [controlsRef, fitView, fullView, fitSelection, getModelAnims, getModelMeshes, faceModelToCamera, getScene]);
+  }, [controlsRef, fitView, fullView, fitSelection, getScene]);
 
   // ── Fit once the viewport has real dimensions. Double-rAF handles the
   // normal first paint; a ResizeObserver catches the cold-WebView case where
@@ -766,6 +784,13 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
 
   const sorted = [...layers].filter(l => !l.hidden).sort((a, b) => zrank(a) - zrank(b));
   const selectedLayer = layers.find(l => l.id === selId) ?? null;
+  const selectedModel = selectedLayer && selectedLayer.type === 'model' ? selectedLayer : null;
+
+  // Close the mesh/anim popover whenever the model toolbar itself goes away
+  // (selection cleared or switched to a non-model layer).
+  useEffect(() => {
+    if (!selectedModel && studioOpen) setStudioOpen(false);
+  }, [selectedModel, studioOpen]);
 
   // The disc layer's gold RING renders as a SEPARATE front-band pass (see
   // DiscComposite's `part` prop) so it paints above the model layers'
@@ -791,6 +816,46 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       style={{ cursor: spaceHeld ? (panning ? 'grabbing' : 'grab') : undefined }}
     >
       <div className="tb-zoom-info">{zoomLabel} &middot; Alt+scroll zoom &middot; Ctrl+0 fit &middot; Ctrl+1 100%</div>
+
+      {/* Floating MODEL toolbar — top-left of the artboard, shown only while a
+          model layer is selected. Hosts the mesh/animation popover trigger and
+          the Face-camera auto-orient, right over the canvas. */}
+      {selectedModel && (
+        <div className="tb-model-bar">
+          <button
+            ref={studioBtnRef}
+            type="button"
+            className={`tb-model-bar__btn${studioOpen ? ' tb-model-bar__btn--active' : ''}`}
+            title="Edit meshes & animation"
+            onClick={() => setStudioOpen(o => !o)}
+          >
+            <DlIcon name="settings" size={15} />
+            <span>Meshes &amp; animation</span>
+          </button>
+          <button
+            type="button"
+            className="tb-model-bar__btn"
+            title="Auto-rotate so the character's face points at the camera"
+            onClick={faceSelectedModel}
+          >
+            <DlIcon name="target" size={15} />
+            <span>Face camera</span>
+          </button>
+        </div>
+      )}
+      {selectedModel && studioOpen && (
+        <ModelStudioModal
+          layer={selectedModel}
+          anchorRef={studioBtnRef}
+          getMeshes={() => getModelMeshes(selectedModel.id)}
+          getClips={() => getModelAnims(selectedModel.id)}
+          onChange={(patch, record) => patchModelLayer(selectedModel.id, patch, record)}
+          onBeginGesture={onBeginGesture}
+          onCommitGesture={onCommitGesture}
+          onClose={() => setStudioOpen(false)}
+        />
+      )}
+
       <div
         className="tb-stage-wrap"
         ref={stageWrapRef}

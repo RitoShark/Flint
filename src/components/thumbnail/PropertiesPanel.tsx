@@ -1,8 +1,6 @@
-import { ChangeEvent, useRef, useState } from 'react';
-import { Layer, ModelLayer } from '../../lib/thumbnail/layers';
-import { AnimClip, MeshInfo } from '../../lib/thumbnail/studioScene';
-import { DlIcon, DlIconButton, DlSegmented, DlButton, DlSlider } from '../ui/design-lab';
-import { ModelStudioModal } from './ModelStudioModal';
+import { ChangeEvent } from 'react';
+import { Layer } from '../../lib/thumbnail/layers';
+import { DlIcon, DlSegmented, DlSlider } from '../ui/design-lab';
 
 export type LayerPatch = Partial<Layer>;
 
@@ -13,11 +11,6 @@ export interface PropertiesPanelProps {
   onBeginGesture: () => void;
   /** Record the gesture (baseline vs. final state) onto the undo stack (call on slider pointerup). */
   onCommitGesture: () => void;
-  /** Auto-rotate the current model layer so its face points at the camera. */
-  onFaceCamera?: () => void;
-  /** Live getters for the mesh/anim studio popover (backed by the scene). */
-  getModelMeshes?: (layerId: string) => MeshInfo[];
-  getModelClips?: (layerId: string) => AnimClip[];
 }
 
 type ChangeProps = { onChange: PropertiesPanelProps['onChange']; onBeginGesture: PropertiesPanelProps['onBeginGesture']; onCommitGesture: PropertiesPanelProps['onCommitGesture'] };
@@ -84,45 +77,18 @@ function TextProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer
   );
 }
 
-function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture, onFaceCamera, getModelMeshes, getModelClips }: { layer: Extract<Layer, { type: 'model' }> } & ChangeProps & { onFaceCamera?: () => void; getModelMeshes?: (layerId: string) => MeshInfo[]; getModelClips?: (layerId: string) => AnimClip[] }) {
+function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer: Extract<Layer, { type: 'model' }> } & ChangeProps) {
   const hiddenCount = layer.hiddenMeshes?.length ?? 0;
-  const studioBtnRef = useRef<HTMLButtonElement>(null);
-  const [studioOpen, setStudioOpen] = useState(false);
-  const canStudio = !!getModelMeshes && !!getModelClips;
   return (
     <>
-      {/* Meshes & animation is a compact icon-only trigger (top-right of the
-          section) that opens an anchored POPOVER — not a full-width button /
-          centered modal. The current clip/hidden-count reads underneath. */}
+      {/* The mesh/animation editor + Face-camera live on the ARTBOARD toolbar
+          (top-left, over the canvas) — here we only echo the current state. */}
       <div className="tb-grp">
-        <div className="tb-grp-row">
-          <label style={{ margin: 0 }}>Meshes &amp; animation</label>
-          <DlIconButton
-            ref={studioBtnRef}
-            size="sm"
-            icon="settings"
-            title="Edit meshes & animation"
-            active={studioOpen}
-            disabled={!canStudio}
-            onClick={() => setStudioOpen(o => !o)}
-          />
-        </div>
         <div className="tb-hint">
           {layer.anim ? `Clip: ${layer.anim.split(/[\\/]/).pop()} · frame ${layer.frame}/${layer.maxFrame}` : 'No animation selected'}
           {hiddenCount > 0 ? ` · ${hiddenCount} mesh${hiddenCount === 1 ? '' : 'es'} hidden` : ''}
         </div>
-        {studioOpen && canStudio && (
-          <ModelStudioModal
-            layer={layer as ModelLayer}
-            anchorRef={studioBtnRef}
-            getMeshes={() => getModelMeshes!(layer.id)}
-            getClips={() => getModelClips!(layer.id)}
-            onChange={(patch, record) => onChange(patch as LayerPatch, record)}
-            onBeginGesture={onBeginGesture}
-            onCommitGesture={onCommitGesture}
-            onClose={() => setStudioOpen(false)}
-          />
-        )}
+        <div className="tb-hint">Edit meshes / animation and “Face camera” from the toolbar at the top-left of the artboard.</div>
       </div>
       <div className="tb-grp">
         <label>Scale <b>{(layer.scale / 100).toFixed(2)}&times;</b></label>
@@ -147,10 +113,7 @@ function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture, onFaceCa
           onChange={(v) => onChange({ orbit: v }, false)}
           onPointerUp={onCommitGesture}
         />
-        <DlButton fullWidth size="sm" variant="ghost" icon="target" onClick={onFaceCamera} title="Auto-rotate so the character's face points at the camera">
-          Face camera
-        </DlButton>
-        <div className="tb-hint">Rotate the character left/right — straighten a diagonal pose to face front. “Face camera” auto-turns them toward you.</div>
+        <div className="tb-hint">Rotate the character left/right — straighten a diagonal pose to face front. “Face camera” (artboard toolbar) auto-turns them toward you.</div>
       </div>
       <div className="tb-grp">
         <label>Tilt — X <b>{layer.tiltX ?? 0}&deg;</b></label>
@@ -243,7 +206,7 @@ const TITLE_ICON: Record<Layer['type'], Parameters<typeof DlIcon>[0]['name']> = 
   deco: 'picture',
 };
 
-export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGesture, onFaceCamera, getModelMeshes, getModelClips }: PropertiesPanelProps) {
+export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGesture }: PropertiesPanelProps) {
   // Lock is driven entirely from the Layers panel's lock icon — no lock control
   // here (it was redundant and confusing). Properties shows only the layer's
   // own editable attributes.
@@ -258,7 +221,7 @@ export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGestu
         ) : (
           <>
             {layer.type === 'text' && <TextProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
-            {layer.type === 'model' && <ModelProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} onFaceCamera={onFaceCamera} getModelMeshes={getModelMeshes} getModelClips={getModelClips} />}
+            {layer.type === 'model' && <ModelProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
             {layer.type === 'disc' && <DiscProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
             {layer.type === 'deco' && <DecoProps layer={layer} onChange={onChange} />}
           </>

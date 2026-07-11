@@ -175,22 +175,6 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selId]);
 
-  // "Face camera": auto-rotate the selected model so its face points at the
-  // camera. The scene computes + applies the yaw; we persist the returned Turn
-  // (orbit) onto the layer so the Properties slider + undo stack stay in sync.
-  const handleFaceCamera = useCallback(() => {
-    if (!selId) return;
-    const deg = artboardControlsRef.current?.faceModelToCamera(selId);
-    if (deg === null || deg === undefined) {
-      setExportStatus({ kind: 'error', message: "Couldn't detect the model's facing to auto-rotate." });
-      return;
-    }
-    const next = updateLayer(history.get(), selId, { orbit: deg } as Partial<Layer>);
-    history.set(next, true);
-    forceRender(n => n + 1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selId]);
-
   // Swap the whole layer stack for a shipped preset. A preset's `model`
   // layer(s) (if any) ship with an empty `sknPath` (presets are hero-model
   // agnostic — see divine.json) — filled in with the CURRENT hero's SKN so
@@ -538,9 +522,6 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
             onChange={handlePropsChange}
             onBeginGesture={handleBeginGesture}
             onCommitGesture={handleCommitGesture}
-            onFaceCamera={selectedLayer?.type === 'model' ? handleFaceCamera : undefined}
-            getModelMeshes={(id) => artboardControlsRef.current?.getModelMeshes(id) ?? []}
-            getModelClips={(id) => artboardControlsRef.current?.getModelAnims(id) ?? []}
           />
         </div>
       </div>

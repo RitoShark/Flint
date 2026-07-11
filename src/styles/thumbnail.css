@@ -632,6 +632,57 @@
   border-left: none;
 }
 
+/* Floating MODEL toolbar — top-left of the artboard, over the canvas. Shown
+   only while a model layer is selected; hosts the ⚙ mesh/anim popover trigger
+   + the Face-camera button. Mirrors .tb-floatbar's frosted-panel look. */
+.tb-model-bar {
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px;
+  background: color-mix(in oklab, var(--bg-secondary) 88%, transparent);
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, .6);
+}
+
+.tb-model-bar__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 11px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .12s, color .12s, border-color .12s;
+}
+
+.tb-model-bar__btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.tb-model-bar__btn--active {
+  background: color-mix(in oklab, var(--accent-primary) 22%, transparent);
+  border-color: color-mix(in oklab, var(--accent-primary) 45%, transparent);
+  color: var(--text-primary);
+}
+
+.tb-model-bar__btn .dl-icon {
+  flex: none;
+}
+
 /* ── Mesh & Animation studio popup ── */
 
 /* Label + trailing icon-button row (e.g. "Meshes & animation" + its ⚙ trigger). */
