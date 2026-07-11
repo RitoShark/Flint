@@ -81,67 +81,80 @@ function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture }: { laye
   const hiddenCount = layer.hiddenMeshes?.length ?? 0;
   return (
     <>
-      {/* The mesh/animation editor + Face-camera live on the ARTBOARD toolbar
-          (top-left, over the canvas) — here we only echo the current state. */}
-      <div className="tb-grp">
-        <div className="tb-hint">
-          {layer.anim ? `Clip: ${layer.anim.split(/[\\/]/).pop()} · frame ${layer.frame}/${layer.maxFrame}` : 'No animation selected'}
-          {hiddenCount > 0 ? ` · ${hiddenCount} mesh${hiddenCount === 1 ? '' : 'es'} hidden` : ''}
+      {(layer.anim || hiddenCount > 0) && (
+        <div className="tb-grp">
+          <div className="tb-hint">
+            {layer.anim ? `${layer.anim.split(/[\\/]/).pop()} · ${layer.frame}/${layer.maxFrame}` : 'No animation'}
+            {hiddenCount > 0 ? ` · ${hiddenCount} hidden` : ''}
+          </div>
         </div>
-        <div className="tb-hint">Edit meshes / animation and “Face camera” from the toolbar at the top-left of the artboard.</div>
-      </div>
+      )}
       <div className="tb-grp">
         <label>Scale <b>{(layer.scale / 100).toFixed(2)}&times;</b></label>
-        <DlSlider
-          min={20}
-          max={600}
-          value={layer.scale}
-          bubble={`${(layer.scale / 100).toFixed(2)}×`}
-          onPointerDown={onBeginGesture}
-          onChange={(v) => onChange({ scale: v }, false)}
-          onPointerUp={onCommitGesture}
+        <SliderNum
+          min={20} max={600} value={layer.scale} suffix="%"
+          onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
+          onChange={(v, rec) => onChange({ scale: v }, rec)}
         />
       </div>
       <div className="tb-grp">
-        <label>Turn — Y <b>{layer.orbit}&deg;</b></label>
-        <DlSlider
-          min={-180}
-          max={180}
-          value={layer.orbit}
-          bubble={`${layer.orbit}°`}
-          onPointerDown={onBeginGesture}
-          onChange={(v) => onChange({ orbit: v }, false)}
-          onPointerUp={onCommitGesture}
+        <label>Turn — Y</label>
+        <SliderNum
+          min={-180} max={180} value={layer.orbit} suffix="°"
+          onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
+          onChange={(v, rec) => onChange({ orbit: v }, rec)}
         />
-        <div className="tb-hint">Rotate the character left/right — straighten a diagonal pose to face front. “Face camera” (artboard toolbar) auto-turns them toward you.</div>
       </div>
       <div className="tb-grp">
-        <label>Tilt — X <b>{layer.tiltX ?? 0}&deg;</b></label>
-        <DlSlider
-          min={-180}
-          max={180}
-          value={layer.tiltX ?? 0}
-          bubble={`${layer.tiltX ?? 0}°`}
-          onPointerDown={onBeginGesture}
-          onChange={(v) => onChange({ tiltX: v }, false)}
-          onPointerUp={onCommitGesture}
+        <label>Tilt — X</label>
+        <SliderNum
+          min={-180} max={180} value={layer.tiltX ?? 0} suffix="°"
+          onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
+          onChange={(v, rec) => onChange({ tiltX: v }, rec)}
         />
-        <div className="tb-hint">Lean the character forward/back.</div>
       </div>
       <div className="tb-grp">
-        <label>Roll — Z <b>{layer.rollZ ?? 0}&deg;</b></label>
-        <DlSlider
-          min={-180}
-          max={180}
-          value={layer.rollZ ?? 0}
-          bubble={`${layer.rollZ ?? 0}°`}
-          onPointerDown={onBeginGesture}
-          onChange={(v) => onChange({ rollZ: v }, false)}
-          onPointerUp={onCommitGesture}
+        <label>Roll — Z</label>
+        <SliderNum
+          min={-180} max={180} value={layer.rollZ ?? 0} suffix="°"
+          onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
+          onChange={(v, rec) => onChange({ rollZ: v }, rec)}
         />
-        <div className="tb-hint">Spin the character in the picture plane (roll). Ctrl+left-drag in edit mode does the same.</div>
       </div>
     </>
+  );
+}
+
+/** Slider + a compact numeric input, side by side. The number field lets the
+ *  user type an exact value; both drive the same onChange. `rec` = whether the
+ *  change should be recorded on the undo stack (slider drag: false until
+ *  pointerup; typed value / commit: true). */
+function SliderNum({ min, max, value, suffix, onChange, onBeginGesture, onCommitGesture }: {
+  min: number; max: number; value: number; suffix?: string;
+  onChange: (v: number, record: boolean) => void;
+  onBeginGesture: () => void; onCommitGesture: () => void;
+}) {
+  const clamp = (n: number) => Math.max(min, Math.min(max, n));
+  return (
+    <div className="tb-slidernum">
+      <DlSlider
+        min={min} max={max} value={value} bubble={`${value}${suffix ?? ''}`}
+        onPointerDown={onBeginGesture}
+        onChange={(v) => onChange(v, false)}
+        onPointerUp={onCommitGesture}
+      />
+      <input
+        className="dl-input tb-slidernum__in"
+        type="number"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => {
+          const n = Number(e.target.value);
+          if (Number.isFinite(n)) onChange(clamp(n), true);
+        }}
+      />
+    </div>
   );
 }
 

@@ -178,7 +178,6 @@ export function ModelStudioModal({ layer, anchorRef, getMeshes, getClips, onChan
                 { value: 'head', label: 'Head' },
               ]}
             />
-            <div className="tb-hint">Head auto-focuses the character's head/face with a slight zoom.</div>
           </div>
           <div className="tb-studio__head" style={{ marginTop: 12 }}>
             <span className="tb-studio__title">Animation</span>
@@ -205,7 +204,6 @@ export function ModelStudioModal({ layer, anchorRef, getMeshes, getClips, onChan
               onChange={(v) => onChange({ frame: v }, false)}
               onPointerUp={onCommitGesture}
             />
-            <div className="tb-hint">Pick the exact pose frame the poster freezes on.</div>
           </div>
         </section>
       </div>

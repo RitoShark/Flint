@@ -141,10 +141,9 @@ interface ModelState {
     boneIndexByHash: Map<number, number>;
     bones: Bone[];
     joints: BoneData[];
-    /** Kept for face-direction detection (average forward of the head/face
-     *  submesh, XZ-projected) — vertex positions/normals + submesh ranges. */
+    /** Kept for face-direction detection: (face-submesh centroid − whole
+     *  centroid) → forward vector. Vertex positions + per-submesh ranges. */
     positions: Float32Array;
-    normals: Float32Array;
     materials: { name: string; start_vertex: number; vertex_count: number }[];
     textures: Texture[];
     clips: AnimClip[];
@@ -503,43 +502,52 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
     }
 
     // Submesh-name fragments (lowercased) that mark the head/face region — its
-    // average normal is the most reliable "which way is the character looking"
-    // signal (the face is a big front-facing surface). Body is the fallback.
-    const FACE_MESH_HINTS = ['face', 'head', 'hair', 'helmet', 'hood', 'mask'];
-    const BODY_MESH_HINTS = ['body', 'base', 'torso', 'chest', 'cape'];
+    // vertices cluster on the FRONT of the character, so (face centroid − whole
+    // centroid) is a robust "which way does it look" vector.
+    const FACE_MESH_HINTS = ['face', 'head', 'hair', 'helmet', 'hood', 'mask', 'eye', 'horn'];
 
-    /** Average vertex NORMAL over a set of submeshes, projected onto the
-     *  horizontal (XZ) plane and normalized — the direction the character
-     *  faces in model space. Positions are X-mirrored on load, and the normal's
-     *  X is mirrored with them, so this is already in the loaded mesh's space.
-     *  Returns null if no usable normal (degenerate). */
-    function averageFacing(m: ModelState, hints: string[]): { x: number; z: number } | null {
-        const subs = m.materials.filter(s => {
-            const n = s.name.toLowerCase();
-            return hints.some(h => n.includes(h));
-        });
-        const ranges = subs.length > 0 ? subs : m.materials;
-        let ax = 0;
-        let az = 0;
-        let count = 0;
+    /** Centroid (XZ) of a set of submesh vertex positions. Positions are
+     *  X-mirrored on load, so this is already in the loaded mesh's space. */
+    function centroidXZ(m: ModelState, ranges: { start_vertex: number; vertex_count: number }[]): { x: number; z: number; n: number } {
+        let cx = 0;
+        let cz = 0;
+        let n = 0;
         for (const s of ranges) {
             const end = s.start_vertex + s.vertex_count;
             for (let v = s.start_vertex; v < end; v++) {
-                const nx = m.normals[v * 3];
-                const nz = m.normals[v * 3 + 2];
-                if (!Number.isFinite(nx) || !Number.isFinite(nz)) continue;
-                // X-mirror the normal to match the X-mirrored positions.
-                ax += -nx;
-                az += nz;
-                count++;
+                const px = m.positions[v * 3];
+                const pz = m.positions[v * 3 + 2];
+                if (!Number.isFinite(px) || !Number.isFinite(pz)) continue;
+                cx += px; cz += pz; n++;
             }
         }
-        if (count === 0) return null;
-        ax /= count;
-        az /= count;
-        const len = Math.hypot(ax, az);
-        if (len < 1e-4) return null;
-        return { x: ax / len, z: az / len };
+        return n > 0 ? { x: cx / n, z: cz / n, n } : { x: 0, z: 0, n: 0 };
+    }
+
+    /** The direction the character faces in model space (XZ, normalized).
+     *  Computed as (face-submesh centroid − whole-model centroid): the face
+     *  geometry sits on the FRONT of the head, so that offset points forward.
+     *  This is FAR more robust than averaging normals (which cancel out over a
+     *  closed surface). Returns null only if there's no geometry at all. */
+    function modelFacing(m: ModelState): { x: number; z: number } | null {
+        if (m.materials.length === 0) return null;
+        const faceSubs = m.materials.filter(s => {
+            const n = s.name.toLowerCase();
+            return FACE_MESH_HINTS.some(h => n.includes(h));
+        });
+        const whole = centroidXZ(m, m.materials);
+        if (whole.n === 0) return null;
+        const face = faceSubs.length > 0 ? centroidXZ(m, faceSubs) : whole;
+        let dx = face.x - whole.x;
+        let dz = face.z - whole.z;
+        let len = Math.hypot(dx, dz);
+        if (len < 1e-3) {
+            // Face centroid ≈ model centroid (symmetric / no face submesh) —
+            // fall back to the widest horizontal spread axis's… just default to
+            // facing +Z so the button still does something predictable.
+            dx = 0; dz = 1; len = 1;
+        }
+        return { x: dx / len, z: dz / len };
     }
 
     /** Auto-rotate the model so its face points toward the camera. The camera
@@ -551,7 +559,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
     function faceModelToCamera(id: string): number | null {
         const m = models.get(id);
         if (!m) return null;
-        const facing = averageFacing(m, FACE_MESH_HINTS) ?? averageFacing(m, BODY_MESH_HINTS);
+        const facing = modelFacing(m);
         if (!facing) return null;
 
         // Camera alpha is fixed at CAM_ALPHA. ArcRotateCamera position (relative
@@ -768,7 +776,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             bones,
             joints,
             positions: meshData.positions,
-            normals: meshData.normals,
             materials: meshData.materials.map(mm => ({ name: mm.name, start_vertex: mm.start_vertex, vertex_count: mm.vertex_count })),
             textures,
             clips: animResult.clips,
@@ -946,13 +953,15 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         return m.meshes.map(mesh => ({ name: mesh.name, hidden: m.hiddenMeshes.has(mesh.name) }));
     }
 
-    // Hide/show a submesh. We set BOTH isVisible AND setEnabled: the meshes
-    // carry `alwaysSelectAsActiveMesh = true` (to dodge a bad-bbox frustum
-    // cull), and that flag force-adds them to the active-mesh list, which can
-    // let a merely-`setEnabled(false)` mesh still render. `isVisible = false`
-    // unconditionally skips the draw, so it's the reliable hide toggle here.
+    // Hide/show a submesh. The meshes carry `alwaysSelectAsActiveMesh = true`
+    // (to dodge a bad-bbox frustum cull), which force-adds them to the active
+    // list — so a merely-`setEnabled(false)` mesh can still render. Belt AND
+    // suspenders: drop it from the forced-active list, disable it, mark it not
+    // visible, and zero its render alpha so nothing draws it.
     function applyMeshVisibility(mesh: Mesh, hidden: boolean): void {
+        mesh.alwaysSelectAsActiveMesh = !hidden;
         mesh.isVisible = !hidden;
+        mesh.visibility = hidden ? 0 : 1;
         mesh.setEnabled(!hidden);
     }
 

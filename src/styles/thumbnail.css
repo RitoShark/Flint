@@ -548,6 +548,32 @@
   font-weight: 600;
 }
 
+/* Slider + compact number input on one row (rotation/scale fields). */
+.tb-slidernum {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tb-slidernum .dl-slider {
+  flex: 1;
+  min-width: 0;
+}
+
+.tb-slidernum__in {
+  flex: none;
+  width: 58px;
+  padding: 4px 6px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Trim the number input's spin buttons so it stays compact. */
+.tb-slidernum__in::-webkit-outer-spin-button,
+.tb-slidernum__in::-webkit-inner-spin-button {
+  margin: 0;
+}
+
 .tb-empty-prop {
   padding: 40px 16px;
   text-align: center;
