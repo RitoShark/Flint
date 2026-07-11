@@ -46,15 +46,13 @@ function seedLayers(sknPath: string): Layer[] {
       hidden: false,
       rot: 0,
       locked: false,
-      // Box + head-focus from the tuned reference layout ("new test" preset): a
-      // large box overlapping the disc, framed on the head so it spawns at a
-      // sensible splash-crop size rather than a huge full body.
+      // Large box overlapping the disc, head-focus. Hero scale = 250.
       x: 257, y: -2, w: 385, h: 363,
       sknPath,
       anim: '',
       frame: 0,
       maxFrame: 0,
-      scale: 300,
+      scale: 250,
       orbit: 0,
       focusMode: 'head',
     },

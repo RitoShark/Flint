@@ -115,6 +115,8 @@ export interface ThumbnailScene {
     setHiddenMeshes(id: string, hiddenNames: string[]): void;
     /** Show/hide the WHOLE model (Layers-panel eye toggle on a model layer). */
     setModelVisible(id: string, visible: boolean): void;
+    /** Set render order (higher renders on top where model viewports overlap). */
+    setModelRenderOrder(id: string, order: number): void;
     /** Highest scrubbable frame index (frame_count - 1) of the model's
      *  CURRENTLY selected animation; 0 if no clip is loaded. */
     getMaxFrame(id: string): number;
@@ -161,6 +163,9 @@ interface ModelState {
     /** Framing style: 'full' = whole model fits the box; 'head' = zoom in on
      *  the detected head/face bone (portrait/splash crop). */
     focusMode: 'full' | 'head';
+    /** Render order among models — higher renders LATER (on top) where two
+     *  model viewports overlap. Driven from the Layers-panel stacking. */
+    renderOrder: number;
     // Artboard placement (design-space box) → drives this model's viewport.
     x: number;
     y: number;
@@ -261,12 +266,15 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
     // live model set (or the fallback when empty). Order doesn't matter since
     // viewports don't overlap in practice, but keep the control camera first.
     function refreshActiveCameras(): void {
-        const cams = [...models.values()].map(m => m.camera);
-        if (cams.length === 0) {
+        if (models.size === 0) {
             scene.activeCameras = [fallbackCamera];
-        } else {
-            scene.activeCameras = cams;
+            return;
         }
+        // Where two model viewports overlap, the camera rendered LATER paints on
+        // top. So sort by renderOrder ASCENDING → the highest renderOrder (the
+        // Hero) renders last and sits ON TOP of the full-body model.
+        const ordered = [...models.values()].sort((a, b) => a.renderOrder - b.renderOrder);
+        scene.activeCameras = ordered.map(m => m.camera);
     }
     refreshActiveCameras();
 
@@ -304,14 +312,14 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         const s = (m.scale || 100) / 100;
         if (m.focusMode === 'head') {
             const head = findHeadFocus(m);
-            // Head mode looks at the FACE from slightly BELOW horizontal
-            // (beta ≈ 95°, vs the full-body 60° which looks DOWN at the scalp)
-            // so the camera is angled UP toward the face — even when no head
-            // bone is found we still use the level angle (the whole-model
-            // fallback target keeps it framed).
-            const headBeta = Math.PI / 1.9;
-            frameCamera(m.camera, m.bbox, aspect, head ? head.scale(s) : null, head ? 1.6 : 1, headBeta);
-            return;
+            if (head) {
+                // ORIGINAL head framing (commit d4b6595 — the version the artist
+                // liked): fit the whole bbox, target the scaled head, zoom 1.6,
+                // default beta (60°). Do NOT "improve" this — the level-beta /
+                // head-region-crop experiments made it worse.
+                frameCamera(m.camera, m.bbox, aspect, head.scale(s), 1.6);
+                return;
+            }
         }
         frameCamera(m.camera, m.bbox, aspect);
     }
@@ -506,102 +514,31 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         return null;
     }
 
-    // Bone-name fragments used to build the head look-frame. League models are
-    // usually ONE mesh (e.g. `kayn_body`), so there is no "face" submesh to
-    // sniff — the facing must come from the SKELETON, like selecting the head
-    // bone in Maya. We use head + neck (up axis) + eyes/face (forward axis).
-    const HEAD_BONE = ['head', 'buffbone_glb_head', 'c_head'];
-    const NECK_BONE = ['neck', 'c_neck', 'spine'];
-    const FWD_BONE = ['eye', 'face', 'jaw', 'nose', 'brow', 'mouth', 'buffbone_glb_face'];
+    // ── FACE CAMERA — one simple, deterministic system ──────────────────
+    // League character models face MODEL-SPACE +Z (their "front"). The camera
+    // is fixed at alpha=CAM_ALPHA, beta=PI/3 looking at the model. So "face the
+    // camera" = the single yaw that turns +Z toward the camera's horizontal
+    // direction, plus a small upward tilt so the face lifts toward the viewer.
+    // No mesh sniffing, no bone-look guessing — a fixed, predictable result the
+    // artist can then nudge with the Turn/Tilt number fields.
+    const FACE_TILT_DEG = -12; // slight chin-up so the face reads toward camera
 
-    function findBonePos(m: ModelState, hints: string[]): Vector3 | null {
-        for (const hint of hints) {
-            const b = m.joints.find(j => j.name.toLowerCase().includes(hint));
-            if (b) { const [x, y, z] = b.world_position; return new Vector3(x, y, z); }
-        }
-        return null;
-    }
-    /** Centroid of ALL bones whose name matches any hint (e.g. both eyes). */
-    function findBoneCentroid(m: ModelState, hints: string[]): Vector3 | null {
-        const matches = m.joints.filter(j => {
-            const n = j.name.toLowerCase();
-            return hints.some(h => n.includes(h));
-        });
-        if (matches.length === 0) return null;
-        let x = 0, y = 0, z = 0;
-        for (const b of matches) { x += b.world_position[0]; y += b.world_position[1]; z += b.world_position[2]; }
-        return new Vector3(x / matches.length, y / matches.length, z / matches.length);
-    }
-
-    /** The head's LOOK direction in model space (unit 3D), derived from bones
-     *  the way Maya's "look at face on the view cube" does — NOT from mesh
-     *  submeshes (League models are usually one mesh). forward = (face/eyes −
-     *  head); if no face bone, forward is the horizontal component of the
-     *  head-above-neck offset's perpendicular… but in practice League always
-     *  has eye/face bones, so (eyes − head) is the reliable look vector.
-     *  Returns null if the skeleton lacks the needed bones. */
-    function headLookDir(m: ModelState): { x: number; y: number; z: number } | null {
-        if (!m.joints || m.joints.length === 0) return null;
-        const head = findBonePos(m, HEAD_BONE);
-        if (!head) return null;
-        const fwdRef = findBoneCentroid(m, FWD_BONE);
-        let dir: Vector3 | null = null;
-        if (fwdRef) {
-            dir = fwdRef.subtract(head);
-        } else {
-            // No face/eye bone: approximate forward as horizontal, perpendicular
-            // to the neck→head up axis, pointing along model +Z (League front).
-            const neck = findBonePos(m, NECK_BONE);
-            if (!neck) return null;
-            dir = new Vector3(0, 0, 1);
-        }
-        const len = dir.length();
-        if (len < 1e-4) return null;
-        return { x: dir.x / len, y: dir.y / len, z: dir.z / len };
-    }
-
-    /** Auto-rotate the model so its head/face points at the camera — solving
-     *  BOTH yaw (Turn/Y) and pitch (Tilt/X). Uses the SKELETON look direction
-     *  (head + face/eye bones), matching how you'd select the head bone in Maya
-     *  and aim its face at the view cube. Persists orbit+tiltX and returns the
-     *  applied values (null if the skeleton has no head bone). */
+    /** Turn the model to face the camera (front = model +Z). Sets orbit+tiltX
+     *  and returns them. Always succeeds (deterministic, no detection). */
     function faceModelToCamera(id: string): { orbit: number; tiltX: number } | null {
         const m = models.get(id);
         if (!m) return null;
-        const f = headLookDir(m);
-        if (!f) return null;
-
-        // Camera position direction (unit) from the target, at the head-focus
-        // beta if we're in head mode, else the full-body beta.
-        const beta = m.focusMode === 'head' ? Math.PI / 1.9 : Math.PI / 3;
-        const cam = {
-            x: Math.sin(beta) * Math.cos(CAM_ALPHA),
-            y: Math.cos(beta),
-            z: Math.sin(beta) * Math.sin(CAM_ALPHA),
-        };
-
-        // 1) YAW (about +Y): align the horizontal (XZ) projection of the face
-        //    normal with the camera's XZ direction. Babylon LH: a +yaw rotates
-        //    (x,z)→(x·cosθ+z·sinθ, −x·sinθ+z·cosθ), i.e. the angle atan2(z,x)
-        //    DECREASES by θ. So θ = faceAngle − camAngle.
-        const faceAngleXZ = Math.atan2(f.z, f.x);
-        const camAngleXZ = Math.atan2(cam.z, cam.x);
-        let yaw = Math.atan2(Math.sin(faceAngleXZ - camAngleXZ), Math.cos(faceAngleXZ - camAngleXZ));
-
-        // 2) PITCH (about +X): after yaw, the face normal's horizontal length is
-        //    hypot(f.x,f.z); tilt it up/down so its Y matches the camera dir's
-        //    elevation. Pitch = camElev − faceElev, where elev = atan2(y, |xz|).
-        const faceElev = Math.atan2(f.y, Math.hypot(f.x, f.z));
-        const camElev = Math.atan2(cam.y, Math.hypot(cam.x, cam.z));
-        // Babylon +X pitch tips the model's +Z toward −Y; sign chosen so the
-        // face lifts to meet the camera elevation.
-        let pitch = faceElev - camElev;
-        pitch = Math.atan2(Math.sin(pitch), Math.cos(pitch));
-
+        // Camera's horizontal look direction (target → camera) is (cosα, sinα)
+        // in XZ. Model front is +Z = angle atan2(1, 0) = PI/2. A +yaw rotates
+        // the front's XZ angle DOWN by yaw (Babylon LH), so to land the front
+        // on the camera direction: yaw = frontAngle − camAngle.
+        const camAngle = Math.atan2(Math.sin(CAM_ALPHA), Math.cos(CAM_ALPHA));
+        const frontAngle = Math.atan2(1, 0); // +Z
+        let yaw = frontAngle - camAngle;
+        yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw));
         const orbitDeg = Math.round((yaw * 180) / Math.PI);
-        const tiltDeg = Math.round((pitch * 180) / Math.PI);
-        setModelTransform(id, { orbit: orbitDeg, tiltX: tiltDeg });
-        return { orbit: orbitDeg, tiltX: tiltDeg };
+        setModelTransform(id, { orbit: orbitDeg, tiltX: FACE_TILT_DEG });
+        return { orbit: orbitDeg, tiltX: FACE_TILT_DEG };
     }
 
     /** Pixel aspect (w/h) of a model's current viewport box on the canvas. */
@@ -808,6 +745,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             glowOn: false,
             userFramed: false,
             focusMode: 'full',
+            renderOrder: 0,
             x: 0,
             y: 0,
             w: 0,
@@ -1005,6 +943,15 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         for (const mesh of m.meshes) applyMeshVisibility(mesh, next.has(mesh.name));
     }
 
+    /** Set a model's render order (higher = on top where viewports overlap).
+     *  Re-sorts the active cameras so the change takes effect immediately. */
+    function setModelRenderOrder(id: string, order: number): void {
+        const m = models.get(id);
+        if (!m || m.renderOrder === order) return;
+        m.renderOrder = order;
+        refreshActiveCameras();
+    }
+
     /** Show/hide the ENTIRE model (driven by the Layers-panel eye toggle on the
      *  model layer). Hiding it turns off every submesh's render; showing it
      *  restores per-submesh visibility (respecting the hiddenMeshes set). */
@@ -1099,6 +1046,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         setMeshHidden,
         setHiddenMeshes,
         setModelVisible,
+        setModelRenderOrder,
         getMaxFrame,
         setEnvImage,
         setGlow,

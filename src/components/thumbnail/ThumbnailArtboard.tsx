@@ -396,7 +396,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
           const maxFrame = scene.getMaxFrame(handle.id);
           placeholder.anim = initialAnim;
           scene.setModelFrame(handle.id, layer.frame);
-          // Auto-face on first setup (persist yaw + tilt onto layer + binding).
+          // Auto-face on first setup: turn the model to face the camera.
           let autoOrbit = layer.orbit;
           let autoTilt = layer.tiltX ?? 0;
           if (isFresh) {
@@ -478,6 +478,15 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
         scene.setModelVisible(existing.sceneId, !hidden);
       }
     }
+
+    // Render order among models: earlier in the Layers panel = ON TOP. The
+    // panel lists models in array order (Hero above Full body), so give the
+    // FIRST model the highest renderOrder → it renders last / sits on top where
+    // viewports overlap (Hero over Full body).
+    modelLayers.forEach((layer, i) => {
+      const b = bindings.get(layer.id);
+      if (b?.sceneId) scene.setModelRenderOrder(b.sceneId, modelLayers.length - i);
+    });
 
     // Any binding whose layer no longer exists (deleted) -> remove from scene.
     for (const [layerId, binding] of bindings) {
@@ -874,7 +883,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
           <button
             type="button"
             className="tb-model-bar__btn"
-            title="Auto-rotate so the character's face points at the camera"
+            title="Turn the character to face the camera"
             onClick={faceSelectedModel}
           >
             <DlIcon name="target" size={15} />
