@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ModelLayer } from '../../lib/thumbnail/layers';
 import { AnimClip, MeshInfo } from '../../lib/thumbnail/studioScene';
-import { DlButton, DlIcon, DlSelect, DlSlider } from '../ui/design-lab';
+import { DlButton, DlIcon, DlSegmented, DlSelect, DlSlider } from '../ui/design-lab';
 
 export interface ModelStudioModalProps {
   layer: ModelLayer;
@@ -110,9 +110,25 @@ export function ModelStudioModal({ layer, getMeshes, getClips, onChange, onBegin
             </div>
           </section>
 
-          {/* ── Animation ── */}
+          {/* ── Animation + framing ── */}
           <section className="tb-studio__col">
             <div className="tb-studio__head">
+              <span className="tb-studio__title">Framing</span>
+            </div>
+            <div className="tb-grp">
+              <DlSegmented
+                fill
+                aria-label="Camera framing"
+                value={layer.focusMode ?? 'full'}
+                onChange={(v) => onChange({ focusMode: v as 'full' | 'head' }, true)}
+                options={[
+                  { value: 'full', label: 'Full body' },
+                  { value: 'head', label: 'Head' },
+                ]}
+              />
+              <div className="tb-hint">Head auto-focuses the character's head/face with a slight zoom.</div>
+            </div>
+            <div className="tb-studio__head" style={{ marginTop: 12 }}>
               <span className="tb-studio__title">Animation</span>
             </div>
             <div className="tb-grp">

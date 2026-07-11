@@ -33,6 +33,9 @@ export interface ModelLayer extends BaseLayer {
   /** Submesh (material) names hidden for this model. Empty/undefined = all
    *  submeshes visible. Driven by the mesh-visibility popup. */
   hiddenMeshes?: string[];
+  /** Camera framing: 'full' (whole body, default) or 'head' (auto-focus the
+   *  detected head bone with a slight zoom — splash/portrait crop). */
+  focusMode?: 'full' | 'head';
 }
 
 export interface DiscLayer extends BaseLayer {

@@ -7,6 +7,7 @@ import { createHistory } from '../../lib/thumbnail/history';
 import { Layer, ModelLayer, removeLayer, toggleLock, updateLayer } from '../../lib/thumbnail/layers';
 import { loadPreset, presetToLayers, PresetId } from '../../lib/thumbnail/preset';
 import { buildPresetFile, parsePresetFile, PresetFile, suggestPresetFilename } from '../../lib/thumbnail/presetFile';
+import { loadStoredPresets, saveStoredPresets } from '../../lib/thumbnail/presetStore';
 import { composeThumbnail, ExportFormat, resolveOutputSize } from '../../lib/thumbnail/export';
 import { saveThumbnail } from '../../lib/api/thumbnail';
 import { ThumbnailArtboard, ThumbnailArtboardHandle } from './ThumbnailArtboard';
@@ -46,16 +47,17 @@ function seedLayers(sknPath: string): Layer[] {
       hidden: false,
       rot: 0,
       locked: false,
-      x: 360, y: 40, w: 270, h: 300,
-      // Primary model: wired to the window's `skn` launch param so the
-      // artboard loads a real SKN on mount (see ThumbnailArtboard). Its own
-      // camera viewport = this box (see studioScene.ts per-model cameras).
+      // Box + head-focus tuned to the reference layout (size-test preset): a
+      // large box overlapping the disc, framed on the head so it spawns at a
+      // sensible splash-crop size rather than a huge full body.
+      x: 257, y: -2, w: 385, h: 363,
       sknPath,
       anim: '',
       frame: 0,
       maxFrame: 0,
       scale: 100,
       orbit: 0,
+      focusMode: 'head',
     },
     {
       id: 'fullbody',
@@ -64,15 +66,15 @@ function seedLayers(sknPath: string): Layer[] {
       hidden: false,
       rot: 0,
       locked: false,
-      // Smaller full-body model at bottom-left (the "whole body" companion to
-      // the big hero), the second default model per the composition brief.
-      x: 40, y: 110, w: 150, h: 230,
+      // Smaller full-body companion at bottom-left (whole body, not head).
+      x: 101, y: 46, w: 150, h: 230,
       sknPath,
       anim: '',
       frame: 0,
       maxFrame: 0,
       scale: 100,
       orbit: 0,
+      focusMode: 'full',
     },
   ];
   // Models first (so they sit under the disc/text in z-order via zrank), then
@@ -100,16 +102,26 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
   const [exporting, setExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
 
-  // User presets: built-in styles plus any the user saved/imported this session
-  // (kept in memory; a saved/exported preset is also written to disk as JSON).
-  // Each carries a STABLE id (not its array index) so the preset picker's
-  // value stays valid if the list is ever reordered or an entry removed.
-  const [userPresets, setUserPresets] = useState<{ id: string; file: PresetFile }[]>([]);
-  const presetIdRef = useRef(0);
+  // User presets: built-in styles plus any the user saved/imported. Saved
+  // presets PERSIST across window reopens (localStorage via presetStore). Each
+  // carries a STABLE id (not its array index) so the picker value stays valid.
+  const [userPresets, setUserPresets] = useState<{ id: string; file: PresetFile }[]>(() => loadStoredPresets());
+  const presetIdRef = useRef(Date.now());
   const [showSavePreset, setShowSavePreset] = useState(false);
   const addUserPreset = useCallback((file: PresetFile) => {
     const id = `user-${presetIdRef.current++}`;
-    setUserPresets(prev => [...prev, { id, file }]);
+    setUserPresets(prev => {
+      const next = [...prev, { id, file }];
+      saveStoredPresets(next);
+      return next;
+    });
+  }, []);
+  const deleteUserPreset = useCallback((id: string) => {
+    setUserPresets(prev => {
+      const next = prev.filter(p => p.id !== id);
+      saveStoredPresets(next);
+      return next;
+    });
   }, []);
 
   // Which model layer id has the mesh & animation studio popup open (null = closed).
@@ -425,14 +437,22 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
               ...userPresets.map(p => ({ value: p.id, label: p.file.name, icon: 'save' as const })),
             ]}
           />
+          <DlButton icon="save" variant="secondary" title="Save the current layout as a local preset" onClick={() => setShowSavePreset(true)}>Save</DlButton>
           <DlMenu
-            title="Preset actions"
-            menuWidth={220}
+            title="Import / export / manage presets"
+            menuWidth={240}
             items={[
-              { label: 'Save preset…', icon: 'save', onClick: () => setShowSavePreset(true) },
               { label: 'Export preset to file…', icon: 'export', onClick: handleExportPreset },
-              { divider: true, label: '', onClick: () => {} },
               { label: 'Import preset from file…', icon: 'import', onClick: handleImportPreset },
+              ...(userPresets.length > 0
+                ? [{ divider: true as const, label: '', onClick: () => {} },
+                   ...userPresets.map(p => ({
+                     label: `Delete "${p.file.name}"`,
+                     icon: 'trash' as const,
+                     danger: true,
+                     onClick: () => deleteUserPreset(p.id),
+                   }))]
+                : []),
             ]}
           />
         </div>

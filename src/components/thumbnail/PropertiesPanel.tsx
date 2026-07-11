@@ -17,35 +17,6 @@ export interface PropertiesPanelProps {
 
 type ChangeProps = { onChange: PropertiesPanelProps['onChange']; onBeginGesture: PropertiesPanelProps['onBeginGesture']; onCommitGesture: PropertiesPanelProps['onCommitGesture'] };
 
-/**
- * Placement lock — the SAME state the eye/lock icons in the Layers panel drive
- * (both read/write `layer.locked`). Shown at the top so the current lock state
- * is unambiguous, and the editing controls below are disabled/dimmed while
- * locked so a locked layer never *looks* editable.
- */
-function LockRow({ layer, onChange }: { layer: Layer } & Pick<ChangeProps, 'onChange'>) {
-  return (
-    <div className="tb-grp">
-      <label>Placement</label>
-      <DlSegmented
-        fill
-        aria-label="Placement lock"
-        value={layer.locked ? 'locked' : 'editable'}
-        onChange={(v) => onChange({ locked: v === 'locked' } as LayerPatch, true)}
-        options={[
-          { value: 'editable', label: 'Editable', icon: 'lockOpen' },
-          { value: 'locked', label: 'Locked', icon: 'lockClosed' },
-        ]}
-      />
-      <div className="tb-hint">
-        {layer.locked
-          ? 'Locked — pinned in place. It can be selected but not moved or resized. Switch to Editable to reposition it.'
-          : 'Editable — drag or resize it on the artboard.'}
-      </div>
-    </div>
-  );
-}
-
 function TextProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer: Extract<Layer, { type: 'text' }> } & ChangeProps) {
   return (
     <>
@@ -212,11 +183,9 @@ const TITLE_ICON: Record<Layer['type'], Parameters<typeof DlIcon>[0]['name']> = 
 };
 
 export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGesture, onOpenModelStudio }: PropertiesPanelProps) {
-  // The Placement lock at the top reflects the SAME `layer.locked` the Layers
-  // panel toggles — so lock state reads identically in both places (the user's
-  // "is it locked or editable?" confusion came from those two controls not
-  // obviously being the same thing). Locking gates on-artboard move/resize
-  // only; content (text, font, animation, opacity) stays editable.
+  // Lock is driven entirely from the Layers panel's lock icon — no lock control
+  // here (it was redundant and confusing). Properties shows only the layer's
+  // own editable attributes.
   return (
     <div className="tb-side-sec tb-side-sec--props">
       <div className="tb-pane-h">
@@ -227,7 +196,6 @@ export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGestu
           <div className="tb-empty-prop">Select a layer to edit it.</div>
         ) : (
           <>
-            <LockRow layer={layer} onChange={onChange} />
             {layer.type === 'text' && <TextProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
             {layer.type === 'model' && <ModelProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} onOpenModelStudio={onOpenModelStudio} />}
             {layer.type === 'disc' && <DiscProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}

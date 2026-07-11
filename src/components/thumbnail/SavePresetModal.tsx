@@ -50,8 +50,9 @@ export function SavePresetModal({ initialName, onSave, onClose }: SavePresetModa
             }}
           />
           <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>
-            Saves this layout, fonts, and theme hue as a reusable preset. Model file paths are not stored, so the
-            preset works with any skin.
+            Saves this layout, fonts, meshes, and theme hue as a reusable preset — stored locally, so it stays in
+            the preset menu even after you close and reopen this window. Model file paths aren't stored, so it works
+            with any skin.
           </p>
         </div>
         <div className="dl-modal__foot" style={{ padding: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>

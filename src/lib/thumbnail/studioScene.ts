@@ -95,6 +95,9 @@ export interface ThumbnailScene {
     setControlModel(id: string | null): void;
     /** Re-frame a model to its default centered pose (reset an orbit). */
     resetModelView(id: string): void;
+    /** Switch a model's framing between whole-body ('full') and head/face
+     *  close-up ('head', auto-detects the head bone). */
+    setModelFocus(id: string, mode: 'full' | 'head'): void;
     listAnims(id: string): AnimClip[];
     /** Submesh list for a model with per-submesh hidden state (drives the
      *  mesh-visibility popup). Empty until the model has loaded. */
@@ -143,6 +146,9 @@ interface ModelState {
      *  stop auto-reframing it on box/viewport changes so we don't fight the
      *  pose they set. */
     userFramed: boolean;
+    /** Framing style: 'full' = whole model fits the box; 'head' = zoom in on
+     *  the detected head/face bone (portrait/splash crop). */
+    focusMode: 'full' | 'head';
     // Artboard placement (design-space box) → drives this model's viewport.
     x: number;
     y: number;
@@ -255,7 +261,22 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         // Re-frame so the model stays centered/fully-fit for the box's new
         // aspect — unless the user has taken manual control of this model's
         // camera (then keep their pose).
-        if (!m.userFramed) frameCamera(m.camera, m.bbox, viewportAspectOf(m));
+        if (!m.userFramed) reframeModel(m);
+    }
+
+    /** (Re)frame a model per its focusMode: 'head' targets the detected head
+     *  bone with a slight zoom (splash crop); 'full' fits the whole model. */
+    function reframeModel(m: ModelState): void {
+        const aspect = viewportAspectOf(m);
+        if (m.focusMode === 'head') {
+            const head = findHeadFocus(m);
+            if (head) {
+                // Slight zoom so it's head + shoulders, not an extreme close-up.
+                frameCamera(m.camera, m.bbox, aspect, head, 1.6);
+                return;
+            }
+        }
+        frameCamera(m.camera, m.bbox, aspect);
     }
 
     // ── Environment background ──────────────────────────────────────
@@ -362,10 +383,15 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
     /** Frame a camera on a bbox so the model is CENTERED and fully fits the
      *  camera's viewport. Accounts for the viewport's aspect ratio (a portrait
      *  box needs a larger radius to fit the model's width, a landscape box to
-     *  fit its height) — otherwise a tall model in a narrow box sits
-     *  off-center / clipped. `viewportAspect` = viewport width / height in
-     *  PIXELS (box.w*canvasW) / (box.h*canvasH). */
-    function frameCamera(cam: ArcRotateCamera, bbox: [[number, number, number], [number, number, number]], viewportAspect: number): void {
+     *  fit its height). `focus` optionally overrides the target (e.g. the head
+     *  bone) and `zoom` (>1) tightens the framing around it. */
+    function frameCamera(
+        cam: ArcRotateCamera,
+        bbox: [[number, number, number], [number, number, number]],
+        viewportAspect: number,
+        focus?: Vector3 | null,
+        zoom = 1,
+    ): void {
         let [[minX, minY, minZ], [maxX, maxY, maxZ]] = bbox;
         const boxValid =
             [minX, minY, minZ, maxX, maxY, maxZ].every(Number.isFinite) &&
@@ -374,7 +400,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             minX = minY = minZ = -1;
             maxX = maxY = maxZ = 1;
         }
-        const center = new Vector3((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
+        const center = focus ?? new Vector3((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
         const sizeX = maxX - minX;
         const sizeY = maxY - minY;
         const sizeZ = maxZ - minZ;
@@ -392,8 +418,10 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         const fovX = 2 * Math.atan(Math.tan(fovY / 2) * aspect);
         const radiusForH = halfH / Math.tan(fovY / 2);
         const radiusForW = halfW / Math.tan(fovX / 2);
-        // 1.12 = small margin so the silhouette isn't flush against the edges.
-        const radius = Math.max(radiusForH, radiusForW, 0.01) * 1.12 || 5;
+        // 1.25 base margin (a touch more zoomed OUT than before — models were
+        // spawning too tight/big). Divided by `zoom` so a head-focus (zoom>1)
+        // pulls in closer.
+        const radius = (Math.max(radiusForH, radiusForW, 0.01) * 1.25 || 5) / Math.max(0.1, zoom);
 
         cam.target = center;
         cam.radius = radius;
@@ -401,18 +429,40 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         cam.upperRadiusLimit = radius * 50.0;
         cam.wheelPrecision = 80 / radius;
         cam.pinchPrecision = 160 / radius;
-        cam.panningSensibility = 8000 / Math.max(radius, 0.001);
+        cam.panningSensibility = 3000 / Math.max(radius, 0.001);
         cam.speed = radius * 0.02;
         cam.alpha = Math.PI / 2 + Math.PI / 8;
         cam.beta = Math.PI / 3;
-        // Near/far clip relative to the model size so the near plane never
-        // slices through the mesh when zoomed in ("back of the model fades /
-        // goes through a wall"), and the far plane never culls it when zoomed
-        // out. minZ must stay > 0. Model span ~= radius; a near plane at
-        // radius/1000 clears any close orbit, far at radius*100 covers any
-        // zoom-out.
+        // Free horizontal orbit; keep vertical within a natural range so the
+        // user can't flip under/over the model.
+        cam.lowerBetaLimit = 0.15;
+        cam.upperBetaLimit = Math.PI - 0.15;
+        // Smoother drag: lower angularSensibility = faster rotate per pixel.
+        cam.angularSensibilityX = 500;
+        cam.angularSensibilityY = 500;
+        // Near/far clip relative to model size so geometry never clips through
+        // the near plane on zoom-in nor gets culled on zoom-out.
         cam.minZ = Math.max(radius / 1000, 0.001);
         cam.maxZ = radius * 100;
+    }
+
+    // Bone-name fragments (lowercased) that identify a head/face region, most
+    // specific first. Used to auto-focus the hero on its head.
+    const HEAD_BONE_HINTS = ['head', 'neck', 'hair', 'face', 'jaw'];
+
+    /** Find a head-ish bone's world position (X-mirrored to match the loaded,
+     *  X-negated meshes). Returns null if no skeleton / no match. */
+    function findHeadFocus(m: ModelState): Vector3 | null {
+        if (!m.joints || m.joints.length === 0) return null;
+        for (const hint of HEAD_BONE_HINTS) {
+            const bone = m.joints.find(j => j.name.toLowerCase().includes(hint));
+            if (bone) {
+                const [x, y, z] = bone.world_position;
+                // meshes load with position.x negated (League LH → Babylon RH).
+                return new Vector3(-x, y, z);
+            }
+        }
+        return null;
     }
 
     /** Pixel aspect (w/h) of a model's current viewport box on the canvas. */
@@ -622,6 +672,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             pendingFrame: null,
             glowOn: false,
             userFramed: false,
+            focusMode: 'full',
             x: 0,
             y: 0,
             w: 0,
@@ -634,6 +685,14 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         refreshActiveCameras();
 
         return { id, maxFrame: 0 };
+    }
+
+    function setModelFocus(id: string, mode: 'full' | 'head'): void {
+        const m = models.get(id);
+        if (!m) return;
+        m.focusMode = mode;
+        m.userFramed = false; // a focus change re-frames even after manual orbit
+        reframeModel(m);
     }
 
     function removeModel(id: string): void {
@@ -675,7 +734,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         const m = models.get(id);
         if (!m) return;
         m.userFramed = false;
-        frameCamera(m.camera, m.bbox, viewportAspectOf(m));
+        reframeModel(m);
     }
 
     function setModelTransform(id: string, patch: ModelTransformPatch): void {
@@ -835,6 +894,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         setModelFrame,
         setControlModel,
         resetModelView,
+        setModelFocus,
         listAnims,
         listMeshes,
         setMeshHidden,

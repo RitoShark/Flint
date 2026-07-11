@@ -39,7 +39,7 @@ export function DlSelect<T extends string = string>({
     const [open, setOpen] = useState(false);
     const triggerRef = useRef<HTMLButtonElement>(null);
     const menuRef = useRef<HTMLDivElement>(null);
-    const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+    const [pos, setPos] = useState<{ top: number; left: number; width: number; maxH: number; up: boolean } | null>(null);
     const selected = options.find((o) => o.value === value) ?? null;
 
     useLayoutEffect(() => {
@@ -49,7 +49,19 @@ export function DlSelect<T extends string = string>({
         }
         const update = () => {
             const r = triggerRef.current!.getBoundingClientRect();
-            setPos({ top: r.bottom + 6, left: r.left, width: r.width });
+            const gap = 6;
+            const spaceBelow = window.innerHeight - r.bottom - gap - 8;
+            const spaceAbove = r.top - gap - 8;
+            // Open upward when there's clearly more room above (long list near
+            // the bottom of the screen) — otherwise the menu would be squished.
+            const up = spaceBelow < 220 && spaceAbove > spaceBelow;
+            setPos({
+                top: up ? r.top - gap : r.bottom + gap,
+                left: r.left,
+                width: r.width,
+                maxH: Math.max(140, up ? spaceAbove : spaceBelow),
+                up,
+            });
         };
         update();
         window.addEventListener('scroll', update, true);
@@ -103,7 +115,19 @@ export function DlSelect<T extends string = string>({
                 <div
                     ref={menuRef}
                     className="dl-dd-portal"
-                    style={{ position: 'fixed', top: pos.top, left: pos.left, minWidth: pos.width }}
+                    style={{
+                        position: 'fixed',
+                        left: pos.left,
+                        minWidth: pos.width,
+                        top: pos.top,
+                        // When opening upward, shift the menu up by its own
+                        // height so its BOTTOM sits just above the trigger.
+                        transform: pos.up ? 'translateY(-100%)' : undefined,
+                        // Cap height to available space so a long list scrolls
+                        // inside the menu instead of running off-screen.
+                        maxHeight: pos.maxH,
+                        overflowY: 'auto',
+                    }}
                     role="listbox"
                 >
                     {options.map((o) => (

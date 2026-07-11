@@ -136,7 +136,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   // the reconciliation effect further down can reference them. See the
   // reconciliation effect for the full placement-model writeup.
   const sceneRef = useRef<ThumbnailScene | null>(null);
-  const modelBindingsRef = useRef<Map<string, { sceneId: string; sknPath: string; anim: string; frame: number; scale: number; orbit: number; x: number; y: number; w: number; h: number; hiddenMeshes: string }>>(new Map());
+  const modelBindingsRef = useRef<Map<string, { sceneId: string; sknPath: string; anim: string; frame: number; scale: number; orbit: number; x: number; y: number; w: number; h: number; hiddenMeshes: string; focusMode: string }>>(new Map());
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
@@ -308,7 +308,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       // Reserve the binding immediately so a second effect run (e.g. a
       // fast prop change while the load is in flight) doesn't fire a
       // duplicate addModel for the same layer.
-      const placeholder = { sceneId: '', sknPath: layer.sknPath, anim: layer.anim, frame: layer.frame, scale: layer.scale, orbit: layer.orbit, x: layer.x, y: layer.y, w: layer.w, h: layer.h, hiddenMeshes: JSON.stringify(layer.hiddenMeshes ?? []) };
+      const placeholder = { sceneId: '', sknPath: layer.sknPath, anim: layer.anim, frame: layer.frame, scale: layer.scale, orbit: layer.orbit, x: layer.x, y: layer.y, w: layer.w, h: layer.h, hiddenMeshes: JSON.stringify(layer.hiddenMeshes ?? []), focusMode: layer.focusMode ?? 'full' };
       bindings.set(layer.id, placeholder);
       scene.addModel(layer.sknPath).then(async (handle) => {
         if (modelBindingsRef.current.get(layer.id) !== placeholder) {
@@ -322,6 +322,9 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
         scene.setModelTransform(handle.id, { x: layer.x, y: layer.y, w: layer.w, h: layer.h, scale: layer.scale, orbit: layer.orbit });
         if (layer.hiddenMeshes && layer.hiddenMeshes.length > 0) {
           scene.setHiddenMeshes(handle.id, layer.hiddenMeshes);
+        }
+        if (layer.focusMode === 'head') {
+          scene.setModelFocus(handle.id, 'head');
         }
         const clips = scene.listAnims(handle.id);
         const initialAnim = layer.anim || clips[0]?.animation_path || clips[0]?.name || '';
@@ -397,6 +400,11 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       if (existing.hiddenMeshes !== hiddenKey) {
         existing.hiddenMeshes = hiddenKey;
         scene.setHiddenMeshes(existing.sceneId, layer.hiddenMeshes ?? []);
+      }
+      const focus = layer.focusMode ?? 'full';
+      if (existing.focusMode !== focus) {
+        existing.focusMode = focus;
+        scene.setModelFocus(existing.sceneId, focus);
       }
     }
 
