@@ -1,6 +1,8 @@
-import { ChangeEvent } from 'react';
-import { Layer } from '../../lib/thumbnail/layers';
-import { DlIcon, DlSegmented, DlButton, DlSlider } from '../ui/design-lab';
+import { ChangeEvent, useRef, useState } from 'react';
+import { Layer, ModelLayer } from '../../lib/thumbnail/layers';
+import { AnimClip, MeshInfo } from '../../lib/thumbnail/studioScene';
+import { DlIcon, DlIconButton, DlSegmented, DlButton, DlSlider } from '../ui/design-lab';
+import { ModelStudioModal } from './ModelStudioModal';
 
 export type LayerPatch = Partial<Layer>;
 
@@ -11,10 +13,11 @@ export interface PropertiesPanelProps {
   onBeginGesture: () => void;
   /** Record the gesture (baseline vs. final state) onto the undo stack (call on slider pointerup). */
   onCommitGesture: () => void;
-  /** Open the mesh & animation studio popup for the current model layer. */
-  onOpenModelStudio?: () => void;
   /** Auto-rotate the current model layer so its face points at the camera. */
   onFaceCamera?: () => void;
+  /** Live getters for the mesh/anim studio popover (backed by the scene). */
+  getModelMeshes?: (layerId: string) => MeshInfo[];
+  getModelClips?: (layerId: string) => AnimClip[];
 }
 
 type ChangeProps = { onChange: PropertiesPanelProps['onChange']; onBeginGesture: PropertiesPanelProps['onBeginGesture']; onCommitGesture: PropertiesPanelProps['onCommitGesture'] };
@@ -81,19 +84,45 @@ function TextProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer
   );
 }
 
-function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture, onOpenModelStudio, onFaceCamera }: { layer: Extract<Layer, { type: 'model' }> } & ChangeProps & { onOpenModelStudio?: () => void; onFaceCamera?: () => void }) {
+function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture, onFaceCamera, getModelMeshes, getModelClips }: { layer: Extract<Layer, { type: 'model' }> } & ChangeProps & { onFaceCamera?: () => void; getModelMeshes?: (layerId: string) => MeshInfo[]; getModelClips?: (layerId: string) => AnimClip[] }) {
   const hiddenCount = layer.hiddenMeshes?.length ?? 0;
+  const studioBtnRef = useRef<HTMLButtonElement>(null);
+  const [studioOpen, setStudioOpen] = useState(false);
+  const canStudio = !!getModelMeshes && !!getModelClips;
   return (
     <>
+      {/* Meshes & animation is a compact icon-only trigger (top-right of the
+          section) that opens an anchored POPOVER — not a full-width button /
+          centered modal. The current clip/hidden-count reads underneath. */}
       <div className="tb-grp">
-        <label>Meshes &amp; animation</label>
-        <DlButton fullWidth variant="secondary" icon="settings" onClick={onOpenModelStudio}>
-          Edit meshes &amp; animation…
-        </DlButton>
+        <div className="tb-grp-row">
+          <label style={{ margin: 0 }}>Meshes &amp; animation</label>
+          <DlIconButton
+            ref={studioBtnRef}
+            size="sm"
+            icon="settings"
+            title="Edit meshes & animation"
+            active={studioOpen}
+            disabled={!canStudio}
+            onClick={() => setStudioOpen(o => !o)}
+          />
+        </div>
         <div className="tb-hint">
           {layer.anim ? `Clip: ${layer.anim.split(/[\\/]/).pop()} · frame ${layer.frame}/${layer.maxFrame}` : 'No animation selected'}
           {hiddenCount > 0 ? ` · ${hiddenCount} mesh${hiddenCount === 1 ? '' : 'es'} hidden` : ''}
         </div>
+        {studioOpen && canStudio && (
+          <ModelStudioModal
+            layer={layer as ModelLayer}
+            anchorRef={studioBtnRef}
+            getMeshes={() => getModelMeshes!(layer.id)}
+            getClips={() => getModelClips!(layer.id)}
+            onChange={(patch, record) => onChange(patch as LayerPatch, record)}
+            onBeginGesture={onBeginGesture}
+            onCommitGesture={onCommitGesture}
+            onClose={() => setStudioOpen(false)}
+          />
+        )}
       </div>
       <div className="tb-grp">
         <label>Scale <b>{(layer.scale / 100).toFixed(2)}&times;</b></label>
@@ -214,7 +243,7 @@ const TITLE_ICON: Record<Layer['type'], Parameters<typeof DlIcon>[0]['name']> = 
   deco: 'picture',
 };
 
-export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGesture, onOpenModelStudio, onFaceCamera }: PropertiesPanelProps) {
+export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGesture, onFaceCamera, getModelMeshes, getModelClips }: PropertiesPanelProps) {
   // Lock is driven entirely from the Layers panel's lock icon — no lock control
   // here (it was redundant and confusing). Properties shows only the layer's
   // own editable attributes.
@@ -229,7 +258,7 @@ export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGestu
         ) : (
           <>
             {layer.type === 'text' && <TextProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
-            {layer.type === 'model' && <ModelProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} onOpenModelStudio={onOpenModelStudio} onFaceCamera={onFaceCamera} />}
+            {layer.type === 'model' && <ModelProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} onFaceCamera={onFaceCamera} getModelMeshes={getModelMeshes} getModelClips={getModelClips} />}
             {layer.type === 'disc' && <DiscProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
             {layer.type === 'deco' && <DecoProps layer={layer} onChange={onChange} />}
           </>

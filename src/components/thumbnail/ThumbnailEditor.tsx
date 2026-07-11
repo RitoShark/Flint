@@ -15,7 +15,6 @@ import { LayersPanel } from './LayersPanel';
 import { PropertiesPanel } from './PropertiesPanel';
 import { ThemePanel } from './ThemePanel';
 import { SavePresetModal } from './SavePresetModal';
-import { ModelStudioModal } from './ModelStudioModal';
 import { DlButton, DlIcon, DlIconButton, DlMenu, DlSelect } from '../ui/design-lab';
 
 type ExportFormatId = 'webp' | 'png' | 'jpg';
@@ -124,9 +123,6 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
       return next;
     });
   }, []);
-
-  // Which model layer id has the mesh & animation studio popup open (null = closed).
-  const [studioLayerId, setStudioLayerId] = useState<string | null>(null);
 
   const layers = history.get();
 
@@ -430,9 +426,6 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
   }, [selId, layers]);
 
   const selectedLayer = layers.find(l => l.id === selId) ?? null;
-  const studioModelLayer = studioLayerId
-    ? (layers.find(l => l.id === studioLayerId && l.type === 'model') as ModelLayer | undefined) ?? null
-    : null;
 
   return (
     <div className="dl-root" style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -545,8 +538,9 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
             onChange={handlePropsChange}
             onBeginGesture={handleBeginGesture}
             onCommitGesture={handleCommitGesture}
-            onOpenModelStudio={selectedLayer?.type === 'model' ? () => setStudioLayerId(selectedLayer.id) : undefined}
             onFaceCamera={selectedLayer?.type === 'model' ? handleFaceCamera : undefined}
+            getModelMeshes={(id) => artboardControlsRef.current?.getModelMeshes(id) ?? []}
+            getModelClips={(id) => artboardControlsRef.current?.getModelAnims(id) ?? []}
           />
         </div>
       </div>
@@ -558,21 +552,6 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
           initialName={skn.split(/[\\/]/).pop()?.replace(/\.skn$/i, '') || 'My preset'}
           onSave={handleSavePreset}
           onClose={() => setShowSavePreset(false)}
-        />
-      )}
-      {studioModelLayer && (
-        <ModelStudioModal
-          layer={studioModelLayer}
-          getMeshes={() => artboardControlsRef.current?.getModelMeshes(studioModelLayer.id) ?? []}
-          getClips={() => artboardControlsRef.current?.getModelAnims(studioModelLayer.id) ?? []}
-          onChange={(patch, record) => {
-            const next = updateLayer(history.get(), studioModelLayer.id, patch as Partial<Layer>);
-            history.set(next, record);
-            forceRender(n => n + 1);
-          }}
-          onBeginGesture={handleBeginGesture}
-          onCommitGesture={handleCommitGesture}
-          onClose={() => setStudioLayerId(null)}
         />
       )}
     </div>
