@@ -140,7 +140,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   // the reconciliation effect further down can reference them. See the
   // reconciliation effect for the full placement-model writeup.
   const sceneRef = useRef<ThumbnailScene | null>(null);
-  const modelBindingsRef = useRef<Map<string, { sceneId: string; sknPath: string; anim: string; frame: number; scale: number; orbit: number; tiltX: number; x: number; y: number; w: number; h: number; hiddenMeshes: string; focusMode: string }>>(new Map());
+  const modelBindingsRef = useRef<Map<string, { sceneId: string; sknPath: string; anim: string; frame: number; scale: number; orbit: number; tiltX: number; rollZ: number; x: number; y: number; w: number; h: number; hiddenMeshes: string; focusMode: string }>>(new Map());
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
@@ -322,7 +322,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       // Reserve the binding immediately so a second effect run (e.g. a
       // fast prop change while the load is in flight) doesn't fire a
       // duplicate addModel for the same layer.
-      const placeholder = { sceneId: '', sknPath: layer.sknPath, anim: layer.anim, frame: layer.frame, scale: layer.scale, orbit: layer.orbit, tiltX: layer.tiltX ?? 0, x: layer.x, y: layer.y, w: layer.w, h: layer.h, hiddenMeshes: JSON.stringify(layer.hiddenMeshes ?? []), focusMode: layer.focusMode ?? 'full' };
+      const placeholder = { sceneId: '', sknPath: layer.sknPath, anim: layer.anim, frame: layer.frame, scale: layer.scale, orbit: layer.orbit, tiltX: layer.tiltX ?? 0, rollZ: layer.rollZ ?? 0, x: layer.x, y: layer.y, w: layer.w, h: layer.h, hiddenMeshes: JSON.stringify(layer.hiddenMeshes ?? []), focusMode: layer.focusMode ?? 'full' };
       bindings.set(layer.id, placeholder);
       scene.addModel(layer.sknPath).then(async (handle) => {
         if (modelBindingsRef.current.get(layer.id) !== placeholder) {
@@ -333,7 +333,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
           return;
         }
         placeholder.sceneId = handle.id;
-        scene.setModelTransform(handle.id, { x: layer.x, y: layer.y, w: layer.w, h: layer.h, scale: layer.scale, orbit: layer.orbit, tiltX: layer.tiltX ?? 0 });
+        scene.setModelTransform(handle.id, { x: layer.x, y: layer.y, w: layer.w, h: layer.h, scale: layer.scale, orbit: layer.orbit, tiltX: layer.tiltX ?? 0, rollZ: layer.rollZ ?? 0 });
         if (layer.hiddenMeshes && layer.hiddenMeshes.length > 0) {
           scene.setHiddenMeshes(handle.id, layer.hiddenMeshes);
         }
@@ -387,10 +387,10 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
         continue;
       }
 
-      if (existing.x !== layer.x || existing.y !== layer.y || existing.w !== layer.w || existing.h !== layer.h || existing.scale !== layer.scale || existing.orbit !== layer.orbit || existing.tiltX !== (layer.tiltX ?? 0)) {
-        scene.setModelTransform(existing.sceneId, { x: layer.x, y: layer.y, w: layer.w, h: layer.h, scale: layer.scale, orbit: layer.orbit, tiltX: layer.tiltX ?? 0 });
+      if (existing.x !== layer.x || existing.y !== layer.y || existing.w !== layer.w || existing.h !== layer.h || existing.scale !== layer.scale || existing.orbit !== layer.orbit || existing.tiltX !== (layer.tiltX ?? 0) || existing.rollZ !== (layer.rollZ ?? 0)) {
+        scene.setModelTransform(existing.sceneId, { x: layer.x, y: layer.y, w: layer.w, h: layer.h, scale: layer.scale, orbit: layer.orbit, tiltX: layer.tiltX ?? 0, rollZ: layer.rollZ ?? 0 });
         existing.x = layer.x; existing.y = layer.y; existing.w = layer.w; existing.h = layer.h;
-        existing.scale = layer.scale; existing.orbit = layer.orbit; existing.tiltX = layer.tiltX ?? 0;
+        existing.scale = layer.scale; existing.orbit = layer.orbit; existing.tiltX = layer.tiltX ?? 0; existing.rollZ = layer.rollZ ?? 0;
       }
       if (existing.anim !== layer.anim && layer.anim) {
         existing.anim = layer.anim;
@@ -454,16 +454,19 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     return () => canvas.removeEventListener('wheel', onWheel, { capture: true } as EventListenerOptions);
   }, []);
 
-  // ── Orbit-mode LEFT-drag = Turn (yaw / orbit); ALT+LEFT-drag = Tilt (pitch /
-  // tiltX). Right-drag stays with Babylon (pan). We intercept LEFT-button
-  // drags on the scene canvas in capture phase so Babylon never sees them
-  // (drag-rotate is disabled on the camera anyway) and translate horizontal
-  // pixels → degrees, driving the SAME layer fields the Properties sliders use
-  // (so orbit/tilt stay in sync everywhere). ──
+  // ── Orbit-mode LEFT-drag rotates the model on one axis, picked by modifier
+  // (latched at press-down so a mid-drag key tap can't switch axes):
+  //   • plain      → Turn  (yaw / orbit),   horizontal drag
+  //   • ALT+drag   → Tilt  (pitch / tiltX), vertical drag
+  //   • CTRL+drag  → Roll  (Z / rollZ),     horizontal drag
+  // Right-drag stays with Babylon (pan). We intercept LEFT-button drags on the
+  // scene canvas in capture phase so Babylon never sees them (drag-rotate is
+  // disabled on the camera anyway) and translate pixels → degrees, driving the
+  // SAME layer fields the Properties sliders use (so everything stays in sync). ──
   useEffect(() => {
     const canvas = sceneCanvasRef.current;
     if (!canvas) return;
-    let dragging: { startX: number; startY: number; orbit0: number; tilt0: number; alt: boolean } | null = null;
+    let dragging: { startX: number; startY: number; base: number; mode: 'turn' | 'tilt' | 'roll' } | null = null;
     const DEG_PER_PX = 0.5; // drag feel — half a degree per pixel
 
     const wrap = (deg: number) => {
@@ -480,13 +483,10 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       e.preventDefault();
       e.stopPropagation();
       onBeginGesture();
-      dragging = {
-        startX: e.clientX,
-        startY: e.clientY,
-        orbit0: layer.orbit ?? 0,
-        tilt0: layer.tiltX ?? 0,
-        alt: e.altKey,
-      };
+      // Ctrl beats Alt if both are held.
+      const mode: 'turn' | 'tilt' | 'roll' = e.ctrlKey || e.metaKey ? 'roll' : e.altKey ? 'tilt' : 'turn';
+      const base = mode === 'roll' ? (layer.rollZ ?? 0) : mode === 'tilt' ? (layer.tiltX ?? 0) : (layer.orbit ?? 0);
+      dragging = { startX: e.clientX, startY: e.clientY, base, mode };
       canvas.setPointerCapture(e.pointerId);
     };
     const onMove = (e: PointerEvent) => {
@@ -495,19 +495,13 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       if (!orbitId) return;
       e.preventDefault();
       e.stopPropagation();
-      // Alt state is latched at press-down so a mid-drag Alt tap doesn't jump
-      // between axes.
-      if (dragging.alt) {
-        const tilt = wrap(dragging.tilt0 + (e.clientY - dragging.startY) * DEG_PER_PX);
-        const next = updateLayer(layersRef.current, orbitId, { tiltX: tilt } as Partial<Layer>);
-        layersRef.current = next;
-        onChangeRef.current(next, false);
-      } else {
-        const orbit = wrap(dragging.orbit0 + (e.clientX - dragging.startX) * DEG_PER_PX);
-        const next = updateLayer(layersRef.current, orbitId, { orbit } as Partial<Layer>);
-        layersRef.current = next;
-        onChangeRef.current(next, false);
-      }
+      // Tilt tracks vertical motion (nod up/down); turn & roll track horizontal.
+      const delta = dragging.mode === 'tilt' ? (e.clientY - dragging.startY) : (e.clientX - dragging.startX);
+      const value = wrap(dragging.base + delta * DEG_PER_PX);
+      const field = dragging.mode === 'tilt' ? 'tiltX' : dragging.mode === 'roll' ? 'rollZ' : 'orbit';
+      const next = updateLayer(layersRef.current, orbitId, { [field]: value } as Partial<Layer>);
+      layersRef.current = next;
+      onChangeRef.current(next, false);
     };
     const onUp = (e: PointerEvent) => {
       if (!dragging) return;
@@ -863,7 +857,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       </div>
       {orbitLayerId && (
         <div className="tb-orbit-hint">
-          <span>Editing model · left-drag = turn · alt+left-drag = tilt · right-drag = pan · wheel = scale · dbl-click to reset</span>
+          <span>Editing model · left-drag = turn · alt = tilt · ctrl = roll · right-drag = pan · wheel = scale · dbl-click to reset</span>
           <button className="tb-orbit-hint__exit" onClick={exitOrbit}>Done (Esc)</button>
         </div>
       )}

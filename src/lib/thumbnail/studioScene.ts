@@ -27,7 +27,7 @@ import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
 import { GlowLayer } from '@babylonjs/core/Layers/glowLayer';
 import { Layer } from '@babylonjs/core/Layers/layer';
-import { Vector3, Color3, Color4, Viewport } from '@babylonjs/core/Maths/math';
+import { Vector3, Color3, Color4, Viewport, Quaternion } from '@babylonjs/core/Maths/math';
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
 import { Material } from '@babylonjs/core/Materials/material';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
@@ -75,6 +75,7 @@ export interface ModelTransformPatch {
     scale?: number;
     orbit?: number;
     tiltX?: number;
+    rollZ?: number;
 }
 
 /** The artboard's design-space dimensions (STAGE_W × STAGE_H). Model boxes
@@ -92,7 +93,7 @@ export interface ThumbnailScene {
     setModelAnim(id: string, anim: string): Promise<void>;
     setModelFrame(id: string, frame: number): void;
     /** Enter/exit interactive mode for ONE model (null to clear). Right-drag
-     *  pans; rotation is via the Properties sliders (orbit/tiltX). */
+     *  pans; rotation is via the Properties sliders (orbit/tiltX/rollZ). */
     setControlModel(id: string | null): void;
     /** Re-frame a model to its default centered pose (reset an orbit). */
     resetModelView(id: string): void;
@@ -168,6 +169,7 @@ interface ModelState {
     scale: number;
     orbit: number;
     tiltX: number;
+    rollZ: number;
 }
 
 let modelSeq = 0;
@@ -767,6 +769,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             scale: 1,
             orbit: 0,
             tiltX: 0,
+            rollZ: 0,
         };
         models.set(id, state);
         applyViewport(state);
@@ -849,17 +852,31 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             // manual camera control.
             if (!m.userFramed) reframeModel(m);
         }
-        if (patch.orbit !== undefined) {
-            m.orbit = patch.orbit;
-            // orbit (Turn / yaw) is in DEGREES (slider -180..180) → radians.
-            const rad = (patch.orbit * Math.PI) / 180;
-            for (const mesh of m.meshes) mesh.rotation.y = rad;
+        if (patch.orbit !== undefined) { m.orbit = patch.orbit; }
+        if (patch.tiltX !== undefined) { m.tiltX = patch.tiltX; }
+        if (patch.rollZ !== undefined) { m.rollZ = patch.rollZ; }
+        if (patch.orbit !== undefined || patch.tiltX !== undefined || patch.rollZ !== undefined) {
+            applyRotation(m);
         }
-        if (patch.tiltX !== undefined) {
-            m.tiltX = patch.tiltX;
-            // tiltX (Tilt / pitch) in DEGREES → radians.
-            const rad = (patch.tiltX * Math.PI) / 180;
-            for (const mesh of m.meshes) mesh.rotation.x = rad;
+    }
+
+    /** Apply all three rotation axes (Turn=Y/yaw, Tilt=X/pitch, Roll=Z) as a
+     *  single quaternion composed in a FIXED yaw→pitch→roll order. Using a
+     *  quaternion (rather than three independent `mesh.rotation.{x,y,z}`
+     *  assignments) keeps the axes from gimbal-coupling into each other, so
+     *  each slider / drag reads as its own clean, predictable axis. All three
+     *  values are stored in DEGREES on the model state (slider range -180..180)
+     *  and converted to radians here. */
+    function applyRotation(m: ModelState): void {
+        const yaw = (m.orbit * Math.PI) / 180;
+        const pitch = (m.tiltX * Math.PI) / 180;
+        const roll = (m.rollZ * Math.PI) / 180;
+        // Babylon's Euler order is Y·X·Z; RotationYawPitchRoll builds exactly
+        // that quaternion (yaw about Y, then pitch about X, then roll about Z).
+        const q = Quaternion.RotationYawPitchRoll(yaw, pitch, roll);
+        for (const mesh of m.meshes) {
+            if (!mesh.rotationQuaternion) mesh.rotationQuaternion = q.clone();
+            else mesh.rotationQuaternion.copyFrom(q);
         }
     }
 

@@ -33,6 +33,9 @@ export interface ModelLayer extends BaseLayer {
   orbit: number;
   /** Tilt / pitch rotation in degrees (-180..180) — lean the character fwd/back. */
   tiltX?: number;
+  /** Roll / Z rotation in degrees (-180..180) — spin the character clockwise/ccw
+   *  in the picture plane (the third axis for full orientation control). */
+  rollZ?: number;
   /** Submesh (material) names hidden for this model. Empty/undefined = all
    *  submeshes visible. Driven by the mesh-visibility popup. */
   hiddenMeshes?: string[];

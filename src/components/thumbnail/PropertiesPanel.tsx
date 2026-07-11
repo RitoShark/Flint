@@ -136,6 +136,19 @@ function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture, onOpenMo
         />
         <div className="tb-hint">Lean the character forward/back.</div>
       </div>
+      <div className="tb-grp">
+        <label>Roll — Z <b>{layer.rollZ ?? 0}&deg;</b></label>
+        <DlSlider
+          min={-180}
+          max={180}
+          value={layer.rollZ ?? 0}
+          bubble={`${layer.rollZ ?? 0}°`}
+          onPointerDown={onBeginGesture}
+          onChange={(v) => onChange({ rollZ: v }, false)}
+          onPointerUp={onCommitGesture}
+        />
+        <div className="tb-hint">Spin the character in the picture plane (roll). Ctrl+left-drag in edit mode does the same.</div>
+      </div>
     </>
   );
 }
