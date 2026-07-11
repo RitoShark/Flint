@@ -503,6 +503,13 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
 
         const id = `model-${++modelSeq}`;
 
+        // Flush world matrices + bounding info so computeBBox reads real
+        // world-space extents (not a stale/identity box).
+        for (const mesh of meshes) {
+            mesh.computeWorldMatrix(true);
+            mesh.refreshBoundingInfo();
+        }
+
         // Recompute the bbox from the actual (X-mirrored) vertex positions
         // rather than trusting the stored box — same reasoning as
         // ModelPreview/skn.rs: positions are negated on X at load, and some
@@ -514,7 +521,20 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         // thumbnail needs).
         const bitIndex = (modelSeq - 1) % 27;
         const layerMask = 1 << bitIndex;
-        for (const mesh of meshes) mesh.layerMask = layerMask;
+        for (const mesh of meshes) {
+            mesh.layerMask = layerMask;
+            // The recomputed AABB can be unreliable right after build (world
+            // matrix not yet flushed), and a wrong bbox would frustum-cull the
+            // whole model → invisible. Skip per-mesh frustum culling: these
+            // are hero models that always fill their viewport anyway.
+            mesh.alwaysSelectAsActiveMesh = true;
+        }
+
+        console.log(`[studioScene] addModel ${id}: meshes=${meshes.length} layerMask=0x${layerMask.toString(16)} ` +
+            `bbox=${JSON.stringify(bbox)} ` +
+            `verts=${meshes.map(m => m.getTotalVertices()).join(',')} ` +
+            `vis=${meshes.map(m => m.isVisible).join(',')} ` +
+            `enabled=${meshes.map(m => m.isEnabled()).join(',')}`);
 
         const camera = new ArcRotateCamera(
             `thumbnail-cam-${id}`,
