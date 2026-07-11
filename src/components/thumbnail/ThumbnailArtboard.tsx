@@ -86,6 +86,21 @@ function canvasMeasure(layer: TextLayer): TextMeasure {
   };
 }
 
+// Clip-name of an AnimClip (its friendly name, else the file stem).
+function clipName(c: AnimClip): string {
+  return (c.name || c.animation_path.split(/[\\/]/).pop() || c.animation_path).toLowerCase();
+}
+
+/** Pick the best default "idle" clip: the SHORTEST-named clip whose name
+ *  contains "idle" (so plain `Idle` wins over `Idle_In` / `Idle_Base` /
+ *  `Idle_Variant`). Falls back to the first clip if none contain "idle". */
+function pickDefaultAnim(clips: AnimClip[]): AnimClip | null {
+  if (clips.length === 0) return null;
+  const idles = clips.filter(c => clipName(c).includes('idle'));
+  const pool = idles.length > 0 ? idles : clips;
+  return pool.reduce((best, c) => (clipName(c).length < clipName(best).length ? c : best), pool[0]);
+}
+
 // z-order within the stage, mirrors the prototype's zrank().
 function zrank(layer: Layer): number {
   switch (layer.type) {
@@ -359,7 +374,16 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
           scene.setModelFocus(handle.id, 'head');
         }
         const clips = scene.listAnims(handle.id);
-        const initialAnim = layer.anim || clips[0]?.animation_path || clips[0]?.name || '';
+        // "Fresh" = the layer was just seeded (no explicit anim yet). For a
+        // fresh model we auto-set-up: default to the shortest IDLE clip and
+        // auto-face the camera so the user opens onto a clean, framed pose
+        // instead of doing it all by hand.
+        const isFresh = !layer.anim;
+        const initialAnim = layer.anim
+          || pickDefaultAnim(clips)?.animation_path
+          || clips[0]?.animation_path
+          || clips[0]?.name
+          || '';
         if (initialAnim) {
           await scene.setModelAnim(handle.id, initialAnim);
           if (modelBindingsRef.current.get(layer.id) !== placeholder) {
@@ -371,11 +395,17 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
           const maxFrame = scene.getMaxFrame(handle.id);
           placeholder.anim = initialAnim;
           scene.setModelFrame(handle.id, layer.frame);
-          // Push the resolved anim/maxFrame back onto the layer so the
-          // PropertiesPanel dropdown/slider reflect the real clip list.
+          // Auto-face on first setup (persist the yaw onto the layer + binding).
+          let autoOrbit = layer.orbit;
+          if (isFresh) {
+            const deg = scene.faceModelToCamera(handle.id);
+            if (deg !== null) { autoOrbit = deg; placeholder.orbit = deg; }
+          }
+          // Push the resolved anim/maxFrame (+ auto-orbit) back onto the layer
+          // so the PropertiesPanel dropdown/slider reflect the real state.
           const current = layersRef.current.find(l => l.id === layer.id);
           if (current && current.type === 'model') {
-            const next = updateLayer(layersRef.current, layer.id, { anim: initialAnim, maxFrame } as Partial<Layer>);
+            const next = updateLayer(layersRef.current, layer.id, { anim: initialAnim, maxFrame, orbit: autoOrbit } as Partial<Layer>);
             layersRef.current = next;
             onChangeRef.current(next, false);
           }

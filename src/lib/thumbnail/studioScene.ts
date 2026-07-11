@@ -205,7 +205,17 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
     // visible around it. The dark backdrop instead comes from `.tb-env` (a DOM
     // layer below everything).
     scene.clearColor = new Color4(0, 0, 0, 0);
-    scene.autoClear = true;
+    // IMPORTANT: autoClear OFF. With multiple active cameras each rendering
+    // into its own viewport rect, Babylon's per-camera autoClear wipes the
+    // COLOR of every camera's viewport before it draws — so where two model
+    // boxes overlap (e.g. the hero box crossing the full-body box), the
+    // later camera clears that strip to transparent and cuts the earlier
+    // model (the disc/circle behind then shows through the cut). Instead we
+    // clear the whole framebuffer ONCE per frame in the render loop and let
+    // the cameras composite additively, so overlapping models don't erase
+    // each other. Depth is still cleared per-camera below.
+    scene.autoClear = false;
+    scene.autoClearDepthAndStencil = true;
 
     // A model with no explicit box fills the whole stage; the first model
     // added seeds a default so it's visible before the artboard reconciles
@@ -376,6 +386,12 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             }
         }
         lastTickTime = now;
+        // Clear the WHOLE framebuffer once (color+depth) before the cameras
+        // render — see the `scene.autoClear = false` note. This gives us a
+        // single transparent clear per frame instead of per-camera-viewport
+        // clears that would cut overlapping models. (Engine has stencil:false,
+        // so clear color+depth only.)
+        engine.clear(scene.clearColor, true, true, false);
         scene.render();
     });
 
@@ -439,7 +455,9 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         const fovX = 2 * Math.atan(Math.tan(fovY / 2) * aspect);
         const radiusForH = halfH / Math.tan(fovY / 2);
         const radiusForW = halfW / Math.tan(fovX / 2);
-        const radius = (Math.max(radiusForH, radiusForW, 0.01) * 1.25 || 5) / Math.max(0.1, zoom);
+        // Tight fit: only ~6% margin so the model nearly fills its box (was 25%
+        // — too much empty space). `scale` still lets the user grow/shrink it.
+        const radius = (Math.max(radiusForH, radiusForW, 0.01) * 1.06 || 5) / Math.max(0.1, zoom);
 
         cam.target = center;
         cam.radius = radius;
@@ -928,13 +946,23 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         return m.meshes.map(mesh => ({ name: mesh.name, hidden: m.hiddenMeshes.has(mesh.name) }));
     }
 
+    // Hide/show a submesh. We set BOTH isVisible AND setEnabled: the meshes
+    // carry `alwaysSelectAsActiveMesh = true` (to dodge a bad-bbox frustum
+    // cull), and that flag force-adds them to the active-mesh list, which can
+    // let a merely-`setEnabled(false)` mesh still render. `isVisible = false`
+    // unconditionally skips the draw, so it's the reliable hide toggle here.
+    function applyMeshVisibility(mesh: Mesh, hidden: boolean): void {
+        mesh.isVisible = !hidden;
+        mesh.setEnabled(!hidden);
+    }
+
     function setMeshHidden(id: string, meshName: string, hidden: boolean): void {
         const m = models.get(id);
         if (!m) return;
         if (hidden) m.hiddenMeshes.add(meshName);
         else m.hiddenMeshes.delete(meshName);
         for (const mesh of m.meshes) {
-            if (mesh.name === meshName) mesh.setEnabled(!hidden);
+            if (mesh.name === meshName) applyMeshVisibility(mesh, hidden);
         }
     }
 
@@ -943,7 +971,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         if (!m) return;
         const next = new Set(hiddenNames);
         m.hiddenMeshes = next;
-        for (const mesh of m.meshes) mesh.setEnabled(!next.has(mesh.name));
+        for (const mesh of m.meshes) applyMeshVisibility(mesh, next.has(mesh.name));
     }
 
     function getMaxFrame(id: string): number {
@@ -977,7 +1005,9 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         // CreateScreenshotUsingRenderTarget, which would only capture one
         // camera. The 2D copy must happen in the SAME frame as the render
         // (preserveDrawingBuffer keeps it valid across the await, but we
-        // render explicitly to be safe).
+        // render explicitly to be safe). Match the render loop's manual
+        // once-per-frame clear (autoClear is off — see its note).
+        engine.clear(scene.clearColor, true, true, false);
         scene.render();
         const gl = engine.getRenderingCanvas();
         if (!gl) throw new Error('screenshot: no rendering canvas');
