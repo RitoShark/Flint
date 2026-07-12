@@ -76,6 +76,11 @@ export interface ModelTransformPatch {
     orbit?: number;
     tiltX?: number;
     rollZ?: number;
+    /** 3D world-space translation of the mesh (moves it within the scene,
+     *  independent of size; camera target is unchanged so it moves in view). */
+    posX?: number;
+    posY?: number;
+    posZ?: number;
 }
 
 /** The artboard's design-space dimensions (STAGE_W × STAGE_H). Model boxes
@@ -175,6 +180,10 @@ interface ModelState {
     orbit: number;
     tiltX: number;
     rollZ: number;
+    // 3D world-space translation of the mesh (moves it within the scene).
+    posX: number;
+    posY: number;
+    posZ: number;
 }
 
 let modelSeq = 0;
@@ -757,6 +766,9 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             orbit: 0,
             tiltX: 0,
             rollZ: 0,
+            posX: 0,
+            posY: 0,
+            posZ: 0,
         };
         models.set(id, state);
         applyViewport(state);
@@ -844,6 +856,22 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         if (patch.rollZ !== undefined) { m.rollZ = patch.rollZ; }
         if (patch.orbit !== undefined || patch.tiltX !== undefined || patch.rollZ !== undefined) {
             applyRotation(m);
+        }
+        if (patch.posX !== undefined) { m.posX = patch.posX; }
+        if (patch.posY !== undefined) { m.posY = patch.posY; }
+        if (patch.posZ !== undefined) { m.posZ = patch.posZ; }
+        if (patch.posX !== undefined || patch.posY !== undefined || patch.posZ !== undefined) {
+            applyPosition(m);
+        }
+    }
+
+    /** Translate the model in 3D world space (moves it WITHIN the scene without
+     *  re-centering the camera, so it slides in view). The X-negation is already
+     *  baked into the vertices, so a positive posX moves the model to the
+     *  viewer's right consistently with the mesh orientation. */
+    function applyPosition(m: ModelState): void {
+        for (const mesh of m.meshes) {
+            mesh.position.set(m.posX, m.posY, m.posZ);
         }
     }
 

@@ -36,6 +36,12 @@ export interface ModelLayer extends BaseLayer {
   /** Roll / Z rotation in degrees (-180..180) — spin the character clockwise/ccw
    *  in the picture plane (the third axis for full orientation control). */
   rollZ?: number;
+  /** 3D translation of the mesh WITHIN the scene (world units), independent of
+   *  size — moves the model in the 3D space (X left/right, Y up/down, Z depth)
+   *  without re-centering the camera. Default 0 = at origin. */
+  posX?: number;
+  posY?: number;
+  posZ?: number;
   /** Submesh (material) names hidden for this model. Empty/undefined = all
    *  submeshes visible. Driven by the mesh-visibility popup. */
   hiddenMeshes?: string[];

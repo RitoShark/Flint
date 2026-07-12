@@ -16,6 +16,8 @@ export interface PropertiesPanelProps {
 
 type ChangeProps = { onChange: PropertiesPanelProps['onChange']; onBeginGesture: PropertiesPanelProps['onBeginGesture']; onCommitGesture: PropertiesPanelProps['onCommitGesture'] };
 
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
 function TextProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer: Extract<Layer, { type: 'text' }> } & ChangeProps) {
   return (
     <>
@@ -99,19 +101,27 @@ function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture }: { laye
         />
       </div>
       <div className="tb-grp">
-        <label>Position X <b>{Math.round(layer.x)}</b></label>
+        <label>Move X <b>{round1(layer.posX ?? 0)}</b></label>
         <SliderNum
-          min={-500} max={500} value={Math.round(layer.x)}
+          min={-500} max={500} step={1} value={round1(layer.posX ?? 0)}
           onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
-          onChange={(v, rec) => onChange({ x: v }, rec)}
+          onChange={(v, rec) => onChange({ posX: v }, rec)}
         />
       </div>
       <div className="tb-grp">
-        <label>Position Y <b>{Math.round(layer.y)}</b></label>
+        <label>Move Y <b>{round1(layer.posY ?? 0)}</b></label>
         <SliderNum
-          min={-500} max={500} value={Math.round(layer.y)}
+          min={-500} max={500} step={1} value={round1(layer.posY ?? 0)}
           onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
-          onChange={(v, rec) => onChange({ y: v }, rec)}
+          onChange={(v, rec) => onChange({ posY: v }, rec)}
+        />
+      </div>
+      <div className="tb-grp">
+        <label>Move Z (depth) <b>{round1(layer.posZ ?? 0)}</b></label>
+        <SliderNum
+          min={-500} max={500} step={1} value={round1(layer.posZ ?? 0)}
+          onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
+          onChange={(v, rec) => onChange({ posZ: v }, rec)}
         />
       </div>
       <div className="tb-grp">
