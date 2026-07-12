@@ -99,6 +99,22 @@ function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture }: { laye
         />
       </div>
       <div className="tb-grp">
+        <label>Position X <b>{Math.round(layer.x)}</b></label>
+        <SliderNum
+          min={-500} max={500} value={Math.round(layer.x)}
+          onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
+          onChange={(v, rec) => onChange({ x: v }, rec)}
+        />
+      </div>
+      <div className="tb-grp">
+        <label>Position Y <b>{Math.round(layer.y)}</b></label>
+        <SliderNum
+          min={-500} max={500} value={Math.round(layer.y)}
+          onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
+          onChange={(v, rec) => onChange({ y: v }, rec)}
+        />
+      </div>
+      <div className="tb-grp">
         <label>Turn — Y</label>
         <SliderNum
           min={-180} max={180} value={layer.orbit} suffix="°"
@@ -207,26 +223,9 @@ function DecoProps({ layer, onChange }: { layer: Extract<Layer, { type: 'deco' }
   );
 }
 
-const DEG = 180 / Math.PI;
-
-function EnvProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer: Extract<Layer, { type: 'env' }> } & ChangeProps) {
+function EnvProps({ layer, onChange }: { layer: Extract<Layer, { type: 'env' }>; onChange: PropertiesPanelProps['onChange'] }) {
   const active = layer.variations.find(v => v.name === layer.activeVariation) ?? layer.variations[0];
   const slots = active ? Object.keys(active.textures) : [];
-
-  const [rx, ry, rz] = layer.rotation;
-  const [px, py, pz] = layer.position;
-  const setPos = (i: number, v: number, record: boolean) => {
-    const position = [...layer.position] as [number, number, number];
-    position[i] = v;
-    onChange({ position } as Partial<Layer>, record);
-  };
-  // Rotation is stored in RADIANS (Babylon-native) but shown/edited in DEGREES.
-  const setRotDeg = (i: number, deg: number, record: boolean) => {
-    const rotation = [...layer.rotation] as [number, number, number];
-    rotation[i] = deg / DEG;
-    onChange({ rotation } as Partial<Layer>, record);
-  };
-  const round1 = (n: number) => Math.round(n * 10) / 10;
 
   const setSlotTexture = (slot: string, value: string) => {
     const variations = layer.variations.map(v =>
@@ -254,34 +253,6 @@ function EnvProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer:
 
   return (
     <>
-      <div className="tb-grp">
-        <label>Position X <b>{round1(px)}</b></label>
-        <SliderNum min={-100} max={100} step={0.5} value={round1(px)} onChange={(v, r) => setPos(0, v, r)} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />
-      </div>
-      <div className="tb-grp">
-        <label>Position Y <b>{round1(py)}</b></label>
-        <SliderNum min={-100} max={100} step={0.5} value={round1(py)} onChange={(v, r) => setPos(1, v, r)} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />
-      </div>
-      <div className="tb-grp">
-        <label>Position Z <b>{round1(pz)}</b></label>
-        <SliderNum min={-100} max={100} step={0.5} value={round1(pz)} onChange={(v, r) => setPos(2, v, r)} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />
-      </div>
-      <div className="tb-grp">
-        <label>Rotation X <b>{Math.round(rx * DEG)}°</b></label>
-        <SliderNum min={-180} max={180} suffix="°" value={Math.round(rx * DEG)} onChange={(v, r) => setRotDeg(0, v, r)} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />
-      </div>
-      <div className="tb-grp">
-        <label>Rotation Y <b>{Math.round(ry * DEG)}°</b></label>
-        <SliderNum min={-180} max={180} suffix="°" value={Math.round(ry * DEG)} onChange={(v, r) => setRotDeg(1, v, r)} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />
-      </div>
-      <div className="tb-grp">
-        <label>Rotation Z <b>{Math.round(rz * DEG)}°</b></label>
-        <SliderNum min={-180} max={180} suffix="°" value={Math.round(rz * DEG)} onChange={(v, r) => setRotDeg(2, v, r)} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />
-      </div>
-      <div className="tb-grp">
-        <label>Scale <b>{round1(layer.mapScale)}</b></label>
-        <SliderNum min={0.1} max={10} step={0.1} value={round1(layer.mapScale)} onChange={(v, r) => onChange({ mapScale: v } as Partial<Layer>, r)} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />
-      </div>
       <div className="tb-grp">
         <label>Variation (chroma)</label>
         <div className="dl-row" style={{ gap: 6 }}>
@@ -314,7 +285,7 @@ function EnvProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer:
           </div>
         ))}
       </div>
-      <div className="tb-hint">Pose the map with the values above, then send me the numbers to bake as the default.</div>
+      <div className="tb-hint">The map's placement is fixed (environment). Only its textures / variations are editable.</div>
     </>
   );
 }
@@ -353,7 +324,7 @@ export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGestu
             {layer.type === 'model' && <ModelProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
             {layer.type === 'disc' && <DiscProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
             {layer.type === 'deco' && <DecoProps layer={layer} onChange={onChange} />}
-            {layer.type === 'env' && <EnvProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
+            {layer.type === 'env' && <EnvProps layer={layer} onChange={onChange} />}
           </>
         )}
       </div>

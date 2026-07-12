@@ -82,9 +82,9 @@ export interface EnvLayer extends BaseLayer {
 export type Layer = TextLayer | ModelLayer | DiscLayer | DecoLayer | EnvLayer;
 
 /** Build a fresh Dexal map-env layer with its default (Chaos Top) variation.
- *  Placement/rotation/scale start at identity — the dev poses it in-scene, then
- *  hands back the .thumbnail.json to bake the final numbers. Slot→default-WebP
- *  bindings match the bundled GLB's material names. */
+ *  Placement/rotation/scale are the dev-tuned defaults (baked from the posed
+ *  only-map.thumbnail.json); the map is LOCKED environment — not user-editable.
+ *  Slot→default-WebP bindings match the bundled GLB's material names. */
 export function makeDefaultEnvLayer(): EnvLayer {
   return {
     id: 'map-env',
@@ -96,9 +96,11 @@ export function makeDefaultEnvLayer(): EnvLayer {
     // Fills the whole stage viewport by default (0 box = full stage).
     x: 0, y: 0, w: 0, h: 0,
     glb: 'dexal.glb',
-    position: [0, 0, 0],
-    rotation: [0, 0, 0],
-    mapScale: 1,
+    // Baked default pose (dev-tuned in only-map.thumbnail.json). This IS the
+    // map's "zero" — it always spawns here and can't be moved in the UI.
+    position: [-50.5, 10, 27],
+    rotation: [0, 1.6057029118347832, 0],
+    mapScale: 1.5,
     activeVariation: 'Chaos Top',
     variations: [
       {

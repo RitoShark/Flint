@@ -321,7 +321,10 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
                 return;
             }
         }
-        frameCamera(m.camera, m.bbox, aspect);
+        // Full-body framing uses a LEVEL camera (beta = 90°, eye height) so the
+        // model reads straight-on/raw — not the 60°-elevated look-down that
+        // targeting the torso center produced. Head-focus keeps its 60° beta.
+        frameCamera(m.camera, m.bbox, aspect, null, 1, Math.PI / 2);
     }
 
     // ── Environment background ──────────────────────────────────────

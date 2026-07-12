@@ -12,14 +12,14 @@ describe('layers', () => {
 });
 
 describe('makeDefaultEnvLayer', () => {
-  it('is a locked env layer with the Dexal GLB', () => {
+  it('is a locked env layer with the Dexal GLB and the baked default pose', () => {
     const env = makeDefaultEnvLayer();
     expect(env.type).toBe('env');
     expect(env.locked).toBe(true);
     expect(env.glb).toBe('dexal.glb');
-    expect(env.mapScale).toBe(1);
-    expect(env.position).toEqual([0, 0, 0]);
-    expect(env.rotation).toEqual([0, 0, 0]);
+    expect(env.mapScale).toBe(1.5);
+    expect(env.position).toEqual([-50.5, 10, 27]);
+    expect(env.rotation[1]).toBeCloseTo(1.6057, 3);
   });
   it('seeds one variation binding all 5 material slots', () => {
     const env = makeDefaultEnvLayer();

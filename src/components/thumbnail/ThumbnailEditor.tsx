@@ -63,14 +63,14 @@ function seedLayers(sknPath: string): Layer[] {
       hidden: false,
       rot: 0,
       locked: false,
-      // Full-body companion — same box/scale the user dialed in on the "new
-      // test" reference (big soft full body behind the text column).
-      x: 2, y: 2, w: 398, h: 354,
+      // Full-body companion spawns straight-on (level camera), no head-focus/
+      // orbit/tilt. Dev-tuned defaults: scale 75, nudged up (y -25).
+      x: 2, y: -25, w: 398, h: 354,
       sknPath,
       anim: '',
       frame: 0,
       maxFrame: 0,
-      scale: 125,
+      scale: 75,
       orbit: 0,
       focusMode: 'full',
     },
