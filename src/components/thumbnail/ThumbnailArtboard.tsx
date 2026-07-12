@@ -507,29 +507,37 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     }
 
     // ── Env (3D map) layer sync ──────────────────────────────────────────
-    // Load/update the bundled GLB backdrop on its own scene. Fingerprint
-    // everything that affects the map so we only touch it on real changes, and
-    // guard against overlapping async loads.
+    // Split into two paths so tuning the transform feels instant:
+    //   • GLB + textures + visibility → async, load-guarded (heavy).
+    //   • position/rotation/scale      → SYNC every run (cheap, no reload), so
+    //     nudging the Position/Rotation/Scale number fields moves the map live.
     const mapScene = mapSceneRef.current;
     const envLayer = layers.find((l): l is EnvLayer => l.type === 'env') ?? null;
     const activeVar = envLayer?.variations.find(v => v.name === envLayer.activeVariation) ?? envLayer?.variations[0];
-    const envFp = envLayer && !envLayer.hidden
-      ? JSON.stringify([envLayer.glb, envLayer.position, envLayer.rotation, envLayer.mapScale, activeVar?.textures ?? {}])
-      : '';
-    if (mapScene && envFp !== envSyncRef.current && !envLoadingRef.current) {
-      envSyncRef.current = envFp;
-      if (!envLayer || envLayer.hidden) {
-        mapScene.setVisible(false);
-      } else {
-        envLoadingRef.current = true;
-        (async () => {
-          try {
-            await mapScene.setLayer(envLayer);
-            mapScene.setVisible(true);
-          } finally {
-            envLoadingRef.current = false;
-          }
-        })();
+    if (mapScene) {
+      // Heavy path: glb / textures / hidden.
+      const envFp = envLayer && !envLayer.hidden
+        ? JSON.stringify([envLayer.glb, activeVar?.textures ?? {}])
+        : '';
+      if (envFp !== envSyncRef.current && !envLoadingRef.current) {
+        envSyncRef.current = envFp;
+        if (!envLayer || envLayer.hidden) {
+          mapScene.setVisible(false);
+        } else {
+          envLoadingRef.current = true;
+          (async () => {
+            try {
+              await mapScene.setLayer(envLayer);
+              mapScene.setVisible(true);
+            } finally {
+              envLoadingRef.current = false;
+            }
+          })();
+        }
+      }
+      // Light path: transform, applied synchronously (only once the GLB exists).
+      if (envLayer && !envLayer.hidden && mapScene.isLoaded()) {
+        mapScene.setTransform(envLayer.position, envLayer.rotation, envLayer.mapScale);
       }
     }
   }, [layers]);

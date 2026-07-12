@@ -130,8 +130,8 @@ function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture }: { laye
  *  user type an exact value; both drive the same onChange. `rec` = whether the
  *  change should be recorded on the undo stack (slider drag: false until
  *  pointerup; typed value / commit: true). */
-function SliderNum({ min, max, value, suffix, onChange, onBeginGesture, onCommitGesture }: {
-  min: number; max: number; value: number; suffix?: string;
+function SliderNum({ min, max, value, suffix, step, onChange, onBeginGesture, onCommitGesture }: {
+  min: number; max: number; value: number; suffix?: string; step?: number;
   onChange: (v: number, record: boolean) => void;
   onBeginGesture: () => void; onCommitGesture: () => void;
 }) {
@@ -139,7 +139,7 @@ function SliderNum({ min, max, value, suffix, onChange, onBeginGesture, onCommit
   return (
     <div className="tb-slidernum">
       <DlSlider
-        min={min} max={max} value={value} bubble={`${value}${suffix ?? ''}`}
+        min={min} max={max} step={step} value={value} bubble={`${value}${suffix ?? ''}`}
         onPointerDown={onBeginGesture}
         onChange={(v) => onChange(v, false)}
         onPointerUp={onCommitGesture}
@@ -149,6 +149,7 @@ function SliderNum({ min, max, value, suffix, onChange, onBeginGesture, onCommit
         type="number"
         min={min}
         max={max}
+        step={step}
         value={value}
         onChange={(e) => {
           const n = Number(e.target.value);
@@ -206,9 +207,26 @@ function DecoProps({ layer, onChange }: { layer: Extract<Layer, { type: 'deco' }
   );
 }
 
-function EnvProps({ layer, onChange }: { layer: Extract<Layer, { type: 'env' }>; onChange: PropertiesPanelProps['onChange'] }) {
+const DEG = 180 / Math.PI;
+
+function EnvProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer: Extract<Layer, { type: 'env' }> } & ChangeProps) {
   const active = layer.variations.find(v => v.name === layer.activeVariation) ?? layer.variations[0];
   const slots = active ? Object.keys(active.textures) : [];
+
+  const [rx, ry, rz] = layer.rotation;
+  const [px, py, pz] = layer.position;
+  const setPos = (i: number, v: number, record: boolean) => {
+    const position = [...layer.position] as [number, number, number];
+    position[i] = v;
+    onChange({ position } as Partial<Layer>, record);
+  };
+  // Rotation is stored in RADIANS (Babylon-native) but shown/edited in DEGREES.
+  const setRotDeg = (i: number, deg: number, record: boolean) => {
+    const rotation = [...layer.rotation] as [number, number, number];
+    rotation[i] = deg / DEG;
+    onChange({ rotation } as Partial<Layer>, record);
+  };
+  const round1 = (n: number) => Math.round(n * 10) / 10;
 
   const setSlotTexture = (slot: string, value: string) => {
     const variations = layer.variations.map(v =>
@@ -236,6 +254,34 @@ function EnvProps({ layer, onChange }: { layer: Extract<Layer, { type: 'env' }>;
 
   return (
     <>
+      <div className="tb-grp">
+        <label>Position X <b>{round1(px)}</b></label>
+        <SliderNum min={-50} max={50} step={0.5} value={round1(px)} onChange={(v, r) => setPos(0, v, r)} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />
+      </div>
+      <div className="tb-grp">
+        <label>Position Y <b>{round1(py)}</b></label>
+        <SliderNum min={-50} max={50} step={0.5} value={round1(py)} onChange={(v, r) => setPos(1, v, r)} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />
+      </div>
+      <div className="tb-grp">
+        <label>Position Z <b>{round1(pz)}</b></label>
+        <SliderNum min={-50} max={50} step={0.5} value={round1(pz)} onChange={(v, r) => setPos(2, v, r)} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />
+      </div>
+      <div className="tb-grp">
+        <label>Rotation X <b>{Math.round(rx * DEG)}°</b></label>
+        <SliderNum min={-180} max={180} suffix="°" value={Math.round(rx * DEG)} onChange={(v, r) => setRotDeg(0, v, r)} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />
+      </div>
+      <div className="tb-grp">
+        <label>Rotation Y <b>{Math.round(ry * DEG)}°</b></label>
+        <SliderNum min={-180} max={180} suffix="°" value={Math.round(ry * DEG)} onChange={(v, r) => setRotDeg(1, v, r)} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />
+      </div>
+      <div className="tb-grp">
+        <label>Rotation Z <b>{Math.round(rz * DEG)}°</b></label>
+        <SliderNum min={-180} max={180} suffix="°" value={Math.round(rz * DEG)} onChange={(v, r) => setRotDeg(2, v, r)} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />
+      </div>
+      <div className="tb-grp">
+        <label>Scale <b>{round1(layer.mapScale)}</b></label>
+        <SliderNum min={0.1} max={10} step={0.1} value={round1(layer.mapScale)} onChange={(v, r) => onChange({ mapScale: v } as Partial<Layer>, r)} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />
+      </div>
       <div className="tb-grp">
         <label>Variation (chroma)</label>
         <div className="dl-row" style={{ gap: 6 }}>
@@ -268,7 +314,7 @@ function EnvProps({ layer, onChange }: { layer: Extract<Layer, { type: 'env' }>;
           </div>
         ))}
       </div>
-      <div className="tb-hint">Placement, rotation and scale are locked (environment) — tune in-scene and export the JSON.</div>
+      <div className="tb-hint">Pose the map with the values above, then send me the numbers to bake as the default.</div>
     </>
   );
 }
@@ -307,7 +353,7 @@ export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGestu
             {layer.type === 'model' && <ModelProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
             {layer.type === 'disc' && <DiscProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
             {layer.type === 'deco' && <DecoProps layer={layer} onChange={onChange} />}
-            {layer.type === 'env' && <EnvProps layer={layer} onChange={onChange} />}
+            {layer.type === 'env' && <EnvProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
           </>
         )}
       </div>
