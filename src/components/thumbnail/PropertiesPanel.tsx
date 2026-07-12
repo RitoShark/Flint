@@ -256,15 +256,15 @@ function EnvProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer:
     <>
       <div className="tb-grp">
         <label>Position X <b>{round1(px)}</b></label>
-        <SliderNum min={-50} max={50} step={0.5} value={round1(px)} onChange={(v, r) => setPos(0, v, r)} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />
+        <SliderNum min={-100} max={100} step={0.5} value={round1(px)} onChange={(v, r) => setPos(0, v, r)} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />
       </div>
       <div className="tb-grp">
         <label>Position Y <b>{round1(py)}</b></label>
-        <SliderNum min={-50} max={50} step={0.5} value={round1(py)} onChange={(v, r) => setPos(1, v, r)} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />
+        <SliderNum min={-100} max={100} step={0.5} value={round1(py)} onChange={(v, r) => setPos(1, v, r)} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />
       </div>
       <div className="tb-grp">
         <label>Position Z <b>{round1(pz)}</b></label>
-        <SliderNum min={-50} max={50} step={0.5} value={round1(pz)} onChange={(v, r) => setPos(2, v, r)} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />
+        <SliderNum min={-100} max={100} step={0.5} value={round1(pz)} onChange={(v, r) => setPos(2, v, r)} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />
       </div>
       <div className="tb-grp">
         <label>Rotation X <b>{Math.round(rx * DEG)}°</b></label>
