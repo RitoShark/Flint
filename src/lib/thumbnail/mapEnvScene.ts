@@ -16,11 +16,12 @@
 import { Engine } from '@babylonjs/core/Engines/engine';
 import { Scene } from '@babylonjs/core/scene';
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
-import { Vector3, Color4 } from '@babylonjs/core/Maths/math';
+import { Vector3, Color4, Quaternion } from '@babylonjs/core/Maths/math';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import { Material } from '@babylonjs/core/Materials/material';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import { LoadAssetContainerAsync } from '@babylonjs/core/Loading/sceneLoader';
 import type { AssetContainer } from '@babylonjs/core/assetContainer';
@@ -108,6 +109,12 @@ export function createMapEnvScene(
 
     let container: AssetContainer | null = null;
     let meshes: AbstractMesh[] = [];
+    // The wrapper node the user transform is applied to. The GLB's own baked
+    // transforms (the `group1` node's 90°-X rotation + 0.01 scale) live BELOW
+    // this, so user position/rotation/scale compose on top as a delta. We
+    // transform THIS, never the leaf meshes (they're all parented, so setting
+    // their local transform would do nothing / fight the rig).
+    let root: TransformNode | null = null;
     let slots: string[] = [];
     const slotMeshes = new Map<string, AbstractMesh[]>();
     const slotMat = new Map<string, StandardMaterial>();
@@ -127,6 +134,7 @@ export function createMapEnvScene(
         slots = [];
         meshes = [];
         if (container) { container.removeAllFromScene(); container.dispose(); container = null; }
+        if (root) { root.dispose(); root = null; }
     }
 
     async function loadGlb(glb: string): Promise<void> {
@@ -137,6 +145,19 @@ export function createMapEnvScene(
         container = await LoadAssetContainerAsync(file, scene);
         container.addAllToScene();
         meshes = container.meshes.filter((m): m is AbstractMesh => !!m.getTotalVertices?.() && m.getTotalVertices() > 0);
+        // Parent the GLB's TOP-LEVEL nodes under our own wrapper so the user
+        // transform (setTransform) can move the whole map as one unit WITHOUT
+        // disturbing the rig's baked transforms below (Blender export nests the
+        // meshes under a `group1` node that already carries a 90°-X rotation +
+        // 0.01 scale — the loader adds a `__root__` above that). We must NOT
+        // write the leaf meshes' local transforms: they're all parented, so it
+        // would either no-op or fight the rig.
+        root = new TransformNode('mapenv-root', scene);
+        root.rotationQuaternion = Quaternion.Identity();
+        for (const node of container.rootNodes) {
+            if (node === root) continue;
+            node.parent = root;
+        }
         for (const mesh of meshes) {
             mesh.alwaysSelectAsActiveMesh = true; // fills the view; skip culling
             const matName = mesh.material?.name ?? mesh.name;
@@ -160,24 +181,28 @@ export function createMapEnvScene(
             slotMat.set(slot, mat);
         }
         currentGlb = glb;
+        frameToBox(); // one-time starting framing; fixed thereafter
     }
 
     function setTransform(position: [number, number, number], rotationRad: [number, number, number], scale: number): void {
-        for (const mesh of meshes) {
-            if (mesh.parent) continue; // move roots only; children follow
-            mesh.position.set(position[0], position[1], position[2]);
-            mesh.rotation.set(rotationRad[0], rotationRad[1], rotationRad[2]);
-            mesh.scaling.setAll(scale);
-        }
-        frameToBox();
-        scene.freezeActiveMeshes?.();
+        if (!root) return;
+        root.position.set(position[0], position[1], position[2]);
+        // Compose all 3 axes via a quaternion (YawPitchRoll = Y, X, Z) so they
+        // don't gimbal-fight; this is a DELTA applied above the rig's own baked
+        // rotation, which lives on the child `group1` node.
+        root.rotationQuaternion = Quaternion.RotationYawPitchRoll(rotationRad[1], rotationRad[0], rotationRad[2]);
+        root.scaling.setAll(scale);
+        // Do NOT reframe here — the camera is framed ONCE at load so that
+        // position/rotation/scale visibly MOVE the map (an auto-reframe would
+        // re-center the map every edit and cancel the tuning).
     }
 
-    /** Fit the camera so the whole map bbox is centered in the canvas. Distance
-     *  is locked; the map's on-screen size comes from its own scale. */
+    /** Fit the camera so the whole map bbox is centered in the canvas. Called
+     *  ONCE at load for a sensible starting view; distance is locked so the
+     *  map's on-screen size comes from its own scale afterward. */
     function frameToBox(): void {
         if (meshes.length === 0) return;
-        scene.unfreezeActiveMeshes?.();
+        root?.computeWorldMatrix(true); // flush wrapper before reading children
         let min = new Vector3(Number.MAX_VALUE, Number.MAX_VALUE, Number.MAX_VALUE);
         let max = new Vector3(-Number.MAX_VALUE, -Number.MAX_VALUE, -Number.MAX_VALUE);
         for (const mesh of meshes) {
@@ -196,7 +221,10 @@ export function createMapEnvScene(
         const ch = engine.getRenderHeight() || 1;
         const aspect = ch > 0 ? cw / ch : 1;
         const fovX = 2 * Math.atan(Math.tan(fovY / 2) * aspect);
-        const radius = Math.max(halfH / Math.tan(fovY / 2), halfW / Math.tan(fovX / 2), 0.01) * 1.1;
+        // 1.6× margin (not tight) so the map sits with headroom in the frame —
+        // gives room to reposition/scale it during tuning instead of filling
+        // the whole view at scale 1.
+        const radius = Math.max(halfH / Math.tan(fovY / 2), halfW / Math.tan(fovX / 2), 0.01) * 1.6;
         camera.target = center;
         camera.radius = radius;
         camera.lowerRadiusLimit = radius;
