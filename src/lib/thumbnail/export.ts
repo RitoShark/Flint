@@ -76,6 +76,7 @@
 
 import type { Layer, TextLayer, DiscLayer, DecoLayer } from './layers';
 import type { ThumbnailScene } from './studioScene';
+import type { MapEnvScene } from './mapEnvScene';
 import { fitFontSize, type TextMeasure } from './textFit';
 import { resolveTextColor, type ThumbnailPresetId } from './hue';
 import { loadThumbnailAsset } from '../api/thumbnail';
@@ -153,6 +154,9 @@ export interface ComposeOptions {
   /** Live scene instance (Task 8/9) — its current screenshot is drawn as
    *  the base layer (model + baked-in background). */
   scene: ThumbnailScene;
+  /** The 3D map-env scene (own engine), if a map layer is present. Its
+   *  screenshot is drawn BEHIND the disc (z-order map → disc → models). */
+  mapScene?: MapEnvScene | null;
   /** Full layer stack, in the SAME order as `history.get()` — z-order is
    *  derived internally the same way the artboard derives it (via zrank),
    *  hidden layers are skipped. */
@@ -324,7 +328,7 @@ function zrank(layer: Layer): number {
  * exact draw order and why it matches the live preview.
  */
 export async function composeThumbnail(opts: ComposeOptions): Promise<Blob> {
-  const { scene, layers, preset, hue, outW, outH, format, quality = 0.92 } = opts;
+  const { scene, mapScene, layers, preset, hue, outW, outH, format, quality = 0.92 } = opts;
 
   const canvas: OffscreenCanvas | HTMLCanvasElement =
     typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(outW, outH) : (() => {
@@ -375,6 +379,16 @@ export async function composeThumbnail(opts: ComposeOptions): Promise<Blob> {
   ctx.fillStyle = '#141414';
   ctx.fillRect(0, 0, outW, outH);
   ctx.restore();
+
+  // 1b. The 3D map backdrop (own scene), drawn behind the disc so the z-order
+  //     is map → disc → models. Only present when a visible map env layer
+  //     exists and its GLB has loaded.
+  const envVisible = visible.some(l => l.type === 'env');
+  if (mapScene && envVisible && mapScene.isLoaded()) {
+    const mapBlob = await mapScene.screenshot(outW, outH);
+    const mapBitmap = await createImageBitmap(mapBlob);
+    ctx.drawImage(mapBitmap, 0, 0, outW, outH);
+  }
 
   // 2. Deco behind everything.
   for (const d of decoBehind) drawDecoLayer(ctx, d, outW, outH, decoBitmaps.get(d.id) ?? null);

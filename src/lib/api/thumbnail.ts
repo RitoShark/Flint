@@ -11,12 +11,24 @@ export async function openThumbnailWindow(project: string, skn: string): Promise
     return invokeCommand('open_thumbnail_window', { projectPath: project, sknPath: skn });
 }
 
+/** Bundled thumbnail asset names: disc composites, the Dexal map GLB, and its
+ *  5 default ground/periph WebP textures (see `load_thumbnail_asset`). */
+export type ThumbnailAssetName =
+    | 'ring'
+    | 'glow'
+    | 'dexal.glb'
+    | 'Ground_B1_ChaosTop_A.webp'
+    | 'Ground_C1_ChaosTop_A.webp'
+    | 'Periph_Top_G_1bitalpha.webp'
+    | 'Periph_Top_H_1bitalpha.webp'
+    | 'Periph_Top_I_1bitalpha.webp';
+
 /**
- * Loads a bundled disc-composite asset ("ring" | "glow") as raw WebP bytes.
- * Backed by `load_thumbnail_asset` (raw-bytes IPC, `include_bytes!`'d into
- * the binary — see CLAUDE.md "Raw-bytes IPC").
+ * Loads a bundled thumbnail asset as raw bytes (WebP for textures/discs, GLB
+ * for the map). Backed by `load_thumbnail_asset` (raw-bytes IPC,
+ * `include_bytes!`'d into the binary — see CLAUDE.md "Raw-bytes IPC").
  */
-export async function loadThumbnailAsset(name: 'ring' | 'glow'): Promise<Uint8Array> {
+export async function loadThumbnailAsset(name: ThumbnailAssetName): Promise<Uint8Array> {
     const buf = await invokeCommand<ArrayBuffer>('load_thumbnail_asset', { name });
     return new Uint8Array(buf);
 }

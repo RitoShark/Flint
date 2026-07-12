@@ -61,14 +61,36 @@ pub async fn open_thumbnail_window(
 static RING_WEBP: &[u8] = include_bytes!("../../../resources/thumbnail/ring.webp");
 static GLOW_WEBP: &[u8] = include_bytes!("../../../resources/thumbnail/glow.webp");
 
-/// Serve a bundled thumbnail disc-composite asset (`ring` or `glow`) as raw
-/// WebP bytes. Raw-bytes IPC per CLAUDE.md — frontend decodes via
-/// `invokeCommand<ArrayBuffer>`.
+// Bundled 3D map-environment assets: the Dexal map chunk (GLB, geometry +
+// material slots only, textures external) and its 5 default ground/periph
+// WebPs. Same `include_bytes!` ship-with-binary pattern as the disc assets.
+static DEXAL_GLB: &[u8] = include_bytes!("../../../resources/thumbnail-map/dexal.glb");
+static MAP_GROUND_B1: &[u8] =
+    include_bytes!("../../../resources/thumbnail-map/Ground_B1_ChaosTop_A.webp");
+static MAP_GROUND_C1: &[u8] =
+    include_bytes!("../../../resources/thumbnail-map/Ground_C1_ChaosTop_A.webp");
+static MAP_PERIPH_G: &[u8] =
+    include_bytes!("../../../resources/thumbnail-map/Periph_Top_G_1bitalpha.webp");
+static MAP_PERIPH_H: &[u8] =
+    include_bytes!("../../../resources/thumbnail-map/Periph_Top_H_1bitalpha.webp");
+static MAP_PERIPH_I: &[u8] =
+    include_bytes!("../../../resources/thumbnail-map/Periph_Top_I_1bitalpha.webp");
+
+/// Serve a bundled thumbnail asset as raw bytes. Covers the disc composites
+/// (`ring`/`glow`, WebP), the Dexal map geometry (`dexal.glb`, GLB) and its
+/// default ground/periph textures (WebP). Raw-bytes IPC per CLAUDE.md —
+/// frontend decodes via `invokeCommand<ArrayBuffer>`.
 #[tauri::command]
 pub fn load_thumbnail_asset(name: String) -> Result<tauri::ipc::Response, String> {
     let bytes: &[u8] = match name.as_str() {
         "ring" => RING_WEBP,
         "glow" => GLOW_WEBP,
+        "dexal.glb" => DEXAL_GLB,
+        "Ground_B1_ChaosTop_A.webp" => MAP_GROUND_B1,
+        "Ground_C1_ChaosTop_A.webp" => MAP_GROUND_C1,
+        "Periph_Top_G_1bitalpha.webp" => MAP_PERIPH_G,
+        "Periph_Top_H_1bitalpha.webp" => MAP_PERIPH_H,
+        "Periph_Top_I_1bitalpha.webp" => MAP_PERIPH_I,
         other => return Err(format!("Unknown thumbnail asset \"{other}\"")),
     };
     Ok(tauri::ipc::Response::new(bytes.to_vec()))
@@ -93,5 +115,12 @@ mod tests {
     fn serves_known_assets() {
         assert!(load_thumbnail_asset("ring".to_string()).is_ok());
         assert!(load_thumbnail_asset("glow".to_string()).is_ok());
+    }
+
+    #[test]
+    fn serves_map_assets() {
+        assert!(load_thumbnail_asset("dexal.glb".to_string()).is_ok());
+        assert!(load_thumbnail_asset("Ground_B1_ChaosTop_A.webp".to_string()).is_ok());
+        assert!(load_thumbnail_asset("Periph_Top_G_1bitalpha.webp".to_string()).is_ok());
     }
 }

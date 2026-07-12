@@ -55,7 +55,65 @@ export interface DecoLayer extends BaseLayer {
   z: 'front' | 'behind';
 }
 
-export type Layer = TextLayer | ModelLayer | DiscLayer | DecoLayer;
+/** One saved texture set for the map env layer — the map's "chroma". Maps each
+ *  GLB material-slot name to an image (a bundled asset name or an abs path). */
+export interface EnvVariation {
+  name: string;
+  textures: Record<string, string>;
+}
+
+/** The 3D map-environment layer: a bundled GLB rendered as a live 3D backdrop
+ *  behind the character models. Placement/rotation/scale are LOCKED in the UI
+ *  (baked defaults tuned by the dev, then normalized via the .thumbnail.json)
+ *  — only the texture variations are user-editable. See the map-env design doc. */
+export interface EnvLayer extends BaseLayer {
+  type: 'env';
+  /** Bundled GLB asset name served by `load_thumbnail_asset` (e.g. 'dexal.glb'). */
+  glb: string;
+  /** Baked, UI-locked world transform of the map in the Babylon scene. */
+  position: [number, number, number];
+  rotation: [number, number, number]; // radians
+  mapScale: number;
+  /** Name of the currently applied variation. */
+  activeVariation: string;
+  variations: EnvVariation[];
+}
+
+export type Layer = TextLayer | ModelLayer | DiscLayer | DecoLayer | EnvLayer;
+
+/** Build a fresh Dexal map-env layer with its default (Chaos Top) variation.
+ *  Placement/rotation/scale start at identity — the dev poses it in-scene, then
+ *  hands back the .thumbnail.json to bake the final numbers. Slot→default-WebP
+ *  bindings match the bundled GLB's material names. */
+export function makeDefaultEnvLayer(): EnvLayer {
+  return {
+    id: 'map-env',
+    type: 'env',
+    name: 'Map (Dexal)',
+    hidden: false,
+    rot: 0,
+    locked: true,
+    // Fills the whole stage viewport by default (0 box = full stage).
+    x: 0, y: 0, w: 0, h: 0,
+    glb: 'dexal.glb',
+    position: [0, 0, 0],
+    rotation: [0, 0, 0],
+    mapScale: 1,
+    activeVariation: 'Chaos Top',
+    variations: [
+      {
+        name: 'Chaos Top',
+        textures: {
+          Ground_B1_ChaosTop_A_MAT: 'Ground_B1_ChaosTop_A.webp',
+          Ground_C1_ChaosTop_A_MAT: 'Ground_C1_ChaosTop_A.webp',
+          Periph_Top_G_MAT: 'Periph_Top_G_1bitalpha.webp',
+          Periph_Top_H_MAT: 'Periph_Top_H_1bitalpha.webp',
+          Periph_Top_I_MAT: 'Periph_Top_I_1bitalpha.webp',
+        },
+      },
+    ],
+  };
+}
 
 export function addLayer(list: Layer[], layer: Layer): Layer[] {
   return [layer, ...list];

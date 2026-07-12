@@ -46,6 +46,20 @@
   font-family: var(--font-mono);
 }
 
+/* 3D map-env backdrop canvas — its own Babylon engine. Sits ABOVE .tb-env and
+   BELOW .tb-disc-bg (same z-index 0, earlier in DOM → the disc paints over it),
+   so the z-order is map → disc → models. Transparent clear lets .tb-env show
+   through where the map doesn't cover. */
+.tb-map-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  z-index: 0;
+}
+
 /* Shared Babylon scene canvas (Task 9) — sits above .tb-env, below every
    .tb-el layer proxy. One shared camera renders every `model` layer's SKN;
    per-layer x/y/w/h placement of the render is a Task 13 (compositor)
@@ -581,6 +595,20 @@
   color: var(--text-muted);
   margin-top: 6px;
   line-height: 1.5;
+}
+
+/* Map-env texture slot rows (per-material picker) */
+.tb-env-slot {
+  margin-top: 6px;
+}
+.tb-env-slot__name {
+  display: block;
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  margin-bottom: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ── Toolbar (top bar) ── */

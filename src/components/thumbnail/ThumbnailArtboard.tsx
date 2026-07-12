@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { DiscLayer, Layer, ModelLayer, TextLayer, updateLayer } from '../../lib/thumbnail/layers';
+import { convertFileSrc } from '@tauri-apps/api/core';
+import { DiscLayer, EnvLayer, Layer, ModelLayer, TextLayer, updateLayer } from '../../lib/thumbnail/layers';
 import { AnimClip, createThumbnailScene, MeshInfo, ThumbnailScene } from '../../lib/thumbnail/studioScene';
+import { createMapEnvScene, MapEnvScene } from '../../lib/thumbnail/mapEnvScene';
 import { fitFontSize, TextMeasure } from '../../lib/thumbnail/textFit';
 import { resolveTextColor, ThumbnailPresetId } from '../../lib/thumbnail/hue';
 import { DiscComposite } from './DiscComposite';
@@ -35,6 +37,9 @@ export interface ThumbnailArtboardHandle {
    *  (Task 13) to call `screenshot(w, h)` on. Null until the scene-creation
    *  effect has run (always true by the time a user could click Export). */
   getScene: () => ThumbnailScene | null;
+  /** The 3D map-env scene (own engine), for the compositor to draw behind the
+   *  disc. Null when no map layer / before the scene-creation effect runs. */
+  getMapScene: () => MapEnvScene | null;
 }
 
 interface ThumbnailArtboardProps {
@@ -122,6 +127,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   const stageWrapRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const sceneCanvasRef = useRef<HTMLCanvasElement>(null);
+  const mapCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -150,7 +156,12 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   // the reconciliation effect further down can reference them. See the
   // reconciliation effect for the full placement-model writeup.
   const sceneRef = useRef<ThumbnailScene | null>(null);
+  const mapSceneRef = useRef<MapEnvScene | null>(null);
   const modelBindingsRef = useRef<Map<string, { sceneId: string; sknPath: string; anim: string; frame: number; scale: number; orbit: number; tiltX: number; rollZ: number; x: number; y: number; w: number; h: number; hiddenMeshes: string; focusMode: string; hidden: boolean }>>(new Map());
+  // Last-synced fingerprint of the env layer so the reconcile only touches the
+  // map scene when the env layer actually changed (loads/variation/transform).
+  const envSyncRef = useRef<string>('');
+  const envLoadingRef = useRef(false);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
@@ -178,6 +189,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   }, []);
 
   const getScene = useCallback((): ThumbnailScene | null => sceneRef.current, []);
+  const getMapScene = useCallback((): MapEnvScene | null => mapSceneRef.current, []);
 
   // ── Floating model toolbar (top-left of the artboard) — shown when a model
   // layer is selected. Hosts the ⚙ mesh/animation popover trigger + the Face
@@ -278,11 +290,11 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
 
   // Expose fit/100%/fit-selection/getModelAnims to the host (toolbar / keyboard shortcuts / PropertiesPanel).
   useEffect(() => {
-    if (controlsRef) controlsRef.current = { fitView, fullView, fitSelection, getScene };
+    if (controlsRef) controlsRef.current = { fitView, fullView, fitSelection, getScene, getMapScene };
     return () => {
       if (controlsRef) controlsRef.current = null;
     };
-  }, [controlsRef, fitView, fullView, fitSelection, getScene]);
+  }, [controlsRef, fitView, fullView, fitSelection, getScene, getMapScene]);
 
   // ── Fit once the viewport has real dimensions. Double-rAF handles the
   // normal first paint; a ResizeObserver catches the cold-WebView case where
@@ -311,7 +323,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
 
   // Re-center (keep zoom) on window resize, matching the prototype.
   useEffect(() => {
-    const onResize = () => centerOn(STAGE_W / 2, STAGE_H / 2);
+    const onResize = () => { centerOn(STAGE_W / 2, STAGE_H / 2); mapSceneRef.current?.resize(); };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, [centerOn]);
@@ -333,10 +345,15 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     if (!canvas) return;
     const scene = createThumbnailScene(canvas, { w: STAGE_W, h: STAGE_H });
     sceneRef.current = scene;
+    // The 3D map-env backdrop runs on its own engine/canvas (behind the disc).
+    const mapCanvas = mapCanvasRef.current;
+    if (mapCanvas) mapSceneRef.current = createMapEnvScene(mapCanvas, convertFileSrc);
     return () => {
       sceneRef.current = null;
       modelBindingsRef.current.clear();
       scene.dispose();
+      mapSceneRef.current?.dispose();
+      mapSceneRef.current = null;
     };
   }, []);
 
@@ -376,10 +393,9 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
         }
         const clips = scene.listAnims(handle.id);
         // "Fresh" = the layer was just seeded (no explicit anim yet). For a
-        // fresh model we auto-set-up: default to the shortest IDLE clip and
-        // auto-face the camera so the user opens onto a clean, framed pose
-        // instead of doing it all by hand.
-        const isFresh = !layer.anim;
+        // fresh model we default to the shortest IDLE clip. We do NOT auto-face
+        // the camera on spawn — the artist controls the spawn pose (the Face
+        // camera button stays available for a manual, on-demand turn).
         const initialAnim = layer.anim
           || pickDefaultAnim(clips)?.animation_path
           || clips[0]?.animation_path
@@ -396,18 +412,12 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
           const maxFrame = scene.getMaxFrame(handle.id);
           placeholder.anim = initialAnim;
           scene.setModelFrame(handle.id, layer.frame);
-          // Auto-face on first setup: turn the model to face the camera.
-          let autoOrbit = layer.orbit;
-          let autoTilt = layer.tiltX ?? 0;
-          if (isFresh) {
-            const res = scene.faceModelToCamera(handle.id);
-            if (res) { autoOrbit = res.orbit; autoTilt = res.tiltX; placeholder.orbit = res.orbit; placeholder.tiltX = res.tiltX; }
-          }
-          // Push the resolved anim/maxFrame (+ auto orbit/tilt) back onto the
-          // layer so the PropertiesPanel sliders reflect the real state.
+          // Push the resolved anim/maxFrame back onto the layer so the
+          // PropertiesPanel reflects the real state. The spawn pose keeps the
+          // layer's seeded orbit/tiltX (no auto-face).
           const current = layersRef.current.find(l => l.id === layer.id);
           if (current && current.type === 'model') {
-            const next = updateLayer(layersRef.current, layer.id, { anim: initialAnim, maxFrame, orbit: autoOrbit, tiltX: autoTilt } as Partial<Layer>);
+            const next = updateLayer(layersRef.current, layer.id, { anim: initialAnim, maxFrame } as Partial<Layer>);
             layersRef.current = next;
             onChangeRef.current(next, false);
           }
@@ -493,6 +503,33 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       if (!seenLayerIds.has(layerId)) {
         if (binding.sceneId) scene.removeModel(binding.sceneId);
         bindings.delete(layerId);
+      }
+    }
+
+    // ── Env (3D map) layer sync ──────────────────────────────────────────
+    // Load/update the bundled GLB backdrop on its own scene. Fingerprint
+    // everything that affects the map so we only touch it on real changes, and
+    // guard against overlapping async loads.
+    const mapScene = mapSceneRef.current;
+    const envLayer = layers.find((l): l is EnvLayer => l.type === 'env') ?? null;
+    const activeVar = envLayer?.variations.find(v => v.name === envLayer.activeVariation) ?? envLayer?.variations[0];
+    const envFp = envLayer && !envLayer.hidden
+      ? JSON.stringify([envLayer.glb, envLayer.position, envLayer.rotation, envLayer.mapScale, activeVar?.textures ?? {}])
+      : '';
+    if (mapScene && envFp !== envSyncRef.current && !envLoadingRef.current) {
+      envSyncRef.current = envFp;
+      if (!envLayer || envLayer.hidden) {
+        mapScene.setVisible(false);
+      } else {
+        envLoadingRef.current = true;
+        (async () => {
+          try {
+            await mapScene.setLayer(envLayer);
+            mapScene.setVisible(true);
+          } finally {
+            envLoadingRef.current = false;
+          }
+        })();
       }
     }
   }, [layers]);
@@ -830,7 +867,9 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     body.addEventListener('keydown', onKeyDown);
   }, [onChange]);
 
-  const sorted = [...layers].filter(l => !l.hidden).sort((a, b) => zrank(a) - zrank(b));
+  // Env (map) layers render only in Babylon — they have no draggable DOM proxy
+  // (a full-stage locked box would swallow clicks), so drop them from `sorted`.
+  const sorted = [...layers].filter(l => !l.hidden && l.type !== 'env').sort((a, b) => zrank(a) - zrank(b));
   const selectedLayer = layers.find(l => l.id === selId) ?? null;
   const selectedModel = selectedLayer && selectedLayer.type === 'model' ? selectedLayer : null;
 
@@ -913,6 +952,11 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
           <div className="tb-env" onPointerDown={handleEnvPointerDown}>
             <span className="tb-env-lbl">environment slot</span>
           </div>
+          {/* 3D map-env backdrop — its own Babylon canvas, BEHIND the disc so the
+              disc "circle" composites between the map and the models (z-order:
+              map → disc → models). Transparent clear lets the .tb-env backdrop
+              show through where the map doesn't cover. */}
+          <canvas ref={mapCanvasRef} className="tb-map-canvas" />
           {/* Disc ("circle") — the BACKGROUND SEPARATOR for the hero. Painted
               BETWEEN the env and the (transparent) scene canvas, so the full
               circle (glow + darkened fill + gold ring) sits BEHIND the models:
@@ -1014,6 +1058,11 @@ function LayerBody({ layer, preset, hue }: { layer: Layer; preset: ThumbnailPres
     // circle. This `.tb-el` is just the transparent selection/drag hit-proxy —
     // empty body.
     return <div className="tb-body tb-disc-proxy" />;
+  }
+  if (layer.type === 'env') {
+    // The map env renders in Babylon (no DOM proxy); it's edited from the
+    // Layers/Properties panels, not dragged on the artboard.
+    return null;
   }
   // deco
   return <div className="tb-body deco-empty">{layer.asset ? '' : 'corner PNG slot'}</div>;

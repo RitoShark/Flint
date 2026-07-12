@@ -1,4 +1,5 @@
 import { ChangeEvent } from 'react';
+import { open } from '@tauri-apps/plugin-dialog';
 import { Layer } from '../../lib/thumbnail/layers';
 import { DlIcon, DlSegmented, DlSlider } from '../ui/design-lab';
 
@@ -205,11 +206,79 @@ function DecoProps({ layer, onChange }: { layer: Extract<Layer, { type: 'deco' }
   );
 }
 
+function EnvProps({ layer, onChange }: { layer: Extract<Layer, { type: 'env' }>; onChange: PropertiesPanelProps['onChange'] }) {
+  const active = layer.variations.find(v => v.name === layer.activeVariation) ?? layer.variations[0];
+  const slots = active ? Object.keys(active.textures) : [];
+
+  const setSlotTexture = (slot: string, value: string) => {
+    const variations = layer.variations.map(v =>
+      v.name === active?.name ? { ...v, textures: { ...v.textures, [slot]: value } } : v,
+    );
+    onChange({ variations } as Partial<Layer>, true);
+  };
+
+  const browse = async (slot: string) => {
+    const picked = await open({
+      multiple: false,
+      filters: [{ name: 'Image', extensions: ['webp', 'png', 'jpg', 'jpeg', 'tex', 'dds'] }],
+    });
+    if (typeof picked === 'string') setSlotTexture(slot, picked);
+  };
+
+  const addVariation = () => {
+    const base = active ?? layer.variations[0];
+    let n = layer.variations.length + 1;
+    let name = `Variation ${n}`;
+    while (layer.variations.some(v => v.name === name)) { n += 1; name = `Variation ${n}`; }
+    const variations = [...layer.variations, { name, textures: { ...(base?.textures ?? {}) } }];
+    onChange({ variations, activeVariation: name } as Partial<Layer>, true);
+  };
+
+  return (
+    <>
+      <div className="tb-grp">
+        <label>Variation (chroma)</label>
+        <div className="dl-row" style={{ gap: 6 }}>
+          <select
+            className="dl-select"
+            style={{ flex: 1 }}
+            value={active?.name ?? ''}
+            onChange={(e) => onChange({ activeVariation: e.target.value } as Partial<Layer>, true)}
+          >
+            {layer.variations.map(v => <option key={v.name} value={v.name}>{v.name}</option>)}
+          </select>
+          <button className="dl-btn dl-btn--secondary dl-btn--sm" onClick={addVariation}>+ New</button>
+        </div>
+      </div>
+      <div className="tb-grp">
+        <label>Map textures</label>
+        {slots.length === 0 && <div className="tb-hint">Map not loaded yet.</div>}
+        {slots.map(slot => (
+          <div key={slot} className="tb-env-slot">
+            <span className="tb-env-slot__name" title={slot}>{slot.replace(/_MAT$/, '')}</span>
+            <div className="dl-row" style={{ gap: 4 }}>
+              <input
+                className="dl-input"
+                style={{ flex: 1, minWidth: 0 }}
+                value={active?.textures[slot] ?? ''}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setSlotTexture(slot, e.target.value)}
+              />
+              <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={() => browse(slot)}>…</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="tb-hint">Placement, rotation and scale are locked (environment) — tune in-scene and export the JSON.</div>
+    </>
+  );
+}
+
 const TITLES: Record<Layer['type'], string> = {
   text: 'Text',
   model: 'Model',
   disc: 'Black fill',
   deco: 'Corner texture',
+  env: 'Map',
 };
 
 const TITLE_ICON: Record<Layer['type'], Parameters<typeof DlIcon>[0]['name']> = {
@@ -217,6 +286,7 @@ const TITLE_ICON: Record<Layer['type'], Parameters<typeof DlIcon>[0]['name']> = 
   model: 'layerModel',
   disc: 'contrast',
   deco: 'picture',
+  env: 'picture',
 };
 
 export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGesture }: PropertiesPanelProps) {
@@ -237,6 +307,7 @@ export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGestu
             {layer.type === 'model' && <ModelProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
             {layer.type === 'disc' && <DiscProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
             {layer.type === 'deco' && <DecoProps layer={layer} onChange={onChange} />}
+            {layer.type === 'env' && <EnvProps layer={layer} onChange={onChange} />}
           </>
         )}
       </div>

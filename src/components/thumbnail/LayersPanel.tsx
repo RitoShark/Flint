@@ -21,6 +21,10 @@ function groupLayers(layers: Layer[]): LayerGroup[] {
       title: 'Behind models',
       items: layers.filter(l => l.type === 'deco' && l.z === 'behind'),
     },
+    {
+      title: 'Environment',
+      items: layers.filter(l => l.type === 'env'),
+    },
   ];
 }
 

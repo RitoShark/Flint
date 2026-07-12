@@ -4,7 +4,7 @@ import { readTextFile, writeTextFile } from '../../lib/api/file';
 import '../../styles/design-lab.css';
 import '../../styles/thumbnail.css';
 import { createHistory } from '../../lib/thumbnail/history';
-import { Layer, ModelLayer, removeLayer, toggleLock, updateLayer } from '../../lib/thumbnail/layers';
+import { Layer, ModelLayer, makeDefaultEnvLayer, removeLayer, toggleLock, updateLayer } from '../../lib/thumbnail/layers';
 import { loadPreset, presetToLayers, PresetId } from '../../lib/thumbnail/preset';
 import { buildPresetFile, parsePresetFile, PresetFile, suggestPresetFilename } from '../../lib/thumbnail/presetFile';
 import { loadStoredPresets, saveStoredPresets } from '../../lib/thumbnail/presetStore';
@@ -76,8 +76,8 @@ function seedLayers(sknPath: string): Layer[] {
     },
   ];
   // Models first (so they sit under the disc/text in z-order via zrank), then
-  // the Riot disc + text.
-  return [...models, ...riotLayers];
+  // the Riot disc + text, then the 3D map env LAST (renders behind everything).
+  return [...models, ...riotLayers, makeDefaultEnvLayer()];
 }
 
 export function ThumbnailEditor({ project, skn }: { project: string; skn: string }) {
@@ -315,6 +315,7 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
       const { w, h } = resolveOutputSize(exportRatio);
       const blob = await composeThumbnail({
         scene,
+        mapScene: artboardControlsRef.current?.getMapScene() ?? null,
         layers: history.get(),
         preset,
         hue,
