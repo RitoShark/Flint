@@ -10,10 +10,11 @@ import { buildPresetFile, parsePresetFile, PresetFile, suggestPresetFilename } f
 import { loadStoredPresets, saveStoredPresets } from '../../lib/thumbnail/presetStore';
 import { composeThumbnail, ExportFormat, resolveOutputSize } from '../../lib/thumbnail/export';
 import { saveThumbnail } from '../../lib/api/thumbnail';
+import { openProject } from '../../lib/api/project';
 import { ThumbnailArtboard, ThumbnailArtboardHandle } from './ThumbnailArtboard';
 import { LayersPanel } from './LayersPanel';
 import { PropertiesPanel } from './PropertiesPanel';
-import { ThemePanel } from './ThemePanel';
+import { HuePopover } from './HuePopover';
 import { SavePresetModal } from './SavePresetModal';
 import { DlButton, DlIcon, DlIconButton, DlMenu, DlSelect } from '../ui/design-lab';
 
@@ -101,6 +102,40 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
   const exportRatio: ExportRatioId = '16:9';
   const [exporting, setExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
+
+  // Auto-fill the Title / Subtitle from the project's mod.config.json (Name →
+  // Title, Author/creator → Subtitle) on first open. Runs once; the user can
+  // freely edit the text afterward (we only seed the default placeholders).
+  const autoFilledRef = useRef(false);
+  useEffect(() => {
+    if (autoFilledRef.current || !project) return;
+    autoFilledRef.current = true;
+    (async () => {
+      try {
+        const p = await openProject(project);
+        const title = (p.display_name || p.name || '').trim();
+        const subtitle = (p.creator || '').trim();
+        let next = history.get();
+        const titleLayer = next.find(l => l.type === 'text' && l.id === 'riot-title');
+        const subLayer = next.find(l => l.type === 'text' && l.id === 'riot-subtitle');
+        // Only overwrite the untouched preset placeholders, so we never clobber
+        // text the user already changed.
+        if (title && titleLayer && (titleLayer as Extract<Layer, { type: 'text' }>).text === 'MOD NAME') {
+          next = updateLayer(next, 'riot-title', { text: title } as Partial<Layer>);
+        }
+        if (subtitle && subLayer && (subLayer as Extract<Layer, { type: 'text' }>).text === 'Character') {
+          next = updateLayer(next, 'riot-subtitle', { text: subtitle } as Partial<Layer>);
+        }
+        if (next !== history.get()) {
+          history.set(next, false);
+          forceRender(n => n + 1);
+        }
+      } catch {
+        // No project / unreadable config — keep the preset placeholders.
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // User presets: built-in styles plus any the user saved/imported. Saved
   // presets PERSIST across window reopens (localStorage via presetStore). Each
@@ -345,9 +380,14 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
       const sidebar = sidebarRef.current;
       const lsec = layersSecRef.current;
       if (!sidebar || !lsec) return;
-      const rect = sidebar.getBoundingClientRect();
-      let h = ev.clientY - rect.top - 22; // minus the Layers header
-      h = Math.max(80, Math.min(rect.height - 120, h));
+      // Height of the Layers section = pointer Y minus the SECTION's own top
+      // (not the sidebar's — the section may sit below other panels, which was
+      // the source of the divider "teleport" jump). Clamp within the sidebar.
+      const sidebarRect = sidebar.getBoundingClientRect();
+      const lsecTop = lsec.getBoundingClientRect().top;
+      let h = ev.clientY - lsecTop;
+      const maxH = sidebarRect.bottom - lsecTop - 120; // leave room for props
+      h = Math.max(80, Math.min(maxH, h));
       lsec.style.flex = `0 0 ${h}px`;
       lsec.style.maxHeight = 'none';
     };
@@ -493,6 +533,11 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
             preset={preset}
             hue={hue}
           />
+          {/* Theme-hue swatch button — top-right of the artboard, opens the hue
+              slider in an anchored popover (like the model mesh/anim popup). */}
+          <div className="tb-hue-anchor">
+            <HuePopover hue={hue} onChange={setHue} />
+          </div>
           {/* Floating zoom + history controls, anchored bottom-left of the canvas. */}
           <div className="tb-floatbar">
             <div className="tb-floatbar__group">
@@ -507,7 +552,6 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
           </div>
         </div>
         <div className="tb-sidebar" ref={sidebarRef}>
-          <ThemePanel hue={hue} onChange={setHue} />
           <LayersPanel
             sectionRef={layersSecRef}
             layers={layers}

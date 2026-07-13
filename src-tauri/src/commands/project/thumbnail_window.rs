@@ -107,8 +107,11 @@ mod tests {
 
     #[test]
     fn rejects_unknown_asset_name() {
-        let err = load_thumbnail_asset("evil".to_string()).unwrap_err();
-        assert!(err.contains("Unknown thumbnail asset"));
+        // `Response` isn't Debug, so match rather than unwrap_err.
+        match load_thumbnail_asset("evil".to_string()) {
+            Err(e) => assert!(e.contains("Unknown thumbnail asset")),
+            Ok(_) => panic!("expected an error for an unknown asset name"),
+        }
     }
 
     #[test]

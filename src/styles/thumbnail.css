@@ -667,6 +667,42 @@
   box-shadow: 0 8px 24px -8px rgba(0, 0, 0, .6);
 }
 
+/* Theme-hue swatch button + popover (top-right of the artboard) */
+.tb-hue-anchor {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 30;
+}
+.tb-hue-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .8);
+  cursor: pointer;
+  padding: 0;
+  transition: transform .1s ease;
+}
+.tb-hue-btn:hover { transform: scale(1.08); }
+.tb-hue-btn:active { transform: scale(.96); }
+.tb-hue-pop {
+  position: fixed;
+  z-index: 10000;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tb-hue-pop__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.tb-hue-pop__val { color: var(--text-muted); font-weight: 500; }
+
 .tb-floatbar__group {
   display: inline-flex;
   align-items: center;
