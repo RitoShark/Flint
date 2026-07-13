@@ -34,6 +34,11 @@ const FORMAT_MIME: Record<ExportFormatId, ExportFormat> = {
 const DEFAULT_PRESET: PresetId = 'riot';
 const DEFAULT_HUE = 210;
 
+// Per-style default for the bottom-right corner glow (0-100): Riot has NONE,
+// Divine gets the poster bloom. Applied on preset swap (and matches the initial
+// state, since Riot is the default).
+const PRESET_CORNER_GLOW: Record<PresetId, number> = { riot: 0, divine: 45 };
+
 // The default opening composition — the Riot style, dev-tuned in
 // `riot-base.thumbnail.json`. Layer stack, front → back:
 //   title → subtitle → hero → disc → full body → map env.
@@ -115,9 +120,10 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
   // composition. Default subtle.
   const [vignette, setVignette] = useState<number>(35);
   // Bottom-right corner glow strength (0-100) — a soft hue-tinted radial bloom
-  // in the lower-right corner (matches the reference splash). Generated (no
-  // asset); recolors with the hue slider. Default on for the poster look.
-  const [cornerGlow, setCornerGlow] = useState<number>(45);
+  // in the lower-right corner (matches the reference splash). It's a STYLE
+  // thing, driven by the preset: OFF for Riot (default), on for Divine. Set
+  // per-preset on apply; the slider still lets the user override it.
+  const [cornerGlow, setCornerGlow] = useState<number>(0);
   // Loading overlay: true until the artboard reports the initial models loaded.
   // The build renders behind it (dimmed) so it feels like it's coming together.
   const [loading, setLoading] = useState(true);
@@ -312,6 +318,7 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
     setSelId(next.find(l => l.type === 'model')?.id ?? next[0]?.id ?? null);
     setPreset(id);
     setHue(loaded.hue);
+    setCornerGlow(PRESET_CORNER_GLOW[id]); // Riot: off, Divine: on
     forceRender(n => n + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skn, fillRoles]);
@@ -338,6 +345,7 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
     setSelId(next.find(l => l.type === 'model')?.id ?? next[0]?.id ?? null);
     setPreset(file.base);
     setHue(file.hue);
+    setCornerGlow(PRESET_CORNER_GLOW[file.base]); // Riot: off, Divine: on
     forceRender(n => n + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skn, fillRoles]);
