@@ -127,7 +127,16 @@ export interface ThumbnailScene {
     getMaxFrame(id: string): number;
     setEnvImage(path: string | null, fit: BackgroundFit): void;
     setGlow(id: string, on: boolean, intensity: number): void;
-    screenshot(w: number, h: number): Promise<Blob>;
+    /** Attach an on-screen canvas that displays ONLY this model (its own
+     *  `engine.registerView`). The artboard mounts one canvas per model layer
+     *  at that layer's z-index, so 2D layers (the disc) can sit BETWEEN two
+     *  models. Safe to call before/after the model loads; re-registers if the
+     *  canvas element changes. No-op if the model id is unknown. */
+    setModelCanvas(id: string, canvas: HTMLCanvasElement | null): void;
+    /** Screenshot ONE model alone (transparent elsewhere) at w×h — used by the
+     *  export compositor to interleave the disc between models by array order.
+     *  Returns a fully-transparent image if the model isn't loaded. */
+    screenshotModel(id: string, w: number, h: number): Promise<Blob>;
     dispose(): void;
 }
 
@@ -139,6 +148,10 @@ interface ModelState {
     id: string;
     sknPath: string;
     camera: ArcRotateCamera;
+    /** On-screen canvas this model is displayed on (its own `engine.registerView`).
+     *  Null until the artboard attaches one via `setModelCanvas`. Each model has
+     *  its OWN canvas so 2D layers (the disc) can z-order BETWEEN two models. */
+    viewCanvas: HTMLCanvasElement | null;
     /** Unique renderingGroup/layerMask bit so this model's camera renders
      *  only this model's meshes. */
     layerMask: number;
@@ -196,13 +209,17 @@ const CAM_ALPHA = Math.PI / 2 + Math.PI / 8;
 export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims): ThumbnailScene {
     const stageDims: StageDims = { w: stage.w || 640, h: stage.h || 360 };
 
-    // preserveDrawingBuffer:true is REQUIRED here (unlike the shared
-    // createEngine): the thumbnail scene renders MULTIPLE cameras into
-    // separate viewports via scene.activeCameras, and Babylon's
-    // CreateScreenshotUsingRenderTarget forces a SINGLE-camera render
-    // (it nulls scene.activeCameras internally). So export instead reads the
-    // live multi-viewport canvas back directly — which needs the drawing
-    // buffer preserved.
+    // preserveDrawingBuffer:true is REQUIRED: we read the engine's drawing
+    // buffer back for screenshots (both the whole-scene and per-model paths),
+    // which needs the buffer preserved across the async toBlob.
+    //
+    // PER-MODEL CANVASES (engine.views): the `canvas` passed here is the
+    // engine's OWN render target — kept OFFSCREEN (the artboard never shows it).
+    // Each model instead gets its own on-screen canvas via `engine.registerView`
+    // (see `setModelCanvas`), sized/placed by the DOM at that model layer's
+    // z-index. So a 2D layer (the disc) can sit BETWEEN two models' canvases in
+    // z-order — the whole point. The engine renders each registered view with
+    // ITS model's camera and blits the result to that view's canvas.
     const engine = new Engine(canvas, true, {
         preserveDrawingBuffer: true,
         stencil: false,
@@ -277,39 +294,41 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
 
     const models = new Map<string, ModelState>();
 
-    // scene.activeCameras drives multi-viewport rendering. Rebuild it from the
-    // live model set (or the fallback when empty). Order doesn't matter since
-    // viewports don't overlap in practice, but keep the control camera first.
+    // With engine.views, EACH view renders the scene with its OWN camera and
+    // blits to its own canvas — so we do NOT stack all cameras into
+    // scene.activeCameras (that would overlap them in the shared offscreen
+    // buffer). The scene's activeCamera is just a valid default for any render
+    // that isn't driven by a specific view (e.g. the fallback when no model, or
+    // the whole-scene screenshot path). Each view's camera is set at
+    // registerView time (see setModelCanvas).
     function refreshActiveCameras(): void {
-        if (models.size === 0) {
-            scene.activeCameras = [fallbackCamera];
-            return;
-        }
-        // Where two model viewports overlap, the camera rendered LATER paints on
-        // top. So sort by renderOrder ASCENDING → the highest renderOrder (the
-        // Hero) renders last and sits ON TOP of the full-body model.
-        const ordered = [...models.values()].sort((a, b) => a.renderOrder - b.renderOrder);
-        scene.activeCameras = ordered.map(m => m.camera);
+        scene.activeCameras = null;
+        scene.activeCamera = models.size === 0
+            ? fallbackCamera
+            : [...models.values()].sort((a, b) => a.renderOrder - b.renderOrder)[0].camera;
     }
     refreshActiveCameras();
 
-    // ── Per-model camera viewport ────────────────────────────────────────
-    // Convert a model's design-space box (top-left origin, STAGE_W×STAGE_H)
-    // into a Babylon viewport (normalized 0-1, BOTTOM-left origin). A zero/
-    // unset box means "fill the whole stage".
+    // (Re)register a model's on-screen view canvas with the engine. Called by
+    // setModelCanvas and after (re)creating a model's camera. Idempotent.
+    function registerModelView(m: ModelState): void {
+        if (!m.viewCanvas) return;
+        try { engine.unRegisterView(m.viewCanvas); } catch { /* not registered yet */ }
+        // clearBeforeCopy: true so the view canvas is cleared to transparent
+        // before the (alpha) copy — the scene clear is transparent, and the
+        // model is the only opaque content.
+        engine.registerView(m.viewCanvas, m.camera, true);
+    }
+
+    // ── Per-model framing ────────────────────────────────────────────────
+    // With per-model view canvases (engine.views), each model's camera fills
+    // its OWN view canvas (full viewport). The box's on-screen position/size is
+    // the DOM canvas's job (the artboard places each canvas at the layer box);
+    // here we only (re)frame the camera to the box's ASPECT so the model isn't
+    // stretched. `applyViewport` keeps its name (many call sites) but now just
+    // reframes for the current box aspect.
     function applyViewport(m: ModelState): void {
-        const sw = stageDims.w;
-        const sh = stageDims.h;
-        let { x, y, w, h } = m;
-        if (w <= 0 || h <= 0) {
-            x = 0; y = 0; w = sw; h = sh;
-        }
-        const vx = x / sw;
-        const vw = w / sw;
-        const vh = h / sh;
-        // flip Y: design-space top → viewport bottom
-        const vy = 1 - (y / sh) - vh;
-        m.camera.viewport = new Viewport(vx, vy, vw, vh);
+        m.camera.viewport = new Viewport(0, 0, 1, 1);
         // Re-frame so the model stays centered/fully-fit for the box's new
         // aspect — unless the user has taken manual control of this model's
         // camera (then keep their pose).
@@ -405,21 +424,25 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
     }
 
     // ── Render loop ──────────────────────────────────────────────────
+    //
+    // With engine.views the loop function runs ONCE PER REGISTERED VIEW per
+    // frame (Babylon's `_renderViewStep` calls `_renderFrame`, which invokes our
+    // render loop, after setting scene.activeCamera to that view's camera). So:
+    //   • Animation ticking must happen ONCE per frame, not per-view — do it in
+    //     onBeginFrameObservable (fires once per frame, before any view).
+    //   • The loop function just renders the (already-selected) active camera.
+    // autoClear stays OFF (see its note); we clear the framebuffer here so each
+    // view starts from a transparent buffer before its single camera draws.
     let lastTickTime = 0;
-    engine.runRenderLoop(() => {
+    engine.onBeginFrameObservable.add(() => {
         const now = performance.now();
         if (lastTickTime !== 0) {
             const dt = (now - lastTickTime) / 1000;
-            for (const m of models.values()) {
-                m.player?.tick(dt);
-            }
+            for (const m of models.values()) m.player?.tick(dt);
         }
         lastTickTime = now;
-        // Clear the WHOLE framebuffer once (color+depth) before the cameras
-        // render — see the `scene.autoClear = false` note. This gives us a
-        // single transparent clear per frame instead of per-camera-viewport
-        // clears that would cut overlapping models. (Engine has stencil:false,
-        // so clear color+depth only.)
+    });
+    engine.runRenderLoop(() => {
         engine.clear(scene.clearColor, true, true, false);
         scene.render();
     });
@@ -431,6 +454,10 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
     window.addEventListener('resize', handleResize);
 
     function disposeModel(m: ModelState): void {
+        if (m.viewCanvas) {
+            try { engine.unRegisterView(m.viewCanvas); } catch { /* ignore */ }
+            m.viewCanvas = null;
+        }
         for (const mesh of m.meshes) {
             const mat = mesh.material as PBRMaterial | null;
             if (mat) {
@@ -745,6 +772,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             id,
             sknPath,
             camera,
+            viewCanvas: null,
             layerMask,
             bbox,
             meshes,
@@ -800,6 +828,27 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         refreshActiveCameras();
     }
 
+    // Attach (or replace / detach) a model's on-screen view canvas. The
+    // artboard mounts one <canvas> per model layer at that layer's z-index and
+    // calls this once the model has loaded, so each model displays on its own
+    // canvas and the disc can z-order between two of them.
+    function setModelCanvas(id: string, canvas: HTMLCanvasElement | null): void {
+        const m = models.get(id);
+        if (!m) return;
+        if (m.viewCanvas === canvas) return;
+        // Drop the previous view (if any).
+        if (m.viewCanvas) {
+            try { engine.unRegisterView(m.viewCanvas); } catch { /* ignore */ }
+        }
+        m.viewCanvas = canvas;
+        if (canvas) {
+            registerModelView(m);
+            // Re-frame for the new canvas's aspect on the next frame (its
+            // clientWidth/Height may not be laid out yet at attach time).
+            if (!m.userFramed) reframeModel(m);
+        }
+    }
+
     // ── Per-model interactive control (double-click a model to orbit/pan it) ──
     // Only ONE model is interactive at a time. Attaching control to a model's
     // camera lets the user orbit (drag) / pan (right-drag or ctrl-drag) / zoom
@@ -812,6 +861,8 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             controlCamera.detachControl();
             controlCamera = null;
         }
+        // Clear the multi-view input surface (back to the offscreen canvas).
+        engine.inputElement = null;
         if (!id) return;
         const m = models.get(id);
         if (!m) return;
@@ -821,7 +872,16 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         // is done on the Properties panel via the Turn (Y) / Tilt (X) sliders,
         // not by dragging (the user found drag-rotate confusing). Wheel is
         // removed here too; the artboard intercepts it to drive `scale`.
-        m.camera.attachControl(canvas, /* noPreventDefault */ false);
+        //
+        // MULTI-VIEW INPUT: with engine.views each model draws on its own view
+        // canvas. Babylon's input framework must be told WHICH canvas is the
+        // active input surface, or pointer deltas are computed against the
+        // offscreen render canvas (wrong size/position → dead/erratic pan). Set
+        // engine.inputElement to this model's view canvas AND attach the camera
+        // control to it, so right-drag pan lands correctly on the visible model.
+        const controlEl = m.viewCanvas ?? canvas;
+        engine.inputElement = controlEl;
+        m.camera.attachControl(controlEl, /* noPreventDefault */ false);
         m.camera.inputs.removeByType('ArcRotateCameraMouseWheelInput');
         m.camera.angularSensibilityX = Number.POSITIVE_INFINITY;
         m.camera.angularSensibilityY = Number.POSITIVE_INFINITY;
@@ -1025,34 +1085,63 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         }
     }
 
-    async function screenshot(w: number, h: number): Promise<Blob> {
-        // Read the LIVE multi-viewport canvas (see the engine construction
-        // note): render one fresh frame so the drawing buffer is current,
-        // then grab it via a temp 2D canvas scaled to the requested output
-        // size. This preserves every model's per-camera viewport — unlike
-        // CreateScreenshotUsingRenderTarget, which would only capture one
-        // camera. The 2D copy must happen in the SAME frame as the render
-        // (preserveDrawingBuffer keeps it valid across the await, but we
-        // render explicitly to be safe). Match the render loop's manual
-        // once-per-frame clear (autoClear is off — see its note).
+    // Render ONE model alone into the offscreen engine at pixel size boxW×boxH
+    // (framed for that box's aspect) and draw it into `dstCtx` at the model's
+    // box position, scaled to the output. Used by both screenshot paths so the
+    // per-model placement matches the preview (each model fills its DOM box).
+    function drawModelInto(m: ModelState, dstCtx: CanvasRenderingContext2D, outW: number, outH: number): void {
+        const sw = stageDims.w, sh = stageDims.h;
+        // Model box in design space (0 box = whole stage).
+        const bw = m.w > 0 ? m.w : sw;
+        const bh = m.h > 0 ? m.h : sh;
+        const bx = m.w > 0 ? m.x : 0;
+        const by = m.h > 0 ? m.y : 0;
+        // Output-space box.
+        const ox = (bx / sw) * outW;
+        const oy = (by / sh) * outH;
+        const ow = (bw / sw) * outW;
+        const oh = (bh / sh) * outH;
+        if (ow < 1 || oh < 1) return;
+        // Render the model's camera into the offscreen engine at the box's pixel
+        // size (rounded up), so its aspect matches the box. Isolate the camera.
+        const prevCam = scene.activeCamera;
+        const prevCams = scene.activeCameras;
+        scene.activeCameras = null;
+        scene.activeCamera = m.camera;
+        const rw = Math.max(1, Math.round(ow));
+        const rh = Math.max(1, Math.round(oh));
+        engine.setSize(rw, rh);
+        // Frame for THIS pixel aspect (viewportAspectOf reads m.w/m.h which is
+        // the same aspect, but the engine size drives fov — reframe to be safe).
+        if (!m.userFramed) reframeModel(m);
         engine.clear(scene.clearColor, true, true, false);
         scene.render();
         const gl = engine.getRenderingCanvas();
-        if (!gl) throw new Error('screenshot: no rendering canvas');
-        const out = document.createElement('canvas');
-        out.width = w;
-        out.height = h;
-        const ctx = out.getContext('2d');
-        if (!ctx) throw new Error('screenshot: no 2D context');
-        // The scene canvas already has the dark clear color baked in (opaque),
-        // so drawing it scaled to the output size reproduces the preview.
-        ctx.drawImage(gl, 0, 0, gl.width, gl.height, 0, 0, w, h);
+        if (gl) dstCtx.drawImage(gl, 0, 0, gl.width, gl.height, ox, oy, ow, oh);
+        scene.activeCamera = prevCam;
+        scene.activeCameras = prevCams;
+    }
+
+    async function canvasToBlob(out: HTMLCanvasElement): Promise<Blob> {
         return new Promise<Blob>((resolve, reject) => {
             out.toBlob(
                 (blob) => (blob ? resolve(blob) : reject(new Error('screenshot: toBlob returned null'))),
                 'image/png',
             );
         });
+    }
+
+    // Single-model screenshot: just this model in its box, transparent
+    // elsewhere. Lets the export compositor interleave the disc between models.
+    async function screenshotModel(id: string, w: number, h: number): Promise<Blob> {
+        const out = document.createElement('canvas');
+        out.width = w; out.height = h;
+        const ctx = out.getContext('2d');
+        if (!ctx) throw new Error('screenshotModel: no 2D context');
+        const m = models.get(id);
+        if (m && !m.layerHidden) drawModelInto(m, ctx, w, h);
+        engine.setSize(w, h);
+        return canvasToBlob(out);
     }
 
     function dispose(): void {
@@ -1087,7 +1176,8 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         getMaxFrame,
         setEnvImage,
         setGlow,
-        screenshot,
+        setModelCanvas,
+        screenshotModel,
         dispose,
     };
 }

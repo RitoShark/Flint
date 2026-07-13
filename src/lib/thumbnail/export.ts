@@ -554,17 +554,15 @@ export async function composeThumbnail(opts: ComposeOptions): Promise<Blob> {
       drawDiscPiece(ctx, discLayer, RING_OFFSET, outW, outH, ringBitmap, 1);
     }
   };
-  // Model drop-shadow: the scene screenshot is transparent except model pixels,
-  // so a canvas shadow around the drawn bitmap casts a real silhouette shadow.
-  // Mirrors the preview's `filter: drop-shadow` on the shared scene canvas (one
-  // plane → the first visible model with `shadow` on drives it).
-  const shadowModel = visible.find(l => l.type === 'model' && l.shadow) ?? null;
-  const drawModels = async () => {
-    const shotBlob = await scene.screenshot(outW, outH);
+  // Draw ONE model (via its own per-model screenshot, transparent elsewhere) at
+  // its box, with its optional drop-shadow. Each model is now on its own canvas,
+  // so shadow is per-model and models interleave with the disc by array order.
+  const drawModel = async (m: Extract<Layer, { type: 'model' }>) => {
+    const shotBlob = await scene.screenshotModel(m.id, outW, outH);
     const shotBitmap = await createImageBitmap(shotBlob);
-    if (shadowModel) {
+    if (m.shadow) {
       ctx.save();
-      applyLayerShadow(ctx, shadowModel, outW / STAGE_W);
+      applyLayerShadow(ctx, m, outW / STAGE_W);
       ctx.drawImage(shotBitmap, 0, 0, outW, outH);
       ctx.restore();
     } else {
@@ -572,19 +570,16 @@ export async function composeThumbnail(opts: ComposeOptions): Promise<Blob> {
     }
   };
 
-  // 3+4. Disc vs models order follows LAYER ARRAY POSITION (earlier index =
-  // front). The shared model canvas is one plane, so the disc goes entirely
-  // above or below the model band depending on whether the disc sits before or
-  // after the front-most model in the array.
-  const discIdx = discLayer ? layers.findIndex(l => l.id === discLayer.id) : Infinity;
-  const frontModelIdx = layers.findIndex(l => !l.hidden && l.type === 'model');
-  const discInFront = discLayer != null && frontModelIdx >= 0 && discIdx < frontModelIdx;
-  if (discInFront) {
-    await drawModels();
-    drawDisc();
-  } else {
-    drawDisc();
-    await drawModels();
+  // 3+4. Models + disc, composited in LAYER ARRAY ORDER (index 0 = front), so
+  // the disc can sit BETWEEN two models. Iterate visible model/disc layers
+  // BACK-to-FRONT (reverse array order) and paint each — a model in front of the
+  // disc in the array paints after (on top of) the disc, and vice-versa. This is
+  // the per-model-canvas payoff: disc strictly between hero and body.
+  const modelDiscLayers = visible.filter(l => l.type === 'model' || l.type === 'disc');
+  for (let i = modelDiscLayers.length - 1; i >= 0; i--) {
+    const l = modelDiscLayers[i];
+    if (l.type === 'disc') drawDisc();
+    else await drawModel(l as Extract<Layer, { type: 'model' }>);
   }
 
   // 5. Deco in front of the models.

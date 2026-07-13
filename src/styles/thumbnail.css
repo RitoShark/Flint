@@ -81,27 +81,36 @@
   pointer-events: none;
 }
 
-/* Shared Babylon scene canvas — renders every `model` layer's SKN via per-model
-   viewports. Its z-index is set INLINE from the front-most model layer's array
-   position (see `modelCanvasZ`) so the model band orders against the disc/text
-   by layer position. */
-.tb-scene-canvas {
+/* The Babylon engine's OWN render target — kept in the DOM (Babylon needs a
+   real canvas) but OFFSCREEN: each model is displayed on its own view canvas
+   (`.tb-model-canvas`), so this one must never show. */
+.tb-scene-canvas--offscreen {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  left: -99999px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+  opacity: 0;
+}
+
+/* Per-model view canvas — one per model layer, positioned at the layer's box
+   and z-index (set INLINE). This is what lets 2D layers (the disc) sit BETWEEN
+   two models in z-order. */
+.tb-model-canvas {
+  position: absolute;
   display: block;
   pointer-events: none;
 }
 
-/* In orbit mode the canvas captures pointer events so the Babylon camera for
-   the double-clicked model receives drag/wheel (rotate/pan/zoom). */
-.tb-scene-canvas--orbit {
+/* In orbit mode the model's own canvas captures pointer events so the Babylon
+   camera receives drag/wheel (rotate/pan/zoom). */
+.tb-model-canvas--orbit {
   pointer-events: auto;
   cursor: grab;
 }
 
-.tb-scene-canvas--orbit:active {
+.tb-model-canvas--orbit:active {
   cursor: grabbing;
 }
 

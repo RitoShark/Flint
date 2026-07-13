@@ -145,6 +145,11 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   const stageRef = useRef<HTMLDivElement>(null);
   const sceneCanvasRef = useRef<HTMLCanvasElement>(null);
   const mapCanvasRef = useRef<HTMLCanvasElement>(null);
+  // One on-screen canvas per MODEL layer (keyed by layer id), so each model
+  // displays on its own canvas at its own z-index — this is what lets the disc
+  // sit z-order BETWEEN two models. Handed to the scene via setModelCanvas once
+  // the model has a sceneId (see the reconcile effect).
+  const modelCanvasRefs = useRef<Map<string, HTMLCanvasElement>>(new Map());
 
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -423,6 +428,9 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
           return;
         }
         placeholder.sceneId = handle.id;
+        // Attach this model's OWN view canvas now that it has a sceneId (the
+        // async load finished after the reconcile ran, so wire it here too).
+        scene.setModelCanvas(handle.id, modelCanvasRefs.current.get(layer.id) ?? null);
         scene.setModelTransform(handle.id, { x: layer.x, y: layer.y, w: layer.w, h: layer.h, scale: layer.scale, orbit: layer.orbit, tiltX: layer.tiltX ?? 0, rollZ: layer.rollZ ?? 0, posX: layer.posX ?? 0, posY: layer.posY ?? 0, posZ: layer.posZ ?? 0 });
         if (layer.hiddenMeshes && layer.hiddenMeshes.length > 0) {
           scene.setHiddenMeshes(handle.id, layer.hiddenMeshes);
@@ -541,6 +549,16 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       scene.setModelRenderOrder(b.sceneId, layers.length - idx);
     }
 
+    // Attach each model's OWN view canvas to the scene (per-model rendering).
+    // Done here (after sceneId is known) so a model displays on its own canvas
+    // at its own z-index — this is what lets the disc sit between two models.
+    for (const layer of modelLayers) {
+      const b = bindings.get(layer.id);
+      if (!b?.sceneId) continue;
+      const canvasEl = modelCanvasRefs.current.get(layer.id) ?? null;
+      scene.setModelCanvas(b.sceneId, canvasEl);
+    }
+
     // Any binding whose layer no longer exists (deleted) -> remove from scene.
     for (const [layerId, binding] of bindings) {
       if (!seenLayerIds.has(layerId)) {
@@ -598,8 +616,10 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
 
   // ── Orbit-mode wheel = adjust the orbited model's SCALE (not the artboard
   // zoom / camera radius) so wheel stays in sync with the Properties slider. ──
+  // Binds to the ORBITED model's own view canvas (re-binds when orbit changes).
   useEffect(() => {
-    const canvas = sceneCanvasRef.current;
+    if (!orbitLayerId) return;
+    const canvas = modelCanvasRefs.current.get(orbitLayerId);
     if (!canvas) return;
     const onWheel = (e: WheelEvent) => {
       const orbitId = orbitLayerIdRef.current;
@@ -617,7 +637,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     // Capture phase so this runs BEFORE Babylon's canvas wheel listeners.
     canvas.addEventListener('wheel', onWheel, { passive: false, capture: true });
     return () => canvas.removeEventListener('wheel', onWheel, { capture: true } as EventListenerOptions);
-  }, []);
+  }, [orbitLayerId]);
 
   // ── Orbit-mode LEFT-drag rotates the model on one axis, picked by modifier
   // (latched at press-down so a mid-drag key tap can't switch axes):
@@ -629,7 +649,8 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   // disabled on the camera anyway) and translate pixels → degrees, driving the
   // SAME layer fields the Properties sliders use (so everything stays in sync). ──
   useEffect(() => {
-    const canvas = sceneCanvasRef.current;
+    if (!orbitLayerId) return;
+    const canvas = modelCanvasRefs.current.get(orbitLayerId);
     if (!canvas) return;
     let dragging: { startX: number; startY: number; base: number; mode: 'turn' | 'tilt' | 'roll' } | null = null;
     const DEG_PER_PX = 0.5; // drag feel — half a degree per pixel
@@ -684,7 +705,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       canvas.removeEventListener('pointerup', onUp, { capture: true } as EventListenerOptions);
       canvas.removeEventListener('pointercancel', onUp, { capture: true } as EventListenerOptions);
     };
-  }, [onBeginGesture, onCommitGesture]);
+  }, [orbitLayerId, onBeginGesture, onCommitGesture]);
 
   // ── Alt+wheel zoom toward cursor ──
   useEffect(() => {
@@ -929,29 +950,16 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     body.addEventListener('keydown', onKeyDown);
   }, [onChange]);
 
-  // Z-order comes from layer ARRAY position (earlier index = front). Each proxy
-  // and the disc get an explicit z-index derived from their index, so dragging a
-  // layer in the panel restacks it. `zOf` maps a layer id → z-index (front =
-  // high). The shared model canvas and map canvas are positioned in this same
-  // scale so disc/models/text interleave by array order. Env has no proxy.
+  // Z-order comes from layer ARRAY position (earlier index = front). Each proxy,
+  // each per-model canvas, and the disc get an explicit z-index derived from
+  // their index, so dragging a layer in the panel restacks it — and the disc can
+  // sit BETWEEN two models. `zOf` maps a layer id → z-index (front = high). Env
+  // has no proxy.
   const zOf = (id: string): number => {
     const i = layers.findIndex(l => l.id === id);
     return i < 0 ? 1 : (layers.length - i) * 10;
   };
   const sorted = layers.filter(l => !l.hidden && l.type !== 'env');
-  // The shared model canvas holds ALL models at ONE z-plane, so its z-index is
-  // the FRONT-MOST model layer's z (min array index among models). This lets the
-  // disc/text order above or below the whole model band by array position.
-  // (Full model↔2D interleave needs per-model canvases — a follow-up.)
-  const frontModelId = layers.find(l => l.type === 'model' && !l.hidden)?.id;
-  const modelCanvasZ = frontModelId ? zOf(frontModelId) : 1;
-  // Model drop-shadow: the scene canvas is transparent except where models are
-  // drawn, so a CSS `filter: drop-shadow` on it casts a real silhouette shadow.
-  // The shared canvas is one plane, so any visible model with `shadow` on drives
-  // it (first such model wins — per-model model shadows need per-model canvases,
-  // the queued follow-up). Non-model layers keep their own per-`.tb-el` filter.
-  const shadowModel = layers.find(l => l.type === 'model' && !l.hidden && l.shadow);
-  const modelCanvasFilter = shadowModel ? shadowFilter(shadowModel) : undefined;
   // The map (env) canvas z from the env layer's position (usually the back).
   const envId = layers.find(l => l.type === 'env')?.id;
   const mapCanvasZ = envId ? zOf(envId) : 0;
@@ -1057,13 +1065,32 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
               <DiscComposite layer={discLayer} part="full" />
             </div>
           )}
-          {/* Shared Babylon scene (Task 8) — one canvas behind every DOM
-              layer element, rendering all `model` layers' actual SKN
-              meshes. See the reconciliation effect above for how layer
-              props are pushed into the scene; x/y/w/h placement of the
-              rendered model within this canvas is a Task 13 (compositor)
-              concern, not this canvas's. */}
-          <canvas ref={sceneCanvasRef} className={`tb-scene-canvas${orbitLayerId ? ' tb-scene-canvas--orbit' : ''}`} style={{ zIndex: modelCanvasZ, filter: modelCanvasFilter }} />
+          {/* OFFSCREEN Babylon engine canvas — the shared render target for the
+              per-model views. Kept in the DOM (Babylon needs a real canvas) but
+              hidden; each model is displayed on its OWN canvas below. */}
+          <canvas ref={sceneCanvasRef} className="tb-scene-canvas tb-scene-canvas--offscreen" aria-hidden />
+          {/* Per-model view canvases — one per model layer, positioned at the
+              layer's box and z-index, so a 2D layer (the disc) can sit BETWEEN
+              two models in z-order. The model's own drop-shadow lands on ITS
+              canvas. */}
+          {sorted.filter((l): l is ModelLayer => l.type === 'model').map(layer => (
+            <canvas
+              key={`mc-${layer.id}`}
+              ref={(el) => {
+                if (el) modelCanvasRefs.current.set(layer.id, el);
+                else modelCanvasRefs.current.delete(layer.id);
+              }}
+              className={`tb-model-canvas${layer.id === orbitLayerId ? ' tb-model-canvas--orbit' : ''}`}
+              style={{
+                left: layer.x,
+                top: layer.y,
+                width: layer.w,
+                height: layer.h,
+                zIndex: zOf(layer.id),
+                filter: layer.shadow ? shadowFilter(layer) : undefined,
+              }}
+            />
+          ))}
           {sorted.map(layer => (
             <div
               key={layer.id}
@@ -1076,9 +1103,9 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
                 height: layer.h,
                 transform: `rotate(${layer.rot}deg)`,
                 zIndex: zOf(layer.id),
-                // Per-layer drop-shadow style. Skipped for model proxies (their
-                // box is a transparent hit-target — the real shadow lands on the
-                // model's own canvas in Phase B).
+                // Per-layer drop-shadow. Models cast their shadow on their own
+                // view canvas (above); the model proxy here is a transparent
+                // hit-target only.
                 filter: layer.type === 'model' ? undefined : shadowFilter(layer),
               }}
               onPointerDown={(e) => handleElPointerDown(e, layer)}
