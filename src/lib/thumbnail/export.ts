@@ -163,6 +163,8 @@ export interface ComposeOptions {
   layers: Layer[];
   preset: ThumbnailPresetId;
   hue: number;
+  /** Vignette strength (0-100). Drawn over the composition, below text. */
+  vignette?: number;
   outW: number;
   outH: number;
   format: ExportFormat;
@@ -319,7 +321,7 @@ function drawTextLayer(
  * exact draw order and why it matches the live preview.
  */
 export async function composeThumbnail(opts: ComposeOptions): Promise<Blob> {
-  const { scene, mapScene, layers, preset, hue, outW, outH, format, quality = 0.92 } = opts;
+  const { scene, mapScene, layers, preset, hue, vignette = 0, outW, outH, format, quality = 0.92 } = opts;
 
   const canvas: OffscreenCanvas | HTMLCanvasElement =
     typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(outW, outH) : (() => {
@@ -369,7 +371,20 @@ export async function composeThumbnail(opts: ComposeOptions): Promise<Blob> {
   //    cosmetic; a flat dark base matches the composed look closely and is
   //    fully opaque so nothing shows through the final image).
   ctx.save();
-  ctx.fillStyle = '#141414';
+  const h = ((hue % 360) + 360) % 360;
+  // Diagonal dark base (matches resolveBackground's linear stops).
+  const lin = ctx.createLinearGradient(0, 0, outW, outH);
+  lin.addColorStop(0, `hsl(${h}, 45%, 12%)`);
+  lin.addColorStop(0.42, `hsl(${h}, 55%, 20%)`);
+  lin.addColorStop(1, `hsl(${h}, 50%, 7%)`);
+  ctx.fillStyle = lin;
+  ctx.fillRect(0, 0, outW, outH);
+  // Off-center radial glow (matches the radial stop at 64%/42%).
+  const cx = outW * 0.64, cy = outH * 0.42;
+  const rad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(outW, outH) * 0.52);
+  rad.addColorStop(0, `hsla(${h}, 60%, 45%, 0.32)`);
+  rad.addColorStop(1, 'hsla(0, 0%, 0%, 0)');
+  ctx.fillStyle = rad;
   ctx.fillRect(0, 0, outW, outH);
   ctx.restore();
 
@@ -415,6 +430,21 @@ export async function composeThumbnail(opts: ComposeOptions): Promise<Blob> {
 
   // 5. Deco in front of the models.
   for (const d of decoFront) drawDecoLayer(ctx, d, outW, outH, decoBitmaps.get(d.id) ?? null);
+
+  // 5b. Vignette — cinematic edge darkening over the composition, BELOW text so
+  //     the title/subtitle stay crisp. Mirrors the live `.tb-vignette` overlay.
+  if (vignette > 0) {
+    ctx.save();
+    const cx = outW / 2, cy = outH / 2;
+    const r0 = Math.max(outW, outH) * 0.4;
+    const r1 = Math.max(outW, outH) * 0.72;
+    const vg = ctx.createRadialGradient(cx, cy, r0, cx, cy, r1);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, `rgba(0,0,0,${(vignette / 100) * 0.85})`);
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, outW, outH);
+    ctx.restore();
+  }
 
   // 6. Text, always last.
   for (const t of textLayers) drawTextLayer(ctx, t, outW, outH, preset, hue);

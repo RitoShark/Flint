@@ -11,7 +11,12 @@ const POP_W = 240;
  * interaction as the model mesh/anim popup (portal, click-outside / Esc close).
  * Replaces the sidebar ThemePanel so the hue lives over the canvas.
  */
-export function HuePopover({ hue, onChange }: { hue: number; onChange: (hue: number) => void }) {
+export function HuePopover({ hue, onChange, vignette, onVignetteChange }: {
+  hue: number;
+  onChange: (hue: number) => void;
+  vignette: number;
+  onVignetteChange: (v: number) => void;
+}) {
   const btnRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -28,7 +33,11 @@ export function HuePopover({ hue, onChange }: { hue: number; onChange: (hue: num
       const margin = 8;
       let left = r.right - POP_W;
       left = Math.max(margin, Math.min(left, window.innerWidth - POP_W - margin));
-      const top = r.bottom + 6;
+      // Open below the button, but flip ABOVE it if there's no room (the button
+      // now lives in the bottom-right corner).
+      const h = popRef.current?.offsetHeight ?? 90;
+      let top = r.bottom + 6;
+      if (top + h > window.innerHeight - margin) top = Math.max(margin, r.top - h - 6);
       setPos({ left, top });
     };
     place();
@@ -80,6 +89,11 @@ export function HuePopover({ hue, onChange }: { hue: number; onChange: (hue: num
             <span className="tb-hue-pop__val">{Math.round(hue)}°</span>
           </div>
           <DlSlider hue min={0} max={360} value={hue} bubble={`${Math.round(hue)}°`} aria-label="Theme hue" onChange={onChange} />
+          <div className="tb-hue-pop__head" style={{ marginTop: 4 }}>
+            <span>Vignette</span>
+            <span className="tb-hue-pop__val">{Math.round(vignette)}%</span>
+          </div>
+          <DlSlider min={0} max={100} value={vignette} bubble={`${Math.round(vignette)}%`} aria-label="Vignette" onChange={onVignetteChange} />
         </div>,
         document.body,
       )}

@@ -2,6 +2,19 @@ import { Ref, useRef, useState } from 'react';
 import { Layer } from '../../lib/thumbnail/layers';
 import { DlIcon, type DlIconName } from '../ui/design-lab';
 
+/** A human category label for a layer, used ONLY as a visual header in the flat
+ *  list (not a drop boundary). Layers can still be dragged across categories. */
+function categoryOf(layer: Layer): string {
+  switch (layer.type) {
+    case 'text': return 'Text';
+    case 'deco': return 'Decorations';
+    case 'model': return 'Models';
+    case 'disc': return 'Fills';
+    case 'env': return 'Environment';
+    default: return 'Other';
+  }
+}
+
 function iconFor(type: Layer['type']): DlIconName {
   switch (type) {
     case 'text': return 'layerText';
@@ -131,20 +144,30 @@ export function LayersPanel({ layers, selId, onSelect, onToggleHidden, onToggleL
     <div className="tb-side-sec tb-side-sec--layers" ref={sectionRef}>
       <div className="tb-pane-h">Layers</div>
       <div className="tb-side-scroll" ref={listRef}>
-        {layers.map(layer => (
-          <LayerRow
-            key={layer.id}
-            layer={layer}
-            selected={layer.id === selId}
-            dropBefore={dragId !== null && dropBeforeId === layer.id}
-            dragging={dragId === layer.id}
-            onSelect={onSelect}
-            onToggleHidden={onToggleHidden}
-            onToggleLock={onToggleLock}
-            onDelete={onDelete}
-            onDragStart={onDragStart}
-          />
-        ))}
+        {layers.map((layer, i) => {
+          // Visual grouping ONLY: show a category label above the first layer of
+          // a run of the same category. The list stays a FLAT draggable array —
+          // layers can be dragged across these labels freely (the labels are not
+          // drop boundaries, just headers that recompute as things move).
+          const cat = categoryOf(layer);
+          const prevCat = i > 0 ? categoryOf(layers[i - 1]) : null;
+          return (
+            <div key={layer.id}>
+              {cat !== prevCat && <div className="tb-lgroup">{cat}</div>}
+              <LayerRow
+                layer={layer}
+                selected={layer.id === selId}
+                dropBefore={dragId !== null && dropBeforeId === layer.id}
+                dragging={dragId === layer.id}
+                onSelect={onSelect}
+                onToggleHidden={onToggleHidden}
+                onToggleLock={onToggleLock}
+                onDelete={onDelete}
+                onDragStart={onDragStart}
+              />
+            </div>
+          );
+        })}
       </div>
     </div>
   );

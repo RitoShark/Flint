@@ -91,6 +91,17 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
   // applying a preset re-seeds it from that preset's own `hue` field.
   const [preset, setPreset] = useState<PresetId>(DEFAULT_PRESET);
   const [hue, setHue] = useState<number>(DEFAULT_HUE);
+  // Global vignette strength (0-100) — a cinematic edge-darkening over the whole
+  // composition. Default subtle.
+  const [vignette, setVignette] = useState<number>(35);
+  // Loading overlay: true until the artboard reports the initial models loaded.
+  // The build renders behind it (dimmed) so it feels like it's coming together.
+  const [loading, setLoading] = useState(true);
+  // Safety: never trap the user behind the overlay if a model fails to load.
+  useEffect(() => {
+    const t = setTimeout(() => setLoading(false), 12000);
+    return () => clearTimeout(t);
+  }, []);
   const artboardControlsRef = useRef<ThumbnailArtboardHandle | null>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const layersSecRef = useRef<HTMLDivElement>(null);
@@ -114,7 +125,12 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
       try {
         const p = await openProject(project);
         const title = (p.display_name || p.name || '').trim();
-        const subtitle = (p.creator || '').trim();
+        // Subtitle = the character/champion (from flint.json's `champion`),
+        // title-cased; falls back to the creator if champion is absent.
+        const champ = (p.champion || '').trim();
+        const subtitle = champ
+          ? champ.charAt(0).toUpperCase() + champ.slice(1)
+          : (p.creator || '').trim();
         let next = history.get();
         const titleLayer = next.find(l => l.type === 'text' && l.id === 'riot-title');
         const subLayer = next.find(l => l.type === 'text' && l.id === 'riot-subtitle');
@@ -366,6 +382,7 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
         layers: history.get(),
         preset,
         hue,
+        vignette,
         outW: w,
         outH: h,
         format: FORMAT_MIME[exportFormat],
@@ -463,7 +480,13 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
   const selectedLayer = layers.find(l => l.id === selId) ?? null;
 
   return (
-    <div className="dl-root" style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="dl-root" style={{ height: '100vh', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+      {loading && (
+        <div className="tb-loading" aria-live="polite">
+          <div className="tb-loading__spinner" />
+          <div className="tb-loading__label">Loading models & scene…</div>
+        </div>
+      )}
       <div className="tb-toolbar">
         <span className="tb-toolbar__title"><DlIcon name="picture" size={16} />Thumbnail Creator</span>
         <span className="dl-badge">{skn.split(/[\\/]/).pop()}</span>
@@ -542,11 +565,13 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
             controlsRef={artboardControlsRef}
             preset={preset}
             hue={hue}
+            vignette={vignette}
+            onReady={() => setLoading(false)}
           />
           {/* Theme-hue swatch button — top-right of the artboard, opens the hue
               slider in an anchored popover (like the model mesh/anim popup). */}
           <div className="tb-hue-anchor">
-            <HuePopover hue={hue} onChange={setHue} />
+            <HuePopover hue={hue} onChange={setHue} vignette={vignette} onVignetteChange={setVignette} />
           </div>
           {/* Floating zoom + history controls, anchored bottom-left of the canvas. */}
           <div className="tb-floatbar">

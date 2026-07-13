@@ -4,7 +4,7 @@ import { DiscLayer, EnvLayer, Layer, ModelLayer, TextLayer, updateLayer } from '
 import { AnimClip, createThumbnailScene, MeshInfo, ThumbnailScene } from '../../lib/thumbnail/studioScene';
 import { createMapEnvScene, MapEnvScene } from '../../lib/thumbnail/mapEnvScene';
 import { fitFontSize, TextMeasure } from '../../lib/thumbnail/textFit';
-import { resolveTextColor, ThumbnailPresetId } from '../../lib/thumbnail/hue';
+import { resolveBackground, resolveTextColor, ThumbnailPresetId } from '../../lib/thumbnail/hue';
 import { DiscComposite } from './DiscComposite';
 import { ModelStudioModal } from './ModelStudioModal';
 import { DlIcon } from '../ui/design-lab';
@@ -59,6 +59,11 @@ interface ThumbnailArtboardProps {
   /** Global mod-hue (0-360) driving text recolor (and, contract-permitting,
    *  glow tint — see the reconciliation effect's glow comment below). */
   hue: number;
+  /** Vignette strength (0-100) — cinematic edge-darkening over the whole comp. */
+  vignette: number;
+  /** Fired ONCE when the initial models + map have finished loading, so the
+   *  host can dismiss the loading overlay. */
+  onReady?: () => void;
 }
 
 // Line-height factor applied to the fitted font size when summing a text
@@ -106,7 +111,7 @@ function pickDefaultAnim(clips: AnimClip[]): AnimClip | null {
   return pool.reduce((best, c) => (clipName(c).length < clipName(best).length ? c : best), pool[0]);
 }
 
-export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGesture, onCommitGesture, controlsRef, preset, hue }: ThumbnailArtboardProps) {
+export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGesture, onCommitGesture, controlsRef, preset, hue, vignette, onReady }: ThumbnailArtboardProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const stageWrapRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -146,6 +151,10 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   // map scene when the env layer actually changed (loads/variation/transform).
   const envSyncRef = useRef<string>('');
   const envLoadingRef = useRef(false);
+  // Fire onReady exactly once, when the initial models have all loaded.
+  const readyFiredRef = useRef(false);
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
@@ -525,6 +534,17 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       // Light path: transform, applied synchronously (only once the GLB exists).
       if (envLayer && !envLayer.hidden && mapScene.isLoaded()) {
         mapScene.setTransform(envLayer.position, envLayer.rotation, envLayer.mapScale);
+      }
+    }
+
+    // Ready signal (fired once): all model layers that have a SKN path now have
+    // a live sceneId, so the initial load is done and the overlay can dismiss.
+    if (!readyFiredRef.current) {
+      const pending = modelLayers.filter(l => l.sknPath && !bindings.get(l.id)?.sceneId);
+      if (pending.length === 0) {
+        readyFiredRef.current = true;
+        // One more frame so the first render lands before we fade the overlay.
+        requestAnimationFrame(() => onReadyRef.current?.());
       }
     }
   }, [layers]);
@@ -953,7 +973,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
         style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
       >
         <div className={`tb-stage${orbitLayerId ? ' tb-stage--orbiting' : ''}`} ref={stageRef}>
-          <div className="tb-env" onPointerDown={handleEnvPointerDown}>
+          <div className="tb-env" onPointerDown={handleEnvPointerDown} style={{ background: resolveBackground(hue) }}>
             <span className="tb-env-lbl">environment slot</span>
           </div>
           {/* 3D map-env backdrop — its own Babylon canvas, BEHIND the disc so the
@@ -1012,6 +1032,18 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
               <LayerBody layer={layer} preset={preset} hue={hue} />
             </div>
           ))}
+          {/* Vignette — cinematic edge darkening over the whole composition,
+              above every layer. pointer-events:none so it never blocks editing.
+              A very high z-index keeps it on top regardless of layer count. */}
+          {vignette > 0 && (
+            <div
+              className="tb-vignette"
+              style={{
+                zIndex: 100000,
+                background: `radial-gradient(ellipse 75% 75% at 50% 50%, transparent 40%, rgba(0,0,0,${(vignette / 100) * 0.85}) 100%)`,
+              }}
+            />
+          )}
         </div>
         <SelOverlay
           layer={orbitLayerId ? null : selectedLayer}

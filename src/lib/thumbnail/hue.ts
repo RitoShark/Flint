@@ -96,3 +96,18 @@ export function resolveTextColor(preset: ThumbnailPresetId, hue: number, baseHex
   const hueHex = resolveGlowColor(hue);
   return mixHex(baseHex, hueHex, amount);
 }
+
+/** A deep, hue-tinted background: an off-center radial glow over a dark
+ *  diagonal gradient — the same shape as the old hardcoded `.tb-env`, but
+ *  driven by the theme hue so the whole backdrop recolors with the slider.
+ *  Returns a CSS `background` shorthand value. */
+export function resolveBackground(hue: number): string {
+  const h = ((hue % 360) + 360) % 360;
+  // Glow = a soft, mid-sat tint of the hue; base = two very dark hue-tinted
+  // stops so it never washes out but still reads as themed.
+  const glow = `hsla(${h}, 60%, 45%, 0.32)`;
+  const darkA = `hsl(${h}, 45%, 12%)`;
+  const darkMid = `hsl(${h}, 55%, 20%)`;
+  const darkB = `hsl(${h}, 50%, 7%)`;
+  return `radial-gradient(circle at 64% 42%, ${glow}, transparent 52%), linear-gradient(120deg, ${darkA} 0%, ${darkMid} 42%, ${darkB} 100%)`;
+}
