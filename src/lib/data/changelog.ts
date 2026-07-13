@@ -45,6 +45,26 @@ export interface VersionChangelog {
  */
 export const CHANGELOG: VersionChangelog[] = [
     {
+        version: '2.4.0',
+        date: 'July 2026',
+        headline: 'Flint 2.4.0',
+        subtitle: 'The Thumbnail Creator, plus a batch of bug fixes and QoL changes.',
+        entries: [
+            {
+                icon: 'picture',
+                tag: 'feature',
+                title: 'Thumbnail Creator',
+                description: 'Design splash-style thumbnails for your mod right inside Flint. Right-click a skin model to open a full editor with a live 3D backdrop (a real Summoner\'s Rift chunk with swappable ground textures), your champion posed in 3D, and text that auto-fills from the project. Move models freely in 3D space, layer them with a separator disc between hero and body, and style everything with drop shadows, colored text glow, a hue-tinted corner bracket frame, and a corner glow. Two built-in styles — Riot and Divine — ship pre-tuned, and the mod name / champion name fill in automatically. Export a crisp 1920×1080 poster in one click.',
+            },
+            {
+                icon: 'wrench',
+                tag: 'improvement',
+                title: 'Thumbnail QoL',
+                description: 'Everything is a movable, reorderable layer — the disc sits exactly between your two models, each model renders on its own canvas for per-model shadows, and the whole composition themes off a single hue slider. Text auto-sizes to its box (and re-fits once the poster font finishes loading), and status messages use the standard Flint toast popup.',
+            },
+        ],
+    },
+    {
         version: '2.2.0',
         date: 'June 2026',
         headline: 'Flint 2.2.0',
