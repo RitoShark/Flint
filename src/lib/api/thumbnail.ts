@@ -16,6 +16,7 @@ export async function openThumbnailWindow(project: string, skn: string): Promise
 export type ThumbnailAssetName =
     | 'ring'
     | 'glow'
+    | 'stroke'
     | 'dexal.glb'
     | 'Ground_B1_ChaosTop_A.webp'
     | 'Ground_C1_ChaosTop_A.webp'

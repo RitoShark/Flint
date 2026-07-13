@@ -11,6 +11,7 @@ import { loadStoredPresets, saveStoredPresets } from '../../lib/thumbnail/preset
 import { composeThumbnail, ExportFormat, resolveOutputSize } from '../../lib/thumbnail/export';
 import { saveThumbnail } from '../../lib/api/thumbnail';
 import { openProject } from '../../lib/api/project';
+import { useNotificationStore } from '../../lib/stores';
 import { ThumbnailArtboard, ThumbnailArtboardHandle } from './ThumbnailArtboard';
 import { LayersPanel } from './LayersPanel';
 import { PropertiesPanel } from './PropertiesPanel';
@@ -33,56 +34,73 @@ const FORMAT_MIME: Record<ExportFormatId, ExportFormat> = {
 const DEFAULT_PRESET: PresetId = 'riot';
 const DEFAULT_HUE = 210;
 
-// The default composition = the Riot style (its disc + text layers, loaded
-// from riot.json so they stay in sync) PLUS the two default models (big hero +
-// smaller full body). So the editor opens ALREADY in Riot with both models —
-// the user never has to pick a preset, and the full body is present by default.
+// The default opening composition — the Riot style, dev-tuned in
+// `riot-base.thumbnail.json`. Layer stack, front → back:
+//   title → subtitle → hero → disc → full body → map env.
+// Text/disc values come from the shipped riot.json (so they stay in sync); the
+// two models + the map env are seeded here (presets are model/env-agnostic).
+// The hero sits IN FRONT of the disc, the disc in front of the full body.
 function seedLayers(sknPath: string): Layer[] {
   const riotLayers = presetToLayers(loadPreset('riot'));
-  const models: Layer[] = [
-    {
-      id: 'hero',
-      type: 'model',
-      name: 'Hero — big',
-      hidden: false,
-      rot: 0,
-      locked: false,
-      // Large box overlapping the disc, head-focus. Hero scale = 250.
-      x: 257, y: -2, w: 385, h: 363,
-      sknPath,
-      anim: '',
-      frame: 0,
-      maxFrame: 0,
-      scale: 250,
-      orbit: 0,
-      focusMode: 'head',
-    },
-    {
-      id: 'fullbody',
-      type: 'model',
-      name: 'Full body',
-      hidden: false,
-      rot: 0,
-      locked: false,
-      // Full-body companion spawns straight-on (level camera). Dev-tuned
-      // defaults: scale 0.75x, Turn Y -25, moved in 3D (X 50, Z -85 depth).
-      x: 2, y: 2, w: 398, h: 354,
-      sknPath,
-      anim: '',
-      frame: 0,
-      maxFrame: 0,
-      scale: 75,
-      orbit: -25,
-      posX: 50,
-      posZ: -85,
-      focusMode: 'full',
-    },
-  ];
-  // Array order = z-order (index 0 = FRONT). Default stack, front → back:
-  //   text (on top) → models → disc/fills → map env (back).
   const textLayers = riotLayers.filter(l => l.type === 'text');
-  const otherLayers = riotLayers.filter(l => l.type !== 'text'); // disc, etc.
-  return [...textLayers, ...models, ...otherLayers, makeDefaultEnvLayer()];
+  const discLayer = riotLayers.find(l => l.type === 'disc');
+  const hero: Layer = {
+    id: 'hero',
+    type: 'model',
+    name: 'Hero — big',
+    hidden: false,
+    rot: 0,
+    locked: false,
+    // Large box overlapping the disc, head-focus. Hero scale = 250.
+    x: 257, y: -2, w: 385, h: 363,
+    sknPath,
+    anim: '',
+    frame: 0,
+    maxFrame: 0,
+    scale: 250,
+    orbit: 0,
+    focusMode: 'head',
+  };
+  const fullbody: Layer = {
+    id: 'fullbody',
+    type: 'model',
+    name: 'Full body',
+    hidden: false,
+    rot: 0,
+    locked: false,
+    // Full-body companion spawns straight-on (level camera). Dev-tuned
+    // defaults: scale 0.75x, Turn Y -25, moved in 3D (X 50, Z -85 depth).
+    x: 2, y: 2, w: 398, h: 354,
+    sknPath,
+    anim: '',
+    frame: 0,
+    maxFrame: 0,
+    scale: 75,
+    orbit: -25,
+    posX: 50,
+    posZ: -85,
+    focusMode: 'full',
+    shadow: false,
+  };
+  // Match riot-base.thumbnail.json exactly: title, subtitle, hero, disc,
+  // fullbody, env.
+  return [
+    ...textLayers,
+    hero,
+    ...(discLayer ? [discLayer] : []),
+    fullbody,
+    makeDefaultEnvLayer(),
+  ];
+}
+
+/** Carry the current 3D map env across a preset swap. Presets ship no env
+ *  layer, so replacing the stack would drop the map. If `next` already has an
+ *  env (e.g. an imported preset that includes one) keep it as-is; otherwise
+ *  append the current stack's env at the back. */
+function mergeEnv(next: Layer[], current: Layer[]): Layer[] {
+  if (next.some(l => l.type === 'env')) return next;
+  const env = current.find(l => l.type === 'env');
+  return env ? [...next, env] : next;
 }
 
 export function ThumbnailEditor({ project, skn }: { project: string; skn: string }) {
@@ -96,6 +114,10 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
   // Global vignette strength (0-100) — a cinematic edge-darkening over the whole
   // composition. Default subtle.
   const [vignette, setVignette] = useState<number>(35);
+  // Bottom-right corner glow strength (0-100) — a soft hue-tinted radial bloom
+  // in the lower-right corner (matches the reference splash). Generated (no
+  // asset); recolors with the hue slider. Default on for the poster look.
+  const [cornerGlow, setCornerGlow] = useState<number>(45);
   // Loading overlay: true until the artboard reports the initial models loaded.
   // The build renders behind it (dimmed) so it feels like it's coming together.
   const [loading, setLoading] = useState(true);
@@ -114,11 +136,33 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
   const [exportFormat, setExportFormat] = useState<ExportFormatId>('webp');
   const exportRatio: ExportRatioId = '16:9';
   const [exporting, setExporting] = useState(false);
-  const [exportStatus, setExportStatus] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
+  // Export/import/save status is surfaced through the standard Flint toast
+  // popups (mounted by ThumbnailWindow's ToastContainer), not an inline banner.
+  const showToast = useNotificationStore((s) => s.showToast);
 
-  // Auto-fill the Title / Subtitle from the project's mod.config.json (Name →
-  // Title, Author/creator → Subtitle) on first open. Runs once; the user can
-  // freely edit the text afterward (we only seed the default placeholders).
+  // Resolved project names for the auto-fill, cached so preset swaps can re-fill
+  // (a fresh preset re-seeds placeholder text). Populated on first open.
+  const projectNamesRef = useRef<{ title: string; champion: string }>({ title: '', champion: '' });
+
+  // Fill any text layer STILL holding its role placeholder with the project's
+  // mod/champion name. Role-based (NOT hardcoded ids), so every preset behaves
+  // the same and user-edited text is never clobbered. Returns the (possibly
+  // unchanged) layer list.
+  const fillRoles = useCallback((layers: Layer[]): Layer[] => {
+    const names = projectNamesRef.current;
+    const PLACEHOLDERS: Record<'title' | 'champion', string> = { title: 'MOD NAME', champion: 'Champion' };
+    let next = layers;
+    for (const l of layers) {
+      if (l.type !== 'text' || !l.role) continue;
+      const value = names[l.role];
+      if (value && l.text === PLACEHOLDERS[l.role]) {
+        next = updateLayer(next, l.id, { text: value } as Partial<Layer>);
+      }
+    }
+    return next;
+  }, []);
+
+  // Auto-fill the mod name / champion name from the project on first open.
   const autoFilledRef = useRef(false);
   useEffect(() => {
     if (autoFilledRef.current || !project) return;
@@ -126,24 +170,13 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
     (async () => {
       try {
         const p = await openProject(project);
-        const title = (p.display_name || p.name || '').trim();
-        // Subtitle = the character/champion (from flint.json's `champion`),
-        // title-cased; falls back to the creator if champion is absent.
+        const modName = (p.display_name || p.name || '').trim();
         const champ = (p.champion || '').trim();
-        const subtitle = champ
+        const champName = champ
           ? champ.charAt(0).toUpperCase() + champ.slice(1)
           : (p.creator || '').trim();
-        let next = history.get();
-        const titleLayer = next.find(l => l.type === 'text' && l.id === 'riot-title');
-        const subLayer = next.find(l => l.type === 'text' && l.id === 'riot-subtitle');
-        // Only overwrite the untouched preset placeholders, so we never clobber
-        // text the user already changed.
-        if (title && titleLayer && (titleLayer as Extract<Layer, { type: 'text' }>).text === 'MOD NAME') {
-          next = updateLayer(next, 'riot-title', { text: title } as Partial<Layer>);
-        }
-        if (subtitle && subLayer && (subLayer as Extract<Layer, { type: 'text' }>).text === 'Character') {
-          next = updateLayer(next, 'riot-subtitle', { text: subtitle } as Partial<Layer>);
-        }
+        projectNamesRef.current = { title: modName, champion: champName };
+        const next = fillRoles(history.get());
         if (next !== history.get()) {
           history.set(next, false);
           forceRender(n => n + 1);
@@ -258,14 +291,22 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
     const loaded = loadPreset(id);
     const presetLayers = presetToLayers(loaded);
     const hasModelLayer = presetLayers.some(l => l.type === 'model');
-    const currentModels = history.get().filter((l): l is ModelLayer => l.type === 'model');
+    const current = history.get();
+    const currentModels = current.filter((l): l is ModelLayer => l.type === 'model');
 
     const filled = presetLayers.map(l =>
       l.type === 'model' && !l.sknPath
         ? { ...l, sknPath: currentModels[0]?.sknPath ?? skn }
         : l
     );
-    const next = hasModelLayer ? filled : [...filled, ...currentModels];
+    const withModels = hasModelLayer ? filled : [...filled, ...currentModels];
+    // The 3D map env is ENVIRONMENT, not style — carry the current env layer
+    // across preset swaps (presets don't ship one, so switching would otherwise
+    // drop the map from the stage). Keep it at the back (append).
+    const withEnv = mergeEnv(withModels, current);
+    // Re-apply the auto-filled mod/champion names (the fresh preset re-seeds
+    // placeholder text).
+    const next = fillRoles(withEnv);
 
     history.set(next, true);
     setSelId(next.find(l => l.type === 'model')?.id ?? next[0]?.id ?? null);
@@ -273,7 +314,7 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
     setHue(loaded.hue);
     forceRender(n => n + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [skn]);
+  }, [skn, fillRoles]);
 
   // Apply a user-saved / imported preset file. Same model-fill behaviour as
   // handleApplyPreset: preset model layers ship with an empty sknPath, so we
@@ -281,20 +322,25 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
   // current models on stage.
   const applyPresetFile = useCallback((file: PresetFile) => {
     const hasModelLayer = file.layers.some(l => l.type === 'model');
-    const currentModels = history.get().filter((l): l is ModelLayer => l.type === 'model');
+    const current = history.get();
+    const currentModels = current.filter((l): l is ModelLayer => l.type === 'model');
     const filled = file.layers.map(l =>
       l.type === 'model' && !l.sknPath
         ? { ...l, sknPath: currentModels[0]?.sknPath ?? skn }
         : l
     );
-    const next = hasModelLayer ? filled : [...filled, ...currentModels];
+    const withModels = hasModelLayer ? filled : [...filled, ...currentModels];
+    // Preserve the current 3D map env (environment, not style) unless the
+    // imported preset file explicitly carries one.
+    const withEnv = mergeEnv(withModels, current);
+    const next = fillRoles(withEnv);
     history.set(next, true);
     setSelId(next.find(l => l.type === 'model')?.id ?? next[0]?.id ?? null);
     setPreset(file.base);
     setHue(file.hue);
     forceRender(n => n + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [skn]);
+  }, [skn, fillRoles]);
 
   // Unified preset picker: built-in ids + any user preset (keyed by stable id).
   const handlePresetPick = useCallback((value: string) => {
@@ -326,7 +372,7 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
     const file = currentAsPresetFile(name);
     addUserPreset(file);
     setShowSavePreset(false);
-    setExportStatus({ kind: 'success', message: `Saved preset "${file.name}" — pick it from the preset menu.` });
+    showToast('success', `Saved preset "${file.name}" — pick it from the preset menu.`);
   }, [currentAsPresetFile, addUserPreset]);
 
   const handleExportPreset = useCallback(async () => {
@@ -340,9 +386,9 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
     try {
       const file = currentAsPresetFile(defaultName);
       await writeTextFile(outputPath, JSON.stringify(file, null, 2));
-      setExportStatus({ kind: 'success', message: `Exported preset to ${outputPath}` });
+      showToast('success', `Exported preset to ${outputPath}`);
     } catch (err) {
-      setExportStatus({ kind: 'error', message: err instanceof Error ? err.message : 'Preset export failed' });
+      showToast('error', err instanceof Error ? err.message : 'Preset export failed');
     }
   }, [skn, currentAsPresetFile]);
 
@@ -358,9 +404,9 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
       const file = parsePresetFile(text);
       applyPresetFile(file);
       addUserPreset(file);
-      setExportStatus({ kind: 'success', message: `Imported and applied "${file.name}".` });
+      showToast('success', `Imported and applied "${file.name}".`);
     } catch (err) {
-      setExportStatus({ kind: 'error', message: err instanceof Error ? err.message : 'Preset import failed' });
+      showToast('error', err instanceof Error ? err.message : 'Preset import failed');
     }
   }, [applyPresetFile, addUserPreset]);
 
@@ -371,7 +417,7 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
   const handleExport = useCallback(async () => {
     const scene = artboardControlsRef.current?.getScene();
     if (!scene) {
-      setExportStatus({ kind: 'error', message: 'Scene not ready yet — try again in a moment.' });
+      showToast('error', 'Scene not ready yet — try again in a moment.');
       return;
     }
 
@@ -384,7 +430,6 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
     if (!outputPath) return;
 
     setExporting(true);
-    setExportStatus(null);
     try {
       const { w, h } = resolveOutputSize(exportRatio);
       const blob = await composeThumbnail({
@@ -394,21 +439,22 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
         preset,
         hue,
         vignette,
+        cornerGlow,
         outW: w,
         outH: h,
         format: FORMAT_MIME[exportFormat],
       });
       const bytes = new Uint8Array(await blob.arrayBuffer());
       await saveThumbnail(bytes, outputPath);
-      setExportStatus({ kind: 'success', message: `Exported to ${outputPath}` });
+      showToast('success', `Exported to ${outputPath}`);
     } catch (err) {
       console.error('Thumbnail export failed:', err);
-      setExportStatus({ kind: 'error', message: err instanceof Error ? err.message : 'Export failed' });
+      showToast('error', err instanceof Error ? err.message : 'Export failed');
     } finally {
       setExporting(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [skn, exportFormat, exportRatio, preset, hue]);
+  }, [skn, exportFormat, exportRatio, preset, hue, vignette, cornerGlow]);
 
   // ── Draggable Layers/Properties divider (ports the prototype's #sideSplit). ──
   const handleSplitPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -505,10 +551,9 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
         <div className="tb-toolbar__group">
           <DlSelect
             width={150}
-            resetAfterSelect
             title="Apply a preset"
             placeholder="Preset…"
-            value={null}
+            value={preset}
             onChange={handlePresetPick}
             options={[
               { value: 'riot', label: 'Riot style', icon: 'color-palette' },
@@ -555,15 +600,6 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
           </DlButton>
         </div>
       </div>
-      {exportStatus && (
-        <div className={`tb-status tb-status--${exportStatus.kind}`}>
-          <DlIcon name={exportStatus.kind === 'error' ? 'error' : 'success'} size={14} />
-          <span>{exportStatus.message}</span>
-          <button className="tb-status__close" title="Dismiss" onClick={() => setExportStatus(null)}>
-            <DlIcon name="close" size={12} />
-          </button>
-        </div>
-      )}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
           <ThumbnailArtboard
@@ -577,12 +613,13 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
             preset={preset}
             hue={hue}
             vignette={vignette}
+            cornerGlow={cornerGlow}
             onReady={() => setLoading(false)}
           />
           {/* Theme-hue swatch button — top-right of the artboard, opens the hue
               slider in an anchored popover (like the model mesh/anim popup). */}
           <div className="tb-hue-anchor">
-            <HuePopover hue={hue} onChange={setHue} vignette={vignette} onVignetteChange={setVignette} />
+            <HuePopover hue={hue} onChange={setHue} vignette={vignette} onVignetteChange={setVignette} cornerGlow={cornerGlow} onCornerGlowChange={setCornerGlow} />
           </div>
           {/* Floating zoom + history controls, anchored bottom-left of the canvas. */}
           <div className="tb-floatbar">

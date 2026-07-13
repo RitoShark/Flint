@@ -11,11 +11,13 @@ const POP_W = 240;
  * interaction as the model mesh/anim popup (portal, click-outside / Esc close).
  * Replaces the sidebar ThemePanel so the hue lives over the canvas.
  */
-export function HuePopover({ hue, onChange, vignette, onVignetteChange }: {
+export function HuePopover({ hue, onChange, vignette, onVignetteChange, cornerGlow, onCornerGlowChange }: {
   hue: number;
   onChange: (hue: number) => void;
   vignette: number;
   onVignetteChange: (v: number) => void;
+  cornerGlow: number;
+  onCornerGlowChange: (v: number) => void;
 }) {
   const btnRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
@@ -94,6 +96,11 @@ export function HuePopover({ hue, onChange, vignette, onVignetteChange }: {
             <span className="tb-hue-pop__val">{Math.round(vignette)}%</span>
           </div>
           <DlSlider min={0} max={100} value={vignette} bubble={`${Math.round(vignette)}%`} aria-label="Vignette" onChange={onVignetteChange} />
+          <div className="tb-hue-pop__head" style={{ marginTop: 4 }}>
+            <span>Corner glow</span>
+            <span className="tb-hue-pop__val">{Math.round(cornerGlow)}%</span>
+          </div>
+          <DlSlider min={0} max={100} value={cornerGlow} bubble={`${Math.round(cornerGlow)}%`} aria-label="Corner glow" onChange={onCornerGlowChange} />
         </div>,
         document.body,
       )}

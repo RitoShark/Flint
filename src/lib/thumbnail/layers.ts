@@ -1,4 +1,4 @@
-export type LayerType = 'model' | 'text' | 'disc' | 'deco' | 'env';
+export type LayerType = 'model' | 'text' | 'disc' | 'deco' | 'env' | 'frame';
 
 export interface BaseLayer {
   id: string;
@@ -11,6 +11,16 @@ export interface BaseLayer {
   y: number;
   w: number;
   h: number;
+  /** Drop-shadow layer style (Task: shadow-as-layer-style). When `shadow` is
+   *  true the layer casts a soft drop-shadow of its own silhouette — a CSS
+   *  `filter: drop-shadow(...)` in the preview and a canvas shadow in the
+   *  export. Off by default so existing layers are unchanged. Blur/offset are
+   *  authored in the fixed 640×360 stage space (scaled up on export). */
+  shadow?: boolean;
+  shadowBlur?: number;    // default 8
+  shadowOffsetX?: number; // default 0
+  shadowOffsetY?: number; // default 6
+  shadowOpacity?: number; // 0..1, default 0.5
 }
 
 export interface TextLayer extends BaseLayer {
@@ -20,6 +30,25 @@ export interface TextLayer extends BaseLayer {
   font: string;
   italic: boolean;
   spacing: number;
+  /** Semantic role, shared across ALL presets so the editor's auto-fill and
+   *  naming are consistent: 'title' = the mod name, 'champion' = the champion /
+   *  character name. Auto-fill targets layers by role (not hardcoded ids), so
+   *  Riot and Divine behave identically. Absent = a plain custom text layer. */
+  role?: 'title' | 'champion';
+  /** How strongly this text pulls toward the theme hue (0 = stay white/cream,
+   *  1 = fully the hue color). Per-layer so a title can be strongly colored
+   *  while a subtitle stays near-white with a faint tint. `undefined` falls
+   *  back to the preset-wide default (subtle for Riot, strong for Divine). */
+  hueMix?: number;
+  /** Colored glow behind the text, in the SAME color as the text (so the hue
+   *  slider drives both). Off by default. */
+  glow?: boolean;
+  /** Glow strength 0..1 (blur radius + layered passes). Default ~0.6. */
+  glowStrength?: number;
+  /** Base color the hue mixes FROM (before `hueMix`). Default is the shared
+   *  cream/gold; Divine text layers use pure white so the subtitle reads white
+   *  with only a faint hue and the title colors up from white. */
+  baseColor?: string;
 }
 
 export interface ModelLayer extends BaseLayer {
@@ -85,7 +114,20 @@ export interface EnvLayer extends BaseLayer {
   variations: EnvVariation[];
 }
 
-export type Layer = TextLayer | ModelLayer | DiscLayer | DecoLayer | EnvLayer;
+/** A bundled line-art frame overlay (the STROKE.png corner brackets in the
+ *  reference splash). The art is white on transparent; `tint` mixes the theme
+ *  hue INTO the white (0 = stays white, 1 = fully the hue color) so the frame
+ *  recolors with the slider. Placement is a normal x/y/w/h box (movable), and
+ *  it seeds locked in the Divine preset. */
+export interface FrameLayer extends BaseLayer {
+  type: 'frame';
+  /** Bundled asset name served by `load_thumbnail_asset` (e.g. 'stroke'). */
+  asset: string;
+  /** 0..1 — how strongly to tint the white art toward the theme hue. */
+  tint: number;
+}
+
+export type Layer = TextLayer | ModelLayer | DiscLayer | DecoLayer | EnvLayer | FrameLayer;
 
 /** Build a fresh Dexal map-env layer with its default (Chaos Top) variation.
  *  Placement/rotation/scale are the dev-tuned defaults (baked from the posed

@@ -60,6 +60,9 @@ pub async fn open_thumbnail_window(
 // assets don't need the `resource_dir()` external-file indirection.
 static RING_WEBP: &[u8] = include_bytes!("../../../resources/thumbnail/ring.webp");
 static GLOW_WEBP: &[u8] = include_bytes!("../../../resources/thumbnail/glow.webp");
+// White line-art corner-bracket frame (the Divine style's `frame` layer). RGBA
+// WebP, tinted toward the theme hue on the frontend.
+static STROKE_WEBP: &[u8] = include_bytes!("../../../resources/thumbnail/stroke.webp");
 
 // Bundled 3D map-environment assets: the Dexal map chunk (GLB, geometry +
 // material slots only, textures external) and its 5 default ground/periph
@@ -85,6 +88,7 @@ pub fn load_thumbnail_asset(name: String) -> Result<tauri::ipc::Response, String
     let bytes: &[u8] = match name.as_str() {
         "ring" => RING_WEBP,
         "glow" => GLOW_WEBP,
+        "stroke" => STROKE_WEBP,
         "dexal.glb" => DEXAL_GLB,
         "Ground_B1_ChaosTop_A.webp" => MAP_GROUND_B1,
         "Ground_C1_ChaosTop_A.webp" => MAP_GROUND_C1,
@@ -118,6 +122,7 @@ mod tests {
     fn serves_known_assets() {
         assert!(load_thumbnail_asset("ring".to_string()).is_ok());
         assert!(load_thumbnail_asset("glow".to_string()).is_ok());
+        assert!(load_thumbnail_asset("stroke".to_string()).is_ok());
     }
 
     #[test]

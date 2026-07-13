@@ -97,6 +97,59 @@ export function resolveTextColor(preset: ThumbnailPresetId, hue: number, baseHex
   return mixHex(baseHex, hueHex, amount);
 }
 
+/**
+ * Per-layer text treatment (hue mix + colored glow), resolved from the theme
+ * hue. `hueMix` overrides the preset-wide mix when provided (0 = stay at the
+ * base color, 1 = fully the hue color). When `glow` is on, the glow color is
+ * the SAME as the text color (so the hue slider drives both), rendered as
+ * layered shadows whose blur scales with `glowStrength` (0..1).
+ *
+ * Returns the resolved `color` plus a ready-to-use CSS `textShadow` string
+ * (base drop-shadow for legibility, plus glow passes when enabled). The export
+ * compositor consumes `color` + `glowColor`/`glowBlur` directly (canvas has no
+ * CSS text-shadow) — see `resolveTextGlow`.
+ */
+export interface TextStyleOpts {
+  hueMix?: number;
+  glow?: boolean;
+  glowStrength?: number;
+}
+
+/** Resolved text color for the given preset default + per-layer override. */
+export function resolveTextColorEx(preset: ThumbnailPresetId, hue: number, baseHex: string, hueMix?: number): string {
+  const amount = hueMix ?? (preset === 'divine' ? DIVINE_TEXT_MIX : RIOT_TEXT_MIX);
+  const hueHex = resolveGlowColor(hue);
+  return mixHex(baseHex, hueHex, Math.max(0, Math.min(1, amount)));
+}
+
+/** Glow geometry for a text layer: the glow `color` (= the text color) and the
+ *  `blur` radius (px in 640×360 authoring space; scale on export). Returns null
+ *  when glow is off / has no visible extent. Pure — shared by preview + export. */
+export function resolveTextGlow(color: string, opts: TextStyleOpts): { color: string; blur: number } | null {
+  if (!opts.glow) return null;
+  const strength = Math.max(0, Math.min(1, opts.glowStrength ?? 0.6));
+  // Blur scales linearly FROM 0 so strength 0 = no visible glow at all.
+  const blur = strength * 26;
+  if (blur <= 0) return null;
+  return { color, blur };
+}
+
+/** Full CSS treatment for a text layer (preview). Base cream-vs-hue color plus
+ *  a legibility drop-shadow, plus colored glow passes when enabled. */
+export function resolveTextStyle(preset: ThumbnailPresetId, hue: number, baseHex: string, opts: TextStyleOpts): { color: string; textShadow: string } {
+  const color = resolveTextColorEx(preset, hue, baseHex, opts.hueMix);
+  const shadows = ['0 2px 12px rgba(0,0,0,.55)'];
+  const glow = resolveTextGlow(color, opts);
+  if (glow) {
+    // A tight bright core + a wider soft halo, both centered — a real emissive
+    // glow BEHIND the legibility shadow (which is behind the crisp text fill),
+    // so the glow never sits on top of the letters.
+    shadows.unshift(`0 0 ${glow.blur}px ${glow.color}`);
+    shadows.unshift(`0 0 ${(glow.blur * 2).toFixed(2)}px ${glow.color}`);
+  }
+  return { color, textShadow: shadows.join(', ') };
+}
+
 /** A deep, hue-tinted background: an off-center radial glow over a dark
  *  diagonal gradient — the same shape as the old hardcoded `.tb-env`, but
  *  driven by the theme hue so the whole backdrop recolors with the slider.

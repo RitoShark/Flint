@@ -18,7 +18,7 @@ const RAW: Record<PresetId, unknown> = {
 };
 
 function isLayerType(t: unknown): t is Layer['type'] {
-  return t === 'model' || t === 'text' || t === 'disc' || t === 'deco' || t === 'env';
+  return t === 'model' || t === 'text' || t === 'disc' || t === 'deco' || t === 'env' || t === 'frame';
 }
 
 /** Lightweight shape validation — enough to catch a malformed preset JSON

@@ -4,8 +4,9 @@ import { DiscLayer, EnvLayer, Layer, ModelLayer, TextLayer, updateLayer } from '
 import { AnimClip, createThumbnailScene, MeshInfo, ThumbnailScene } from '../../lib/thumbnail/studioScene';
 import { createMapEnvScene, MapEnvScene } from '../../lib/thumbnail/mapEnvScene';
 import { fitFontSize, TextMeasure } from '../../lib/thumbnail/textFit';
-import { resolveBackground, resolveTextColor, ThumbnailPresetId } from '../../lib/thumbnail/hue';
+import { resolveBackground, resolveGlowColor, resolveTextStyle, ThumbnailPresetId } from '../../lib/thumbnail/hue';
 import { DiscComposite } from './DiscComposite';
+import { FrameComposite } from './FrameComposite';
 import { ModelStudioModal } from './ModelStudioModal';
 import { DlIcon } from '../ui/design-lab';
 import '../../styles/thumbnail.css';
@@ -61,9 +62,36 @@ interface ThumbnailArtboardProps {
   hue: number;
   /** Vignette strength (0-100) — cinematic edge-darkening over the whole comp. */
   vignette: number;
+  /** Bottom-right corner glow strength (0-100) — a soft hue-tinted radial bloom
+   *  (generated, no asset). Recolors with `hue`. */
+  cornerGlow: number;
   /** Fired ONCE when the initial models + map have finished loading, so the
    *  host can dismiss the loading overlay. */
   onReady?: () => void;
+}
+
+/** CSS `filter: drop-shadow(...)` for a layer's shadow style, or undefined when
+ *  the layer casts no shadow. The drop-shadow follows the layer's actual
+ *  silhouette (text glyphs, disc/frame alpha) — offsets/blur are authored in
+ *  the 640×360 stage space (the stage is CSS-scaled, so px map 1:1 here). */
+function shadowFilter(layer: Layer): string | undefined {
+  if (!layer.shadow) return undefined;
+  const blur = layer.shadowBlur ?? 8;
+  const ox = layer.shadowOffsetX ?? 0;
+  const oy = layer.shadowOffsetY ?? 6;
+  const op = layer.shadowOpacity ?? 0.5;
+  return `drop-shadow(${ox}px ${oy}px ${blur}px rgba(0,0,0,${op}))`;
+}
+
+/** The hue-tinted color for the bottom-right corner glow at strength 0-100 —
+ *  the theme glow color as an `rgba()` whose alpha scales with strength (capped
+ *  so it blooms without washing out). Shared shape used by preview + export. */
+function cornerGlowColor(hue: number, strength: number): string {
+  const hex = resolveGlowColor(hue).replace('#', '');
+  const n = parseInt(hex, 16);
+  const r = (n >> 16) & 0xff, g = (n >> 8) & 0xff, b = n & 0xff;
+  const a = Math.max(0, Math.min(1, strength / 100)) * 0.75;
+  return `rgba(${r}, ${g}, ${b}, ${a.toFixed(3)})`;
 }
 
 // Line-height factor applied to the fitted font size when summing a text
@@ -111,7 +139,7 @@ function pickDefaultAnim(clips: AnimClip[]): AnimClip | null {
   return pool.reduce((best, c) => (clipName(c).length < clipName(best).length ? c : best), pool[0]);
 }
 
-export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGesture, onCommitGesture, controlsRef, preset, hue, vignette, onReady }: ThumbnailArtboardProps) {
+export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGesture, onCommitGesture, controlsRef, preset, hue, vignette, cornerGlow, onReady }: ThumbnailArtboardProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const stageWrapRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -121,6 +149,25 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoomLabel, setZoomLabel] = useState('100%');
+  // Bumped whenever webfonts finish loading. Text auto-fit (fitFontSize) measures
+  // with a canvas 2D context — if the real font (Anton / Beaufort) hasn't loaded
+  // yet, measureText uses a WIDER fallback face, clamps the fitted size too
+  // small, and never recovers. Re-rendering on font load re-measures with the
+  // real glyph metrics so the text sizes correctly. (fontVersion is read in the
+  // render below so the change actually triggers a re-fit.)
+  const [fontVersion, setFontVersion] = useState(0);
+  useEffect(() => {
+    const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
+    if (!fonts) return;
+    let cancelled = false;
+    const bump = () => { if (!cancelled) setFontVersion(v => v + 1); };
+    // `ready` resolves once all pending fonts (incl. the bundled Anton) load;
+    // `loadingdone` fires for any later loads (e.g. a font requested on a
+    // preset swap). Both re-fit the text.
+    fonts.ready.then(bump).catch(() => { /* ignore */ });
+    fonts.addEventListener?.('loadingdone', bump);
+    return () => { cancelled = true; fonts.removeEventListener?.('loadingdone', bump); };
+  }, []);
   // The model layer currently in interactive orbit mode (double-clicked), or
   // null. In orbit mode the Babylon camera for that model receives drag/wheel
   // (rotate/pan/zoom the model inside its box); the DOM proxy passes pointers
@@ -898,6 +945,13 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   // (Full model↔2D interleave needs per-model canvases — a follow-up.)
   const frontModelId = layers.find(l => l.type === 'model' && !l.hidden)?.id;
   const modelCanvasZ = frontModelId ? zOf(frontModelId) : 1;
+  // Model drop-shadow: the scene canvas is transparent except where models are
+  // drawn, so a CSS `filter: drop-shadow` on it casts a real silhouette shadow.
+  // The shared canvas is one plane, so any visible model with `shadow` on drives
+  // it (first such model wins — per-model model shadows need per-model canvases,
+  // the queued follow-up). Non-model layers keep their own per-`.tb-el` filter.
+  const shadowModel = layers.find(l => l.type === 'model' && !l.hidden && l.shadow);
+  const modelCanvasFilter = shadowModel ? shadowFilter(shadowModel) : undefined;
   // The map (env) canvas z from the env layer's position (usually the back).
   const envId = layers.find(l => l.type === 'env')?.id;
   const mapCanvasZ = envId ? zOf(envId) : 0;
@@ -1009,7 +1063,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
               props are pushed into the scene; x/y/w/h placement of the
               rendered model within this canvas is a Task 13 (compositor)
               concern, not this canvas's. */}
-          <canvas ref={sceneCanvasRef} className={`tb-scene-canvas${orbitLayerId ? ' tb-scene-canvas--orbit' : ''}`} style={{ zIndex: modelCanvasZ }} />
+          <canvas ref={sceneCanvasRef} className={`tb-scene-canvas${orbitLayerId ? ' tb-scene-canvas--orbit' : ''}`} style={{ zIndex: modelCanvasZ, filter: modelCanvasFilter }} />
           {sorted.map(layer => (
             <div
               key={layer.id}
@@ -1022,6 +1076,10 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
                 height: layer.h,
                 transform: `rotate(${layer.rot}deg)`,
                 zIndex: zOf(layer.id),
+                // Per-layer drop-shadow style. Skipped for model proxies (their
+                // box is a transparent hit-target — the real shadow lands on the
+                // model's own canvas in Phase B).
+                filter: layer.type === 'model' ? undefined : shadowFilter(layer),
               }}
               onPointerDown={(e) => handleElPointerDown(e, layer)}
               onDoubleClick={(e) => {
@@ -1029,9 +1087,22 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
                 else if (layer.type === 'model') enterOrbit(layer.id);
               }}
             >
-              <LayerBody layer={layer} preset={preset} hue={hue} />
+              <LayerBody layer={layer} preset={preset} hue={hue} fontVersion={fontVersion} />
             </div>
           ))}
+          {/* Bottom-right corner glow — a soft hue-tinted radial bloom
+              (generated, no asset). `screen` blend so it ADDS light (glows)
+              rather than darkening. pointer-events:none; sits just under the
+              vignette/text so it never blocks editing. */}
+          {cornerGlow > 0 && (
+            <div
+              className="tb-corner-glow"
+              style={{
+                zIndex: 99998,
+                background: `radial-gradient(ellipse 55% 60% at 100% 100%, ${cornerGlowColor(hue, cornerGlow)} 0%, transparent 70%)`,
+              }}
+            />
+          )}
           {/* Vignette — cinematic edge darkening over the whole composition,
               above every layer. pointer-events:none so it never blocks editing.
               A very high z-index keeps it on top regardless of layer count. */}
@@ -1060,7 +1131,10 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   );
 }
 
-function LayerBody({ layer, preset, hue }: { layer: Layer; preset: ThumbnailPresetId; hue: number }) {
+function LayerBody({ layer, preset, hue, fontVersion }: { layer: Layer; preset: ThumbnailPresetId; hue: number; fontVersion: number }) {
+  // `fontVersion` is consumed only to re-run the text auto-fit when webfonts
+  // finish loading (measureText metrics change once the real font is ready).
+  void fontVersion;
   if (layer.type === 'text') {
     // Auto-shrink (Task 11): the stored `layer.size` is the user's MAX —
     // the actually-rendered size shrinks (never grows past it) so every
@@ -1068,15 +1142,20 @@ function LayerBody({ layer, preset, hue }: { layer: Layer; preset: ThumbnailPres
     // This is a render-only concern; `layer.size` itself is untouched.
     const lines = layer.text.split('\n');
     const fitted = fitFontSize(canvasMeasure(layer), lines, layer.w, layer.h, layer.size);
-    // Global mod-hue theme (Task 12): color is resolved per-render from the
-    // shared cream base + the active hue, mixed subtly for Riot / strongly
-    // for Divine (see hue.ts). No per-text color picker - the whole style
-    // reacts to the ONE ThemePanel slider.
-    const color = resolveTextColor(preset, hue, TEXT_BASE_COLOR);
+    // Global mod-hue theme (Task 12) + per-layer treatment: color mixes from
+    // the layer's base (cream, or white for Divine) toward the hue by the
+    // layer's `hueMix` (falling back to the preset default), and an optional
+    // colored glow (same color as the text) is layered into the text-shadow.
+    // Everything reacts live to the ThemePanel slider.
+    const { color, textShadow } = resolveTextStyle(preset, hue, layer.baseColor ?? TEXT_BASE_COLOR, {
+      hueMix: layer.hueMix,
+      glow: layer.glow,
+      glowStrength: layer.glowStrength,
+    });
     return (
       <div
         className="tb-body"
-        style={{ fontSize: fitted, fontFamily: layer.font, fontStyle: layer.italic ? 'italic' : 'normal', letterSpacing: layer.spacing, color }}
+        style={{ fontSize: fitted, fontFamily: layer.font, fontStyle: layer.italic ? 'italic' : 'normal', letterSpacing: layer.spacing, color, textShadow }}
       >
         {lines.map((line, i) => (
           // Empty lines (a blank row from a plain Enter) still need to take
@@ -1101,6 +1180,10 @@ function LayerBody({ layer, preset, hue }: { layer: Layer; preset: ThumbnailPres
     // The map env renders in Babylon (no DOM proxy); it's edited from the
     // Layers/Properties panels, not dragged on the artboard.
     return null;
+  }
+  if (layer.type === 'frame') {
+    // The bundled line-art frame (stroke.webp), tinted toward the theme hue.
+    return <div className="tb-body tb-frame-body"><FrameComposite layer={layer} hue={hue} /></div>;
   }
   // deco
   return <div className="tb-body deco-empty">{layer.asset ? '' : 'corner PNG slot'}</div>;

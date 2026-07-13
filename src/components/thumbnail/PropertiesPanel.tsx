@@ -76,6 +76,31 @@ function TextProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer
           ]}
         />
       </div>
+      <div className="tb-grp tb-grp--sep">
+        <label>Hue mix <b>{Math.round((layer.hueMix ?? 0) * 100)}%</b></label>
+        <DlSlider
+          min={0} max={100} value={Math.round((layer.hueMix ?? 0) * 100)}
+          bubble={`${Math.round((layer.hueMix ?? 0) * 100)}%`}
+          onPointerDown={onBeginGesture}
+          onChange={(v) => onChange({ hueMix: v / 100 }, false)}
+          onPointerUp={onCommitGesture}
+        />
+      </div>
+      <div className="tb-grp">
+        <CheckRow label="Colored glow" checked={!!layer.glow} onChange={(v) => onChange({ glow: v }, true)} />
+      </div>
+      {layer.glow && (
+        <div className="tb-grp">
+          <label>Glow strength <b>{Math.round((layer.glowStrength ?? 0.6) * 100)}%</b></label>
+          <DlSlider
+            min={0} max={100} value={Math.round((layer.glowStrength ?? 0.6) * 100)}
+            bubble={`${Math.round((layer.glowStrength ?? 0.6) * 100)}%`}
+            onPointerDown={onBeginGesture}
+            onChange={(v) => onChange({ glowStrength: v / 100 }, false)}
+            onPointerUp={onCommitGesture}
+          />
+        </div>
+      )}
     </>
   );
 }
@@ -182,6 +207,83 @@ function SliderNum({ min, max, value, suffix, step, onChange, onBeginGesture, on
           if (Number.isFinite(n)) onChange(clamp(n), true);
         }}
       />
+    </div>
+  );
+}
+
+/** A labeled toggle row (design-lab `.dl-check`). */
+function CheckRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="dl-check tb-check-row">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <span>{label}</span>
+    </label>
+  );
+}
+
+/** Drop-shadow layer style — shared by every non-env layer. Toggle + blur /
+ *  offset / opacity sliders (in the 640×360 stage space). */
+function ShadowProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer: Layer } & ChangeProps) {
+  const on = !!layer.shadow;
+  return (
+    <>
+      <div className="tb-grp tb-grp--sep">
+        <CheckRow label="Drop shadow" checked={on} onChange={(v) => onChange({ shadow: v } as LayerPatch, true)} />
+      </div>
+      {on && (
+        <>
+          <div className="tb-grp">
+            <label>Blur <b>{layer.shadowBlur ?? 8}</b></label>
+            <SliderNum
+              min={0} max={60} value={layer.shadowBlur ?? 8}
+              onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
+              onChange={(v, rec) => onChange({ shadowBlur: v } as LayerPatch, rec)}
+            />
+          </div>
+          <div className="tb-grp">
+            <label>Offset X <b>{layer.shadowOffsetX ?? 0}</b></label>
+            <SliderNum
+              min={-60} max={60} value={layer.shadowOffsetX ?? 0}
+              onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
+              onChange={(v, rec) => onChange({ shadowOffsetX: v } as LayerPatch, rec)}
+            />
+          </div>
+          <div className="tb-grp">
+            <label>Offset Y <b>{layer.shadowOffsetY ?? 6}</b></label>
+            <SliderNum
+              min={-60} max={60} value={layer.shadowOffsetY ?? 6}
+              onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
+              onChange={(v, rec) => onChange({ shadowOffsetY: v } as LayerPatch, rec)}
+            />
+          </div>
+          <div className="tb-grp">
+            <label>Opacity <b>{Math.round((layer.shadowOpacity ?? 0.5) * 100)}%</b></label>
+            <DlSlider
+              min={0} max={100} value={Math.round((layer.shadowOpacity ?? 0.5) * 100)}
+              bubble={`${Math.round((layer.shadowOpacity ?? 0.5) * 100)}%`}
+              onPointerDown={onBeginGesture}
+              onChange={(v) => onChange({ shadowOpacity: v / 100 } as LayerPatch, false)}
+              onPointerUp={onCommitGesture}
+            />
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+function FrameProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer: Extract<Layer, { type: 'frame' }> } & ChangeProps) {
+  return (
+    <div className="tb-grp">
+      <label>Hue tint <b>{Math.round(layer.tint * 100)}%</b></label>
+      <DlSlider
+        min={0} max={100} value={Math.round(layer.tint * 100)}
+        bubble={`${Math.round(layer.tint * 100)}%`}
+        onPointerDown={onBeginGesture}
+        onChange={(v) => onChange({ tint: v / 100 }, false)}
+        onPointerUp={onCommitGesture}
+      />
+      <div className="tb-hint">The frame art recolors toward the theme hue. Move/resize it on the artboard.</div>
     </div>
   );
 }
@@ -306,6 +408,7 @@ const TITLES: Record<Layer['type'], string> = {
   disc: 'Black fill',
   deco: 'Corner texture',
   env: 'Map',
+  frame: 'Frame',
 };
 
 const TITLE_ICON: Record<Layer['type'], Parameters<typeof DlIcon>[0]['name']> = {
@@ -314,6 +417,7 @@ const TITLE_ICON: Record<Layer['type'], Parameters<typeof DlIcon>[0]['name']> = 
   disc: 'contrast',
   deco: 'picture',
   env: 'picture',
+  frame: 'picture',
 };
 
 export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGesture }: PropertiesPanelProps) {
@@ -334,7 +438,10 @@ export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGestu
             {layer.type === 'model' && <ModelProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
             {layer.type === 'disc' && <DiscProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
             {layer.type === 'deco' && <DecoProps layer={layer} onChange={onChange} />}
+            {layer.type === 'frame' && <FrameProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
             {layer.type === 'env' && <EnvProps layer={layer} onChange={onChange} />}
+            {/* Drop-shadow layer style — every layer except the fixed map. */}
+            {layer.type !== 'env' && <ShadowProps layer={layer} onChange={onChange} onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture} />}
           </>
         )}
       </div>

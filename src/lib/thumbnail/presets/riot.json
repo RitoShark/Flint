@@ -5,32 +5,38 @@
   "canvas": { "w": 640, "h": 360, "ratio": "16:9" },
   "layers": [
     {
-      "id": "riot-title",
+      "id": "title",
       "type": "text",
-      "name": "Title",
+      "name": "Mod name",
+      "role": "title",
       "hidden": false,
       "rot": 0,
       "locked": false,
       "x": 34, "y": 250, "w": 230, "h": 58,
       "text": "MOD NAME",
-      "size": 46,
+      "size": 54,
       "font": "Beaufort for LOL",
       "italic": false,
-      "spacing": 1
+      "spacing": 1,
+      "hueMix": 0.1,
+      "glow": false
     },
     {
-      "id": "riot-subtitle",
+      "id": "champion",
       "type": "text",
-      "name": "Subtitle",
+      "name": "Champion name",
+      "role": "champion",
       "hidden": false,
       "rot": 0,
       "locked": false,
       "x": 36, "y": 304, "w": 180, "h": 26,
-      "text": "Character",
-      "size": 34,
+      "text": "Champion",
+      "size": 36,
       "font": "Beaufort for LOL",
       "italic": true,
-      "spacing": 1
+      "spacing": 1,
+      "hueMix": 0.1,
+      "glow": false
     },
     {
       "id": "riot-disc",

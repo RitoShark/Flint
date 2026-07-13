@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveTextColor, resolveGlowColor } from './hue';
+import { resolveTextColor, resolveTextColorEx, resolveTextGlow, resolveTextStyle, resolveGlowColor } from './hue';
 
 const HEX_RE = /^#[0-9a-f]{6}$/i;
 
@@ -69,6 +69,59 @@ describe('resolveTextColor', () => {
     const riotOut = resolveTextColor('riot', hue, BASE);
     const divineOut = resolveTextColor('divine', hue, BASE);
     expect(dist(riotOut, BASE)).toBeLessThan(dist(divineOut, BASE));
+  });
+});
+
+describe('resolveTextColorEx (per-layer hueMix override)', () => {
+  it('hueMix 0 stays exactly at the base color', () => {
+    expect(resolveTextColorEx('divine', 95, '#ffffff', 0)).toBe('#ffffff');
+  });
+
+  it('hueMix 1 lands on the full hue color', () => {
+    const hue = 95;
+    expect(resolveTextColorEx('divine', hue, '#ffffff', 1)).toBe(resolveGlowColor(hue));
+  });
+
+  it('a low hueMix keeps a white base near-white (subtitle case)', () => {
+    const out = resolveTextColorEx('divine', 28, '#ffffff', 0.1);
+    // Still bright — every channel well above mid-grey.
+    const n = parseInt(out.slice(1), 16);
+    expect((n >> 16) & 0xff).toBeGreaterThan(200);
+    expect((n >> 8) & 0xff).toBeGreaterThan(180);
+  });
+
+  it('falls back to the preset default when hueMix is undefined', () => {
+    expect(resolveTextColorEx('riot', 210, BASE, undefined)).toBe(resolveTextColor('riot', 210, BASE));
+  });
+});
+
+describe('resolveTextGlow / resolveTextStyle', () => {
+  it('no glow when glow is off', () => {
+    expect(resolveTextGlow('#fff', { glow: false })).toBeNull();
+    const style = resolveTextStyle('divine', 28, '#ffffff', { glow: false });
+    expect(style.textShadow).not.toContain('0 0');
+  });
+
+  it('glow strength 0 = no glow at all (null)', () => {
+    expect(resolveTextGlow('#abcdef', { glow: true, glowStrength: 0 })).toBeNull();
+    const style = resolveTextStyle('divine', 28, '#ffffff', { glow: true, glowStrength: 0 });
+    expect(style.textShadow).not.toContain('0 0');
+  });
+
+  it('glow color equals the text color and blur grows with strength', () => {
+    const weak = resolveTextGlow('#abcdef', { glow: true, glowStrength: 0.3 });
+    const strong = resolveTextGlow('#abcdef', { glow: true, glowStrength: 1 });
+    expect(weak?.color).toBe('#abcdef');
+    expect(strong?.color).toBe('#abcdef');
+    expect(strong!.blur).toBeGreaterThan(weak!.blur);
+  });
+
+  it('resolveTextStyle folds the glow (same color as text) into the text-shadow', () => {
+    const style = resolveTextStyle('divine', 28, '#ffffff', { hueMix: 0.85, glow: true, glowStrength: 0.7 });
+    // The resolved text color appears as a glow stop in the shadow.
+    expect(style.textShadow).toContain(style.color);
+    // And the legibility shadow is still present.
+    expect(style.textShadow).toContain('rgba(0,0,0,.55)');
   });
 });
 

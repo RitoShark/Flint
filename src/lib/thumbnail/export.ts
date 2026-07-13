@@ -74,12 +74,12 @@
  * "fixes" the ordering later without re-reading this comment.
  */
 
-import type { Layer, TextLayer, DiscLayer, DecoLayer } from './layers';
+import type { Layer, TextLayer, DiscLayer, DecoLayer, FrameLayer } from './layers';
 import type { ThumbnailScene } from './studioScene';
 import type { MapEnvScene } from './mapEnvScene';
 import { fitFontSize, type TextMeasure } from './textFit';
-import { resolveTextColor, type ThumbnailPresetId } from './hue';
-import { loadThumbnailAsset } from '../api/thumbnail';
+import { resolveGlowColor, resolveTextColorEx, resolveTextGlow, type ThumbnailPresetId } from './hue';
+import { loadThumbnailAsset, type ThumbnailAssetName } from '../api/thumbnail';
 
 export type ExportFormat = 'image/webp' | 'image/png' | 'image/jpeg';
 
@@ -165,6 +165,8 @@ export interface ComposeOptions {
   hue: number;
   /** Vignette strength (0-100). Drawn over the composition, below text. */
   vignette?: number;
+  /** Bottom-right corner glow strength (0-100). Generated hue-tinted bloom. */
+  cornerGlow?: number;
   outW: number;
   outH: number;
   format: ExportFormat;
@@ -172,24 +174,48 @@ export interface ComposeOptions {
   quality?: number;
 }
 
-let ringUrlPromise: Promise<string> | null = null;
-let glowUrlPromise: Promise<string> | null = null;
+// Cached bundled-asset object URLs, keyed by asset name (ring/glow/stroke).
+const assetUrlCache = new Map<string, Promise<string>>();
 
-/** Loads the bundled ring/glow WebP assets as object URLs, cached at module
- *  scope (mirrors `DiscComposite.tsx`'s own cache — this module can't reuse
- *  that one directly since it's private to the component file, but the
+/** Loads a bundled thumbnail WebP asset as an object URL, cached at module
+ *  scope (mirrors `DiscComposite.tsx`/`FrameComposite.tsx` caches — this module
+ *  can't reuse those since they're private to the component files, but the
  *  underlying `loadThumbnailAsset` fetch is the same call). */
-function discAssetUrl(name: 'ring' | 'glow'): Promise<string> {
-  if (name === 'ring') {
-    if (!ringUrlPromise) {
-      ringUrlPromise = loadThumbnailAsset('ring').then(bytes => URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'image/webp' })));
-    }
-    return ringUrlPromise;
+function bundledAssetUrl(name: ThumbnailAssetName): Promise<string> {
+  const cached = assetUrlCache.get(name);
+  if (cached) return cached;
+  const p = loadThumbnailAsset(name).then(bytes => URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'image/webp' })));
+  assetUrlCache.set(name, p);
+  return p;
+}
+
+/** Convert a `#rrggbb` hex to `rgba(r,g,b,a)`. */
+function hexToRgba(hex: string, alpha: number): string {
+  const clean = hex.replace('#', '');
+  const n = parseInt(clean, 16);
+  return `rgba(${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff}, ${alpha})`;
+}
+
+/** Applies a layer's drop-shadow style to the canvas ctx (in output px), or
+ *  clears it when the layer casts no shadow. Offsets/blur are authored in the
+ *  640×360 stage space, so scale by `scale` (= outW / STAGE_W). Mirrors the
+ *  preview's `shadowFilter` CSS drop-shadow. */
+function applyLayerShadow(
+  ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D,
+  layer: Layer,
+  scale: number,
+): void {
+  if (!layer.shadow) {
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    return;
   }
-  if (!glowUrlPromise) {
-    glowUrlPromise = loadThumbnailAsset('glow').then(bytes => URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'image/webp' })));
-  }
-  return glowUrlPromise;
+  ctx.shadowColor = `rgba(0,0,0,${layer.shadowOpacity ?? 0.5})`;
+  ctx.shadowBlur = (layer.shadowBlur ?? 8) * scale;
+  ctx.shadowOffsetX = (layer.shadowOffsetX ?? 0) * scale;
+  ctx.shadowOffsetY = (layer.shadowOffsetY ?? 6) * scale;
 }
 
 async function loadImageBitmapFromUrl(url: string): Promise<ImageBitmap> {
@@ -260,6 +286,62 @@ function drawDecoLayer(
   ctx.restore();
 }
 
+/** Draws a `frame` layer (bundled line-art brackets) tinted toward the hue.
+ *  The art is white on transparent: we draw the white bitmap, then overlay the
+ *  hue color through `source-atop` at `tint` strength so only the art's pixels
+ *  recolor (transparent stays transparent). Mirrors `FrameComposite`. */
+function drawFrameLayer(
+  ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D,
+  layer: FrameLayer,
+  outW: number,
+  outH: number,
+  hue: number,
+  bitmap: ImageBitmap | null,
+): void {
+  if (!bitmap) return;
+  const scale = outW / STAGE_W;
+  const rect = scaleRect(layer, STAGE_W, STAGE_H, outW, outH);
+  const tint = Math.max(0, Math.min(1, layer.tint));
+
+  // Render to an offscreen buffer the size of the layer box so `source-atop`
+  // clips the tint to the art's alpha WITHOUT bleeding onto the rest of the
+  // poster (a full-canvas source-atop would tint every prior pixel).
+  const bw = Math.max(1, Math.round(rect.w));
+  const bh = Math.max(1, Math.round(rect.h));
+  const buf: OffscreenCanvas | HTMLCanvasElement =
+    typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(bw, bh) : (() => {
+      const c = document.createElement('canvas'); c.width = bw; c.height = bh; return c;
+    })();
+  const bctx = buf.getContext('2d') as OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null;
+  if (!bctx) return;
+  // `contain` fit inside the box (matches the preview's objectFit: contain).
+  const ar = bitmap.width / bitmap.height;
+  const boxAr = bw / bh;
+  let dw = bw, dh = bh;
+  if (ar > boxAr) { dh = bw / ar; } else { dw = bh * ar; }
+  const dx = (bw - dw) / 2, dy = (bh - dh) / 2;
+  bctx.drawImage(bitmap, dx, dy, dw, dh);
+  if (tint > 0) {
+    bctx.globalCompositeOperation = 'source-atop';
+    bctx.globalAlpha = tint;
+    bctx.fillStyle = resolveGlowColor(hue);
+    bctx.fillRect(0, 0, bw, bh);
+    bctx.globalAlpha = 1;
+    bctx.globalCompositeOperation = 'source-over';
+  }
+
+  ctx.save();
+  applyLayerShadow(ctx, layer, scale);
+  if (layer.rot) {
+    ctx.translate(rect.x + rect.w / 2, rect.y + rect.h / 2);
+    ctx.rotate((layer.rot * Math.PI) / 180);
+    ctx.drawImage(buf, -rect.w / 2, -rect.h / 2, rect.w, rect.h);
+  } else {
+    ctx.drawImage(buf, rect.x, rect.y, rect.w, rect.h);
+  }
+  ctx.restore();
+}
+
 function drawTextLayer(
   ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D,
   layer: TextLayer,
@@ -274,7 +356,12 @@ function drawTextLayer(
   const maxSize = layer.size * scale;
   const measure = canvasMeasureFor(ctx, layer, scale);
   const fitted = fitFontSize(measure, lines, rect.w, rect.h, maxSize);
-  const color = resolveTextColor(preset, hue, TEXT_BASE_COLOR);
+  // Per-layer treatment: mix from the layer's base (cream or white) toward the
+  // hue by the layer's `hueMix` (preset default when undefined). Glow color =
+  // the text color, so the hue slider drives both. Mirrors the preview's
+  // `resolveTextStyle`.
+  const color = resolveTextColorEx(preset, hue, layer.baseColor ?? TEXT_BASE_COLOR, layer.hueMix);
+  const glow = resolveTextGlow(color, { glow: layer.glow, glowStrength: layer.glowStrength });
 
   ctx.save();
   if (layer.rot) {
@@ -294,9 +381,6 @@ function drawTextLayer(
   ctx.fillStyle = color;
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
-  ctx.shadowColor = 'rgba(0,0,0,0.55)';
-  ctx.shadowBlur = 12 * scale;
-  ctx.shadowOffsetY = 2 * scale;
 
   // Bottom-anchored stack (matches `.tb-el.text .tb-body`'s
   // `justify-content:flex-end` — the LAST line sits at the box's bottom
@@ -306,11 +390,44 @@ function drawTextLayer(
   // box's bottom edge (a reasonable descender allowance for a fillText
   // baseline vs. a flex row's bottom edge).
   const lineH = fitted * TEXT_LINE_HEIGHT;
-  let y = rect.h - (lines.length - 1) * lineH - (lineH - fitted * 0.8);
-  for (const line of lines) {
-    ctx.fillText(line.length > 0 ? line : ' ', 0, y);
-    y += lineH;
+  const y0 = rect.h - (lines.length - 1) * lineH - (lineH - fitted * 0.8);
+  const paint = () => {
+    let y = y0;
+    for (const line of lines) {
+      ctx.fillText(line.length > 0 ? line : ' ', 0, y);
+      y += lineH;
+    }
+  };
+
+  // Colored glow passes (matches the preview's stacked text-shadow glow) —
+  // canvas has one shadow at a time, so paint the text twice with the glow
+  // color as a wide then tight blurred shadow (centered, behind the fill).
+  if (glow) {
+    ctx.shadowColor = glow.color;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    for (const mult of [2, 1]) {
+      ctx.shadowBlur = glow.blur * mult * scale;
+      paint();
+    }
   }
+  // Legibility drop-shadow + the actual fill.
+  ctx.shadowColor = 'rgba(0,0,0,0.55)';
+  ctx.shadowBlur = 12 * scale;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 2 * scale;
+  paint();
+  // Per-layer cast shadow style (optional), then a final clean fill on top so
+  // the glyph edges stay crisp over its own shadow.
+  if (layer.shadow) {
+    applyLayerShadow(ctx, layer, scale);
+    paint();
+  }
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+  paint();
   ctx.restore();
 }
 
@@ -321,7 +438,7 @@ function drawTextLayer(
  * exact draw order and why it matches the live preview.
  */
 export async function composeThumbnail(opts: ComposeOptions): Promise<Blob> {
-  const { scene, mapScene, layers, preset, hue, vignette = 0, outW, outH, format, quality = 0.92 } = opts;
+  const { scene, mapScene, layers, preset, hue, vignette = 0, cornerGlow = 0, outW, outH, format, quality = 0.92 } = opts;
 
   const canvas: OffscreenCanvas | HTMLCanvasElement =
     typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(outW, outH) : (() => {
@@ -340,14 +457,34 @@ export async function composeThumbnail(opts: ComposeOptions): Promise<Blob> {
   // Text keeps LAYER ARRAY ORDER (visible preserves it); drawn last so text is
   // always on top, in the order the layers appear.
   const textLayers = visible.filter((l): l is TextLayer => l.type === 'text');
+  // Frame layers (line-art brackets) — drawn above the models/deco, below text.
+  const frameLayers = visible.filter((l): l is FrameLayer => l.type === 'frame');
 
   // Preload disc bitmaps in parallel before drawing anything.
   const [ringBitmap, glowBitmap] = discLayer
     ? await Promise.all([
-        discAssetUrl('ring').then(loadImageBitmapFromUrl),
-        discAssetUrl('glow').then(loadImageBitmapFromUrl),
+        bundledAssetUrl('ring').then(loadImageBitmapFromUrl),
+        bundledAssetUrl('glow').then(loadImageBitmapFromUrl),
       ])
     : [null, null];
+  // Preload each frame layer's bundled art bitmap (keyed by asset name).
+  const frameBitmaps = new Map<string, ImageBitmap>();
+  await Promise.all(
+    Array.from(new Set(frameLayers.map(f => f.asset))).map(async asset => {
+      const bmp = await bundledAssetUrl(asset as ThumbnailAssetName).then(loadImageBitmapFromUrl);
+      frameBitmaps.set(asset, bmp);
+    }),
+  );
+  // Ensure the poster font (e.g. Anton) is loaded before any fillText — the
+  // OffscreenCanvas 2D context won't wait on `font-display: swap`, so an
+  // unloaded face would silently fall back. Load every distinct text font.
+  if (typeof document !== 'undefined' && document.fonts) {
+    await Promise.all(
+      Array.from(new Set(textLayers.map(t => t.font))).map(font =>
+        document.fonts.load(`800 40px ${font}`).catch(() => { /* fallback face is fine */ }),
+      ),
+    );
+  }
   // Deco layers: no image is loaded (see the module doc comment's DECO
   // ASSETS note — `deco.asset` isn't rendered by the live preview either,
   // it's a deferred feature), so every deco draw call below is a
@@ -403,14 +540,36 @@ export async function composeThumbnail(opts: ComposeOptions): Promise<Blob> {
 
   const drawDisc = () => {
     if (!discLayer) return;
+    // Optional per-layer cast shadow around the whole disc composite. Applied
+    // on the ring pass only (the outermost silhouette) so it reads as one
+    // shadow rather than stacking under each piece.
     drawDiscPiece(ctx, discLayer, GLOW_OFFSET, outW, outH, glowBitmap, 1);
     drawDiscPiece(ctx, discLayer, BLACK_OFFSET, outW, outH, null, discLayer.opacity / 100);
-    drawDiscPiece(ctx, discLayer, RING_OFFSET, outW, outH, ringBitmap, 1);
+    if (discLayer.shadow) {
+      ctx.save();
+      applyLayerShadow(ctx, discLayer, outW / STAGE_W);
+      drawDiscPiece(ctx, discLayer, RING_OFFSET, outW, outH, ringBitmap, 1);
+      ctx.restore();
+    } else {
+      drawDiscPiece(ctx, discLayer, RING_OFFSET, outW, outH, ringBitmap, 1);
+    }
   };
+  // Model drop-shadow: the scene screenshot is transparent except model pixels,
+  // so a canvas shadow around the drawn bitmap casts a real silhouette shadow.
+  // Mirrors the preview's `filter: drop-shadow` on the shared scene canvas (one
+  // plane → the first visible model with `shadow` on drives it).
+  const shadowModel = visible.find(l => l.type === 'model' && l.shadow) ?? null;
   const drawModels = async () => {
     const shotBlob = await scene.screenshot(outW, outH);
     const shotBitmap = await createImageBitmap(shotBlob);
-    ctx.drawImage(shotBitmap, 0, 0, outW, outH);
+    if (shadowModel) {
+      ctx.save();
+      applyLayerShadow(ctx, shadowModel, outW / STAGE_W);
+      ctx.drawImage(shotBitmap, 0, 0, outW, outH);
+      ctx.restore();
+    } else {
+      ctx.drawImage(shotBitmap, 0, 0, outW, outH);
+    }
   };
 
   // 3+4. Disc vs models order follows LAYER ARRAY POSITION (earlier index =
@@ -430,6 +589,26 @@ export async function composeThumbnail(opts: ComposeOptions): Promise<Blob> {
 
   // 5. Deco in front of the models.
   for (const d of decoFront) drawDecoLayer(ctx, d, outW, outH, decoBitmaps.get(d.id) ?? null);
+
+  // 5a. Frame layers (line-art brackets), tinted toward the hue — above the
+  //     models/deco, below the corner glow / vignette / text.
+  for (const f of frameLayers) drawFrameLayer(ctx, f, outW, outH, hue, frameBitmaps.get(f.asset) ?? null);
+
+  // 5a2. Bottom-right corner glow — a hue-tinted radial bloom, `screen`-blended
+  //      so it adds light (mirrors the live `.tb-corner-glow` overlay).
+  if (cornerGlow > 0) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    const gx = outW, gy = outH; // bottom-right corner
+    const gr = Math.max(outW, outH) * 0.7;
+    const cg = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
+    const a = Math.max(0, Math.min(1, cornerGlow / 100)) * 0.75;
+    cg.addColorStop(0, hexToRgba(resolveGlowColor(hue), a));
+    cg.addColorStop(0.7, hexToRgba(resolveGlowColor(hue), 0));
+    ctx.fillStyle = cg;
+    ctx.fillRect(0, 0, outW, outH);
+    ctx.restore();
+  }
 
   // 5b. Vignette — cinematic edge darkening over the composition, BELOW text so
   //     the title/subtitle stay crisp. Mirrors the live `.tb-vignette` overlay.

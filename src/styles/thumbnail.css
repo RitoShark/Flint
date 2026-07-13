@@ -2,6 +2,22 @@
    Ported from .superpowers/brainstorm/1048-1783710866/content/editor-v10.html
    Selection/handles read var(--accent-primary) so they track the active Flint theme. */
 
+/* Anton (SIL OFL) — the poster display face for the Divine style (matches the
+   reference splash). Bundled locally (public/fonts) because the desktop app is
+   offline / CSP-blocked from Google Fonts. `swap` so text renders immediately
+   in a fallback and re-lays out once Anton loads. */
+@font-face {
+  font-family: 'Anton';
+  font-style: normal;
+  /* Anton ships a single (heavy) weight. Declare it across the whole 100–900
+     range so the renderer's `font-weight: 800` request (used by the text
+     layers in preview AND export) resolves to the real Anton glyphs instead of
+     synthesizing a faux-bold on top of them. */
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/Anton-Regular.ttf') format('truetype');
+}
+
 .tb-viewport {
   position: absolute;
   inset: 0;
@@ -191,6 +207,41 @@
 .tb-vignette {
   position: absolute;
   inset: 0;
+  pointer-events: none;
+}
+
+/* Bottom-right corner glow — hue-tinted radial bloom. `screen` blend so it
+   adds light over whatever's beneath (glows) instead of darkening. */
+.tb-corner-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+/* A properties group with a top divider (separates style sections). */
+.tb-grp--sep {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+
+/* Labeled toggle row in the properties panel. */
+.tb-check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.tb-check-row input { cursor: pointer; }
+
+/* Frame layer body — the tinted line-art overlay fills the `.tb-el` box. */
+.tb-frame-body {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
   pointer-events: none;
 }
 
