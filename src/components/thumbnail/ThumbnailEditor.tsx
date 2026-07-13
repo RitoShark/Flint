@@ -63,16 +63,17 @@ function seedLayers(sknPath: string): Layer[] {
       hidden: false,
       rot: 0,
       locked: false,
-      // Full-body companion spawns straight-on (level camera), no head-focus/
-      // orbit/tilt. Dev-tuned default scale 75 (0.75x); position it in 3D via
-      // the Move X/Y/Z controls.
+      // Full-body companion spawns straight-on (level camera). Dev-tuned
+      // defaults: scale 0.75x, Turn Y -25, moved in 3D (X 50, Z -85 depth).
       x: 2, y: 2, w: 398, h: 354,
       sknPath,
       anim: '',
       frame: 0,
       maxFrame: 0,
       scale: 75,
-      orbit: 0,
+      orbit: -25,
+      posX: 50,
+      posZ: -85,
       focusMode: 'full',
     },
   ];
