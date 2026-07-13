@@ -106,22 +106,6 @@ function pickDefaultAnim(clips: AnimClip[]): AnimClip | null {
   return pool.reduce((best, c) => (clipName(c).length < clipName(best).length ? c : best), pool[0]);
 }
 
-// z-order within the stage, mirrors the prototype's zrank().
-function zrank(layer: Layer): number {
-  switch (layer.type) {
-    case 'disc':
-      return 20;
-    case 'model':
-      return 40;
-    case 'deco':
-      return layer.z === 'behind' ? 12 : 65;
-    case 'text':
-      return 80;
-    default:
-      return 50;
-  }
-}
-
 export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGesture, onCommitGesture, controlsRef, preset, hue }: ThumbnailArtboardProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const stageWrapRef = useRef<HTMLDivElement>(null);
@@ -490,14 +474,16 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       }
     }
 
-    // Render order among models: earlier in the Layers panel = ON TOP. The
-    // panel lists models in array order (Hero above Full body), so give the
-    // FIRST model the highest renderOrder → it renders last / sits on top where
-    // viewports overlap (Hero over Full body).
-    modelLayers.forEach((layer, i) => {
+    // Render order among models = ABSOLUTE layer-array position (earlier index =
+    // front). Using the full-array index (not the model-filtered index) means
+    // dragging a model in the Layers panel restacks it against the others where
+    // their viewports overlap. Higher renderOrder renders last / on top.
+    for (const layer of modelLayers) {
       const b = bindings.get(layer.id);
-      if (b?.sceneId) scene.setModelRenderOrder(b.sceneId, modelLayers.length - i);
-    });
+      if (!b?.sceneId) continue;
+      const idx = layers.findIndex(l => l.id === layer.id);
+      scene.setModelRenderOrder(b.sceneId, layers.length - idx);
+    }
 
     // Any binding whose layer no longer exists (deleted) -> remove from scene.
     for (const [layerId, binding] of bindings) {
@@ -876,9 +862,25 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     body.addEventListener('keydown', onKeyDown);
   }, [onChange]);
 
-  // Env (map) layers render only in Babylon — they have no draggable DOM proxy
-  // (a full-stage locked box would swallow clicks), so drop them from `sorted`.
-  const sorted = [...layers].filter(l => !l.hidden && l.type !== 'env').sort((a, b) => zrank(a) - zrank(b));
+  // Z-order comes from layer ARRAY position (earlier index = front). Each proxy
+  // and the disc get an explicit z-index derived from their index, so dragging a
+  // layer in the panel restacks it. `zOf` maps a layer id → z-index (front =
+  // high). The shared model canvas and map canvas are positioned in this same
+  // scale so disc/models/text interleave by array order. Env has no proxy.
+  const zOf = (id: string): number => {
+    const i = layers.findIndex(l => l.id === id);
+    return i < 0 ? 1 : (layers.length - i) * 10;
+  };
+  const sorted = layers.filter(l => !l.hidden && l.type !== 'env');
+  // The shared model canvas holds ALL models at ONE z-plane, so its z-index is
+  // the FRONT-MOST model layer's z (min array index among models). This lets the
+  // disc/text order above or below the whole model band by array position.
+  // (Full model↔2D interleave needs per-model canvases — a follow-up.)
+  const frontModelId = layers.find(l => l.type === 'model' && !l.hidden)?.id;
+  const modelCanvasZ = frontModelId ? zOf(frontModelId) : 1;
+  // The map (env) canvas z from the env layer's position (usually the back).
+  const envId = layers.find(l => l.type === 'env')?.id;
+  const mapCanvasZ = envId ? zOf(envId) : 0;
   const selectedLayer = layers.find(l => l.id === selId) ?? null;
   const selectedModel = selectedLayer && selectedLayer.type === 'model' ? selectedLayer : null;
 
@@ -888,17 +890,10 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     if (!selectedModel && studioOpen) setStudioOpen(false);
   }, [selectedModel, studioOpen]);
 
-  // The disc layer's gold RING renders as a SEPARATE front-band pass (see
-  // DiscComposite's `part` prop) so it paints above the model layers'
-  // `.tb-el` proxies (and the scene canvas underneath them) while the
-  // glow/black-fill pieces stay in the disc's normal `sorted` position
-  // behind the model (zrank 20 < model's 40). This is purely a render
-  // split — the disc stays ONE entry in `layers`/`sorted` (one selectable/
-  // lockable/deletable `.tb-el`, rendered by the main loop above); this
-  // overlay just re-paints the ring piece using the SAME layer's box, and
-  // is never itself an independent hit-target (pointer-events:none, no
-  // data-id, no pointer handlers) so it can't be selected, dragged, or
-  // otherwise diverge from the real disc element.
+  // The disc's full visual (glow + black fill + gold ring) is painted by the
+  // `.tb-disc-bg` element, z-indexed from the disc layer's array position (so it
+  // orders against the models/text by layer order). Its selectable/draggable
+  // `.tb-el` proxy stays in the main loop (empty body).
   const discLayer = sorted.find((l): l is DiscLayer => l.type === 'disc') ?? null;
 
   return (
@@ -965,7 +960,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
               disc "circle" composites between the map and the models (z-order:
               map → disc → models). Transparent clear lets the .tb-env backdrop
               show through where the map doesn't cover. */}
-          <canvas ref={mapCanvasRef} className="tb-map-canvas" />
+          <canvas ref={mapCanvasRef} className="tb-map-canvas" style={{ zIndex: mapCanvasZ }} />
           {/* Disc ("circle") — the BACKGROUND SEPARATOR for the hero. Painted
               BETWEEN the env and the (transparent) scene canvas, so the full
               circle (glow + darkened fill + gold ring) sits BEHIND the models:
@@ -982,6 +977,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
                 width: discLayer.w,
                 height: discLayer.h,
                 transform: `rotate(${discLayer.rot}deg)`,
+                zIndex: zOf(discLayer.id),
               }}
             >
               <DiscComposite layer={discLayer} part="full" />
@@ -993,7 +989,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
               props are pushed into the scene; x/y/w/h placement of the
               rendered model within this canvas is a Task 13 (compositor)
               concern, not this canvas's. */}
-          <canvas ref={sceneCanvasRef} className={`tb-scene-canvas${orbitLayerId ? ' tb-scene-canvas--orbit' : ''}`} />
+          <canvas ref={sceneCanvasRef} className={`tb-scene-canvas${orbitLayerId ? ' tb-scene-canvas--orbit' : ''}`} style={{ zIndex: modelCanvasZ }} />
           {sorted.map(layer => (
             <div
               key={layer.id}
@@ -1005,6 +1001,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
                 width: layer.w,
                 height: layer.h,
                 transform: `rotate(${layer.rot}deg)`,
+                zIndex: zOf(layer.id),
               }}
               onPointerDown={(e) => handleElPointerDown(e, layer)}
               onDoubleClick={(e) => {

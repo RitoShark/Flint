@@ -46,9 +46,9 @@
   font-family: var(--font-mono);
 }
 
-/* 3D map-env backdrop canvas — its own Babylon engine. Sits ABOVE .tb-env and
-   BELOW .tb-disc-bg (same z-index 0, earlier in DOM → the disc paints over it),
-   so the z-order is map → disc → models. Transparent clear lets .tb-env show
+/* 3D map-env backdrop canvas — its own Babylon engine. Its z-index is set
+   INLINE from the env layer's array position (see ThumbnailArtboard `mapCanvasZ`)
+   so the map orders by layer position. Transparent clear lets .tb-env show
    through where the map doesn't cover. */
 .tb-map-canvas {
   position: absolute;
@@ -57,13 +57,12 @@
   height: 100%;
   display: block;
   pointer-events: none;
-  z-index: 0;
 }
 
-/* Shared Babylon scene canvas (Task 9) — sits above .tb-env, below every
-   .tb-el layer proxy. One shared camera renders every `model` layer's SKN;
-   per-layer x/y/w/h placement of the render is a Task 13 (compositor)
-   concern, so this canvas simply fills the stage. */
+/* Shared Babylon scene canvas — renders every `model` layer's SKN via per-model
+   viewports. Its z-index is set INLINE from the front-most model layer's array
+   position (see `modelCanvasZ`) so the model band orders against the disc/text
+   by layer position. */
 .tb-scene-canvas {
   position: absolute;
   inset: 0;
@@ -71,8 +70,6 @@
   height: 100%;
   display: block;
   pointer-events: none;
-  /* Above the disc "circle" background (z 0), below the DOM layer proxies. */
-  z-index: 1;
 }
 
 /* In orbit mode the canvas captures pointer events so the Babylon camera for
@@ -112,9 +109,9 @@
   position: absolute;
   cursor: grab;
   touch-action: none;
-  /* Above the scene canvas (z 1) so text/model/disc proxies + their overlays
-     sit on top of the 3D render in the DOM. */
-  z-index: 2;
+  /* z-index is set INLINE per element from its layer array position (see
+     ThumbnailArtboard `zOf`) so text/deco/proxies stack by layer order and
+     reorder when dragged in the Layers panel. */
 }
 
 .tb-el.dragging {
@@ -188,7 +185,8 @@
   position: absolute;
   pointer-events: none;
   overflow: visible;
-  z-index: 0;
+  /* z-index set INLINE from the disc layer's array position (see `zOf`) so the
+     disc orders against the models/text by layer position. */
 }
 
 .tb-disc-composite {
@@ -462,6 +460,26 @@
   cursor: default;
   opacity: .75;
 }
+
+/* Drag handle (grip dots) for reordering — array order = z-order. */
+.tb-layer__grip {
+  width: 12px;
+  height: 16px;
+  flex-shrink: 0;
+  cursor: grab;
+  border-radius: 3px;
+  background-image: radial-gradient(currentColor 1px, transparent 1.4px);
+  background-size: 4px 4px;
+  background-position: center;
+  color: var(--text-muted);
+  opacity: .5;
+}
+.tb-layer__grip:hover { opacity: 1; }
+.tb-layer__grip:active { cursor: grabbing; }
+
+.tb-layer--dragging { opacity: .4; }
+/* Drop indicator: an accent line above the row we'd drop before. */
+.tb-layer--dropbefore { box-shadow: inset 0 2px 0 0 var(--accent-primary); }
 
 /* Icon buttons inside a layer row (eye / lock / delete). Bare, transparent —
    they read as glyphs, not filled buttons, so the row stays compact. */

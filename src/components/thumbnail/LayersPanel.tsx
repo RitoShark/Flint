@@ -1,32 +1,6 @@
-import { Ref } from 'react';
+import { Ref, useRef, useState } from 'react';
 import { Layer } from '../../lib/thumbnail/layers';
 import { DlIcon, type DlIconName } from '../ui/design-lab';
-
-interface LayerGroup {
-  title: string;
-  items: Layer[];
-}
-
-function groupLayers(layers: Layer[]): LayerGroup[] {
-  return [
-    {
-      title: 'Foreground',
-      items: layers.filter(l => l.type === 'text' || (l.type === 'deco' && l.z === 'front')),
-    },
-    {
-      title: 'Models & fills',
-      items: layers.filter(l => l.type === 'model' || l.type === 'disc'),
-    },
-    {
-      title: 'Behind models',
-      items: layers.filter(l => l.type === 'deco' && l.z === 'behind'),
-    },
-    {
-      title: 'Environment',
-      items: layers.filter(l => l.type === 'env'),
-    },
-  ];
-}
 
 function iconFor(type: Layer['type']): DlIconName {
   switch (type) {
@@ -34,6 +8,7 @@ function iconFor(type: Layer['type']): DlIconName {
     case 'model': return 'layerModel';
     case 'disc': return 'contrast';
     case 'deco': return 'picture';
+    case 'env': return 'picture';
     default: return 'image';
   }
 }
@@ -41,18 +16,30 @@ function iconFor(type: Layer['type']): DlIconName {
 interface LayerRowProps {
   layer: Layer;
   selected: boolean;
+  dropBefore: boolean;
+  dragging: boolean;
   onSelect: (id: string) => void;
   onToggleHidden: (id: string) => void;
   onToggleLock: (id: string) => void;
   onDelete: (id: string) => void;
+  onDragStart: (e: React.PointerEvent, id: string) => void;
 }
 
-function LayerRow({ layer, selected, onSelect, onToggleHidden, onToggleLock, onDelete }: LayerRowProps) {
+function LayerRow({ layer, selected, dropBefore, dragging, onSelect, onToggleHidden, onToggleLock, onDelete, onDragStart }: LayerRowProps) {
   return (
     <div
-      className={`tb-layer${selected ? ' tb-layer--sel' : ''}${layer.hidden ? ' tb-layer--hidden' : ''}`}
+      className={`tb-layer${selected ? ' tb-layer--sel' : ''}${layer.hidden ? ' tb-layer--hidden' : ''}${dropBefore ? ' tb-layer--dropbefore' : ''}${dragging ? ' tb-layer--dragging' : ''}`}
+      data-layer-id={layer.id}
       onClick={() => onSelect(layer.id)}
     >
+      {/* Drag handle — reorders the layer (array order = z-order). The grip
+          dots are drawn in CSS (no dedicated icon in the set). */}
+      <span
+        className="tb-layer__grip"
+        title="Drag to reorder"
+        aria-label="Drag to reorder"
+        onPointerDown={(e) => { e.stopPropagation(); onDragStart(e, layer.id); }}
+      />
       <button
         type="button"
         className="tb-layer__btn tb-layer__eye"
@@ -90,43 +77,74 @@ export interface LayersPanelProps {
   onToggleHidden: (id: string) => void;
   onToggleLock: (id: string) => void;
   onDelete: (id: string) => void;
+  /** Move `id` to just before `beforeId` (null = to the end / bottom). */
+  onReorder: (id: string, beforeId: string | null) => void;
   /** Forwarded to the section root so the host can measure it for the draggable divider. */
   sectionRef?: Ref<HTMLDivElement>;
 }
 
-export function LayersPanel({ layers, selId, onSelect, onToggleHidden, onToggleLock, onDelete, sectionRef }: LayersPanelProps) {
-  const groups = groupLayers(layers);
+/**
+ * Flat, drag-reorderable layer list. The array order IS the z-order (top of the
+ * list = front of the artboard), so dragging a row restacks the layers. Uses
+ * pointer events (NOT HTML5 DnD — WebView2 blocks in-app HTML5 drag; see
+ * CLAUDE.md), hit-testing rows via elementFromPoint.
+ */
+export function LayersPanel({ layers, selId, onSelect, onToggleHidden, onToggleLock, onDelete, onReorder, sectionRef }: LayersPanelProps) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  // The layer id we'd drop BEFORE (null = drop at the very end).
+  const [dropBeforeId, setDropBeforeId] = useState<string | null>(null);
+
+  const onDragStart = (e: React.PointerEvent, id: string) => {
+    e.preventDefault();
+    setDragId(id);
+    setDropBeforeId(id);
+    const move = (ev: PointerEvent) => {
+      const list = listRef.current;
+      if (!list) return;
+      const rows = Array.from(list.querySelectorAll<HTMLElement>('[data-layer-id]'));
+      let before: string | null = null;
+      for (const row of rows) {
+        const r = row.getBoundingClientRect();
+        // Drop before the first row whose vertical midpoint is below the cursor.
+        if (ev.clientY < r.top + r.height / 2) { before = row.dataset.layerId ?? null; break; }
+      }
+      setDropBeforeId(before);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      setDragId(cur => {
+        setDropBeforeId(target => {
+          // Commit only if it actually changes position.
+          if (cur && target !== cur) onReorder(cur, target);
+          return null;
+        });
+        return null;
+      });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
 
   return (
     <div className="tb-side-sec tb-side-sec--layers" ref={sectionRef}>
       <div className="tb-pane-h">Layers</div>
-      <div className="tb-side-scroll">
-        {groups.map(group => (
-          group.items.length === 0 ? null : (
-            <div key={group.title}>
-              <div className="tb-lgroup">{group.title}</div>
-              {group.items.map(layer => (
-                <LayerRow
-                  key={layer.id}
-                  layer={layer}
-                  selected={layer.id === selId}
-                  onSelect={onSelect}
-                  onToggleHidden={onToggleHidden}
-                  onToggleLock={onToggleLock}
-                  onDelete={onDelete}
-                />
-              ))}
-            </div>
-          )
+      <div className="tb-side-scroll" ref={listRef}>
+        {layers.map(layer => (
+          <LayerRow
+            key={layer.id}
+            layer={layer}
+            selected={layer.id === selId}
+            dropBefore={dragId !== null && dropBeforeId === layer.id}
+            dragging={dragId === layer.id}
+            onSelect={onSelect}
+            onToggleHidden={onToggleHidden}
+            onToggleLock={onToggleLock}
+            onDelete={onDelete}
+            onDragStart={onDragStart}
+          />
         ))}
-        <div>
-          <div className="tb-lgroup">Background</div>
-          <div className="tb-layer tb-layer--env">
-            <span className="tb-layer__btn tb-layer__eye"><DlIcon name="eye" size={14} /></span>
-            <span className="tb-layer__ic"><DlIcon name="picture" size={14} /></span>
-            <span className="tb-layer__nm">Environment</span>
-          </div>
-        </div>
       </div>
     </div>
   );

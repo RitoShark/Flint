@@ -312,15 +312,6 @@ function drawTextLayer(
   ctx.restore();
 }
 
-function zrank(layer: Layer): number {
-  switch (layer.type) {
-    case 'disc': return 20;
-    case 'model': return 40;
-    case 'deco': return layer.z === 'behind' ? 12 : 65;
-    case 'text': return 80;
-    default: return 50;
-  }
-}
 
 /**
  * Composites the final poster at `opts.outW`x`opts.outH` and returns it as a
@@ -344,7 +335,9 @@ export async function composeThumbnail(opts: ComposeOptions): Promise<Blob> {
   const discLayer = visible.find((l): l is DiscLayer => l.type === 'disc') ?? null;
   const decoBehind = visible.filter((l): l is DecoLayer => l.type === 'deco' && l.z === 'behind');
   const decoFront = visible.filter((l): l is DecoLayer => l.type === 'deco' && l.z === 'front');
-  const textLayers = visible.filter((l): l is TextLayer => l.type === 'text').sort((a, b) => zrank(a) - zrank(b));
+  // Text keeps LAYER ARRAY ORDER (visible preserves it); drawn last so text is
+  // always on top, in the order the layers appear.
+  const textLayers = visible.filter((l): l is TextLayer => l.type === 'text');
 
   // Preload disc bitmaps in parallel before drawing anything.
   const [ringBitmap, glowBitmap] = discLayer
@@ -393,18 +386,32 @@ export async function composeThumbnail(opts: ComposeOptions): Promise<Blob> {
   // 2. Deco behind everything.
   for (const d of decoBehind) drawDecoLayer(ctx, d, outW, outH, decoBitmaps.get(d.id) ?? null);
 
-  // 3. The full disc "circle" (glow, darkened fill, ring) — the background
-  //    separator, painted BEHIND the models.
-  if (discLayer) {
+  const drawDisc = () => {
+    if (!discLayer) return;
     drawDiscPiece(ctx, discLayer, GLOW_OFFSET, outW, outH, glowBitmap, 1);
     drawDiscPiece(ctx, discLayer, BLACK_OFFSET, outW, outH, null, discLayer.opacity / 100);
     drawDiscPiece(ctx, discLayer, RING_OFFSET, outW, outH, ringBitmap, 1);
-  }
+  };
+  const drawModels = async () => {
+    const shotBlob = await scene.screenshot(outW, outH);
+    const shotBitmap = await createImageBitmap(shotBlob);
+    ctx.drawImage(shotBitmap, 0, 0, outW, outH);
+  };
 
-  // 4. Model screenshot (transparent background) composited over the disc.
-  const shotBlob = await scene.screenshot(outW, outH);
-  const shotBitmap = await createImageBitmap(shotBlob);
-  ctx.drawImage(shotBitmap, 0, 0, outW, outH);
+  // 3+4. Disc vs models order follows LAYER ARRAY POSITION (earlier index =
+  // front). The shared model canvas is one plane, so the disc goes entirely
+  // above or below the model band depending on whether the disc sits before or
+  // after the front-most model in the array.
+  const discIdx = discLayer ? layers.findIndex(l => l.id === discLayer.id) : Infinity;
+  const frontModelIdx = layers.findIndex(l => !l.hidden && l.type === 'model');
+  const discInFront = discLayer != null && frontModelIdx >= 0 && discIdx < frontModelIdx;
+  if (discInFront) {
+    await drawModels();
+    drawDisc();
+  } else {
+    drawDisc();
+    await drawModels();
+  }
 
   // 5. Deco in front of the models.
   for (const d of decoFront) drawDecoLayer(ctx, d, outW, outH, decoBitmaps.get(d.id) ?? null);

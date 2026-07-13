@@ -4,7 +4,7 @@ import { readTextFile, writeTextFile } from '../../lib/api/file';
 import '../../styles/design-lab.css';
 import '../../styles/thumbnail.css';
 import { createHistory } from '../../lib/thumbnail/history';
-import { Layer, ModelLayer, makeDefaultEnvLayer, removeLayer, toggleLock, updateLayer } from '../../lib/thumbnail/layers';
+import { Layer, ModelLayer, makeDefaultEnvLayer, removeLayer, reorderLayer, toggleLock, updateLayer } from '../../lib/thumbnail/layers';
 import { loadPreset, presetToLayers, PresetId } from '../../lib/thumbnail/preset';
 import { buildPresetFile, parsePresetFile, PresetFile, suggestPresetFilename } from '../../lib/thumbnail/presetFile';
 import { loadStoredPresets, saveStoredPresets } from '../../lib/thumbnail/presetStore';
@@ -197,6 +197,16 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
 
   const handleToggleLock = useCallback((id: string) => {
     const next = toggleLock(history.get(), id);
+    history.set(next, true);
+    forceRender(n => n + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Drag-reorder in the Layers panel: move `id` before `beforeId` (null = end).
+  // Array order IS z-order (earlier = on top), so this restacks the layers.
+  const handleReorder = useCallback((id: string, beforeId: string | null) => {
+    const next = reorderLayer(history.get(), id, beforeId);
+    if (next === history.get()) return;
     history.set(next, true);
     forceRender(n => n + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -560,6 +570,7 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
             onToggleHidden={handleToggleHidden}
             onToggleLock={handleToggleLock}
             onDelete={handleDeleteLayer}
+            onReorder={handleReorder}
           />
           <div className="tb-side-split" title="Drag to resize" onPointerDown={handleSplitPointerDown} />
           <PropertiesPanel

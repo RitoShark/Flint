@@ -139,6 +139,20 @@ export function toggleLock(list: Layer[], id: string): Layer[] {
   return list.map(l => (l.id === id ? { ...l, locked: !l.locked } : l));
 }
 
+/** Move the layer with `id` so it lands immediately BEFORE `beforeId` in the
+ *  array (or to the end when `beforeId` is null). Array order drives z-order —
+ *  earlier index = rendered on top — so this reorders the visual stack. */
+export function reorderLayer(list: Layer[], id: string, beforeId: string | null): Layer[] {
+  if (id === beforeId) return list; // dropping onto itself — no change
+  const moving = list.find(l => l.id === id);
+  if (!moving) return list;
+  const without = list.filter(l => l.id !== id);
+  if (beforeId === null) return [...without, moving];
+  const idx = without.findIndex(l => l.id === beforeId);
+  if (idx < 0) return [...without, moving];
+  return [...without.slice(0, idx), moving, ...without.slice(idx)];
+}
+
 export function serialize(list: Layer[]): string {
   return JSON.stringify(list);
 }
