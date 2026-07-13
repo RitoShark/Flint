@@ -95,6 +95,9 @@ export function createMapEnvScene(
         alpha: true,
         premultipliedAlpha: false,
     });
+    // Supersample 2× so the map stays crisp when the stage is CSS-zoomed up
+    // (same rationale as studioScene).
+    engine.setHardwareScalingLevel(0.5);
     const scene = new Scene(engine);
     scene.clearColor = new Color4(0, 0, 0, 0); // transparent → disc shows through
 

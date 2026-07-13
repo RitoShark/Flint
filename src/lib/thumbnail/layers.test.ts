@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { addLayer, removeLayer, updateLayer, toggleLock, reorderLayer, serialize, deserialize, makeDefaultEnvLayer } from './layers';
+import { addLayer, removeLayer, updateLayer, toggleLock, reorderLayer, reorderGroup, serialize, deserialize, makeDefaultEnvLayer } from './layers';
 
 const t = (over = {}): any => ({ id: 'a', type: 'text', name: 'T', hidden: false, rot: 0, locked: false, x: 0, y: 0, w: 10, h: 10, text: 'X', size: 20, font: 'F', italic: false, spacing: 0, ...over });
 
@@ -25,6 +25,20 @@ describe('reorderLayer', () => {
   });
   it('moving before itself keeps order', () => {
     expect(ids(reorderLayer(base(), 'b', 'b'))).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('reorderGroup', () => {
+  const ids = (ls: { id: string }[]) => ls.map(l => l.id);
+  const base = () => [t({ id: 'a' }), t({ id: 'b' }), t({ id: 'c' }), t({ id: 'd' })];
+  it('moves a run before another layer, preserving run order', () => {
+    expect(ids(reorderGroup(base(), ['c', 'd'], 'a'))).toEqual(['c', 'd', 'a', 'b']);
+  });
+  it('moves a run to the end when beforeId is null', () => {
+    expect(ids(reorderGroup(base(), ['a', 'b'], null))).toEqual(['c', 'd', 'a', 'b']);
+  });
+  it('is a no-op when dropping onto itself', () => {
+    expect(ids(reorderGroup(base(), ['a', 'b'], 'a'))).toEqual(['a', 'b', 'c', 'd']);
   });
 });
 

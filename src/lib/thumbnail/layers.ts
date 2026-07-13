@@ -153,6 +153,22 @@ export function reorderLayer(list: Layer[], id: string, beforeId: string | null)
   return [...without.slice(0, idx), moving, ...without.slice(idx)];
 }
 
+/** Move an ordered run of layers (identified by `ids`, in their current order)
+ *  so the run lands immediately BEFORE `beforeId` (or at the end when null).
+ *  Used to drag a whole category group in the Layers panel. `beforeId` must not
+ *  be one of `ids` (dropping a group onto itself is a no-op). */
+export function reorderGroup(list: Layer[], ids: string[], beforeId: string | null): Layer[] {
+  const idSet = new Set(ids);
+  if (beforeId !== null && idSet.has(beforeId)) return list; // onto itself
+  const moving = list.filter(l => idSet.has(l.id));
+  if (moving.length === 0) return list;
+  const without = list.filter(l => !idSet.has(l.id));
+  if (beforeId === null) return [...without, ...moving];
+  const idx = without.findIndex(l => l.id === beforeId);
+  if (idx < 0) return [...without, ...moving];
+  return [...without.slice(0, idx), ...moving, ...without.slice(idx)];
+}
+
 export function serialize(list: Layer[]): string {
   return JSON.stringify(list);
 }

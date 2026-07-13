@@ -4,7 +4,7 @@ import { readTextFile, writeTextFile } from '../../lib/api/file';
 import '../../styles/design-lab.css';
 import '../../styles/thumbnail.css';
 import { createHistory } from '../../lib/thumbnail/history';
-import { Layer, ModelLayer, makeDefaultEnvLayer, removeLayer, reorderLayer, toggleLock, updateLayer } from '../../lib/thumbnail/layers';
+import { Layer, ModelLayer, makeDefaultEnvLayer, removeLayer, reorderGroup, reorderLayer, toggleLock, updateLayer } from '../../lib/thumbnail/layers';
 import { loadPreset, presetToLayers, PresetId } from '../../lib/thumbnail/preset';
 import { buildPresetFile, parsePresetFile, PresetFile, suggestPresetFilename } from '../../lib/thumbnail/presetFile';
 import { loadStoredPresets, saveStoredPresets } from '../../lib/thumbnail/presetStore';
@@ -78,9 +78,11 @@ function seedLayers(sknPath: string): Layer[] {
       focusMode: 'full',
     },
   ];
-  // Models first (so they sit under the disc/text in z-order via zrank), then
-  // the Riot disc + text, then the 3D map env LAST (renders behind everything).
-  return [...models, ...riotLayers, makeDefaultEnvLayer()];
+  // Array order = z-order (index 0 = FRONT). Default stack, front → back:
+  //   text (on top) → models → disc/fills → map env (back).
+  const textLayers = riotLayers.filter(l => l.type === 'text');
+  const otherLayers = riotLayers.filter(l => l.type !== 'text'); // disc, etc.
+  return [...textLayers, ...models, ...otherLayers, makeDefaultEnvLayer()];
 }
 
 export function ThumbnailEditor({ project, skn }: { project: string; skn: string }) {
@@ -222,6 +224,15 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
   // Array order IS z-order (earlier = on top), so this restacks the layers.
   const handleReorder = useCallback((id: string, beforeId: string | null) => {
     const next = reorderLayer(history.get(), id, beforeId);
+    if (next === history.get()) return;
+    history.set(next, true);
+    forceRender(n => n + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Move a whole category group (a run of layer ids) before `beforeId`.
+  const handleReorderGroup = useCallback((ids: string[], beforeId: string | null) => {
+    const next = reorderGroup(history.get(), ids, beforeId);
     if (next === history.get()) return;
     history.set(next, true);
     forceRender(n => n + 1);
@@ -596,6 +607,7 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
             onToggleLock={handleToggleLock}
             onDelete={handleDeleteLayer}
             onReorder={handleReorder}
+            onReorderGroup={handleReorderGroup}
           />
           <div className="tb-side-split" title="Drag to resize" onPointerDown={handleSplitPointerDown} />
           <PropertiesPanel

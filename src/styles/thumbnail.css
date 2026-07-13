@@ -15,7 +15,12 @@
   top: 0;
   left: 0;
   transform-origin: 0 0;
-  will-change: transform;
+  /* NOTE: no `will-change: transform` here. It promoted the stage to a GPU
+     layer that gets rasterized ONCE at the 640×360 design size and then
+     bitmap-upscaled by the zoom transform — which made text AND the canvases
+     look low-res. Without it the browser re-rasterizes DOM (crisp text) at the
+     zoomed resolution; the canvases are supersampled in JS (see studioScene /
+     mapEnvScene setHardwareScalingLevel). */
   overflow: visible;
 }
 
@@ -470,6 +475,28 @@
   text-transform: uppercase;
   letter-spacing: .5px;
   padding: 9px 12px 3px;
+}
+
+/* Draggable group header — drag it to move the whole category run. */
+.tb-lgroup--drag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: grab;
+  border-radius: 5px;
+  margin: 0 6px;
+  user-select: none;
+}
+.tb-lgroup--drag:hover { background: var(--bg-hover); color: var(--text-secondary); }
+.tb-lgroup--drag:active { cursor: grabbing; }
+.tb-lgroup__grip {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  background-image: radial-gradient(currentColor 1px, transparent 1.4px);
+  background-size: 4px 4px;
+  background-position: center;
+  opacity: .45;
 }
 
 /* ── Layer row ── */

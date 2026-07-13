@@ -92,6 +92,8 @@ export interface LayersPanelProps {
   onDelete: (id: string) => void;
   /** Move `id` to just before `beforeId` (null = to the end / bottom). */
   onReorder: (id: string, beforeId: string | null) => void;
+  /** Move a whole category run (`ids`) before `beforeId` (null = end). */
+  onReorderGroup: (ids: string[], beforeId: string | null) => void;
   /** Forwarded to the section root so the host can measure it for the draggable divider. */
   sectionRef?: Ref<HTMLDivElement>;
 }
@@ -102,63 +104,89 @@ export interface LayersPanelProps {
  * pointer events (NOT HTML5 DnD — WebView2 blocks in-app HTML5 drag; see
  * CLAUDE.md), hit-testing rows via elementFromPoint.
  */
-export function LayersPanel({ layers, selId, onSelect, onToggleHidden, onToggleLock, onDelete, onReorder, sectionRef }: LayersPanelProps) {
+export function LayersPanel({ layers, selId, onSelect, onToggleHidden, onToggleLock, onDelete, onReorder, onReorderGroup, sectionRef }: LayersPanelProps) {
   const listRef = useRef<HTMLDivElement>(null);
-  const [dragId, setDragId] = useState<string | null>(null);
+  // Ids currently being dragged: one for a row, the whole category run for a
+  // group-header drag.
+  const [dragIds, setDragIds] = useState<string[]>([]);
   // The layer id we'd drop BEFORE (null = drop at the very end).
   const [dropBeforeId, setDropBeforeId] = useState<string | null>(null);
 
-  const onDragStart = (e: React.PointerEvent, id: string) => {
+  // Shared pointer-drag for a set of ids (row = [id]; group = the run). Commits
+  // via onReorder (single) or onReorderGroup (many). Hit-tests row midpoints,
+  // skipping the rows being dragged so the target excludes the moving set.
+  const beginDrag = (e: React.PointerEvent, ids: string[]) => {
     e.preventDefault();
-    setDragId(id);
-    setDropBeforeId(id);
+    e.stopPropagation();
+    const moving = new Set(ids);
+    setDragIds(ids);
+    setDropBeforeId(null);
     const move = (ev: PointerEvent) => {
       const list = listRef.current;
       if (!list) return;
       const rows = Array.from(list.querySelectorAll<HTMLElement>('[data-layer-id]'));
       let before: string | null = null;
       for (const row of rows) {
+        const rid = row.dataset.layerId;
+        if (!rid || moving.has(rid)) continue; // skip the dragged rows
         const r = row.getBoundingClientRect();
-        // Drop before the first row whose vertical midpoint is below the cursor.
-        if (ev.clientY < r.top + r.height / 2) { before = row.dataset.layerId ?? null; break; }
+        if (ev.clientY < r.top + r.height / 2) { before = rid; break; }
       }
       setDropBeforeId(before);
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
-      setDragId(cur => {
-        setDropBeforeId(target => {
-          // Commit only if it actually changes position.
-          if (cur && target !== cur) onReorder(cur, target);
-          return null;
-        });
+      setDropBeforeId(target => {
+        if (ids.length === 1) onReorder(ids[0], target);
+        else onReorderGroup(ids, target);
         return null;
       });
+      setDragIds([]);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   };
+
+  const onDragStart = (e: React.PointerEvent, id: string) => beginDrag(e, [id]);
 
   return (
     <div className="tb-side-sec tb-side-sec--layers" ref={sectionRef}>
       <div className="tb-pane-h">Layers</div>
       <div className="tb-side-scroll" ref={listRef}>
         {layers.map((layer, i) => {
-          // Visual grouping ONLY: show a category label above the first layer of
-          // a run of the same category. The list stays a FLAT draggable array —
-          // layers can be dragged across these labels freely (the labels are not
-          // drop boundaries, just headers that recompute as things move).
+          // Visual grouping: show a draggable category label above the first
+          // layer of a run of the same category. Dragging the HEADER moves the
+          // whole group; dragging a ROW moves just that layer. The list stays a
+          // flat array — rows can be dragged across categories freely.
           const cat = categoryOf(layer);
           const prevCat = i > 0 ? categoryOf(layers[i - 1]) : null;
+          const isNewGroup = cat !== prevCat;
+          // The run of layer ids in this contiguous category group.
+          const groupIds = isNewGroup
+            ? (() => {
+                const out: string[] = [];
+                for (let j = i; j < layers.length && categoryOf(layers[j]) === cat; j++) out.push(layers[j].id);
+                return out;
+              })()
+            : [];
           return (
             <div key={layer.id}>
-              {cat !== prevCat && <div className="tb-lgroup">{cat}</div>}
+              {isNewGroup && (
+                <div
+                  className="tb-lgroup tb-lgroup--drag"
+                  title="Drag to move the whole group"
+                  onPointerDown={(e) => beginDrag(e, groupIds)}
+                >
+                  <span className="tb-lgroup__grip" />
+                  {cat}
+                </div>
+              )}
               <LayerRow
                 layer={layer}
                 selected={layer.id === selId}
-                dropBefore={dragId !== null && dropBeforeId === layer.id}
-                dragging={dragId === layer.id}
+                dropBefore={dragIds.length > 0 && dropBeforeId === layer.id}
+                dragging={dragIds.includes(layer.id)}
                 onSelect={onSelect}
                 onToggleHidden={onToggleHidden}
                 onToggleLock={onToggleLock}

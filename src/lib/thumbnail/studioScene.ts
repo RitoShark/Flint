@@ -211,6 +211,12 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         alpha: true,
         premultipliedAlpha: false,
     });
+    // SUPERSAMPLE: the canvas CSS box is the 640×360 design size, but the whole
+    // stage is CSS-zoomed up (often ~1.5×) to fill the viewport, so a 1× backing
+    // store looks blurry. Render at 2× the canvas size (hardware scaling 0.5) so
+    // the models stay crisp when the stage is scaled up. (Export uses its own
+    // full-res 1920×1080 path — this only affects the live preview.)
+    engine.setHardwareScalingLevel(0.5);
     const scene = new Scene(engine);
     // Transparent clear so the ONLY opaque pixels on the canvas are the models
     // themselves. This lets DOM layers painted BEHIND the canvas (the disc /
