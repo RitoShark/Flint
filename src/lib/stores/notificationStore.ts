@@ -14,11 +14,16 @@ export const useNotificationStore = create<NotificationState>((set) => ({
   toasts: [],
 
   showToast: (type, message, options = {}) => {
+    // Callers reach this through `as` casts and optional chains, so at runtime
+    // `message` can be undefined/empty — never render a literal "undefined".
+    const text = typeof message === 'string' && message.trim().length > 0
+      ? message
+      : 'Something went wrong — check the log panel for details.';
     const id = ++toastIdCounter;
     const toast: Toast = {
       id,
       type,
-      message,
+      message: text,
       suggestion: options.suggestion || null,
       timestamp: Date.now(),
     };

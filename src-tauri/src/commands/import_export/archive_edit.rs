@@ -118,8 +118,7 @@ fn folder_wad_name_of(entry_name: &str) -> Option<String> {
 }
 
 fn read_fantome_layout(path: &str) -> Result<(String, Vec<ArchiveWadInfo>), String> {
-    let file = std::fs::File::open(path).map_err(|e| format!("open: {}", e))?;
-    let mut zip = ZipArchive::new(BufReader::new(file)).map_err(|e| format!("zip: {}", e))?;
+    let mut zip = super::fantome_import::open_fantome_zip(path)?;
     let mut meta_json = String::new();
     let mut wads: Vec<ArchiveWadInfo> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();

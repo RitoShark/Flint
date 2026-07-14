@@ -102,9 +102,151 @@ pub(crate) fn guess_extension(data: &[u8]) -> &'static str {
     }
 }
 
+/// Open a `.fantome` (zip) with actionable diagnostics. A plain
+/// `ZipArchive::new` failure surfaces as a bare "invalid Zip archive" — this
+/// sniffs the header so the error says what the file ACTUALLY is (RAR/7z/
+/// modpkg/HTML error page/bare WAD/empty download), and recovers zips whose
+/// central directory is broken (truncated downloads) by streaming the intact
+/// local entries into a rebuilt temp zip.
+pub(crate) fn open_fantome_zip(fantome_path: &str) -> Result<ZipArchive<BufReader<File>>, String> {
+    let file = File::open(fantome_path)
+        .map_err(|e| format!("Failed to open fantome file: {}", e))?;
+    if file.metadata().map(|m| m.len()).unwrap_or(0) == 0 {
+        return Err("The .fantome file is empty (0 bytes) — the download likely failed. Re-download the mod.".into());
+    }
+
+    let zip_err = match ZipArchive::new(BufReader::new(file)) {
+        Ok(archive) => return Ok(archive),
+        Err(e) => e,
+    };
+
+    let mut head = [0u8; 8];
+    let n = File::open(fantome_path)
+        .and_then(|mut f| std::io::Read::read(&mut f, &mut head))
+        .unwrap_or(0);
+    let head = &head[..n];
+
+    if head.starts_with(b"Rar!") {
+        return Err("This file is a RAR archive renamed to .fantome. Extract it and re-zip the contents (META/ + WAD/) as a normal zip, or ask the mod author for a real .fantome.".into());
+    }
+    if head.starts_with(&[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C]) {
+        return Err("This file is a 7-Zip archive renamed to .fantome. Extract it and re-zip the contents (META/ + WAD/) as a normal zip.".into());
+    }
+    if head.starts_with(b"_modpkg_") {
+        return Err("This file is a .modpkg renamed to .fantome. Rename it back to .modpkg and import it again.".into());
+    }
+    if head.starts_with(b"RW") {
+        return Err("This file is a bare .wad.client renamed to .fantome. Rename it back to .wad.client and import that directly.".into());
+    }
+    if head.starts_with(b"<") {
+        return Err("This file is an HTML page, not a mod — the site returned an error page instead of the download. Re-download the mod.".into());
+    }
+    if !head.starts_with(b"PK") {
+        return Err(format!(
+            "Not a zip archive (file starts with {:02X?}) — the file is corrupt or not a .fantome. Zip error: {}",
+            head, zip_err
+        ));
+    }
+
+    // It IS a zip (local-header magic present) but the central directory is
+    // unreadable — the classic symptom of a truncated/incomplete download.
+    // Recover whatever entries are intact.
+    match recover_truncated_zip(fantome_path) {
+        Ok((recovered_path, count)) => {
+            tracing::warn!(
+                "Fantome '{}' has a broken central directory ({}); recovered {} entries via streaming read -> {:?}",
+                fantome_path, zip_err, count, recovered_path
+            );
+            let f = File::open(&recovered_path)
+                .map_err(|e| format!("Failed to reopen recovered zip: {}", e))?;
+            ZipArchive::new(BufReader::new(f))
+                .map_err(|e| format!("Recovered zip is unreadable: {}", e))
+        }
+        Err(recover_err) => Err(format!(
+            "The .fantome zip is corrupt ({}) and no entries could be recovered ({}). The download is likely incomplete — re-download the mod.",
+            zip_err, recover_err
+        )),
+    }
+}
+
+/// Rebuild a valid zip from the readable local file entries of a zip whose
+/// central directory is broken. Returns the rebuilt path and entry count.
+/// The output name is derived from (path, size, mtime) so repeated opens of
+/// the same broken file reuse one recovery instead of re-streaming it.
+fn recover_truncated_zip(fantome_path: &str) -> Result<(PathBuf, usize), String> {
+    use std::hash::{Hash, Hasher};
+    use std::io::{Read, Write};
+
+    let src_meta = std::fs::metadata(fantome_path).map_err(|e| format!("stat: {}", e))?;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    fantome_path.hash(&mut h);
+    src_meta.len().hash(&mut h);
+    if let Ok(m) = src_meta.modified() {
+        if let Ok(d) = m.duration_since(std::time::UNIX_EPOCH) {
+            d.as_secs().hash(&mut h);
+        }
+    }
+
+    let temp_dir = std::env::temp_dir().join("flint_fantome_import");
+    std::fs::create_dir_all(&temp_dir)
+        .map_err(|e| format!("Failed to create temp directory: {}", e))?;
+    let out_path = temp_dir.join(format!("recovered_{:016x}.fantome", h.finish()));
+
+    if out_path.exists() {
+        if let Ok(f) = File::open(&out_path) {
+            if let Ok(z) = ZipArchive::new(BufReader::new(f)) {
+                return Ok((out_path, z.len()));
+            }
+        }
+    }
+
+    let mut reader = BufReader::new(
+        File::open(fantome_path).map_err(|e| format!("open: {}", e))?,
+    );
+    let out = File::create(&out_path).map_err(|e| format!("create: {}", e))?;
+    let mut writer = zip::ZipWriter::new(out);
+    let opts = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .large_file(true);
+
+    let mut count = 0usize;
+    loop {
+        match zip::read::read_zipfile_from_stream(&mut reader) {
+            Ok(Some(mut entry)) => {
+                if entry.is_dir() {
+                    continue;
+                }
+                let name = entry.name().to_string();
+                // Buffer first: a truncated final entry fails mid-read and must
+                // not leave a half-written entry in the rebuilt zip.
+                let mut data = Vec::new();
+                if let Err(e) = entry.read_to_end(&mut data) {
+                    tracing::warn!("Zip recovery: entry '{}' is truncated ({}); stopping", name, e);
+                    break;
+                }
+                writer.start_file(name, opts).map_err(|e| format!("write entry: {}", e))?;
+                writer.write_all(&data).map_err(|e| format!("write entry data: {}", e))?;
+                count += 1;
+            }
+            Ok(None) => break,
+            Err(e) => {
+                // First unreadable local header — everything before it is saved.
+                tracing::warn!("Zip recovery stopped at a broken entry: {}", e);
+                break;
+            }
+        }
+    }
+    writer.finish().map_err(|e| format!("finalize recovered zip: {}", e))?;
+
+    if count == 0 {
+        let _ = std::fs::remove_file(&out_path);
+        return Err("no entries were readable".into());
+    }
+    Ok((out_path, count))
+}
+
 fn read_fantome_metadata(fantome_path: &str) -> Option<FantomeMetadata> {
-    let file = File::open(fantome_path).ok()?;
-    let mut archive = ZipArchive::new(BufReader::new(file)).ok()?;
+    let mut archive = open_fantome_zip(fantome_path).ok()?;
 
     for i in 0..archive.len() {
         let mut file_entry = archive.by_index(i).ok()?;
@@ -175,11 +317,7 @@ fn fantome_folder_wad_name(entry_name: &str) -> Option<String> {
 }
 
 fn extract_fantome_wad(fantome_path: &str) -> Result<PathBuf, String> {
-    let file = File::open(fantome_path)
-        .map_err(|e| format!("Failed to open fantome file: {}", e))?;
-
-    let mut archive = ZipArchive::new(BufReader::new(file))
-        .map_err(|e| format!("Failed to read fantome archive: {}", e))?;
+    let mut archive = open_fantome_zip(fantome_path)?;
 
     let mut packed_wad_name: Option<String> = None;
     let mut folder_wad_name: Option<String> = None;
@@ -838,10 +976,7 @@ fn import_fantome_internal(
 }
 
 fn extract_and_save_fantome_thumbnail(fantome_path: &str, project_path: &Path) -> Result<(), String> {
-    let file = File::open(fantome_path)
-        .map_err(|e| format!("Failed to open file: {}", e))?;
-    let mut archive = ZipArchive::new(BufReader::new(file))
-        .map_err(|e| format!("Failed to open zip archive: {}", e))?;
+    let mut archive = open_fantome_zip(fantome_path)?;
 
     let mut thumb_entry_index = None;
     for i in 0..archive.len() {

@@ -352,16 +352,15 @@ export const ProjectListModal: React.FC = () => {
     }, [isVisible, defaultProjectPath, setSavedProjects]);
 
     useEffect(() => {
-        const unlistenFantome = listen<{ status: string; message: string }>('fantome-import-progress', (event) => {
-            const { status, message } = event.payload;
+        const onProgress = (event: { payload?: { status?: string; message?: string } }) => {
+            const status = event.payload?.status;
+            const message = event.payload?.message;
+            if (typeof message !== 'string' || message.length === 0) return;
             if (status === 'error') setError(message);
             else setWorking(message);
-        });
-        const unlistenModpkg = listen<{ status: string; message: string }>('modpkg-import-progress', (event) => {
-            const { status, message } = event.payload;
-            if (status === 'error') setError(message);
-            else setWorking(message);
-        });
+        };
+        const unlistenFantome = listen<{ status: string; message: string }>('fantome-import-progress', onProgress);
+        const unlistenModpkg = listen<{ status: string; message: string }>('modpkg-import-progress', onProgress);
         return () => {
             unlistenFantome.then((fn) => fn());
             unlistenModpkg.then((fn) => fn());

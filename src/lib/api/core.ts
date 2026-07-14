@@ -31,6 +31,7 @@ export class FlintError extends Error {
             'get_champion_skins': 'Failed to get skins for this champion.',
             'create_project': 'Failed to create project.',
             'create_loading_screen_project': 'Failed to create loading screen project.',
+            'rebuild_loading_screen_bin': 'Failed to rebuild loading screen bin.',
             'open_project': 'Failed to open project. The project file may be corrupted.',
             'save_project': 'Failed to save project.',
             'list_project_files': 'Failed to list project files.',
@@ -88,7 +89,14 @@ export class FlintError extends Error {
             'has_file_backup': 'Failed to check backup.',
             'delete_file_backup': 'Failed to delete backup.',
         };
-        return messages[this.command] || this.message;
+        const mapped = messages[this.command];
+        if (!mapped) return this.message || 'Unknown error';
+        // Append the backend's actual error so the user sees the CAUSE, not just
+        // the generic headline (e.g. which way a .fantome zip is broken).
+        const detail = this.message && this.message !== 'Unknown error' ? this.message : '';
+        if (!detail) return mapped;
+        const trimmed = detail.length > 240 ? `${detail.slice(0, 240)}…` : detail;
+        return `${mapped} ${trimmed}`;
     }
 
     getRecoverySuggestion(): string | null {
@@ -99,6 +107,7 @@ export class FlintError extends Error {
             'discover_champions': 'Ensure League path is set correctly in Settings.',
             'create_project': 'Check that you have write permissions to the selected folder.',
             'create_loading_screen_project': 'Check write permissions and ensure League path is set correctly.',
+            'rebuild_loading_screen_bin': 'Ensure this is a loading screen project and the League path is correct.',
             'open_project': 'Try opening a different project or create a new one.',
             'save_project': 'Check that the project folder still exists and is writable.',
             'save_ritobin_to_bin': 'Check for syntax errors in the BIN editor.',
