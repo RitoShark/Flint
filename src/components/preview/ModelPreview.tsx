@@ -23,6 +23,8 @@ import { createEngine } from '../../lib/babylon/engine';
 import { buildSknMeshes, type MeshDTO } from '../../lib/babylon/meshBuilder';
 import { buildBabylonSkeleton, type BoneData } from '../../lib/babylon/skeletonBuilder';
 import { AnimationPlayer } from '../../lib/babylon/animationPlayer';
+import { SubmeshVisibilityTimeline } from '../../lib/babylon/submeshVisibility';
+import type { AnimationClipInfo } from '../../lib/api/mesh';
 import { modelPreviewSessionStore, type ModelPreviewSession } from '../../lib/stores/modelPreviewSessionStore';
 
 // ============================================================================
@@ -146,6 +148,14 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const lastTimeRef = useRef<number>(0);
     const lastReactTimeRef = useRef<number>(0);
 
+    // Submesh-visibility: full clip list (carries per-clip events), the static load-time
+    // baseline (initialSubmeshToHide), and the timeline for the currently-playing clip.
+    const clipsRef = useRef<AnimationClipInfo[]>([]);
+    const initialHideRef = useRef<string[]>([]);
+    const submeshTimelineRef = useRef<SubmeshVisibilityTimeline | null>(null);
+    // Signature of the last visibility set pushed to React, to avoid per-frame state churn.
+    const lastVisSigRef = useRef<string>('');
+
     const builtSklRef = useRef<{
         boneIndexByHash: Map<number, number>;
         bones: Bone[];
@@ -263,6 +273,9 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                             lastReactTimeRef.current = rounded;
                             setCurrentTime(curTime);
                         }
+                        // Drive submesh visibility from the current playhead (recomputes from
+                        // baseline, so loop-wrap is handled without special-casing).
+                        applyTimelineVisibilityRef.current(curTime);
                     }
                     lastTimeRef.current = now;
                 }
@@ -387,6 +400,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
                     if (animResult.status === 'fulfilled') {
                         const animList = animResult.value;
+                        // Carry the static submesh baseline + full clips (with events) for the
+                        // visibility timeline. `initial_shadow_hide` is intentionally NOT applied:
+                        // it only affects the shadow pass, which this preview doesn't render.
+                        initialHideRef.current = animList.initial_hide ?? [];
+                        clipsRef.current = animList.clips ?? [];
                         if (animList.clips && animList.clips.length > 0) {
                             setAnimations(animList.clips);
                             // Prop-driven open (standalone .anm) takes priority, then cache.
@@ -396,6 +414,9 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                                 setIsPlaying(wantAnim.play);
                             }
                         }
+                    } else {
+                        initialHideRef.current = [];
+                        clipsRef.current = [];
                     }
 
                     if (sklResult.status === 'fulfilled') {
@@ -407,10 +428,18 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
                 setMeshData(data);
 
-                if (data.kind === 'skn') {
-                    setVisibleMaterials(new Set((data as SknMeshData).materials.map(m => m.name)));
+                // Start with all submeshes visible, minus the static initialSubmeshToHide
+                // baseline (matched case-insensitively). Animation events layer on top later.
+                const allNames = data.kind === 'skn'
+                    ? (data as SknMeshData).materials.map(m => m.name)
+                    : (data as ScbMeshData).materials;
+                const hiddenLower = new Set(initialHideRef.current.map(n => n.toLowerCase()));
+                const baseVisible = new Set(allNames.filter(n => !hiddenLower.has(n.toLowerCase())));
+                // A restored session's explicit visibility wins over the computed baseline.
+                if (restore?.visibleMaterials && restore.visibleMaterials.length > 0) {
+                    setVisibleMaterials(new Set(restore.visibleMaterials));
                 } else {
-                    setVisibleMaterials(new Set((data as ScbMeshData).materials));
+                    setVisibleMaterials(baseVisible);
                 }
             } catch (err) {
                 if (cancelled) return;
@@ -716,19 +745,69 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         };
     }, [scene, camera, meshData, skeletonData]);
 
+    // Reset visibility to the static baseline (all shown minus initialSubmeshToHide).
+    const applyBaselineVisibility = React.useCallback(() => {
+        if (!meshData) return;
+        const allNames = meshData.kind === 'skn'
+            ? (meshData as SknMeshData).materials.map(m => m.name)
+            : (meshData as ScbMeshData).materials;
+        const hiddenLower = new Set(initialHideRef.current.map(n => n.toLowerCase()));
+        setVisibleMaterials(new Set(allNames.filter(n => !hiddenLower.has(n.toLowerCase()))));
+    }, [meshData]);
+
+    // Push the timeline's visible set at `tSeconds` into `visibleMaterials`, but only when it
+    // actually changed (the render loop calls this every frame). `hiddenAt`/`visibleAt` are
+    // stateless folds from the baseline, so loop-wrap and scrubbing recompute correctly.
+    const applyTimelineVisibility = React.useCallback((tSeconds: number) => {
+        const timeline = submeshTimelineRef.current;
+        if (!timeline) return;
+        const visible = timeline.visibleAt(tSeconds);
+        const sig = [...visible].sort().join('');
+        if (sig === lastVisSigRef.current) return;
+        lastVisSigRef.current = sig;
+        setVisibleMaterials(visible);
+    }, []);
+
+    // The render loop reads this ref so it always calls the latest closure.
+    const applyTimelineVisibilityRef = useRef(applyTimelineVisibility);
+    applyTimelineVisibilityRef.current = applyTimelineVisibility;
+    const applyBaselineVisibilityRef = useRef(applyBaselineVisibility);
+    applyBaselineVisibilityRef.current = applyBaselineVisibility;
+
     useEffect(() => {
         if (!selectedAnimation) {
             setAnimationData(null);
             setCurrentTime(0);
             animationPlayerRef.current = null;
+            // Dropped the animation → fall back to the static baseline visibility.
+            submeshTimelineRef.current = null;
+            lastVisSigRef.current = '';
+            applyBaselineVisibilityRef.current();
             return;
         }
+
+        // Build the submesh-visibility timeline for this clip from its events + baseline.
+        const clip = clipsRef.current.find(c => c.animation_path === selectedAnimation);
+        const submeshNames = meshData
+            ? (meshData.kind === 'skn'
+                ? (meshData as SknMeshData).materials.map(m => m.name)
+                : (meshData as ScbMeshData).materials)
+            : [];
 
         const loadAnimation = async () => {
             try {
                 const animData = await api.readAnimation(selectedAnimation, filePath);
                 setAnimationData(animData as any);
                 setCurrentTime(0);
+
+                // fps comes from the baked .anm; needed to convert event frames → seconds.
+                submeshTimelineRef.current = new SubmeshVisibilityTimeline({
+                    submeshNames,
+                    initialHide: initialHideRef.current,
+                    events: clip?.events ?? [],
+                    fps: (animData as any).fps ?? 30,
+                });
+                lastVisSigRef.current = '';
 
                 if (skeletonRef.current && builtSklRef.current) {
                     const { boneIndexByHash, bones, joints } = builtSklRef.current;
@@ -747,6 +826,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     animationPlayerRef.current = player;
                     lastTimeRef.current = performance.now();
                 }
+
+                // Apply the clip's visibility at its starting time immediately, so a
+                // paused/just-selected clip shows the correct submeshes without waiting for
+                // the first tick.
+                applyTimelineVisibility(animationPlayerRef.current?.time ?? 0);
             } catch (err) {
                 console.error("Failed to load animation:", err);
                 setAnimationData(null);
@@ -772,6 +856,8 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             animationPlayerRef.current.time = val;
             animationPlayerRef.current.tick(0);
         }
+        // Recompute submesh visibility at the scrubbed time (works while paused too).
+        applyTimelineVisibility(val);
     };
 
     useEffect(() => {

@@ -9,16 +9,29 @@ use ritoshark::anim::Animation;
 use ritoshark::prelude::Parse;
 use serde::Serialize;
 
+use crate::mesh::submesh_visibility::SubmeshVisEvent;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AnimationClipInfo {
     pub name: String,
     pub track_name: Option<String>,
     pub animation_path: String,
+    /// Submesh-visibility events for this clip, sorted by `start_frame`. Empty when the clip
+    /// has none.
+    #[serde(default)]
+    pub events: Vec<SubmeshVisEvent>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AnimationList {
     pub clips: Vec<AnimationClipInfo>,
+    /// Submesh names hidden at load (from the skin BIN's `initialSubmeshToHide`).
+    #[serde(default)]
+    pub initial_hide: Vec<String>,
+    /// Submesh names excluded from the shadow pass at load
+    /// (`initialSubmeshShadowsToHide`).
+    #[serde(default)]
+    pub initial_shadow_hide: Vec<String>,
 }
 
 pub fn extract_animation_graph_path(skin_bin_path: &Path) -> Option<PathBuf> {
@@ -222,7 +235,19 @@ pub fn extract_animation_list(bin_path: &Path) -> anyhow::Result<AnimationList> 
         }
     }
 
-    Ok(AnimationList { clips })
+    // Attach per-clip submesh-visibility events, keyed by clip name (the `.anm` stem).
+    let mut events = crate::mesh::submesh_visibility::parse_clip_visibility_events(&tree);
+    for clip in &mut clips {
+        if let Some(ev) = events.remove(&clip.name) {
+            clip.events = ev;
+        }
+    }
+
+    Ok(AnimationList {
+        clips,
+        initial_hide: Vec::new(),
+        initial_shadow_hide: Vec::new(),
+    })
 }
 
 fn extract_animation_paths_from_value(value: &BinValue, clips: &mut Vec<AnimationClipInfo>) {
@@ -238,6 +263,7 @@ fn extract_animation_paths_from_value(value: &BinValue, clips: &mut Vec<Animatio
                     name,
                     track_name: None,
                     animation_path: s.clone(),
+                    events: Vec::new(),
                 });
             }
         }
