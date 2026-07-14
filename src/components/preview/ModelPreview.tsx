@@ -155,6 +155,8 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const submeshTimelineRef = useRef<SubmeshVisibilityTimeline | null>(null);
     // Signature of the last visibility set pushed to React, to avoid per-frame state churn.
     const lastVisSigRef = useRef<string>('');
+    // True once the user manually toggles a submesh (Materials popup). Gates session restore.
+    const materialsOverriddenRef = useRef<boolean>(false);
 
     const builtSklRef = useRef<{
         boneIndexByHash: Map<number, number>;
@@ -435,10 +437,13 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     : (data as ScbMeshData).materials;
                 const hiddenLower = new Set(initialHideRef.current.map(n => n.toLowerCase()));
                 const baseVisible = new Set(allNames.filter(n => !hiddenLower.has(n.toLowerCase())));
-                // A restored session's explicit visibility wins over the computed baseline.
-                if (restore?.visibleMaterials && restore.visibleMaterials.length > 0) {
+                // Only a session where the user EXPLICITLY toggled submeshes overrides the
+                // baseline; otherwise the initialSubmeshToHide baseline always wins on open.
+                if (restore?.materialsOverridden && restore.visibleMaterials.length > 0) {
+                    materialsOverriddenRef.current = true;
                     setVisibleMaterials(new Set(restore.visibleMaterials));
                 } else {
+                    materialsOverriddenRef.current = false;
                     setVisibleMaterials(baseVisible);
                 }
             } catch (err) {
@@ -1049,6 +1054,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         modelPreviewSessionStore.save(filePath, {
             fileVersion,
             visibleMaterials: [...visibleMaterials],
+            materialsOverridden: materialsOverriddenRef.current,
             selectedAnimation,
             isPlaying,
             currentTime: latestRef.current.currentTime,
@@ -1057,6 +1063,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     }, [filePath, fileVersion, meshData, visibleMaterials, selectedAnimation, isPlaying]);
 
     const toggleMaterial = (name: string) => {
+        materialsOverriddenRef.current = true;
         setVisibleMaterials(prev => {
             const next = new Set(prev);
             if (next.has(name)) {
@@ -1069,6 +1076,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     };
 
     const toggleAllMaterials = (visible: boolean) => {
+        materialsOverriddenRef.current = true;
         if (visible && meshData) {
             if (meshData.kind === 'skn') {
                 setVisibleMaterials(new Set((meshData as SknMeshData).materials.map(m => m.name)));

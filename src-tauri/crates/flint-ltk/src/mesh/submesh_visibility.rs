@@ -79,12 +79,14 @@ pub fn parse_initial_hidden(bin: &Bin) -> InitialHidden {
     };
 
     // The fields may sit directly on the entry or nested inside a `skinMeshProperties` embed.
-    // Search the entry's field tree for the two strings by their field hash.
+    // Search the entry's field tree for the two strings by their field hash. League is
+    // inconsistent about the delimiter here — some skins use commas, some use spaces (real
+    // Kayn data is comma-separated) — so split on BOTH.
     let hide = find_string_field(&entry.fields, F_INITIAL_HIDE)
-        .map(|s| split_names(s, char::is_whitespace))
+        .map(split_names)
         .unwrap_or_default();
     let shadow_hide = find_string_field(&entry.fields, F_INITIAL_SHADOW_HIDE)
-        .map(|s| split_names(s, |c| c == ','))
+        .map(split_names)
         .unwrap_or_default();
 
     InitialHidden { hide, shadow_hide }
@@ -249,10 +251,10 @@ fn find_string_in_value(value: &BinValue, field_hash: u32) -> Option<&str> {
     }
 }
 
-/// Split a submesh-name string, trimming and dropping empties.
-fn split_names(s: &str, sep: impl Fn(char) -> bool) -> Vec<String> {
-    s.split(sep)
-        .map(str::trim)
+/// Split a submesh-name list on commas and/or whitespace, dropping empties. League uses either
+/// delimiter depending on the skin, so accept both.
+fn split_names(s: &str) -> Vec<String> {
+    s.split(|c: char| c == ',' || c.is_whitespace())
         .filter(|p| !p.is_empty())
         .map(str::to_string)
         .collect()
@@ -282,15 +284,20 @@ mod tests {
     }
 
     #[test]
-    fn initial_hide_splits_on_whitespace_shadow_on_comma() {
+    fn initial_hide_splits_on_commas_and_whitespace() {
         let mut fields = IndexMap::new();
+        // Real Kayn data is comma-separated (with spaces after commas).
         fields.insert(
             F_INITIAL_HIDE,
-            BinValue::String("Wings Monster_Head Sword_02".to_string()),
+            BinValue::String(
+                "Kayn_Skin20_Slayer_MAT, Kayn_Skin20_Assassin_MAT, Kayn_Skin20_Glitch_MAT"
+                    .to_string(),
+            ),
         );
+        // Some skins space-separate instead — both must work.
         fields.insert(
             F_INITIAL_SHADOW_HIDE,
-            BinValue::String("Sword_VFX, Cape_Shadow".to_string()),
+            BinValue::String("Sword_VFX Cape_Shadow".to_string()),
         );
         let bin = Bin {
             entries: vec![BinEntry {
@@ -301,7 +308,14 @@ mod tests {
             ..Bin::new()
         };
         let hidden = parse_initial_hidden(&bin);
-        assert_eq!(hidden.hide, vec!["Wings", "Monster_Head", "Sword_02"]);
+        assert_eq!(
+            hidden.hide,
+            vec![
+                "Kayn_Skin20_Slayer_MAT",
+                "Kayn_Skin20_Assassin_MAT",
+                "Kayn_Skin20_Glitch_MAT"
+            ]
+        );
         assert_eq!(hidden.shadow_hide, vec!["Sword_VFX", "Cape_Shadow"]);
     }
 
