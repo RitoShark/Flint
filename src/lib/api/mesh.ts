@@ -186,14 +186,28 @@ export async function readSklSkeleton(path: string): Promise<SklData> {
     return invokeCommand('read_skl_skeleton', { path });
 }
 
-interface AnimationClipInfo {
+/** One submesh-visibility event within an animation clip. `hide_hashes` / `show_hashes` are
+ *  FNV1a-32 (lowercased) submesh-name hashes; `start_frame` is a frame index. */
+export interface SubmeshVisEvent {
+    start_frame: number;
+    hide_hashes: number[];
+    show_hashes: number[];
+}
+
+export interface AnimationClipInfo {
     name: string;
     track_name: string | null;
     animation_path: string;
+    /** Submesh-visibility events for this clip, sorted by `start_frame` (may be empty). */
+    events?: SubmeshVisEvent[];
 }
 
-interface AnimationList {
+export interface AnimationList {
     clips: AnimationClipInfo[];
+    /** Submesh names hidden at load (from the skin BIN's `initialSubmeshToHide`). */
+    initial_hide?: string[];
+    /** Submesh names excluded from the shadow pass at load (`initialSubmeshShadowsToHide`). */
+    initial_shadow_hide?: string[];
 }
 
 interface AnimationData {

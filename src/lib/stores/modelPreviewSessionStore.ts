@@ -3,6 +3,9 @@ export interface ModelPreviewSession {
     fileVersion: number;
     /** Material/mesh names toggled visible. */
     visibleMaterials: string[];
+    /** True once the user manually toggled a submesh — only then does `visibleMaterials`
+     *  override the initialSubmeshToHide baseline / animation-driven visibility on reopen. */
+    materialsOverridden?: boolean;
     /** animation_path of the selected clip ('' = none). */
     selectedAnimation: string;
     isPlaying: boolean;

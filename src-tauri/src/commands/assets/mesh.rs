@@ -73,6 +73,16 @@ async fn read_scb_mesh_inner(path: String) -> Result<ScbMeshData, String> {
             bin_text
         };
 
+        // Also fold in any bins referenced through the skin BIN's `linked` header — shared
+        // material defs frequently live there rather than in the skin/concat BIN.
+        let combined_text = match find_linked_bin_ritobin_text(scb_path) {
+            Some(linked) => {
+                tracing::debug!("📄 Also merged linked-bin ritobin ({} bytes)", linked.len());
+                format!("{}{}", combined_text, linked)
+            }
+            None => combined_text,
+        };
+
         use flint_ltk::mesh::texture::extract_texture_mapping_from_text;
 
         let texture_mapping = match extract_texture_mapping_from_text(&combined_text) {
@@ -295,6 +305,98 @@ fn find_concat_ritobin_text(mesh_path: &Path) -> Option<String> {
     None
 }
 
+/// Follow the skin BIN's `linked` header and return the concatenated ritobin text of every
+/// linked `.bin` that resolves to a file on disk. Material/`StaticMaterialDef` defs often live
+/// in these shared/linked bins rather than in the skin BIN itself.
+///
+/// Only the skin BIN's *direct* linked list is followed (no recursion, no project-wide scan).
+fn find_linked_bin_ritobin_text(mesh_path: &Path) -> Option<String> {
+    let skin_bin = find_skin_bin(mesh_path)?;
+    let data = std::fs::read(&skin_bin).ok()?;
+    let tree = flint_ltk::bin::ltk_bridge::read_bin(&data).ok()?;
+    if tree.linked.is_empty() {
+        return None;
+    }
+
+    let project_root = find_project_root(mesh_path);
+    let mut merged = String::new();
+
+    for linked in &tree.linked {
+        let normalized = linked.replace('\\', "/");
+        if !normalized.to_lowercase().ends_with(".bin") {
+            continue;
+        }
+
+        let Some(bin_path) = resolve_linked_bin_path(mesh_path, project_root.as_deref(), &normalized)
+        else {
+            tracing::debug!("  Linked BIN not found on disk: {}", linked);
+            continue;
+        };
+
+        // Skip the skin BIN itself if it links back to its own concat, etc. — already merged.
+        if bin_path == skin_bin {
+            continue;
+        }
+
+        let ritobin_path = std::path::PathBuf::from(format!("{}.ritobin", bin_path.display()));
+        let text = if ritobin_path.exists() {
+            std::fs::read_to_string(&ritobin_path).ok()
+        } else {
+            create_ritobin_cache(&bin_path, &ritobin_path).ok()
+        };
+
+        if let Some(text) = text {
+            tracing::debug!("  ✓ Merged linked BIN: {} ({} bytes)", bin_path.display(), text.len());
+            merged.push_str("\n\n");
+            merged.push_str(&text);
+        }
+    }
+
+    if merged.is_empty() {
+        None
+    } else {
+        Some(merged)
+    }
+}
+
+/// Resolve a BIN `linked` path (e.g. `data/characters/kayn/skins/skin20.bin`) to a real file.
+/// Tries: relative to the project root, walking up from the mesh directory, and as-is.
+fn resolve_linked_bin_path(
+    mesh_path: &Path,
+    project_root: Option<&Path>,
+    linked: &str,
+) -> Option<std::path::PathBuf> {
+    let normalized = linked
+        .trim_start_matches("ASSETS/")
+        .trim_start_matches("assets/");
+
+    if let Some(root) = project_root {
+        let candidate = root.join(normalized);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+
+    // Walk up from the mesh directory looking for a dir where the linked path resolves — this
+    // handles `.wad.client` extraction roots that hold the `data/` tree.
+    let mut search_dir = mesh_path.parent().map(|p| p.to_path_buf());
+    for _ in 0..8 {
+        let Some(dir) = search_dir else { break };
+        let candidate = dir.join(normalized);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+        search_dir = dir.parent().map(|p| p.to_path_buf());
+    }
+
+    let as_is = std::path::PathBuf::from(linked);
+    if as_is.exists() {
+        return Some(as_is);
+    }
+
+    None
+}
+
 /// Read a BIN file, convert it to text using cached hashes, and write a
 /// `.ritobin` cache file.
 pub fn create_ritobin_cache(bin_path: &Path, ritobin_path: &Path) -> anyhow::Result<String> {
@@ -410,6 +512,16 @@ async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {
         } else {
             tracing::warn!("No concat BIN found - using main BIN only");
             bin_text
+        };
+
+        // Also fold in any bins referenced through the skin BIN's `linked` header — shared
+        // material defs frequently live there rather than in the skin/concat BIN.
+        let combined_text = match find_linked_bin_ritobin_text(skn_path) {
+            Some(linked) => {
+                tracing::debug!("📄 Also merged linked-bin ritobin ({} bytes)", linked.len());
+                format!("{}{}", combined_text, linked)
+            }
+            None => combined_text,
         };
 
         use flint_ltk::mesh::texture::extract_texture_mapping_from_text;
@@ -731,14 +843,23 @@ pub async fn read_animation_list(skn_path: String) -> Result<AnimationList, Stri
 
     let bin_path = find_animation_bin(skn_path)
         .ok_or_else(|| "Animation BIN file not found".to_string())?;
-    
+
     tracing::debug!("Found animation BIN: {}", bin_path.display());
-    
-    extract_animation_list(&bin_path)
+
+    let mut list = extract_animation_list(&bin_path)
         .map_err(|e| {
             tracing::error!("Failed to extract animation list: {}", e);
             format!("Failed to extract animation list: {}", e)
-        })
+        })?;
+
+    // Attach the static submesh baseline from the skin BIN (non-fatal if not found).
+    if let Some(skin_bin) = flint_ltk::mesh::texture::find_skin_bin(skn_path) {
+        let initial = flint_ltk::mesh::submesh_visibility::parse_initial_hidden_file(&skin_bin);
+        list.initial_hide = initial.hide;
+        list.initial_shadow_hide = initial.shadow_hide;
+    }
+
+    Ok(list)
 }
 
 /// Read and parse an ANM animation file and bake it
