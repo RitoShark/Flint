@@ -2,6 +2,7 @@ import * as api from '../api';
 import { openThumbnailWindow } from '../api/thumbnail';
 import { getIcon } from '../ui-helpers/fileIcons';
 import { useNavigationStore } from '../stores/navigationStore';
+import { useProjectTabStore } from '../stores/projectTabStore';
 import type { ContextMenuOption, ModalType } from '../types';
 
 interface BuildOptionsArgs {
@@ -42,6 +43,8 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
     if (node.isDirectory) {
         if (depth === 0 && projectPath) {
+            const tabs = useProjectTabStore.getState();
+            const activeProjectKind = tabs.openTabs.find(t => t.id === tabs.activeTabId)?.project?.kind ?? null;
             options.push({
                 label: 'Project',
                 icon: getIcon('code'),
@@ -107,6 +110,27 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                             })();
                         },
                     },
+                    // Only loading-screen projects have the injected uibase to rebuild.
+                    ...(activeProjectKind === 'loading-screen' ? [{
+                        label: 'Rebuild Animated Loadscreen',
+                        icon: getIcon('refresh'),
+                        onClick: () => {
+                            if (!leaguePath) {
+                                showToast('error', 'League path is required to rebuild the loadscreen.');
+                                return;
+                            }
+                            void (async () => {
+                                try {
+                                    await api.rebuildLoadingScreenBin(projectPath, leaguePath);
+                                    await refreshFileTree();
+                                    showToast('success', 'Animated loadscreen rebuilt successfully.');
+                                } catch (e) {
+                                    const fe = e as api.FlintError;
+                                    showToast('error', fe.getUserMessage?.() || (e instanceof Error ? e.message : 'Failed to rebuild loadscreen'));
+                                }
+                            })();
+                        },
+                    }] : []),
                 ],
             });
 

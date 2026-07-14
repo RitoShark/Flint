@@ -532,20 +532,22 @@ pub async fn create_loading_screen_project(
     }));
 
     let assets_base_inject = project.assets_path();
-    let creator_for_inject = creator_name.clone();
+    let anim_params = AnimationParams {
+        creator_name: creator_name.clone(),
+        sheet_width,
+        sheet_height,
+        fps,
+        total_frames,
+        cols,
+    };
 
     let inject_result = tokio::task::spawn_blocking(move || {
         inject_animation_block(
             &uibase_bytes,
             &assets_base_inject,
-            &creator_for_inject,
+            &anim_params,
             frame_width,
             frame_height,
-            sheet_width,
-            sheet_height,
-            fps,
-            total_frames,
-            cols,
         )
     })
     .await
@@ -692,14 +694,13 @@ fn encode_spritesheet_to_tex(
     header.push(0); // resource_type (texture = 0)
     header.push(0); // flags (no mipmaps = 0)
 
-    let tex_dir = assets_base
+    let tex_path = assets_base
         .join("UI.wad.client")
-        .join("assets")
-        .join("animatedloadscreen");
-    std::fs::create_dir_all(&tex_dir)
-        .map_err(|e| format!("Failed to create output directory: {}", e))?;
-
-    let tex_path = tex_dir.join("spritesheet.tex");
+        .join(SPRITESHEET_ASSET_PATH);
+    if let Some(parent) = tex_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create output directory: {}", e))?;
+    }
     let mut output = std::fs::File::create(&tex_path)
         .map_err(|e| format!("Failed to create TEX file: {}", e))?;
 
@@ -784,19 +785,19 @@ fn bin_prop(name: &str, value: flint_ltk::ltk_types::BinValue) -> (u32, flint_lt
     (fnv1a_lower(name), value)
 }
 
+/// Relative path (inside UI.wad.client) of the generated spritesheet. Also the
+/// marker that identifies OUR injected animation entry in the uibase — the game
+/// ships native `UiElementEffectAnimationData` entries (e.g. the loading
+/// spinner) with the same class, so class alone is not enough to find ours.
+const SPRITESHEET_ASSET_PATH: &str = "assets/animatedloadscreen/spritesheet.tex";
+
 /// Inject the animation configuration object directly into the uibase BIN tree.
-#[allow(clippy::too_many_arguments)]
 fn inject_animation_block(
     uibase_bytes: &[u8],
     assets_base: &std::path::Path,
-    creator_name: &str,
+    params: &AnimationParams,
     frame_width: u32,
     frame_height: u32,
-    sheet_width: u32,
-    sheet_height: u32,
-    fps: f32,
-    total_frames: f32,
-    cols: f32,
 ) -> Result<(), String> {
     use flint_ltk::ltk_types::{BinEntry, BinValue};
 
@@ -807,12 +808,15 @@ fn inject_animation_block(
 
     tracing::info!("uibase parsed: {} objects", bin.entries.len());
 
-    let uv_w = frame_width as f32 / sheet_width as f32;
-    let uv_h = frame_height as f32 / sheet_height as f32;
+    // mTextureUV expects pixel coordinates of a single frame (width-1, height-1),
+    // NOT normalized UV fractions. Verified against the game's own spinner entry:
+    // a 256x128 atlas with 32x32 frames uses {0, 0, 31, 31}.
+    let uv_w = frame_width.saturating_sub(1) as f32;
+    let uv_h = frame_height.saturating_sub(1) as f32;
 
     let entry_name = format!(
         "ClientStates/LoadingScreen/UX/LoadingScreenClassic/UIBase/LoadingScreen/{}",
-        creator_name
+        params.creator_name
     );
     let scene_path = "ClientStates/LoadingScreen/UX/LoadingScreenClassic/UIBase/LoadingScreen";
 
@@ -837,27 +841,29 @@ fn inject_animation_block(
     let atlas_data = BinValue::Pointer {
         class: fnv1a_lower("AtlasData"),
         fields: vec![
-            bin_prop("mTextureName", BinValue::String("assets/animatedloadscreen/spritesheet.tex".to_string())),
-            bin_prop("mTextureSourceResolutionWidth", BinValue::U32(sheet_width)),
-            bin_prop("mTextureSourceResolutionHeight", BinValue::U32(sheet_height)),
+            bin_prop("mTextureName", BinValue::String(SPRITESHEET_ASSET_PATH.to_string())),
+            bin_prop("mTextureSourceResolutionWidth", BinValue::U32(params.sheet_width)),
+            bin_prop("mTextureSourceResolutionHeight", BinValue::U32(params.sheet_height)),
             bin_prop("mTextureUV", BinValue::Vec4([0.0, 0.0, uv_w, uv_h])),
         ].into_iter().collect(),
     };
 
-    let path_hash: u32 = 0x93e6_1733;
     let anim_entry = BinEntry {
-        path_hash,
+        path_hash: fnv1a_lower(&entry_name),
         class_hash: fnv1a_lower("UiElementEffectAnimationData"),
         fields: vec![
             bin_prop("name", BinValue::String(entry_name)),
             bin_prop("Scene", BinValue::Link(fnv1a_lower(scene_path))),
             bin_prop("Enabled", BinValue::Bool(true)),
-            bin_prop("Layer", BinValue::U32(0)),
+            // Draw above the base scene's static elements: the background has no
+            // explicit layer (default 0), icons sit at 20-25. Known-working
+            // animated-loadscreen mods use 70 so the sheet covers the loadscreen.
+            bin_prop("Layer", BinValue::U32(70)),
             bin_prop("Position", position_ptr),
             bin_prop("TextureData", atlas_data),
-            bin_prop("FramesPerSecond", BinValue::F32(fps)),
-            bin_prop("TotalNumberOfFrames", BinValue::F32(total_frames)),
-            bin_prop("NumberOfFramesPerRowInAtlas", BinValue::F32(cols)),
+            bin_prop("FramesPerSecond", BinValue::F32(params.fps)),
+            bin_prop("TotalNumberOfFrames", BinValue::F32(params.total_frames)),
+            bin_prop("NumberOfFramesPerRowInAtlas", BinValue::F32(params.cols)),
             bin_prop("mFinishBehavior", BinValue::U8(1)),
         ].into_iter().collect(),
     };
@@ -891,6 +897,189 @@ fn inject_animation_block(
     Ok(())
 }
 
+/// Holds the animation parameters extracted from an existing uibase bin entry.
+struct AnimationParams {
+    creator_name: String,
+    sheet_width: u32,
+    sheet_height: u32,
+    fps: f32,
+    total_frames: f32,
+    cols: f32,
+}
+
+/// Read the existing uibase BIN in the project and extract the animation params
+/// from the injected `UiElementEffectAnimationData` entry.
+fn extract_animation_params_from_bin(uibase_bytes: &[u8]) -> Result<AnimationParams, String> {
+    use flint_ltk::ltk_types::BinValue;
+
+    let bin = flint_ltk::bin::read_bin_ltk(uibase_bytes)
+        .map_err(|e| format!("Failed to parse project uibase BIN: {}", e))?;
+
+    let anim_class_hash = fnv1a_lower("UiElementEffectAnimationData");
+    let texture_data_hash = fnv1a_lower("TextureData");
+    let texture_name_hash = fnv1a_lower("mTextureName");
+
+    // Find OUR injected entry: the game ships native entries of the same class
+    // (e.g. the loading spinner), so match on the spritesheet texture path too.
+    let anim_entry = bin.entries.iter()
+        .filter(|e| e.class_hash == anim_class_hash)
+        .find(|e| {
+            e.fields.iter()
+                .find(|(h, _)| **h == texture_data_hash)
+                .and_then(|(_, v)| if let BinValue::Pointer { fields, .. } = v { Some(fields) } else { None })
+                .and_then(|fields| fields.iter().find(|(h, _)| **h == texture_name_hash))
+                .and_then(|(_, v)| if let BinValue::String(s) = v { Some(s) } else { None })
+                .is_some_and(|s| s.eq_ignore_ascii_case(SPRITESHEET_ASSET_PATH))
+        })
+        .ok_or_else(|| "No Flint animated-loadscreen entry found in project uibase. \
+                         Is this a loading-screen project?".to_string())?;
+
+    // Extract creator name from the "name" field
+    // It's formatted as "ClientStates/LoadingScreen/.../LoadingScreen/{creatorName}"
+    let name_hash = fnv1a_lower("name");
+    let creator_name = anim_entry.fields.iter()
+        .find(|(h, _)| **h == name_hash)
+        .and_then(|(_, v)| if let BinValue::String(s) = v { Some(s.clone()) } else { None })
+        .and_then(|full_path| full_path.rsplit('/').next().map(|s| s.to_string()))
+        .unwrap_or_else(|| "Flint".to_string());
+
+    let atlas_fields = anim_entry.fields.iter()
+        .find(|(h, _)| **h == texture_data_hash)
+        .and_then(|(_, v)| if let BinValue::Pointer { fields, .. } = v { Some(fields) } else { None })
+        .ok_or_else(|| "TextureData not found in animation entry".to_string())?;
+
+    let src_w_hash = fnv1a_lower("mTextureSourceResolutionWidth");
+    let src_h_hash = fnv1a_lower("mTextureSourceResolutionHeight");
+
+    let sheet_width = atlas_fields.iter()
+        .find(|(h, _)| **h == src_w_hash)
+        .and_then(|(_, v)| if let BinValue::U32(n) = v { Some(*n) } else { None })
+        .ok_or_else(|| "mTextureSourceResolutionWidth not found".to_string())?;
+
+    let sheet_height = atlas_fields.iter()
+        .find(|(h, _)| **h == src_h_hash)
+        .and_then(|(_, v)| if let BinValue::U32(n) = v { Some(*n) } else { None })
+        .ok_or_else(|| "mTextureSourceResolutionHeight not found".to_string())?;
+
+    // Extract FramesPerSecond, TotalNumberOfFrames, NumberOfFramesPerRowInAtlas
+    let fps_hash = fnv1a_lower("FramesPerSecond");
+    let total_hash = fnv1a_lower("TotalNumberOfFrames");
+    let cols_hash = fnv1a_lower("NumberOfFramesPerRowInAtlas");
+
+    let fps = anim_entry.fields.iter()
+        .find(|(h, _)| **h == fps_hash)
+        .and_then(|(_, v)| if let BinValue::F32(n) = v { Some(*n) } else { None })
+        .ok_or_else(|| "FramesPerSecond not found".to_string())?;
+
+    let total_frames = anim_entry.fields.iter()
+        .find(|(h, _)| **h == total_hash)
+        .and_then(|(_, v)| if let BinValue::F32(n) = v { Some(*n) } else { None })
+        .ok_or_else(|| "TotalNumberOfFrames not found".to_string())?;
+
+    let cols = anim_entry.fields.iter()
+        .find(|(h, _)| **h == cols_hash)
+        .and_then(|(_, v)| if let BinValue::F32(n) = v { Some(*n) } else { None })
+        .ok_or_else(|| "NumberOfFramesPerRowInAtlas not found".to_string())?;
+
+    tracing::info!(
+        "Extracted animation params: creator={}, sheet={}x{}, fps={}, frames={}, cols={}",
+        creator_name, sheet_width, sheet_height, fps, total_frames, cols
+    );
+
+    Ok(AnimationParams {
+        creator_name,
+        sheet_width,
+        sheet_height,
+        fps,
+        total_frames,
+        cols,
+    })
+}
+
+/// Re-extract fresh uibase from game files and re-inject the animation block
+/// with the existing spritesheet params (fixing UV along the way).
+#[tauri::command]
+pub async fn rebuild_loading_screen_bin(
+    project_path: String,
+    league_path: String,
+) -> Result<(), String> {
+    let _t = ipc_trace::enter("rebuild_loading_screen_bin");
+    tracing::info!("Rebuilding loading screen bin for: {}", project_path);
+
+    let project_path_buf = PathBuf::from(&project_path);
+    let league_path_buf = PathBuf::from(&league_path);
+
+    // Open the project to get the assets path
+    let project = tokio::task::spawn_blocking({
+        let pp = project_path_buf.clone();
+        move || core_open_project(&pp)
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?
+    .map_err(|e| format!("Failed to open project: {}", e))?;
+
+    let assets_base = project.assets_path();
+
+    // Read the existing uibase from the project to extract animation params
+    let existing_uibase_path = assets_base
+        .join("UI.wad.client")
+        .join("clientstates")
+        .join("loadingscreen")
+        .join("ux")
+        .join("loadingscreenclassic")
+        .join("uibase");
+
+    if !existing_uibase_path.exists() {
+        return Err(format!(
+            "No existing uibase found at {}. Is this a loading-screen project?",
+            existing_uibase_path.display()
+        ));
+    }
+
+    let existing_uibase_bytes = std::fs::read(&existing_uibase_path)
+        .map_err(|e| format!("Failed to read existing uibase: {}", e))?;
+
+    let params = extract_animation_params_from_bin(&existing_uibase_bytes)?;
+
+    // Compute frame dimensions from the extracted params
+    let cols_u32 = params.cols as u32;
+    if cols_u32 == 0 || params.total_frames < 1.0 {
+        return Err(format!(
+            "Invalid animation params in project uibase (cols={}, frames={})",
+            params.cols, params.total_frames
+        ));
+    }
+    let rows_u32 = (params.total_frames as u32).div_ceil(cols_u32);
+    let frame_width = params.sheet_width / cols_u32;
+    let frame_height = params.sheet_height / rows_u32;
+
+    tracing::info!(
+        "Computed frame dimensions: {}x{} (from {}x{} sheet, {} cols, {} rows)",
+        frame_width, frame_height, params.sheet_width, params.sheet_height, cols_u32, rows_u32
+    );
+
+    // Extract fresh uibase from the game
+    let fresh_uibase_bytes = tokio::task::spawn_blocking({
+        let lp = league_path_buf.clone();
+        move || extract_uibase_from_game(&lp)
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?
+    .map_err(|e| format!("Failed to extract fresh uibase: {}", e))?;
+
+    // Re-inject the animation block with the extracted params (UV is now fixed
+    // in inject_animation_block)
+    tokio::task::spawn_blocking({
+        let ab = assets_base.clone();
+        move || inject_animation_block(&fresh_uibase_bytes, &ab, &params, frame_width, frame_height)
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?
+    .map_err(|e| format!("Failed to re-inject animation block: {}", e))?;
+
+    tracing::info!("Successfully rebuilt loading screen bin for: {}", project_path);
+    Ok(())
+}
 
 /// Open an existing project.
 #[tauri::command]

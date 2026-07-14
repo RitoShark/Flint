@@ -130,6 +130,10 @@ export async function createLoadingScreenProject(params: CreateLoadingScreenPara
     return decodeProjectPayload(new Uint8Array(buf));
 }
 
+export async function rebuildLoadingScreenBin(projectPath: string, leaguePath: string): Promise<void> {
+    return invokeCommand('rebuild_loading_screen_bin', { projectPath, leaguePath });
+}
+
 export interface CreateHudProjectParams {
     projectName: string;
     creatorName: string;

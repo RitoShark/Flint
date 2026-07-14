@@ -177,8 +177,11 @@ export function calculateBudget(params: {
 
     const baseW = forcedWidth ?? videoWidth;
     const baseH = forcedHeight ?? videoHeight;
-    const frameW = Math.floor(baseW * scaleFactor);
-    const frameH = Math.floor(baseH * scaleFactor);
+    // The TEX is BC1 (4×4 blocks) and the encoder requires 4-aligned dimensions;
+    // snapping each frame down to a multiple of 4 keeps the whole sheet aligned
+    // (e.g. 1080p at 75% would otherwise yield an 810px-tall frame → corrupt TEX).
+    const frameW = Math.max(4, Math.floor((baseW * scaleFactor) / 4) * 4);
+    const frameH = Math.max(4, Math.floor((baseH * scaleFactor) / 4) * 4);
     const duration = trimEnd - trimStart;
     const totalFrames = Math.max(1, Math.floor(duration * fps));
 

@@ -169,7 +169,7 @@ export const NewProjectModal: React.FC = () => {
     const [videoMeta, setVideoMeta] = useState<VideoMeta | null>(null);
     const [trimStart, setTrimStart] = useState(0);
     const [trimEnd, setTrimEnd] = useState(0);
-    const [scaleFactor, setScaleFactor] = useState(0.5);
+    const [scaleFactor, setScaleFactor] = useState(1.0);
     const [customFps, setCustomFps] = useState(30);
     // Loadscreens are authored 16:9. Force it by default (opt-out for source AR).
     const [force169, setForce169] = useState(true);

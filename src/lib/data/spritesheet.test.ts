@@ -85,4 +85,21 @@ describe('calculateBudget forced dims', () => {
         expect(b.frameW).toBe(400);
         expect(b.frameH).toBe(300);
     });
+
+    it('snaps frame dims down to multiples of 4 (BC1 block alignment)', () => {
+        // 1080p at 75% would be 1440×810 — 810 is not 4-aligned and would
+        // produce a corrupt BC1 encode; expect 808 instead.
+        const b = calculateBudget({
+            videoWidth: 1920,
+            videoHeight: 1080,
+            scaleFactor: 0.75,
+            fps: 30,
+            trimStart: 0,
+            trimEnd: 1,
+        });
+        expect(b.frameW).toBe(1440);
+        expect(b.frameH).toBe(808);
+        expect(b.frameW % 4).toBe(0);
+        expect(b.frameH % 4).toBe(0);
+    });
 });

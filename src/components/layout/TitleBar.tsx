@@ -36,12 +36,6 @@ const SettingsIcon: React.FC = () => (
     </svg>
 );
 
-const WrenchIcon: React.FC = () => (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-        <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>
-);
-
 const FlintLogo: React.FC = () => (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
         <path
@@ -293,6 +287,7 @@ export const TitleBar: React.FC = () => {
     const activeArchiveTabId = useArchiveTabStore((s) => s.activeArchiveTabId);
     const wadExplorerOpen = useWadExplorerStore((s) => s.isOpen);
     const currentView = useNavigationStore((s) => s.currentView);
+    const leaguePath = useConfigStore((s) => s.leaguePath);
     const ltkManagerModPath = useConfigStore((s) => s.ltkManagerModPath);
     const celestialModPath = useConfigStore((s) => s.celestialModPath);
     const preferredLauncher = useConfigStore((s) => s.preferredLauncher);
@@ -303,6 +298,7 @@ export const TitleBar: React.FC = () => {
     const [dropdownOpen, setDropdownOpen] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
+    const [isRebuildingLoadscreen, setIsRebuildingLoadscreen] = useState(false);
     const [closingWindow, setClosingWindow] = useState(false);
     const [wadExplorerClosing, setWadExplorerClosing] = useState(false);
 
@@ -343,10 +339,6 @@ export const TitleBar: React.FC = () => {
 
     const handleSettings = () => {
         openModal('settings');
-    };
-
-    const handleFixSkin = () => {
-        openModal('fixer');
     };
 
     const toggleDropdown = useCallback((e: React.MouseEvent) => {
@@ -392,6 +384,24 @@ export const TitleBar: React.FC = () => {
             setIsSyncing(false);
         }
     }, [currentProject, currentProjectPath, launcherTarget, showToast]);
+
+    const handleRebuildLoadscreen = useCallback(async () => {
+        if (!currentProjectPath) return;
+        if (!leaguePath) {
+            showToast('error', 'League path is not configured. Set it in Settings.');
+            return;
+        }
+        setIsRebuildingLoadscreen(true);
+        try {
+            await api.rebuildLoadingScreenBin(currentProjectPath, leaguePath);
+            showToast('success', 'Loadscreen rebuilt from the live game uibase.');
+        } catch (err) {
+            const flintError = err as api.FlintError;
+            showToast('error', flintError.getUserMessage?.() || 'Failed to rebuild loadscreen');
+        } finally {
+            setIsRebuildingLoadscreen(false);
+        }
+    }, [currentProjectPath, leaguePath, showToast]);
 
     const handleExportAs = useCallback(async (format: 'fantome' | 'modpkg') => {
         setDropdownOpen(false);
@@ -665,6 +675,16 @@ export const TitleBar: React.FC = () => {
                     >Map Textures</button>
                 )}
 
+                {currentView === 'preview' && currentProject?.kind === 'loading-screen' && (
+                    <button
+                        style={psdBtnStyle(isRebuildingLoadscreen)}
+                        onClick={handleRebuildLoadscreen}
+                        disabled={isRebuildingLoadscreen}
+                        title="Re-extract the current game's uibase and re-inject the animation config — no need to redo the spritesheet after a patch"
+                        data-tauri-drag-region="false"
+                    >{isRebuildingLoadscreen ? 'Rebuilding…' : 'Rebuild'}</button>
+                )}
+
                 {currentView === 'preview' && currentProject && launcherTarget && (
                     <button
                         className="titlebar__button titlebar__button--sync"
@@ -760,14 +780,6 @@ export const TitleBar: React.FC = () => {
                     </div>
                 )}
 
-                <button
-                    className="titlebar__button titlebar__button--fix"
-                    onClick={handleFixSkin}
-                    title="Fix Skin"
-                    data-tauri-drag-region="false"
-                >
-                    <WrenchIcon />
-                </button>
                 <button
                     className="titlebar__button titlebar__button--settings"
                     onClick={handleSettings}
