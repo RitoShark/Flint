@@ -1,6 +1,6 @@
 use crate::types::InibinFlags;
 
-#[derive(Debug, thiserror::Error, miette::Diagnostic)]
+#[derive(Debug, thiserror::Error)]
 pub enum InibinError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),

@@ -27,7 +27,9 @@ ltk_inibin = { path = "crates/ltk_inibin", features = ["serde"] }
 # RitoShark crates — migration target. Binary-crate commands use ritoshark types directly;
 # same git rev as flint-ltk's dep, so cargo compiles ONE shared copy (identical types across crates).
 ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "daff556", features = ["rman-verify"] }
-intel_tex_2 = "0.5"
+# 0.4 matches image_dds's pin so only ONE copy of the ISPC kernels compiles
+# (0.4 and 0.5 have identical Surface/bc1 APIs).
+intel_tex_2 = "0.4"
 flate2 = "1.0"
 
 # Tauri framework
@@ -45,8 +47,11 @@ serde_json = "1.0"
 
 # Async runtime
 tokio = { version = "1.0", features = ["rt-multi-thread", "fs", "io-util", "sync", "macros", "time"] }
-reqwest = { version = "0.11", default-features = false, features = ["json", "stream", "rustls-tls"] }
-futures = "0.3"
+# Same major as tauri-plugin-updater's reqwest so ONE HTTP stack compiles.
+# `rustls-no-provider` + the explicit ring pin in flint-ltk avoids compiling the
+# heavy aws-lc-sys default provider (mirrors tauri-plugin-updater's TLS setup).
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls-no-provider"] }
+futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 
 # Error handling
 thiserror = "1.0"
@@ -87,7 +92,7 @@ semver = "1.0"
 image = { version = "0.25", default-features = false, features = ["dds", "png", "webp"] }
 image_dds = "0.6"
 ddsfile = "0.5"
-base64 = "0.21"
+base64 = "0.22"
 
 # Filesystem
 walkdir = "2.4"
@@ -102,11 +107,8 @@ psd = "0.3.5"
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
 libloading = "0.8"
-windows = { version = "0.58", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
-
-[dev-dependencies]
-proptest = "1.0"
-tempfile = "3.0"
+# Same version as tauri's `tao` so only one copy of the windows crate compiles.
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

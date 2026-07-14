@@ -18,7 +18,6 @@ import './styles/index.css';
 // Must load AFTER index.css to override.
 import './styles/ui-primitives.css';
 import './styles/settings-polish.css';
-import './styles/fixer-polish.css';
 import './styles/project-list-polish.css';
 import './styles/new-project-polish.css';
 import './styles/logger-polish.css';

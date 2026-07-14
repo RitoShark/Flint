@@ -33,7 +33,6 @@
  *   - dev            — schema aggregation (dev-only)
  *   - settings       — disk-backed settings + themes
  *   - updater        — self-update
- *   - fixer          — Hematite integration
  *   - compare        — find-original / per-file backups
  *   - chroma         — chroma porting
  *   - thumbnail      — standalone Thumbnail Creator window
@@ -67,7 +66,6 @@ export * from './dev';
 export * from './legacyFormats';
 export * from './settings';
 export * from './updater';
-export * from './fixer';
 export * from './loadscreenBanner';
 export * from './compare';
 export * from './chroma';

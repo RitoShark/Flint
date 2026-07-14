@@ -218,6 +218,7 @@ fn main() {
             // Project management commands
             commands::project::create_project,
             commands::project::create_loading_screen_project,
+            commands::project::rebuild_loading_screen_bin,
             commands::project::open_project,
             commands::project::open_project_with_tree,
             commands::project::discover_projects,
@@ -345,11 +346,6 @@ fn main() {
             commands::audio::write_bnk,
             commands::audio::write_wpk,
             commands::audio::save_audio_file,
-            // Fixer commands (Hematite integration)
-            commands::fixer::get_fixer_config,
-            commands::fixer::analyze_project,
-            commands::fixer::fix_project,
-            commands::fixer::batch_fix_projects,
             // Windows taskbar progress indicator
             commands::taskbar::set_taskbar_progress,
             // Logging commands

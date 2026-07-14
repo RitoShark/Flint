@@ -35,21 +35,6 @@ pub mod ltk_types {
     pub use ltk_modpkg::Modpkg;
     pub use ltk_modpkg::builder::{ModpkgBuilder, ModpkgChunkBuilder, ModpkgLayerBuilder};
     pub use ltk_modpkg::{ModpkgMetadata, ModpkgAuthor};
-
-    pub use glam::{Vec2, Vec4};
-}
-
-pub mod hematite {
-    pub use hematite_core::context::FixContext;
-    pub use hematite_core::detect::detect_issue;
-    pub use hematite_core::detect::shader::ShaderValidator;
-    pub use hematite_core::pipeline::apply_fixes;
-    pub use hematite_core::traits::BinProvider;
-    pub use hematite_ltk::bin_adapter::LtkBinProvider;
-    pub use hematite_ltk::lmdb_hash_adapter::LmdbHashProvider;
-    pub use hematite_ltk::wad_adapter::LtkWadProvider;
-    pub use hematite_types::champion::{CharacterRelations, ChampionList};
-    pub use hematite_types::config::FixConfig;
 }
 
 pub use heed;

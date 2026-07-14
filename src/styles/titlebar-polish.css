@@ -324,17 +324,6 @@
     transform: rotate(60deg) scale(1.08);
 }
 
-.titlebar__button--fix:hover svg {
-    animation: tbWrenchTilt 600ms cubic-bezier(.22, 1, .36, 1);
-}
-
-@keyframes tbWrenchTilt {
-    0%   { transform: rotate(0) scale(1); }
-    35%  { transform: rotate(-18deg) scale(1.1); }
-    70%  { transform: rotate(8deg) scale(1.08); }
-    100% { transform: rotate(0) scale(1.08); }
-}
-
 .titlebar__button--sync:hover svg {
     animation: tbSyncSpin 1.4s linear infinite;
 }

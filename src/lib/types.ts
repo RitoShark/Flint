@@ -3,7 +3,7 @@
 // =============================================================================
 
 export type AppStatus = 'ready' | 'working' | 'error';
-export type ModalType = 'newProject' | 'settings' | 'export' | 'firstTimeSetup' | 'updateAvailable' | 'recolor' | 'checkpoint' | 'fixer' | 'projectList' | 'modConfig' | 'importMod' | 'renameProject' | 'thumbnail' | 'binSplit' | 'fullResImage' | 'browseWad' | 'fileCompare' | 'addLayer' | 'chromaPort' | 'whatsNew' | 'map-textures' | 'loadscreenBanner' | 'loadManifest' | null;
+export type ModalType = 'newProject' | 'settings' | 'export' | 'firstTimeSetup' | 'updateAvailable' | 'recolor' | 'checkpoint' | 'projectList' | 'modConfig' | 'importMod' | 'renameProject' | 'thumbnail' | 'binSplit' | 'fullResImage' | 'browseWad' | 'fileCompare' | 'addLayer' | 'chromaPort' | 'whatsNew' | 'map-textures' | 'loadscreenBanner' | 'loadManifest' | null;
 export type ViewType = 'welcome' | 'preview' | 'editor' | 'project' | 'checkpoints' | 'extract' | 'wad-explorer' | 'file-editor' | 'manifest' | 'archive-editor';
 
 export type FileEditorKind = 'modConfig' | 'binText' | 'raw' | 'luaBin64' | 'troybin';
@@ -419,73 +419,5 @@ export interface AudioTreeNode {
     children: AudioTreeNode[];
 }
 
-// =============================================================================
-// Fixer (Hematite) Types
-// =============================================================================
-
-export interface FixConfig {
-    version: string;
-    last_updated: string;
-    fixes: Record<string, FixRule>;
-    wad_fixes?: Record<string, unknown>;
-}
-
-export interface FixRule {
-    name: string;
-    description: string;
-    enabled: boolean;
-    severity: 'low' | 'medium' | 'high' | 'critical';
-    detect: unknown;
-    apply: unknown;
-}
-
-export interface DetectedIssue {
-    fix_id: string;
-    fix_name: string;
-    severity: string;
-    description: string;
-}
-
-export interface ScanResult {
-    file_path: string;
-    detected_issues: DetectedIssue[];
-}
-
-export interface ProjectAnalysis {
-    project_path: string;
-    results: ScanResult[];
-    files_scanned: number;
-    issues_found: number;
-}
-
-export interface AppliedFix {
-    fix_id: string;
-    description: string;
-    changes_count: number;
-}
-
-export interface FailedFix {
-    fix_id: string;
-    error: string;
-}
-
-export interface FixResult {
-    file_path: string;
-    fixes_applied: AppliedFix[];
-    fixes_failed: FailedFix[];
-    success: boolean;
-}
-
-export interface ProjectFixResult {
-    project_path: string;
-    results: FixResult[];
-    total_applied: number;
-    total_failed: number;
-}
-
-export interface BatchFixResult {
-    projects: ProjectFixResult[];
-    total_projects: number;
-    total_applied: number;
-    total_failed: number;
-}
+// Fixer (Hematite) types removed 2026-07-14 — skin fixing disabled pending the
+// Hematite rework.

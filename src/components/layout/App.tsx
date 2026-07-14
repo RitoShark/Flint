@@ -25,7 +25,6 @@ import { ExportModal } from '../modals/ExportModal';
 import { FirstTimeSetupModal } from '../modals/FirstTimeSetupModal';
 import { UpdateModal } from '../modals/UpdateModal';
 import { RecolorModal } from '../modals/RecolorModal';
-import { FixerModal } from '../modals/FixerModal';
 import { ProjectListModal } from '../modals/ProjectListModal';
 import { ModConfigEditorModal } from '../modals/ModConfigEditorModal';
 import { ImportModModal } from '../modals/ImportModModal';
@@ -62,7 +61,6 @@ const ActiveModal: React.FC<{ activeModal: string | null }> = React.memo(({ acti
         case 'firstTimeSetup':   return <FirstTimeSetupModal />;
         case 'updateAvailable':  return <UpdateModal />;
         case 'recolor':          return <RecolorModal />;
-        case 'fixer':            return <FixerModal />;
         case 'projectList':      return <ProjectListModal />;
         case 'modConfig':        return <ModConfigEditorModal />;
         case 'importMod':        return <ImportModModal />;

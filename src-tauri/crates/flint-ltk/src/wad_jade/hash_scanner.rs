@@ -19,8 +19,7 @@
 //! from WAD path resolution).
 
 use std::collections::HashMap;
-use std::hash::Hasher;
-use twox_hash::XxHash64;
+use xxhash_rust::xxh64::xxh64;
 
 /// Known asset roots in Riot WADs.
 const PATH_PREFIXES: &[&[u8]] = &[
@@ -107,9 +106,7 @@ fn ends_with_known_ext(s: &str) -> bool {
 /// xxh64 of a lowercase asset path. Matches the WAD path-hash function
 /// the LMDB tables are keyed on.
 fn xxhash_path(s: &str) -> u64 {
-    let mut h = XxHash64::with_seed(0);
-    h.write(s.as_bytes());
-    h.finish()
+    xxh64(s.as_bytes(), 0)
 }
 
 /// FNV1a-32 of a lowercased ASCII string. Matches Riot's BIN hash function
