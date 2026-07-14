@@ -12,6 +12,7 @@ import { bootUxPrefs } from './lib/stores/uxStore';
 import { App } from './components/layout/App';
 import { DesignLab } from './components/ui/DesignLab';
 import { MapPreviewWindow } from './components/preview/MapPreviewWindow';
+import { ThumbnailWindow } from './components/thumbnail/ThumbnailWindow';
 
 import './styles/index.css';
 // Must load AFTER index.css to override.
@@ -40,6 +41,9 @@ const isDesignLab =
 const isMapPreview =
     typeof window !== 'undefined' && window.location.hash.startsWith('#map-preview');
 
+const isThumbnail =
+    typeof window !== 'undefined' && window.location.hash.startsWith('#thumbnail');
+
 // eslint-disable-next-line no-console
 console.log(`[startup] imports resolved in ${(performance.now() - __FLINT_JS_START).toFixed(1)}ms`);
 
@@ -62,15 +66,17 @@ const root = createRoot(container);
 // eslint-disable-next-line no-console
 console.log(`[startup] root.render() at +${(performance.now() - __FLINT_JS_START).toFixed(1)}ms from JS entry`);
 root.render(
-    isMapPreview
-        ? React.createElement(MapPreviewWindow)
-        : isDesignLab
-            ? React.createElement(React.StrictMode, null, React.createElement(DesignLab))
-            : React.createElement(
-                  React.StrictMode,
-                  null,
-                  React.createElement(AppProvider, null, React.createElement(App))
-              )
+    isThumbnail
+        ? React.createElement(ThumbnailWindow)
+        : isMapPreview
+            ? React.createElement(MapPreviewWindow)
+            : isDesignLab
+                ? React.createElement(React.StrictMode, null, React.createElement(DesignLab))
+                : React.createElement(
+                      React.StrictMode,
+                      null,
+                      React.createElement(AppProvider, null, React.createElement(App))
+                  )
 );
 
 if (!isDesignLab) {

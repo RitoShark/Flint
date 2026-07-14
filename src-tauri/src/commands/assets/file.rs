@@ -479,19 +479,44 @@ pub async fn write_text_file(path: String, content: String) -> Result<(), String
     fs::write(path, content).map_err(|e| format!("Failed to write file: {}", e))
 }
 
+/// Decode a percent-encoded (`encodeURIComponent`) string back to its raw
+/// UTF-8 form. Mirrors JS `decodeURIComponent`; used for header-passed paths
+/// that must be ASCII on the wire but can contain spaces / unicode on disk.
+fn percent_decode_str(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hi = (bytes[i + 1] as char).to_digit(16);
+            let lo = (bytes[i + 2] as char).to_digit(16);
+            if let (Some(h), Some(l)) = (hi, lo) {
+                out.push((h * 16 + l) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 /// Save raw bytes to a file (used for binary data like thumbnails).
 ///
-/// The file path is passed via the `path` request header so the body itself
-/// can be a raw byte payload (instead of being JSON-encoded as a number array).
+/// The file path is passed via the `path` request header (percent-encoded so it
+/// stays ASCII) so the body itself can be a raw byte payload.
 #[tauri::command]
 pub async fn save_file_bytes(request: tauri::ipc::Request<'_>) -> Result<(), String> {
-    let path = request
+    let raw = request
         .headers()
         .get("path")
         .ok_or("Missing 'path' header on save_file_bytes")?
         .to_str()
-        .map_err(|e| format!("Invalid 'path' header: {}", e))?
-        .to_string();
+        .map_err(|e| format!("Invalid 'path' header: {}", e))?;
+    // The frontend percent-encodes the path (headers must be ASCII); decode it
+    // back to the real OS path (spaces, unicode folder names, etc.).
+    let path = percent_decode_str(raw);
     let data: &[u8] = match request.body() {
         tauri::ipc::InvokeBody::Raw(bytes) => bytes.as_slice(),
         tauri::ipc::InvokeBody::Json(_) => {
@@ -1510,6 +1535,17 @@ pub fn get_bundled_floor_png() -> tauri::ipc::Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn percent_decode_roundtrips_paths() {
+        assert_eq!(percent_decode_str("E%3A%5CRitoShark%5CFlint"), "E:\\RitoShark\\Flint");
+        assert_eq!(percent_decode_str("My%20Folder%2Ffile.webp"), "My Folder/file.webp");
+        // Non-% content is untouched; lone % without two hex digits is literal.
+        assert_eq!(percent_decode_str("plain.png"), "plain.png");
+        assert_eq!(percent_decode_str("100%done"), "100%done");
+        // UTF-8 multibyte (e.g. "é" = C3 A9) reassembles.
+        assert_eq!(percent_decode_str("caf%C3%A9"), "café");
+    }
 
     #[test]
     fn aux_magic_covers_rs_file_gaps() {

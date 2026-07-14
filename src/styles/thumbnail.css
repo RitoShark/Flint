@@ -1,0 +1,1120 @@
+/* Thumbnail Creator — artboard structural styles.
+   Ported from .superpowers/brainstorm/1048-1783710866/content/editor-v10.html
+   Selection/handles read var(--accent-primary) so they track the active Flint theme. */
+
+/* Anton (SIL OFL) — the poster display face for the Divine style (matches the
+   reference splash). Bundled locally (public/fonts) because the desktop app is
+   offline / CSP-blocked from Google Fonts. `swap` so text renders immediately
+   in a fallback and re-lays out once Anton loads. */
+@font-face {
+  font-family: 'Anton';
+  font-style: normal;
+  /* Anton ships a single (heavy) weight. Declare it across the whole 100–900
+     range so the renderer's `font-weight: 800` request (used by the text
+     layers in preview AND export) resolves to the real Anton glyphs instead of
+     synthesizing a faux-bold on top of them. */
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/Anton-Regular.ttf') format('truetype');
+}
+
+.tb-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #0a0a0a;
+}
+
+/* Not flex-centered — JS explicitly pans/zooms via transform. */
+.tb-stage-wrap {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  /* NOTE: no `will-change: transform` here. It promoted the stage to a GPU
+     layer that gets rasterized ONCE at the 640×360 design size and then
+     bitmap-upscaled by the zoom transform — which made text AND the canvases
+     look low-res. Without it the browser re-rasterizes DOM (crisp text) at the
+     zoomed resolution; the canvases are supersampled in JS (see studioScene /
+     mapEnvScene setHardwareScalingLevel). */
+  overflow: visible;
+}
+
+/* The visual crop: fixed 640x360 (16:9) design canvas. */
+.tb-stage {
+  position: relative;
+  width: 640px;
+  height: 360px;
+  border-radius: 5px;
+  overflow: hidden;
+  box-shadow: 0 10px 50px rgba(0, 0, 0, .7), 0 0 0 1px var(--border);
+}
+
+.tb-env {
+  position: absolute;
+  inset: 0;
+  /* `background` is set INLINE from the theme hue (resolveBackground) so the
+     whole backdrop recolors with the hue slider. This fallback covers the
+     brief moment before React applies the inline style. */
+  background: hsl(210, 45%, 10%);
+}
+
+.tb-env .tb-env-lbl {
+  position: absolute;
+  left: 8px;
+  bottom: 6px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, .25);
+  font-family: var(--font-mono);
+}
+
+/* 3D map-env backdrop canvas — its own Babylon engine. Its z-index is set
+   INLINE from the env layer's array position (see ThumbnailArtboard `mapCanvasZ`)
+   so the map orders by layer position. Transparent clear lets .tb-env show
+   through where the map doesn't cover. */
+.tb-map-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+
+/* The Babylon engine's OWN render target — kept in the DOM (Babylon needs a
+   real canvas) but OFFSCREEN: each model is displayed on its own view canvas
+   (`.tb-model-canvas`), so this one must never show. */
+.tb-scene-canvas--offscreen {
+  position: absolute;
+  left: -99999px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+  opacity: 0;
+}
+
+/* Per-model view canvas — one per model layer, positioned at the layer's box
+   and z-index (set INLINE). This is what lets 2D layers (the disc) sit BETWEEN
+   two models in z-order. */
+.tb-model-canvas {
+  position: absolute;
+  display: block;
+  pointer-events: none;
+}
+
+/* In orbit mode the model's own canvas captures pointer events so the Babylon
+   camera receives drag/wheel (rotate/pan/zoom). */
+.tb-model-canvas--orbit {
+  pointer-events: auto;
+  cursor: grab;
+}
+
+.tb-model-canvas--orbit:active {
+  cursor: grabbing;
+}
+
+/* Orbit mode LOCKS every layer: no other .tb-el can be clicked/selected/
+   dragged (their pointer events pass through to the scene canvas so you can
+   orbit freely even over another layer's box). Selection is frozen on the
+   orbited model. */
+.tb-stage--orbiting .tb-el {
+  pointer-events: none;
+}
+
+/* The model being orbited: its DOM proxy passes pointers through to the canvas
+   so it doesn't intercept the camera drag, and it shows an accent ring so it's
+   clear which model is live. */
+.tb-el.model.orbiting {
+  pointer-events: none;
+  z-index: 5;
+}
+
+.tb-el.model.orbiting .tb-body {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+  border-radius: 6px;
+}
+
+.tb-el {
+  position: absolute;
+  cursor: grab;
+  touch-action: none;
+  /* z-index is set INLINE per element from its layer array position (see
+     ThumbnailArtboard `zOf`) so text/deco/proxies stack by layer order and
+     reorder when dragged in the Layers panel. */
+}
+
+.tb-el.dragging {
+  cursor: grabbing;
+}
+
+.tb-el .tb-body {
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Drag/resize/select proxy for a `model` layer. The ACTUAL SKN render comes
+   from the shared .tb-scene-canvas underneath (Task 9) — this box stays
+   just a faint outline + label (no opaque fill) so the 3D render reads
+   through it instead of being hidden behind a gradient card. */
+.tb-el.model .tb-body {
+  border-radius: 6px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 3px 5px;
+  color: rgba(255, 255, 255, .45);
+  font-size: 10px;
+  text-align: left;
+  outline: 1px dashed rgba(255, 255, 255, .18);
+}
+
+/* Bottom-anchored multi-line text: a column flexed to the END of the box so
+   the LAST line stays pinned to the box's bottom edge and earlier lines
+   stack upward above it as rows are added (Task 11). Each row is its own
+   flex child so `white-space: nowrap` only affects that line, not the whole
+   block. */
+.tb-el.text .tb-body {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-start;
+  /* color is set inline per-render (Task 12: ThumbnailArtboard's LayerBody
+     resolves it from the global hue via resolveTextColor — subtle for
+     Riot, significant for Divine) so it reacts live to the ThemePanel
+     slider without a CSS custom-property indirection. */
+  text-shadow: 0 2px 12px rgba(0, 0, 0, .55);
+  line-height: 1.1;
+  font-weight: 800;
+  height: 100%;
+}
+
+.tb-el.text .tb-body .tb-line {
+  white-space: nowrap;
+}
+
+.tb-el.text .tb-body[contenteditable='true'] {
+  white-space: pre-wrap;
+  cursor: text;
+}
+
+.tb-el.disc .tb-body {
+  overflow: visible;
+}
+
+/* Fixed ring + glow + black-fill composite (Task 10). Sub-pieces are
+   positioned in DiscComposite.tsx as percentage offsets of the disc
+   layer's own box, so this container just needs to let them escape its
+   own bounds (the glow/black pieces extend past the ring's box per the
+   saved preset geometry). */
+/* The disc VISUAL, painted behind the (transparent) scene canvas so the hero
+   renders on top of the circle. Absolutely positioned in the stage; the
+   selectable disc `.tb-el` proxy sits above with its own box. */
+/* Vignette overlay — cinematic edge darkening over the whole stage. */
+.tb-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Bottom-right corner glow — hue-tinted radial bloom. `screen` blend so it
+   adds light over whatever's beneath (glows) instead of darkening. */
+.tb-corner-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+/* A properties group with a top divider (separates style sections). */
+.tb-grp--sep {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+
+/* Labeled toggle row in the properties panel. */
+.tb-check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.tb-check-row input { cursor: pointer; }
+
+/* Frame layer body — the tinted line-art overlay fills the `.tb-el` box. */
+.tb-frame-body {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+/* Loading overlay — shown on window open until models + scene finish loading.
+   Semi-transparent so the composition builds up VISIBLY behind it. */
+.tb-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: color-mix(in oklab, var(--bg-primary) 55%, transparent);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  animation: tb-loading-in .2s ease;
+}
+@keyframes tb-loading-in { from { opacity: 0; } to { opacity: 1; } }
+.tb-loading__spinner {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 3px solid color-mix(in oklab, var(--accent-primary) 30%, transparent);
+  border-top-color: var(--accent-primary);
+  animation: tb-spin .8s linear infinite;
+}
+@keyframes tb-spin { to { transform: rotate(360deg); } }
+.tb-loading__label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  letter-spacing: .3px;
+}
+
+.tb-disc-bg {
+  position: absolute;
+  pointer-events: none;
+  overflow: visible;
+  /* z-index set INLINE from the disc layer's array position (see `zOf`) so the
+     disc orders against the models/text by layer position. */
+}
+
+.tb-disc-composite {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.tb-disc-piece {
+  position: absolute;
+}
+
+.tb-disc-piece.tb-disc-glow {
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  z-index: 1;
+}
+
+.tb-disc-piece.tb-disc-black {
+  background: #000;
+  border-radius: 50%;
+  z-index: 2;
+}
+
+.tb-disc-piece.tb-disc-ring {
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  z-index: 3;
+}
+
+/* Front band of the disc composite (Task 10 fix): the gold ring, painted
+   after every model .tb-el so it frames the hero instead of hiding behind
+   it. Positioned identically to a .tb-el (absolute, same box) but is never
+   a hit-target — the real disc .tb-el (glow + black fill) still owns
+   selection/drag/lock. */
+.tb-body.deco-empty {
+  outline: 1.5px dashed color-mix(in oklab, var(--accent-primary) 55%, var(--border));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: color-mix(in oklab, var(--accent-primary) 45%, var(--text-muted));
+  font-size: 10px;
+  text-align: center;
+  padding: 4px;
+  line-height: 1.3;
+  background: color-mix(in oklab, var(--accent-primary) 6%, transparent);
+  border-radius: 4px;
+}
+
+.tb-el.locked {
+  opacity: 1;
+}
+
+/* ── Selection overlay: a SEPARATE sibling above every .tb-el, overflow visible.
+   Handles get their own pointerdown + stopPropagation so a handle press always
+   beats element selection, and stay grabbable even off-artboard. ── */
+.tb-sel-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 999;
+}
+
+.tb-selbox {
+  position: absolute;
+  outline: 1.5px solid var(--accent-primary);
+  border-radius: 4px;
+  pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .4);
+}
+
+.tb-selbox.locked {
+  outline-style: dashed;
+}
+
+.tb-selbox .tb-hnd {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  background: var(--accent-primary);
+  border: 1.5px solid #0a0a0a;
+  border-radius: 2px;
+  pointer-events: auto;
+}
+
+.tb-selbox .tb-hnd.tl { left: -6px; top: -6px; cursor: nwse-resize; }
+.tb-selbox .tb-hnd.tr { right: -6px; top: -6px; cursor: nesw-resize; }
+.tb-selbox .tb-hnd.bl { left: -6px; bottom: -6px; cursor: nesw-resize; }
+.tb-selbox .tb-hnd.br { right: -6px; bottom: -6px; cursor: nwse-resize; }
+
+.tb-lockbadge {
+  position: absolute;
+  top: -20px;
+  left: 0;
+  font-size: 9px;
+  font-family: var(--font-mono);
+  color: var(--accent-secondary);
+  background: rgba(0, 0, 0, .6);
+  padding: 1px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.tb-orbit-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 6px 14px;
+  font-size: 11px;
+  color: var(--text-primary);
+  background: color-mix(in oklab, var(--accent-primary) 22%, var(--bg-secondary));
+  border: 1px solid color-mix(in oklab, var(--accent-primary) 50%, var(--border));
+  border-radius: 999px;
+  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, .6);
+  white-space: nowrap;
+}
+
+.tb-orbit-hint__exit {
+  padding: 3px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent-primary);
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.tb-orbit-hint__exit:hover {
+  background: color-mix(in oklab, #fff 12%, var(--accent-primary));
+}
+
+.tb-zoom-info {
+  position: absolute;
+  top: 14px;
+  right: 12px;
+  z-index: 20;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  background: color-mix(in oklab, var(--bg-tertiary) 70%, transparent);
+  padding: 3px 8px;
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+/* ── Right sidebar: Layers (top) + draggable split + Properties (bottom).
+   Ported from the prototype's .sidebar/.side-sec/.side-split/.layer/.prop blocks. ── */
+
+.tb-sidebar {
+  width: 280px;
+  flex: 0 0 280px;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.tb-side-sec {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tb-side-sec--layers {
+  flex: 0 0 auto;
+  max-height: 44%;
+}
+
+.tb-side-sec--props {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.tb-side-scroll {
+  overflow: auto;
+  min-height: 0;
+}
+
+.tb-side-split {
+  height: 6px;
+  background: var(--border);
+  flex: 0 0 auto;
+  cursor: ns-resize;
+  position: relative;
+  touch-action: none;
+}
+
+.tb-side-split::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  width: 26px;
+  height: 2px;
+  transform: translateX(-50%);
+  background: var(--text-muted);
+  border-radius: 2px;
+  opacity: .5;
+}
+
+.tb-side-split:hover {
+  background: color-mix(in oklab, var(--accent-primary) 40%, var(--border));
+}
+
+.tb-pane-h {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  color: var(--text-muted);
+  margin: 0;
+  padding: 11px 12px 7px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  background: var(--bg-secondary);
+  z-index: 2;
+}
+
+.tb-lgroup {
+  font-size: 9.5px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  padding: 9px 12px 3px;
+}
+
+/* Draggable group header — drag it to move the whole category run. */
+.tb-lgroup--drag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: grab;
+  border-radius: 5px;
+  margin: 0 6px;
+  user-select: none;
+}
+.tb-lgroup--drag:hover { background: var(--bg-hover); color: var(--text-secondary); }
+.tb-lgroup--drag:active { cursor: grabbing; }
+.tb-lgroup__grip {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  background-image: radial-gradient(currentColor 1px, transparent 1.4px);
+  background-size: 4px 4px;
+  background-position: center;
+  opacity: .45;
+}
+
+/* ── Layer row ── */
+
+.tb-layer {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 1px 6px;
+  padding: 6px 7px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  user-select: none;
+}
+
+.tb-layer:hover {
+  background: var(--bg-hover);
+}
+
+.tb-layer--sel {
+  background: color-mix(in oklab, var(--accent-primary) 15%, var(--bg-hover));
+  border-color: color-mix(in oklab, var(--accent-primary) 45%, var(--border));
+}
+
+.tb-layer--env {
+  cursor: default;
+  opacity: .75;
+}
+
+/* Drag handle (grip dots) for reordering — array order = z-order. */
+.tb-layer__grip {
+  width: 12px;
+  height: 16px;
+  flex-shrink: 0;
+  cursor: grab;
+  border-radius: 3px;
+  background-image: radial-gradient(currentColor 1px, transparent 1.4px);
+  background-size: 4px 4px;
+  background-position: center;
+  color: var(--text-muted);
+  opacity: .5;
+}
+.tb-layer__grip:hover { opacity: 1; }
+.tb-layer__grip:active { cursor: grabbing; }
+
+.tb-layer--dragging { opacity: .4; }
+/* Drop indicator: an accent line above the row we'd drop before. */
+.tb-layer--dropbefore { box-shadow: inset 0 2px 0 0 var(--accent-primary); }
+
+/* Icon buttons inside a layer row (eye / lock / delete). Bare, transparent —
+   they read as glyphs, not filled buttons, so the row stays compact. */
+.tb-layer__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 0 2px;
+  cursor: pointer;
+  color: inherit;
+  line-height: 0;
+}
+
+.tb-layer__eye {
+  width: 18px;
+  opacity: .55;
+  color: var(--text-secondary);
+}
+
+.tb-layer__eye:hover {
+  opacity: 1;
+}
+
+.tb-layer--hidden .tb-layer__nm,
+.tb-layer--hidden .tb-layer__ic {
+  opacity: .35;
+}
+
+.tb-layer__ic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  opacity: .85;
+  color: var(--text-secondary);
+}
+
+.tb-layer__nm {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tb-layer__lock {
+  opacity: .4;
+  color: var(--text-secondary);
+}
+
+.tb-layer:hover .tb-layer__lock {
+  opacity: .7;
+}
+
+.tb-layer__lock:hover {
+  opacity: 1;
+}
+
+.tb-layer__lock--on {
+  opacity: 1;
+  color: var(--accent-primary);
+}
+
+.tb-layer__del {
+  opacity: 0;
+  color: var(--text-muted);
+}
+
+.tb-layer:hover .tb-layer__del {
+  opacity: .6;
+}
+
+.tb-layer__del:hover {
+  opacity: 1;
+  color: var(--color-danger);
+}
+
+/* ── Properties panel ── */
+
+.tb-prop {
+  padding: 4px 12px 16px;
+}
+
+.tb-grp {
+  margin-top: 12px;
+}
+
+.tb-grp label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 5px;
+}
+
+.tb-grp label b {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Slider + compact number input on one row (rotation/scale fields). */
+.tb-slidernum {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tb-slidernum .dl-slider {
+  flex: 1;
+  min-width: 0;
+}
+
+.tb-slidernum__in {
+  flex: none;
+  width: 72px;
+  padding: 4px 8px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.tb-empty-prop {
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.tb-hint {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+/* Map-env texture slot rows (per-material picker) */
+.tb-env-slot {
+  margin-top: 6px;
+}
+.tb-env-slot__name {
+  display: block;
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  margin-bottom: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Toolbar (top bar) ── */
+
+.tb-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  flex-wrap: wrap;
+}
+
+.tb-toolbar__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tb-toolbar__group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+
+.tb-toolbar__group:first-of-type {
+  padding-left: 0;
+  border-left: none;
+}
+
+/* Redo = the history glyph mirrored. */
+.tb-redo .dl-icon { transform: scaleX(-1); }
+
+/* ── Floating zoom + history bar (bottom-left of the canvas) ── */
+
+.tb-floatbar {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px;
+  background: color-mix(in oklab, var(--bg-secondary) 88%, transparent);
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, .6);
+}
+
+/* Theme-hue swatch button + popover (top-right of the artboard) */
+.tb-hue-anchor {
+  position: absolute;
+  bottom: 14px;
+  right: 14px;
+  z-index: 30;
+}
+.tb-hue-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .8);
+  cursor: pointer;
+  padding: 0;
+  transition: transform .1s ease;
+}
+.tb-hue-btn:hover { transform: scale(1.08); }
+.tb-hue-btn:active { transform: scale(.96); }
+.tb-hue-pop {
+  position: fixed;
+  z-index: 10000;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tb-hue-pop__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.tb-hue-pop__val { color: var(--text-muted); font-weight: 500; }
+
+.tb-floatbar__group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
+}
+
+.tb-floatbar__group:first-child {
+  padding-left: 0;
+  border-left: none;
+}
+
+/* Floating MODEL toolbar — top-left of the artboard, over the canvas. Shown
+   only while a model layer is selected; hosts the ⚙ mesh/anim popover trigger
+   + the Face-camera button. Mirrors .tb-floatbar's frosted-panel look. */
+.tb-model-bar {
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px;
+  background: color-mix(in oklab, var(--bg-secondary) 88%, transparent);
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, .6);
+}
+
+.tb-model-bar__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 11px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .12s, color .12s, border-color .12s;
+}
+
+.tb-model-bar__btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.tb-model-bar__btn--active {
+  background: color-mix(in oklab, var(--accent-primary) 22%, transparent);
+  border-color: color-mix(in oklab, var(--accent-primary) 45%, transparent);
+  color: var(--text-primary);
+}
+
+.tb-model-bar__btn .dl-icon {
+  flex: none;
+}
+
+/* ── Mesh & Animation studio popup ── */
+
+/* Label + trailing icon-button row (e.g. "Meshes & animation" + its ⚙ trigger). */
+.tb-grp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+/* ── Meshes & animation POPOVER (anchored floating panel, SKN-preview style —
+   not a centered modal). Positioned via inline left/top from the trigger. ── */
+.tb-studio-pop {
+  position: fixed;
+  z-index: 1000;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tb-studio-pop__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+
+.tb-studio-pop__title {
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tb-studio-pop__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.tb-studio-pop__close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.tb-studio-pop__body {
+  overflow: auto;
+}
+
+/* Inside the popover the studio grid keeps its two columns but the mesh list
+   is a touch shorter so the whole panel fits without dominating the screen. */
+.tb-studio-pop__body.tb-studio {
+  padding: 14px;
+}
+
+.tb-studio-pop__body .tb-studio__list {
+  max-height: 260px;
+}
+
+.tb-studio {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  padding: 16px;
+}
+
+.tb-studio__col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.tb-studio__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  gap: 8px;
+}
+
+.tb-studio__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tb-studio__count {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-left: 6px;
+}
+
+.tb-studio__actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.tb-studio__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 340px;
+  overflow: auto;
+  padding: 4px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.tb-studio__empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.tb-mesh-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dl-fast), border-color var(--dl-fast);
+}
+
+.tb-mesh-row:hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+.tb-mesh-row .dl-icon {
+  color: var(--accent-primary);
+  flex: none;
+}
+
+.tb-mesh-row__nm {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tb-mesh-row--off {
+  color: var(--text-muted);
+}
+
+.tb-mesh-row--off .dl-icon {
+  color: var(--text-muted);
+}
+
+.tb-mesh-row--off .tb-mesh-row__nm {
+  text-decoration: line-through;
+  opacity: .7;
+}
+
+/* ── Status banner ── */
+
+.tb-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tb-status--success { color: var(--accent-primary); }
+.tb-status--error { color: var(--color-danger); }
+.tb-status span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.tb-status__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: .7;
+  cursor: pointer;
+  padding: 2px;
+}
+
+.tb-status__close:hover { opacity: 1; }

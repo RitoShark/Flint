@@ -1,0 +1,52 @@
+{
+  "preset": "riot",
+  "font": "Beaufort for LOL",
+  "hue": 210,
+  "canvas": { "w": 640, "h": 360, "ratio": "16:9" },
+  "layers": [
+    {
+      "id": "title",
+      "type": "text",
+      "name": "Mod name",
+      "role": "title",
+      "hidden": false,
+      "rot": 0,
+      "locked": false,
+      "x": 34, "y": 209, "w": 387, "h": 99,
+      "text": "MOD NAME",
+      "size": 54,
+      "font": "Beaufort for LOL",
+      "italic": false,
+      "spacing": 1,
+      "hueMix": 0.1,
+      "glow": false
+    },
+    {
+      "id": "champion",
+      "type": "text",
+      "name": "Champion name",
+      "role": "champion",
+      "hidden": false,
+      "rot": 0,
+      "locked": false,
+      "x": 35, "y": 293, "w": 325, "h": 44,
+      "text": "Champion",
+      "size": 36,
+      "font": "Beaufort for LOL",
+      "italic": true,
+      "spacing": 1,
+      "hueMix": 0.1,
+      "glow": false
+    },
+    {
+      "id": "riot-disc",
+      "type": "disc",
+      "name": "Disc",
+      "hidden": false,
+      "rot": 0,
+      "locked": true,
+      "x": 330, "y": 0, "w": 123, "h": 360,
+      "opacity": 20
+    }
+  ]
+}

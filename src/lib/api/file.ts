@@ -28,7 +28,10 @@ export async function writeTextFile(path: string, content: string): Promise<void
 
 export async function saveFileBytes(path: string, data: Uint8Array | number[]): Promise<void> {
     const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
-    return invokeRaw('save_file_bytes', bytes, { path });
+    // Percent-encode the path: HTTP headers must be visible ASCII, but a
+    // Windows path can contain spaces / non-ASCII (unicode folder names). The
+    // backend percent-decodes. encodeURIComponent keeps it header-safe.
+    return invokeRaw('save_file_bytes', bytes, { path: encodeURIComponent(path) });
 }
 
 export async function recolorImage(

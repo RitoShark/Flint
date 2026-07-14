@@ -1,4 +1,5 @@
 import * as api from '../api';
+import { openThumbnailWindow } from '../api/thumbnail';
 import { getIcon } from '../ui-helpers/fileIcons';
 import { useNavigationStore } from '../stores/navigationStore';
 import type { ContextMenuOption, ModalType } from '../types';
@@ -492,6 +493,15 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             label: 'File Transformation',
             icon: getIcon('code'),
             submenu: transformItems,
+        });
+    }
+
+    if (ext === 'skn') {
+        options.push({
+            label: 'Create Thumbnail…',
+            icon: getIcon('picture'),
+            separator: true,
+            onClick: () => openThumbnailWindow(projectPath, fullPath.replace(/\//g, '\\')),
         });
     }
 

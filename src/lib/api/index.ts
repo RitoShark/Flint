@@ -36,6 +36,7 @@
  *   - fixer          — Hematite integration
  *   - compare        — find-original / per-file backups
  *   - chroma         — chroma porting
+ *   - thumbnail      — standalone Thumbnail Creator window
  */
 
 export * from './core';
@@ -72,3 +73,4 @@ export * from './compare';
 export * from './chroma';
 export * from './taskbar';
 export * from './cdn';
+export * from './thumbnail';
