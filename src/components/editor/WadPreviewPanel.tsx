@@ -336,6 +336,9 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
     const [modelPreviewPath, setModelPreviewPath] = useState<string | null>(null);
     const [modelTempDir, setModelTempDir] = useState<string | null>(null);
     const [modelLoading, setModelLoading] = useState(false);
+    // Auto-prepare failed (e.g. folder-backed session) → fall back to the
+    // generic "Extract File" empty state instead of erroring repeatedly.
+    const [modelPrepFailed, setModelPrepFailed] = useState(false);
 
     const session = extractSessions.find(s => s.id === activeExtractId);
     const chunk = session?.chunks.find(c => c.hash === session.previewHash) ?? null;
@@ -356,6 +359,37 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
         };
     }, [modelTempDir]);
 
+    const meshKind: 'skinned' | 'static' | null =
+        preview?.fileType === 'model/x-lol-skn' ? 'skinned'
+            : preview?.fileType === 'model/x-lol-scb' || preview?.fileType === 'model/x-lol-sco' ? 'static'
+                : null;
+
+    // Auto-prepare the inline 3D preview when a mesh chunk is selected (no
+    // "extract to preview" ask). On failure (e.g. folder-backed session where
+    // the WAD path isn't a real file) fall back to the extract empty state.
+    useEffect(() => {
+        if (!meshKind || modelPrepFailed || modelPreviewPath || modelLoading || !session || !chunk) return;
+        let cancelled = false;
+        setModelLoading(true);
+        api.extractWadModelPreview(session.wadPath, chunk.hash)
+            .then(result => {
+                if (cancelled) {
+                    api.cleanupWadModelPreview(result.temp_dir).catch(() => {});
+                    return;
+                }
+                setModelPreviewPath(result.skn_path);
+                setModelTempDir(result.temp_dir);
+            })
+            .catch(() => {
+                if (!cancelled) setModelPrepFailed(true);
+            })
+            .finally(() => {
+                if (!cancelled) setModelLoading(false);
+            });
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [meshKind, session?.wadPath, chunk?.hash, preview]);
+
     useEffect(() => {
         if (blobUrlRef.current) {
             URL.revokeObjectURL(blobUrlRef.current);
@@ -363,6 +397,7 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
         }
 
         setModelPreviewPath(null);
+        setModelPrepFailed(false);
         if (modelTempDir) {
             api.cleanupWadModelPreview(modelTempDir).catch(() => {});
             setModelTempDir(null);
@@ -621,48 +656,18 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
             );
         }
 
-        if (fileType === 'model/x-lol-skn') {
+        if (meshKind && !modelPrepFailed) {
             if (modelPreviewPath) {
                 return (
                     <div style={{ height: '100%', width: '100%' }}>
-                        <LazyModelPreview filePath={modelPreviewPath} meshType="skinned" />
+                        <LazyModelPreview filePath={modelPreviewPath} meshType={meshKind} />
                     </div>
                 );
             }
             return (
-                <div className="preview-panel__empty">
-                    <div style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '0 24px' }}>
-                        <div style={{ marginBottom: '12px' }}>{getTypeLabel(fileType)}</div>
-                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '16px' }}>
-                            <button
-                                className="btn btn--primary btn--sm"
-                                disabled={modelLoading}
-                                onClick={async () => {
-                                    setModelLoading(true);
-                                    try {
-                                        const result = await api.extractWadModelPreview(session.wadPath, chunk.hash);
-                                        setModelPreviewPath(result.skn_path);
-                                        setModelTempDir(result.temp_dir);
-                                    } catch (e) {
-                                        showToast('error', (e as Error).message || 'Failed to prepare model preview');
-                                    } finally {
-                                        setModelLoading(false);
-                                    }
-                                }}
-                            >
-                                <span dangerouslySetInnerHTML={{ __html: getIcon('model') }} />
-                                <span>{modelLoading ? 'Preparing…' : 'Preview 3D Model'}</span>
-                            </button>
-                            <button
-                                className="btn btn--sm"
-                                onClick={handleExtractThis}
-                                disabled={isExtracting}
-                            >
-                                <span dangerouslySetInnerHTML={{ __html: getIcon('export') }} />
-                                <span>Extract</span>
-                            </button>
-                        </div>
-                    </div>
+                <div className="preview-panel__loading">
+                    <div className="spinner" />
+                    <span>Preparing 3D preview…</span>
                 </div>
             );
         }

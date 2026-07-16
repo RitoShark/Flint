@@ -114,6 +114,37 @@ export const ChunkPreview: React.FC<{
     // On-disk-only features (single-file extract, 3D model temp) need a local WAD path.
     const isLocal = !dataSource || dataSource.isLocal;
 
+    const meshKind: 'skinned' | 'static' | null =
+        data?.fileType === 'model/x-lol-skn' ? 'skinned'
+            : data?.fileType === 'model/x-lol-scb' || data?.fileType === 'model/x-lol-sco' ? 'static'
+                : null;
+
+    // Auto-prepare the inline 3D preview when a mesh chunk is selected — the
+    // mesh + its companions (skl/bin/textures) are extracted to a temp dir
+    // (cleaned up on switch/unmount), no "extract to preview" ask.
+    useEffect(() => {
+        if (!meshKind || !isLocal || modelPreviewPath || modelLoading) return;
+        let cancelled = false;
+        setModelLoading(true);
+        api.extractWadModelPreview(wadPath, chunk.hash)
+            .then(result => {
+                if (cancelled) {
+                    api.cleanupWadModelPreview(result.temp_dir).catch(() => {});
+                    return;
+                }
+                setModelPreviewPath(result.skn_path);
+                setModelTempDir(result.temp_dir);
+            })
+            .catch(e => {
+                if (!cancelled) setErr((e as Error).message ?? 'Failed to prepare model preview');
+            })
+            .finally(() => {
+                if (!cancelled) setModelLoading(false);
+            });
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [meshKind, isLocal, wadPath, chunk.hash]);
+
     useEffect(() => () => {
         if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
         bitmapRef.current?.close();
@@ -231,11 +262,19 @@ export const ChunkPreview: React.FC<{
                         return <MonacoTextViewer text={text} language={lang} />;
                     }
 
-                    if (fileType === 'model/x-lol-skn') {
+                    if (meshKind) {
                         if (modelPreviewPath) {
                             return (
                                 <div style={{ height: '100%', width: '100%' }}>
-                                    <LazyModelPreview filePath={modelPreviewPath} meshType="skinned" />
+                                    <LazyModelPreview filePath={modelPreviewPath} meshType={meshKind} />
+                                </div>
+                            );
+                        }
+                        if (isLocal) {
+                            return (
+                                <div className="preview-panel__loading">
+                                    <div className="spinner" />
+                                    <span>Preparing 3D preview…</span>
                                 </div>
                             );
                         }
@@ -243,35 +282,7 @@ export const ChunkPreview: React.FC<{
                             <div className="preview-panel__empty">
                                 <div style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center' }}>
                                     <div style={{ marginBottom: '12px', opacity: 0.6 }}>{fileType}</div>
-                                    {isLocal ? (
-                                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                                            <button
-                                                className="btn btn--primary btn--sm"
-                                                disabled={modelLoading}
-                                                onClick={async () => {
-                                                    setModelLoading(true);
-                                                    try {
-                                                        const result = await api.extractWadModelPreview(wadPath, chunk.hash);
-                                                        setModelPreviewPath(result.skn_path);
-                                                        setModelTempDir(result.temp_dir);
-                                                    } catch (e) {
-                                                        setErr((e as Error).message ?? 'Failed to prepare model preview');
-                                                    } finally {
-                                                        setModelLoading(false);
-                                                    }
-                                                }}
-                                            >
-                                                <span dangerouslySetInnerHTML={{ __html: getIcon('model') }} />
-                                                <span>{modelLoading ? 'Preparing…' : 'Preview 3D Model'}</span>
-                                            </button>
-                                            <button className="btn btn--sm" onClick={handleExtract} disabled={extracting}>
-                                                <span dangerouslySetInnerHTML={{ __html: getIcon('export') }} />
-                                                <span>Extract</span>
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <div style={{ opacity: 0.7 }}>Extract this file to preview the 3D model.</div>
-                                    )}
+                                    <div style={{ opacity: 0.7 }}>Extract this file to preview the 3D model.</div>
                                 </div>
                             </div>
                         );

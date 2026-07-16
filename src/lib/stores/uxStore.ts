@@ -16,6 +16,9 @@ export interface UxPrefs {
     glassBlur: number;
     /** Background opacity for glass surfaces (0..1). */
     glassOpacity: number;
+    /** Remembered viewer per lowercased extension for files with no dedicated
+     *  preview (UnknownPreview), e.g. { "dat": "hex" }. */
+    unknownPreviewByExt: Record<string, 'hex' | 'text'>;
 }
 
 const DEFAULTS: UxPrefs = {
@@ -26,6 +29,7 @@ const DEFAULTS: UxPrefs = {
     accentSecondary: null,
     glassBlur: 14,
     glassOpacity: 0.65,
+    unknownPreviewByExt: {},
 };
 
 function readStorage(): Partial<UxPrefs> {
@@ -52,6 +56,8 @@ interface UxState extends UxPrefs {
     setAccentSecondary: (hex: string | null) => void;
     setGlassBlur: (px: number) => void;
     setGlassOpacity: (v: number) => void;
+    /** Remember (or forget with null) the viewer for an unknown extension. */
+    setUnknownPreviewForExt: (ext: string, mode: 'hex' | 'text' | null) => void;
     reset: () => void;
 }
 
@@ -59,8 +65,8 @@ const initial: UxPrefs = { ...DEFAULTS, ...readStorage() };
 
 export const useUxStore = create<UxState>()((set, get) => {
     const persist = () => {
-        const { glassmorphism, fpsMode, buttonGlow, accentPrimary, accentSecondary, glassBlur, glassOpacity } = get();
-        writeStorage({ glassmorphism, fpsMode, buttonGlow, accentPrimary, accentSecondary, glassBlur, glassOpacity });
+        const { glassmorphism, fpsMode, buttonGlow, accentPrimary, accentSecondary, glassBlur, glassOpacity, unknownPreviewByExt } = get();
+        writeStorage({ glassmorphism, fpsMode, buttonGlow, accentPrimary, accentSecondary, glassBlur, glassOpacity, unknownPreviewByExt });
         applyUxPrefs(get());
     };
     return {
@@ -72,6 +78,14 @@ export const useUxStore = create<UxState>()((set, get) => {
         setAccentSecondary: (hex) => { set({ accentSecondary: hex }); persist(); },
         setGlassBlur: (px) => { set({ glassBlur: px }); persist(); },
         setGlassOpacity: (v) => { set({ glassOpacity: v }); persist(); },
+        setUnknownPreviewForExt: (ext, mode) => {
+            const key = ext.toLowerCase();
+            const next = { ...get().unknownPreviewByExt };
+            if (mode === null) delete next[key];
+            else next[key] = mode;
+            set({ unknownPreviewByExt: next });
+            persist();
+        },
         reset: () => { set({ ...DEFAULTS }); persist(); },
     };
 });

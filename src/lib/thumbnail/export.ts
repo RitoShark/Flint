@@ -172,20 +172,28 @@ export interface ComposeOptions {
   format: ExportFormat;
   /** Quality for lossy formats (webp/jpeg), 0-1. Defaults to 0.92. */
   quality?: number;
+  /** Maps a model LAYER id to the scene's internal model id (`model-N`).
+   *  The scene keys its models by its own generated ids, NOT layer ids, so
+   *  without this mapping `screenshotModel(layer.id)` silently finds no
+   *  model and the SKN vanishes from the export. */
+  resolveModelId?: (layerId: string) => string | null;
 }
 
-// Cached bundled-asset object URLs, keyed by asset name (ring/glow/stroke).
-const assetUrlCache = new Map<string, Promise<string>>();
+// Cached bundled-asset bitmaps, keyed by asset name (ring/glow/stroke).
+const assetBitmapCache = new Map<string, Promise<ImageBitmap>>();
 
-/** Loads a bundled thumbnail WebP asset as an object URL, cached at module
- *  scope (mirrors `DiscComposite.tsx`/`FrameComposite.tsx` caches — this module
- *  can't reuse those since they're private to the component files, but the
- *  underlying `loadThumbnailAsset` fetch is the same call). */
-function bundledAssetUrl(name: ThumbnailAssetName): Promise<string> {
-  const cached = assetUrlCache.get(name);
+/** Loads a bundled thumbnail WebP asset and decodes it straight to an
+ *  ImageBitmap from the in-memory bytes. Deliberately NO object URL +
+ *  `fetch()` round-trip: `fetch('blob:...')` is governed by the CSP's
+ *  `connect-src` (which doesn't allow `blob:`), so it fails with
+ *  "failed to fetch" in release builds even though the preview components'
+ *  `<img src>`/CSS usage (governed by `img-src`) works fine. */
+function bundledAssetBitmap(name: ThumbnailAssetName): Promise<ImageBitmap> {
+  const cached = assetBitmapCache.get(name);
   if (cached) return cached;
-  const p = loadThumbnailAsset(name).then(bytes => URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'image/webp' })));
-  assetUrlCache.set(name, p);
+  const p = loadThumbnailAsset(name).then(bytes =>
+    createImageBitmap(new Blob([new Uint8Array(bytes)], { type: 'image/webp' })));
+  assetBitmapCache.set(name, p);
   return p;
 }
 
@@ -216,12 +224,6 @@ function applyLayerShadow(
   ctx.shadowBlur = (layer.shadowBlur ?? 8) * scale;
   ctx.shadowOffsetX = (layer.shadowOffsetX ?? 0) * scale;
   ctx.shadowOffsetY = (layer.shadowOffsetY ?? 6) * scale;
-}
-
-async function loadImageBitmapFromUrl(url: string): Promise<ImageBitmap> {
-  const res = await fetch(url);
-  const blob = await res.blob();
-  return createImageBitmap(blob);
 }
 
 function canvasMeasureFor(ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D, layer: TextLayer, scale: number): TextMeasure {
@@ -438,7 +440,7 @@ function drawTextLayer(
  * exact draw order and why it matches the live preview.
  */
 export async function composeThumbnail(opts: ComposeOptions): Promise<Blob> {
-  const { scene, mapScene, layers, preset, hue, vignette = 0, cornerGlow = 0, outW, outH, format, quality = 0.92 } = opts;
+  const { scene, mapScene, layers, preset, hue, vignette = 0, cornerGlow = 0, outW, outH, format, quality = 0.92, resolveModelId } = opts;
 
   const canvas: OffscreenCanvas | HTMLCanvasElement =
     typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(outW, outH) : (() => {
@@ -463,15 +465,15 @@ export async function composeThumbnail(opts: ComposeOptions): Promise<Blob> {
   // Preload disc bitmaps in parallel before drawing anything.
   const [ringBitmap, glowBitmap] = discLayer
     ? await Promise.all([
-        bundledAssetUrl('ring').then(loadImageBitmapFromUrl),
-        bundledAssetUrl('glow').then(loadImageBitmapFromUrl),
+        bundledAssetBitmap('ring'),
+        bundledAssetBitmap('glow'),
       ])
     : [null, null];
   // Preload each frame layer's bundled art bitmap (keyed by asset name).
   const frameBitmaps = new Map<string, ImageBitmap>();
   await Promise.all(
     Array.from(new Set(frameLayers.map(f => f.asset))).map(async asset => {
-      const bmp = await bundledAssetUrl(asset as ThumbnailAssetName).then(loadImageBitmapFromUrl);
+      const bmp = await bundledAssetBitmap(asset as ThumbnailAssetName);
       frameBitmaps.set(asset, bmp);
     }),
   );
@@ -558,7 +560,11 @@ export async function composeThumbnail(opts: ComposeOptions): Promise<Blob> {
   // its box, with its optional drop-shadow. Each model is now on its own canvas,
   // so shadow is per-model and models interleave with the disc by array order.
   const drawModel = async (m: Extract<Layer, { type: 'model' }>) => {
-    const shotBlob = await scene.screenshotModel(m.id, outW, outH);
+    // Layer id → scene model id. Without the mapping the scene can't find
+    // the model and returns a fully transparent shot (SKN missing from the
+    // exported poster).
+    const sceneId = resolveModelId?.(m.id) ?? m.id;
+    const shotBlob = await scene.screenshotModel(sceneId, outW, outH);
     const shotBitmap = await createImageBitmap(shotBlob);
     if (m.shadow) {
       ctx.save();

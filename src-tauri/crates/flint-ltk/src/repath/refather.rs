@@ -391,7 +391,7 @@ pub fn repath_project(
     for path in all_asset_paths.difference(&existing_paths) {
         result.missing_paths.push(path.clone());
     }
-    tracing::info!("[TIMING] step3 existing_paths filter ({} paths): {:?}", all_asset_paths.len(), t_step3.elapsed());
+    tracing::debug!("[TIMING] step3 existing_paths filter ({} paths): {:?}", all_asset_paths.len(), t_step3.elapsed());
 
     let t_step4 = std::time::Instant::now();
     let prefix = config.prefix();
@@ -412,23 +412,23 @@ pub fn repath_project(
 
     result.bins_processed = bins_processed.load(Ordering::Relaxed);
     result.paths_modified = paths_modified.load(Ordering::Relaxed);
-    tracing::info!("[TIMING] step4 repath {} BINs in parallel: {:?}", result.bins_processed, t_step4.elapsed());
+    tracing::debug!("[TIMING] step4 repath {} BINs in parallel: {:?}", result.bins_processed, t_step4.elapsed());
 
     let t_step5 = std::time::Instant::now();
     result.files_relocated = relocate_assets(file_base, &existing_paths, &prefix, config)?;
-    tracing::info!("[TIMING] step5 relocate_assets ({} files): {:?}", result.files_relocated, t_step5.elapsed());
+    tracing::debug!("[TIMING] step5 relocate_assets ({} files): {:?}", result.files_relocated, t_step5.elapsed());
 
     if config.cleanup_unused {
         let t_step6 = std::time::Instant::now();
         result.files_removed = cleanup_unused_files(file_base, &existing_paths, &prefix, config)?;
-        tracing::info!("[TIMING] step6 cleanup_unused_files ({} removed): {:?}", result.files_removed, t_step6.elapsed());
+        tracing::debug!("[TIMING] step6 cleanup_unused_files ({} removed): {:?}", result.files_removed, t_step6.elapsed());
     }
 
     if !config.skip_bin_cleanup {
         let t_step7 = std::time::Instant::now();
         let keep = referenced_bin_keep_set(file_base);
         cleanup_irrelevant_bins(file_base, &config.champion, config.target_skin_id, &keep)?;
-        tracing::info!("[TIMING] step7 cleanup_irrelevant_bins: {:?}", t_step7.elapsed());
+        tracing::debug!("[TIMING] step7 cleanup_irrelevant_bins: {:?}", t_step7.elapsed());
     } else {
         tracing::info!("Skipping cleanup_irrelevant_bins because skip_bin_cleanup is true");
     }
@@ -445,12 +445,12 @@ pub fn repath_project(
         if swept > 0 {
             tracing::info!("Swept {} un-relocated orphan(s) from the source characters/ tree", swept);
         }
-        tracing::info!("[TIMING] step7b sweep_source_tree_orphans ({} removed): {:?}", swept, t_sweep.elapsed());
+        tracing::debug!("[TIMING] step7b sweep_source_tree_orphans ({} removed): {:?}", swept, t_sweep.elapsed());
     }
 
     let t_step8 = std::time::Instant::now();
     cleanup_empty_dirs(file_base)?;
-    tracing::info!("[TIMING] step8 cleanup_empty_dirs: {:?}", t_step8.elapsed());
+    tracing::debug!("[TIMING] step8 cleanup_empty_dirs: {:?}", t_step8.elapsed());
 
     tracing::info!(
         "Repathing complete: {} bins, {} paths modified, {} files relocated",

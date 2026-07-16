@@ -90,7 +90,7 @@ pub async fn create_project(
         "Hash databases not found. Run hash download first.".to_string()
     )?;
     let d = t.elapsed();
-    tracing::info!("[TIMING] LMDB prime: {:?}", d);
+    tracing::debug!("[TIMING] LMDB prime: {:?}", d);
     phase_timings.push(("lmdb_prime", d));
 
     let t = Instant::now();
@@ -113,7 +113,7 @@ pub async fn create_project(
             })?
     };
     let d = t.elapsed();
-    tracing::info!("[TIMING] find_champion_wad: {:?}", d);
+    tracing::debug!("[TIMING] find_champion_wad: {:?}", d);
     phase_timings.push(("find_champion_wad", d));
 
     // Verify the requested skin's main BIN is actually inside the WAD (a PBE
@@ -125,7 +125,7 @@ pub async fn create_project(
             wad_path.display(), e
         ))?;
     let d = t.elapsed();
-    tracing::info!("[TIMING] wad_contains_skin_bin: {:?}", d);
+    tracing::debug!("[TIMING] wad_contains_skin_bin: {:?}", d);
     phase_timings.push(("wad_contains_skin_bin", d));
     if !skin_bin_present {
         let source_label = if pbe { "PBE" } else { "Live" };
@@ -168,7 +168,7 @@ pub async fn create_project(
     .await
     .map_err(|e| format!("Task failed: {}", e))??;
     let d = t.elapsed();
-    tracing::info!("[TIMING] core_create_project (mkdir + manifest): {:?}", d);
+    tracing::debug!("[TIMING] core_create_project (mkdir + manifest): {:?}", d);
     phase_timings.push(("core_create_project", d));
 
     let _ = app.emit("project-create-progress", serde_json::json!({
@@ -219,7 +219,7 @@ pub async fn create_project(
     })
     .await;
     let extract_elapsed = t.elapsed();
-    tracing::info!("[TIMING] extract_skin_assets: {:?}", extract_elapsed);
+    tracing::debug!("[TIMING] extract_skin_assets: {:?}", extract_elapsed);
     phase_timings.push(("extract_skin_assets", extract_elapsed));
 
     let extraction_result = match extraction_result {
@@ -279,7 +279,7 @@ pub async fn create_project(
         })
         .await;
         let d = t.elapsed();
-        tracing::info!("[TIMING] organize_project (concat only, TFT): {:?}", d);
+        tracing::debug!("[TIMING] organize_project (concat only, TFT): {:?}", d);
         phase_timings.push(("organize_project_tft_concat", d));
 
         match concat_result {
@@ -322,7 +322,7 @@ pub async fn create_project(
             })
             .await;
             let d = t.elapsed();
-            tracing::info!("[TIMING] organize_project (repath + concat): {:?}", d);
+            tracing::debug!("[TIMING] organize_project (repath + concat): {:?}", d);
             phase_timings.push(("organize_project", d));
 
             match repath_result {
@@ -353,10 +353,10 @@ pub async fn create_project(
     }));
 
     let total = total_start.elapsed();
-    tracing::info!("[TIMING] === Project creation total: {:?} ===", total);
+    tracing::debug!("[TIMING] === Project creation total: {:?} ===", total);
     for (label, dur) in &phase_timings {
         let pct = (dur.as_secs_f64() / total.as_secs_f64()) * 100.0;
-        tracing::info!("[TIMING]   {:>22}: {:>10?}  ({:>5.1}%)", label, dur, pct);
+        tracing::debug!("[TIMING]   {:>22}: {:>10?}  ({:>5.1}%)", label, dur, pct);
     }
 
     Ok(project)
@@ -1577,12 +1577,19 @@ pub async fn delete_project(project_path: String) -> Result<(), String> {
     let path = PathBuf::from(&project_path);
 
     if !path.exists() {
-        return Err(format!("Project path does not exist: {}", project_path));
+        // Already deleted on disk (e.g. by the user in Explorer). Deletion is
+        // idempotent — report success so the caller still drops it from the
+        // saved/recents list.
+        tracing::info!("Project path already gone, treating delete as success: {}", project_path);
+        return Ok(());
     }
 
     tokio::task::spawn_blocking(move || {
-        std::fs::remove_dir_all(&path)
-            .map_err(|e| format!("Failed to delete project: {}", e))
+        match std::fs::remove_dir_all(&path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(format!("Failed to delete project: {}", e)),
+        }
     })
     .await
     .map_err(|e| format!("Task failed: {}", e))?

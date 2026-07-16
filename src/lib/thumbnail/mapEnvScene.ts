@@ -200,6 +200,12 @@ export function createMapEnvScene(
         // re-center the map every edit and cancel the tuning).
     }
 
+    // True once frameToBox ran against a real (non-collapsed) render size.
+    // Framing while the canvas is 0×0/1×1 (page still laying out, window
+    // minimized) computes a garbage aspect → the map renders as a stretched
+    // garbled band; we retry once real dimensions arrive.
+    let framedAtValidSize = false;
+
     /** Fit the camera so the whole map bbox is centered in the canvas. Called
      *  ONCE at load for a sensible starting view; distance is locked so the
      *  map's on-screen size comes from its own scale afterward. */
@@ -222,6 +228,7 @@ export function createMapEnvScene(
         const fovY = camera.fov || 0.8;
         const cw = engine.getRenderWidth() || 1;
         const ch = engine.getRenderHeight() || 1;
+        framedAtValidSize = cw > 1 && ch > 1;
         const aspect = ch > 0 ? cw / ch : 1;
         const fovX = 2 * Math.atan(Math.tan(fovY / 2) * aspect);
         // 1.6× margin (not tight) so the map sits with headroom in the frame —
@@ -273,16 +280,36 @@ export function createMapEnvScene(
         });
     }
 
+    /** Resize the engine buffer to the canvas — but never while the canvas is
+     *  collapsed (window minimized / page hidden): a 0×0 buffer + reframe is
+     *  what produced the garbled stretched-band env after minimize/restore.
+     *  Framing is one-time by design (see frameToBox); we only re-run it when
+     *  the one-time framing itself happened at a collapsed size. */
+    function safeResize(): void {
+        if (canvas.clientWidth === 0 || canvas.clientHeight === 0) return;
+        engine.resize();
+        if (!framedAtValidSize && meshes.length > 0) frameToBox();
+    }
+
+    // Recover automatically when the canvas regains real dimensions (restore
+    // from minimize, tab shown again) — the window resize event alone is not
+    // reliable for that on WebView2.
+    const sizeObserver = typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => safeResize())
+        : null;
+    sizeObserver?.observe(canvas);
+
     return {
         getSlots: () => slots.slice(),
         setLayer,
         applyVariation,
         setTransform,
         setVisible: (visible: boolean) => { for (const mesh of meshes) mesh.setEnabled(visible); },
-        resize: () => { engine.resize(); frameToBox(); },
+        resize: safeResize,
         isLoaded: () => meshes.length > 0,
         screenshot,
         dispose: () => {
+            sizeObserver?.disconnect();
             engine.stopRenderLoop();
             clearGeometry();
             scene.dispose();

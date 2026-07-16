@@ -104,7 +104,7 @@ pub async fn get_wad_chunks(
     let d_build = t_build.elapsed();
     let total = total_start.elapsed();
 
-    tracing::info!(
+    tracing::debug!(
         "[TIMING] get_wad_chunks {} chunks ({}, total {:?}): \
          open/parse {:?}, hash_collect {:?}, lmdb_resolve {:?}, build_response {:?}",
         chunks.len(),
@@ -222,7 +222,7 @@ pub async fn load_all_wad_chunks(
     // Free the resolved map eagerly — it can be hundreds of MB.
     drop(resolved_map);
 
-    tracing::info!(
+    tracing::debug!(
         "[TIMING] load_all_wad_chunks {} WADs, {} chunks, {} unique hashes, {} bytes (total {:?}): \
          phase1_read {:?}, phase2_dedup {:?}, phase3_lmdb {:?}, phase4_encode {:?}",
         entries.len(),
@@ -404,9 +404,10 @@ pub struct WadModelPreviewResult {
     pub temp_dir: String,
 }
 
-/// Extract an SKN chunk and its companion files from a WAD to a temp directory
-/// for inline 3D preview. Companion files: .skl, .bin, .dds, .tex in the same
-/// skin folder. Also auto-generates .ritobin cache for .bin files.
+/// Extract a mesh chunk (SKN/SCB/SCO) and its companion files from a WAD to a
+/// temp directory for inline 3D preview. Companion files: .skn, .skl, .scb,
+/// .sco, .bin, .dds, .tex in the same folder. Also auto-generates .ritobin
+/// cache for .bin files (texture mapping).
 #[tauri::command]
 pub async fn extract_wad_model_preview(
     wad_path: String,
@@ -440,14 +441,14 @@ pub async fn extract_wad_model_preview(
     };
 
     let skn_resolved = resolved_map.get(&target_hash)
-        .ok_or_else(|| format!("SKN chunk {:016x} not found in WAD", target_hash))?;
+        .ok_or_else(|| format!("Mesh chunk {:016x} not found in WAD", target_hash))?;
 
     let skn_normalized = skn_resolved.replace('\\', "/");
     let skn_folder = skn_normalized.rsplit_once('/')
         .map(|(folder, _)| format!("{}/", folder))
         .unwrap_or_default();
 
-    let companion_exts = [".skn", ".skl", ".bin", ".dds", ".tex"];
+    let companion_exts = [".skn", ".skl", ".scb", ".sco", ".bin", ".dds", ".tex"];
 
     let mut to_extract: Vec<(u64, String)> = Vec::new();
     for chunk in chunks.iter() {
@@ -466,7 +467,7 @@ pub async fn extract_wad_model_preview(
     }
 
     if to_extract.is_empty() {
-        return Err("No extractable files found for SKN preview".to_string());
+        return Err("No extractable files found for mesh preview".to_string());
     }
 
     let uuid = uuid::Uuid::new_v4();
@@ -498,7 +499,7 @@ pub async fn extract_wad_model_preview(
 
     if skn_path.is_empty() {
         let _ = std::fs::remove_dir_all(&temp_dir);
-        return Err("Failed to extract SKN chunk".to_string());
+        return Err("Failed to extract mesh chunk".to_string());
     }
 
     // Auto-generate .ritobin cache for all extracted .bin files.
@@ -512,8 +513,8 @@ pub async fn extract_wad_model_preview(
         }
     }
 
-    tracing::info!(
-        "Extracted {} files for SKN preview to {}",
+    tracing::debug!(
+        "Extracted {} files for mesh preview to {}",
         to_extract.len(),
         temp_dir.display()
     );
@@ -592,7 +593,7 @@ fn warm_wad_lmdb_once() {
                 }
                 total += n as u64;
             }
-            tracing::info!("[TIMING] warmed LMDB page cache: {} MB in {:?}", total >> 20, t.elapsed());
+            tracing::debug!("[TIMING] warmed LMDB page cache: {} MB in {:?}", total >> 20, t.elapsed());
         });
     });
 }

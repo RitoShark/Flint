@@ -117,7 +117,7 @@ export function buildSknMeshes(
         for (let i = 0; i < positions.length; i++) if (!Number.isFinite(positions[i])) nanPos++;
         let nanNrm = 0;
         for (let i = 0; i < normals.length; i++) if (!Number.isFinite(normals[i])) nanNrm++;
-        console.log(
+        console.debug(
             `[meshBuilder] submesh[${s}] srcName='${sm.name}' -> meshName='${meshName}' ` +
             `vCount=${vCount} iCount=${iCount} posLen=${positions.length} idxLen=${indices.length} ` +
             `nanPos=${nanPos} nanNrm=${nanNrm} hasSkin=${!!hasSkin} ` +

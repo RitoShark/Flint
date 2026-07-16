@@ -180,7 +180,11 @@ export const PreviewPanel: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [imageZoom, setImageZoom] = useState<'fit' | number>('fit');
-    const [isFolderSelection, setIsFolderSelection] = useState(false);
+    // The selectedFile value the folder decision was made FOR (via inspectPath).
+    // Keyed by path instead of a boolean so a stale `true` from the previous
+    // folder can never render FolderGridView with a freshly-selected FILE path
+    // (which fired `list_folder_contents` on a file → "Not a folder" error).
+    const [folderSelPath, setFolderSelPath] = useState<string | null>(null);
 
     const [webglCooldown, setWebglCooldown] = useState(false);
     const prevFileInfoRef = useRef<FileInfo | null>(null);
@@ -194,7 +198,7 @@ export const PreviewPanel: React.FC = () => {
     useEffect(() => {
         if (!selectedFile || !projectPath) {
             setFileInfo(null);
-            setIsFolderSelection(false);
+            setFolderSelPath(null);
             setLoading(false);
             return;
         }
@@ -202,7 +206,7 @@ export const PreviewPanel: React.FC = () => {
         const was3D = is3DType(prevFileInfoRef.current);
 
         setFileInfo(null);
-        setIsFolderSelection(false);
+        setFolderSelPath(null);
         setLoading(true);
         setError(null);
 
@@ -229,7 +233,7 @@ export const PreviewPanel: React.FC = () => {
                 const inspection = await api.inspectPath(filePath);
                 if (cancelled) return;
                 if (inspection.is_directory) {
-                    setIsFolderSelection(true);
+                    setFolderSelPath(selectedFile);
                     setLoading(false);
                     prevFileInfoRef.current = null;
                     return;
@@ -264,7 +268,11 @@ export const PreviewPanel: React.FC = () => {
     const fileName = filePath.split('\\').pop() || filePath.split('/').pop() || filePath;
     const isImage = fileInfo?.file_type?.startsWith('image/');
 
-    if (isFolderSelection) {
+    // Only render the folder view when the folder decision matches the CURRENT
+    // selection — during the one render where selectedFile already changed but
+    // the inspect effect hasn't run yet, this mismatches and we fall through to
+    // the loading state instead of listing a file path as a folder.
+    if (folderSelPath === selectedFile) {
         return (
             <div className="preview-panel">
                 <FolderGridView

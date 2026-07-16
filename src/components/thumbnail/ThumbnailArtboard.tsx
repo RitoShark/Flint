@@ -41,6 +41,10 @@ export interface ThumbnailArtboardHandle {
   /** The 3D map-env scene (own engine), for the compositor to draw behind the
    *  disc. Null when no map layer / before the scene-creation effect runs. */
   getMapScene: () => MapEnvScene | null;
+  /** Maps a model LAYER id to the scene's internal model id (`model-N`).
+   *  Needed by the export compositor: the scene keys models by its own ids,
+   *  not layer ids. Null while the model is still loading / unbound. */
+  getModelSceneId: (layerId: string) => string | null;
 }
 
 interface ThumbnailArtboardProps {
@@ -235,6 +239,8 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
 
   const getScene = useCallback((): ThumbnailScene | null => sceneRef.current, []);
   const getMapScene = useCallback((): MapEnvScene | null => mapSceneRef.current, []);
+  const getModelSceneId = useCallback((layerId: string): string | null =>
+    modelBindingsRef.current.get(layerId)?.sceneId || null, []);
 
   // ── Floating model toolbar (top-left of the artboard) — shown when a model
   // layer is selected. Hosts the ⚙ mesh/animation popover trigger + the Face
@@ -335,11 +341,11 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
 
   // Expose fit/100%/fit-selection/getModelAnims to the host (toolbar / keyboard shortcuts / PropertiesPanel).
   useEffect(() => {
-    if (controlsRef) controlsRef.current = { fitView, fullView, fitSelection, getScene, getMapScene };
+    if (controlsRef) controlsRef.current = { fitView, fullView, fitSelection, getScene, getMapScene, getModelSceneId };
     return () => {
       if (controlsRef) controlsRef.current = null;
     };
-  }, [controlsRef, fitView, fullView, fitSelection, getScene, getMapScene]);
+  }, [controlsRef, fitView, fullView, fitSelection, getScene, getMapScene, getModelSceneId]);
 
   // ── Fit once the viewport has real dimensions. Double-rAF handles the
   // normal first paint; a ResizeObserver catches the cold-WebView case where

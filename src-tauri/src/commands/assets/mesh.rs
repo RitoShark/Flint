@@ -19,7 +19,7 @@ fn decode_texture_blocking(path: &Path) -> Result<String, String> {
 #[tauri::command]
 pub async fn read_scb_mesh(path: String) -> Result<tauri::ipc::Response, String> {
     let mesh = read_scb_mesh_inner(path).await?;
-    tracing::info!(
+    tracing::debug!(
         "[mesh-wire] SCB '{}': {} verts, {} idx, {} mats={:?} ranges={:?} mat_data_keys={:?} bbox={:?}",
         mesh.name,
         mesh.positions.len(),
@@ -177,7 +177,7 @@ async fn read_scb_mesh_inner(path: String) -> Result<ScbMeshData, String> {
                 }
 
                 let elapsed = start_time.elapsed();
-                tracing::info!("Loaded {} textures for SCB mesh in {:.2}s", material_data.len(), elapsed.as_secs_f32());
+                tracing::debug!("Loaded {} textures for SCB mesh in {:.2}s", material_data.len(), elapsed.as_secs_f32());
                 mesh_data.material_data = material_data;
     } else {
         tracing::warn!("No .ritobin cache found and could not create one for SCB texture mapping");
@@ -461,7 +461,7 @@ fn find_ritobin_in_dir(dir: &Path) -> Option<String> {
 #[tauri::command]
 pub async fn read_skn_mesh(path: String) -> Result<tauri::ipc::Response, String> {
     let mesh = read_skn_mesh_inner(path).await?;
-    tracing::info!(
+    tracing::debug!(
         "[mesh-wire] SKN: {} verts, {} idx, {} mats, {} bone_idx, {} bone_wt, bbox={:?}",
         mesh.positions.len(),
         mesh.indices.len(),
@@ -628,7 +628,7 @@ async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {
                 }
 
                 let elapsed = start_time.elapsed();
-                tracing::info!("Loaded {} textures for SKN mesh in {:.2}s", material_data.len(), elapsed.as_secs_f32());
+                tracing::debug!("Loaded {} textures for SKN mesh in {:.2}s", material_data.len(), elapsed.as_secs_f32());
                 mesh_data.material_data = material_data;
     } else {
         tracing::warn!("No .ritobin cache found and could not create one for SKN texture mapping");
@@ -1040,6 +1040,11 @@ fn find_project_root(file_path: &Path) -> Option<std::path::PathBuf> {
                 tracing::debug!("Found project root (has data/): {}", current.display());
                 return Some(current.to_path_buf());
             }
+        }
+        // Never walk above the Flint project root — a stray `data\` dir in
+        // AppData / the user's home hijacks resolution (machine-dependent).
+        if flint_ltk::mesh::texture::is_flint_project_root(current) {
+            break;
         }
         current = match current.parent() {
             Some(p) => p,

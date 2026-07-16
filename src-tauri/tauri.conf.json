@@ -27,7 +27,7 @@
     "createUpdaterArtifacts": "v1Compatible"
   },
   "productName": "Flint",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "identifier": "com.sirdexal.flint",
   "plugins": {
     "updater": {
@@ -61,7 +61,7 @@
         "style-src": "'self' 'unsafe-inline'",
         "script-src": "'self' blob: 'unsafe-eval'",
         "img-src": "'self' data: https: blob:",
-        "connect-src": "'self' http://ipc.localhost https://raw.communitydragon.org https://ddragon.leagueoflegends.com https://github.com asset: https://asset.localhost http://asset.localhost",
+        "connect-src": "'self' blob: data: http://ipc.localhost https://raw.communitydragon.org https://ddragon.leagueoflegends.com https://github.com asset: https://asset.localhost http://asset.localhost",
         "worker-src": "'self' blob:",
         "media-src": "'self' blob: asset: https://asset.localhost http://asset.localhost"
       },

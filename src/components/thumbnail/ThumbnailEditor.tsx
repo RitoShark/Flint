@@ -446,6 +446,7 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
       const blob = await composeThumbnail({
         scene,
         mapScene: artboardControlsRef.current?.getMapScene() ?? null,
+        resolveModelId: (layerId) => artboardControlsRef.current?.getModelSceneId(layerId) ?? null,
         layers: history.get(),
         preset,
         hue,

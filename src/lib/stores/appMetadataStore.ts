@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { LogEntry } from '../types';
+import { setVerboseCapture, VERBOSE_STORAGE_KEY } from '../util/logger';
 
 const fileVersionsMap = new Map<string, number>();
 const fileStatusesMap = new Map<string, 'new' | 'modified'>();
@@ -45,12 +46,23 @@ let logIdCounter = 0;
 
 const normPath = (p: string) => p.replaceAll('\\', '/');
 
+// Verbose logging persists across restarts (localStorage, key shared with
+// the logger) so a user who enabled it to diagnose an issue doesn't silently
+// lose it on relaunch.
+function readVerbosePref(): boolean {
+  try {
+    return localStorage.getItem(VERBOSE_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 export const useAppMetadataStore = create<AppMetadataState>((set) => ({
   status: 'ready',
   statusMessage: 'Ready',
   hashesLoaded: false,
   hashCount: 0,
-  verboseLogging: false,
+  verboseLogging: readVerbosePref(),
   logs: [],
   logPanelExpanded: false,
   fileVersionsRev: 0,
@@ -62,7 +74,13 @@ export const useAppMetadataStore = create<AppMetadataState>((set) => ({
   setReady: (message = 'Ready') => set({ status: 'ready', statusMessage: message }),
   setError: (message) => set({ status: 'error', statusMessage: message }),
   setHashInfo: (loaded, count) => set({ hashesLoaded: loaded, hashCount: count }),
-  setVerboseLogging: (enabled) => set({ verboseLogging: enabled }),
+  setVerboseLogging: (enabled) => {
+    try {
+      localStorage.setItem(VERBOSE_STORAGE_KEY, enabled ? '1' : '0');
+    } catch { /* non-fatal */ }
+    setVerboseCapture(enabled);
+    set({ verboseLogging: enabled });
+  },
   addLog: (level, message) => set((state) => ({
     logs: [...state.logs, {
       id: ++logIdCounter,

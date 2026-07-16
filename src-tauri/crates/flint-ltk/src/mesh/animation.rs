@@ -167,15 +167,12 @@ pub fn find_animation_bin(skn_path: &Path) -> Option<PathBuf> {
         while let Some(dir) = current {
             let data_dir = dir.join("data");
             if data_dir.exists() && data_dir.is_dir() {
-                let dir_name = dir.file_name()
-                    .map(|n| n.to_string_lossy().to_lowercase())
-                    .unwrap_or_default();
-
-                if dir_name.ends_with(".wad.client") || dir_name.ends_with(".wad") {
-                    current = dir.parent();
-                    continue;
-                }
-
+                // NOTE: WAD folders are checked too — in Flint projects the
+                // extracted `.wad.client` folder IS where the `data/` tree
+                // lives (the old skip-and-continue here meant the champion
+                // loop never looked inside it and kept walking toward
+                // AppData / the user's home, where a stray `data\` dir gave
+                // machine-dependent misses).
                 let anim_dir = data_dir
                     .join("characters")
                     .join(champion)
@@ -194,12 +191,15 @@ pub fn find_animation_bin(skn_path: &Path) -> Option<PathBuf> {
                     tracing::debug!("Found animation BIN (skin0): {}", skin0_anim.display());
                     return Some(skin0_anim);
                 }
+            }
+            // Stop at the Flint project boundary — never scan above it.
+            if crate::mesh::texture::is_flint_project_root(dir) {
                 break;
             }
             current = dir.parent();
         }
     }
-    
+
     let mut current = skn_path.parent();
     while let Some(dir) = current {
         let data_path = dir.join("data");
@@ -213,11 +213,13 @@ pub fn find_animation_bin(skn_path: &Path) -> Option<PathBuf> {
                     }
                 }
             }
+        }
+        if crate::mesh::texture::is_flint_project_root(dir) {
             break;
         }
         current = dir.parent();
     }
-    
+
     tracing::debug!("Animation BIN not found");
     None
 }

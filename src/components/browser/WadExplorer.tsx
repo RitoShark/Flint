@@ -13,7 +13,7 @@ import {
     checkboxSvg,
     type VFSNode, type VFSFolder, type VFSFile,
     buildVFSSubtree,
-    type SearchMode, matchChunk, formatBytes,
+    compileSearch, matchChunk, formatBytes,
     makeFileKey, collectFolderFileKeys, collectFolderHashes,
     getFolderCheckState, getWadCheckState, getCheckStateForKeys,
     ROW_HEIGHT, OVERSCAN,
@@ -65,18 +65,14 @@ export const WadExplorer: React.FC = () => {
     const flatRowsRef = useRef<FlatRow[] | null>(null);
 
     const [inputValue, setInputValue] = useState(wadExplorer.searchQuery);
-    const [searchMode, setSearchMode] = useState<SearchMode>('contains');
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const searchRef = useRef<HTMLInputElement>(null);
 
-    // ── Derived search state ─────────────────────────────────────────────────
+    // ── Derived search state (Quartz-style smart matching) ──────────────────
+    // One input, no mode toggles: the query is tried as a case-insensitive
+    // regex and silently falls back to substring matching if it won't compile.
     const trimmed = inputValue.trim();
-    const isRegex = searchMode === 'regex';
-    let searchRe: RegExp | null = null;
-    let regexError = false;
-    if (isRegex && trimmed) {
-        try { searchRe = new RegExp(trimmed, 'i'); } catch { regexError = true; }
-    }
+    const searchRe = compileSearch(trimmed);
     const plainLower = trimmed.toLowerCase();
     const hasQuery = trimmed.length > 0;
 
@@ -251,7 +247,6 @@ export const WadExplorer: React.FC = () => {
     }, [wadExplorer.wads, wadExplorer.expandedWads, handleToggleWad, loadWad, processNavigation]);
 
     const handleCheatSheetFilter = useCallback((path: string) => {
-        setSearchMode('regex');
         setInputValue(path);
         useWadExplorerStore.getState().setSearch(path);
         setTimeout(() => searchRef.current?.focus(), 50);
@@ -357,14 +352,14 @@ export const WadExplorer: React.FC = () => {
             if (w.status !== 'loaded') continue;
             if (hasQuery) {
                 for (const c of w.chunks) {
-                    if (matchChunk(c, searchRe, plainLower, searchMode)) keys.push(makeFileKey(w.path, c.hash));
+                    if (matchChunk(c, searchRe, plainLower)) keys.push(makeFileKey(w.path, c.hash));
                 }
             } else {
                 for (const c of w.chunks) keys.push(makeFileKey(w.path, c.hash));
             }
         }
         useWadExplorerStore.getState().toggleCheck(keys, true);
-    }, [wadExplorer.wads, hasQuery, searchRe, plainLower, searchMode]);
+    }, [wadExplorer.wads, hasQuery, searchRe, plainLower]);
 
     const handleDeselectAll = useCallback(() => {
         useWadExplorerStore.getState().clearChecks();
@@ -804,7 +799,7 @@ export const WadExplorer: React.FC = () => {
 
             for (const chunk of w.chunks) {
                 if (totalCapped >= MAX_RESULTS) break;
-                if (!matchChunk(chunk, searchRe, plainLower, searchMode)) continue;
+                if (!matchChunk(chunk, searchRe, plainLower)) continue;
 
                 const fullPath = (chunk.path ?? chunk.hash).replace(/\\/g, '/');
                 const lastSlash = fullPath.lastIndexOf('/');
@@ -828,7 +823,7 @@ export const WadExplorer: React.FC = () => {
         }
 
         return wadGroups;
-    }, [wadExplorer.wads, trimmed, searchMode, inputValue]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [wadExplorer.wads, trimmed, inputValue]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const searchResultCount = useMemo(() => {
         if (!groupedSearchResults) return 0;
@@ -846,20 +841,19 @@ export const WadExplorer: React.FC = () => {
         return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
     }, [wadExplorer.wads]);
 
-    // When non-regex searching, also filter the WAD tree by name so unloaded
-    // WADs (which can't contribute to file-level results) stay reachable.
+    // While searching, also filter the WAD tree by name (same smart matcher)
+    // so unloaded WADs (which can't contribute to file-level results) stay
+    // reachable.
     const filteredCategories = useMemo(() => {
-        if (!hasQuery || isRegex) return null;
+        if (!hasQuery) return null;
         const result: [string, WadExplorerWad[]][] = [];
         for (const [cat, wads] of categories) {
-            const matching = wads.filter(w => {
-                const name = w.name.toLowerCase();
-                return searchMode === 'starts' ? name.startsWith(plainLower) : name.includes(plainLower);
-            });
+            const matching = wads.filter(w =>
+                searchRe ? searchRe.test(w.name) : w.name.toLowerCase().includes(plainLower));
             if (matching.length > 0) result.push([cat, matching]);
         }
         return result;
-    }, [hasQuery, isRegex, searchMode, categories, plainLower]);
+    }, [hasQuery, searchRe, categories, plainLower]);
 
     // ── WAD subtrees (lazily built per WAD, cached by chunks reference) ────
     const vfsCacheRef = useRef<Map<string, { chunks: WadChunk[]; tree: VFSNode[] }>>(new Map());
@@ -1369,27 +1363,12 @@ export const WadExplorer: React.FC = () => {
                             ref={searchRef}
                             type="text"
                             className="file-tree__search-input"
-                            placeholder={
-                                searchMode === 'regex' ? 'Regex filter… (Ctrl+F)'
-                                    : searchMode === 'starts' ? 'Starts with… (Ctrl+F)'
-                                        : 'Filter files… (Ctrl+F)'
-                            }
+                            placeholder="Filter files… (Ctrl+F)"
+                            title="Matches file paths. Regex works too — invalid regex falls back to plain text."
                             value={inputValue}
                             onChange={handleInputChange}
-                            style={{ paddingLeft: '26px', paddingRight: '76px', width: '100%', borderColor: regexError ? 'var(--error, #f44)' : undefined }}
+                            style={{ paddingLeft: '26px', width: '100%' }}
                         />
-                        <button
-                            className={`btn btn--sm ${searchMode === 'starts' ? 'btn--active' : ''}`}
-                            onClick={() => setSearchMode(m => m === 'starts' ? 'contains' : 'starts')}
-                            title={searchMode === 'starts' ? 'Starts-with mode (click to disable)' : 'Match files whose name starts with the query'}
-                            style={{ position: 'absolute', right: '38px', top: '50%', transform: 'translateY(-50%)', padding: '4px 8px', fontSize: '13px', fontFamily: 'monospace', minWidth: '28px', height: '24px', lineHeight: 1 }}
-                        >^</button>
-                        <button
-                            className={`btn btn--sm ${searchMode === 'regex' ? 'btn--active' : ''}`}
-                            onClick={() => setSearchMode(m => m === 'regex' ? 'contains' : 'regex')}
-                            title={searchMode === 'regex' ? 'Regex mode (click to disable)' : 'Regex mode'}
-                            style={{ position: 'absolute', right: '4px', top: '50%', transform: 'translateY(-50%)', padding: '4px 8px', fontSize: '13px', fontFamily: 'monospace', minWidth: '28px', height: '24px', lineHeight: 1 }}
-                        >.*</button>
                     </div>
                 </div>
 
@@ -1514,7 +1493,6 @@ export const WadExplorer: React.FC = () => {
                         wads={wadExplorer.wads}
                         onSetFilter={query => {
                             setInputValue(query);
-                            setSearchMode('regex');
                             useWadExplorerStore.getState().setSearch(query);
                             searchRef.current?.focus();
                         }}

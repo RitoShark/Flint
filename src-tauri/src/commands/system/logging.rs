@@ -11,20 +11,13 @@ pub fn set_reload_fn(f: ReloadFn) {
     *RELOAD_FN.lock() = Some(f);
 }
 
-/// Switch between normal (`info`) and verbose (`debug`) log levels. In release
-/// builds `tracing::debug!` is compile-time stripped, so the toggle clamps to `info`.
+/// Switch between normal (`info`) and verbose (`debug`) log levels. Works in
+/// both dev and release builds (the `release_max_level_info` strip feature was
+/// removed so verbose logging is available in the shipped app too).
 #[tauri::command]
 pub async fn set_log_level(verbose: bool) -> Result<(), String> {
-    let verbose_effective = if cfg!(debug_assertions) { verbose } else { false };
-
-    let filter_str = if verbose_effective { "debug" } else { "info" };
-    let mode_name = if verbose_effective {
-        "verbose (debug)"
-    } else if verbose && !cfg!(debug_assertions) {
-        "normal (info) — debug logs are dev-only in release"
-    } else {
-        "normal (info)"
-    };
+    let filter_str = if verbose { "debug" } else { "info" };
+    let mode_name = if verbose { "verbose (debug)" } else { "normal (info)" };
 
     let guard = RELOAD_FN.lock();
     let reload = guard.as_ref().ok_or("Reload handle not initialized")?;
@@ -32,7 +25,7 @@ pub async fn set_log_level(verbose: bool) -> Result<(), String> {
 
     tracing::info!("Log level changed to: {}", mode_name);
 
-    if verbose_effective {
+    if verbose {
         tracing::debug!("Verbose logging enabled - you will see detailed debug information");
         tracing::info!("Info logs visible");
         tracing::warn!("Warning logs visible");

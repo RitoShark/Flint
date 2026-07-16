@@ -3,7 +3,7 @@ members = [".", "crates/flint-ltk", "crates/ltk_inibin"]
 
 [package]
 name = "flint"
-version = "2.4.0"
+version = "2.5.0"
 edition = "2021"
 default-run = "flint"
 
@@ -72,12 +72,12 @@ xxhash-rust = { version = "0.8", features = ["xxh64"] }
 
 # Logging
 #
-# `release_max_level_info` strips `tracing::debug!` and `tracing::trace!`
-# calls at compile time in release builds — they become true no-ops with no
-# runtime cost. Dev builds keep them. Combined with the runtime clamp in
-# `commands::logging::set_log_level` (which refuses `debug` in release), the
-# verbose toggle is dev-only.
-tracing = { version = "0.1", features = ["release_max_level_info"] }
+# NOTE: deliberately NO `release_max_level_info` feature — it compile-time
+# strips `tracing::debug!` in release builds, which made the Settings
+# "Verbose logging" toggle a silent no-op in the shipped app (exactly when
+# users need it to diagnose issues). Disabled debug! callsites are cheap at
+# runtime (callsite-cached filter check) while the level stays at `info`.
+tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 

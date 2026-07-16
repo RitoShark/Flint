@@ -206,23 +206,23 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         if (!canvas) return;
 
         const engine = createEngine(canvas);
-        console.log('[engine] CREATED (live GL engines pile up if this fires per file)');
+        console.debug('[engine] CREATED (live GL engines pile up if this fires per file)');
 
         const onWinError = (e: ErrorEvent) =>
-            console.error(`[render] 💥 window error: ${e.message}`, e.error?.stack ?? e.error ?? '');
+            console.error(`[render] ðŸ’¥ window error: ${e.message}`, e.error?.stack ?? e.error ?? '');
         const onRejection = (e: PromiseRejectionEvent) =>
-            console.error('[render] 💥 unhandledrejection:', e.reason?.stack ?? e.reason ?? e.reason);
+            console.error('[render] ðŸ’¥ unhandledrejection:', e.reason?.stack ?? e.reason ?? e.reason);
         const onCtxLost = (e: Event) => {
             e.preventDefault();
-            console.error('[render] 💥 canvas webglcontextlost (GPU context dropped)');
+            console.error('[render] ðŸ’¥ canvas webglcontextlost (GPU context dropped)');
         };
-        const onCtxRestored = () => console.log('[render] ✓ canvas webglcontextrestored');
+        const onCtxRestored = () => console.debug('[render] âœ“ canvas webglcontextrestored');
         window.addEventListener('error', onWinError);
         window.addEventListener('unhandledrejection', onRejection);
         canvas.addEventListener('webglcontextlost', onCtxLost);
         canvas.addEventListener('webglcontextrestored', onCtxRestored);
-        engine.onContextLostObservable.add(() => console.error('[render] 💥 Babylon onContextLost'));
-        engine.onContextRestoredObservable.add(() => console.log('[render] ✓ Babylon onContextRestored'));
+        engine.onContextLostObservable.add(() => console.error('[render] ðŸ’¥ Babylon onContextLost'));
+        engine.onContextRestoredObservable.add(() => console.debug('[render] âœ“ Babylon onContextRestored'));
 
         const activeScene = new Scene(engine);
         setScene(activeScene);
@@ -313,7 +313,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             window.removeEventListener('unhandledrejection', onRejection);
             canvas.removeEventListener('webglcontextlost', onCtxLost);
             canvas.removeEventListener('webglcontextrestored', onCtxRestored);
-            console.log('[engine] DISPOSED');
+            console.debug('[engine] DISPOSED');
 
             if (skeletonViewerRef.current) {
                 skeletonViewerRef.current.dispose();
@@ -529,7 +529,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
         const influences = skeletonData?.influences;
 
-        console.log(
+        console.debug(
             `[MeshPreview] build ${meshData.kind}: ` +
             `pos=${meshData.positions?.length}(${(meshData.positions?.length ?? 0) / 3}v) ` +
             `idx=${meshData.indices?.length} uv=${meshData.uvs?.length} nrm=${meshData.normals?.length} ` +
@@ -540,7 +540,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         let meshes: ReturnType<typeof buildSknMeshes>['meshes'];
         try {
             meshes = buildSknMeshes(meshDto, scene, babylonSkeleton, influences).meshes;
-            console.log(`[MeshPreview] buildSknMeshes OK → ${meshes.length} mesh(es)`);
+            console.debug(`[MeshPreview] buildSknMeshes OK â†’ ${meshes.length} mesh(es)`);
         } catch (err) {
             console.error(`[MeshPreview] buildSknMeshes THREW (${meshData.kind}):`, err);
             setError(`Mesh build failed: ${(err as Error)?.message ?? String(err)}`);
@@ -598,7 +598,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             }
         }
 
-        console.log(
+        console.debug(
             `[MeshPreview] visibleMaterials(${visibleMaterials.size})=[${[...visibleMaterials].map(x => `'${x}'`).join(', ')}] ` +
             `textureCacheKeys=[${[...textureCache.keys()].map(x => `'${x}'`).join(', ')}] ` +
             `meshNames=[${meshes.map(m => `'${m.name}'`).join(', ')}]`
@@ -654,7 +654,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             m.material = mat;
             const willEnable = visibleMaterials.has(matName);
             m.setEnabled(willEnable);
-            console.log(
+            console.debug(
                 `[MeshPreview] applyMat mesh='${matName}' textureFound=${!!texture} ` +
                 `visibleMaterials.has('${matName}')=${willEnable} -> setEnabled(${willEnable}) ` +
                 `=> isEnabled=${m.isEnabled()} albedo=${texture ? 'tex' : 'MAGENTA(no-tex)'}`
@@ -665,7 +665,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             const bi = m.getBoundingInfo();
             const bb = bi.boundingBox;
             const mat = m.material as PBRMaterial | null;
-            console.log(
+            console.debug(
                 `[MeshPreview] FINAL mesh[${i}] name='${m.name}' enabled=${m.isEnabled()} ` +
                 `isVisible=${m.isVisible} visibility=${m.visibility} alphaIndex=${m.alphaIndex} ` +
                 `gpuVerts=${m.getTotalVertices()} gpuIdx=${m.getTotalIndices()} ` +
@@ -721,7 +721,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             camera.radius = camRestore.radius;
             camera.target = new Vector3(camRestore.target[0], camRestore.target[1], camRestore.target[2]);
         }
-        console.log(
+        console.debug(
             `[MeshPreview] camera: boxValid=${boxValid} size=${size.toFixed(3)} ` +
             `radius=${radius.toFixed(3)} target=(${center.x.toFixed(2)},${center.y.toFixed(2)},${center.z.toFixed(2)})`
         );
@@ -784,7 +784,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             setAnimationData(null);
             setCurrentTime(0);
             animationPlayerRef.current = null;
-            // Dropped the animation → fall back to the static baseline visibility.
+            // Dropped the animation â†’ fall back to the static baseline visibility.
             submeshTimelineRef.current = null;
             lastVisSigRef.current = '';
             applyBaselineVisibilityRef.current();
@@ -805,7 +805,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 setAnimationData(animData as any);
                 setCurrentTime(0);
 
-                // fps comes from the baked .anm; needed to convert event frames → seconds.
+                // fps comes from the baked .anm; needed to convert event frames â†’ seconds.
                 submeshTimelineRef.current = new SubmeshVisibilityTimeline({
                     submeshNames,
                     initialHide: initialHideRef.current,
@@ -914,7 +914,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         objectUrl, scene, undefined, undefined, undefined,
                         () => {
                             URL.revokeObjectURL(objectUrl);
-                            console.log('[floor] ground texture loaded (url revoked)');
+                            console.debug('[floor] ground texture loaded (url revoked)');
                         },
                         (msg, ex) => {
                             URL.revokeObjectURL(objectUrl);
@@ -926,7 +926,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     ground.material = mat;
 
                     floorMeshRef.current = ground;
-                    console.log(`[floor] ground created (scene meshes=${scene.meshes.length})`);
+                    console.debug(`[floor] ground created (scene meshes=${scene.meshes.length})`);
 
                     scene.onAfterRenderObservable.addOnce(() => {
                         const dump = scene.meshes.map(mm => {
@@ -935,7 +935,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                                 `verts=${mm.getTotalVertices()},mat=${mm2.material?.getClassName?.() ?? mm2.material?.name ?? 'none'}}`;
                         });
                         const cam = scene.activeCamera as any;
-                        console.log(
+                        console.debug(
                             `[floor] AFTER-RENDER scene.meshes(${scene.meshes.length})=[${dump.join(', ')}] ` +
                             `cam.radius=${cam?.radius?.toFixed?.(1)} cam.minZ=${cam?.minZ} cam.maxZ=${cam?.maxZ} ` +
                             `clearColor=(${scene.clearColor.r.toFixed(2)},${scene.clearColor.g.toFixed(2)},${scene.clearColor.b.toFixed(2)})`
@@ -1098,7 +1098,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         : error
             ? (
                 <div className="model-preview__overlay model-preview__overlay--error">
-                    <span className="error-icon">⚠️</span>
+                    <span className="error-icon">âš ï¸</span>
                     <span>{error}</span>
                 </div>
             )
@@ -1164,7 +1164,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 <div className="model-preview__popup model-preview__popup--top-right">
                     <div className="model-preview__popup-header">
                         <h4>Display & Skeleton</h4>
-                        <button onClick={() => setActivePopup(null)}>×</button>
+                        <button onClick={() => setActivePopup(null)}>Ã—</button>
                     </div>
                     <div className="model-preview__popup-body">
                         <label className="model-preview__toggle">
@@ -1193,7 +1193,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 <div className="model-preview__popup model-preview__popup--top-left">
                     <div className="model-preview__popup-header">
                         <h4>Environment</h4>
-                        <button onClick={() => setActivePopup(null)}>×</button>
+                        <button onClick={() => setActivePopup(null)}>Ã—</button>
                     </div>
                     <div className="model-preview__popup-body">
                         <label className="model-preview__toggle">
@@ -1283,7 +1283,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                                     <line x1="1" y1="1" x2="23" y2="23" />
                                 </svg>
                             </button>
-                            <button onClick={() => setActivePopup(null)}>×</button>
+                            <button onClick={() => setActivePopup(null)}>Ã—</button>
                         </div>
                     </div>
                     <div className="model-preview__popup-body model-preview__popup-body--scrollable">
@@ -1297,7 +1297,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                                 fontSize: '12px',
                             }}>
                                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-                                    <span style={{ fontSize: '14px' }}>⚠️</span>
+                                    <span style={{ fontSize: '14px' }}>âš ï¸</span>
                                     <span style={{ color: 'var(--text-secondary)' }}>{meshData.texture_warning}</span>
                                 </div>
                             </div>
@@ -1359,7 +1359,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 <div className="model-preview__popup model-preview__popup--top-right">
                     <div className="model-preview__popup-header">
                         <h4>Animations ({animations.length})</h4>
-                        <button onClick={() => setActivePopup(null)}>×</button>
+                        <button onClick={() => setActivePopup(null)}>Ã—</button>
                     </div>
                     <div className="model-preview__popup-body">
                         <div className="model-preview__select-group">
@@ -1421,7 +1421,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                                         <div className="model-preview__timeline-info">
                                             <span>{currentTime.toFixed(2)}s / {animationData.duration.toFixed(2)}s</span>
                                             <span className="model-preview__timeline-fps">
-                                                {animationData.fps.toFixed(0)} FPS · {animationData.joint_count} joints
+                                                {animationData.fps.toFixed(0)} FPS Â· {animationData.joint_count} joints
                                             </span>
                                         </div>
                                     </div>
@@ -1472,7 +1472,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                             } else {
                                 return (
                                     <div className="asset-preview-tooltip__error">
-                                        <span className="asset-preview-tooltip__error-icon">🎨</span>
+                                        <span className="asset-preview-tooltip__error-icon">ðŸŽ¨</span>
                                         <span>No texture loaded</span>
                                     </div>
                                 );

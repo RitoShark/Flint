@@ -112,21 +112,35 @@ export function buildVFSSubtree(chunks: WadChunk[], wadPath: string): VFSNode[] 
 // Search helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type SearchMode = 'contains' | 'starts' | 'regex';
+// Regex metacharacters that signal the user actually WANTS regex matching.
+// A bare `.` is deliberately NOT in this set: queries like ".string" or
+// "2x_body.tex" are extension/filename searches where the dot must match
+// literally — compiling them as regex made `.` match any character and
+// surfaced unrelated results.
+const REGEX_META = /[\\^$*+?()[\]{}|]/;
 
-export function matchChunk(chunk: WadChunk, re: RegExp | null, plain: string, mode: SearchMode): boolean {
-    if (mode === 'regex') return re ? re.test(chunk.path ?? chunk.hash) : false;
+/** Quartz-style smart search, one input, no mode toggles: a query containing
+ *  real regex metacharacters is compiled as a case-insensitive regex; plain
+ *  text (dots included) matches as a literal lowercase substring. Returns
+ *  null when substring matching should be used. */
+export function compileSearch(query: string): RegExp | null {
+    const trimmed = query.trim();
+    if (!trimmed || !REGEX_META.test(trimmed)) return null;
+    try {
+        return new RegExp(trimmed, 'i');
+    } catch {
+        return null; // invalid regex → substring fallback
+    }
+}
+
+export function matchChunk(chunk: WadChunk, re: RegExp | null, plain: string): boolean {
+    if (re) return re.test(chunk.path ?? chunk.hash);
     // Lowercased path is cached on the chunk on first search to avoid
     // re-lowercasing the same string across keystrokes.
     let haystack = chunk.haystack;
     if (haystack === undefined) {
         haystack = chunk.path !== null ? chunk.path.toLowerCase() : chunk.hash;
         chunk.haystack = haystack;
-    }
-    if (mode === 'starts') {
-        const slash = haystack.lastIndexOf('/');
-        const basename = slash >= 0 ? haystack.slice(slash + 1) : haystack;
-        return basename.startsWith(plain) || haystack.startsWith(plain);
     }
     return haystack.includes(plain);
 }
@@ -247,7 +261,7 @@ export function detectType(bytes: Uint8Array, pathHint: string | null): string {
         dds: 'image/dds', tex: 'image/tex', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
         bin: 'application/x-bin', json: 'application/json', txt: 'text/plain', lua: 'text/x-lua',
         xml: 'application/xml', js: 'text/javascript', ts: 'text/typescript',
-        skn: 'model/x-lol-skn', skl: 'model/x-lol-skl', scb: 'model/x-lol-scb',
+        skn: 'model/x-lol-skn', skl: 'model/x-lol-skl', scb: 'model/x-lol-scb', sco: 'model/x-lol-sco',
         anm: 'animation/x-lol-anm', bnk: 'audio/x-wwise-bnk', wpk: 'audio/x-wwise-wpk',
         luabin: 'application/x-luabin', luabin64: 'application/x-luabin', troybin: 'application/x-troybin',
         inibin: 'application/x-inibin', rst: 'application/x-rst', preload: 'text/plain', ini: 'text/plain',

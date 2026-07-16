@@ -36,7 +36,26 @@ const originalConsole = {
     info: console.info.bind(console),
     warn: console.warn.bind(console),
     error: console.error.bind(console),
+    debug: console.debug.bind(console),
 };
+
+// Whether console.debug diagnostics are captured into the in-app log store.
+// Mirrors the "Verbose logging" setting (appMetadataStore keeps it in sync via
+// setVerboseCapture; seeded from the same localStorage key so a restart keeps
+// the choice). console.debug always still reaches DevTools regardless.
+export const VERBOSE_STORAGE_KEY = 'flint_verbose_logging';
+
+let verboseCapture = (() => {
+    try {
+        return localStorage.getItem(VERBOSE_STORAGE_KEY) === '1';
+    } catch {
+        return false;
+    }
+})();
+
+export function setVerboseCapture(on: boolean) {
+    verboseCapture = on;
+}
 
 function formatArgs(args: unknown[]): string {
     return args.map(arg => {
@@ -95,6 +114,18 @@ export function initializeLogger() {
         addLogEntry('error', message);
     };
 
+    // Verbose diagnostics: only captured into the log store when the user
+    // enabled Verbose logging — otherwise they stay DevTools-only, keeping
+    // the normal log clean.
+    console.debug = (...args: unknown[]) => {
+        originalConsole.debug(...args);
+        if (!verboseCapture) return;
+        const message = formatArgs(args);
+        if (!shouldFilter(message)) {
+            addLogEntry('info', message);
+        }
+    };
+
     addLogEntry('info', 'Flint frontend logger initialized');
 }
 
@@ -103,6 +134,7 @@ export function restoreConsole() {
     console.info = originalConsole.info;
     console.warn = originalConsole.warn;
     console.error = originalConsole.error;
+    console.debug = originalConsole.debug;
 }
 
 export async function initBackendLogListener() {

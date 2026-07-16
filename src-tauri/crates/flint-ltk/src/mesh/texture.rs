@@ -34,6 +34,18 @@ pub struct TextureMapping {
     pub static_materials: Vec<String>,
 }
 
+/// True when `dir` is a Flint project root (holds one of the project marker
+/// files). Directory walks that look for a `data/` tree MUST stop here —
+/// anything above the project (AppData, the user's home, drive root) can
+/// contain an unrelated `data\` folder that hijacks root resolution. That
+/// breakage is machine-dependent: the same project works on one PC and shows
+/// magenta/no-texture meshes on another.
+pub fn is_flint_project_root(dir: &Path) -> bool {
+    dir.join("mod.config.json").exists()
+        || dir.join("flint.json").exists()
+        || dir.join("project.json").exists()
+}
+
 /// Walks up from the mesh path to find a directory containing `data/`, then
 /// searches `data/characters/{champion}/skins/`.
 pub fn find_skin_bin(skn_path: &Path) -> Option<PathBuf> {
@@ -58,10 +70,96 @@ pub fn find_skin_bin(skn_path: &Path) -> Option<PathBuf> {
         if let Some(found) = search_skins_dir(&skins_dir, skin_folder.as_deref()) {
             return Some(found);
         }
+        tracing::warn!(
+            "skin BIN lookup miss: champion='{}' skin_folder={:?} root='{}' skins_dir exists={} — trying content search",
+            champion_name, skin_folder, root.display(), skins_dir.is_dir()
+        );
+
+        /* Ported mods often live under a CUSTOM character folder (e.g.
+           `data/characters/missfortune_skin69/...`) that doesn't match the
+           champion derived from the WAD name, so the derived skins dir misses.
+           Fall back to a content search: the skin BIN always embeds the mesh
+           path (`simpleSkin`), so find the BIN that mentions the mesh filename. */
+        if let Some(found) = find_bin_referencing_mesh(&root.join("data"), skn_path) {
+            tracing::debug!("Found skin BIN via content search: {}", found.display());
+            return Some(found);
+        }
     }
 
     tracing::warn!("skin BIN not found for: {}", skn_path.display());
     None
+}
+
+/// Scan `.bin` files under `data_dir` for one whose raw bytes contain the mesh
+/// filename (BIN strings are plain UTF-8, so no parse is needed). Prefers
+/// concat BINs, then BINs under a `skins/` folder, then any match.
+fn find_bin_referencing_mesh(data_dir: &Path, mesh_path: &Path) -> Option<PathBuf> {
+    const MAX_FILES: usize = 512;
+    const MAX_BIN_SIZE: u64 = 64 * 1024 * 1024;
+
+    let needle = mesh_path.file_name()?.to_string_lossy().to_lowercase();
+    let needle = needle.as_bytes();
+    if needle.is_empty() {
+        return None;
+    }
+
+    let mut stack = vec![data_dir.to_path_buf()];
+    let mut scanned = 0usize;
+    let mut fallback: Option<PathBuf> = None;
+
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("bin")) != Some(true) {
+                continue;
+            }
+            if scanned >= MAX_FILES {
+                return fallback;
+            }
+            scanned += 1;
+            if entry.metadata().map(|m| m.len() > MAX_BIN_SIZE).unwrap_or(true) {
+                continue;
+            }
+            let Ok(bytes) = std::fs::read(&path) else { continue };
+            if !contains_ignore_ascii_case(&bytes, needle) {
+                continue;
+            }
+
+            let name = path.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+            if name.contains("concat") {
+                return Some(path);
+            }
+            let in_skins = |p: &Path| p.parent()
+                .map(|d| d.to_string_lossy().to_lowercase().replace('\\', "/").contains("/skins"))
+                .unwrap_or(false);
+            let take = match &fallback {
+                None => true,
+                // Upgrade a non-skins fallback to a skins-folder match.
+                Some(existing) => in_skins(&path) && !in_skins(existing),
+            };
+            if take {
+                fallback = Some(path);
+            }
+        }
+    }
+
+    fallback
+}
+
+/// Case-insensitive (ASCII) byte-substring search.
+fn contains_ignore_ascii_case(haystack: &[u8], needle_lower: &[u8]) -> bool {
+    if needle_lower.is_empty() || haystack.len() < needle_lower.len() {
+        return false;
+    }
+    let first = needle_lower[0];
+    haystack.windows(needle_lower.len()).any(|w| {
+        w[0].to_ascii_lowercase() == first && w.eq_ignore_ascii_case(needle_lower)
+    })
 }
 
 fn extract_champion_name(path: &Path) -> Option<String> {
@@ -136,6 +234,9 @@ fn extract_skin_folder_from_path(path: &Path) -> Option<String> {
 
 /// Walks up until a directory with a `data/` subdirectory is found, skipping
 /// `.wad.client` / `.wad` folders (extracted WAD content, not the project root).
+/// The walk NEVER goes above the Flint project root (see
+/// [`is_flint_project_root`]) — a stray `data\` dir in AppData / the user's
+/// home would otherwise win over the correct WAD-folder fallback.
 fn find_project_root_from_path(file_path: &Path) -> Option<PathBuf> {
     let mut current = file_path.parent()?;
     let mut best: Option<PathBuf> = None;
@@ -156,6 +257,9 @@ fn find_project_root_from_path(file_path: &Path) -> Option<PathBuf> {
                 tracing::debug!("Found project root (has data/): {}", current.display());
                 return Some(current.to_path_buf());
             }
+        }
+        if is_flint_project_root(current) {
+            break;
         }
         current = match current.parent() {
             Some(p) => p,
@@ -359,7 +463,7 @@ pub fn extract_texture_mapping_from_text(content: &str) -> anyhow::Result<Textur
         }
     }
     
-    tracing::info!("Final material_properties count: {}", mapping.material_properties.len());
+    tracing::debug!("Final material_properties count: {}", mapping.material_properties.len());
     Ok(mapping)
 }
 
@@ -538,16 +642,16 @@ fn extract_param_values(material_block: &str) -> (Option<[f32; 2]>, Option<[f32;
 }
 
 fn resolve_material_texture(content: &str, material_path: &str) -> Option<MaterialProperties> {
-    tracing::info!("🔍 Resolving material link: '{}'", material_path);
+    tracing::debug!("🔍 Resolving material link: '{}'", material_path);
 
     let material_name_lower = material_path.to_lowercase();
     if content.to_lowercase().contains(&material_name_lower) {
-        tracing::info!("  ✓ Material name FOUND in content (case-insensitive)");
+        tracing::debug!("  ✓ Material name FOUND in content (case-insensitive)");
     } else {
         tracing::warn!("  ✗ Material name NOT FOUND anywhere in content");
         if let Some(last_part) = material_path.split('/').next_back() {
             if content.to_lowercase().contains(&last_part.to_lowercase()) {
-                tracing::info!("  ✓ Last part '{}' found in content", last_part);
+                tracing::debug!("  ✓ Last part '{}' found in content", last_part);
             } else {
                 tracing::warn!("  ✗ Even last part '{}' not found", last_part);
             }
@@ -556,7 +660,7 @@ fn resolve_material_texture(content: &str, material_path: &str) -> Option<Materi
     }
 
     let material_def_count = content.matches("StaticMaterialDef").count();
-    tracing::info!("  📊 Total StaticMaterialDef blocks in content: {}", material_def_count);
+    tracing::debug!("  📊 Total StaticMaterialDef blocks in content: {}", material_def_count);
 
     let escaped_path = regex::escape(material_path);
 
@@ -596,7 +700,7 @@ fn resolve_material_texture(content: &str, material_path: &str) -> Option<Materi
                         flipbook_frame,
                     };
 
-                    tracing::info!("SUCCESS: '{}' resolved with transforms using pattern #{}", material_path, i + 1);
+                    tracing::debug!("SUCCESS: '{}' resolved with transforms using pattern #{}", material_path, i + 1);
                     return Some(props);
                 } else {
                     tracing::warn!("FAILED: Could not find diffuse texture in StaticMaterialDef block");
@@ -1036,6 +1140,53 @@ mod tests {
             Some("ASSETS/Characters/Test/Skins/Skin0/Bridged.tex"),
         );
         assert!(mapping.static_materials.is_empty());
+    }
+
+    #[test]
+    fn stray_data_dir_above_project_does_not_hijack_root() {
+        // Reproduces the machine-dependent "skin BIN not found" (works on one
+        // PC, magenta textures on another): an unrelated `data/` dir ABOVE the
+        // project (AppData, user home, ...) used to win over the WAD folder.
+        let tmp = std::env::temp_dir().join(format!("flint_texture_hijack_{}", std::process::id()));
+        // The hijacker: <tmp>/data (sibling of projects/, like %APPDATA%/Flint/data).
+        std::fs::create_dir_all(tmp.join("data")).unwrap();
+
+        let proj = tmp.join("projects/uwu");
+        let wad = proj.join("content/base/missfortune.wad.client");
+        let skins = wad.join("data/characters/missfortune/skins");
+        std::fs::create_dir_all(&skins).unwrap();
+        std::fs::write(proj.join("mod.config.json"), b"{}").unwrap();
+        let bin_path = skins.join("skin69.bin");
+        std::fs::write(&bin_path, b"PROP...").unwrap();
+
+        let mesh_dir = wad.join("assets/guisai/uwu");
+        std::fs::create_dir_all(&mesh_dir).unwrap();
+        let mesh = mesh_dir.join("missfortune_skin69.skins_missfortune_skin69.skn");
+        std::fs::write(&mesh, b"skn").unwrap();
+
+        let found = find_skin_bin(&mesh);
+        assert_eq!(found, Some(bin_path));
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn content_search_finds_bin_under_custom_character_folder() {
+        let tmp = std::env::temp_dir().join(format!("flint_texture_test_{}", std::process::id()));
+        let skins = tmp.join("data/characters/missfortune_skin69/skins");
+        std::fs::create_dir_all(&skins).unwrap();
+
+        // BIN mentioning the mesh filename (mixed case, as BIN strings often are).
+        let bin_path = skins.join("root.bin");
+        std::fs::write(&bin_path, b"PROP...ASSETS/GuiSai/uwu/MissFortune_Skin69.Skins_MissFortune_Skin69.skn...").unwrap();
+        // Decoy BIN that doesn't reference the mesh.
+        std::fs::write(tmp.join("data/characters/missfortune_skin69/other.bin"), b"PROP...nothing...").unwrap();
+
+        let mesh = tmp.join("assets/guisai/uwu/missfortune_skin69.skins_missfortune_skin69.skn");
+        let found = find_bin_referencing_mesh(&tmp.join("data"), &mesh);
+        assert_eq!(found, Some(bin_path));
+
+        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]

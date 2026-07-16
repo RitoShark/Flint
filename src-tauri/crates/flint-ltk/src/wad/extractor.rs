@@ -401,7 +401,7 @@ pub fn extract_skin_assets(
     let sum_path: Duration = thread_results.iter().map(|r| r.3).sum();
     let sum_write: Duration = thread_results.iter().map(|r| r.4).sum();
     let n_threads = thread_results.len().max(1);
-    tracing::info!(
+    tracing::debug!(
         "[TIMING] extract phase 2 wall {:?} | per-thread avg \
          decompress {:?} path_resolve {:?} write {:?} (across {} threads, sum: dec {:?}, path {:?}, write {:?})",
         phase_elapsed,
