@@ -24,6 +24,12 @@ fn cdn_cache_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(base).join("Flint").join("cache").join("cdn")
 }
 
+/// Where downloaded manifests are stored (keyed by URL basename).
+fn manifest_dir() -> std::path::PathBuf {
+    let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
+    std::path::PathBuf::from(base).join("Flint").join("manifest")
+}
+
 // ── manifest discovery ──────────────────────────────────────────────────────
 
 #[derive(Serialize)]
@@ -92,6 +98,14 @@ pub async fn cdn_list_versions(
         .collect())
 }
 
+/// Return which of the given catalog repo paths have their manifest already
+/// downloaded to disk. Cache-only + filesystem check; never hits the network.
+/// Drives the "Downloaded" badge in the load modal.
+#[tauri::command]
+pub async fn cdn_cached_versions(repo_paths: Vec<String>) -> Result<Vec<String>, String> {
+    Ok(catalog::cached_versions(&cdn_cache_dir(), &manifest_dir(), &repo_paths))
+}
+
 // ── load manifest into a session ────────────────────────────────────────────
 
 #[derive(Serialize)]
@@ -142,10 +156,9 @@ pub struct CdnLoadResult {
 
 async fn load_manifest_from_url(url: &str, state: &State<'_, CdnSessionState>) -> Result<CdnLoadResult, String> {
     let file_name = url.split('/').next_back().unwrap_or("unknown.manifest");
-    let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
-    let manifest_dir = std::path::PathBuf::from(base).join("Flint").join("manifest");
-    let _ = std::fs::create_dir_all(&manifest_dir);
-    let manifest_path = manifest_dir.join(file_name);
+    let dir = manifest_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    let manifest_path = dir.join(file_name);
 
     let bytes: Vec<u8> = if manifest_path.exists() {
         std::fs::read(&manifest_path).map_err(|e| format!("failed to read cached manifest: {e}"))?

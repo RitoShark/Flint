@@ -209,6 +209,33 @@ pub async fn resolve_manifest_url(
     Ok(url)
 }
 
+/// Return the manifest CDN URL for a repo `path` **only if it is already in the
+/// resolved-URL cache** — never performs a network request. Used by the
+/// downloaded-badge check, which must stay offline and instant.
+pub fn resolve_manifest_url_cached(cache_dir: &Path, repo_path: &str) -> Option<String> {
+    let bytes = std::fs::read(url_cache_path(cache_dir)).ok()?;
+    let map: BTreeMap<String, String> = serde_json::from_slice(&bytes).ok()?;
+    map.get(repo_path).cloned()
+}
+
+/// Given a set of catalog entry repo `path`s, return the subset whose manifest
+/// has already been downloaded to `manifest_dir` (keyed by the URL basename, the
+/// same name `load_manifest_from_url` writes). Cache-only + filesystem checks;
+/// no network. Entries whose URL isn't cached yet are simply treated as not
+/// downloaded (they can't have been fetched without first resolving the URL).
+pub fn cached_versions(cache_dir: &Path, manifest_dir: &Path, repo_paths: &[String]) -> Vec<String> {
+    repo_paths
+        .iter()
+        .filter(|p| {
+            resolve_manifest_url_cached(cache_dir, p)
+                .and_then(|url| url.rsplit('/').next().map(str::to_string))
+                .map(|file_name| manifest_dir.join(file_name).exists())
+                .unwrap_or(false)
+        })
+        .cloned()
+        .collect()
+}
+
 /// Percent-encode path segments (spaces etc.) while keeping `/` separators, so
 /// repo paths like `Riot Client/...` resolve on raw.githubusercontent.com.
 fn encode_repo_path(path: &str) -> String {

@@ -151,6 +151,29 @@ export function formatBytes(n: number): string {
     return `${(n / (1024 * 1024)).toFixed(1)}MB`;
 }
 
+/** The client's default locale — the one locale WAD kept when hiding languages. */
+export const DEFAULT_LOCALE = 'en_US';
+
+/**
+ * The locale segment of a WAD filename (`Aatrox.ko_KR.wad.client` → `ko_KR`),
+ * or null if the WAD has no locale segment (the shared/default WAD).
+ */
+export function wadLocale(nameOrPath: string): string | null {
+    const base = nameOrPath.split(/[\\/]/).pop() ?? nameOrPath;
+    const m = base.match(/\.([a-z]{2}_[A-Z]{2})\.wad(?:\.client)?$/);
+    return m ? m[1] : null;
+}
+
+/**
+ * True when a WAD should be HIDDEN under the "hide other languages" filter:
+ * it has a locale segment that isn't the default locale. No-locale (shared) and
+ * default-locale WADs are always kept.
+ */
+export function isNonDefaultLocaleWad(nameOrPath: string, defaultLocale = DEFAULT_LOCALE): boolean {
+    const loc = wadLocale(nameOrPath);
+    return loc !== null && loc !== defaultLocale;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Checkbox state helpers
 // ─────────────────────────────────────────────────────────────────────────────

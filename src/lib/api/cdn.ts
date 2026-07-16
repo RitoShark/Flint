@@ -70,6 +70,15 @@ export function cdnLoadManifestByPath(repoPath: string): Promise<CdnLoadResult> 
     return invokeCommand('cdn_load_manifest_by_path', { repoPath });
 }
 
+/**
+ * Of the given catalog repo paths, return the subset whose manifest is already
+ * downloaded to disk. Cache-only + filesystem check (no network) — drives the
+ * "Downloaded" badge in the load modal.
+ */
+export function cdnCachedVersions(repoPaths: string[]): Promise<string[]> {
+    return invokeCommand('cdn_cached_versions', { repoPaths });
+}
+
 export function cdnListWad(sessionId: string, fileIndex: number): Promise<CdnWadChunk[]> {
     return invokeCommand('cdn_list_wad', { sessionId, fileIndex });
 }

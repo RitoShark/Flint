@@ -1,0 +1,218 @@
+/* ==========================================================================
+   CDN — Load-from-CDN modal + manifest extraction browser
+   Design-lab styled; reads the canonical theme vars so it tracks the theme.
+   ========================================================================== */
+
+/* ── Load modal ──────────────────────────────────────────────────────────── */
+.cdn-modal__body { gap: 16px; }
+.cdn-title-glyph { width: 18px; height: 18px; color: var(--accent-primary); flex: none; }
+.cdn-error { margin: 0; }
+
+/* one-row Platform · Kind · Region selectors */
+.cdn-selrow { display: flex; gap: 12px; align-items: flex-end; }
+.cdn-selfield { position: relative; display: grid; gap: 7px; flex: 1; min-width: 0; }
+.cdn-field-label {
+    font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--text-muted);
+}
+.cdn-ddtrigger {
+    display: inline-flex; align-items: center; justify-content: space-between; gap: 10px;
+    width: 100%; height: 38px; padding: 0 12px 0 14px;
+    background: var(--bg-tertiary); color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: 9px;
+    font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+    transition: border-color var(--dl-fast), background var(--dl-fast), box-shadow var(--dl-fast);
+}
+.cdn-ddtrigger:hover { border-color: color-mix(in oklab, var(--accent-primary) 40%, var(--border)); background: var(--bg-hover); }
+.cdn-ddtrigger--open { border-color: var(--accent-primary); box-shadow: var(--dl-ring); outline: none; }
+.cdn-ddtrigger svg { width: 15px; height: 15px; color: var(--text-muted); flex: none; transition: transform var(--dl-fast); }
+.cdn-ddtrigger--open svg { transform: rotate(180deg); }
+
+.cdn-ddmenu {
+    position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; right: 0;
+    max-height: 260px; overflow-y: auto; padding: 6px;
+    background: color-mix(in oklab, var(--bg-secondary) 96%, transparent);
+    backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%);
+    border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 24px 48px -16px rgba(0,0,0,.6), 0 4px 12px rgba(0,0,0,.3);
+    animation: cdn-ddpop 200ms var(--dl-ease-spring);
+}
+@keyframes cdn-ddpop { from { opacity: 0; transform: translateY(-4px) scale(.97); } to { opacity: 1; transform: none; } }
+.cdn-ddmenu__item {
+    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+    border: 1px solid transparent; background: transparent; color: var(--text-primary);
+    font: inherit; font-size: 13px; padding: 8px 10px; border-radius: 8px; cursor: pointer;
+    transition: background var(--dl-fast), border-color var(--dl-fast), color var(--dl-fast);
+}
+.cdn-ddmenu__item:hover {
+    background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+    border-color: color-mix(in oklab, var(--accent-primary) 32%, transparent);
+}
+.cdn-ddmenu__item--on {
+    background: color-mix(in oklab, var(--accent-primary) 12%, transparent);
+    border-color: color-mix(in oklab, var(--accent-primary) 28%, transparent);
+    color: color-mix(in oklab, var(--accent-primary) 18%, var(--text-primary)); font-weight: 600;
+}
+.cdn-ddmenu__item span:first-child { flex: 1; }
+.cdn-ddmenu__tick { width: 13px; height: 13px; color: var(--accent-primary); opacity: 0; flex: none; }
+.cdn-ddmenu__item--on .cdn-ddmenu__tick { opacity: 1; }
+
+/* version header: count | refresh (icon) | search */
+.cdn-verhead { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted); }
+.cdn-count { font-family: var(--font-mono); white-space: nowrap; }
+.cdn-refresh {
+    margin-left: auto; width: 30px; height: 30px; padding: 0; flex: none;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border); background: var(--bg-tertiary); color: var(--text-secondary);
+    border-radius: 7px; cursor: pointer; transition: all var(--dl-fast);
+}
+.cdn-refresh svg { width: 14px; height: 14px; }
+.cdn-refresh:hover:not(:disabled) { border-color: color-mix(in oklab, var(--accent-primary) 40%, var(--border)); color: var(--text-primary); }
+.cdn-refresh:hover:not(:disabled) svg { animation: dl-spin .6s var(--dl-ease-out); }
+.cdn-refresh:disabled { opacity: .5; cursor: default; }
+.cdn-search { position: relative; flex: 1; max-width: 220px; }
+.cdn-search svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); width: 13px; height: 13px; color: var(--text-muted); pointer-events: none; }
+.cdn-search input {
+    width: 100%; height: 30px; padding: 0 10px 0 29px;
+    background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 7px;
+    color: var(--text-primary); font: inherit; font-size: 12px;
+    transition: border-color var(--dl-fast), box-shadow var(--dl-fast), background var(--dl-fast);
+}
+.cdn-search input:focus { outline: none; border-color: var(--accent-primary); box-shadow: var(--dl-ring); background: var(--bg-secondary); }
+.cdn-search input::placeholder { color: var(--text-muted); }
+
+/* version card list */
+.cdn-verlist {
+    position: relative; max-height: 300px; overflow-y: auto; overflow-x: hidden;
+    display: grid; gap: 6px; padding: 8px; scrollbar-gutter: stable;
+    border: 1px solid var(--border); border-radius: 12px;
+    background: color-mix(in oklab, var(--bg-primary) 40%, var(--bg-tertiary));
+}
+.cdn-verlist::-webkit-scrollbar { width: 10px; }
+.cdn-verlist::-webkit-scrollbar-track { background: transparent; margin: 6px 0; }
+.cdn-verlist::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--text-muted) 40%, transparent);
+    border-radius: 999px; border: 3px solid transparent; background-clip: padding-box;
+}
+.cdn-verlist::-webkit-scrollbar-thumb:hover { background: color-mix(in oklab, var(--text-muted) 60%, transparent); background-clip: padding-box; }
+
+.cdn-vcard {
+    display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+    padding: 10px 12px; border: 1px solid transparent; border-radius: 9px; cursor: pointer;
+    background: var(--bg-secondary); color: var(--text-primary); font: inherit;
+    transition: border-color var(--dl-fast), background var(--dl-fast), box-shadow var(--dl-fast);
+}
+.cdn-vcard:hover { border-color: color-mix(in oklab, var(--accent-primary) 30%, var(--border)); background: var(--bg-hover); }
+.cdn-vcard--sel {
+    border-color: color-mix(in oklab, var(--accent-primary) 60%, transparent);
+    background: color-mix(in oklab, var(--accent-primary) 12%, var(--bg-secondary));
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent-primary) 30%, transparent);
+}
+.cdn-vcard__main { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.cdn-vcard__ver { font-weight: 650; font-size: 13.5px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.cdn-vcard__sub { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+
+.cdn-kindbadge {
+    display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; height: 20px;
+    border-radius: 999px; font-size: 10.5px; font-weight: 600; flex: none; text-transform: capitalize;
+    background: color-mix(in oklab, var(--accent-primary) 14%, var(--bg-tertiary));
+    color: color-mix(in oklab, var(--accent-primary) 45%, var(--text-primary));
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 28%, var(--border));
+}
+.cdn-kindbadge--client {
+    background: color-mix(in oklab, var(--color-warning) 13%, var(--bg-tertiary));
+    color: var(--color-warning);
+    border-color: color-mix(in oklab, var(--color-warning) 28%, var(--border));
+}
+.cdn-kindbadge__dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; box-shadow: 0 0 5px currentColor; }
+.cdn-dlbadge {
+    display: inline-flex; align-items: center; gap: 5px; flex: none; white-space: nowrap;
+    color: var(--color-success); font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+    background: color-mix(in oklab, var(--color-success) 12%, transparent);
+    border: 1px solid color-mix(in oklab, var(--color-success) 28%, transparent);
+}
+.cdn-dlbadge svg { width: 12px; height: 12px; }
+
+.cdn-empty { padding: 24px; text-align: center; color: var(--text-muted); font-size: 12.5px; }
+.cdn-overlay {
+    position: absolute; inset: 0; display: flex; flex-direction: column; gap: 12px;
+    align-items: center; justify-content: center; border-radius: 12px;
+    background: color-mix(in oklab, var(--bg-secondary) 82%, transparent);
+    backdrop-filter: blur(2px); color: var(--text-secondary); font-size: 12.5px;
+    animation: dl-fade-in var(--dl-base); z-index: 5;
+}
+
+.cdn-modal__foot { justify-content: space-between; align-items: center; }
+.cdn-footnote { font-size: 11.5px; color: var(--text-muted); }
+.cdn-foot-actions { display: flex; gap: 8px; }
+
+/* spinner (shared modal + browser) */
+.cdn-spinner {
+    width: 14px; height: 14px; border-radius: 50%; flex: none;
+    border: 2px solid color-mix(in oklab, currentColor 30%, transparent);
+    border-top-color: currentColor; animation: dl-spin .72s linear infinite;
+}
+.cdn-spinner--lg { width: 30px; height: 30px; border-width: 3px; border-color: color-mix(in oklab, var(--accent-primary) 25%, transparent); border-top-color: var(--accent-primary); }
+
+/* ── Extraction browser ──────────────────────────────────────────────────── */
+.cdn-bx-toolbar {
+    display: flex; align-items: center; gap: 10px; flex: none;
+    padding: 10px 12px; border-bottom: 1px solid var(--border);
+}
+.cdn-bx-toolbar__label { font-weight: 650; }
+.cdn-bx-toolbar__files { color: var(--text-muted); font-size: 12px; font-family: var(--font-mono); }
+.cdn-langtoggle {
+    display: inline-flex; align-items: center; gap: 8px; margin-left: auto; flex: none;
+    padding: 5px 10px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 7px;
+    font-size: 11.5px; color: var(--text-secondary); cursor: pointer; user-select: none;
+    transition: border-color var(--dl-fast);
+}
+.cdn-langtoggle:hover { border-color: color-mix(in oklab, var(--accent-primary) 30%, var(--border)); }
+.cdn-langtoggle__tgl { position: relative; width: 30px; height: 17px; border-radius: 999px; background: var(--bg-hover); flex: none; transition: background var(--dl-base); }
+.cdn-langtoggle__tgl::after { content: ''; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: var(--text-muted); transition: transform 300ms var(--dl-ease-spring); }
+.cdn-langtoggle--on .cdn-langtoggle__tgl { background: var(--accent-primary); }
+.cdn-langtoggle--on .cdn-langtoggle__tgl::after { transform: translateX(13px); background: #fff; }
+
+/* tree checkbox (tri-state) */
+.cdn-cb {
+    width: 16px; height: 16px; border: 1.5px solid var(--border); border-radius: 5px;
+    background: var(--bg-tertiary); flex: none; display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: background var(--dl-fast), border-color var(--dl-fast);
+}
+.cdn-cb:hover { border-color: color-mix(in oklab, var(--accent-primary) 55%, var(--border)); }
+.cdn-cb svg { width: 11px; height: 11px; color: #fff; }
+.cdn-cb--on { background: var(--accent-primary); border-color: var(--accent-primary); }
+.cdn-cb--part { background: color-mix(in oklab, var(--accent-primary) 20%, var(--bg-tertiary)); border-color: var(--accent-primary); }
+.cdn-cb--part::after { content: ''; width: 8px; height: 2px; border-radius: 1px; background: var(--accent-primary); }
+
+.cdn-langtag {
+    font-size: 9.5px; font-family: var(--font-mono); padding: 1px 5px; border-radius: 4px; flex: none;
+    background: color-mix(in oklab, var(--text-muted) 18%, transparent); color: var(--text-muted);
+}
+
+/* action bar */
+.cdn-actionbar {
+    flex: none; border-top: 1px solid var(--border); padding: 11px 14px;
+    display: flex; align-items: center; gap: 12px;
+    background: color-mix(in oklab, var(--bg-tertiary) 55%, transparent);
+}
+.cdn-actionbar__summary { font-size: 12.5px; }
+.cdn-actionbar__summary b { font-variant-numeric: tabular-nums; }
+.cdn-actionbar__summary .muted { color: var(--text-muted); }
+.cdn-actionbar__grow { flex: 1; }
+.cdn-bx-progress {
+    position: relative; height: 7px; flex: 1; max-width: 260px; overflow: hidden;
+    background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 999px;
+}
+.cdn-bx-progress__fill {
+    height: 100%; border-radius: inherit; position: relative; overflow: hidden;
+    background: linear-gradient(90deg, var(--accent-primary), color-mix(in oklab, var(--accent-primary) 60%, var(--accent-secondary)));
+    transition: width var(--dl-base);
+}
+.cdn-bx-progress__fill::after {
+    content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, color-mix(in oklab, white 18%, transparent), transparent);
+    animation: dl-shimmer 1.6s infinite;
+}
+.cdn-bx-progress--indet .cdn-bx-progress__fill { width: 35% !important; animation: dl-indet 1.4s var(--dl-ease-out) infinite; }
+.cdn-bx-status { font-size: 11.5px; color: var(--text-secondary); font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }

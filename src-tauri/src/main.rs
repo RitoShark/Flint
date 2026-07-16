@@ -342,6 +342,7 @@ fn main() {
             // CDN manifest browser commands
             commands::cdn::cdn_list_manifests,
             commands::cdn::cdn_list_versions,
+            commands::cdn::cdn_cached_versions,
             commands::cdn::cdn_load_manifest,
             commands::cdn::cdn_load_manifest_by_path,
             commands::cdn::cdn_list_wad,
