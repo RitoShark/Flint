@@ -14,6 +14,22 @@ use std::path::{Path, PathBuf};
 /// Written at the projects root, not inside any individual project directory.
 const INDEX_FILE: &str = "projects.json";
 
+/// Paths whose corrupt-index warning has already been logged this process, so
+/// repeated `read_index` calls at startup don't flood the log with the same line.
+static WARNED_CORRUPT: std::sync::Mutex<Option<std::collections::HashSet<PathBuf>>> =
+    std::sync::Mutex::new(None);
+
+/// Log a corrupt-index warning at most once per unique path per process.
+fn warn_corrupt_once(path: &Path, detail: &str) {
+    if let Ok(mut guard) = WARNED_CORRUPT.lock() {
+        let set = guard.get_or_insert_with(std::collections::HashSet::new);
+        if !set.insert(path.to_path_buf()) {
+            return; // already warned for this path
+        }
+    }
+    tracing::warn!("Corrupt projects.json at {} ({}); ignoring", path.display(), detail);
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectIndexEntry {
     /// Stable project ID (UUID v4), shared with the project's `flint.json`.
@@ -72,7 +88,7 @@ pub fn read_index(projects_root: &Path) -> ProjectIndex {
         Ok(file) => match serde_json::from_reader::<_, ProjectIndex>(BufReader::new(file)) {
             Ok(idx) => idx,
             Err(e) => {
-                tracing::warn!("Corrupt projects.json at {} ({}); ignoring", path.display(), e);
+                warn_corrupt_once(&path, &e.to_string());
                 ProjectIndex::default()
             }
         },

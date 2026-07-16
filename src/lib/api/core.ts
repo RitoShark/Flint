@@ -207,8 +207,10 @@ export async function invokeCommand<T>(
             const ms = performance.now() - start;
             inFlight.delete(id);
             lastSettleTime = performance.now();
+            // Silent probes (e.g. optional thumbnail reads) trace at debug, not warn.
+            const trace = `[ipc#${id} ✗] ${command} ${ms.toFixed(1)}ms — ${String(error).slice(0, 200)}`;
             // eslint-disable-next-line no-console
-            console.warn(`[ipc#${id} ✗] ${command} ${ms.toFixed(1)}ms — ${String(error).slice(0, 200)}`);
+            if (opts.silent) console.debug(trace); else console.warn(trace);
         }
         if (!opts.silent) {
             console.error(`[Flint] Command "${command}" failed:`, error);
@@ -260,8 +262,10 @@ export async function invokeRaw<T>(
             const ms = performance.now() - start;
             inFlight.delete(id);
             lastSettleTime = performance.now();
+            // Silent probes (e.g. optional thumbnail reads) trace at debug, not warn.
+            const trace = `[ipc#${id} ✗] ${command} ${ms.toFixed(1)}ms — ${String(error).slice(0, 200)}`;
             // eslint-disable-next-line no-console
-            console.warn(`[ipc#${id} ✗] ${command} ${ms.toFixed(1)}ms — ${String(error).slice(0, 200)}`);
+            if (opts.silent) console.debug(trace); else console.warn(trace);
         }
         if (!opts.silent) {
             console.error(`[Flint] Command "${command}" failed:`, error);
