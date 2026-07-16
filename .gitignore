@@ -42,3 +42,6 @@ dist-ssr
 
 # Superpowers brainstorm scratch dir
 .superpowers/
+
+# Claude working guide (kept local, not tracked)
+CLAUDE.md
