@@ -15,6 +15,11 @@ use tauri::{Emitter, Manager};
 use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter};
 
 fn main() {
+    // reqwest uses `rustls-no-provider`; install the ring crypto provider as the
+    // process default before any HTTPS request, or the first fetch panics with
+    // "No provider set" (CDN manifest browse, updater, …).
+    flint_ltk::install_tls_provider();
+
     let log_dir = get_flint_home()
         .map(|h| h.join("logs"))
         .unwrap_or_else(|_| std::path::PathBuf::from("./logs"));

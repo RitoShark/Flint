@@ -38,3 +38,15 @@ pub mod ltk_types {
 }
 
 pub use heed;
+
+/// Install the rustls `ring` crypto provider as the process default.
+///
+/// reqwest is built with `rustls-no-provider` (avoids the heavy aws-lc-sys
+/// default), so rustls has NO process-default `CryptoProvider` until one is
+/// installed. Without this, the first HTTPS request (CDN manifest fetch, the
+/// updater, any `reqwest::Client`) panics with `No provider set`. Call this
+/// ONCE at startup before any networking. Idempotent — a second call is a no-op.
+pub fn install_tls_provider() {
+    // `install_default` returns Err if a provider is already installed; ignore it.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
