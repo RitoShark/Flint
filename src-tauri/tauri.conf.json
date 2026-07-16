@@ -3,7 +3,7 @@
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:1420"
+    "devUrl": "http://localhost:1421"
   },
   "bundle": {
     "active": true,
@@ -45,13 +45,30 @@
     "withGlobalTauri": true,
     "windows": [
       {
+        "label": "main",
         "title": "Flint",
         "width": 1280,
         "height": 720,
         "resizable": true,
         "fullscreen": false,
-        "visible": true,
+        "visible": false,
         "decorations": false,
+        "additionalBrowserArgs": "--disable-features=msSmartScreenProtection --disable-background-networking --disable-translate"
+      },
+      {
+        "label": "updater",
+        "url": "/updater.html",
+        "title": "Flint Startup",
+        "width": 500,
+        "height": 400,
+        "center": true,
+        "decorations": false,
+        "shadow": true,
+        "transparent": false,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": true,
         "additionalBrowserArgs": "--disable-features=msSmartScreenProtection --disable-background-networking --disable-translate"
       }
     ],
@@ -61,7 +78,7 @@
         "style-src": "'self' 'unsafe-inline'",
         "script-src": "'self' blob: 'unsafe-eval'",
         "img-src": "'self' data: https: blob:",
-        "connect-src": "'self' blob: data: http://ipc.localhost https://raw.communitydragon.org https://ddragon.leagueoflegends.com https://github.com asset: https://asset.localhost http://asset.localhost",
+        "connect-src": "'self' blob: data: http://ipc.localhost https://raw.communitydragon.org https://ddragon.leagueoflegends.com https://github.com https://api.github.com asset: https://asset.localhost http://asset.localhost",
         "worker-src": "'self' blob:",
         "media-src": "'self' blob: asset: https://asset.localhost http://asset.localhost"
       },

@@ -6,8 +6,10 @@ console.log(`[startup] JS entry hit at ${__FLINT_JS_START_WALL} (perf=${__FLINT_
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { invoke } from '@tauri-apps/api/core';
 import { initializeLogger, initBackendLogListener } from './lib/util/logger';
 import { AppProvider } from './lib/stores';
+import { useConfigStore } from './lib/stores/configStore';
 import { bootUxPrefs } from './lib/stores/uxStore';
 import { App } from './components/layout/App';
 import { DesignLab } from './components/ui/DesignLab';
@@ -43,6 +45,31 @@ const isMapPreview =
 const isThumbnail =
     typeof window !== 'undefined' && window.location.hash.startsWith('#thumbnail');
 
+function StartupReadySignal() {
+    const hydrated = useConfigStore((state) => state._hydrated);
+    React.useEffect(() => {
+        if (!hydrated) return;
+        let cancelled = false;
+        void (async () => {
+            if (document.fonts?.ready) {
+                await Promise.race([
+                    document.fonts.ready,
+                    new Promise<void>((resolve) => window.setTimeout(resolve, 600)),
+                ]);
+            }
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+            if (!cancelled) {
+                await invoke('startup_main_ready').catch((error) => {
+                    console.error('[startup] main-ready handshake failed:', error);
+                });
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [hydrated]);
+    return null;
+}
+
 // eslint-disable-next-line no-console
 console.log(`[startup] imports resolved in ${(performance.now() - __FLINT_JS_START).toFixed(1)}ms`);
 
@@ -74,7 +101,12 @@ root.render(
                 : React.createElement(
                       React.StrictMode,
                       null,
-                      React.createElement(AppProvider, null, React.createElement(App))
+                      React.createElement(
+                          AppProvider,
+                          null,
+                          React.createElement(App),
+                          React.createElement(StartupReadySignal),
+                      )
                   )
 );
 
@@ -82,4 +114,4 @@ if (!isDesignLab) {
     initBackendLogListener();
 }
 void getCurrentWindow();
-console.log(isDesignLab ? '[Flint] Design Lab mounted' : '[Flint] Window already visible (boot skeleton handed off to React)');
+console.log(isDesignLab ? '[Flint] Design Lab mounted' : '[Flint] Main frontend mounted behind startup gate');

@@ -26,7 +26,7 @@ export default defineConfig({
     plugins: [react(), tauriCSSFix()],
     clearScreen: false,
     server: {
-        port: 1420,
+        port: 1421,
         strictPort: true,
         // NOTE: tried `server.warmup.clientFiles` to pre-transform the entry
         // tree during the WebView2 cold boot — it actually made things
@@ -102,11 +102,6 @@ export default defineConfig({
 
             // Editor
             'monaco-editor',
-
-            // 3D — biggest unlisted offenders
-            'three',
-            '@react-three/fiber',
-            '@react-three/drei',
 
             // Tauri API surface — each entry point was discovered separately
             // and triggered its own optimization round.

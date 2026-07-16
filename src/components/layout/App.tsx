@@ -4,9 +4,6 @@ import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
 import { initShortcuts, registerShortcut } from '../../lib/util/utils';
 import * as api from '../../lib/api';
 import { openWadInExtract, isWadPath } from '../../lib/openWad';
-import * as updater from '../../lib/util/updater';
-import { getVersion } from '@tauri-apps/api/app';
-import { CHANGELOG } from '../../lib/data/changelog';
 import { listen } from '@tauri-apps/api/event';
 import { invalidateCachedImage } from '../../lib/ui-helpers/imageCache';
 import { isSidecarFile } from '../../lib/editor/sidecarFiles';
@@ -45,6 +42,7 @@ import { ManifestBrowser } from '../browser/ManifestBrowser';
 import { ToastContainer } from '../overlays/Toast';
 import { TutorialOverlay, isOnboardingDone, TUTORIAL_REPLAY_EVENT } from '../overlays/TutorialOverlay';
 import { TooltipProvider } from '../overlays/TooltipProvider';
+import { UpdateShowcase } from '../update/UpdateShowcase';
 
 function getActiveTab(state: { activeTabId: string | null; openTabs: Array<{ id: string; project: any; projectPath: string; selectedFile: string | null }> }) {
     if (!state.activeTabId) return null;
@@ -425,74 +423,11 @@ export const App: React.FC = () => {
                 }
             }
 
-            setTimeout(checkForUpdates, 3000);
-            setTimeout(showWhatsNew, 5000);
         } catch (error) {
             console.error('[Flint] Failed to load initial data:', error);
         }
     };
 
-
-    const checkForUpdates = async () => {
-        if (!stateRef.current.autoUpdateEnabled) {
-            console.log('[Flint] Auto-updates disabled, skipping update check');
-            return;
-        }
-
-        try {
-            console.log('[Flint] Checking for updates...');
-            const result = await updater.checkForUpdates();
-
-            if (result.available && result.newVersion) {
-                if (stateRef.current.skippedUpdateVersion === result.newVersion) {
-                    console.log(`[Flint] Update ${result.newVersion} was skipped by user`);
-                    return;
-                }
-
-                console.log(`[Flint] Update available: ${result.currentVersion} → ${result.newVersion}`);
-
-                const updateInfo = {
-                    available: true,
-                    current_version: result.currentVersion,
-                    latest_version: result.newVersion,
-                    release_notes: result.body || 'No release notes available',
-                    published_at: result.date || new Date().toISOString(),
-                    download_url: '',
-                };
-
-                openModal('updateAvailable', updateInfo as unknown as Record<string, unknown>);
-            } else {
-                console.log('[Flint] Application is up to date');
-            }
-        } catch (error) {
-            console.log('[Flint] Update check failed:', error);
-        }
-    };
-
-    const showWhatsNew = async () => {
-        const config = useConfigStore.getState();
-        if (!config.creatorName) return;
-
-        const modal = useModalStore.getState();
-        if (modal.activeModal) return;
-
-        try {
-            const currentVersion = await getVersion();
-            const seenKey = 'flint_whats_new_seen_v';
-            const seenVersion = localStorage.getItem(seenKey);
-
-            if (seenVersion !== currentVersion) {
-                try { localStorage.setItem(seenKey, currentVersion); } catch { /* non-fatal */ }
-
-                const entry = CHANGELOG.find((c) => c.version === currentVersion);
-                if (entry) {
-                    openModal('whatsNew');
-                }
-            }
-        } catch (err) {
-            console.log('[Flint] What\'s New check failed:', err);
-        }
-    };
 
     const cleanStaleProjects = async () => {
         try {
@@ -627,6 +562,8 @@ export const App: React.FC = () => {
             {showTutorial && <TutorialOverlay onDone={() => setShowTutorial(false)} />}
 
             <TooltipProvider />
+
+            <UpdateShowcase />
         </>
     );
 };

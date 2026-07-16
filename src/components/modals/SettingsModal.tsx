@@ -640,7 +640,7 @@ export const SettingsModal: React.FC = () => {
                                     checked={autoUpdateEnabled}
                                     onChange={(e) => setAutoUpdateEnabled(e.target.checked)}
                                     label="Automatic Updates"
-                                    description="Check for updates on startup"
+                                    description="Automatically download and install updates before Flint opens"
                                 />
                             </div>
 

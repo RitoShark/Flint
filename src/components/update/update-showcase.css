@@ -1,0 +1,32 @@
+.flint-update-backdrop { position: fixed; inset: 0; z-index: 13000; display: grid; place-items: center; padding: 24px; background: rgba(5,5,8,.78); backdrop-filter: blur(10px); animation: flint-update-fade .16s both; }
+.flint-update { width: min(760px,94vw); max-height: min(760px,90vh); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border-color,#2c2c31); border-radius: 12px; background: color-mix(in srgb,var(--bg-secondary,#151519) 95%,transparent); box-shadow: 0 24px 70px rgba(0,0,0,.58),0 0 58px -30px rgba(239,51,64,.8); animation: flint-update-enter .22s both; }
+.flint-update__head { display: flex; align-items: center; gap: 13px; padding: 18px 22px; border-bottom: 1px solid var(--border-color,#2c2c31); background: linear-gradient(135deg,rgba(239,51,64,.12),rgba(20,20,24,.96) 72%); }
+.flint-update__logo { width: 46px; height: 46px; flex: 0 0 46px; object-fit: contain; filter: drop-shadow(0 0 11px rgba(239,51,64,.32)); }
+.flint-update__heading { min-width: 0; flex: 1; }
+.flint-update__heading h2 { margin: 0; color: var(--text-primary,#f4f4f6); font-size: 20px; letter-spacing: -.015em; }
+.flint-update__details { display: flex; align-items: center; gap: 9px; margin-top: 4px; color: var(--text-muted,#74747d); font: 10px ui-monospace,SFMono-Regular,Consolas,monospace; }
+.flint-update__details button { appearance: none; padding: 0 0 0 9px; border: 0; border-left: 1px solid var(--border-color,#2c2c31); background: none; color: inherit; font: inherit; cursor: pointer; }
+.flint-update__details button:hover { color: var(--accent-primary,#ef3340); }
+.flint-update__close { width: 32px; height: 32px; display: grid; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--text-muted,#8b8b93); cursor: pointer; }
+.flint-update__close:hover { border-color: var(--border-color,#34343a); background: rgba(255,255,255,.04); color: var(--text-primary,#fff); }
+.flint-update__close svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.flint-update__body { min-height: 210px; flex: 1; padding: 22px 26px; overflow-y: auto; }
+.flint-update__loading { height: 190px; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--text-muted,#85858e); font-size: 12px; }
+.flint-update__spinner { width: 16px; height: 16px; border: 2px solid rgba(239,51,64,.2); border-top-color: var(--accent-primary,#ef3340); border-radius: 50%; animation: flint-update-spin .7s linear infinite; }
+.flint-update__error { padding: 14px; border: 1px solid rgba(239,51,64,.35); border-radius: 7px; background: rgba(239,51,64,.07); color: var(--text-secondary,#b9b9c0); font-size: 12px; }
+.flint-update__markdown { color: var(--text-secondary,#b9b9c0); font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+.flint-update__markdown > :first-child { margin-top: 0; } .flint-update__markdown > :last-child { margin-bottom: 0; }
+.flint-update__markdown h1,.flint-update__markdown h2,.flint-update__markdown h3 { margin: 1.3em 0 .55em; color: var(--text-primary,#f4f4f6); line-height: 1.25; }
+.flint-update__markdown h1 { font-size: 20px; } .flint-update__markdown h2 { padding-bottom: 7px; border-bottom: 1px solid var(--border-color,#2c2c31); font-size: 16px; } .flint-update__markdown h3 { font-size: 14px; }
+.flint-update__markdown a { color: var(--accent-primary,#ef3340); text-decoration: none; cursor: pointer; } .flint-update__markdown a:hover { text-decoration: underline; }
+.flint-update__markdown ul,.flint-update__markdown ol { padding-left: 22px; } .flint-update__markdown li { margin: 4px 0; }
+.flint-update__markdown blockquote { margin: 14px 0; padding: 8px 13px; border-left: 3px solid var(--accent-primary,#ef3340); background: rgba(239,51,64,.06); color: var(--text-muted,#85858e); }
+.flint-update__markdown code { padding: 2px 5px; border: 1px solid var(--border-color,#2c2c31); border-radius: 5px; background: var(--bg-primary,#0d0d10); color: #ff7a83; font: 11px ui-monospace,SFMono-Regular,Consolas,monospace; }
+.flint-update__markdown pre { padding: 13px; overflow-x: auto; border: 1px solid var(--border-color,#2c2c31); border-radius: 8px; background: var(--bg-primary,#0d0d10); } .flint-update__markdown pre code { padding: 0; border: 0; background: transparent; }
+.flint-update__markdown img { display: block; max-width: 100%; height: auto; margin: 14px auto; border: 1px solid var(--border-color,#2c2c31); border-radius: 9px; }
+.flint-update__foot { display: flex; justify-content: flex-end; gap: 9px; padding: 14px 18px; border-top: 1px solid var(--border-color,#2c2c31); background: rgba(255,255,255,.018); }
+.flint-update__button { min-height: 36px; padding: 0 15px; border: 1px solid var(--border-color,#34343a); border-radius: 7px; background: rgba(255,255,255,.025); color: var(--text-secondary,#c4c4ca); font-weight: 600; cursor: pointer; }
+.flint-update__button:hover { background: rgba(255,255,255,.055); color: var(--text-primary,#fff); }
+.flint-update__button--primary { border-color: rgba(239,51,64,.65); background: linear-gradient(180deg,#e43a46,#b9212c); color: #fff; }
+@keyframes flint-update-fade { from { opacity: 0; } } @keyframes flint-update-enter { from { opacity: 0; transform: translateY(12px) scale(.975); } } @keyframes flint-update-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .flint-update-backdrop,.flint-update,.flint-update__spinner { animation: none; } }

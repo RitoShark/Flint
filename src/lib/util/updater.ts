@@ -43,6 +43,10 @@ export async function downloadAndInstallUpdate(
             throw new Error('No update available');
         }
 
+        try {
+            localStorage.setItem('flint_update_showcase_pending', update.version.replace(/^v/i, ''));
+        } catch { /* the native startup updater also persists its own marker */ }
+
         console.log('[Updater] Downloading update...');
 
         let totalBytes = 0;

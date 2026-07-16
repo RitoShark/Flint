@@ -140,6 +140,16 @@ fn read_settings_from_disk() -> Result<FlintSettings, String> {
     Ok(settings)
 }
 
+#[allow(dead_code)] // Used by the binary startup gate; the shared lib target compiles this module separately.
+pub(crate) fn auto_update_enabled() -> bool {
+    read_settings_from_disk()
+        .map(|settings| settings.auto_update_enabled)
+        .unwrap_or_else(|error| {
+            tracing::warn!("could not read automatic update preference: {error}");
+            true
+        })
+}
+
 fn write_settings_to_disk(settings: &FlintSettings) -> Result<(), String> {
     let path = settings_path()?;
     if let Some(parent) = path.parent() {

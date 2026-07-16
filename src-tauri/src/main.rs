@@ -3,6 +3,7 @@
 
 mod commands;
 mod core;
+mod startup;
 mod state;
 
 use commands::project_watcher::WatcherState;
@@ -72,7 +73,16 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
+            let startup_pending = app
+                .try_state::<startup::StartupGate>()
+                .map(|gate| !gate.is_resolved())
+                .unwrap_or(false);
+            if startup_pending {
+                if let Some(window) = app.get_webview_window("updater") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            } else if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.unminimize();
                 let _ = window.set_focus();
@@ -93,6 +103,7 @@ fn main() {
                 let _ = app.emit("file-open-request", clean_path);
             }
         }))
+        .manage(startup::StartupGate::default())
         .manage(WadCacheState::new())
         .manage(LmdbCacheState::new())
         .manage(WatcherState::new())
@@ -113,6 +124,22 @@ fn main() {
 
             if let Err(e) = initialize_app_home() {
                 tracing::error!("Failed to initialize app home: {}", e);
+            }
+
+            if let Some(updater) = app.get_webview_window("updater") {
+                let handle = app.handle().clone();
+                updater.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        let resolved = handle
+                            .try_state::<startup::StartupGate>()
+                            .map(|gate| gate.is_resolved())
+                            .unwrap_or(false);
+                        if !resolved {
+                            api.prevent_close();
+                            handle.exit(0);
+                        }
+                    }
+                });
             }
 
             let hash_dir = get_hash_dir().unwrap_or_else(|e| {
@@ -185,6 +212,10 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            startup::startup_window_ready,
+            startup::startup_main_ready,
+            startup::startup_continue,
+            startup::startup_take_installed_update,
             commands::hash::download_hashes,
             commands::hash::get_hash_status,
             commands::hash::reload_hashes,
