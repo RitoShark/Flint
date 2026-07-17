@@ -44,6 +44,32 @@ function nodeCheckState(node: CdnTreeNode, checked: Set<number>): TriState {
     return 'some';
 }
 
+/** Key for a checked inner-WAD entry. */
+function innerKey(wadFileIndex: number, hash: string): string {
+    return `${wadFileIndex}::${hash}`;
+}
+
+/** All leaf chunks under a VFS node (single file → itself; folder → descendants). */
+function collectInnerLeaves(node: VFSNode, out: WadChunk[]): void {
+    if (node.type === 'folder') {
+        for (const c of node.children) collectInnerLeaves(c, out);
+    } else {
+        out.push(node.chunk);
+    }
+}
+
+/** Tri-state for a VFS node against the checked-inner map (cascade). */
+function innerNodeState(node: VFSNode, wadFileIndex: number, checked: Map<string, unknown>): TriState {
+    const leaves: WadChunk[] = [];
+    collectInnerLeaves(node, leaves);
+    if (leaves.length === 0) return 'none';
+    let on = 0;
+    for (const c of leaves) if (checked.has(innerKey(wadFileIndex, c.hash))) on++;
+    if (on === 0) return 'none';
+    if (on === leaves.length) return 'all';
+    return 'some';
+}
+
 const TICK = (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg>
 );
@@ -71,6 +97,9 @@ export const ManifestBrowser: React.FC = () => {
     const [expandedInnerFolders, setExpandedInnerFolders] = useState<Set<string>>(new Set());
     /** Checked manifest file indices (whole-WAD / folder / file selection). */
     const [checked, setChecked] = useState<Set<number>>(new Set());
+    /** Checked inner-WAD entries, keyed `${wadFileIndex}::${hash}`, with their
+     *  chunk (size + path needed for the summary and the batch extract). */
+    const [checkedInner, setCheckedInner] = useState<Map<string, { wadFileIndex: number; chunk: WadChunk }>>(new Map());
 
     const sessionId = session?.sessionId ?? '';
 
@@ -110,8 +139,10 @@ export const ManifestBrowser: React.FC = () => {
     const isHiddenLangWad = (node: CdnTreeNode) =>
         hideLanguages && isWadPath(node.path) && isNonDefaultLocaleWad(node.name);
 
-    const checkedCount = checked.size;
-    const checkedSize = sumSizes(checked, sizeByIndex);
+    let innerCheckedSize = 0;
+    for (const { chunk } of checkedInner.values()) innerCheckedSize += chunk.size;
+    const checkedCount = checked.size + checkedInner.size;
+    const checkedSize = sumSizes(checked, sizeByIndex) + innerCheckedSize;
 
     const toggleFolder = (path: string) => {
         const next = new Set(session.expandedFolders);
@@ -147,7 +178,21 @@ export const ManifestBrowser: React.FC = () => {
         });
     };
 
-    const clearSelection = () => setChecked(new Set());
+    const clearSelection = () => { setChecked(new Set()); setCheckedInner(new Map()); };
+
+    /** Toggle a VFS node's whole subtree in the inner-checked map. */
+    const toggleInnerChecked = (node: VFSNode, wadFileIndex: number) => {
+        const leaves: WadChunk[] = [];
+        collectInnerLeaves(node, leaves);
+        if (leaves.length === 0) return;
+        const state = innerNodeState(node, wadFileIndex, checkedInner);
+        setCheckedInner((prev) => {
+            const next = new Map(prev);
+            if (state === 'all') { for (const c of leaves) next.delete(innerKey(wadFileIndex, c.hash)); }
+            else { for (const c of leaves) next.set(innerKey(wadFileIndex, c.hash), { wadFileIndex, chunk: c }); }
+            return next;
+        });
+    };
 
     const expandWad = async (node: CdnTreeNode) => {
         if (node.file_index == null) return;
@@ -214,7 +259,67 @@ export const ManifestBrowser: React.FC = () => {
         runExtract(indices);
     };
 
-    const extractSelected = () => runExtract([...checked]);
+    /** Extract a batch of checked inner-WAD entries into `destDir`, preserving
+     *  each entry's inner path. Sequential range-fetches via cdn_read_inner. */
+    const extractInnerBatch = async (
+        entries: { wadFileIndex: number; chunk: WadChunk }[],
+        destDir: string,
+    ): Promise<{ ok: number; errors: number }> => {
+        let ok = 0, errors = 0, done = 0;
+        const total = entries.length;
+        for (const { wadFileIndex, chunk } of entries) {
+            const rel = (chunk.path ?? chunk.hash).replace(/\\/g, '/');
+            const name = rel.split('/').pop() ?? chunk.hash;
+            setExtractStatus(`${done}/${total} · ${name}`);
+            try {
+                const buf = await api.cdnReadInner(session.sessionId, wadFileIndex, chunk.hash);
+                await api.saveFileBytes(`${destDir}/${rel}`, new Uint8Array(buf));
+                ok++;
+            } catch {
+                errors++;
+            }
+            done++;
+            setExtractPct(Math.round((done / total) * 100));
+        }
+        return { ok, errors };
+    };
+
+    /** Extract everything checked — manifest files (cdn_extract) AND inner-WAD
+     *  entries (cdn_read_inner) — into one chosen folder. */
+    const extractSelected = async () => {
+        const indices = [...checked];
+        const inner = [...checkedInner.values()];
+        if (indices.length === 0 && inner.length === 0) return;
+        const dest = await open({ title: 'Choose Extraction Folder', directory: true });
+        if (!dest) return;
+        const destDir = dest as string;
+        setExtracting(true);
+        setExtractPct(0);
+        setExtractStatus('Preparing…');
+        let manifestOk = 0, manifestErr = 0, innerOk = 0, innerErr = 0;
+        try {
+            if (indices.length > 0) {
+                setExtractStatus(`Extracting ${indices.length} WAD file(s)…`);
+                const res = await api.cdnExtract(session.sessionId, indices, destDir);
+                manifestOk = res.files - res.errors;
+                manifestErr = res.errors;
+            }
+            if (inner.length > 0) {
+                const r = await extractInnerBatch(inner, destDir);
+                innerOk = r.ok; innerErr = r.errors;
+            }
+            const ok = manifestOk + innerOk, errs = manifestErr + innerErr;
+            setExtractPct(100);
+            showToast(errs > 0 ? 'error' : 'success',
+                `Extracted ${ok} file(s)${errs ? ` (${errs} failed)` : ''}`);
+        } catch (e) {
+            showToast('error', `Extraction failed: ${(e as Error).message ?? e}`);
+        } finally {
+            setExtracting(false);
+            setExtractStatus(null);
+            setExtractPct(null);
+        }
+    };
 
     /** Extract a SINGLE inner-WAD entry: range-fetch its decoded bytes, save to a
      *  file the user picks. Uses cdn_read_inner (already used for preview) so no
@@ -247,8 +352,9 @@ export const ManifestBrowser: React.FC = () => {
             const isExpanded = expandedInnerFolders.has(folder.key);
             return (
                 <div key={folder.key}>
-                    <div className="wad-explorer__row" style={{ paddingLeft: pad, display: 'flex', alignItems: 'center', gap: 6, height: 24, cursor: 'pointer' }}
+                    <div className="wad-explorer__row" style={{ paddingLeft: pad, display: 'flex', alignItems: 'center', gap: 8, height: 24, cursor: 'pointer' }}
                         onClick={() => toggleInnerFolder(folder.key)}>
+                        <Checkbox state={innerNodeState(folder, wadFileIndex, checkedInner)} onToggle={() => toggleInnerChecked(folder, wadFileIndex)} />
                         <span style={{ opacity: 0.7 }}>{isExpanded ? '▾' : '▸'}</span>
                         <span dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
                         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>{folder.name}</span>
@@ -262,9 +368,9 @@ export const ManifestBrowser: React.FC = () => {
         return (
             <div key={chunk.hash}
                 className={`wad-explorer__row cdn-inner-row ${isSel ? 'wad-explorer__row--selected' : ''}`}
-                style={{ paddingLeft: pad, display: 'flex', alignItems: 'center', gap: 6, height: 24, cursor: 'pointer' }}
+                style={{ paddingLeft: pad, display: 'flex', alignItems: 'center', gap: 8, height: 24, cursor: 'pointer' }}
                 onClick={() => setSelectedInner({ wadFileIndex, chunk })}>
-                <span style={{ width: 10 }} />
+                <Checkbox state={checkedInner.has(innerKey(wadFileIndex, chunk.hash)) ? 'all' : 'none'} onToggle={() => toggleInnerChecked(node, wadFileIndex)} />
                 <span dangerouslySetInnerHTML={{ __html: getIcon('document') }} />
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }} title={chunk.path ?? chunk.hash}>{node.name}</span>
                 <span style={{ opacity: 0.5, fontSize: 11 }}>{formatBytes(chunk.size)}</span>
