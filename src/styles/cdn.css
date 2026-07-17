@@ -216,3 +216,9 @@
 }
 .cdn-bx-progress--indet .cdn-bx-progress__fill { width: 35% !important; animation: dl-indet 1.4s var(--dl-ease-out) infinite; }
 .cdn-bx-status { font-size: 11.5px; color: var(--text-secondary); font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+
+/* per-inner-file Extract button — only shown on hover/selection to stay tidy */
+.cdn-inner-extract { opacity: 0; transition: opacity var(--dl-fast); flex: none; }
+.cdn-inner-row:hover .cdn-inner-extract,
+.cdn-inner-row.wad-explorer__row--selected .cdn-inner-extract { opacity: 1; }
+.cdn-inner-extract:focus-visible { opacity: 1; }

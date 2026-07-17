@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open, save } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
 import * as api from '../../lib/api';
 import type { CdnTreeNode, CdnProgress } from '../../lib/api/cdn';
@@ -216,7 +216,30 @@ export const ManifestBrowser: React.FC = () => {
 
     const extractSelected = () => runExtract([...checked]);
 
-    /** Render inner WAD entries (unchanged from before — extract-only, no checkboxes). */
+    /** Extract a SINGLE inner-WAD entry: range-fetch its decoded bytes, save to a
+     *  file the user picks. Uses cdn_read_inner (already used for preview) so no
+     *  new backend is needed. */
+    const extractInnerFile = async (wadFileIndex: number, chunk: WadChunk) => {
+        const fullName = (chunk.path ?? chunk.hash).split('/').pop() ?? chunk.hash;
+        const dest = await save({ title: 'Save file as', defaultPath: fullName });
+        if (!dest) return;
+        setExtracting(true);
+        setExtractPct(null);
+        setExtractStatus(`Downloading ${fullName}…`);
+        try {
+            const buf = await api.cdnReadInner(session.sessionId, wadFileIndex, chunk.hash);
+            await api.saveFileBytes(dest as string, new Uint8Array(buf));
+            showToast('success', `Extracted ${fullName}`);
+        } catch (e) {
+            showToast('error', `Extraction failed: ${(e as Error).message ?? e}`);
+        } finally {
+            setExtracting(false);
+            setExtractStatus(null);
+            setExtractPct(null);
+        }
+    };
+
+    /** Render inner WAD entries. Files are selectable (preview) + single-extract. */
     const renderInnerNode = (node: VFSNode, depth: number, wadFileIndex: number): React.ReactNode => {
         const pad = 8 + depth * 14;
         if (node.type === 'folder') {
@@ -238,13 +261,19 @@ export const ManifestBrowser: React.FC = () => {
         const isSel = selectedInner?.chunk.hash === chunk.hash && selectedInner?.wadFileIndex === wadFileIndex;
         return (
             <div key={chunk.hash}
-                className={`wad-explorer__row ${isSel ? 'wad-explorer__row--selected' : ''}`}
+                className={`wad-explorer__row cdn-inner-row ${isSel ? 'wad-explorer__row--selected' : ''}`}
                 style={{ paddingLeft: pad, display: 'flex', alignItems: 'center', gap: 6, height: 24, cursor: 'pointer' }}
                 onClick={() => setSelectedInner({ wadFileIndex, chunk })}>
                 <span style={{ width: 10 }} />
                 <span dangerouslySetInnerHTML={{ __html: getIcon('document') }} />
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }} title={chunk.path ?? chunk.hash}>{node.name}</span>
                 <span style={{ opacity: 0.5, fontSize: 11 }}>{formatBytes(chunk.size)}</span>
+                <button
+                    className="btn btn--sm cdn-inner-extract"
+                    title="Extract this file"
+                    disabled={extracting}
+                    onClick={(e) => { e.stopPropagation(); extractInnerFile(wadFileIndex, chunk); }}
+                >Extract</button>
             </div>
         );
     };
