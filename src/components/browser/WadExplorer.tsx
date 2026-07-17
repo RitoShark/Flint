@@ -957,6 +957,21 @@ export const WadExplorer: React.FC = () => {
         return flattenSearchResults(groupedSearchResults, collapsedSearchWads, collapsedSearchFolders);
     }, [groupedSearchResults, collapsedSearchWads, collapsedSearchFolders]);
 
+    // On a NEW search, collapse every matching WAD group so results show as a
+    // tidy "WAD — N matches" list instead of dumping every file open. Keyed on
+    // the query text so it re-seeds per search, not on every background re-group
+    // (which would fight the user re-expanding a WAD mid-index). WADs whose
+    // results arrive later during indexing are collapsed by the same query key.
+    const seededCollapseForQueryRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (!hasQuery) { seededCollapseForQueryRef.current = null; return; }
+        if (!groupedSearchResults) return;
+        if (seededCollapseForQueryRef.current === trimmed) return;
+        seededCollapseForQueryRef.current = trimmed;
+        setCollapsedSearchWads(new Set(groupedSearchResults.map((g) => g.wadPath)));
+        setCollapsedSearchFolders(new Set());
+    }, [trimmed, hasQuery, groupedSearchResults]);
+
     const totalRows = isSearching ? (flatSearchRows?.length ?? 0) : (flatRows?.length ?? 0);
 
     // ── Stable renderRow ref (prevents VirtualizedList re-renders) ───────────
