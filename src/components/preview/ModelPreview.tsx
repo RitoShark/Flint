@@ -1164,7 +1164,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 <div className="model-preview__popup model-preview__popup--top-right">
                     <div className="model-preview__popup-header">
                         <h4>Display & Skeleton</h4>
-                        <button onClick={() => setActivePopup(null)}>Ã—</button>
+                        <button onClick={() => setActivePopup(null)}>×</button>
                     </div>
                     <div className="model-preview__popup-body">
                         <label className="model-preview__toggle">
@@ -1193,7 +1193,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 <div className="model-preview__popup model-preview__popup--top-left">
                     <div className="model-preview__popup-header">
                         <h4>Environment</h4>
-                        <button onClick={() => setActivePopup(null)}>Ã—</button>
+                        <button onClick={() => setActivePopup(null)}>×</button>
                     </div>
                     <div className="model-preview__popup-body">
                         <label className="model-preview__toggle">
@@ -1283,7 +1283,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                                     <line x1="1" y1="1" x2="23" y2="23" />
                                 </svg>
                             </button>
-                            <button onClick={() => setActivePopup(null)}>Ã—</button>
+                            <button onClick={() => setActivePopup(null)}>×</button>
                         </div>
                     </div>
                     <div className="model-preview__popup-body model-preview__popup-body--scrollable">
@@ -1359,7 +1359,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 <div className="model-preview__popup model-preview__popup--top-right">
                     <div className="model-preview__popup-header">
                         <h4>Animations ({animations.length})</h4>
-                        <button onClick={() => setActivePopup(null)}>Ã—</button>
+                        <button onClick={() => setActivePopup(null)}>×</button>
                     </div>
                     <div className="model-preview__popup-body">
                         <div className="model-preview__select-group">
