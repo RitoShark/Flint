@@ -50,6 +50,28 @@ interface ModelPreviewProps {
 
 const SETTINGS_KEY = 'flint-model-preview-settings';
 
+/**
+ * Dispose a Babylon SkeletonViewer safely and clear the ref.
+ *
+ * SkeletonViewer owns its own UtilityLayerRenderer + utility scene; disposing it
+ * runs `utilityScene.dispose() → engine.wipeCaches() → unbindAllAttributes()`,
+ * which touches `engine._currentBufferPointers`. If the WebGL context was lost
+ * or the engine is already mid-teardown, that array is undefined and Babylon
+ * throws `Cannot set properties of undefined (setting 'active')` — which, thrown
+ * from a React effect commit, crashed the whole ModelPreview tree. Swallow the
+ * Babylon-internal failure (the viewer is being thrown away anyway).
+ */
+function safeDisposeSkeletonViewer(ref: React.MutableRefObject<SkeletonViewer | null>): void {
+    const viewer = ref.current;
+    ref.current = null;
+    if (!viewer) return;
+    try {
+        viewer.dispose();
+    } catch (e) {
+        console.debug('[ModelPreview] SkeletonViewer.dispose() failed (context lost / engine torn down); ignoring', e);
+    }
+}
+
 const loadSettings = () => {
     try {
         const saved = localStorage.getItem(SETTINGS_KEY);
@@ -315,10 +337,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             canvas.removeEventListener('webglcontextrestored', onCtxRestored);
             console.debug('[engine] DISPOSED');
 
-            if (skeletonViewerRef.current) {
-                skeletonViewerRef.current.dispose();
-                skeletonViewerRef.current = null;
-            }
+            safeDisposeSkeletonViewer(skeletonViewerRef);
 
             activeMeshesRef.current.forEach(m => {
                 if (m.material) {
@@ -463,10 +482,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     useEffect(() => {
         if (!scene || !camera || !meshData) return;
 
-        if (skeletonViewerRef.current) {
-            skeletonViewerRef.current.dispose();
-            skeletonViewerRef.current = null;
-        }
+        safeDisposeSkeletonViewer(skeletonViewerRef);
 
         activeMeshesRef.current.forEach(m => {
             if (m.material) {
@@ -997,10 +1013,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     useEffect(() => {
         if (!scene) return;
 
-        if (skeletonViewerRef.current) {
-            skeletonViewerRef.current.dispose();
-            skeletonViewerRef.current = null;
-        }
+        safeDisposeSkeletonViewer(skeletonViewerRef);
 
         if (showSkeleton && skeletonRef.current && activeMeshesRef.current.length > 0) {
             try {
