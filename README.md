@@ -29,11 +29,6 @@
 
 Flint replaces the tangle of CLIs, folder juggling, and half-a-dozen separate tools that skin modding normally takes. Point it at your League install, pull the assets you need, and Flint gives you a real project — with live 3D and texture previews, in-app editors for every League format, and one-click export to `.fantome` / `.modpkg` or straight into your launcher.
 
-```
-  Game WAD  ─▶  Extract  ─▶  Preview  ─▶  Edit  ─▶  Validate  ─▶  Export
-  (League)      (project)    (3D/2D/BIN)  (built-in)  (Hematite)   (ship it)
-```
-
 ---
 
 ## Features
@@ -103,41 +98,6 @@ npm run tauri build
 Output: `src-tauri/target/release/bundle/nsis/Flint_<version>_x64-setup.exe`
 
 </details>
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  React 18 + TypeScript + Vite   ←→   Zustand stores          │
-└─────────────────────────────────────────────────────────────┘
-                          ▲
-                          │   Tauri 2 IPC (raw bytes for binary)
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│  src-tauri/          binary crate — Tauri commands + state    │
-│  crates/flint-ltk/   library — bin · wad · hash · mesh ·      │
-│                      audio · repath · export · champion ·     │
-│                      league · validation · project ·          │
-│                      checkpoint · hud · map · troybin · luabin │
-└─────────────────────────────────────────────────────────────┘
-                          ▲
-                          │
-┌─────────────────────────────────────────────────────────────┐
-│  RitoShark crates (rs_*)  ·  LMDB hash DB  ·  rayon  ·  tokio  │
-└─────────────────────────────────────────────────────────────┘
-```
-
-| Layer | Stack |
-|-------|-------|
-| Frontend | React 18 · TypeScript · Vite · Zustand |
-| 3D | Babylon.js |
-| Editor | Monaco (custom Ritobin language) |
-| Backend | Rust · Tauri 2 · rayon · tokio |
-| Formats | RitoShark `rs_*` crates (WAD / BIN / TEX / mesh / audio …) |
-| Hashing | LMDB via `heed` + `memmap2`, memory-mapped 4M+ entries |
-| Export | `.fantome` · `.modpkg` |
 
 ---
 
