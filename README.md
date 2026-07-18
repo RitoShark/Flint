@@ -1,105 +1,89 @@
-<!-- ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ -->
-<!--                          F  L  I  N  T                                    -->
-<!-- ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ -->
+<p align="center">
+  <img src="docs/media/flint-logo.gif" alt="Flint" width="360"/>
+</p>
+
+<h1 align="center">Flint</h1>
 
 <p align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:991B1B,50:EF4444,100:F87171&height=220&section=header&text=FLINT&fontSize=100&fontColor=ffffff&fontAlignY=38&animation=twinkling&desc=League%20of%20Legends%20Modding%20IDE&descAlignY=62&descSize=18" alt="Flint banner"/>
+  <strong>The all-in-one desktop studio for League of Legends skin modding.</strong><br/>
+  Extract from the game, preview it live, edit it, validate it, and ship a finished mod — all in one window.
 </p>
 
 <p align="center">
   <a href="https://github.com/RitoShark/Flint/releases/latest">
     <img src="https://img.shields.io/github/v/release/RitoShark/Flint?style=for-the-badge&color=EF4444&labelColor=0d1117&logo=github" alt="Release"/>
   </a>
-  <img src="https://img.shields.io/badge/Tauri-2.0-24C8D8?style=for-the-badge&logo=tauri&logoColor=white&labelColor=0d1117" alt="Tauri"/>
-  <img src="https://img.shields.io/badge/Rust-DEA584?style=for-the-badge&logo=rust&logoColor=black&labelColor=0d1117" alt="Rust"/>
-  <img src="https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=black&labelColor=0d1117" alt="React"/>
+  <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-0d1117?style=for-the-badge&logo=windows&logoColor=EF4444&labelColor=0d1117" alt="Windows"/>
+  <img src="https://img.shields.io/badge/Rust%20%2B%20Tauri%202-DEA584?style=for-the-badge&logo=rust&logoColor=black&labelColor=0d1117" alt="Rust + Tauri"/>
+  <img src="https://img.shields.io/badge/React%2018-61DAFB?style=for-the-badge&logo=react&logoColor=black&labelColor=0d1117" alt="React"/>
   <img src="https://img.shields.io/badge/License-MIT-22c55e?style=for-the-badge&labelColor=0d1117" alt="MIT"/>
 </p>
 
 <p align="center">
-  <a href="https://git.io/typing-svg">
-    <img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=700&size=22&duration=2800&pause=800&color=EF4444&center=true&vCenter=true&width=620&lines=Extract.+Preview.+Edit.+Ship.;One+IDE+for+every+League+mod.;Built+on+Rust+%E2%9A%99+React+%E2%9A%9B+Tauri+2." alt="Typing banner"/>
-  </a>
+  <a href="https://github.com/RitoShark/Flint/releases/latest"><strong>⬇ Download the latest release</strong></a>
 </p>
-
-<p align="center">
-  <sub>⚡ instant WAD browsing &nbsp;•&nbsp; 🎮 live 3D previews &nbsp;•&nbsp; 🎞 video-to-loadscreen &nbsp;•&nbsp; 🧠 Hematite auto-fix</sub>
-</p>
-
-<br/>
 
 ---
 
-## 🎯 What is Flint?
+## What is Flint?
 
-**Flint** is a desktop IDE for building League of Legends mods — from pulling raw assets out of the game, to previewing them, editing them, and shipping a finished `.fantome` / `.modpkg`. Everything lives in one window. No CLI chains, no folder juggling.
+Flint replaces the tangle of CLIs, folder juggling, and half-a-dozen separate tools that skin modding normally takes. Point it at your League install, pull the assets you need, and Flint gives you a real project — with live 3D and texture previews, in-app editors for every League format, and one-click export to `.fantome` / `.modpkg` or straight into your launcher.
 
 ```
-  WAD  ─▶  Extract  ─▶  Preview  ─▶  Edit  ─▶  Validate  ─▶  Export
-  (game)   (project)   (3D/2D/BIN)  (Monaco)  (Hematite)    (ship it)
+  Game WAD  ─▶  Extract  ─▶  Preview  ─▶  Edit  ─▶  Validate  ─▶  Export
+  (League)      (project)    (3D/2D/BIN)  (built-in)  (Hematite)   (ship it)
 ```
 
-<br/>
+---
 
-## ✨ Features
+## Features
 
-<table>
-<tr>
-<td width="50%" valign="top">
+### Browse & extract
+- **WAD Explorer** — a lazy-loaded virtual filesystem over the entire game archive. Browse millions of files with instant folder expansion, smart search, and optional background indexing.
+- **CDN download & extract** — pull manifests straight from Riot's CDN by region/platform, see which you've already downloaded, and extract whole WADs, folders, or individual files with a selection bar.
+- **Smart search** — one search box, Quartz-style matching. Extension searches, substring, or full regex — no mode toggles. Results stay collapsed so you're not buried in every file.
 
-### 🗂 **WAD Explorer**
-Lazy-loaded virtual filesystem over the entire game archive. Browse 4M+ files with instant folder expand and optional background indexing.
+### Preview everything
+- **3D models** — SKN / SKL / SCB / SCO meshes with skeletons and animations, framed correctly for champions of any size.
+- **Textures** — DDS / TEX (BC1/BC3/BC5/BC7) rendered straight from raw bytes.
+- **BIN / Ritobin / TroyBin / LuaBin** — syntax-highlighted, with live hash resolution.
+- **Audio** — BNK / WPK / WEM with a zoomable waveform.
 
-### 🖼 **Live Previews**
-- **3D** — SKN/SKL/SCB/SCO meshes with animations & skeletons
-- **Textures** — DDS/TEX (BC1/BC3/BC5/ETC)
-- **BIN / LuaBin / TroyBin** — syntax-highlighted
-- **Audio** — BNK/WPK with waveform + zoom
+### Edit in place
+- **BIN editor** — a full Monaco editor with a custom Ritobin language, an emitter copy/drag palette for VFX work, one-click **Unhash**, and bracket-aware editing.
+- **Legacy format editors** — edit `.inibin` / `.cfgbin`, `.stringtable` (RST), and more as readable text; view `.troybin`, `.luabin64`, and `.manifest`.
+- **WAD editor** — edit, add, rename/move, and delete chunks inside a `.wad.client` and save it back, parallelized for speed.
+- **Archive editor** — open a `.fantome` / `.modpkg`, edit its metadata and inner WADs, and repack it — folder-form WADs stay folders so custom paths survive.
 
-### 🎞 **Animated Loading Screens**
-Drop a video in, get a working loadscreen out. Auto spritesheet packing, 16k texture budget, FPS trim, live preview, UI BIN auto-patch.
+### Special workflows
+- **Animated loading screens** — drop a video in, get a working animated loadscreen out. Auto spritesheet packing, 16k texture budget, FPS trim, live preview, and automatic UI BIN patching.
+- **Animated loadscreen banner** — turn a static loadscreen into an animated VFX banner with a Photoshop-style mask painter.
+- **Texture recolor** — batch hue-shift, colorize, or tint; skips distortion maps and preserves alpha.
+- **Checkpoints** — Git-lite for your project. Snapshot, diff, and restore; survives restarts.
 
-### 🎨 **Texture Recolor**
-Batch hue-shift, colorize, or tint. Skips distortion maps, preserves alpha.
+### Ship it
+- **Export everywhere** — `.fantome`, `.modpkg`, or one-click sync into the **Celestial** launcher or **LTK Manager**. Refathering, BIN concat, and thumbnail embedding are all built in.
+- **Robust importing** — imports `.fantome` / `.modpkg`, recovers moved/renamed shared BINs across game patches, re-resolves hashes, and pulls missing files back from your League install.
+- **Interop** — hand a BIN off to Jade or a texture off to Quartz paint mode, no file juggling.
 
-</td>
-<td width="50%" valign="top">
+---
 
-### 🧠 **Hematite v2**
-Plugged into [Hematite](https://github.com/LeagueToolkit/Hematite)'s rule engine — detects broken references, missing shaders, bad materials, and fixes them in one click. Rules hot-update from GitHub.
+## Quick start
 
-### 💾 **Checkpoints**
-Git-lite for your project. Snapshot, diff, restore. Survives dev restarts.
+**Just want to use it?** [Download the latest installer](https://github.com/RitoShark/Flint/releases/latest) and run it. Flint auto-updates itself from there.
 
-### 📤 **Export Everywhere**
-Ship to `.fantome`, `.modpkg`, or one-click sync into **LTK Manager**. Refathering, BIN concat, and thumbnail embedding are all built in.
-
-### 🔌 **Jade & Quartz Interop**
-Swap the BIN engine to Jade, or hand a texture off to Quartz paint mode. JSON interop, no file juggling.
-
-### ⚡ **LMDB Hash Cache**
-Memory-mapped 4M+ hash DB. ~5-20 MB RAM, instant lookups, bulk resolve for fast WAD extraction.
-
-</td>
-</tr>
-</table>
-
-<br/>
-
-## 🚀 Quick Start
+### Build from source
 
 ```bash
-# Clone
 git clone https://github.com/RitoShark/Flint
-cd "Flint/Flint - Asset Extractor"
+cd Flint
 
-# Install + run
 npm install
 npm run tauri dev
 ```
 
 <details>
-<summary><strong>📦 Prerequisites</strong></summary>
+<summary><strong>Prerequisites</strong></summary>
 
 | Tool | Version |
 |------|---------|
@@ -110,71 +94,71 @@ npm run tauri dev
 </details>
 
 <details>
-<summary><strong>📀 Building a release installer</strong></summary>
+<summary><strong>Build a release installer</strong></summary>
 
 ```bash
 npm run tauri build
 ```
-Output: `src-tauri/target/release/bundle/nsis/Flint_{version}_x64-setup.exe`
+
+Output: `src-tauri/target/release/bundle/nsis/Flint_<version>_x64-setup.exe`
 
 </details>
 
-<br/>
+---
 
-## 🏗 Architecture
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  React 18 + TypeScript + Vite  ←→  Zustand stores           │
+│  React 18 + TypeScript + Vite   ←→   Zustand stores          │
 └─────────────────────────────────────────────────────────────┘
-                         ▲
-                         │  Tauri 2 IPC
-                         ▼
+                          ▲
+                          │   Tauri 2 IPC (raw bytes for binary)
+                          ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  src-tauri/  (binary crate)  ─  Tauri commands + state      │
-│  crates/flint-ltk/  (library) ─  14 domain modules:         │
-│     bin · wad · hash · mesh · audio · repath · export       │
-│     champion · league · validation · project · checkpoint   │
-│     hud · error                                             │
+│  src-tauri/          binary crate — Tauri commands + state    │
+│  crates/flint-ltk/   library — bin · wad · hash · mesh ·      │
+│                      audio · repath · export · champion ·     │
+│                      league · validation · project ·          │
+│                      checkpoint · hud · map · troybin · luabin │
 └─────────────────────────────────────────────────────────────┘
-                         ▲
-                         │
+                          ▲
+                          │
 ┌─────────────────────────────────────────────────────────────┐
-│  league-toolkit (Rust) · Hematite v2 · LMDB · rayon         │
+│  RitoShark crates (rs_*)  ·  LMDB hash DB  ·  rayon  ·  tokio  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 | Layer | Stack |
 |-------|-------|
-| Frontend | React 18 · TypeScript · Vite 5 · Zustand 4 |
-| 3D | Three.js · React Three Fiber |
+| Frontend | React 18 · TypeScript · Vite · Zustand |
+| 3D | Babylon.js |
 | Editor | Monaco (custom Ritobin language) |
 | Backend | Rust · Tauri 2 · rayon · tokio |
-| LTK core | `league-toolkit` v0.4 (rev `6137083`) |
-| Hashing | LMDB via `heed` + `memmap2` |
-| Validation | `hematite-core` · `hematite-ltk` |
-| Export | `ltk_fantome` · `ltk_modpkg` · `ltk_mod_core` |
+| Formats | RitoShark `rs_*` crates (WAD / BIN / TEX / mesh / audio …) |
+| Hashing | LMDB via `heed` + `memmap2`, memory-mapped 4M+ entries |
+| Export | `.fantome` · `.modpkg` |
 
-<br/>
+---
 
-## 🎨 Theming
+## Theming
 
-Flint ships with full CSS-variable theming. Copy [src/themes/default.css](src/themes/default.css) and override:
+Flint is fully CSS-variable themed. Copy [src/themes/default.css](src/themes/default.css) and override the accent palette:
 
 ```css
 :root {
-  --accent-primary:   #EF4444;
+  --accent-primary:   #EF4444;  /* Flint red */
   --accent-hover:     #DC2626;
   --accent-secondary: #F87171;
   --accent-muted:     #991B1B;
 }
 ```
 
-<br/>
+---
 
-## 🤝 Contributing
+## Contributing
 
-PRs welcome. Keep commits conventional — `feat:`, `fix:`, `perf:`, `refactor:` — they feed the changelog via [git-cliff](cliff.toml).
+PRs welcome. Keep commits [conventional](https://www.conventionalcommits.org) — `feat:`, `fix:`, `perf:`, `refactor:`, `doc:` — they feed the changelog via [git-cliff](cliff.toml).
 
 ```bash
 git checkout -b feat/your-feature
@@ -182,20 +166,10 @@ git checkout -b feat/your-feature
 git commit -m "feat(scope): short imperative message"
 ```
 
-<br/>
+---
 
-## 📜 License
+## License
 
 [MIT](LICENSE) — do whatever, just don't sue.
 
-> League of Legends, all champion art, and all referenced game assets are property of **Riot Games, Inc.** Flint is an unofficial community tool and is not endorsed by Riot Games.
-
-<br/>
-
-<p align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:F87171,50:EF4444,100:991B1B&height=100&section=footer&animation=twinkling" alt="footer"/>
-</p>
-
-<p align="center">
-  <sub>🔥 Made for the League modding community · Not affiliated with Riot Games</sub>
-</p>
+> League of Legends, all champion art, and all referenced game assets are property of **Riot Games, Inc.** Flint is an unofficial community tool and is not endorsed by or affiliated with Riot Games.
