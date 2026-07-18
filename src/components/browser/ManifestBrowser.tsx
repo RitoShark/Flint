@@ -240,13 +240,15 @@ export const ManifestBrowser: React.FC = () => {
                 setExtractPct(Math.round((done / total) * 100));
             } else if (p.type === 'allDone') {
                 setExtractPct(100);
-                setExtractStatus(`Done: ${p.files - p.errors}/${p.files} files`);
+                const files = p.files ?? 0, errCount = p.errors ?? 0;
+                setExtractStatus(`Done: ${files - errCount}/${files} files`);
             }
         });
         try {
             const res = await api.cdnExtract(session.sessionId, indices, dest as string);
-            showToast(res.errors > 0 ? 'error' : 'success',
-                `Extracted ${res.files - res.errors}/${res.files} files${res.errors ? ` (${res.errors} failed)` : ''}`);
+            const files = res.files ?? 0, errCount = res.errors ?? 0;
+            showToast(errCount > 0 ? 'error' : 'success',
+                `Extracted ${files - errCount}/${files} files${errCount ? ` (${errCount} failed)` : ''}`);
         } catch (e) {
             showToast('error', `Extraction failed: ${(e as Error).message ?? e}`);
         } finally {
@@ -319,8 +321,10 @@ export const ManifestBrowser: React.FC = () => {
             if (indices.length > 0) {
                 setExtractStatus(`Extracting ${indices.length} WAD file(s)…`);
                 const res = await api.cdnExtract(session.sessionId, indices, destDir);
-                manifestOk = res.files - res.errors;
-                manifestErr = res.errors;
+                // Coerce: a missing/undefined field must not make the toast "NaN".
+                const files = res.files ?? 0, errCount = res.errors ?? 0;
+                manifestOk = files - errCount;
+                manifestErr = errCount;
             }
             if (inner.length > 0) {
                 const r = await extractInnerBatch(inner, destDir);

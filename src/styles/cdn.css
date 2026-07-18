@@ -176,16 +176,21 @@
 /* tree checkbox (tri-state) */
 .cdn-cb {
     position: relative;
-    width: 18px; height: 18px;
-    border: 1.5px solid var(--border);
+    width: 16px; height: 16px;
+    border: 1.5px solid color-mix(in oklab, white 22%, transparent);
     border-radius: 5px;
-    background: var(--bg-tertiary);
+    /* Unchecked: a faint lighter-than-row fill + soft border so it reads as an
+       empty control, not a black hole punched in the dark rows. */
+    background: color-mix(in oklab, white 6%, transparent);
     flex: none;
     display: inline-block;
     cursor: pointer;
     transition: background var(--dl-fast), border-color var(--dl-fast);
 }
-.cdn-cb:hover { border-color: color-mix(in oklab, var(--accent-primary) 55%, var(--border)); }
+.cdn-cb:hover {
+    border-color: var(--accent-primary);
+    background: color-mix(in oklab, var(--accent-primary) 16%, transparent);
+}
 /* Checked: filled accent box, white tick springs in centered. */
 .cdn-cb--on {
     background: var(--accent-primary);

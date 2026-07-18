@@ -121,8 +121,14 @@ export async function extractWad(
     wadPath: string,
     outputDir: string,
     chunkHashes: string[] | null = null
-): Promise<{ extracted: number }> {
-    return invokeCommand('extract_wad', { wadPath, outputDir, chunkHashes });
+): Promise<{ extracted: number; failed: number }> {
+    // The Rust command returns { extracted_count, failed_count } (serde
+    // snake_case). Map to the clean shape callers expect — reading the wrong
+    // field name previously gave `undefined`, which turned toast counts into NaN.
+    const res = await invokeCommand<{ extracted_count: number; failed_count: number }>(
+        'extract_wad', { wadPath, outputDir, chunkHashes },
+    );
+    return { extracted: res.extracted_count ?? 0, failed: res.failed_count ?? 0 };
 }
 
 /** Read a single WAD chunk into memory as decompressed raw bytes. */
