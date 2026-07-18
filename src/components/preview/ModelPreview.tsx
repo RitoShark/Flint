@@ -1133,13 +1133,21 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
                 // MANUAL skybox (NOT scene.createDefaultSkybox — that also sets
                 // scene.environmentTexture, which re-lights/washes out the PBR
-                // model). A plain unlit box with the cubemap in SKYBOX_MODE that
-                // follows the camera (infiniteDistance) and draws in the back
-                // rendering group, leaving the model untouched.
-                const box = CreateBox('skybox', { size: 1000 }, scene);
+                // model).
+                //
+                // ZOOM-PROOF: the box FOLLOWS the camera every frame
+                // (infiniteDistance) so the camera is always inside it, and it
+                // writes NO depth (disableDepthWrite) so it can never occlude or
+                // z-fight the model no matter how far you zoom in/out. The box
+                // renders first in group 0; the model (default group) draws over
+                // it. `needDepthPrePass=false` + no fog keeps it a pure backdrop.
+                // Half-size (50) stays comfortably between the camera near (1)
+                // and far (10000) planes at every zoom, so it never clips.
+                const box = CreateBox('skybox', { size: 100 }, scene);
                 const mat = new StandardMaterial('skybox-mat', scene);
                 mat.backFaceCulling = false;
                 mat.disableLighting = true;
+                mat.disableDepthWrite = true;
                 mat.reflectionTexture = new CubeTexture('', scene, null, true, urls);
                 mat.reflectionTexture.coordinatesMode = Texture.SKYBOX_MODE;
                 mat.diffuseColor = new Color3(0, 0, 0);
@@ -1147,8 +1155,8 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 box.material = mat;
                 box.infiniteDistance = true;
                 box.isPickable = false;
-                box.renderingGroupId = 0;
                 box.applyFog = false;
+                box.renderingGroupId = 0;
                 skyboxMeshRef.current = box;
                 box.setEnabled(showSkyboxRef.current);
             } catch (e) {
