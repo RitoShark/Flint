@@ -564,8 +564,8 @@ export async function composeThumbnail(opts: ComposeOptions): Promise<Blob> {
     // the model and returns a fully transparent shot (SKN missing from the
     // exported poster).
     const sceneId = resolveModelId?.(m.id) ?? m.id;
-    const shotBlob = await scene.screenshotModel(sceneId, outW, outH);
-    const shotBitmap = await createImageBitmap(shotBlob);
+    // screenshotModel now returns an ImageBitmap directly (no PNG round-trip).
+    const shotBitmap = await scene.screenshotModel(sceneId, outW, outH);
     if (m.shadow) {
       ctx.save();
       applyLayerShadow(ctx, m, outW / STAGE_W);

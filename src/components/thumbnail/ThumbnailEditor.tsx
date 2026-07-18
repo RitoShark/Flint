@@ -463,6 +463,10 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
       console.error('Thumbnail export failed:', err);
       showToast('error', err instanceof Error ? err.message : 'Export failed');
     } finally {
+      // The compositor resized the engine framebuffer per model; with
+      // render-on-demand the loop is idle, so nudge the preview to repaint its
+      // on-screen views at their own sizes.
+      scene.invalidate();
       setExporting(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
