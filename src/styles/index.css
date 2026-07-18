@@ -6252,14 +6252,13 @@ input.np-search:focus {
   background: transparent;
   color: var(--text-secondary);
   border-radius: var(--radius-sm);
-  font-size: 18px;
-  line-height: 1;
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  transition: background 0.12s, color 0.12s, transform 0.12s;
 }
 .mp-materials__close:hover {
   background: var(--bg-tertiary);
   color: var(--text-primary);
+  transform: rotate(90deg);
 }
 .mp-materials__body {
   padding: 8px;
@@ -6444,14 +6443,13 @@ input.np-search:focus {
   background: transparent;
   color: var(--text-secondary);
   border-radius: var(--radius-sm);
-  font-size: 18px;
-  line-height: 1;
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  transition: background 0.12s, color 0.12s, transform 0.12s;
 }
 .mp-panel__close:hover {
   background: var(--bg-tertiary);
   color: var(--text-primary);
+  transform: rotate(90deg);
 }
 .mp-panel__body {
   padding: 8px;

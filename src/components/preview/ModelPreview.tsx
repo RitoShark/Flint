@@ -166,7 +166,9 @@ const MpPopup: React.FC<{
             <span className="mp-panel__title">{title}</span>
             <div className="mp-panel__head-actions">
                 {headExtra}
-                <button className="mp-panel__close" onClick={onClose} title="Close" aria-label="Close">×</button>
+                <button className="mp-panel__close" onClick={onClose} title="Close" aria-label="Close">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+                </button>
             </div>
         </div>
         <div className="mp-panel__body">{children}</div>
@@ -1323,7 +1325,12 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                             onClick={() => setActivePopup(activePopup === 'display' ? null : 'display')}
                             title="Display & Skeleton"
                         >
-                            <span dangerouslySetInnerHTML={{ __html: getIcon('image') }} />
+                            {/* Skeleton/rig glyph (currentColor so it themes) — distinct
+                                from the Materials "picture" icon. */}
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <circle cx="12" cy="4.5" r="2" />
+                                <path d="M12 6.5v6M6.5 9.5h11M9.5 12.5l-2 5M14.5 12.5l2 5" />
+                            </svg>
                         </button>
                         <button
                             className={`model-preview__control-btn ${activePopup === 'materials' ? 'model-preview__control-btn--active' : ''}`}
@@ -1440,7 +1447,9 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         <div className="mp-materials__head-actions">
                             <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={() => toggleAllMaterials(true)}>Show all</button>
                             <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={() => toggleAllMaterials(false)}>Hide all</button>
-                            <button className="mp-materials__close" onClick={() => setActivePopup(null)} title="Close" aria-label="Close">×</button>
+                            <button className="mp-materials__close" onClick={() => setActivePopup(null)} title="Close" aria-label="Close">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+                            </button>
                         </div>
                     </div>
                     <div className="mp-materials__body">
