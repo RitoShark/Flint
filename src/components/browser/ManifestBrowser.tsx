@@ -459,8 +459,8 @@ export const ManifestBrowser: React.FC = () => {
     };
 
     return (
-        <div className="wad-explorer" style={{ display: 'flex', flex: 1, height: '100%', overflow: 'hidden', minWidth: 0 }}>
-            <div style={{ width: 480, minWidth: 340, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column' }}>
+        <div className="wad-explorer" style={{ display: 'flex', flex: 1, height: '100%', overflow: 'hidden', minWidth: 0, background: 'var(--bg-primary)' }}>
+            <div style={{ width: 480, minWidth: 340, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', background: 'var(--bg-primary)' }}>
                 <div className="cdn-bx-toolbar">
                     <span className="cdn-bx-toolbar__label">{session.label}</span>
                     <span className="cdn-bx-toolbar__files">{session.fileCount.toLocaleString()} files</span>
@@ -474,7 +474,7 @@ export const ManifestBrowser: React.FC = () => {
                     </div>
                 </div>
 
-                <div style={{ flex: 1, overflowY: 'auto' }}>
+                <div style={{ flex: 1, overflowY: 'auto', background: 'var(--bg-primary)' }}>
                     {session.tree.children.map((c) => renderNode(c, 0))}
                 </div>
 
