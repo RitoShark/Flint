@@ -72,6 +72,56 @@ function safeDisposeSkeletonViewer(ref: React.MutableRefObject<SkeletonViewer | 
     }
 }
 
+/** Skeleton thickness slider range (UI 0..100). 0 = as skinny as it renders,
+ *  100 = chunky. Default sits on the thin side so joints read like a real rig. */
+const SKELETON_THICKNESS_MIN = 0;
+const SKELETON_THICKNESS_MAX = 100;
+const SKELETON_THICKNESS_DEFAULT = 25;
+
+/**
+ * Build a SkeletonViewer whose bone/joint SIZE tracks the thickness slider.
+ *
+ * DISPLAY_LINES can't be made skinnier/thicker (WebGL renders lines at a fixed
+ * 1px, and the size arg is really `renderingGroupId`), so a thickness control
+ * there is a no-op. DISPLAY_SPHERE_AND_SPURS draws real 3D joint spheres + bone
+ * spurs whose dimensions come from `displayOptions`, so scaling those by the
+ * slider gives genuinely skinnier → thicker joints. `t` is the 0..100 UI value.
+ * One shared builder so both create sites stay identical.
+ */
+function buildSkeletonViewer(
+    skeleton: Skeleton,
+    mesh: Mesh,
+    scene: Scene,
+    thickness: number,
+): SkeletonViewer {
+    // Normalize slider → 0..1, then map onto sphere/spur dimensions. The floors
+    // keep the rig visible at thickness 0 (skinny, not invisible); the tops stay
+    // modest so max is "chunky rig", not "blobs swallowing the mesh".
+    const t = Math.min(1, Math.max(0, (thickness - SKELETON_THICKNESS_MIN) / (SKELETON_THICKNESS_MAX - SKELETON_THICKNESS_MIN)));
+    const sphereBaseSize = 0.15 + t * 1.85;   // 0.15 (skinny) → 2.0 (default-ish)
+    const sphereScaleUnit = 1.6 - t * 0.9;    // smaller unit = smaller spheres vs longest bone
+    const midStepFactor = 0.03 + t * 0.19;    // spur width as a factor of length
+
+    const viewer = new SkeletonViewer(
+        skeleton,
+        mesh,
+        scene,
+        true,               // autoUpdateBonesMatrices
+        3,                  // renderingGroupId (draw on top)
+        {
+            displayMode: SkeletonViewer.DISPLAY_SPHERE_AND_SPURS,
+            displayOptions: {
+                sphereBaseSize,
+                sphereScaleUnit,
+                midStepFactor,
+                spurFollowsChild: true,
+            },
+        },
+    );
+    viewer.isEnabled = true;
+    return viewer;
+}
+
 const loadSettings = () => {
     try {
         const saved = localStorage.getItem(SETTINGS_KEY);
@@ -88,6 +138,7 @@ const loadSettings = () => {
         ambientIntensity: 0.8,
         directionalIntensity: 1.5,
         showSkeleton: true,
+        skeletonThickness: SKELETON_THICKNESS_DEFAULT,
         customizeLighting: false,
     };
 };
@@ -152,6 +203,14 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
     const [skeletonData, setSkeletonData] = useState<any | null>(null);
     const [showSkeleton, setShowSkeleton] = useState(savedSettings.showSkeleton);
+    const [skeletonThickness, setSkeletonThickness] = useState<number>(
+        savedSettings.skeletonThickness ?? SKELETON_THICKNESS_DEFAULT,
+    );
+    // Live mirror so the mesh-load effect (which must NOT depend on thickness —
+    // that would rebuild the whole mesh on every slider tick) reads the current
+    // value when it (re)creates the skeleton viewer.
+    const skeletonThicknessRef = useRef(skeletonThickness);
+    skeletonThicknessRef.current = skeletonThickness;
 
     const [hoveredMaterial, setHoveredMaterial] = useState<string | null>(null);
     const [previewPosition, setPreviewPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -744,18 +803,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
         if (showSkeleton && babylonSkeleton && meshes.length > 0) {
             try {
-                const viewer = new SkeletonViewer(
-                    babylonSkeleton,
-                    meshes[0],
-                    scene,
-                    true,
-                    3,
-                    {
-                        displayMode: SkeletonViewer.DISPLAY_LINES,
-                    }
-                );
-                viewer.isEnabled = true;
-                skeletonViewerRef.current = viewer;
+                skeletonViewerRef.current = buildSkeletonViewer(babylonSkeleton, meshes[0], scene, skeletonThicknessRef.current);
             } catch (e) {
                 console.error("Failed to build skeleton viewer:", e);
             }
@@ -1017,23 +1065,12 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
         if (showSkeleton && skeletonRef.current && activeMeshesRef.current.length > 0) {
             try {
-                const viewer = new SkeletonViewer(
-                    skeletonRef.current,
-                    activeMeshesRef.current[0],
-                    scene,
-                    true,
-                    3,
-                    {
-                        displayMode: SkeletonViewer.DISPLAY_LINES,
-                    }
-                );
-                viewer.isEnabled = true;
-                skeletonViewerRef.current = viewer;
+                skeletonViewerRef.current = buildSkeletonViewer(skeletonRef.current, activeMeshesRef.current[0], scene, skeletonThickness);
             } catch (e) {
                 console.error("Failed to update skeleton viewer state:", e);
             }
         }
-    }, [scene, showSkeleton]);
+    }, [scene, showSkeleton, skeletonThickness]);
 
     useEffect(() => {
         if (!activePopup) return;
@@ -1057,10 +1094,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             ambientIntensity,
             directionalIntensity,
             showSkeleton,
+            skeletonThickness,
             customizeLighting,
         };
         localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    }, [wireframe, showSkybox, floorMode, ambientIntensity, directionalIntensity, showSkeleton, customizeLighting]);
+    }, [wireframe, showSkybox, floorMode, ambientIntensity, directionalIntensity, showSkeleton, skeletonThickness, customizeLighting]);
 
     useEffect(() => {
         if (!meshData) return;
@@ -1099,6 +1137,18 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         } else {
             setVisibleMaterials(new Set());
         }
+    };
+
+    /** Base64 PNG of a material's texture (for the inline thumbnail), or null if
+     *  the material has no loaded texture. Same lookup the hover tooltip uses. */
+    const materialTextureSrc = (name: string): string | null => {
+        if (!meshData) return null;
+        const sknData = meshData as SknMeshData;
+        const scbData = meshData as ScbMeshData;
+        const data = meshData.kind === 'skn'
+            ? sknData.material_data?.[name]?.texture || sknData.textures?.[name]
+            : scbData.material_data?.[name]?.texture;
+        return data ? `data:image/png;base64,${data}` : null;
     };
 
     const statusOverlay = loading
@@ -1189,14 +1239,37 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                             <span>Wireframe</span>
                         </label>
                         {skeletonData && (
-                            <label className="model-preview__toggle">
-                                <input
-                                    type="checkbox"
-                                    checked={showSkeleton}
-                                    onChange={(e) => setShowSkeleton(e.target.checked)}
-                                />
-                                <span>Show Skeleton ({skeletonData.bones.length} bones)</span>
-                            </label>
+                            <>
+                                <label className="model-preview__toggle">
+                                    <input
+                                        type="checkbox"
+                                        checked={showSkeleton}
+                                        onChange={(e) => setShowSkeleton(e.target.checked)}
+                                    />
+                                    <span>Show Skeleton ({skeletonData.bones.length} bones)</span>
+                                </label>
+                                {showSkeleton && (
+                                    <div className="model-preview__dl-field">
+                                        <div className="model-preview__dl-field-label">
+                                            <span>Joint thickness</span>
+                                            <span className="model-preview__dl-field-value">{skeletonThickness}</span>
+                                        </div>
+                                        <div
+                                            className="dl-slider"
+                                            style={{ ['--_value' as never]: `${((skeletonThickness - SKELETON_THICKNESS_MIN) / (SKELETON_THICKNESS_MAX - SKELETON_THICKNESS_MIN)) * 100}%` }}
+                                        >
+                                            <input
+                                                type="range"
+                                                min={SKELETON_THICKNESS_MIN}
+                                                max={SKELETON_THICKNESS_MAX}
+                                                value={skeletonThickness}
+                                                onChange={(e) => setSkeletonThickness(parseInt(e.target.value))}
+                                            />
+                                            <span className="dl-slider__bubble">{skeletonThickness}</span>
+                                        </div>
+                                    </div>
+                                )}
+                            </>
                         )}
                     </div>
                 </div>
@@ -1279,94 +1352,84 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 </div>
             )}
 
-            {meshData && activePopup === 'materials' && (
-                <div className="model-preview__popup model-preview__popup--top-right model-preview__popup--wide">
-                    <div className="model-preview__popup-header">
-                        <h4>Materials ({meshData.materials.length})</h4>
-                        <div className="model-preview__header-actions">
-                            <button className="model-preview__toggle-btn model-preview__toggle-btn--all" onClick={() => toggleAllMaterials(true)} title="Show all materials">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                                    <circle cx="12" cy="12" r="3" />
-                                </svg>
-                            </button>
-                            <button className="model-preview__toggle-btn model-preview__toggle-btn--none" onClick={() => toggleAllMaterials(false)} title="Hide all materials">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                                    <line x1="1" y1="1" x2="23" y2="23" />
-                                </svg>
-                            </button>
-                            <button onClick={() => setActivePopup(null)}>×</button>
+            {meshData && activePopup === 'materials' && (() => {
+                const total = meshData.materials.length;
+                const shownCount = meshData.materials.reduce((n, mat) => {
+                    const nm = typeof mat === 'string' ? mat : mat.name;
+                    return n + (visibleMaterials.has(nm) ? 1 : 0);
+                }, 0);
+                return (
+                <div className="model-preview__popup model-preview__popup--top-right model-preview__popup--wide mp-materials">
+                    <div className="mp-materials__head">
+                        <div className="mp-materials__title">
+                            <span>Materials</span>
+                            <span className="mp-materials__count">{shownCount}/{total} shown</span>
+                        </div>
+                        <div className="mp-materials__head-actions">
+                            <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={() => toggleAllMaterials(true)}>Show all</button>
+                            <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={() => toggleAllMaterials(false)}>Hide all</button>
+                            <button className="mp-materials__close" onClick={() => setActivePopup(null)} title="Close" aria-label="Close">×</button>
                         </div>
                     </div>
-                    <div className="model-preview__popup-body model-preview__popup-body--scrollable">
+                    <div className="mp-materials__body">
                         {meshData.texture_warning && (
-                            <div className="model-preview__warning" style={{
-                                background: 'rgba(251, 191, 36, 0.1)',
-                                border: '1px solid rgba(251, 191, 36, 0.3)',
-                                borderRadius: '4px',
-                                padding: '8px',
-                                marginBottom: '12px',
-                                fontSize: '12px',
-                            }}>
-                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-                                    <span style={{ fontSize: '14px' }}>âš ï¸</span>
-                                    <span style={{ color: 'var(--text-secondary)' }}>{meshData.texture_warning}</span>
-                                </div>
+                            <div className="mp-materials__warning">
+                                <span className="mp-materials__warning-icon" aria-hidden>!</span>
+                                <span>{meshData.texture_warning}</span>
                             </div>
                         )}
-                        <div className="model-preview__materials-list">
+                        <div className="mp-materials__list">
                             {meshData.materials.map((mat, index) => {
                                 const matName = typeof mat === 'string' ? mat : mat.name;
-                                const hasTexture =
-                                    (meshData.kind === 'skn' && (
-                                        (meshData as SknMeshData).material_data?.[matName] ||
-                                        (meshData as SknMeshData).textures?.[matName]
-                                    )) ||
-                                    (meshData.kind !== 'skn' && (meshData as ScbMeshData).material_data?.[matName]);
+                                const texSrc = materialTextureSrc(matName);
+                                const hasTexture = !!texSrc;
                                 const isVisible = visibleMaterials.has(matName);
                                 return (
-                                    <label
+                                    <div
                                         key={matName || index}
-                                        className={`material-toggle ${isVisible ? 'material-toggle--visible' : ''} ${hasTexture ? 'material-toggle--has-texture' : 'material-toggle--no-texture'}`}
-                                        onMouseEnter={(e) => {
-                                            setHoveredMaterial(matName);
-                                            setPreviewPosition({ x: e.clientX, y: e.clientY });
-                                        }}
+                                        className={`mp-mat-row ${isVisible ? '' : 'mp-mat-row--off'}`}
+                                        onClick={() => toggleMaterial(matName)}
+                                        onMouseEnter={(e) => { setHoveredMaterial(matName); setPreviewPosition({ x: e.clientX, y: e.clientY }); }}
                                         onMouseLeave={() => setHoveredMaterial(null)}
-                                        onMouseMove={(e) => {
-                                            setPreviewPosition({ x: e.clientX, y: e.clientY });
-                                        }}
+                                        onMouseMove={(e) => setPreviewPosition({ x: e.clientX, y: e.clientY })}
                                     >
-                                        <input
-                                            type="checkbox"
-                                            checked={isVisible}
-                                            onChange={() => toggleMaterial(matName)}
-                                        />
-                                        <div className="material-toggle__info">
-                                            <span className="material-toggle__name" title={matName}>
-                                                {matName || `Material ${index}`}
-                                            </span>
-                                            <span className={`material-toggle__status ${hasTexture ? 'material-toggle__status--loaded' : 'material-toggle__status--missing'}`}>
-                                                {hasTexture ? (
-                                                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
-                                                        <path d="M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z" />
-                                                    </svg>
-                                                ) : (
-                                                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
-                                                        <path d="M4.646 4.646a.5.5 0 01.708 0L8 7.293l2.646-2.647a.5.5 0 01.708.708L8.707 8l2.647 2.646a.5.5 0 01-.708.708L8 8.707l-2.646 2.647a.5.5 0 01-.708-.708L7.293 8 4.646 5.354a.5.5 0 010-.708z" />
-                                                    </svg>
-                                                )}
+                                        <div className={`mp-mat-row__thumb ${hasTexture ? '' : 'mp-mat-row__thumb--empty'}`}>
+                                            {hasTexture
+                                                ? <img src={texSrc!} alt="" draggable={false} />
+                                                : <span className="mp-mat-row__thumb-glyph" aria-hidden>▦</span>}
+                                        </div>
+                                        <div className="mp-mat-row__info">
+                                            <span className="mp-mat-row__name" title={matName}>{matName || `Material ${index}`}</span>
+                                            <span className={`mp-mat-row__status ${hasTexture ? 'mp-mat-row__status--ok' : 'mp-mat-row__status--missing'}`}>
                                                 {hasTexture ? 'Texture loaded' : 'No texture'}
                                             </span>
                                         </div>
-                                    </label>
+                                        <button
+                                            className="mp-mat-row__eye"
+                                            title={isVisible ? 'Hide this material' : 'Show this material'}
+                                            aria-pressed={isVisible}
+                                            onClick={(e) => { e.stopPropagation(); toggleMaterial(matName); }}
+                                        >
+                                            {isVisible ? (
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                                    <circle cx="12" cy="12" r="3" />
+                                                </svg>
+                                            ) : (
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                                                    <line x1="1" y1="1" x2="23" y2="23" />
+                                                </svg>
+                                            )}
+                                        </button>
+                                    </div>
                                 );
                             })}
                         </div>
                     </div>
                 </div>
-            )}
+                );
+            })()}
 
             {activePopup === 'animations' && animations.length > 0 && (
                 <div className="model-preview__popup model-preview__popup--top-right">
