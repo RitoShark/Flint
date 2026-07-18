@@ -79,7 +79,7 @@ const Checkbox: React.FC<{ state: TriState; onToggle: () => void }> = ({ state, 
         className={`cdn-cb${state === 'all' ? ' cdn-cb--on' : state === 'some' ? ' cdn-cb--part' : ''}`}
         onClick={(e) => { e.stopPropagation(); onToggle(); }}
     >
-        <span className="cdn-cb__tick">{TICK}</span>
+        {state === 'all' && <span className="cdn-cb__tick">{TICK}</span>}
     </span>
 );
 

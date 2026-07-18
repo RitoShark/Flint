@@ -176,12 +176,14 @@
 /* tree checkbox (tri-state) */
 .cdn-cb {
     position: relative;
+    box-sizing: border-box;
     width: 16px; height: 16px;
-    border: 1.5px solid color-mix(in oklab, white 22%, transparent);
-    border-radius: 5px;
-    /* Unchecked: a faint lighter-than-row fill + soft border so it reads as an
-       empty control, not a black hole punched in the dark rows. */
-    background: color-mix(in oklab, white 6%, transparent);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    box-shadow: none !important;
+    filter: none !important;
+    outline: none;
     flex: none;
     display: inline-block;
     cursor: pointer;
@@ -189,32 +191,33 @@
 }
 .cdn-cb:hover {
     border-color: var(--accent-primary);
-    background: color-mix(in oklab, var(--accent-primary) 16%, transparent);
+    background: rgba(255, 255, 255, 0.08);
 }
 /* Checked: filled accent box, white tick springs in centered. */
 .cdn-cb--on {
     background: var(--accent-primary);
     border-color: var(--accent-primary);
 }
-/* Tick is ABSOLUTELY centered inside the box so it never pushes the box layout
-   (which produced the odd black block). Hidden until the box is fully checked. */
+/* Tick renders ONLY when checked (see Checkbox). Absolutely centered so it never
+   affects the box layout; springs in. */
 .cdn-cb__tick {
     position: absolute;
     inset: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    opacity: 0;
-    transform: scale(0.4);
-    transition: opacity 140ms var(--dl-ease-out), transform 260ms var(--dl-ease-spring);
     pointer-events: none;
+    animation: cdnTickIn 220ms var(--dl-ease-spring);
 }
 .cdn-cb__tick svg {
-    width: 12px; height: 12px;
+    width: 11px; height: 11px;
     color: #fff;
     display: block;
 }
-.cdn-cb--on .cdn-cb__tick { opacity: 1; transform: scale(1); }
+@keyframes cdnTickIn {
+    from { opacity: 0; transform: scale(0.4); }
+    to   { opacity: 1; transform: scale(1); }
+}
 /* Partial: subtle accent tint + a centered dash (no chunky glyph). */
 .cdn-cb--part {
     background: color-mix(in oklab, var(--accent-primary) 18%, var(--bg-tertiary));
