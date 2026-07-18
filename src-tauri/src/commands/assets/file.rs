@@ -12,6 +12,14 @@ use std::process::Command;
 use crate::core::ipc_trace;
 
 static FLOOR_PNG: &[u8] = include_bytes!("../../../resources/floor.png");
+// Skybox cubemap faces (WebP, SRU sky). Babylon builds a CubeTexture from these
+// 6 images; order matches +X,-X,+Y,-Y,+Z,-Z (px,nx,py,ny,pz,nz).
+static SKYBOX_PX: &[u8] = include_bytes!("../../../resources/skybox/px.webp");
+static SKYBOX_NX: &[u8] = include_bytes!("../../../resources/skybox/nx.webp");
+static SKYBOX_PY: &[u8] = include_bytes!("../../../resources/skybox/py.webp");
+static SKYBOX_NY: &[u8] = include_bytes!("../../../resources/skybox/ny.webp");
+static SKYBOX_PZ: &[u8] = include_bytes!("../../../resources/skybox/pz.webp");
+static SKYBOX_NZ: &[u8] = include_bytes!("../../../resources/skybox/nz.webp");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileInfo {
@@ -1530,6 +1538,21 @@ pub fn get_bundled_floor_png() -> tauri::ipc::Response {
         }
     }
     tauri::ipc::Response::new(FLOOR_PNG.to_vec())
+}
+
+/// Get one bundled skybox cubemap face as raw WebP bytes (the model-preview
+/// skybox). `face` is one of px|nx|py|ny|pz|nz; unknown names fall back to px.
+#[tauri::command]
+pub fn get_bundled_skybox_face(face: String) -> tauri::ipc::Response {
+    let bytes: &[u8] = match face.as_str() {
+        "nx" => SKYBOX_NX,
+        "py" => SKYBOX_PY,
+        "ny" => SKYBOX_NY,
+        "pz" => SKYBOX_PZ,
+        "nz" => SKYBOX_NZ,
+        _ => SKYBOX_PX,
+    };
+    tauri::ipc::Response::new(bytes.to_vec())
 }
 
 #[cfg(test)]

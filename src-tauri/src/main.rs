@@ -297,6 +297,7 @@ fn main() {
             commands::file::decode_bytes_to_png,
             commands::file::decode_bytes_to_rgba,
             commands::file::get_bundled_floor_png,
+            commands::file::get_bundled_skybox_face,
             commands::file::read_text_file,
             commands::file::write_text_file,
             commands::file::save_file_bytes,

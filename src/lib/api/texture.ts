@@ -35,6 +35,12 @@ export async function getBundledFloorPng(): Promise<Uint8Array> {
     return new Uint8Array(buf);
 }
 
+/** Raw WebP bytes of one bundled skybox cubemap face (px|nx|py|ny|pz|nz). */
+export async function getBundledSkyboxFace(face: string): Promise<Uint8Array> {
+    const buf = await invokeCommand<ArrayBuffer>('get_bundled_skybox_face', { face });
+    return new Uint8Array(buf);
+}
+
 // =============================================================================
 // Texture Format Conversion (TEX ↔ DDS, → PNG)
 // =============================================================================

@@ -10,10 +10,13 @@ import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Material } from '@babylonjs/core/Materials/material';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
+import { CubeTexture } from '@babylonjs/core/Materials/Textures/cubeTexture';
 import { Vector3, Color3, Color4 } from '@babylonjs/core/Maths/math';
 import { CreateLineSystem } from '@babylonjs/core/Meshes/Builders/linesBuilder';
 import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder';
 import { SkeletonViewer } from '@babylonjs/core/Debug/skeletonViewer';
+// Adds scene.createDefaultSkybox used to build the cubemap sky box.
+import '@babylonjs/core/Helpers/sceneHelpers';
 
 import * as api from '../../lib/api';
 import { useAppMetadataStore } from '../../lib/stores';
@@ -72,21 +75,23 @@ function safeDisposeSkeletonViewer(ref: React.MutableRefObject<SkeletonViewer | 
     }
 }
 
-/** Skeleton thickness slider range (UI 0..100). 0 = as skinny as it renders,
- *  100 = chunky. Default sits on the thin side so joints read like a real rig. */
+/** Skeleton thickness slider range (UI 0..100). Drives the joint-sphere size on
+ *  the SPHERES display; the default sits on the thin side so joints read like a
+ *  real rig without swallowing the mesh. */
 const SKELETON_THICKNESS_MIN = 0;
 const SKELETON_THICKNESS_MAX = 100;
-const SKELETON_THICKNESS_DEFAULT = 25;
+const SKELETON_THICKNESS_DEFAULT = 40;
 
 /**
- * Build a SkeletonViewer whose bone/joint SIZE tracks the thickness slider.
+ * Build a SkeletonViewer that's ALWAYS visible (line skeleton) and whose JOINTS
+ * get a size from the thickness slider.
  *
- * DISPLAY_LINES can't be made skinnier/thicker (WebGL renders lines at a fixed
- * 1px, and the size arg is really `renderingGroupId`), so a thickness control
- * there is a no-op. DISPLAY_SPHERE_AND_SPURS draws real 3D joint spheres + bone
- * spurs whose dimensions come from `displayOptions`, so scaling those by the
- * slider gives genuinely skinnier → thicker joints. `t` is the 0..100 UI value.
- * One shared builder so both create sites stay identical.
+ * DISPLAY_LINES alone renders 1px lines with no joint dots and no width control,
+ * and DISPLAY_SPHERE_AND_SPURS on its own turned out invisible on these SKN
+ * meshes. So we use DISPLAY_SPHERES: the connecting bones stay as reliable lines
+ * (always visible) AND each joint gets a real 3D sphere whose radius tracks the
+ * slider — thin → skinny joints, thick → chunky. `thickness` is the 0..100 UI
+ * value. One shared builder so both create sites stay identical.
  */
 function buildSkeletonViewer(
     skeleton: Skeleton,
@@ -94,13 +99,11 @@ function buildSkeletonViewer(
     scene: Scene,
     thickness: number,
 ): SkeletonViewer {
-    // Normalize slider → 0..1, then map onto sphere/spur dimensions. The floors
-    // keep the rig visible at thickness 0 (skinny, not invisible); the tops stay
-    // modest so max is "chunky rig", not "blobs swallowing the mesh".
+    // Normalize 0..1 → joint-sphere size. Floor keeps a visible dot at thickness
+    // 0; the top stays modest so max reads as "chunky rig", not blobs.
     const t = Math.min(1, Math.max(0, (thickness - SKELETON_THICKNESS_MIN) / (SKELETON_THICKNESS_MAX - SKELETON_THICKNESS_MIN)));
-    const sphereBaseSize = 0.15 + t * 1.85;   // 0.15 (skinny) → 2.0 (default-ish)
-    const sphereScaleUnit = 1.6 - t * 0.9;    // smaller unit = smaller spheres vs longest bone
-    const midStepFactor = 0.03 + t * 0.19;    // spur width as a factor of length
+    const sphereBaseSize = 0.2 + t * 2.3;   // joint sphere base size
+    const sphereScaleUnit = 8 - t * 5;      // ratio to longest bone (smaller = bigger sphere)
 
     const viewer = new SkeletonViewer(
         skeleton,
@@ -109,12 +112,10 @@ function buildSkeletonViewer(
         true,               // autoUpdateBonesMatrices
         3,                  // renderingGroupId (draw on top)
         {
-            displayMode: SkeletonViewer.DISPLAY_SPHERE_AND_SPURS,
+            displayMode: SkeletonViewer.DISPLAY_SPHERES,
             displayOptions: {
                 sphereBaseSize,
                 sphereScaleUnit,
-                midStepFactor,
-                spurFollowsChild: true,
             },
         },
     );
@@ -172,6 +173,78 @@ function pickInitialAnimation(
     return null;
 }
 
+// ── Shared design-lab popup building blocks (used by the Display / Environment /
+//    Animations popups so they all read like the reworked Materials panel). ──
+
+/** Popup shell: floating panel + a design-lab header with title + × close. */
+const MpPopup: React.FC<{
+    title: string;
+    side?: 'left' | 'right';
+    onClose: () => void;
+    headExtra?: React.ReactNode;
+    children: React.ReactNode;
+}> = ({ title, side = 'right', onClose, headExtra, children }) => (
+    <div className={`model-preview__popup mp-panel ${side === 'left' ? 'model-preview__popup--top-left' : 'model-preview__popup--top-right'}`}>
+        <div className="mp-panel__head">
+            <span className="mp-panel__title">{title}</span>
+            <div className="mp-panel__head-actions">
+                {headExtra}
+                <button className="mp-panel__close" onClick={onClose} title="Close" aria-label="Close">×</button>
+            </div>
+        </div>
+        <div className="mp-panel__body">{children}</div>
+    </div>
+);
+
+/** A labelled row with a design-lab toggle switch on the right. */
+const MpToggleRow: React.FC<{
+    label: React.ReactNode;
+    desc?: React.ReactNode;
+    checked: boolean;
+    onChange: (v: boolean) => void;
+}> = ({ label, desc, checked, onChange }) => (
+    <div className="mp-field mp-field--row" onClick={() => onChange(!checked)}>
+        <div className="mp-field__text">
+            <span className="mp-field__label">{label}</span>
+            {desc && <span className="mp-field__desc">{desc}</span>}
+        </div>
+        <label className="dl-toggle" onClick={(e) => e.stopPropagation()}>
+            <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+            <span className="dl-toggle__track" />
+            <span className="dl-toggle__thumb" />
+        </label>
+    </div>
+);
+
+/** A labelled design-lab slider field with a live value bubble. */
+const MpSliderField: React.FC<{
+    label: React.ReactNode;
+    value: number;
+    min: number;
+    max: number;
+    step?: number;
+    format?: (v: number) => string;
+    onChange: (v: number) => void;
+}> = ({ label, value, min, max, step = 1, format, onChange }) => (
+    <div className="mp-field">
+        <div className="mp-field__head">
+            <span className="mp-field__label">{label}</span>
+            <span className="mp-field__value">{format ? format(value) : value}</span>
+        </div>
+        <div className="dl-slider" style={{ ['--_value' as never]: `${((value - min) / (max - min)) * 100}%` }}>
+            <input
+                type="range"
+                min={min}
+                max={max}
+                step={step}
+                value={value}
+                onChange={(e) => onChange(parseFloat(e.target.value))}
+            />
+            <span className="dl-slider__bubble">{format ? format(value) : value}</span>
+        </div>
+    </div>
+);
+
 export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType = 'skinned', initialAnimation, autoPlay = true }) => {
     const [meshData, setMeshData] = useState<MeshData | null>(null);
     const [loading, setLoading] = useState(true);
@@ -182,6 +255,10 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const [visibleMaterials, setVisibleMaterials] = useState<Set<string>>(new Set());
 
     const [showSkybox, setShowSkybox] = useState(savedSettings.showSkybox);
+    // Live mirror so the async skybox loader reads the current toggle when it
+    // resolves (the user may have toggled off mid-load).
+    const showSkyboxRef = useRef(showSkybox);
+    showSkyboxRef.current = showSkybox;
     const [floorMode, setFloorMode] = useState<'grid' | 'textured' | 'none'>(savedSettings.floorMode);
     const [ambientIntensity, setAmbientIntensity] = useState(savedSettings.ambientIntensity);
     const [directionalIntensity, setDirectionalIntensity] = useState(savedSettings.directionalIntensity);
@@ -224,6 +301,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const skeletonViewerRef = useRef<SkeletonViewer | null>(null);
     const gridMeshRef = useRef<any>(null);
     const floorMeshRef = useRef<any>(null);
+    // Cubemap skybox mesh (bundled SRU WebP faces) + the 6 face blob URLs, so the
+    // skybox toggle shows a real sky backdrop instead of a flat clear color.
+    const skyboxMeshRef = useRef<Mesh | null>(null);
+    const skyboxUrlsRef = useRef<string[]>([]);
+    const skyboxLoadingRef = useRef(false);
 
     const animationPlayerRef = useRef<AnimationPlayer | null>(null);
     const lastTimeRef = useRef<number>(0);
@@ -425,6 +507,12 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 floorMeshRef.current.dispose();
                 floorMeshRef.current = null;
             }
+
+            // engine.dispose() drops the skybox mesh + its cube texture with the
+            // scene; only the blob URLs need manual revocation.
+            skyboxMeshRef.current = null;
+            skyboxUrlsRef.current.forEach(u => URL.revokeObjectURL(u));
+            skyboxUrlsRef.current = [];
 
             engine.dispose();
         };
@@ -1036,12 +1124,70 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
     useEffect(() => {
         if (!scene) return;
+        let cancelled = false;
 
-        if (showSkybox) {
-            scene.clearColor = new Color4(0.53, 0.81, 0.92, 1.0);
-        } else {
+        const disposeSkybox = () => {
+            if (skyboxMeshRef.current) {
+                try {
+                    const mat = skyboxMeshRef.current.material as StandardMaterial | null;
+                    if (mat?.reflectionTexture) mat.reflectionTexture.dispose();
+                    mat?.dispose();
+                    skyboxMeshRef.current.dispose();
+                } catch { /* ignore */ }
+                skyboxMeshRef.current = null;
+            }
+            skyboxUrlsRef.current.forEach(u => URL.revokeObjectURL(u));
+            skyboxUrlsRef.current = [];
+        };
+
+        if (!showSkybox) {
+            // Skybox off → dark studio clear, no sky mesh.
+            disposeSkybox();
             scene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0);
+            return;
         }
+
+        // Skybox on: reuse an already-built sky mesh; otherwise load the 6 bundled
+        // WebP cubemap faces and build one. The clear color stays as a graceful
+        // fallback (shown until the faces load / if it fails).
+        scene.clearColor = new Color4(0.06, 0.09, 0.16, 1.0);
+        if (skyboxMeshRef.current) {
+            skyboxMeshRef.current.setEnabled(true);
+            return;
+        }
+        if (skyboxLoadingRef.current) return;
+        skyboxLoadingRef.current = true;
+
+        (async () => {
+            try {
+                // CubeTexture.CreateFromImages wants URLs in order px,nx,py,ny,pz,nz.
+                const faces = ['px', 'nx', 'py', 'ny', 'pz', 'nz'];
+                const urls = await Promise.all(faces.map(async (f) => {
+                    const bytes = await api.getBundledSkyboxFace(f);
+                    return URL.createObjectURL(new Blob([bytes.buffer as ArrayBuffer], { type: 'image/webp' }));
+                }));
+                if (cancelled) { urls.forEach(u => URL.revokeObjectURL(u)); return; }
+                skyboxUrlsRef.current = urls;
+                // CubeTexture ctor `files` arg (5th) = 6 explicit face URLs in
+                // px,nx,py,ny,pz,nz order; empty rootUrl, no extensions, no mips.
+                const cube = new CubeTexture('', scene, null, true, urls);
+                // pbr=false → a plain skybox material that shows the cubemap
+                // crisply (no blurred-reflection env look); scale large so it
+                // always encloses the camera; blur 0.
+                const box = scene.createDefaultSkybox(cube, false, 1000, 0);
+                if (cancelled || !box) { cube.dispose(); box?.dispose(); return; }
+                box.infiniteDistance = true;
+                box.isPickable = false;
+                skyboxMeshRef.current = box as Mesh;
+                box.setEnabled(showSkyboxRef.current);
+            } catch (e) {
+                console.warn('[ModelPreview] skybox load failed, using flat clear color:', e);
+            } finally {
+                skyboxLoadingRef.current = false;
+            }
+        })();
+
+        return () => { cancelled = true; };
     }, [scene, showSkybox]);
 
     useEffect(() => {
@@ -1224,132 +1370,85 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             {statusOverlay}
 
             {activePopup === 'display' && (
-                <div className="model-preview__popup model-preview__popup--top-right">
-                    <div className="model-preview__popup-header">
-                        <h4>Display & Skeleton</h4>
-                        <button onClick={() => setActivePopup(null)}>×</button>
-                    </div>
-                    <div className="model-preview__popup-body">
-                        <label className="model-preview__toggle">
-                            <input
-                                type="checkbox"
-                                checked={wireframe}
-                                onChange={(e) => setWireframe(e.target.checked)}
+                <MpPopup title="Display & Skeleton" side="right" onClose={() => setActivePopup(null)}>
+                    <MpToggleRow label="Wireframe" checked={wireframe} onChange={setWireframe} />
+                    {skeletonData && (
+                        <>
+                            <MpToggleRow
+                                label="Show skeleton"
+                                desc={`${skeletonData.bones.length} bones`}
+                                checked={showSkeleton}
+                                onChange={setShowSkeleton}
                             />
-                            <span>Wireframe</span>
-                        </label>
-                        {skeletonData && (
-                            <>
-                                <label className="model-preview__toggle">
-                                    <input
-                                        type="checkbox"
-                                        checked={showSkeleton}
-                                        onChange={(e) => setShowSkeleton(e.target.checked)}
-                                    />
-                                    <span>Show Skeleton ({skeletonData.bones.length} bones)</span>
-                                </label>
-                                {showSkeleton && (
-                                    <div className="model-preview__dl-field">
-                                        <div className="model-preview__dl-field-label">
-                                            <span>Joint thickness</span>
-                                            <span className="model-preview__dl-field-value">{skeletonThickness}</span>
-                                        </div>
-                                        <div
-                                            className="dl-slider"
-                                            style={{ ['--_value' as never]: `${((skeletonThickness - SKELETON_THICKNESS_MIN) / (SKELETON_THICKNESS_MAX - SKELETON_THICKNESS_MIN)) * 100}%` }}
-                                        >
-                                            <input
-                                                type="range"
-                                                min={SKELETON_THICKNESS_MIN}
-                                                max={SKELETON_THICKNESS_MAX}
-                                                value={skeletonThickness}
-                                                onChange={(e) => setSkeletonThickness(parseInt(e.target.value))}
-                                            />
-                                            <span className="dl-slider__bubble">{skeletonThickness}</span>
-                                        </div>
-                                    </div>
-                                )}
-                            </>
-                        )}
-                    </div>
-                </div>
+                            {showSkeleton && (
+                                <MpSliderField
+                                    label="Joint thickness"
+                                    value={skeletonThickness}
+                                    min={SKELETON_THICKNESS_MIN}
+                                    max={SKELETON_THICKNESS_MAX}
+                                    onChange={(v) => setSkeletonThickness(Math.round(v))}
+                                />
+                            )}
+                        </>
+                    )}
+                </MpPopup>
             )}
 
             {activePopup === 'environment' && (
-                <div className="model-preview__popup model-preview__popup--top-left">
-                    <div className="model-preview__popup-header">
-                        <h4>Environment</h4>
-                        <button onClick={() => setActivePopup(null)}>×</button>
-                    </div>
-                    <div className="model-preview__popup-body">
-                        <label className="model-preview__toggle">
-                            <input
-                                type="checkbox"
-                                checked={showSkybox}
-                                onChange={(e) => setShowSkybox(e.target.checked)}
-                            />
-                            <span>Skybox</span>
-                        </label>
+                <MpPopup title="Environment" side="left" onClose={() => setActivePopup(null)}>
+                    <MpToggleRow
+                        label="Skybox"
+                        desc="Cubemap sky backdrop"
+                        checked={showSkybox}
+                        onChange={setShowSkybox}
+                    />
 
-                        <div className="model-preview__select-group">
-                            <label className="model-preview__select-label">Floor</label>
-                            <select
-                                value={floorMode}
-                                onChange={(e) => setFloorMode(e.target.value as 'grid' | 'textured' | 'none')}
-                                className="model-preview__select"
-                            >
-                                <option value="grid">Grid</option>
-                                <option value="textured">Textured</option>
-                                <option value="none">None</option>
-                            </select>
+                    <div className="mp-field">
+                        <div className="mp-field__head">
+                            <span className="mp-field__label">Floor</span>
                         </div>
-
-                        <label className="model-preview__toggle" style={{ marginTop: '12px', marginBottom: '8px' }}>
-                            <input
-                                type="checkbox"
-                                checked={customizeLighting}
-                                onChange={(e) => setCustomizeLighting(e.target.checked)}
-                            />
-                            <span>Customize Lighting</span>
-                        </label>
-
-                        {customizeLighting && (
-                            <>
-                                <div className="model-preview__slider">
-                                    <label className="model-preview__slider-label">
-                                        <span>Ambient Light</span>
-                                        <span className="model-preview__slider-value">{ambientIntensity.toFixed(1)}</span>
-                                    </label>
-                                    <input
-                                        type="range"
-                                        min="0"
-                                        max="2"
-                                        step="0.1"
-                                        value={ambientIntensity}
-                                        onChange={(e) => setAmbientIntensity(parseFloat(e.target.value))}
-                                        className="model-preview__slider-input"
-                                    />
-                                </div>
-
-                                <div className="model-preview__slider">
-                                    <label className="model-preview__slider-label">
-                                        <span>Directional Light</span>
-                                        <span className="model-preview__slider-value">{directionalIntensity.toFixed(1)}</span>
-                                    </label>
-                                    <input
-                                        type="range"
-                                        min="0"
-                                        max="3"
-                                        step="0.1"
-                                        value={directionalIntensity}
-                                        onChange={(e) => setDirectionalIntensity(parseFloat(e.target.value))}
-                                        className="model-preview__slider-input"
-                                    />
-                                </div>
-                            </>
-                        )}
+                        <div className="mp-seg">
+                            {(['grid', 'textured', 'none'] as const).map((mode) => (
+                                <button
+                                    key={mode}
+                                    className={`mp-seg__btn ${floorMode === mode ? 'mp-seg__btn--active' : ''}`}
+                                    onClick={() => setFloorMode(mode)}
+                                >
+                                    {mode === 'grid' ? 'Grid' : mode === 'textured' ? 'Textured' : 'None'}
+                                </button>
+                            ))}
+                        </div>
                     </div>
-                </div>
+
+                    <MpToggleRow
+                        label="Customize lighting"
+                        checked={customizeLighting}
+                        onChange={setCustomizeLighting}
+                    />
+
+                    {customizeLighting && (
+                        <>
+                            <MpSliderField
+                                label="Ambient light"
+                                value={ambientIntensity}
+                                min={0}
+                                max={2}
+                                step={0.1}
+                                format={(v) => v.toFixed(1)}
+                                onChange={setAmbientIntensity}
+                            />
+                            <MpSliderField
+                                label="Directional light"
+                                value={directionalIntensity}
+                                min={0}
+                                max={3}
+                                step={0.1}
+                                format={(v) => v.toFixed(1)}
+                                onChange={setDirectionalIntensity}
+                            />
+                        </>
+                    )}
+                </MpPopup>
             )}
 
             {meshData && activePopup === 'materials' && (() => {
@@ -1432,59 +1531,62 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             })()}
 
             {activePopup === 'animations' && animations.length > 0 && (
-                <div className="model-preview__popup model-preview__popup--top-right">
-                    <div className="model-preview__popup-header">
-                        <h4>Animations ({animations.length})</h4>
-                        <button onClick={() => setActivePopup(null)}>×</button>
+                <MpPopup
+                    title="Animations"
+                    side="right"
+                    onClose={() => setActivePopup(null)}
+                    headExtra={<span className="mp-panel__count">{animations.length}</span>}
+                >
+                    <div className="mp-anim-list">
+                        {animations.map((anim, index) => {
+                            const active = selectedAnimation === anim.animation_path;
+                            return (
+                                <button
+                                    key={index}
+                                    className={`mp-anim-row ${active ? 'mp-anim-row--active' : ''}`}
+                                    onClick={() => setSelectedAnimation(anim.animation_path)}
+                                    title={anim.name}
+                                >
+                                    <span className="mp-anim-row__glyph" aria-hidden>
+                                        {active && isPlaying ? (
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
+                                        ) : (
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4" /></svg>
+                                        )}
+                                    </span>
+                                    <span className="mp-anim-row__name">{anim.name}</span>
+                                </button>
+                            );
+                        })}
                     </div>
-                    <div className="model-preview__popup-body">
-                        <div className="model-preview__select-group">
-                            <select
-                                className="model-preview__select"
-                                value={selectedAnimation}
-                                onChange={(e) => setSelectedAnimation(e.target.value)}
-                            >
-                                <option value="">-- Select Animation --</option>
-                                {animations.map((anim, index) => (
-                                    <option key={index} value={anim.animation_path}>
-                                        {anim.name}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                        {selectedAnimation && (
-                            <>
-                                <div className="model-preview__playback-controls">
-                                    <button
-                                        className={`model-preview__playback-btn ${isPlaying ? 'model-preview__playback-btn--active' : ''}`}
-                                        onClick={() => setIsPlaying(!isPlaying)}
-                                        title={isPlaying ? 'Pause' : 'Play'}
+                    {selectedAnimation && (
+                        <div className="mp-anim-controls">
+                            <div className="mp-anim-buttons">
+                                <button
+                                    className={`dl-btn dl-btn--sm ${isPlaying ? 'dl-btn--primary' : 'dl-btn--secondary'}`}
+                                    onClick={() => setIsPlaying(!isPlaying)}
+                                >
+                                    {isPlaying ? (
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
+                                    ) : (
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                                    )}
+                                    <span>{isPlaying ? 'Pause' : 'Play'}</span>
+                                </button>
+                                <button
+                                    className="dl-btn dl-btn--sm dl-btn--ghost"
+                                    onClick={() => { setIsPlaying(false); handleSliderChange(0); }}
+                                >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="6" width="12" height="12" /></svg>
+                                    <span>Stop</span>
+                                </button>
+                            </div>
+                            {animationData && (
+                                <div className="mp-anim-timeline">
+                                    <div
+                                        className="dl-slider"
+                                        style={{ ['--_value' as never]: `${animationData.duration > 0 ? (currentTime / animationData.duration) * 100 : 0}%` }}
                                     >
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            {isPlaying ? (
-                                                <>
-                                                    <rect x="6" y="4" width="4" height="16" />
-                                                    <rect x="14" y="4" width="4" height="16" />
-                                                </>
-                                            ) : (
-                                                <polygon points="5 3 19 12 5 21 5 3" />
-                                            )}
-                                        </svg>
-                                        <span>{isPlaying ? 'Pause' : 'Play'}</span>
-                                    </button>
-                                    <button
-                                        className="model-preview__playback-btn"
-                                        onClick={() => { setIsPlaying(false); handleSliderChange(0); }}
-                                        title="Stop"
-                                    >
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            <rect x="6" y="6" width="12" height="12" />
-                                        </svg>
-                                        <span>Stop</span>
-                                    </button>
-                                </div>
-                                {animationData && (
-                                    <div className="model-preview__timeline">
                                         <input
                                             type="range"
                                             min={0}
@@ -1492,20 +1594,17 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                                             step={0.001}
                                             value={currentTime}
                                             onChange={(e) => handleSliderChange(parseFloat(e.target.value))}
-                                            className="model-preview__timeline-slider"
                                         />
-                                        <div className="model-preview__timeline-info">
-                                            <span>{currentTime.toFixed(2)}s / {animationData.duration.toFixed(2)}s</span>
-                                            <span className="model-preview__timeline-fps">
-                                                {animationData.fps.toFixed(0)} FPS Â· {animationData.joint_count} joints
-                                            </span>
-                                        </div>
                                     </div>
-                                )}
-                            </>
-                        )}
-                    </div>
-                </div>
+                                    <div className="mp-anim-timeline__info">
+                                        <span>{currentTime.toFixed(2)}s / {animationData.duration.toFixed(2)}s</span>
+                                        <span className="mp-anim-timeline__meta">{animationData.fps.toFixed(0)} FPS · {animationData.joint_count} joints</span>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </MpPopup>
             )}
 
             {hoveredMaterial && meshData && (
