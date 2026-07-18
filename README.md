@@ -14,8 +14,9 @@
     <img src="https://img.shields.io/github/v/release/RitoShark/Flint?style=for-the-badge&color=EF4444&labelColor=0d1117&logo=github" alt="Release"/>
   </a>
   <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-0d1117?style=for-the-badge&labelColor=0d1117&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iI0VGNDQ0NCIgZD0iTTAgMy40NDlMOS43NSAyLjF2OS40NTFIMG0xMC45NDktOS42MDJMMjQgMHYxMS40SDEwLjk0OU0wIDEyLjZoOS43NXY5LjQ1MUwwIDIwLjY5OU0xMC45NDkgMTIuNkgyNFYyNGwtMTIuOS0xLjgwMSIvPjwvc3ZnPg==" alt="Windows"/>
-  <img src="https://img.shields.io/badge/Rust%20%2B%20Tauri%202-DEA584?style=for-the-badge&logo=rust&logoColor=black&labelColor=0d1117" alt="Rust + Tauri"/>
-  <img src="https://img.shields.io/badge/React%2018-61DAFB?style=for-the-badge&logo=react&logoColor=black&labelColor=0d1117" alt="React"/>
+  <img src="https://img.shields.io/badge/Rust-DEA584?style=for-the-badge&logo=rust&logoColor=white&labelColor=0d1117" alt="Rust"/>
+  <img src="https://img.shields.io/badge/Tauri%202-24C8D8?style=for-the-badge&logo=tauri&logoColor=white&labelColor=0d1117" alt="Tauri"/>
+  <img src="https://img.shields.io/badge/React%2018-61DAFB?style=for-the-badge&logo=react&logoColor=white&labelColor=0d1117" alt="React"/>
   <img src="https://img.shields.io/badge/License-MIT-22c55e?style=for-the-badge&labelColor=0d1117" alt="MIT"/>
 </p>
 
