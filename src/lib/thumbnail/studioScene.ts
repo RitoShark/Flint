@@ -135,15 +135,8 @@ export interface ThumbnailScene {
     setModelCanvas(id: string, canvas: HTMLCanvasElement | null): void;
     /** Screenshot ONE model alone (transparent elsewhere) at w×h — used by the
      *  export compositor to interleave the disc between models by array order.
-     *  Returns an ImageBitmap ready to `drawImage` (fully transparent if the
-     *  model isn't loaded). Bitmap (not Blob) so the compositor skips a per-model
-     *  PNG encode+decode round-trip. */
-    screenshotModel(id: string, w: number, h: number): Promise<ImageBitmap>;
-    /** Force the preview to repaint on the next frames. Needed after an export:
-     *  the compositor resizes the engine framebuffer per model, so the on-screen
-     *  views must be told to re-render at their own sizes once it's done (with
-     *  render-on-demand the loop is otherwise idle). */
-    invalidate(): void;
+     *  Returns a fully-transparent image if the model isn't loaded. */
+    screenshotModel(id: string, w: number, h: number): Promise<Blob>;
     dispose(): void;
 }
 
@@ -301,49 +294,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
 
     const models = new Map<string, ModelState>();
 
-    // ── Render-on-demand bookkeeping ──────────────────────────────────────
-    // Declared BEFORE the first refreshActiveCameras() call below, which calls
-    // requestRender() — `pendingFrames` is a `let` (temporal dead zone), so it
-    // must be initialized before any code path reads it, even though
-    // requestRender is a hoisted function declaration.
-    //
-    // A thumbnail is mostly STATIC — a paused model in a box. Rendering the whole
-    // multi-camera scene 60×/sec when nothing moved just pins the GPU. Instead we
-    // render on demand: requestRender() marks the next N frames dirty, and any
-    // playing animation keeps the scene dirty while it plays. Every mutating
-    // scene method calls requestRender(), so edits still show instantly; the loop
-    // idles when clean. `pendingFrames` is a small budget (not a single flag) so
-    // a one-shot change still paints across the handful of frames Babylon/WebGL
-    // needs to settle (texture upload, view blit, engine.resize reflow).
-    let pendingFrames = 0;
-    let loopRunning = false;
-    /** Mark the scene dirty so the render loop paints the next few frames. Call
-     *  after ANY visual mutation (transform, frame scrub, visibility, texture
-     *  load, env change, resize). Cheap; safe to over-call.
-     *
-     *  With engine.views we must START the loop rather than early-return inside a
-     *  perpetually-running one: Babylon blits the engine buffer to every view
-     *  canvas each rAF the loop fires, so a loop that "runs but skips render"
-     *  would blit a cleared (transparent) buffer and BLANK the models. Instead
-     *  the loop only spins while there's work, then stops. */
-    function requestRender(frames = 3): void {
-        if (frames > pendingFrames) pendingFrames = frames;
-        ensureLoopRunning();
-    }
-    /** True while any model has a non-paused animation player — those must keep
-     *  rendering continuously (they advance every frame). */
-    function anyAnimationPlaying(): boolean {
-        for (const m of models.values()) {
-            if (m.player && !m.player.paused) return true;
-        }
-        return false;
-    }
-    function ensureLoopRunning(): void {
-        if (loopRunning) return;
-        loopRunning = true;
-        engine.runRenderLoop(renderTick);
-    }
-
     // With engine.views, EACH view renders the scene with its OWN camera and
     // blits to its own canvas — so we do NOT stack all cameras into
     // scene.activeCameras (that would overlap them in the shared offscreen
@@ -356,7 +306,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         scene.activeCamera = models.size === 0
             ? fallbackCamera
             : [...models.values()].sort((a, b) => a.renderOrder - b.renderOrder)[0].camera;
-        requestRender();
     }
     refreshActiveCameras();
 
@@ -384,7 +333,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         // aspect — unless the user has taken manual control of this model's
         // camera (then keep their pose).
         if (!m.userFramed) reframeModel(m);
-        requestRender();
     }
 
     /** (Re)frame a model per its focusMode: 'head' targets the detected head
@@ -411,7 +359,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         // model reads straight-on/raw — not the 60°-elevated look-down that
         // targeting the torso center produced. Head-focus keeps its 60° beta.
         frameCamera(m.camera, m.bbox, aspect, null, 1, Math.PI / 2);
-        requestRender();
     }
 
     // ── Environment background ──────────────────────────────────────
@@ -450,7 +397,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         tex.vScale = 1 / sy;
         tex.uOffset = -rawMinX / sx;
         tex.vOffset = -rawMinY / sy;
-        requestRender();
     }
 
     function setEnvImage(path: string | null, fit: BackgroundFit): void {
@@ -463,7 +409,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             // Keep the canvas transparent (models are the only opaque pixels);
             // the dark backdrop is the DOM `.tb-env` layer below the canvas.
             scene.clearColor = new Color4(0, 0, 0, 0);
-            requestRender();
             return;
         }
         scene.clearColor = new Color4(0, 0, 0, 0);
@@ -478,7 +423,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         applyBgLayerTransform();
     }
 
-    // ── Render loop (render-on-demand) ────────────────────────────────
+    // ── Render loop ──────────────────────────────────────────────────
     //
     // With engine.views the loop function runs ONCE PER REGISTERED VIEW per
     // frame (Babylon's `_renderViewStep` calls `_renderFrame`, which invokes our
@@ -488,50 +433,23 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
     //   • The loop function just renders the (already-selected) active camera.
     // autoClear stays OFF (see its note); we clear the framebuffer here so each
     // view starts from a transparent buffer before its single camera draws.
-    // (requestRender / anyAnimationPlaying / pendingFrames are declared above,
-    // before the first refreshActiveCameras() call, to avoid a TDZ crash.)
     let lastTickTime = 0;
     engine.onBeginFrameObservable.add(() => {
         const now = performance.now();
         if (lastTickTime !== 0) {
             const dt = (now - lastTickTime) / 1000;
-            // Only advance players when something is actually playing — a paused
-            // player's tick is a no-op, but skipping the loop avoids waking every
-            // model each idle frame.
-            if (anyAnimationPlaying()) {
-                for (const m of models.values()) m.player?.tick(dt);
-                requestRender(2);
-            }
+            for (const m of models.values()) m.player?.tick(dt);
         }
         lastTickTime = now;
     });
-    // The render tick. Runs only while there's pending work or an animation is
-    // playing; once fully idle it STOPS the loop (so Babylon stops blitting to
-    // the view canvases, leaving the last-rendered frame on screen) until the
-    // next requestRender() restarts it. NEVER early-return while the loop keeps
-    // spinning — with engine.views a spinning-but-not-rendering loop blits a
-    // cleared buffer and blanks the models.
-    function renderTick(): void {
-        const animating = anyAnimationPlaying();
-        if (pendingFrames <= 0 && !animating) {
-            engine.stopRenderLoop(renderTick);
-            loopRunning = false;
-            // Reset so the next restart's first onBeginFrame computes dt=0
-            // instead of a huge gap (which would jump a playing animation).
-            lastTickTime = 0;
-            return;
-        }
-        if (pendingFrames > 0) pendingFrames--;
+    engine.runRenderLoop(() => {
         engine.clear(scene.clearColor, true, true, false);
         scene.render();
-    }
-    // Kick the first frames (initial model load / fallback camera).
-    ensureLoopRunning();
+    });
 
     const handleResize = () => {
         engine.resize();
         applyBgLayerTransform();
-        requestRender();
     };
     window.addEventListener('resize', handleResize);
 
@@ -685,9 +603,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
                 try {
                     const dataUrl = 'data:image/png;base64,' + data.texture;
                     const texture = new Texture(dataUrl, scene, false, true);
-                    // Texture decode is async — redraw when it finishes or the
-                    // model paints untextured (magenta/blank) until the next edit.
-                    texture.onLoadObservable.addOnce(() => requestRender());
                     texture.wrapU = Texture.WRAP_ADDRESSMODE;
                     texture.wrapV = Texture.WRAP_ADDRESSMODE;
                     texture.hasAlpha = false;
@@ -719,7 +634,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
                 try {
                     const dataUrl = 'data:image/png;base64,' + base64Data;
                     const texture = new Texture(dataUrl, scene, false, true);
-                    texture.onLoadObservable.addOnce(() => requestRender());
                     texture.wrapU = Texture.WRAP_ADDRESSMODE;
                     texture.wrapV = Texture.WRAP_ADDRESSMODE;
                     texture.hasAlpha = false;
@@ -933,7 +847,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             // clientWidth/Height may not be laid out yet at attach time).
             if (!m.userFramed) reframeModel(m);
         }
-        requestRender();
     }
 
     // ── Per-model interactive control (double-click a model to orbit/pan it) ──
@@ -942,18 +855,9 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
     // (wheel) WITHIN that model's viewport box. Passing null detaches (back to
     // display-only). The first manual orbit marks the model `userFramed` so
     // box/aspect changes stop auto-reframing it.
-    // While a camera is under interactive control, its Babylon-driven pan moves
-    // the view matrix WITHOUT going through our request-render methods — so with
-    // render-on-demand the pan would be invisible until the next unrelated edit.
-    // Track the observer so it can be removed when control detaches.
-    let controlViewObserver: ReturnType<ArcRotateCamera['onViewMatrixChangedObservable']['add']> | null = null;
     function setControlModel(id: string | null): void {
         // Detach whatever camera currently has control.
         if (controlCamera) {
-            if (controlViewObserver) {
-                controlCamera.onViewMatrixChangedObservable.remove(controlViewObserver);
-                controlViewObserver = null;
-            }
             controlCamera.detachControl();
             controlCamera = null;
         }
@@ -963,8 +867,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         const m = models.get(id);
         if (!m) return;
         controlCamera = m.camera;
-        // Keep painting while the user pans this camera (Babylon input path).
-        controlViewObserver = m.camera.onViewMatrixChangedObservable.add(() => requestRender(2));
         // Attach Babylon control so RIGHT-DRAG PANS (the old, good pan). But
         // DISABLE rotation-by-drag (angularSensibility → Infinity) — rotation
         // is done on the Properties panel via the Turn (Y) / Tilt (X) sliders,
@@ -1027,7 +929,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         if (patch.posX !== undefined || patch.posY !== undefined || patch.posZ !== undefined) {
             applyPosition(m);
         }
-        requestRender();
     }
 
     /** Translate the model in 3D world space (moves it WITHIN the scene without
@@ -1038,7 +939,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         for (const mesh of m.meshes) {
             mesh.position.set(m.posX, m.posY, m.posZ);
         }
-        requestRender();
     }
 
     /** Apply all three rotation axes (Turn=Y/yaw, Tilt=X/pitch, Roll=Z) as a
@@ -1059,7 +959,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             if (!mesh.rotationQuaternion) mesh.rotationQuaternion = q.clone();
             else mesh.rotationQuaternion.copyFrom(q);
         }
-        requestRender();
     }
 
     async function setModelAnim(id: string, anim: string): Promise<void> {
@@ -1086,10 +985,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             m.pendingFrame = null;
             setModelFrame(id, frame);
         }
-        // Swapping the clip re-poses the skeleton even without a pending frame;
-        // repaint so the new pose shows (callers usually setModelFrame right
-        // after, but don't depend on it).
-        requestRender();
     }
 
     function setModelFrame(id: string, frame: number): void {
@@ -1102,7 +997,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         m.player.paused = true;
         m.player.time = frame / (m.fps || 1);
         m.player.tick(0);
-        requestRender();
     }
 
     function listAnims(id: string): AnimClip[] {
@@ -1125,7 +1019,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         mesh.isVisible = !hidden;
         mesh.visibility = hidden ? 0 : 1;
         mesh.setEnabled(!hidden);
-        requestRender();
     }
 
     function setMeshHidden(id: string, meshName: string, hidden: boolean): void {
@@ -1190,7 +1083,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
                 mat.emissiveColor = new Color3(0, 0, 0);
             }
         }
-        requestRender();
     }
 
     // Render ONE model alone into the offscreen engine at pixel size boxW×boxH
@@ -1230,24 +1122,26 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         scene.activeCameras = prevCams;
     }
 
+    async function canvasToBlob(out: HTMLCanvasElement): Promise<Blob> {
+        return new Promise<Blob>((resolve, reject) => {
+            out.toBlob(
+                (blob) => (blob ? resolve(blob) : reject(new Error('screenshot: toBlob returned null'))),
+                'image/png',
+            );
+        });
+    }
+
     // Single-model screenshot: just this model in its box, transparent
     // elsewhere. Lets the export compositor interleave the disc between models.
-    // Returns an ImageBitmap straight from the 2D canvas — the compositor
-    // draws it directly, so we skip the per-model PNG encode (toBlob) + decode
-    // (createImageBitmap) round-trip the old Blob path forced on every model.
-    //
-    // NOTE: no trailing engine.setSize(w, h) — the pixels are already read back
-    // into `out` by drawModelInto, so resizing the engine framebuffer afterward
-    // just reallocates it for nothing (once PER MODEL during export). The live
-    // preview restores its own size via its resize handler / next reframe.
-    async function screenshotModel(id: string, w: number, h: number): Promise<ImageBitmap> {
+    async function screenshotModel(id: string, w: number, h: number): Promise<Blob> {
         const out = document.createElement('canvas');
         out.width = w; out.height = h;
         const ctx = out.getContext('2d');
         if (!ctx) throw new Error('screenshotModel: no 2D context');
         const m = models.get(id);
         if (m && !m.layerHidden) drawModelInto(m, ctx, w, h);
-        return createImageBitmap(out);
+        engine.setSize(w, h);
+        return canvasToBlob(out);
     }
 
     function dispose(): void {
@@ -1259,7 +1153,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             bgLayer = null;
         }
         engine.stopRenderLoop();
-        loopRunning = false;
         scene.dispose();
         engine.dispose();
     }
@@ -1285,7 +1178,6 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         setGlow,
         setModelCanvas,
         screenshotModel,
-        invalidate: () => { engine.resize(); requestRender(4); },
         dispose,
     };
 }
