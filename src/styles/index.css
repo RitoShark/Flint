@@ -6158,9 +6158,21 @@ input.np-search:focus {
   transition: all var(--transition-fast);
 }
 
+/* The icon is wrapped in a <span> (dangerouslySetInnerHTML). Make that span a
+   centered flex box so the SVG sits dead-center — an inline span leaves the SVG
+   on the text baseline (off-center). */
+.model-preview__control-btn > span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
 .model-preview__control-btn svg {
   width: 16px;
   height: 16px;
+  display: block;
 }
 
 .model-preview__control-btn:hover {
@@ -6377,6 +6389,16 @@ input.np-search:focus {
 }
 .mp-mat-row:not(.mp-mat-row--off) .mp-mat-row__eye {
   color: var(--accent-primary);
+}
+
+/* All popup icon glyphs are block-level so they center in their flex box
+   (an inline SVG sits on the text baseline, reading as off-center). */
+.mp-mat-row__eye svg,
+.mp-mat-row__thumb-glyph svg,
+.mp-anim-row__glyph svg,
+.mp-materials__close svg,
+.mp-panel__close svg {
+  display: block;
 }
 
 /* ── Shared design-lab popup shell (Display / Environment / Animations) ──── */

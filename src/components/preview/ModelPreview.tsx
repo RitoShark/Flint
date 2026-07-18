@@ -14,9 +14,8 @@ import { CubeTexture } from '@babylonjs/core/Materials/Textures/cubeTexture';
 import { Vector3, Color3, Color4 } from '@babylonjs/core/Maths/math';
 import { CreateLineSystem } from '@babylonjs/core/Meshes/Builders/linesBuilder';
 import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder';
+import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder';
 import { SkeletonViewer } from '@babylonjs/core/Debug/skeletonViewer';
-// Adds scene.createDefaultSkybox used to build the cubemap sky box.
-import '@babylonjs/core/Helpers/sceneHelpers';
 
 import * as api from '../../lib/api';
 import { useAppMetadataStore } from '../../lib/stores';
@@ -78,45 +77,24 @@ function safeDisposeSkeletonViewer(ref: React.MutableRefObject<SkeletonViewer | 
 /** Skeleton thickness slider range (UI 0..100). Drives the joint-sphere size on
  *  the SPHERES display; the default sits on the thin side so joints read like a
  *  real rig without swallowing the mesh. */
-const SKELETON_THICKNESS_MIN = 0;
-const SKELETON_THICKNESS_MAX = 100;
-const SKELETON_THICKNESS_DEFAULT = 40;
 
 /**
- * Build a SkeletonViewer that's ALWAYS visible (line skeleton) and whose JOINTS
- * get a size from the thickness slider.
- *
- * DISPLAY_LINES alone renders 1px lines with no joint dots and no width control,
- * and DISPLAY_SPHERE_AND_SPURS on its own turned out invisible on these SKN
- * meshes. So we use DISPLAY_SPHERES: the connecting bones stay as reliable lines
- * (always visible) AND each joint gets a real 3D sphere whose radius tracks the
- * slider — thin → skinny joints, thick → chunky. `thickness` is the 0..100 UI
- * value. One shared builder so both create sites stay identical.
+ * Build the line SkeletonViewer (the original, reliable display). One shared
+ * builder so both create sites stay identical.
  */
 function buildSkeletonViewer(
     skeleton: Skeleton,
     mesh: Mesh,
     scene: Scene,
-    thickness: number,
 ): SkeletonViewer {
-    // Normalize 0..1 → joint-sphere size. Floor keeps a visible dot at thickness
-    // 0; the top stays modest so max reads as "chunky rig", not blobs.
-    const t = Math.min(1, Math.max(0, (thickness - SKELETON_THICKNESS_MIN) / (SKELETON_THICKNESS_MAX - SKELETON_THICKNESS_MIN)));
-    const sphereBaseSize = 0.2 + t * 2.3;   // joint sphere base size
-    const sphereScaleUnit = 8 - t * 5;      // ratio to longest bone (smaller = bigger sphere)
-
     const viewer = new SkeletonViewer(
         skeleton,
         mesh,
         scene,
-        true,               // autoUpdateBonesMatrices
-        3,                  // renderingGroupId (draw on top)
+        true,
+        1,
         {
-            displayMode: SkeletonViewer.DISPLAY_SPHERES,
-            displayOptions: {
-                sphereBaseSize,
-                sphereScaleUnit,
-            },
+            displayMode: SkeletonViewer.DISPLAY_LINES,
         },
     );
     viewer.isEnabled = true;
@@ -139,7 +117,6 @@ const loadSettings = () => {
         ambientIntensity: 0.8,
         directionalIntensity: 1.5,
         showSkeleton: true,
-        skeletonThickness: SKELETON_THICKNESS_DEFAULT,
         customizeLighting: false,
     };
 };
@@ -255,8 +232,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const [visibleMaterials, setVisibleMaterials] = useState<Set<string>>(new Set());
 
     const [showSkybox, setShowSkybox] = useState(savedSettings.showSkybox);
-    // Live mirror so the async skybox loader reads the current toggle when it
-    // resolves (the user may have toggled off mid-load).
     const showSkyboxRef = useRef(showSkybox);
     showSkyboxRef.current = showSkybox;
     const [floorMode, setFloorMode] = useState<'grid' | 'textured' | 'none'>(savedSettings.floorMode);
@@ -280,14 +255,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
     const [skeletonData, setSkeletonData] = useState<any | null>(null);
     const [showSkeleton, setShowSkeleton] = useState(savedSettings.showSkeleton);
-    const [skeletonThickness, setSkeletonThickness] = useState<number>(
-        savedSettings.skeletonThickness ?? SKELETON_THICKNESS_DEFAULT,
-    );
-    // Live mirror so the mesh-load effect (which must NOT depend on thickness —
-    // that would rebuild the whole mesh on every slider tick) reads the current
-    // value when it (re)creates the skeleton viewer.
-    const skeletonThicknessRef = useRef(skeletonThickness);
-    skeletonThicknessRef.current = skeletonThickness;
 
     const [hoveredMaterial, setHoveredMaterial] = useState<string | null>(null);
     const [previewPosition, setPreviewPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -301,8 +268,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const skeletonViewerRef = useRef<SkeletonViewer | null>(null);
     const gridMeshRef = useRef<any>(null);
     const floorMeshRef = useRef<any>(null);
-    // Cubemap skybox mesh (bundled SRU WebP faces) + the 6 face blob URLs, so the
-    // skybox toggle shows a real sky backdrop instead of a flat clear color.
     const skyboxMeshRef = useRef<Mesh | null>(null);
     const skyboxUrlsRef = useRef<string[]>([]);
     const skyboxLoadingRef = useRef(false);
@@ -508,7 +473,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 floorMeshRef.current = null;
             }
 
-            // engine.dispose() drops the skybox mesh + its cube texture with the
+            // engine.dispose() drops the skybox mesh + cube texture with the
             // scene; only the blob URLs need manual revocation.
             skyboxMeshRef.current = null;
             skyboxUrlsRef.current.forEach(u => URL.revokeObjectURL(u));
@@ -891,7 +856,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
         if (showSkeleton && babylonSkeleton && meshes.length > 0) {
             try {
-                skeletonViewerRef.current = buildSkeletonViewer(babylonSkeleton, meshes[0], scene, skeletonThicknessRef.current);
+                skeletonViewerRef.current = buildSkeletonViewer(babylonSkeleton, meshes[0], scene);
             } catch (e) {
                 console.error("Failed to build skeleton viewer:", e);
             }
@@ -1130,7 +1095,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             if (skyboxMeshRef.current) {
                 try {
                     const mat = skyboxMeshRef.current.material as StandardMaterial | null;
-                    if (mat?.reflectionTexture) mat.reflectionTexture.dispose();
+                    mat?.reflectionTexture?.dispose();
                     mat?.dispose();
                     skyboxMeshRef.current.dispose();
                 } catch { /* ignore */ }
@@ -1141,16 +1106,13 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         };
 
         if (!showSkybox) {
-            // Skybox off → dark studio clear, no sky mesh.
             disposeSkybox();
             scene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0);
             return;
         }
 
-        // Skybox on: reuse an already-built sky mesh; otherwise load the 6 bundled
-        // WebP cubemap faces and build one. The clear color stays as a graceful
-        // fallback (shown until the faces load / if it fails).
-        scene.clearColor = new Color4(0.06, 0.09, 0.16, 1.0);
+        // Dark clear as a fallback until the cubemap faces load.
+        scene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0);
         if (skyboxMeshRef.current) {
             skyboxMeshRef.current.setEnabled(true);
             return;
@@ -1160,7 +1122,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
         (async () => {
             try {
-                // CubeTexture.CreateFromImages wants URLs in order px,nx,py,ny,pz,nz.
+                // Load the 6 bundled WebP faces (px,nx,py,ny,pz,nz) as blob URLs.
                 const faces = ['px', 'nx', 'py', 'ny', 'pz', 'nz'];
                 const urls = await Promise.all(faces.map(async (f) => {
                     const bytes = await api.getBundledSkyboxFace(f);
@@ -1168,17 +1130,26 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 }));
                 if (cancelled) { urls.forEach(u => URL.revokeObjectURL(u)); return; }
                 skyboxUrlsRef.current = urls;
-                // CubeTexture ctor `files` arg (5th) = 6 explicit face URLs in
-                // px,nx,py,ny,pz,nz order; empty rootUrl, no extensions, no mips.
-                const cube = new CubeTexture('', scene, null, true, urls);
-                // pbr=false → a plain skybox material that shows the cubemap
-                // crisply (no blurred-reflection env look); scale large so it
-                // always encloses the camera; blur 0.
-                const box = scene.createDefaultSkybox(cube, false, 1000, 0);
-                if (cancelled || !box) { cube.dispose(); box?.dispose(); return; }
+
+                // MANUAL skybox (NOT scene.createDefaultSkybox — that also sets
+                // scene.environmentTexture, which re-lights/washes out the PBR
+                // model). A plain unlit box with the cubemap in SKYBOX_MODE that
+                // follows the camera (infiniteDistance) and draws in the back
+                // rendering group, leaving the model untouched.
+                const box = CreateBox('skybox', { size: 1000 }, scene);
+                const mat = new StandardMaterial('skybox-mat', scene);
+                mat.backFaceCulling = false;
+                mat.disableLighting = true;
+                mat.reflectionTexture = new CubeTexture('', scene, null, true, urls);
+                mat.reflectionTexture.coordinatesMode = Texture.SKYBOX_MODE;
+                mat.diffuseColor = new Color3(0, 0, 0);
+                mat.specularColor = new Color3(0, 0, 0);
+                box.material = mat;
                 box.infiniteDistance = true;
                 box.isPickable = false;
-                skyboxMeshRef.current = box as Mesh;
+                box.renderingGroupId = 0;
+                box.applyFog = false;
+                skyboxMeshRef.current = box;
                 box.setEnabled(showSkyboxRef.current);
             } catch (e) {
                 console.warn('[ModelPreview] skybox load failed, using flat clear color:', e);
@@ -1211,12 +1182,12 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
         if (showSkeleton && skeletonRef.current && activeMeshesRef.current.length > 0) {
             try {
-                skeletonViewerRef.current = buildSkeletonViewer(skeletonRef.current, activeMeshesRef.current[0], scene, skeletonThickness);
+                skeletonViewerRef.current = buildSkeletonViewer(skeletonRef.current, activeMeshesRef.current[0], scene);
             } catch (e) {
                 console.error("Failed to update skeleton viewer state:", e);
             }
         }
-    }, [scene, showSkeleton, skeletonThickness]);
+    }, [scene, showSkeleton]);
 
     useEffect(() => {
         if (!activePopup) return;
@@ -1240,11 +1211,10 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             ambientIntensity,
             directionalIntensity,
             showSkeleton,
-            skeletonThickness,
             customizeLighting,
         };
         localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    }, [wireframe, showSkybox, floorMode, ambientIntensity, directionalIntensity, showSkeleton, skeletonThickness, customizeLighting]);
+    }, [wireframe, showSkybox, floorMode, ambientIntensity, directionalIntensity, showSkeleton, customizeLighting]);
 
     useEffect(() => {
         if (!meshData) return;
@@ -1373,23 +1343,12 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 <MpPopup title="Display & Skeleton" side="right" onClose={() => setActivePopup(null)}>
                     <MpToggleRow label="Wireframe" checked={wireframe} onChange={setWireframe} />
                     {skeletonData && (
-                        <>
-                            <MpToggleRow
-                                label="Show skeleton"
-                                desc={`${skeletonData.bones.length} bones`}
-                                checked={showSkeleton}
-                                onChange={setShowSkeleton}
-                            />
-                            {showSkeleton && (
-                                <MpSliderField
-                                    label="Joint thickness"
-                                    value={skeletonThickness}
-                                    min={SKELETON_THICKNESS_MIN}
-                                    max={SKELETON_THICKNESS_MAX}
-                                    onChange={(v) => setSkeletonThickness(Math.round(v))}
-                                />
-                            )}
-                        </>
+                        <MpToggleRow
+                            label="Show skeleton"
+                            desc={`${skeletonData.bones.length} bones`}
+                            checked={showSkeleton}
+                            onChange={setShowSkeleton}
+                        />
                     )}
                 </MpPopup>
             )}
