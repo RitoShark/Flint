@@ -675,6 +675,10 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             return;
         }
         activeMeshesRef.current = meshes;
+        // Model renders in group 1 so it always draws AFTER (on top of) the
+        // skybox, which lives in group 0. Without this the skybox box (drawn in
+        // the same group) can paint over the whole model.
+        for (const m of meshes) m.renderingGroupId = 1;
 
         const textureCache = new Map<string, Texture>();
         const matData = meshData.material_data;
@@ -1010,6 +1014,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             }
             gridMeshRef.current = CreateLineSystem("grid", { lines: gridLines, colors: gridColors, useVertexAlpha: false }, scene);
             gridMeshRef.current.isPickable = false;
+            gridMeshRef.current.renderingGroupId = 1; // above the skybox (group 0)
         } else if (floorMode === 'textured') {
             let isMounted = true;
 
@@ -1042,6 +1047,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     mat.specularColor = new Color3(0, 0, 0);
                     ground.material = mat;
 
+                    ground.renderingGroupId = 1; // above the skybox (group 0)
                     floorMeshRef.current = ground;
                     console.debug(`[floor] ground created (scene meshes=${scene.meshes.length})`);
 
