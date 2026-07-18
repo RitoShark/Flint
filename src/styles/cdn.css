@@ -175,15 +175,55 @@
 
 /* tree checkbox (tri-state) */
 .cdn-cb {
-    width: 16px; height: 16px; border: 1.5px solid var(--border); border-radius: 5px;
-    background: var(--bg-tertiary); flex: none; display: inline-flex; align-items: center; justify-content: center;
-    cursor: pointer; transition: background var(--dl-fast), border-color var(--dl-fast);
+    position: relative;
+    width: 18px; height: 18px;
+    border: 1.5px solid var(--border);
+    border-radius: 5px;
+    background: var(--bg-tertiary);
+    flex: none;
+    display: inline-block;
+    cursor: pointer;
+    transition: background var(--dl-fast), border-color var(--dl-fast);
 }
 .cdn-cb:hover { border-color: color-mix(in oklab, var(--accent-primary) 55%, var(--border)); }
-.cdn-cb svg { width: 11px; height: 11px; color: #fff; }
-.cdn-cb--on { background: var(--accent-primary); border-color: var(--accent-primary); }
-.cdn-cb--part { background: color-mix(in oklab, var(--accent-primary) 20%, var(--bg-tertiary)); border-color: var(--accent-primary); }
-.cdn-cb--part::after { content: ''; width: 8px; height: 2px; border-radius: 1px; background: var(--accent-primary); }
+/* Checked: filled accent box, white tick springs in centered. */
+.cdn-cb--on {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+}
+/* Tick is ABSOLUTELY centered inside the box so it never pushes the box layout
+   (which produced the odd black block). Hidden until the box is fully checked. */
+.cdn-cb__tick {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transform: scale(0.4);
+    transition: opacity 140ms var(--dl-ease-out), transform 260ms var(--dl-ease-spring);
+    pointer-events: none;
+}
+.cdn-cb__tick svg {
+    width: 12px; height: 12px;
+    color: #fff;
+    display: block;
+}
+.cdn-cb--on .cdn-cb__tick { opacity: 1; transform: scale(1); }
+/* Partial: subtle accent tint + a centered dash (no chunky glyph). */
+.cdn-cb--part {
+    background: color-mix(in oklab, var(--accent-primary) 18%, var(--bg-tertiary));
+    border-color: var(--accent-primary);
+}
+.cdn-cb--part::after {
+    content: '';
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 9px; height: 2px;
+    border-radius: 1px;
+    background: var(--accent-primary);
+}
 
 .cdn-langtag {
     font-size: 9.5px; font-family: var(--font-mono); padding: 1px 5px; border-radius: 4px; flex: none;

@@ -79,7 +79,7 @@ const Checkbox: React.FC<{ state: TriState; onToggle: () => void }> = ({ state, 
         className={`cdn-cb${state === 'all' ? ' cdn-cb--on' : state === 'some' ? ' cdn-cb--part' : ''}`}
         onClick={(e) => { e.stopPropagation(); onToggle(); }}
     >
-        {state === 'all' && TICK}
+        <span className="cdn-cb__tick">{TICK}</span>
     </span>
 );
 
@@ -94,6 +94,8 @@ export const ManifestBrowser: React.FC = () => {
     const [extractStatus, setExtractStatus] = useState<string | null>(null);
     const [extractPct, setExtractPct] = useState<number | null>(null);
     const [hideLanguages, setHideLanguages] = useState(true);
+    // Flat extract: drop the inner folder tree and write each file by name only.
+    const [flatExtract, setFlatExtract] = useState(false);
     const [expandedInnerFolders, setExpandedInnerFolders] = useState<Set<string>>(new Set());
     /** Checked manifest file indices (whole-WAD / folder / file selection). */
     const [checked, setChecked] = useState<Set<number>>(new Set());
@@ -140,7 +142,9 @@ export const ManifestBrowser: React.FC = () => {
         hideLanguages && isWadPath(node.path) && isNonDefaultLocaleWad(node.name);
 
     let innerCheckedSize = 0;
-    for (const { chunk } of checkedInner.values()) innerCheckedSize += chunk.size;
+    // Guard: an inner chunk without a known size must not poison the sum with NaN
+    // (it surfaced as "NaN" in the selection bar / extraction status).
+    for (const { chunk } of checkedInner.values()) innerCheckedSize += chunk.size || 0;
     const checkedCount = checked.size + checkedInner.size;
     const checkedSize = sumSizes(checked, sizeByIndex) + innerCheckedSize;
 
@@ -267,13 +271,27 @@ export const ManifestBrowser: React.FC = () => {
     ): Promise<{ ok: number; errors: number }> => {
         let ok = 0, errors = 0, done = 0;
         const total = entries.length;
+        // Flat mode: strip the folder tree, keep only the filename; de-dupe
+        // collisions with a numeric suffix so files never overwrite each other.
+        const usedNames = new Set<string>();
+        const flatName = (name: string): string => {
+            if (!usedNames.has(name)) { usedNames.add(name); return name; }
+            const dot = name.lastIndexOf('.');
+            const base = dot > 0 ? name.slice(0, dot) : name;
+            const ext = dot > 0 ? name.slice(dot) : '';
+            let i = 1, candidate = `${base} (${i})${ext}`;
+            while (usedNames.has(candidate)) { i++; candidate = `${base} (${i})${ext}`; }
+            usedNames.add(candidate);
+            return candidate;
+        };
         for (const { wadFileIndex, chunk } of entries) {
             const rel = (chunk.path ?? chunk.hash).replace(/\\/g, '/');
             const name = rel.split('/').pop() ?? chunk.hash;
+            const outRel = flatExtract ? flatName(name) : rel;
             setExtractStatus(`${done}/${total} · ${name}`);
             try {
                 const buf = await api.cdnReadInner(session.sessionId, wadFileIndex, chunk.hash);
-                await api.saveFileBytes(`${destDir}/${rel}`, new Uint8Array(buf));
+                await api.saveFileBytes(`${destDir}/${outRel}`, new Uint8Array(buf));
                 ok++;
             } catch {
                 errors++;
@@ -471,6 +489,14 @@ export const ManifestBrowser: React.FC = () => {
                                 <b>{checkedCount.toLocaleString()}</b> file{checkedCount === 1 ? '' : 's'} <span className="muted">·</span> <b>{formatBytes(checkedSize)}</b> <span className="muted">selected</span>
                             </span>
                             <span className="cdn-actionbar__grow" />
+                            <div
+                                className={`cdn-langtoggle${flatExtract ? ' cdn-langtoggle--on' : ''}`}
+                                onClick={() => setFlatExtract((v) => !v)}
+                                title="Extract files by name only, without recreating the folder structure"
+                            >
+                                <span className="cdn-langtoggle__tgl" />
+                                <span>Flat</span>
+                            </div>
                             <button className="btn btn--sm" disabled={checkedCount === 0} onClick={clearSelection}>Clear</button>
                             <button className="btn btn--sm btn--primary" disabled={checkedCount === 0} onClick={extractSelected}>Extract selected</button>
                         </>
