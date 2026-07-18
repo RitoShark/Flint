@@ -2,8 +2,6 @@
   <img src="docs/media/flint-logo.gif" alt="Flint" width="360"/>
 </p>
 
-<h1 align="center">Flint</h1>
-
 <p align="center">
   <strong>The all-in-one desktop studio for League of Legends skin modding.</strong><br/>
   Extract from the game, preview it live, edit it, validate it, and ship a finished mod — all in one window.
