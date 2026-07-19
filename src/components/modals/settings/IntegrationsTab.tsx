@@ -20,11 +20,8 @@ const INTEGRATION_LOGOS: Record<IntegrationDisplay['id'], string> = {
     jade: '/jade-logo.webp',
     quartz: '/quartz-logo.webp',
 };
-const IntegrationLogo: React.FC<{ id: IntegrationDisplay['id']; accent: string }> = ({ id, accent }) => (
-    <div className="integration-card__logo" style={{ ['--logo' as never]: accent }}>
-        <img src={INTEGRATION_LOGOS[id]} alt="" className="integration-card__logo-img" draggable={false} />
-        <span className="integration-card__logo-ring" />
-    </div>
+const IntegrationLogo: React.FC<{ id: IntegrationDisplay['id'] }> = ({ id }) => (
+    <img src={INTEGRATION_LOGOS[id]} alt="" className="integration-card__logo-img" draggable={false} />
 );
 export const IntegrationsTab: React.FC<{
     integrations: IntegrationDisplay[];
@@ -50,7 +47,7 @@ export const IntegrationsTab: React.FC<{
                 className={`integration-card ${connected ? 'is-connected' : ''} ${isDefault ? 'is-default' : ''}`}
                 style={{ ['--logo' as never]: i.accent }}
             >
-                <IntegrationLogo id={i.id} accent={i.accent} />
+                <IntegrationLogo id={i.id} />
                 <div className="integration-card__body">
                     <div className="integration-card__head">
                         <strong>{i.name}</strong>

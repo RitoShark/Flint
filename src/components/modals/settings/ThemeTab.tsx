@@ -105,7 +105,9 @@ export const ThemePresetGrid: React.FC<{
                         </span>
                     </span>
                     <span className="theme-preset__foot">
-                        <span className="theme-preset__name">Custom</span>
+                        <span className="theme-preset__name">
+                            {customActive ? accent.toUpperCase() : 'Custom'}
+                        </span>
                         <span className="theme-preset__dots">
                             <span className="theme-preset__dot" style={{ background: '#0c0c10' }} />
                             <span className="theme-preset__dot" style={{ background: accent }} />
