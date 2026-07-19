@@ -2,9 +2,9 @@ import React, { useMemo, useState } from 'react';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
 import * as api from '../../lib/api';
-import type { CdnTreeNode, CdnProgress } from '../../lib/api/cdn';
+import type { CdnTreeNode, CdnProgress, CdnUnpackProgress } from '../../lib/api/cdn';
 import type { WadChunk } from '../../lib/types';
-import { useNavigationStore, useNotificationStore } from '../../lib/stores';
+import { useModalStore, useNavigationStore, useNotificationStore } from '../../lib/stores';
 import { useCdnManifestStore } from '../../lib/stores/cdnManifestStore';
 import { formatBytes, buildVFSSubtree, isNonDefaultLocaleWad } from './wad-explorer/helpers';
 import type { VFSNode, VFSFolder } from './wad-explorer/helpers';
@@ -88,6 +88,7 @@ export const ManifestBrowser: React.FC = () => {
     const session = useCdnManifestStore((s) => (activeId ? s.sessions[activeId] : null));
     const update = useCdnManifestStore((s) => s.update);
     const showToast = useNotificationStore((s) => s.showToast);
+    const openContextMenu = useModalStore((s) => s.openContextMenu);
 
     const [selectedInner, setSelectedInner] = useState<{ wadFileIndex: number; chunk: WadChunk } | null>(null);
     const [extracting, setExtracting] = useState(false);
@@ -282,6 +283,74 @@ export const ManifestBrowser: React.FC = () => {
         const indices: number[] = [];
         collectIndices(node, indices);
         runExtract(indices);
+    };
+
+    /** Extract WAD = unpack every inner file of one WAD into a chosen folder. */
+    const unpackWad = async (node: CdnTreeNode) => {
+        if (node.file_index == null) return;
+        const dest = await open({ title: 'Choose Extraction Folder', directory: true });
+        if (!dest) return;
+        setExtracting(true);
+        setExtractPct(0);
+        setExtractStatus(`Unpacking ${node.name}…`);
+        const failures: string[] = [];
+        const unlisten = await listen<CdnUnpackProgress>('cdn-unpack-progress', (ev) => {
+            const p = ev.payload;
+            if (p.type === 'start') {
+                setExtractStatus(`Unpacking ${node.name} — 0/${p.total}`);
+            } else if (p.type === 'entry') {
+                setExtractPct(p.total ? Math.round((p.done / p.total) * 100) : null);
+                setExtractStatus(`${p.done}/${p.total} · ${p.name.split('/').pop() ?? p.name}`);
+            } else if (p.type === 'entryError') {
+                failures.push(`${p.name.split('/').pop() ?? p.name}: ${p.error}`);
+                console.error(`[cdn-unpack] FAILED ${p.name}: ${p.error}`);
+            }
+        });
+        try {
+            const res = await api.cdnExtractWadUnpacked(session.sessionId, node.file_index, dest as string);
+            const files = res.files ?? 0, errCount = res.errors ?? 0;
+            if (errCount > 0) {
+                const reason = failures[0] ?? 'see log for details';
+                showToast('error', `Unpacked ${files - errCount}/${files} — ${errCount} failed. ${reason}${failures.length > 1 ? ` (+${failures.length - 1} more)` : ''}`);
+            } else {
+                showToast('success', `Unpacked ${files} file${files === 1 ? '' : 's'} from ${node.name}`);
+            }
+        } catch (e) {
+            showToast('error', `Unpack failed: ${(e as Error).message ?? e}`);
+        } finally {
+            unlisten();
+            setExtracting(false);
+            setExtractStatus(null);
+            setExtractPct(null);
+        }
+    };
+
+    /** Download WAD = save the raw .wad.client file itself to disk. */
+    const downloadWadRaw = async (node: CdnTreeNode) => {
+        if (node.file_index == null) return;
+        const dest = await save({ title: 'Download WAD as', defaultPath: node.name });
+        if (!dest) return;
+        setExtracting(true);
+        setExtractPct(null);
+        setExtractStatus(`Downloading ${node.name}…`);
+        try {
+            const bytes = await api.cdnDownloadWadRaw(session.sessionId, node.file_index, dest as string);
+            showToast('success', `Downloaded ${node.name} (${formatBytes(bytes)})`);
+        } catch (e) {
+            showToast('error', `Download failed: ${(e as Error).message ?? e}`);
+        } finally {
+            setExtracting(false);
+            setExtractStatus(null);
+            setExtractPct(null);
+        }
+    };
+
+    /** Right-click a WAD row: unpack all files, or download the raw .wad.client. */
+    const wadContextMenu = (node: CdnTreeNode, x: number, y: number) => {
+        openContextMenu(x, y, [
+            { label: 'Extract WAD (unpack files)', icon: getIcon('export'), onClick: () => unpackWad(node) },
+            { label: 'Download WAD (raw file)', icon: getIcon('download') ?? getIcon('save'), onClick: () => downloadWadRaw(node) },
+        ]);
     };
 
     /** Extract a batch of checked inner-WAD entries into `destDir`, preserving
@@ -480,15 +549,16 @@ export const ManifestBrowser: React.FC = () => {
         return (
             <div key={node.path}>
                 <div className="wad-explorer__row" style={{ paddingLeft: pad, display: 'flex', alignItems: 'center', gap: 8, height: 26, cursor: isWad ? 'pointer' : 'default' }}
-                    onClick={() => isWad && expandWad(node)}>
+                    onClick={() => isWad && expandWad(node)}
+                    onContextMenu={isWad ? (e) => { e.preventDefault(); e.stopPropagation(); wadContextMenu(node, e.clientX, e.clientY); } : undefined}>
                     <Checkbox state={nodeCheckState(node, checked)} onToggle={() => toggleChecked(node)} />
                     {isWad ? <span style={{ opacity: 0.7 }}>{wadExpanded ? '▾' : '▸'}</span> : <span style={{ width: 10 }} />}
                     <span dangerouslySetInnerHTML={{ __html: getIcon(isWad ? 'package' : 'document') }} />
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.name}</span>
                     {locale && <span className="cdn-langtag">{locale}</span>}
                     <span style={{ opacity: 0.5, fontSize: 11 }}>{formatBytes(node.size)}</span>
-                    <button className="btn btn--sm" title="Extract"
-                        onClick={(e) => { e.stopPropagation(); extractNode(node); }}>Extract</button>
+                    <button className="btn btn--sm" title={isWad ? 'Unpack this WAD’s files into a folder (right-click for raw download)' : 'Extract'}
+                        onClick={(e) => { e.stopPropagation(); isWad ? unpackWad(node) : extractNode(node); }}>Extract</button>
                 </div>
                 {wadExpanded && node.file_index != null && (
                     <div>

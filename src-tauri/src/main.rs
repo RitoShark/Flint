@@ -354,6 +354,8 @@ fn main() {
             commands::cdn::cdn_list_wad,
             commands::cdn::cdn_read_inner,
             commands::cdn::cdn_extract,
+            commands::cdn::cdn_extract_wad_unpacked,
+            commands::cdn::cdn_download_wad_raw,
             commands::cdn::cdn_close_session,
             // Auto-update commands
             commands::updater::check_for_updates,

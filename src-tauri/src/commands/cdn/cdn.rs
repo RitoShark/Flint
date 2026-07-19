@@ -371,6 +371,103 @@ pub async fn cdn_extract(
     })
 }
 
+// ── unpack a whole WAD's inner files into a folder ───────────────────────────
+
+#[derive(Serialize, Clone)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum CdnUnpackDto {
+    Start { total: usize },
+    Entry { done: usize, total: usize, name: String },
+    EntryError { name: String, error: String },
+}
+
+impl From<wad_browse::UnpackProgress> for CdnUnpackDto {
+    fn from(p: wad_browse::UnpackProgress) -> Self {
+        use wad_browse::UnpackProgress as U;
+        match p {
+            U::Start { total } => CdnUnpackDto::Start { total },
+            U::Entry { done, total, name } => CdnUnpackDto::Entry { done, total, name },
+            U::EntryError { name, error } => CdnUnpackDto::EntryError { name, error },
+        }
+    }
+}
+
+/// Unpack EVERY inner file of a CDN WAD into `out_dir/<wad-file-name>/…`.
+#[tauri::command]
+pub async fn cdn_extract_wad_unpacked(
+    app: tauri::AppHandle,
+    session_id: String,
+    file_index: usize,
+    out_dir: String,
+    cdn: State<'_, CdnSessionState>,
+    lmdb: State<'_, LmdbCacheState>,
+) -> Result<ExtractSummary, String> {
+    let manifest = cdn.get(&session_id).ok_or("cdn session not found")?;
+    let chunks = manifest.file_chunks(file_index);
+
+    // Resolve inner names once so unpacked files land at their real paths.
+    let listing = wad_browse::list_wad_entries_from_chunks(&http_client(), &chunks)
+        .await
+        .map_err(|e| e.to_string())?;
+    let hashes: Vec<u64> = listing.entries.iter().map(|e| e.path_hash).collect();
+    let names = resolve_inner_names(&hashes, &lmdb);
+
+    // Unpack into a subfolder named after the WAD file (e.g. Aatrox.wad.client).
+    let wad_rel = manifest
+        .paths()
+        .get(file_index)
+        .map(|(p, _)| p.clone())
+        .unwrap_or_default();
+    let wad_name = wad_rel.rsplit(['/', '\\']).next().unwrap_or("wad").to_string();
+    let dest_root = std::path::PathBuf::from(&out_dir).join(&wad_name);
+
+    let (ok, errors) = wad_browse::unpack_wad_to_dir(
+        &http_client(),
+        &chunks,
+        &names,
+        &dest_root,
+        |p| {
+            let _ = app.emit("cdn-unpack-progress", CdnUnpackDto::from(p));
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(ExtractSummary {
+        files: ok + errors,
+        errors,
+    })
+}
+
+// ── download the raw .wad.client file itself ─────────────────────────────────
+
+/// Download the raw `.wad.client` bytes for one manifest WAD to `out_path`,
+/// streaming per-chunk so memory stays flat.
+#[tauri::command]
+pub async fn cdn_download_wad_raw(
+    app: tauri::AppHandle,
+    session_id: String,
+    file_index: usize,
+    out_path: String,
+    cdn: State<'_, CdnSessionState>,
+) -> Result<u64, String> {
+    let manifest = cdn.get(&session_id).ok_or("cdn session not found")?;
+    let plan = downloader::plan_download(&manifest, &[file_index]);
+    let file = plan.files.first().ok_or("file index not in manifest")?.clone();
+
+    let written = downloader::stream_file_to_path(
+        &http_client(),
+        &file,
+        std::path::Path::new(&out_path),
+        |p| {
+            let _ = app.emit("cdn-extract-progress", CdnProgressDto::from(p));
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(written)
+}
+
 #[tauri::command]
 pub async fn cdn_close_session(
     session_id: String,

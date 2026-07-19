@@ -252,6 +252,81 @@ pub async fn decode_inner_entry(
     .map_err(|e| Error::Cdn(format!("zstdmulti decode: {e:?}")))
 }
 
+/// Progress while unpacking a WAD's inner files to disk.
+#[derive(Clone, Debug)]
+pub enum UnpackProgress {
+    Start { total: usize },
+    Entry { done: usize, total: usize, name: String },
+    EntryError { name: String, error: String },
+}
+
+/// Unpack EVERY inner file of a CDN WAD into `out_dir`, resolving names via
+/// `names` (path_hash -> relative path; unresolved entries fall back to their
+/// hex hash). Each inner entry is fetched with per-chunk range requests (the
+/// only reliable path against Riot's CDN) and written to disk as it decodes, so
+/// memory stays flat. One entry's failure doesn't abort the rest.
+pub async fn unpack_wad_to_dir<F: Fn(UnpackProgress)>(
+    client: &reqwest::Client,
+    chunks: &[ChunkRange],
+    names: &std::collections::HashMap<u64, String>,
+    out_dir: &std::path::Path,
+    report: F,
+) -> Result<(usize, usize)> {
+    let mut listing = list_wad_entries_from_chunks(client, chunks).await?;
+    listing.names = names.clone();
+
+    let total = listing.entries.len();
+    report(UnpackProgress::Start { total });
+    let mut ok = 0usize;
+    let mut errors = 0usize;
+
+    for (i, entry) in listing.entries.iter().enumerate() {
+        let rel = listing
+            .names
+            .get(&entry.path_hash)
+            .cloned()
+            .unwrap_or_else(|| format!("{:016x}", entry.path_hash));
+        report(UnpackProgress::Entry {
+            done: i,
+            total,
+            name: rel.clone(),
+        });
+        match decode_inner_entry(client, chunks, &listing, entry).await {
+            Ok(bytes) => {
+                let dest = out_dir.join(rel.replace('\\', "/"));
+                let write = async {
+                    if let Some(parent) = dest.parent() {
+                        tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                            Error::Cdn(format!("create dir {}: {e}", parent.display()))
+                        })?;
+                    }
+                    tokio::fs::write(&dest, &bytes)
+                        .await
+                        .map_err(|e| Error::Cdn(format!("write {}: {e}", dest.display())))
+                };
+                match write.await {
+                    Ok(_) => {
+                        ok += 1;
+                        tracing::debug!("[cdn] unpacked {} ({} bytes)", rel, bytes.len());
+                    }
+                    Err(e) => {
+                        errors += 1;
+                        tracing::warn!("[cdn] unpack write failed for {rel}: {e}");
+                        report(UnpackProgress::EntryError { name: rel, error: e.to_string() });
+                    }
+                }
+            }
+            Err(e) => {
+                errors += 1;
+                tracing::warn!("[cdn] unpack decode failed for {rel}: {e}");
+                report(UnpackProgress::EntryError { name: rel, error: e.to_string() });
+            }
+        }
+    }
+    tracing::info!("[cdn] unpack done: {}/{} ok, {} error(s)", ok, total, errors);
+    Ok((ok, errors))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

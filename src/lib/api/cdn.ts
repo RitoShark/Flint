@@ -100,6 +100,24 @@ export function cdnExtract(sessionId: string, fileIndices: number[], outDir: str
     return invokeCommand('cdn_extract', { sessionId, fileIndices, outDir });
 }
 
+/** Unpack every inner file of one WAD into `outDir/<wadName>/…`. Progress is
+ *  emitted as `cdn-unpack-progress` events. */
+export function cdnExtractWadUnpacked(sessionId: string, fileIndex: number, outDir: string): Promise<CdnExtractSummary> {
+    return invokeCommand('cdn_extract_wad_unpacked', { sessionId, fileIndex, outDir });
+}
+
+/** Progress event for `cdnExtractWadUnpacked` (channel `cdn-unpack-progress`). */
+export type CdnUnpackProgress =
+    | { type: 'start'; total: number }
+    | { type: 'entry'; done: number; total: number; name: string }
+    | { type: 'entryError'; name: string; error: string };
+
+/** Download the raw `.wad.client` file itself for one WAD to `outPath`. Returns
+ *  the number of bytes written. */
+export function cdnDownloadWadRaw(sessionId: string, fileIndex: number, outPath: string): Promise<number> {
+    return invokeCommand('cdn_download_wad_raw', { sessionId, fileIndex, outPath });
+}
+
 export function cdnCloseSession(sessionId: string): Promise<boolean> {
     return invokeCommand('cdn_close_session', { sessionId });
 }
