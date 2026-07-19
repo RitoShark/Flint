@@ -34,6 +34,7 @@ export const NewProjectModal: React.FC = () => {
     const setReady = useAppMetadataStore((s) => s.setReady);
     const creatorName = useConfigStore((s) => s.creatorName);
     const leaguePath = useConfigStore((s) => s.leaguePath);
+    const defaultProjectPath = useConfigStore((s) => s.defaultProjectPath);
     const recentProjects = useConfigStore((s) => s.recentProjects);
     const configStore = useConfigStore(
         useShallow((s) => ({
@@ -484,6 +485,13 @@ export const NewProjectModal: React.FC = () => {
     // ─── Helpers ─────────────────────────────────────────────────────────
 
     const setDefaultProjectPath = async () => {
+        // Honor the user's configured Default Project Path (Settings → Paths)
+        // when set; only fall back to the app-home /projects folder otherwise.
+        const configured = defaultProjectPath?.trim();
+        if (configured) {
+            setProjectPath(configured.replace(/\\/g, '/'));
+            return;
+        }
         try {
             const home = await api.getAppHome();
             setProjectPath(`${home.replace(/\\/g, '/')}/projects`);
