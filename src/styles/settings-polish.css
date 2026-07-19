@@ -130,11 +130,11 @@
    -------------------------------------------------------------------------- */
 .modal--settings .settings-item {
     padding: 14px 16px;
-    background: color-mix(in oklab, var(--bg-tertiary) 55%, transparent);
-    border: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
-    border-radius: 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--dl-radius, 12px);
     margin-bottom: 12px;
-    transition: border-color var(--motion-fast), background var(--motion-fast);
+    transition: border-color var(--motion-fast);
 }
 .modal--settings .settings-item:hover {
     border-color: color-mix(in oklab, var(--accent-primary) 22%, var(--border));
@@ -216,34 +216,21 @@
     grid-template-columns: 44px 1fr auto;
     gap: 14px;
     align-items: center;
-    padding: 16px 18px;
-    background:
-        linear-gradient(135deg,
-            color-mix(in oklab, var(--color-success) 8%, var(--bg-tertiary)) 0%,
-            var(--bg-tertiary) 60%);
-    border: 1px solid color-mix(in oklab, var(--color-success) 25%, var(--border));
-    border-radius: 12px;
+    padding: 14px 16px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--dl-radius, 12px);
     margin-bottom: 12px;
-    transition: border-color var(--motion-fast), background var(--motion-fast);
-}
-.settings-hash--warn {
-    background:
-        linear-gradient(135deg,
-            color-mix(in oklab, var(--color-warning) 10%, var(--bg-tertiary)) 0%,
-            var(--bg-tertiary) 60%);
-    border-color: color-mix(in oklab, var(--color-warning) 30%, var(--border));
+    transition: border-color var(--motion-fast);
 }
 
+/* Bare status glyph — no framed box, just the colored icon centered. */
 .settings-hash__icon {
     width: 44px;
     height: 44px;
-    border-radius: 12px;
     display: grid;
     place-items: center;
-    background: color-mix(in oklab, var(--color-success) 15%, var(--bg-primary));
-    border: 1px solid color-mix(in oklab, var(--color-success) 35%, transparent);
     color: var(--color-success);
-    box-shadow: 0 0 12px color-mix(in oklab, var(--color-success) 25%, transparent);
     line-height: 0;
 }
 .settings-hash__icon > span {
@@ -252,15 +239,12 @@
     line-height: 0;
 }
 .settings-hash__icon svg {
-    width: 22px;
-    height: 22px;
+    width: 26px;
+    height: 26px;
     display: block;
 }
 .settings-hash__icon--warn {
-    background: color-mix(in oklab, var(--color-warning) 15%, var(--bg-primary));
-    border-color: color-mix(in oklab, var(--color-warning) 35%, transparent);
     color: var(--color-warning);
-    box-shadow: 0 0 12px color-mix(in oklab, var(--color-warning) 25%, transparent);
 }
 
 .settings-hash__body {
@@ -322,15 +306,12 @@
     box-shadow: 0 0 0 2px var(--color-success), 0 0 0 4px color-mix(in oklab, var(--color-success) 30%, transparent);
 }
 
-/* Version card — featured surface with accent edge */
+/* Version card — same flat card base as the rest of the settings surfaces. */
 .modal--settings .version-card {
-    background:
-        linear-gradient(135deg,
-            color-mix(in oklab, var(--accent-primary) 8%, var(--bg-tertiary)) 0%,
-            var(--bg-tertiary) 100%);
-    border: 1px solid color-mix(in oklab, var(--accent-primary) 25%, var(--border));
-    border-radius: 14px;
-    padding: 16px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--dl-radius, 12px);
+    padding: 14px 16px;
 }
 
 /* --------------------------------------------------------------------------
@@ -669,31 +650,17 @@
     grid-template-columns: 44px minmax(0, 1fr) auto;
     gap: 16px;
     align-items: center;
-    padding: 16px 18px;
-    border-radius: 16px;
-    border: 1px solid color-mix(in oklab, var(--border) 90%, transparent);
-    background:
-        linear-gradient(180deg,
-            color-mix(in oklab, white 4%, transparent) 0%,
-            transparent 60%),
-        color-mix(in oklab, var(--bg-secondary) 70%, transparent);
-    box-shadow:
-        inset 0 1px 0 color-mix(in oklab, white 6%, transparent),
-        0 4px 18px -10px rgba(0, 0, 0, 0.55);
-    backdrop-filter: blur(8px) saturate(140%);
-    -webkit-backdrop-filter: blur(8px) saturate(140%);
-    transition: border-color var(--motion-fast), transform var(--motion-fast), box-shadow var(--motion-base);
+    padding: 14px 16px;
+    border-radius: var(--dl-radius, 12px);
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    transition: border-color var(--motion-fast);
 }
 .modal--settings .integration-card:hover {
-    transform: translateY(-1px);
     border-color: color-mix(in oklab, var(--accent-primary) 30%, var(--border));
 }
 .modal--settings .integration-card.is-connected {
-    border-color: color-mix(in oklab, var(--logo, var(--accent-primary)) 35%, var(--border));
-    box-shadow:
-        inset 0 1px 0 color-mix(in oklab, white 8%, transparent),
-        0 0 0 1px color-mix(in oklab, var(--logo, var(--accent-primary)) 14%, transparent),
-        0 8px 28px -14px color-mix(in oklab, var(--logo, var(--accent-primary)) 60%, transparent);
+    border-color: color-mix(in oklab, var(--logo, var(--accent-primary)) 28%, var(--border));
 }
 /* Bare logo — just the brand icon, no framed container or ring around it.
    display:block + self-alignment so the grid centers it cleanly (an inline img
@@ -720,11 +687,8 @@
     letter-spacing: -0.005em;
 }
 .modal--settings .integration-card.is-default {
-    border-color: color-mix(in oklab, var(--logo, var(--accent-primary)) 50%, var(--border));
-    box-shadow:
-        inset 0 1px 0 color-mix(in oklab, white 8%, transparent),
-        0 0 0 1px color-mix(in oklab, var(--logo, var(--accent-primary)) 20%, transparent),
-        0 12px 36px -14px color-mix(in oklab, var(--logo, var(--accent-primary)) 65%, transparent);
+    border-color: color-mix(in oklab, var(--logo, var(--accent-primary)) 45%, var(--border));
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--logo, var(--accent-primary)) 18%, transparent);
 }
 .modal--settings .integrations-tab__group-label {
     margin: 12px 0 -4px;
@@ -895,34 +859,17 @@
     display: grid;
     grid-template-columns: 44px minmax(0, 1fr);
     gap: 12px;
-    padding: 12px 14px;
-    border-radius: 12px;
-    border: 1px solid color-mix(in oklab, var(--border) 90%, transparent);
-    background:
-        linear-gradient(180deg,
-            color-mix(in oklab, white 4%, transparent) 0%,
-            transparent 60%),
-        color-mix(in oklab, var(--bg-tertiary) 55%, transparent);
-    box-shadow:
-        inset 0 1px 0 color-mix(in oklab, white 6%, transparent),
-        0 2px 10px -6px rgba(0, 0, 0, 0.45);
-    backdrop-filter: blur(6px) saturate(140%);
-    -webkit-backdrop-filter: blur(6px) saturate(140%);
-    transition:
-        border-color var(--motion-fast),
-        transform var(--motion-fast),
-        box-shadow var(--motion-base);
+    padding: 14px 16px;
+    border-radius: var(--dl-radius, 12px);
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    transition: border-color var(--motion-fast);
 }
 .modal--settings .settings-prow:hover {
-    transform: translateY(-1px);
-    border-color: color-mix(in oklab, var(--logo) 35%, var(--border));
+    border-color: color-mix(in oklab, var(--accent-primary) 30%, var(--border));
 }
 .modal--settings .settings-prow.is-filled {
-    border-color: color-mix(in oklab, var(--logo) 35%, var(--border));
-    box-shadow:
-        inset 0 1px 0 color-mix(in oklab, white 8%, transparent),
-        0 0 0 1px color-mix(in oklab, var(--logo) 14%, transparent),
-        0 6px 22px -12px color-mix(in oklab, var(--logo) 55%, transparent);
+    border-color: color-mix(in oklab, var(--accent-primary) 22%, var(--border));
 }
 
 /* Bare icon slot — no framed container or ring, just the glyph/logo centered
