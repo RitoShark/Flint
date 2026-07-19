@@ -800,13 +800,18 @@ export const SettingsModal: React.FC = () => {
                             <div className="settings-item">
                                 <label className="settings-item__label">Theme presets</label>
                                 <div className="settings-item__hint" style={{ marginBottom: 10 }}>
-                                    Five curated palettes that swap bg, surfaces, accent and text in one click.
+                                    Curated palettes that swap bg, surfaces, accent and text in one click — or pick a custom accent.
                                 </div>
                                 <ThemePresetGrid
                                     selectedTheme={configStore.selectedTheme}
+                                    customAccent={ux.accentPrimary}
                                     onSelect={(id, accent) => {
                                         configStore.setSelectedTheme(id);
                                         ux.setAccentPrimary(accent);
+                                    }}
+                                    onCustomAccent={(hex) => {
+                                        configStore.setSelectedTheme('custom');
+                                        ux.setAccentPrimary(hex);
                                     }}
                                 />
                             </div>

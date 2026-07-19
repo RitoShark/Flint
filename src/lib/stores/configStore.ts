@@ -134,7 +134,11 @@ export function clearThemeOverrides() {
 
 /** Load and apply a theme by ID. Returns true if applied. */
 export async function applyThemeById(themeId: string | null): Promise<boolean> {
-  if (!themeId) {
+  // 'custom' keeps the default dark base and swaps only the accent, which the
+  // ux store applies separately (accentPrimary). Treat it like the default so
+  // we don't try to load a non-existent theme file (and its clearThemeOverrides
+  // won't wipe the accent — the ux store re-applies it on load).
+  if (!themeId || themeId === 'custom') {
     clearThemeOverrides();
     return true;
   }
