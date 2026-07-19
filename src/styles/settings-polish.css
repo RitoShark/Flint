@@ -224,6 +224,46 @@
     transition: border-color var(--motion-fast);
 }
 
+/* Open With — file associations: same flat card, header row + hint + actions. */
+.modal--settings .settings-assoc {
+    padding: 14px 16px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--dl-radius, 12px);
+    margin-bottom: 12px;
+}
+.modal--settings .settings-assoc__head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.modal--settings .settings-assoc__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: color-mix(in oklab, var(--accent-primary) 40%, var(--text-secondary));
+    line-height: 0;
+}
+.modal--settings .settings-assoc__icon svg { display: block; width: 16px; height: 16px; }
+.modal--settings .settings-assoc__title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.005em;
+}
+.modal--settings .settings-assoc__hint {
+    margin: 8px 0 0;
+    color: var(--text-muted);
+    font-size: 12.5px;
+    line-height: 1.5;
+}
+.modal--settings .settings-assoc__actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+}
+
 /* Bare status glyph — no framed box, just the colored icon centered. */
 .settings-hash__icon {
     width: 44px;

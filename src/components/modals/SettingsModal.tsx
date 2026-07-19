@@ -644,38 +644,31 @@ export const SettingsModal: React.FC = () => {
                                 />
                             </div>
 
-                            <div className="settings-item">
-                                <label className="settings-item__label">
-                                    <Icon name="link" />
-                                    Open With — Windows File Associations
-                                    <span className="settings-item__badge">Windows</span>
-                                </label>
-                                <div className="settings-item__hint" style={{ marginBottom: 8 }}>
+                            <div className="settings-assoc">
+                                <div className="settings-assoc__head">
+                                    <span className="settings-assoc__icon"><Icon name="link" /></span>
+                                    <strong className="settings-assoc__title">Open With — File Associations</strong>
+                                    <span className="dl-badge">Windows</span>
+                                    {assocStatus && (
+                                        assocStatus.registered.length === 0
+                                            ? <span className="dl-badge" style={{ marginLeft: 'auto' }}>Not registered</span>
+                                            : (
+                                                <span className={`dl-badge ${assocStatus.missing.length > 0 ? 'dl-badge--warn' : 'dl-badge--success'}`} style={{ marginLeft: 'auto' }}>
+                                                    {assocStatus.missing.length > 0
+                                                        ? `${assocStatus.missing.length} missing — re-register`
+                                                        : `${assocStatus.registered.length} registered`}
+                                                </span>
+                                            )
+                                    )}
+                                </div>
+                                <p className="settings-assoc__hint">
                                     Adds Flint as an &ldquo;Open with&rdquo; option for .wad, .bin, .tex, .modpkg, .fantome and more.
                                     Files opened this way go straight to Flint&rsquo;s file editor. Does <em>not</em> override your
                                     current default app.
-                                </div>
-                                {assocStatus && (
-                                    <div className="settings-item__hint" style={{ marginBottom: 8 }}>
-                                        {assocStatus.registered.length === 0
-                                            ? <span style={{ color: 'var(--text-muted)' }}>Not registered</span>
-                                            : <>
-                                                <span style={{ color: 'var(--color-success, #22c55e)' }}>✓ Registered</span>
-                                                {' '}&mdash; {assocStatus.registered.length} extension{assocStatus.registered.length !== 1 ? 's' : ''}
-                                                {assocStatus.missing.length > 0 && (
-                                                    <span style={{ color: 'var(--color-warning)' }}>
-                                                        {' '}({assocStatus.missing.length} missing — re-register to fix)
-                                                    </span>
-                                                )}
-                                            </>
-                                        }
-                                    </div>
-                                )}
-                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                                    <Button
-                                        variant="primary"
-                                        size="sm"
-                                        icon="link"
+                                </p>
+                                <div className="settings-assoc__actions">
+                                    <button
+                                        className="dl-btn dl-btn--primary dl-btn--sm"
                                         disabled={isRegisteringAssoc}
                                         onClick={async () => {
                                             setIsRegisteringAssoc(true);
@@ -695,13 +688,11 @@ export const SettingsModal: React.FC = () => {
                                             }
                                         }}
                                     >
-                                        {isRegisteringAssoc ? 'Registering…' : 'Register'}
-                                    </Button>
+                                        {isRegisteringAssoc ? 'Registering…' : (assocStatus && assocStatus.registered.length > 0 ? 'Re-register' : 'Register')}
+                                    </button>
                                     {assocStatus && assocStatus.registered.length > 0 && (
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            icon="close"
+                                        <button
+                                            className="dl-btn dl-btn--ghost dl-btn--sm"
                                             disabled={isRegisteringAssoc}
                                             onClick={async () => {
                                                 setIsRegisteringAssoc(true);
@@ -718,7 +709,7 @@ export const SettingsModal: React.FC = () => {
                                             }}
                                         >
                                             Unregister
-                                        </Button>
+                                        </button>
                                     )}
                                 </div>
                             </div>
