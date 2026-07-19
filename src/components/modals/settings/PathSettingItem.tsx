@@ -42,7 +42,6 @@ export const PathSettingItem: React.FC<{ setting: PathSetting }> = ({ setting })
                 {setting.logoSrc
                     ? <img src={setting.logoSrc} alt="" className="settings-prow__logo-img" draggable={false} />
                     : <Icon name={setting.iconName ?? 'folder'} />}
-                {setting.logoSrc && <span className="settings-prow__logo-ring" />}
             </span>
             <div className="settings-prow__body">
                 <div className="settings-prow__head">

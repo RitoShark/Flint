@@ -1,5 +1,4 @@
 import React from 'react';
-import { Button, Checkbox } from '../../ui';
 
 export type IntegrationDisplay = {
     id: 'ltk' | 'celestial' | 'jade' | 'quartz';
@@ -51,16 +50,10 @@ export const IntegrationsTab: React.FC<{
                 <div className="integration-card__body">
                     <div className="integration-card__head">
                         <strong>{i.name}</strong>
-                        <span className={`integration-card__pill ${connected ? 'is-on' : ''}`}>
-                            <span className="integration-card__pill-dot" />
+                        <span className={`dl-badge ${connected ? 'dl-badge--success' : ''}`}>
                             {connected ? 'Connected' : 'Not connected'}
                         </span>
-                        {isDefault && (
-                            <span className="integration-card__pill integration-card__pill--default">
-                                <span className="integration-card__pill-dot" />
-                                Default launcher
-                            </span>
-                        )}
+                        {isDefault && <span className="dl-badge dl-badge--warn">Default</span>}
                     </div>
                     <p className="integration-card__tagline">{i.tagline}</p>
                     {connected && <p className="integration-card__path" title={i.path}>{i.path}</p>}
@@ -69,39 +62,30 @@ export const IntegrationsTab: React.FC<{
                     {connected ? (
                         <>
                             {isLauncher && !isDefault && (
-                                <Button
-                                    variant="primary"
-                                    size="sm"
-                                    icon="check"
-                                    onClick={() => onPreferredLauncherChange(i.id as 'ltk' | 'celestial')}
-                                >
+                                <button className="dl-btn dl-btn--primary dl-btn--sm" onClick={() => onPreferredLauncherChange(i.id as 'ltk' | 'celestial')}>
                                     Set as default
-                                </Button>
+                                </button>
                             )}
-                            <Button variant="ghost" size="sm" icon="refresh" onClick={() => void onConnect(i)}>Change</Button>
-                            <Button variant="ghost" size="sm" icon="close" onClick={() => i.setPath('')}>Disconnect</Button>
+                            {isLauncher && isDefault && (
+                                <button
+                                    className={`dl-btn dl-btn--sm ${autoSync ? 'dl-btn--active' : ''}`}
+                                    disabled={!ltkConfigured}
+                                    onClick={() => onAutoSyncChange(!autoSync)}
+                                    title="Push project changes to this launcher whenever files are modified"
+                                >
+                                    Auto-Sync {autoSync ? 'On' : 'Off'}
+                                </button>
+                            )}
+                            <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={() => void onConnect(i)}>Change</button>
+                            <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={() => i.setPath('')}>Disconnect</button>
                         </>
                     ) : (
                         <>
-                            <Button variant="primary" size="sm" icon="link" onClick={() => void onConnect(i)}>
-                                Connect
-                            </Button>
-                            <Button variant="ghost" size="sm" icon="search" onClick={i.onDetect}>Auto-detect</Button>
+                            <button className="dl-btn dl-btn--primary dl-btn--sm" onClick={() => void onConnect(i)}>Connect</button>
+                            <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={i.onDetect}>Auto-detect</button>
                         </>
                     )}
                 </div>
-                {isDefault && connected && (
-                    <div className="integration-card__extra">
-                        <Checkbox
-                            toggle
-                            checked={autoSync}
-                            onChange={(e) => onAutoSyncChange(e.target.checked)}
-                            disabled={!ltkConfigured}
-                            label={`Auto-Sync to ${i.name}`}
-                            description="Push project changes whenever files are modified."
-                        />
-                    </div>
-                )}
             </div>
         );
     };
