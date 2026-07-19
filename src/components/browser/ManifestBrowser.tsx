@@ -230,14 +230,27 @@ export const ManifestBrowser: React.FC = () => {
         setExtractStatus(`Preparing ${indices.length} file(s)…`);
         let done = 0;
         const total = indices.length;
+        // Keep the real per-file failure reasons so the toast can show WHY, not
+        // just a count (the backend also logs each step at info/warn level).
+        const failures: string[] = [];
         const unlisten = await listen<CdnProgress>('cdn-extract-progress', (ev) => {
             const p = ev.payload;
             if (p.type === 'fileStart') {
                 const name = p.path.split('/').pop() ?? p.path;
                 setExtractStatus(`${done}/${total} · ${name}`);
-            } else if (p.type === 'fileDone' || p.type === 'fileError') {
+                console.info(`[cdn-extract] start ${p.path} (${p.size} bytes)`);
+            } else if (p.type === 'fileDone') {
                 done++;
                 setExtractPct(Math.round((done / total) * 100));
+                console.info(`[cdn-extract] done ${p.path} (verified=${p.verified})`);
+            } else if (p.type === 'fileError') {
+                done++;
+                setExtractPct(Math.round((done / total) * 100));
+                const name = p.path.split('/').pop() ?? p.path;
+                failures.push(`${name}: ${p.error}`);
+                console.error(`[cdn-extract] FAILED ${p.path}: ${p.error}`);
+            } else if (p.type === 'note') {
+                console.info(`[cdn-extract] ${p.message}`);
             } else if (p.type === 'allDone') {
                 setExtractPct(100);
                 const files = p.files ?? 0, errCount = p.errors ?? 0;
@@ -247,8 +260,14 @@ export const ManifestBrowser: React.FC = () => {
         try {
             const res = await api.cdnExtract(session.sessionId, indices, dest as string);
             const files = res.files ?? 0, errCount = res.errors ?? 0;
-            showToast(errCount > 0 ? 'error' : 'success',
-                `Extracted ${files - errCount}/${files} files${errCount ? ` (${errCount} failed)` : ''}`);
+            if (errCount > 0) {
+                // Show the first real reason inline; the rest are in the log.
+                const reason = failures[0] ?? 'see log for details';
+                showToast('error',
+                    `Extracted ${files - errCount}/${files} files — ${errCount} failed. ${reason}${failures.length > 1 ? ` (+${failures.length - 1} more)` : ''}`);
+            } else {
+                showToast('success', `Extracted ${files} file${files === 1 ? '' : 's'}`);
+            }
         } catch (e) {
             showToast('error', `Extraction failed: ${(e as Error).message ?? e}`);
         } finally {
@@ -317,6 +336,23 @@ export const ManifestBrowser: React.FC = () => {
         setExtractPct(0);
         setExtractStatus('Preparing…');
         let manifestOk = 0, manifestErr = 0, innerOk = 0, innerErr = 0;
+        // Capture the real per-WAD failure reasons (whole-WAD extract is where
+        // "download a wad fully" fails); the backend logs each step too.
+        const failures: string[] = [];
+        const unlisten = await listen<CdnProgress>('cdn-extract-progress', (ev) => {
+            const p = ev.payload;
+            if (p.type === 'fileStart') {
+                console.info(`[cdn-extract] start ${p.path} (${p.size} bytes)`);
+            } else if (p.type === 'fileDone') {
+                console.info(`[cdn-extract] done ${p.path} (verified=${p.verified})`);
+            } else if (p.type === 'fileError') {
+                const name = p.path.split('/').pop() ?? p.path;
+                failures.push(`${name}: ${p.error}`);
+                console.error(`[cdn-extract] FAILED ${p.path}: ${p.error}`);
+            } else if (p.type === 'note') {
+                console.info(`[cdn-extract] ${p.message}`);
+            }
+        });
         try {
             if (indices.length > 0) {
                 setExtractStatus(`Extracting ${indices.length} WAD file(s)…`);
@@ -332,11 +368,17 @@ export const ManifestBrowser: React.FC = () => {
             }
             const ok = manifestOk + innerOk, errs = manifestErr + innerErr;
             setExtractPct(100);
-            showToast(errs > 0 ? 'error' : 'success',
-                `Extracted ${ok} file(s)${errs ? ` (${errs} failed)` : ''}`);
+            if (errs > 0) {
+                const reason = failures[0] ?? 'see log for details';
+                showToast('error',
+                    `Extracted ${ok} file(s) — ${errs} failed. ${reason}${failures.length > 1 ? ` (+${failures.length - 1} more)` : ''}`);
+            } else {
+                showToast('success', `Extracted ${ok} file(s)`);
+            }
         } catch (e) {
             showToast('error', `Extraction failed: ${(e as Error).message ?? e}`);
         } finally {
+            unlisten();
             setExtracting(false);
             setExtractStatus(null);
             setExtractPct(null);

@@ -103,17 +103,42 @@ pub fn plan_download(manifest: &crate::cdn::manifest::Manifest, indices: &[usize
 
 async fn fetch_and_write(client: &reqwest::Client, file: &FilePlan, out_dir: &Path) -> Result<u64> {
     let groups = group_chunks(&file.chunks);
+    tracing::debug!(
+        "[cdn] {}: {} chunks in {} bundle group(s), {} bytes",
+        file.rel_path,
+        file.chunks.len(),
+        groups.len(),
+        file.size
+    );
     let mut file_bytes: Vec<u8> = Vec::with_capacity(file.size as usize);
 
-    for group in &groups {
+    for (gi, group) in groups.iter().enumerate() {
         let url = bundle_url(group.bundle_id);
+        let range = range_header(group);
+        tracing::debug!(
+            "[cdn] {}: group {}/{} bundle {:016X} range {} ({} bytes)",
+            file.rel_path,
+            gi + 1,
+            groups.len(),
+            group.bundle_id,
+            range,
+            group.byte_len()
+        );
         let resp = client
             .get(&url)
-            .header(reqwest::header::RANGE, range_header(group))
+            .header(reqwest::header::RANGE, range)
             .send()
             .await
-            .map_err(|e| Error::Cdn(format!("range request: {e}")))?;
+            .map_err(|e| {
+                tracing::warn!("[cdn] {}: range request to {url} errored: {e}", file.rel_path);
+                Error::Cdn(format!("range request: {e}"))
+            })?;
         if !resp.status().is_success() {
+            tracing::warn!(
+                "[cdn] {}: range request to {url} failed: HTTP {}",
+                file.rel_path,
+                resp.status()
+            );
             return Err(Error::Cdn(format!(
                 "range request to {url} failed: HTTP {}",
                 resp.status()
@@ -122,19 +147,31 @@ async fn fetch_and_write(client: &reqwest::Client, file: &FilePlan, out_dir: &Pa
         let body = resp
             .bytes()
             .await
-            .map_err(|e| Error::Cdn(format!("range body: {e}")))?;
+            .map_err(|e| {
+                tracing::warn!("[cdn] {}: reading range body from {url} errored: {e}", file.rel_path);
+                Error::Cdn(format!("range body: {e}"))
+            })?;
         let base = group.start_offset();
 
         for chunk in &group.chunks {
             let start = (chunk.offset_in_bundle - base) as usize;
             let end = start + chunk.compressed_size as usize;
             let compressed = body.get(start..end).ok_or_else(|| {
+                tracing::warn!(
+                    "[cdn] {}: short bundle body for chunk {:#x} (need {}..{}, have {})",
+                    file.rel_path, chunk.chunk_id, start, end, body.len()
+                );
                 Error::Cdn(format!("short bundle body for chunk {:#x}", chunk.chunk_id))
             })?;
             let decompressed = zstd::stream::decode_all(compressed).map_err(|e| {
+                tracing::warn!("[cdn] {}: zstd decode of chunk {:#x} failed: {e}", file.rel_path, chunk.chunk_id);
                 Error::Cdn(format!("zstd decode of chunk {:#x}: {e}", chunk.chunk_id))
             })?;
             if decompressed.len() != chunk.uncompressed_size as usize {
+                tracing::warn!(
+                    "[cdn] {}: chunk {:#x} decompressed to {} bytes, expected {}",
+                    file.rel_path, chunk.chunk_id, decompressed.len(), chunk.uncompressed_size
+                );
                 return Err(Error::Cdn(format!(
                     "chunk {:#x} decompressed to {} bytes, expected {}",
                     chunk.chunk_id,
@@ -145,9 +182,11 @@ async fn fetch_and_write(client: &reqwest::Client, file: &FilePlan, out_dir: &Pa
             if let Some(ht) = file.hash_type {
                 let ok = ritoshark::rman::validate_chunk(&decompressed, chunk.chunk_id, ht)
                     .map_err(|e| {
+                        tracing::warn!("[cdn] {}: validation error on chunk {:#x}: {e}", file.rel_path, chunk.chunk_id);
                         Error::Cdn(format!("validation error on chunk {:#x}: {e}", chunk.chunk_id))
                     })?;
                 if !ok {
+                    tracing::warn!("[cdn] {}: chunk {:#x} failed {ht:?} validation", file.rel_path, chunk.chunk_id);
                     return Err(Error::Cdn(format!(
                         "chunk {:#x} failed {ht:?} validation",
                         chunk.chunk_id
@@ -162,11 +201,18 @@ async fn fetch_and_write(client: &reqwest::Client, file: &FilePlan, out_dir: &Pa
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent)
             .await
-            .map_err(|e| Error::Cdn(format!("create dir {}: {e}", parent.display())))?;
+            .map_err(|e| {
+                tracing::warn!("[cdn] {}: create dir {} failed: {e}", file.rel_path, parent.display());
+                Error::Cdn(format!("create dir {}: {e}", parent.display()))
+            })?;
     }
     tokio::fs::write(&dest, &file_bytes)
         .await
-        .map_err(|e| Error::Cdn(format!("write {}: {e}", dest.display())))?;
+        .map_err(|e| {
+            tracing::warn!("[cdn] {}: write {} failed: {e}", file.rel_path, dest.display());
+            Error::Cdn(format!("write {}: {e}", dest.display()))
+        })?;
+    tracing::info!("[cdn] extracted {} ({} bytes) -> {}", file.rel_path, file_bytes.len(), dest.display());
     Ok(file_bytes.len() as u64)
 }
 
@@ -181,6 +227,12 @@ pub async fn download_plan<F: Fn(DownloadProgress)>(
 ) -> usize {
     let mut errors = 0usize;
     let total = plan.files.len();
+    tracing::info!(
+        "[cdn] download_plan: {} file(s), {} bytes total -> {}",
+        total,
+        plan.total_size(),
+        out_dir.display()
+    );
 
     for file in &plan.files {
         if cancel.load(Ordering::Relaxed) {
@@ -214,6 +266,7 @@ pub async fn download_plan<F: Fn(DownloadProgress)>(
             }
         }
     }
+    tracing::info!("[cdn] download_plan done: {}/{} ok, {} error(s)", total - errors, total, errors);
     report(DownloadProgress::AllDone {
         files: total,
         errors,
