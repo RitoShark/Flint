@@ -577,21 +577,39 @@ pub async fn read_wad_chunk_data(
 /// Result of concatenating a skin bin's linked bins from a WAD.
 #[derive(serde::Serialize)]
 pub struct ConcatWadResult {
+    /// Absolute path the skin bin was written to (with links repointed).
+    pub skin_bin_path: String,
     /// Absolute path the concat bin was written to.
-    pub output_path: String,
+    pub concat_bin_path: String,
     /// Number of source (Type-3 LinkedData) bins merged.
     pub source_count: usize,
 }
 
+/// Build a safe relative output path from a WAD-internal path, stripping any
+/// `..`/drive components and normalizing slashes.
+fn safe_rel(path: &str) -> std::path::PathBuf {
+    let normalized = path.replace('\\', "/");
+    let mut safe = std::path::PathBuf::new();
+    for comp in std::path::Path::new(normalized.trim_start_matches('/')).components() {
+        if let std::path::Component::Normal(seg) = comp {
+            safe.push(seg);
+        }
+    }
+    safe
+}
+
 /// Concatenate the Type-3 (LinkedData) bins linked by a skin bin **inside a
-/// WAD** into a single self-contained bin, written into `out_dir`. Mirrors
-/// project-creation concat (root + animation bins excluded); the linked bins are
-/// read from the WAD by their path hash rather than from disk.
+/// WAD** into a single self-contained bin, then write the FULL structure into
+/// `out_dir` exactly like project creation: the concat bin at
+/// `data/<Champion>_<Skin>_Concat.bin`, and the selected skin bin at its real
+/// resolved path with its linked list repointed to the concat (root + animation
+/// bins preserved, Type-3 links replaced). The linked bins are read from the WAD
+/// by their xxh64(lowercased path) hash.
 #[tauri::command]
 pub async fn concat_wad_skin_bin(
     wad_path: String,
     hash: String,
-    skin_name: Option<String>,
+    skin_path: Option<String>,
     out_dir: String,
 ) -> Result<ConcatWadResult, String> {
     use xxhash_rust::xxh64::xxh64;
@@ -610,7 +628,7 @@ pub async fn concat_wad_skin_bin(
             .wad_mut()
             .load_chunk_decompressed(&skin_chunk)
             .map_err(|e| format!("Failed to read skin bin: {}", e))?;
-        let main_bin = flint_ltk::bin::read_bin(&skin_bytes)
+        let mut main_bin = flint_ltk::bin::read_bin(&skin_bytes)
             .map_err(|e| format!("Failed to parse skin bin: {}", e))?;
 
         // Read each linked bin from the WAD by its xxh64(lowercased path) hash.
@@ -622,14 +640,14 @@ pub async fn concat_wad_skin_bin(
             })
             .map_err(|e| e.to_string())?;
 
-        // Name: derive from the champion (WAD file stem) + selected skin bin,
-        // e.g. Aatrox_Skin0_Concat.bin. Non-filename chars are stripped.
+        // Name: champion (WAD file stem) + selected skin, e.g.
+        // Aatrox_Skin0_Concat.bin.
         let champion = std::path::Path::new(&wad_path)
             .file_name()
             .and_then(|n| n.to_str())
             .map(|n| n.split('.').next().unwrap_or(n).to_string())
             .unwrap_or_else(|| "Champion".to_string());
-        let skin_stem = skin_name
+        let skin_stem = skin_path
             .as_deref()
             .map(|n| n.rsplit(['/', '\\']).next().unwrap_or(n))
             .map(|n| n.trim_end_matches(".bin"))
@@ -641,28 +659,57 @@ pub async fn concat_wad_skin_bin(
                     .unwrap_or_default()
             })
             .unwrap_or_default();
-        let out_name = if skin_stem.is_empty() {
+        let concat_name = if skin_stem.is_empty() {
             format!("{}_Concat.bin", champion)
         } else {
             format!("{}_{}_Concat.bin", champion, skin_stem)
         };
+        // Concat bin lives under data/ (its linked-path form, same as project creation).
+        let concat_linked_path = format!("data/{}", concat_name);
 
-        let out_path = std::path::Path::new(&out_dir).join(&out_name);
-        std::fs::create_dir_all(&out_dir)
-            .map_err(|e| format!("Failed to create output dir: {}", e))?;
-        let data = flint_ltk::bin::write_bin(&concat_bin)
+        let base = std::path::Path::new(&out_dir);
+
+        // 1) Write the concat bin at data/<name>.
+        let concat_out = base.join(safe_rel(&concat_linked_path));
+        if let Some(parent) = concat_out.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create {}: {}", parent.display(), e))?;
+        }
+        let concat_data = flint_ltk::bin::write_bin(&concat_bin)
             .map_err(|e| format!("Failed to write concat bin: {}", e))?;
-        std::fs::write(&out_path, &data)
-            .map_err(|e| format!("Failed to write {}: {}", out_path.display(), e))?;
+        std::fs::write(&concat_out, &concat_data)
+            .map_err(|e| format!("Failed to write {}: {}", concat_out.display(), e))?;
+
+        // 2) Repoint the skin bin's links: concat first, then keep root + animation.
+        flint_ltk::bin::update_main_bin_links(&mut main_bin, concat_linked_path)
+            .map_err(|e| e.to_string())?;
+
+        // 3) Write the skin bin at its real resolved path (create the structure).
+        let skin_rel = skin_path
+            .as_deref()
+            .filter(|p| !p.is_empty())
+            .map(safe_rel)
+            .unwrap_or_else(|| std::path::PathBuf::from(format!("data/{:016x}.bin", path_hash)));
+        let skin_out = base.join(&skin_rel);
+        if let Some(parent) = skin_out.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create {}: {}", parent.display(), e))?;
+        }
+        let skin_data = flint_ltk::bin::write_bin(&main_bin)
+            .map_err(|e| format!("Failed to write skin bin: {}", e))?;
+        std::fs::write(&skin_out, &skin_data)
+            .map_err(|e| format!("Failed to write {}: {}", skin_out.display(), e))?;
 
         tracing::info!(
-            "[concat] wrote {} ({} entries from {} bin(s))",
-            out_path.display(),
+            "[concat] wrote skin {} + concat {} ({} entries from {} bin(s))",
+            skin_out.display(),
+            concat_out.display(),
             concat_bin.entries.len(),
             source_count
         );
         Ok(ConcatWadResult {
-            output_path: out_path.to_string_lossy().replace('\\', "/"),
+            skin_bin_path: skin_out.to_string_lossy().replace('\\', "/"),
+            concat_bin_path: concat_out.to_string_lossy().replace('\\', "/"),
             source_count,
         })
     })

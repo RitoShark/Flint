@@ -137,16 +137,17 @@ export async function readWadChunkData(wadPath: string, hash: string): Promise<U
     return new Uint8Array(buf);
 }
 
-/** Concatenate a skin bin's linked (Type-3) bins from a WAD into one bin,
- *  written into `outDir`. Excludes root + animation bins (project-creation
- *  concat semantics). Returns the output path + number of source bins merged. */
+/** Concatenate a skin bin's linked (Type-3) bins from a WAD into one bin, then
+ *  write the full structure into `outDir` like project creation: the concat bin
+ *  under data/, and the skin bin at its real path with its links repointed to
+ *  the concat (root + animation bins preserved). */
 export async function concatWadSkinBin(
     wadPath: string,
     hash: string,
-    skinName: string | null,
+    skinPath: string | null,
     outDir: string,
-): Promise<{ output_path: string; source_count: number }> {
-    return invokeCommand('concat_wad_skin_bin', { wadPath, hash, skinName, outDir });
+): Promise<{ skin_bin_path: string; concat_bin_path: string; source_count: number }> {
+    return invokeCommand('concat_wad_skin_bin', { wadPath, hash, skinPath, outDir });
 }
 
 export async function scanGameWads(gamePath: string): Promise<GameWadInfo[]> {

@@ -580,11 +580,10 @@ export const WadExplorer: React.FC = () => {
                 separator: true,
                 onClick: async () => {
                     try {
-                        const dest = await open({ title: 'Choose folder for the concat bin', directory: true });
+                        const dest = await open({ title: 'Choose folder for the concat structure', directory: true });
                         if (!dest) return;
-                        const skinName = (chunk.path ?? '').split('/').pop() ?? null;
-                        const res = await api.concatWadSkinBin(wadPath, chunk.hash, skinName, dest as string);
-                        showToast('success', `Concatenated ${res.source_count} bin${res.source_count === 1 ? '' : 's'} → ${res.output_path.split('/').pop()}`);
+                        const res = await api.concatWadSkinBin(wadPath, chunk.hash, chunk.path ?? null, dest as string);
+                        showToast('success', `Concatenated ${res.source_count} bin${res.source_count === 1 ? '' : 's'} → ${res.concat_bin_path.split('/').pop()} (+ skin bin)`);
                     } catch (e) {
                         showToast('error', `Concat failed: ${(e as { message?: string })?.message ?? String(e)}`);
                     }
