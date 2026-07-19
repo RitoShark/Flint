@@ -342,8 +342,10 @@ pub async fn parse_bin_file_to_text(
     Ok(tauri::ipc::Response::new(text.into_bytes()))
 }
 
-/// Read a BIN file as ritobin text, using a cached `.ritobin` when it exists
-/// and is newer than the `.bin`; otherwise convert and regenerate the cache.
+/// Read a BIN file as ritobin text. Converts in-memory every time — the editor
+/// path never drops a `.ritobin` sidecar next to the file (claiming/editing a
+/// bin must not pollute the project folder). The mesh/texture-preview path
+/// generates its own sidecar independently when it needs one.
 #[tauri::command]
 pub async fn read_or_convert_bin(
     bin_path: String,
@@ -395,23 +397,7 @@ async fn read_or_convert_bin_inner(
         }
     }
 
-    let ritobin_path = format!("{}.ritobin", bin_path);
-    let ritobin_file = Path::new(&ritobin_path);
-
-    if ritobin_file.exists() {
-        if let (Ok(bin_meta), Ok(ritobin_meta)) = (fs::metadata(bin_file), fs::metadata(ritobin_file)) {
-            if let (Ok(bin_time), Ok(ritobin_time)) = (bin_meta.modified(), ritobin_meta.modified()) {
-                if ritobin_time >= bin_time {
-                    let content = fs::read_to_string(ritobin_file)
-                        .map_err(|e| format!("Failed to read cached file: {}", e))?;
-                    tracing::info!("[BIN_READ] Cache hit: loaded {} chars from {}", content.len(), ritobin_path);
-                    return Ok(content);
-                }
-            }
-        }
-    }
-
-    tracing::info!("[BIN_READ] Cache miss: converting BIN with RitoShark engine");
+    tracing::info!("[BIN_READ] Converting BIN with RitoShark engine (in-memory, no sidecar)");
 
     let data = fs::read(bin_file)
         .map_err(|e| format!("Failed to read file: {}", e))?;
@@ -423,18 +409,12 @@ async fn read_or_convert_bin_inner(
             .map_err(|e| format!("Failed to convert to text: {}", e))?
     };
 
-    // Mark as a self-write so the watcher doesn't surface the implicit
-    // sidecar generation as a user-visible change.
-    crate::core::write_echo::mark(&ritobin_path);
-    if let Err(e) = fs::write(&ritobin_path, &text) {
-        tracing::warn!("[BIN_READ] Failed to cache .ritobin file: {}", e);
-    }
-
     tracing::info!("[BIN_READ] Converted {} to {} chars of text", bin_path, text.len());
     Ok(text)
 }
 
-/// Save edited ritobin content back to both the .bin and .ritobin files.
+/// Save edited ritobin content back to the .bin file. Does NOT write a
+/// `.ritobin` sidecar — editing a bin must not leave one in the project folder.
 #[tauri::command]
 pub async fn save_ritobin_to_bin(
     bin_path: String,
@@ -460,23 +440,18 @@ pub async fn save_ritobin_to_bin(
     .await
     .map_err(|e| format!("encode task join error: {}", e))??;
 
-    // Mark both paths as expected self-writes so the watcher doesn't bounce
-    // them back into the editor as external modifications.
-    let ritobin_path = format!("{}.ritobin", bin_path);
+    // Mark the path as an expected self-write so the watcher doesn't bounce it
+    // back into the editor as an external modification.
     crate::core::write_echo::mark(&bin_path);
-    crate::core::write_echo::mark(&ritobin_path);
 
     fs::write(&bin_path, &binary_data)
         .map_err(|e| format!("Failed to write .bin file: {}", e))?;
 
     tracing::info!("Saved .bin file: {} ({} bytes)", bin_path, binary_data.len());
 
-    if let Err(e) = fs::write(&ritobin_path, &content) {
-        tracing::warn!("Failed to update .ritobin cache: {}", e);
-    } else {
-        tracing::info!("Updated .ritobin cache: {}", ritobin_path);
-    }
-
+    // No `.ritobin` sidecar is written — see the fn doc. A stale sidecar left
+    // over from an older build would now be OLDER than the just-saved .bin, so
+    // nothing reads it as authoritative; leave it alone rather than touch disk.
     Ok(())
 }
 
