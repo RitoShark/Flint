@@ -1,0 +1,122 @@
+/* Self-contained color picker popover (ported from Quartz's paint picker). */
+.flint-color-picker {
+    position: fixed;
+    z-index: 9999;
+    width: 240px;
+    padding: 12px;
+    border-radius: var(--radius-lg, 12px);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    box-shadow: var(--dl-shadow-md, 0 8px 24px rgba(0, 0, 0, 0.4));
+    font-family: var(--font-mono, monospace);
+}
+
+.flint-color-picker .fcp-sv {
+    position: relative;
+    width: 100%;
+    height: 150px;
+    border-radius: var(--radius-sm, 6px);
+    cursor: crosshair;
+    overflow: hidden;
+    margin-bottom: 10px;
+}
+
+.flint-color-picker .fcp-sv-thumb {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+}
+
+.flint-color-picker .fcp-hue {
+    position: relative;
+    width: 100%;
+    height: 14px;
+    border-radius: 7px;
+    cursor: pointer;
+    background: linear-gradient(90deg, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+    margin-bottom: 10px;
+}
+
+.flint-color-picker .fcp-hue-thumb {
+    position: absolute;
+    top: 50%;
+    width: 8px;
+    height: 18px;
+    border-radius: 4px;
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+}
+
+.flint-color-picker .fcp-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.flint-color-picker .fcp-pipette {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-sm, 6px);
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
+}
+
+.flint-color-picker .fcp-pipette:hover {
+    color: var(--text-primary);
+    border-color: color-mix(in oklab, var(--accent-primary) 40%, var(--border));
+    background: color-mix(in oklab, var(--accent-primary) 10%, var(--bg-tertiary));
+    transform: translateY(-1px);
+}
+
+.flint-color-picker .fcp-swatch {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-sm, 6px);
+    border: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.flint-color-picker .fcp-hex {
+    flex: 1;
+    min-width: 0;
+    height: 28px;
+    border-radius: var(--radius-sm, 6px);
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-family: var(--font-mono, monospace);
+    font-size: 12px;
+    text-align: center;
+    outline: none;
+    text-transform: uppercase;
+}
+
+/* Circular accent swatch that opens the picker (replaces the boxy native input). */
+.theme-custom-accent__circle {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    cursor: pointer;
+    padding: 0;
+    box-shadow: inset 0 0 0 2px var(--bg-secondary);
+    transition: transform var(--transition-fast), border-color var(--transition-fast);
+}
+.theme-custom-accent__circle:hover {
+    transform: scale(1.08);
+    border-color: color-mix(in oklab, var(--accent-primary) 55%, var(--border));
+}

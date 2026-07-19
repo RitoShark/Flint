@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import * as api from '../../../lib/api';
+import { openColorPicker } from '../../common/ColorPicker';
 
 /* -------------------------------------------------------------------------- */
 /* Theme preset grid — same 5 cards as the wizard, lives on the Theme tab     */
@@ -122,13 +123,13 @@ export const ThemePresetGrid: React.FC<{
 
             {customActive && (
                 <div className="theme-custom-accent">
-                    <label className="theme-custom-accent__swatch" title="Pick accent color">
-                        <input
-                            type="color"
-                            value={accent}
-                            onChange={(e) => applyCustom(e.target.value)}
-                        />
-                    </label>
+                    <button
+                        type="button"
+                        className="theme-custom-accent__circle"
+                        style={{ background: accent }}
+                        title="Click to pick an accent color"
+                        onClick={(e) => openColorPicker(e, accent, applyCustom)}
+                    />
                     <input
                         className="dl-input theme-custom-accent__hex"
                         value={hexText}
@@ -140,7 +141,7 @@ export const ThemePresetGrid: React.FC<{
                         }}
                         placeholder="#EF4444"
                     />
-                    <span className="theme-custom-accent__hint">Pick any accent — the dark base stays.</span>
+                    <span className="theme-custom-accent__hint">Click the circle to pick any accent — the dark base stays.</span>
                 </div>
             )}
         </>

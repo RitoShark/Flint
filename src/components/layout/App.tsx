@@ -14,6 +14,7 @@ import { WadExplorer } from '../browser/WadExplorer';
 import { CenterPanel } from './CenterPanel';
 import { StatusBar } from './StatusBar';
 import { ContextMenu } from '../overlays/ContextMenu';
+import { ColorPickerHost } from '../common/ColorPicker';
 import { ConfirmDialog } from '../overlays/ConfirmDialog';
 import { TransferModal } from '../overlays/TransferModal';
 import { NewProjectModal } from '../modals/NewProjectModal';
@@ -554,6 +555,8 @@ export const App: React.FC = () => {
             <ToastContainer />
 
             <ContextMenu />
+
+            <ColorPickerHost />
 
             <ConfirmDialog />
 
