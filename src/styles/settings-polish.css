@@ -700,13 +700,16 @@
     padding: 16px 10px;
     border-radius: 10px;
     border-bottom: 1px solid color-mix(in oklab, var(--border) 50%, transparent);
-    transition: box-shadow var(--motion-fast), background var(--motion-fast);
+    transition: background var(--motion-fast);
 }
 .modal--settings .settings-row:last-child { border-bottom: none; }
-/* Really subtle accent glow — barely-there, warms up a touch on hover. */
+/* Really subtle, edgeless warm-up on hover — a soft radial tint fading out
+   before the row edges, so there's no boxy frame. */
 .modal--settings .settings-row:hover {
-    background: color-mix(in oklab, var(--logo) 4%, transparent);
-    box-shadow: inset 0 0 18px -6px color-mix(in oklab, var(--logo) 22%, transparent);
+    background:
+        radial-gradient(120% 100% at 12% 50%,
+            color-mix(in oklab, var(--logo) 8%, transparent) 0%,
+            transparent 70%);
 }
 
 /* Icon-only Auto-detect — glyph centered, label shows on hover via title. */
@@ -717,6 +720,25 @@
     margin: 0 auto;
 }
 
+/* Creator tab — each field is a SettingsRow whose sub is the input + a hint. */
+.modal--settings .creator-field {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+}
+.modal--settings .creator-field .form-input,
+.modal--settings .creator-field .form-textarea,
+.modal--settings .creator-field input,
+.modal--settings .creator-field textarea {
+    width: 100%;
+}
+.modal--settings .creator-field__hint {
+    margin: 0;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
 .modal--settings .settings-row__icon {
     width: 40px;
     height: 40px;
@@ -724,7 +746,17 @@
     align-items: center;
     justify-content: center;
     flex: none;
+    align-self: center;
     color: color-mix(in oklab, var(--logo) 45%, var(--text-secondary));
+}
+/* When the row body is tall (an input + hint), pin the icon and actions to the
+   top so they line up with the title instead of floating to the middle. */
+.modal--settings .settings-row:has(.creator-field) {
+    align-items: start;
+}
+.modal--settings .settings-row:has(.creator-field) .settings-row__icon,
+.modal--settings .settings-row:has(.settings-row__field) .settings-row__actions {
+    align-self: start;
 }
 .modal--settings .settings-row__icon svg { display: block; width: 20px; height: 20px; }
 .modal--settings .settings-row__logo-img {
