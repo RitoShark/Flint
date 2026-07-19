@@ -1,6 +1,7 @@
 import React from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Button, Icon, type IconName, Input } from '../../ui';
+import { SettingsRow, SettingsTag } from './SettingsRow';
 
 export interface PathSetting {
     label: string;
@@ -32,24 +33,17 @@ export const PathSettingItem: React.FC<{ setting: PathSetting }> = ({ setting })
         if (selected) setting.onChange(selected as string);
     };
     const filled = setting.value.trim().length > 0;
-    const style = setting.logoColor ? ({ ['--logo' as never]: setting.logoColor } as React.CSSProperties) : undefined;
     return (
-        <div
-            className={`settings-prow ${filled ? 'is-filled' : ''} ${setting.logoSrc ? 'has-logo' : ''}`}
-            style={style}
-        >
-            <span className="settings-prow__icon" aria-hidden="true">
-                {setting.logoSrc
-                    ? <img src={setting.logoSrc} alt="" className="settings-prow__logo-img" draggable={false} />
-                    : <Icon name={setting.iconName ?? 'folder'} />}
-            </span>
-            <div className="settings-prow__body">
-                <div className="settings-prow__head">
-                    <span className={`settings-prow__dot ${filled ? 'is-on' : ''}`} />
-                    <strong className="settings-prow__name">{setting.label}</strong>
-                    {setting.badge && <span className="settings-prow__badge">{setting.badge}</span>}
-                </div>
-                <div className="settings-prow__field">
+        <SettingsRow
+            accent={setting.logoColor}
+            icon={setting.logoSrc
+                ? <img src={setting.logoSrc} alt="" className="settings-row__logo-img" draggable={false} />
+                : <Icon name={setting.iconName ?? 'folder'} />}
+            on={filled}
+            title={setting.label}
+            tags={setting.badge ? <SettingsTag>{setting.badge}</SettingsTag> : undefined}
+            sub={
+                <div className="settings-row__field">
                     <Input
                         placeholder={setting.placeholder}
                         value={setting.value}
@@ -69,7 +63,7 @@ export const PathSettingItem: React.FC<{ setting: PathSetting }> = ({ setting })
                         </Button>
                     )}
                 </div>
-            </div>
-        </div>
+            }
+        />
     );
 };

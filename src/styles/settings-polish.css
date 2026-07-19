@@ -687,76 +687,98 @@
     font-size: 12.5px;
     line-height: 1.55;
 }
-/* Frameless two-line row: brand icon · name/path over two lines · text buttons,
-   separated by a thin divider instead of individual card frames. */
-.modal--settings .integration-row {
+/* ==========================================================================
+   ONE shared row primitive for every Settings tab (Paths, Integrations, …).
+   Icon · [ dot · title · tags / sub ] · actions, split by a thin divider.
+   ========================================================================== */
+.modal--settings .settings-row {
+    --logo: var(--accent-primary);
     display: grid;
-    grid-template-columns: 36px minmax(0, 1fr) auto;
-    gap: 12px;
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+    gap: 16px;
     align-items: center;
-    padding: 10px 4px;
-    border-bottom: 1px solid color-mix(in oklab, var(--border) 55%, transparent);
+    padding: 16px 6px;
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 50%, transparent);
 }
-.modal--settings .integration-row:last-child { border-bottom: none; }
-.modal--settings .integration-row__logo-img {
+.modal--settings .settings-row:last-child { border-bottom: none; }
+
+.modal--settings .settings-row__icon {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    color: color-mix(in oklab, var(--logo) 45%, var(--text-secondary));
+}
+.modal--settings .settings-row__icon svg { display: block; width: 20px; height: 20px; }
+.modal--settings .settings-row__logo-img {
     display: block;
     width: 32px;
     height: 32px;
-    align-self: center;
-    justify-self: center;
     object-fit: contain;
 }
-.modal--settings .integration-row__body { display: grid; gap: 2px; min-width: 0; }
-.modal--settings .integration-row__line1 {
+
+.modal--settings .settings-row__body { display: grid; gap: 6px; min-width: 0; }
+.modal--settings .settings-row__head {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 9px;
     min-width: 0;
 }
-.modal--settings .integration-row__dot {
+.modal--settings .settings-row__dot {
     width: 7px; height: 7px;
     border-radius: 50%;
     flex: none;
-    background: color-mix(in oklab, var(--text-muted) 60%, transparent);
+    background: color-mix(in oklab, var(--text-muted) 55%, transparent);
 }
-.modal--settings .integration-row__dot.is-on {
+.modal--settings .settings-row__dot.is-on {
     background: #34d399;
     box-shadow: 0 0 7px color-mix(in oklab, #34d399 70%, transparent);
 }
-.modal--settings .integration-row__name {
+.modal--settings .settings-row__title {
     font-size: 14px;
     font-weight: 600;
     color: var(--text-primary);
     letter-spacing: -0.005em;
     white-space: nowrap;
 }
-.modal--settings .integration-row__tag {
+.modal--settings .settings-row__tag {
     font-size: 9.5px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     padding: 1px 7px;
     border-radius: 999px;
-    color: color-mix(in oklab, var(--logo, var(--accent-primary)) 40%, var(--text-primary));
+    color: color-mix(in oklab, var(--logo, var(--accent-primary)) 42%, var(--text-primary));
     background: color-mix(in oklab, var(--logo, var(--accent-primary)) 16%, transparent);
     flex: none;
 }
-.modal--settings .integration-row__sub {
-    margin: 0;
+/* Second line as muted text (paths / taglines). */
+.modal--settings .settings-row__sub {
     font-size: 12px;
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    line-height: 1.5;
 }
-.modal--settings .integration-row.is-connected .integration-row__sub {
-    font-family: var(--font-mono);
-    font-size: 11px;
+/* Second line as a control row (the path input + browse/detect buttons). */
+.modal--settings .settings-row__field {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
 }
-.modal--settings .integration-row__actions {
+.modal--settings .settings-row__field > .form-input--with-button {
+    flex: 1 1 240px;
+    min-width: 0;
+}
+.modal--settings .settings-row__actions {
     display: flex;
     gap: 6px;
     align-items: center;
+    flex-shrink: 0;
 }
 .modal--settings .integrations-tab__group-label {
     margin: 12px 0 -4px;
@@ -876,88 +898,4 @@
     align-items: center;
     justify-content: center;
     box-shadow: 0 0 8px color-mix(in oklab, var(--accent) 60%, transparent);
-}
-/* ==========================================================================
-   Settings → Paths tab: compact PathRow that mirrors the Integrations card
-   vocabulary (logo frame + status pill + brand-tinted "filled" glow) but in
-   a tighter footprint suited to a long stack of settings rows.
-   ========================================================================== */
-/* Frameless two-line path row: icon · name (line 1) / input + browse (line 2),
-   separated by a thin divider — matches the Integrations list. */
-.modal--settings .settings-prow {
-    --logo: var(--accent-primary);
-    display: grid;
-    grid-template-columns: 32px minmax(0, 1fr);
-    gap: 12px;
-    align-items: start;
-    padding: 12px 4px;
-    border-bottom: 1px solid color-mix(in oklab, var(--border) 55%, transparent);
-}
-.modal--settings .settings-prow:last-child { border-bottom: none; }
-
-.modal--settings .settings-prow__icon {
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex: none;
-    margin-top: 2px;
-    color: var(--logo);
-}
-.modal--settings .settings-prow__icon svg { display: block; width: 20px; height: 20px; }
-.modal--settings .settings-prow__logo-img {
-    display: block;
-    width: 30px;
-    height: 30px;
-    object-fit: contain;
-}
-
-.modal--settings .settings-prow__body {
-    display: grid;
-    gap: 8px;
-    min-width: 0;
-}
-.modal--settings .settings-prow__head {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-}
-.modal--settings .settings-prow__dot {
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    flex: none;
-    background: color-mix(in oklab, var(--text-muted) 60%, transparent);
-}
-.modal--settings .settings-prow__dot.is-on {
-    background: #34d399;
-    box-shadow: 0 0 7px color-mix(in oklab, #34d399 70%, transparent);
-}
-.modal--settings .settings-prow__name {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-    letter-spacing: -0.005em;
-    white-space: nowrap;
-}
-.modal--settings .settings-prow__badge {
-    font-size: 9.5px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    padding: 1px 7px;
-    border-radius: 999px;
-    background: color-mix(in oklab, var(--logo) 16%, transparent);
-    color: color-mix(in oklab, var(--logo) 40%, var(--text-primary));
-    flex: none;
-}
-.modal--settings .settings-prow__field {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    flex-wrap: wrap;
-}
-.modal--settings .settings-prow__field > .form-input--with-button {
-    flex: 1 1 240px;
-    min-width: 0;
 }

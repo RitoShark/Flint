@@ -1,4 +1,5 @@
 import React from 'react';
+import { SettingsRow, SettingsTag } from './SettingsRow';
 
 export type IntegrationDisplay = {
     id: 'ltk' | 'celestial' | 'jade' | 'quartz';
@@ -20,7 +21,7 @@ const INTEGRATION_LOGOS: Record<IntegrationDisplay['id'], string> = {
     quartz: '/quartz-logo.webp',
 };
 const IntegrationLogo: React.FC<{ id: IntegrationDisplay['id'] }> = ({ id }) => (
-    <img src={INTEGRATION_LOGOS[id]} alt="" className="integration-row__logo-img" draggable={false} />
+    <img src={INTEGRATION_LOGOS[id]} alt="" className="settings-row__logo-img" draggable={false} />
 );
 export const IntegrationsTab: React.FC<{
     integrations: IntegrationDisplay[];
@@ -41,51 +42,42 @@ export const IntegrationsTab: React.FC<{
         const connected = i.path.trim().length > 0;
         const isDefault = isLauncher && effective === i.id;
         return (
-            <div
+            <SettingsRow
                 key={i.id}
-                className={`integration-row ${connected ? 'is-connected' : ''} ${isDefault ? 'is-default' : ''}`}
-                style={{ ['--logo' as never]: i.accent }}
-            >
-                <IntegrationLogo id={i.id} />
-                <div className="integration-row__body">
-                    <div className="integration-row__line1">
-                        <span className={`integration-row__dot ${connected ? 'is-on' : ''}`} />
-                        <strong className="integration-row__name">{i.name}</strong>
-                        {isDefault && <span className="integration-row__tag">Default</span>}
-                    </div>
-                    <p className="integration-row__sub" title={connected ? i.path : undefined}>
-                        {connected ? i.path : i.tagline}
-                    </p>
-                </div>
-                <div className="integration-row__actions">
-                    {connected ? (
-                        <>
-                            {isLauncher && !isDefault && (
-                                <button className="dl-btn dl-btn--primary dl-btn--sm" onClick={() => onPreferredLauncherChange(i.id as 'ltk' | 'celestial')}>
-                                    Set default
-                                </button>
-                            )}
-                            {isLauncher && isDefault && (
-                                <button
-                                    className={`dl-btn dl-btn--sm ${autoSync ? 'dl-btn--active' : ''}`}
-                                    disabled={!ltkConfigured}
-                                    onClick={() => onAutoSyncChange(!autoSync)}
-                                    title="Push project changes to this launcher whenever files are modified"
-                                >
-                                    Auto-Sync {autoSync ? 'On' : 'Off'}
-                                </button>
-                            )}
-                            <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={() => void onConnect(i)}>Change</button>
-                            <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={() => i.setPath('')}>Disconnect</button>
-                        </>
-                    ) : (
-                        <>
-                            <button className="dl-btn dl-btn--primary dl-btn--sm" onClick={() => void onConnect(i)}>Connect</button>
-                            <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={i.onDetect}>Auto-detect</button>
-                        </>
-                    )}
-                </div>
-            </div>
+                accent={i.accent}
+                icon={<IntegrationLogo id={i.id} />}
+                on={connected}
+                title={i.name}
+                tags={isDefault ? <SettingsTag>Default</SettingsTag> : undefined}
+                sub={connected ? i.path : i.tagline}
+                subTitle={connected ? i.path : undefined}
+                actions={connected ? (
+                    <>
+                        {isLauncher && !isDefault && (
+                            <button className="dl-btn dl-btn--primary dl-btn--sm" onClick={() => onPreferredLauncherChange(i.id as 'ltk' | 'celestial')}>
+                                Set default
+                            </button>
+                        )}
+                        {isLauncher && isDefault && (
+                            <button
+                                className={`dl-btn dl-btn--sm ${autoSync ? 'dl-btn--active' : ''}`}
+                                disabled={!ltkConfigured}
+                                onClick={() => onAutoSyncChange(!autoSync)}
+                                title="Push project changes to this launcher whenever files are modified"
+                            >
+                                Auto-Sync {autoSync ? 'On' : 'Off'}
+                            </button>
+                        )}
+                        <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={() => void onConnect(i)}>Change</button>
+                        <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={() => i.setPath('')}>Disconnect</button>
+                    </>
+                ) : (
+                    <>
+                        <button className="dl-btn dl-btn--primary dl-btn--sm" onClick={() => void onConnect(i)}>Connect</button>
+                        <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={i.onDetect}>Auto-detect</button>
+                    </>
+                )}
+            />
         );
     };
 
