@@ -22,7 +22,7 @@ pub use ltk_bridge::write_bin;
 
 pub use converter::{bin_to_text, text_to_bin, bin_to_json, json_to_bin};
 
-pub use concat::{classify_bin, BinCategory};
+pub use concat::{classify_bin, concat_linked_bins_with, BinCategory};
 
 pub use split::{
     analyze_multi, classify_vfx_objects, group_by_class, organize_vfx_in_folder, split_bin,

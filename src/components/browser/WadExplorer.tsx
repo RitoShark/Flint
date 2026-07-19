@@ -569,6 +569,29 @@ export const WadExplorer: React.FC = () => {
             });
         }
 
+        // ── Concat Bin (skin bins only) ──
+        // Merge this skin bin's linked (Type-3) bins into one self-contained
+        // bin, excluding root + animation bins — same as project-creation concat.
+        const isBin = (chunk.path ?? '').toLowerCase().endsWith('.bin');
+        if (isBin) {
+            options.push({
+                label: 'Concat Bin',
+                icon: getIcon('export'),
+                separator: true,
+                onClick: async () => {
+                    try {
+                        const dest = await open({ title: 'Choose folder for the concat bin', directory: true });
+                        if (!dest) return;
+                        const skinName = (chunk.path ?? '').split('/').pop() ?? null;
+                        const res = await api.concatWadSkinBin(wadPath, chunk.hash, skinName, dest as string);
+                        showToast('success', `Concatenated ${res.source_count} bin${res.source_count === 1 ? '' : 's'} → ${res.output_path.split('/').pop()}`);
+                    } catch (e) {
+                        showToast('error', `Concat failed: ${(e as { message?: string })?.message ?? String(e)}`);
+                    }
+                },
+            });
+        }
+
         // ── Copy ▸ ──
         const copySubmenu: ContextMenuOption[] = [];
         if (chunk.path) {
@@ -580,7 +603,6 @@ export const WadExplorer: React.FC = () => {
         options.push({
             label: 'Copy',
             icon: getIcon('copy'),
-            separator: true,
             submenu: copySubmenu,
         });
 

@@ -230,6 +230,7 @@ fn main() {
             commands::wad::load_all_wad_chunks,
             commands::wad::extract_wad,
             commands::wad::read_wad_chunk_data,
+            commands::wad::concat_wad_skin_bin,
             commands::wad::scan_game_wads,
             commands::wad::invalidate_wad_cache,
             commands::wad::extract_wad_model_preview,

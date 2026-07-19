@@ -234,6 +234,60 @@ pub fn create_concat_bin(
     })
 }
 
+/// Concatenate the Type-3 (LinkedData) bins referenced by `main_bin`, reading
+/// each linked bin's bytes through `read_linked` (by its linked path). This is
+/// the same merge as [`create_concat_bin`] — champion-root and animation bins
+/// are excluded — but the source bins come from an arbitrary store (e.g. a WAD)
+/// instead of `content_base` on disk. Returns the merged concat [`Bin`] and the
+/// number of source bins that contributed. Does NOT touch `main_bin`'s links.
+pub fn concat_linked_bins_with<F>(main_bin: &Bin, mut read_linked: F) -> Result<(Bin, usize)>
+where
+    F: FnMut(&str) -> Option<Vec<u8>>,
+{
+    let type3_paths: Vec<String> = get_linked_paths(main_bin)
+        .into_iter()
+        .filter(|path| classify_bin(path) == BinCategory::LinkedData)
+        .collect();
+
+    tracing::info!("Concatenating {} Type-3 (LinkedData) bin(s)", type3_paths.len());
+    if type3_paths.is_empty() {
+        return Err(Error::InvalidInput(
+            "No Type 3 (LinkedData) BINs found in linked list".to_string(),
+        ));
+    }
+
+    let mut all_objects: HashMap<u32, BinEntry> = HashMap::new();
+    let mut source_count = 0;
+
+    for bin_path in &type3_paths {
+        let Some(data) = read_linked(bin_path) else {
+            tracing::warn!("Linked BIN not found, skipping: {}", bin_path);
+            continue;
+        };
+        let source_bin = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| read_bin(&data))) {
+            Ok(Ok(bin)) => bin,
+            Ok(Err(e)) => {
+                tracing::warn!("Failed to parse linked BIN {}: {}", bin_path, e);
+                continue;
+            }
+            Err(_) => {
+                tracing::error!("CRASH PREVENTED: parser panicked on linked BIN {}. Skipping.", bin_path);
+                continue;
+            }
+        };
+        for entry in source_bin.entries {
+            all_objects.insert(entry.path_hash, entry); // last-write-wins
+        }
+        source_count += 1;
+    }
+
+    let concat_bin = Bin {
+        entries: all_objects.into_values().collect(),
+        ..Bin::new()
+    };
+    Ok((concat_bin, source_count))
+}
+
 pub fn update_main_bin_links(main_bin: &mut Bin, concat_path: String) -> Result<()> {
     let current_links = get_linked_paths(main_bin);
 

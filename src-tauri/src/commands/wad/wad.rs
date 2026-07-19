@@ -574,6 +574,102 @@ pub async fn read_wad_chunk_data(
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+/// Result of concatenating a skin bin's linked bins from a WAD.
+#[derive(serde::Serialize)]
+pub struct ConcatWadResult {
+    /// Absolute path the concat bin was written to.
+    pub output_path: String,
+    /// Number of source (Type-3 LinkedData) bins merged.
+    pub source_count: usize,
+}
+
+/// Concatenate the Type-3 (LinkedData) bins linked by a skin bin **inside a
+/// WAD** into a single self-contained bin, written into `out_dir`. Mirrors
+/// project-creation concat (root + animation bins excluded); the linked bins are
+/// read from the WAD by their path hash rather than from disk.
+#[tauri::command]
+pub async fn concat_wad_skin_bin(
+    wad_path: String,
+    hash: String,
+    skin_name: Option<String>,
+    out_dir: String,
+) -> Result<ConcatWadResult, String> {
+    use xxhash_rust::xxh64::xxh64;
+
+    let path_hash =
+        u64::from_str_radix(&hash, 16).map_err(|e| format!("Invalid hash '{}': {}", hash, e))?;
+
+    tokio::task::spawn_blocking(move || {
+        let mut reader = WadReader::open(&wad_path)?;
+
+        // The selected skin bin (the "main" bin whose links we concat).
+        let skin_chunk = *reader
+            .get_chunk(path_hash)
+            .ok_or_else(|| format!("Skin bin {:016x} not found in WAD", path_hash))?;
+        let skin_bytes = reader
+            .wad_mut()
+            .load_chunk_decompressed(&skin_chunk)
+            .map_err(|e| format!("Failed to read skin bin: {}", e))?;
+        let main_bin = flint_ltk::bin::read_bin(&skin_bytes)
+            .map_err(|e| format!("Failed to parse skin bin: {}", e))?;
+
+        // Read each linked bin from the WAD by its xxh64(lowercased path) hash.
+        let (concat_bin, source_count) =
+            flint_ltk::bin::concat_linked_bins_with(&main_bin, |linked_path| {
+                let h = xxh64(linked_path.to_lowercase().as_bytes(), 0);
+                let chunk = *reader.get_chunk(h)?;
+                reader.wad_mut().load_chunk_decompressed(&chunk).ok()
+            })
+            .map_err(|e| e.to_string())?;
+
+        // Name: derive from the champion (WAD file stem) + selected skin bin,
+        // e.g. Aatrox_Skin0_Concat.bin. Non-filename chars are stripped.
+        let champion = std::path::Path::new(&wad_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| n.split('.').next().unwrap_or(n).to_string())
+            .unwrap_or_else(|| "Champion".to_string());
+        let skin_stem = skin_name
+            .as_deref()
+            .map(|n| n.rsplit(['/', '\\']).next().unwrap_or(n))
+            .map(|n| n.trim_end_matches(".bin"))
+            .filter(|n| !n.is_empty())
+            .map(|n| {
+                let mut c = n.chars();
+                c.next()
+                    .map(|f| f.to_uppercase().collect::<String>() + c.as_str())
+                    .unwrap_or_default()
+            })
+            .unwrap_or_default();
+        let out_name = if skin_stem.is_empty() {
+            format!("{}_Concat.bin", champion)
+        } else {
+            format!("{}_{}_Concat.bin", champion, skin_stem)
+        };
+
+        let out_path = std::path::Path::new(&out_dir).join(&out_name);
+        std::fs::create_dir_all(&out_dir)
+            .map_err(|e| format!("Failed to create output dir: {}", e))?;
+        let data = flint_ltk::bin::write_bin(&concat_bin)
+            .map_err(|e| format!("Failed to write concat bin: {}", e))?;
+        std::fs::write(&out_path, &data)
+            .map_err(|e| format!("Failed to write {}: {}", out_path.display(), e))?;
+
+        tracing::info!(
+            "[concat] wrote {} ({} entries from {} bin(s))",
+            out_path.display(),
+            concat_bin.entries.len(),
+            source_count
+        );
+        Ok(ConcatWadResult {
+            output_path: out_path.to_string_lossy().replace('\\', "/"),
+            source_count,
+        })
+    })
+    .await
+    .map_err(|e| format!("concat task join error: {}", e))?
+}
+
 /// Pre-fault the WAD-hash LMDB into the OS page cache with one sequential
 /// read. Cold random b-tree lookups otherwise cost seconds on the first
 /// bulk resolve (measured 4.3s for a 306 MB data.mdb).

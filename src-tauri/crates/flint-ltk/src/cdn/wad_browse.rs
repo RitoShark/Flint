@@ -293,7 +293,18 @@ pub async fn unpack_wad_to_dir<F: Fn(UnpackProgress)>(
         });
         match decode_inner_entry(client, chunks, &listing, entry).await {
             Ok(bytes) => {
-                let dest = out_dir.join(rel.replace('\\', "/"));
+                let mut dest = out_dir.join(rel.replace('\\', "/"));
+                // Windows rejects paths over ~260 chars (os error 123). League's
+                // "multi_skins" concatenated bins have enormous names — fall back
+                // to <hexhash><ext> in the root, matching the WAD extractor.
+                if dest.to_string_lossy().len() > 240 {
+                    let ext = std::path::Path::new(&rel)
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .map(|e| format!(".{e}"))
+                        .unwrap_or_default();
+                    dest = out_dir.join(format!("{:016x}{ext}", entry.path_hash));
+                }
                 let write = async {
                     if let Some(parent) = dest.parent() {
                         tokio::fs::create_dir_all(parent).await.map_err(|e| {
