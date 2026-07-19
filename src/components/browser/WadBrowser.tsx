@@ -3,6 +3,7 @@ import { useAppMetadataStore, useModalStore, useNotificationStore, useWadExtract
 import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getIcon, getFileIcon } from '../../lib/ui-helpers/fileIcons';
+import { checkboxSvg } from './wad-explorer/helpers';
 import type { WadChunk } from '../../lib/types';
 
 // =============================================================================
@@ -111,18 +112,6 @@ function buildWadTree(chunks: WadChunk[], searchQuery: string): WadTreeNode[] {
     return rootNodes;
 }
 
-function getNodesAtDir(roots: WadTreeNode[], dirPath: string): WadTreeNode[] {
-    if (!dirPath) return roots;
-    const parts = dirPath.split('/').filter(Boolean);
-    let currentNodes = roots;
-    for (const part of parts) {
-        const found = currentNodes.find(n => n.type === 'folder' && n.name === part) as WadTreeFolder | undefined;
-        if (!found) return [];
-        currentNodes = found.children;
-    }
-    return currentNodes;
-}
-
 function formatSize(bytes: number): string {
     if (bytes < 1024) return `${bytes}B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
@@ -140,13 +129,6 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
     const setStatus = useAppMetadataStore((s) => s.setStatus);
     const session = extractSessions.find(s => s.id === activeExtractId);
 
-    const setCurrentDir = useWadExtractStore((s) => s.setCurrentDir);
-    const navigateHistory = useWadExtractStore((s) => s.navigateHistory);
-
-    const currentDir = session?.currentDir ?? '';
-    const history = session?.history ?? [''];
-    const historyIndex = session?.historyIndex ?? 0;
-
     const isSearching = !!session?.searchQuery?.trim();
 
     const openContextMenu = useModalStore((s) => s.openContextMenu);
@@ -154,6 +136,17 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
     const [isUnhashing, setIsUnhashing] = useState(false);
     const [isSavingWad, setIsSavingWad] = useState(false);
     const [renamingHash, setRenamingHash] = useState<string | null>(null);
+    // Inline expand/collapse tree state (mirrors WadExplorer's look): the set of
+    // expanded folder paths. Local — search mode bypasses it entirely.
+    const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+
+    const toggleFolder = useCallback((fullPath: string) => {
+        setExpandedFolders((prev) => {
+            const next = new Set(prev);
+            if (next.has(fullPath)) next.delete(fullPath); else next.add(fullPath);
+            return next;
+        });
+    }, []);
 
     const unknownChunksCount = useMemo(() => {
         if (!session) return 0;
@@ -225,9 +218,8 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
 
     const nodes = useMemo(() => {
         if (!session) return [];
-        const roots = buildWadTree(session.chunks, '');
-        return getNodesAtDir(roots, currentDir);
-    }, [session?.chunks, currentDir]);
+        return buildWadTree(session.chunks, '');
+    }, [session?.chunks]);
 
     const filteredChunks = useMemo(() => {
         if (!session) return [];
@@ -420,6 +412,80 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
     const totalChunks = session.chunks.length;
     const selectedCount = session.selectedHashes.size;
 
+    // Recursive inline tree render (same row anatomy as WadExplorer): chevron →
+    // checkbox → icon → name, indented by depth. Folders expand/collapse in
+    // place; files preview on click and keep rename + context menus.
+    const renderNode = (node: WadTreeNode, depth: number): React.ReactNode => {
+        const indent = 8 + depth * 14;
+        if (node.type === 'folder') {
+            const isExpanded = expandedFolders.has(node.fullPath);
+            const childHashes = getAllChunkHashes(node.children);
+            const allSelected = childHashes.length > 0 && childHashes.every(h => session.selectedHashes.has(h));
+            const someSelected = !allSelected && childHashes.some(h => session.selectedHashes.has(h));
+            const folderState = allSelected ? 'all' : someSelected ? 'some' : 'none';
+            return (
+                <div key={node.fullPath}>
+                    <div
+                        className="file-tree__item"
+                        style={{ paddingLeft: `${indent}px` }}
+                        onClick={() => toggleFolder(node.fullPath)}
+                        onContextMenu={(e) => handleFolderContextMenu(e, node)}
+                    >
+                        <span className="file-tree__chevron" dangerouslySetInnerHTML={{ __html: getIcon(isExpanded ? 'chevronDown' : 'chevronRight') }} />
+                        <span
+                            className="file-tree__checkbox"
+                            style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0 }}
+                            dangerouslySetInnerHTML={{ __html: checkboxSvg(folderState) }}
+                            onClick={(e) => { e.stopPropagation(); handleToggleFolderSelection(node); }}
+                        />
+                        <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getIcon(isExpanded ? 'folderOpen' : 'folder') }} />
+                        <span className="file-tree__name">{node.name}</span>
+                    </div>
+                    {isExpanded && node.children.map(c => renderNode(c, depth + 1))}
+                </div>
+            );
+        }
+        const chunk = node.chunk;
+        const isSelected = session.selectedHashes.has(chunk.hash);
+        const isPreviewing = session.previewHash === chunk.hash;
+        return (
+            <div
+                key={chunk.hash}
+                className={`file-tree__item${isPreviewing ? ' file-tree__item--selected' : ''}`}
+                style={{ paddingLeft: `${indent + 16}px` }}
+                onClick={() => onPreview(chunk.hash)}
+                onContextMenu={(e) => handleContextMenu(e, chunk)}
+            >
+                <span
+                    className="file-tree__checkbox"
+                    style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0 }}
+                    dangerouslySetInnerHTML={{ __html: checkboxSvg(isSelected ? 'all' : 'none') }}
+                    onClick={(e) => { e.stopPropagation(); onToggleChunk(chunk.hash); }}
+                />
+                <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getFileIcon(node.name, false) }} />
+                {renamingHash === chunk.hash ? (
+                    <input
+                        className="dl-input"
+                        autoFocus
+                        defaultValue={chunk.path ?? ''}
+                        style={{ flex: 1, minWidth: 0, height: '20px', fontSize: '12px' }}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleRenameCommit(chunk, (e.target as HTMLInputElement).value);
+                            else if (e.key === 'Escape') setRenamingHash(null);
+                        }}
+                        onBlur={(e) => handleRenameCommit(chunk, e.target.value)}
+                    />
+                ) : (
+                    <span className="file-tree__name" style={{ flex: 1, minWidth: 0 }}>{node.name}</span>
+                )}
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)', flexShrink: 0, paddingLeft: '8px' }}>
+                    {formatSize(chunk.size)}
+                </span>
+            </div>
+        );
+    };
+
     return (
         <div className="left-panel" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', ...style }}>
             <div className="left-panel__header" style={{ padding: '10px 12px', flexShrink: 0 }}>
@@ -439,152 +505,53 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                 </div>
             </div>
 
-            {!isSearching && (
+            {(unknownChunksCount > 0 || session.readOnly) && (
                 <div style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '4px',
+                    gap: '6px',
                     padding: '6px 12px',
                     background: 'var(--bg-secondary)',
                     borderBottom: '1px solid color-mix(in oklab, var(--border) 60%, transparent)',
                     flexShrink: 0
                 }}>
-                    <button
-                        className="btn btn--sm"
-                        disabled={historyIndex <= 0}
-                        onClick={() => {
-                            if (session) navigateHistory(session.id, 'back');
-                        }}
-                        title="Back"
-                        style={{ padding: '2px 4px', display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 'unset', height: '22px' }}
-                    >
-                        <span dangerouslySetInnerHTML={{ __html: getIcon('chevronLeft') || '←' }} />
-                    </button>
-                    <button
-                        className="btn btn--sm"
-                        disabled={historyIndex >= history.length - 1}
-                        onClick={() => {
-                            if (session) navigateHistory(session.id, 'forward');
-                        }}
-                        title="Forward"
-                        style={{ padding: '2px 4px', display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 'unset', height: '22px' }}
-                    >
-                        <span dangerouslySetInnerHTML={{ __html: getIcon('chevronRight') || '→' }} />
-                    </button>
-                    <button
-                        className="btn btn--sm"
-                        disabled={!currentDir}
-                        onClick={() => {
-                            if (session) navigateHistory(session.id, 'up');
-                        }}
-                        title="Up one folder"
-                        style={{ padding: '2px 4px', display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 'unset', height: '22px' }}
-                    >
-                        <span dangerouslySetInnerHTML={{ __html: getIcon('chevronUp') || '↑' }} />
-                    </button>
-                    <div style={{ width: '1px', height: '14px', background: 'var(--border)', margin: '0 2px' }} />
-                    <div className="welcome-breadcrumb" style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        fontSize: '11px',
-                        color: 'var(--text-muted)',
-                        overflowX: 'auto',
-                        whiteSpace: 'nowrap',
-                        flex: 1,
-                        scrollbarWidth: 'none'
-                    }}>
+                    <span style={{ flex: 1, fontSize: '11px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {session.wadName}
+                    </span>
+                    {unknownChunksCount > 0 && (
                         <button
-                            type="button"
-                            onClick={() => {
-                                if (session) setCurrentDir(session.id, '');
+                            className="btn btn--sm"
+                            onClick={handleUnhashWad}
+                            disabled={isUnhashing}
+                            title={`Scan WAD's BIN/SKN files for asset paths to unhash ${unknownChunksCount} unresolved files`}
+                            style={{
+                                padding: '2px 6px',
+                                fontSize: '10px',
+                                height: '22px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                background: 'color-mix(in oklab, var(--accent-primary) 12%, transparent)',
+                                border: '1px solid color-mix(in oklab, var(--accent-primary) 35%, transparent)',
+                                color: 'var(--accent-primary)',
+                                cursor: 'pointer',
+                                borderRadius: '4px',
+                                flexShrink: 0
                             }}
-                            style={{ background: 'transparent', border: 'none', padding: '2px 4px', borderRadius: '4px', fontSize: '11px', color: currentDir ? 'var(--text-secondary)' : 'var(--text-primary)', fontWeight: currentDir ? 'normal' : '600', cursor: 'pointer', fontFamily: 'inherit' }}
                         >
-                            {session.wadName}
+                            <span dangerouslySetInnerHTML={{ __html: getIcon('wrench') }} />
+                            <span>{isUnhashing ? 'Unhashing...' : 'Unhash'}</span>
                         </button>
-                        {currentDir.split('/').filter(Boolean).map((part, idx, arr) => {
-                            const subPath = arr.slice(0, idx + 1).join('/');
-                            const isLast = idx === arr.length - 1;
-                            return (
-                                <React.Fragment key={subPath}>
-                                    <span style={{ opacity: 0.5 }}>/</span>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            if (session && !isLast) {
-                                                setCurrentDir(session.id, subPath);
-                                            }
-                                        }}
-                                        style={{ background: 'transparent', border: 'none', padding: '2px 4px', borderRadius: '4px', fontSize: '11px', color: isLast ? 'var(--text-primary)' : 'var(--text-secondary)', fontWeight: isLast ? '600' : 'normal', cursor: isLast ? 'default' : 'pointer', fontFamily: 'inherit' }}
-                                        disabled={isLast}
-                                    >
-                                        {part}
-                                    </button>
-                                </React.Fragment>
-                            );
-                        })}
-                    </div>
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        flexShrink: 0,
-                        marginLeft: '8px'
-                    }}>
-                        {unknownChunksCount > 0 && (
-                            <button
-                                className="btn btn--sm"
-                                onClick={handleUnhashWad}
-                                disabled={isUnhashing}
-                                title={`Scan WAD's BIN/SKN files for asset paths to unhash ${unknownChunksCount} unresolved files`}
-                                style={{
-                                    padding: '2px 6px',
-                                    fontSize: '10px',
-                                    height: '22px',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '4px',
-                                    background: 'color-mix(in oklab, var(--accent-primary) 12%, transparent)',
-                                    border: '1px solid color-mix(in oklab, var(--accent-primary) 35%, transparent)',
-                                    color: 'var(--accent-primary)',
-                                    cursor: 'pointer',
-                                    borderRadius: '4px',
-                                    flexShrink: 0
-                                }}
-                            >
-                                <span dangerouslySetInnerHTML={{ __html: getIcon('wrench') }} />
-                                <span>{isUnhashing ? 'Unhashing...' : 'Unhash'}</span>
-                            </button>
-                        )}
-                        {session.readOnly && (
-                            <span
-                                title="This is a game WAD archive. It is read-only and cannot be modified."
-                                style={{ display: 'inline-flex', color: 'var(--error)', cursor: 'help', width: '14px', height: '14px', flexShrink: 0 }}
-                                dangerouslySetInnerHTML={{ __html: getIcon('warning') }}
-                            />
-                        )}
-                    </div>
+                    )}
+                    {session.readOnly && (
+                        <span
+                            title="This is a game WAD archive. It is read-only and cannot be modified."
+                            style={{ display: 'inline-flex', color: 'var(--error)', cursor: 'help', width: '14px', height: '14px', flexShrink: 0 }}
+                            dangerouslySetInnerHTML={{ __html: getIcon('warning') }}
+                        />
+                    )}
                 </div>
             )}
-
-            <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                padding: '6px 12px 6px 52px',
-                borderBottom: '1px solid color-mix(in oklab, var(--border) 60%, transparent)',
-                fontSize: '10px',
-                fontWeight: 600,
-                color: 'var(--text-muted)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                background: 'var(--bg-secondary)',
-                flexShrink: 0
-            }}>
-                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Name</span>
-                <span style={{ width: '60px', flexShrink: 0, paddingLeft: '8px' }}>Type</span>
-                <span style={{ width: '65px', flexShrink: 0, textAlign: 'right' }}>Size</span>
-            </div>
 
             <div className="file-tree" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
                 {session.loading ? (
@@ -602,35 +569,27 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                             const isSelected = session.selectedHashes.has(chunk.hash);
                             const isPreviewing = session.previewHash === chunk.hash;
                             const displayName = chunk.path || chunk.hash;
-                            const ext = displayName.split('.').pop()?.toUpperCase() || 'FILE';
                             return (
                                 <div
                                     key={chunk.hash}
-                                    className={`file-tree__item ${isPreviewing ? 'file-tree__item--selected' : ''}`}
-                                    style={{ paddingLeft: '8px', display: 'flex', alignItems: 'center', height: '28px', cursor: 'pointer' }}
+                                    className={`file-tree__item${isPreviewing ? ' file-tree__item--selected' : ''}`}
+                                    style={{ paddingLeft: '24px' }}
                                     onClick={() => onPreview(chunk.hash)}
                                     onContextMenu={(e) => handleContextMenu(e, chunk)}
-                                    title={displayName}
                                 >
-                                    <input
-                                        type="checkbox"
-                                        className="wad-browser__checkbox"
-                                        checked={isSelected}
-                                        onChange={() => onToggleChunk(chunk.hash)}
-                                        onClick={e => e.stopPropagation()}
-                                        style={{ marginRight: '6px' }}
-                                    />
                                     <span
-                                        className="file-tree__icon"
-                                        style={{ marginRight: '6px', display: 'inline-flex', alignItems: 'center' }}
-                                        dangerouslySetInnerHTML={{ __html: getFileIcon(chunk.path || '', false) }}
+                                        className="file-tree__checkbox"
+                                        style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0 }}
+                                        dangerouslySetInnerHTML={{ __html: checkboxSvg(isSelected ? 'all' : 'none') }}
+                                        onClick={(e) => { e.stopPropagation(); onToggleChunk(chunk.hash); }}
                                     />
+                                    <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getFileIcon(chunk.path || '', false) }} />
                                     {renamingHash === chunk.hash ? (
                                         <input
                                             className="dl-input"
                                             autoFocus
                                             defaultValue={chunk.path ?? ''}
-                                            style={{ flex: 1, minWidth: 0, height: '22px', fontSize: '12px' }}
+                                            style={{ flex: 1, minWidth: 0, height: '20px', fontSize: '12px' }}
                                             onClick={(e) => e.stopPropagation()}
                                             onKeyDown={(e) => {
                                                 if (e.key === 'Enter') handleRenameCommit(chunk, (e.target as HTMLInputElement).value);
@@ -639,14 +598,11 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                                             onBlur={(e) => handleRenameCommit(chunk, e.target.value)}
                                         />
                                     ) : (
-                                        <span className="file-tree__name" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: '12px' }}>
+                                        <span className="file-tree__name" style={{ flex: 1, minWidth: 0 }}>
                                             {displayName}
                                         </span>
                                     )}
-                                    <span style={{ width: '60px', fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0, paddingLeft: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                        {ext}
-                                    </span>
-                                    <span style={{ width: '65px', fontSize: '10px', color: 'var(--text-muted)', textAlign: 'right', paddingRight: '6px', flexShrink: 0 }}>
+                                    <span style={{ fontSize: '10px', color: 'var(--text-muted)', flexShrink: 0, paddingLeft: '8px' }}>
                                         {formatSize(chunk.size)}
                                     </span>
                                 </div>
@@ -658,104 +614,7 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                         WAD folder is empty.
                     </div>
                 ) : (
-                    nodes.map(node => {
-                        if (node.type === 'folder') {
-                            const childHashes = getAllChunkHashes(node.children);
-                            const allSelected = childHashes.length > 0 && childHashes.every(h => session.selectedHashes.has(h));
-                            const someSelected = !allSelected && childHashes.some(h => session.selectedHashes.has(h));
-
-                            return (
-                                <div
-                                    key={node.fullPath}
-                                    className="file-tree__item"
-                                    style={{ paddingLeft: '8px', display: 'flex', alignItems: 'center', height: '28px', cursor: 'pointer' }}
-                                    onClick={() => {}}
-                                    onDoubleClick={() => {
-                                        if (session) setCurrentDir(session.id, node.fullPath);
-                                    }}
-                                    onContextMenu={(e) => handleFolderContextMenu(e, node)}
-                                    title={node.fullPath}
-                                >
-                                    <input
-                                        type="checkbox"
-                                        className="wad-browser__checkbox"
-                                        checked={allSelected}
-                                        ref={el => { if (el) el.indeterminate = someSelected; }}
-                                        onChange={() => handleToggleFolderSelection(node)}
-                                        onClick={e => e.stopPropagation()}
-                                        style={{ marginRight: '6px' }}
-                                    />
-                                    <span
-                                        className="file-tree__icon"
-                                        style={{ marginRight: '6px', display: 'inline-flex', alignItems: 'center', color: 'var(--accent-primary)' }}
-                                        dangerouslySetInnerHTML={{ __html: getIcon('folder') }}
-                                    />
-                                    <span className="file-tree__name" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: '500', paddingRight: '12px' }}>
-                                        {node.name}
-                                    </span>
-                                    <span style={{ width: '60px', fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0, paddingLeft: '8px', textTransform: 'capitalize' }}>
-                                        Folder
-                                    </span>
-                                    <span style={{ width: '65px', fontSize: '10.5px', color: 'var(--text-muted)', textAlign: 'right', paddingRight: '6px', flexShrink: 0 }}>
-                                        {childHashes.length} files
-                                    </span>
-                                </div>
-                            );
-                        } else {
-                            const isSelected = session.selectedHashes.has(node.chunk.hash);
-                            const isPreviewing = session.previewHash === node.chunk.hash;
-                            const ext = node.name.split('.').pop()?.toUpperCase() || 'FILE';
-
-                            return (
-                                <div
-                                    key={node.chunk.hash}
-                                    className={`file-tree__item ${isPreviewing ? 'file-tree__item--selected' : ''}`}
-                                    style={{ paddingLeft: '8px', display: 'flex', alignItems: 'center', height: '28px', cursor: 'pointer' }}
-                                    onClick={() => onPreview(node.chunk.hash)}
-                                    onContextMenu={(e) => handleContextMenu(e, node.chunk)}
-                                    title={node.chunk.path || node.chunk.hash}
-                                >
-                                    <input
-                                        type="checkbox"
-                                        className="wad-browser__checkbox"
-                                        checked={isSelected}
-                                        onChange={() => onToggleChunk(node.chunk.hash)}
-                                        onClick={e => e.stopPropagation()}
-                                        style={{ marginRight: '6px' }}
-                                    />
-                                    <span
-                                        className="file-tree__icon"
-                                        style={{ marginRight: '6px', display: 'inline-flex', alignItems: 'center' }}
-                                        dangerouslySetInnerHTML={{ __html: getFileIcon(node.name, false) }}
-                                    />
-                                    {renamingHash === node.chunk.hash ? (
-                                        <input
-                                            className="dl-input"
-                                            autoFocus
-                                            defaultValue={node.chunk.path ?? ''}
-                                            style={{ flex: 1, minWidth: 0, height: '22px', fontSize: '12px' }}
-                                            onClick={(e) => e.stopPropagation()}
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter') handleRenameCommit(node.chunk, (e.target as HTMLInputElement).value);
-                                                else if (e.key === 'Escape') setRenamingHash(null);
-                                            }}
-                                            onBlur={(e) => handleRenameCommit(node.chunk, e.target.value)}
-                                        />
-                                    ) : (
-                                        <span className="file-tree__name" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: '12px' }}>
-                                            {node.name}
-                                        </span>
-                                    )}
-                                    <span style={{ width: '60px', fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0, paddingLeft: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                        {ext}
-                                    </span>
-                                    <span style={{ width: '65px', fontSize: '10px', color: 'var(--text-muted)', textAlign: 'right', paddingRight: '6px', flexShrink: 0 }}>
-                                        {formatSize(node.chunk.size)}
-                                    </span>
-                                </div>
-                            );
-                        }
-                    })
+                    nodes.map(node => renderNode(node, 0))
                 )}
             </div>
 
