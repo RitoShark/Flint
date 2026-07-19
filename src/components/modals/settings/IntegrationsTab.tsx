@@ -20,7 +20,7 @@ const INTEGRATION_LOGOS: Record<IntegrationDisplay['id'], string> = {
     quartz: '/quartz-logo.webp',
 };
 const IntegrationLogo: React.FC<{ id: IntegrationDisplay['id'] }> = ({ id }) => (
-    <img src={INTEGRATION_LOGOS[id]} alt="" className="integration-card__logo-img" draggable={false} />
+    <img src={INTEGRATION_LOGOS[id]} alt="" className="integration-row__logo-img" draggable={false} />
 );
 export const IntegrationsTab: React.FC<{
     integrations: IntegrationDisplay[];
@@ -43,27 +43,26 @@ export const IntegrationsTab: React.FC<{
         return (
             <div
                 key={i.id}
-                className={`integration-card ${connected ? 'is-connected' : ''} ${isDefault ? 'is-default' : ''}`}
+                className={`integration-row ${connected ? 'is-connected' : ''} ${isDefault ? 'is-default' : ''}`}
                 style={{ ['--logo' as never]: i.accent }}
             >
                 <IntegrationLogo id={i.id} />
-                <div className="integration-card__body">
-                    <div className="integration-card__head">
-                        <strong>{i.name}</strong>
-                        <span className={`dl-badge ${connected ? 'dl-badge--success' : ''}`}>
-                            {connected ? 'Connected' : 'Not connected'}
-                        </span>
-                        {isDefault && <span className="dl-badge dl-badge--warn">Default</span>}
+                <div className="integration-row__body">
+                    <div className="integration-row__line1">
+                        <span className={`integration-row__dot ${connected ? 'is-on' : ''}`} />
+                        <strong className="integration-row__name">{i.name}</strong>
+                        {isDefault && <span className="integration-row__tag">Default</span>}
                     </div>
-                    <p className="integration-card__tagline">{i.tagline}</p>
-                    {connected && <p className="integration-card__path" title={i.path}>{i.path}</p>}
+                    <p className="integration-row__sub" title={connected ? i.path : undefined}>
+                        {connected ? i.path : i.tagline}
+                    </p>
                 </div>
-                <div className="integration-card__actions">
+                <div className="integration-row__actions">
                     {connected ? (
                         <>
                             {isLauncher && !isDefault && (
                                 <button className="dl-btn dl-btn--primary dl-btn--sm" onClick={() => onPreferredLauncherChange(i.id as 'ltk' | 'celestial')}>
-                                    Set as default
+                                    Set default
                                 </button>
                             )}
                             {isLauncher && isDefault && (

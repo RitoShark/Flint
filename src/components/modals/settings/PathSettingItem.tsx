@@ -45,14 +45,10 @@ export const PathSettingItem: React.FC<{ setting: PathSetting }> = ({ setting })
             </span>
             <div className="settings-prow__body">
                 <div className="settings-prow__head">
+                    <span className={`settings-prow__dot ${filled ? 'is-on' : ''}`} />
                     <strong className="settings-prow__name">{setting.label}</strong>
                     {setting.badge && <span className="settings-prow__badge">{setting.badge}</span>}
-                    <span className={`settings-prow__pill ${filled ? 'is-on' : ''}`}>
-                        <span className="settings-prow__pill-dot" />
-                        {filled ? 'Set' : 'Empty'}
-                    </span>
                 </div>
-                {setting.hint && <p className="settings-prow__tagline">{setting.hint}</p>}
                 <div className="settings-prow__field">
                     <Input
                         placeholder={setting.placeholder}

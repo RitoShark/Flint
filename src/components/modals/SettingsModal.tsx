@@ -586,7 +586,7 @@ export const SettingsModal: React.FC = () => {
 
                 <div className="settings-content">
                     {activeTab === 'paths' && (
-                        <div className="settings-panel">
+                        <div className="settings-panel settings-panel--flush">
                             {pathSettings.map((s) => (
                                 <PathSettingItem key={s.label} setting={s} />
                             ))}
