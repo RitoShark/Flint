@@ -1132,7 +1132,6 @@ export const WadExplorer: React.FC = () => {
                         <div
                             className={`file-tree__item${isSelected ? ' file-tree__item--selected' : ''}${isHighlighted ? ' file-tree__item--highlighted' : ''}`}
                             style={{ paddingLeft: row.folderPath ? '44px' : '22px' }}
-                            title={`${row.chunk.path ?? row.chunk.hash}\nSize: ${formatBytes(row.chunk.size)}`}
                             onClick={() => { if (isHighlighted) setHighlightedKey(null); handleSelectFile(row.wadPath, row.chunk); }}
                             onContextMenu={e => { e.preventDefault(); handleContextMenu(row.chunk, row.wadPath, e.clientX, e.clientY); }}
                         >
@@ -1187,7 +1186,6 @@ export const WadExplorer: React.FC = () => {
                             style={{ paddingLeft: '8px' }}
                             onClick={() => { if (isHighlighted) setHighlightedKey(null); handleToggleWad(wad.path); }}
                             onContextMenu={e => { e.preventDefault(); handleWadContextMenu(wad, e.clientX, e.clientY); }}
-                            title={wad.path}
                         >
                             <span className="file-tree__chevron" dangerouslySetInnerHTML={{ __html: getIcon(isExp ? 'chevronDown' : 'chevronRight') }} />
                             <span
@@ -1280,14 +1278,10 @@ export const WadExplorer: React.FC = () => {
                     const isSelected = node.chunk.hash === wadExplorer.selected?.hash && node.wadPath === wadExplorer.selected?.wadPath;
                     const isChecked = wadExplorer.checkedFiles.has(makeFileKey(node.wadPath, node.chunk.hash));
                     const isHighlighted = highlightedKey === `${node.wadPath}::${node.chunk.hash}`;
-                    const tooltip = node.chunk.path
-                        ? `${node.chunk.path}\nHash: ${node.chunk.hash}\nSize: ${formatBytes(node.chunk.size)}`
-                        : `Hash: ${node.chunk.hash}\nSize: ${formatBytes(node.chunk.size)}`;
                     return (
                         <div
                             className={`file-tree__item${isSelected ? ' file-tree__item--selected' : ''}${isHighlighted ? ' file-tree__item--highlighted' : ''}`}
                             style={{ paddingLeft: `${8 + indent + 16}px` }}
-                            title={tooltip}
                             onClick={() => { if (isHighlighted) setHighlightedKey(null); handleSelectFile(node.wadPath, node.chunk); }}
                             onContextMenu={e => { e.preventDefault(); handleContextMenu(node.chunk, node.wadPath, e.clientX, e.clientY); }}
                         >

@@ -630,7 +630,11 @@ pub async fn scan_game_wads(game_path: String) -> Result<Vec<GameWadInfo>, Strin
                 .unwrap_or("Other")
                 .to_string();
             Some(GameWadInfo {
-                path: path.to_string_lossy().to_string(),
+                // Normalize to forward slashes: `Path::join` mixes native `\`
+                // into the forward-slash `game_path`, giving e.g.
+                // `C:/Riot Games/.../Game\DATA\FINAL\...`. Forward slashes are a
+                // valid Windows path and match the rest of the app's convention.
+                path: path.to_string_lossy().replace('\\', "/"),
                 name: name.to_string(),
                 category,
             })
