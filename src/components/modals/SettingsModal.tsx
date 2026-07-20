@@ -726,9 +726,9 @@ export const SettingsModal: React.FC = () => {
                                     </div>
                                 </div>
 
-                                <div className="settings-fcard">
+                                <div className={`settings-fcard ${hashesLoaded ? 'settings-fcard--ok' : 'settings-fcard--warn'}`}>
                                     <div className="settings-fcard__head">
-                                        <span className={`settings-fcard__glyph ${hashesLoaded ? 'settings-fcard__glyph--ok' : 'settings-fcard__glyph--warn'}`}>
+                                        <span className="settings-fcard__glyph">
                                             <Icon name={hashesLoaded ? 'success' : 'warning'} />
                                         </span>
                                         <span className="settings-fcard__title">Hash Database</span>
