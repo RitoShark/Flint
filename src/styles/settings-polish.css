@@ -125,7 +125,10 @@
 }
 .modal--settings .settings-panel { gap: 18px; }
 /* Flush list (Paths) — rows carry their own dividers, no gap between them. */
-.modal--settings .settings-panel--flush { gap: 0; }
+.modal--settings .settings-panel--flush { gap: 0; padding-bottom: 8px; }
+/* The last row in a flush list never draws a divider (belt-and-suspenders in
+   case a wrapper breaks the :last-child match). */
+.modal--settings .settings-panel--flush > .settings-row:last-child { border-bottom: none; }
 
 /* --------------------------------------------------------------------------
    4. Settings items — subtle card surface, refined hover
