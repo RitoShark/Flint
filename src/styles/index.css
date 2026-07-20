@@ -7572,13 +7572,6 @@ input.np-search:focus {
   padding: 0;
 }
 
-.recolor-modal__color-presets {
-  display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  gap: var(--space-xs);
-  margin-top: var(--space-xs);
-}
-
 .recolor-modal__color-btn {
   width: 100%;
   aspect-ratio: 1;
@@ -7596,6 +7589,65 @@ input.np-search:focus {
 .recolor-modal__color-btn--active {
   border-color: #fff;
   box-shadow: 0 0 0 2px var(--accent-primary);
+}
+
+/* Hue slider + live target-colour swatch (opens the preset popover). */
+.recolor-modal__hue-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.recolor-modal__hue-row .form-range {
+  flex: 1;
+  margin: var(--space-sm) 0;
+}
+
+.recolor-modal__swatch-pop { position: relative; flex-shrink: 0; }
+
+.recolor-modal__swatch {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border: 2px solid color-mix(in oklab, #fff 55%, transparent);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, .4),
+    0 2px 8px rgba(0, 0, 0, .35);
+  cursor: pointer;
+  padding: 0;
+  transition: transform var(--transition-fast);
+}
+
+.recolor-modal__swatch:hover { transform: scale(1.08); }
+
+/* Invisible full-screen catch so an outside click closes the popover. */
+.recolor-modal__swatch-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.recolor-modal__presets-popover {
+  position: absolute;
+  z-index: 41;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  padding: 10px;
+  width: 184px;
+  background: color-mix(in oklab, var(--bg-secondary) 82%, transparent);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 18px 40px -14px rgba(0, 0, 0, .6);
+}
+
+.recolor-modal__presets-popover .recolor-modal__color-btn {
+  aspect-ratio: 1;
+  height: auto;
 }
 
 /* Mode hint — translucent glass strip, not a solid grey box. */
@@ -7620,12 +7672,22 @@ input.np-search:focus {
   border-radius: 10px;
   display: flex;
   align-items: center;
-  gap: var(--space-md);
+  gap: 10px;
   color: var(--warning);
   font-size: var(--text-sm);
+  line-height: 1.4;
 }
 
-.recolor-modal__info svg { flex-shrink: 0; }
+/* The Icon wrapper is a <span>; center its glyph and stop it shrinking so it
+   sits on the text's vertical midline instead of the baseline. */
+.recolor-modal__info > span:first-child {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.recolor-modal__info svg { display: block; width: 18px; height: 18px; }
 
 /* --------------------------------------------------------------------------
    SettingsRow primitive, reused inside the recolor modal.

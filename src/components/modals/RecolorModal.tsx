@@ -16,7 +16,7 @@ import {
     Spinner,
 } from '../ui';
 import { SettingsRow } from './settings/SettingsRow';
-import { applyHueShift, applyColorize, applyGrayscaleTint } from '../../lib/recolor/previewPixels';
+import { applyHueShift, applyColorize, applyGrayscaleTint, hslToRgb } from '../../lib/recolor/previewPixels';
 
 interface RecolorModalOptions {
     filePath: string;
@@ -36,10 +36,25 @@ const COLOR_PRESETS = [
     { name: 'Pink', hue: 320, color: '#ff44aa' },
 ];
 
-const MODE_TABS: { id: RecolorMode; label: string; icon: IconName }[] = [
-    { id: 'hueShift', label: 'Hue Shift', icon: 'color-palette' as IconName },
-    { id: 'colorize', label: 'Colorize', icon: 'paint-bucket' as IconName },
-    { id: 'grayscale', label: 'Grayscale + Tint', icon: 'contrast' as IconName },
+const MODE_TABS: { id: RecolorMode; label: string; icon: IconName; hint: string }[] = [
+    {
+        id: 'hueShift',
+        label: 'Hue Shift',
+        icon: 'color-palette' as IconName,
+        hint: 'Rotate every colour around the wheel by a fixed amount, keeping the existing palette relationships — reds become greens, greens become blues, and so on. Also adjusts saturation and brightness.',
+    },
+    {
+        id: 'colorize',
+        label: 'Colorize',
+        icon: 'paint-bucket' as IconName,
+        hint: 'Replace every hue in the texture with one single target colour, while keeping the original brightness/shading so the detail and shape survive. Great for a clean one-colour reskin (e.g. turn a red skin fully blue).',
+    },
+    {
+        id: 'grayscale',
+        label: 'Grayscale + Tint',
+        icon: 'contrast' as IconName,
+        hint: 'Strip the texture to greyscale (luminance only), then lay a subtle wash of the target colour over it — a muted, monochrome tint rather than a full recolour.',
+    },
 ];
 
 interface RangeFieldProps {
@@ -93,6 +108,13 @@ const RangeField: React.FC<RangeFieldProps> = ({
 
 const fileName = (p: string) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p;
 
+/* A vivid, fully-saturated swatch colour for a hue — the live "target colour". */
+const hueToHex = (h: number): string => {
+    const [r, g, b] = hslToRgb(h, 0.85, 0.55);
+    const hex = (n: number) => n.toString(16).padStart(2, '0');
+    return `#${hex(r)}${hex(g)}${hex(b)}`;
+};
+
 export const RecolorModal: React.FC = () => {
     const closeModal = useModalStore((s) => s.closeModal);
     const activeModal = useModalStore((s) => s.activeModal);
@@ -117,6 +139,7 @@ export const RecolorModal: React.FC = () => {
 
     const [targetHue, setTargetHue] = useState(0);
     const [preserveSaturation, setPreserveSaturation] = useState(true);
+    const [presetsOpen, setPresetsOpen] = useState(false);
 
     const [imageData, setImageData] = useState<string | null>(null);
     const [imgLoaded, setImgLoaded] = useState(false);
@@ -165,6 +188,7 @@ export const RecolorModal: React.FC = () => {
             setTexturePaths([]);
             setPreviewIndex(0);
             setShowOriginal(false);
+            setPresetsOpen(false);
             decodeCacheRef.current.clear();
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -350,6 +374,7 @@ export const RecolorModal: React.FC = () => {
                             key={tab.id}
                             className={`recolor-modal__tab ${mode === tab.id ? 'recolor-modal__tab--active' : ''}`}
                             onClick={() => setMode(tab.id)}
+                            title={tab.hint}
                         >
                             <Icon name={tab.icon} />
                             {tab.label}
@@ -466,29 +491,52 @@ export const RecolorModal: React.FC = () => {
                         {(mode === 'colorize' || mode === 'grayscale') && (
                             <>
                                 <FormGroup>
-                                    <FormLabel>Target Color</FormLabel>
-                                    <div className="recolor-modal__color-presets">
-                                        {COLOR_PRESETS.map((preset) => (
+                                    <FormLabel>
+                                        Target Color: {targetHue}° ({getHueName(targetHue)})
+                                    </FormLabel>
+                                    <div className="recolor-modal__hue-row">
+                                        <Range
+                                            min={0}
+                                            max={360}
+                                            step={1}
+                                            value={targetHue}
+                                            onChange={(e) => setTargetHue(parseFloat(e.target.value))}
+                                            hue
+                                        />
+                                        <div className="recolor-modal__swatch-pop">
                                             <button
-                                                key={preset.hue}
-                                                className={`recolor-modal__color-btn ${Math.abs(targetHue - preset.hue) < 10 ? 'recolor-modal__color-btn--active' : ''}`}
-                                                style={{ backgroundColor: preset.color }}
-                                                onClick={() => setTargetHue(preset.hue)}
-                                                title={preset.name}
+                                                type="button"
+                                                className="recolor-modal__swatch"
+                                                style={{ backgroundColor: hueToHex(targetHue) }}
+                                                onClick={() => setPresetsOpen((v) => !v)}
+                                                title="Pick a preset colour"
+                                                aria-label="Pick a preset colour"
+                                                aria-expanded={presetsOpen}
                                             />
-                                        ))}
+                                            {presetsOpen && (
+                                                <>
+                                                    <div
+                                                        className="recolor-modal__swatch-scrim"
+                                                        onClick={() => setPresetsOpen(false)}
+                                                    />
+                                                    <div className="recolor-modal__presets-popover" role="menu">
+                                                        {COLOR_PRESETS.map((preset) => (
+                                                            <button
+                                                                key={preset.hue}
+                                                                type="button"
+                                                                className={`recolor-modal__color-btn ${Math.abs(targetHue - preset.hue) < 10 ? 'recolor-modal__color-btn--active' : ''}`}
+                                                                style={{ backgroundColor: preset.color }}
+                                                                onClick={() => { setTargetHue(preset.hue); setPresetsOpen(false); }}
+                                                                title={preset.name}
+                                                                aria-label={preset.name}
+                                                            />
+                                                        ))}
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
                                     </div>
                                 </FormGroup>
-
-                                <RangeField
-                                    label="Hue"
-                                    value={targetHue}
-                                    formatValue={(v) => `${v}° (${getHueName(v)})`}
-                                    min={0}
-                                    max={360}
-                                    onChange={setTargetHue}
-                                    hue
-                                />
 
                                 {mode === 'colorize' && (
                                     <SettingsRow
