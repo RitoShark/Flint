@@ -7416,13 +7416,15 @@ input.np-search:focus {
   max-width: 900px;
 }
 
+/* Segmented mode tabs — translucent track, glass active pill. */
 .recolor-modal__tabs {
   display: flex;
   gap: 2px;
   margin-bottom: var(--space-lg);
-  background-color: var(--bg-tertiary);
+  background: color-mix(in oklab, var(--bg-primary) 40%, transparent);
   padding: 4px;
   border-radius: var(--radius-md);
+  border: 1px solid var(--border);
 }
 
 .recolor-modal__tab {
@@ -7448,60 +7450,73 @@ input.np-search:focus {
 }
 
 .recolor-modal__tab--active {
-  background-color: var(--accent-primary);
-  color: white;
+  background: color-mix(in oklab, var(--accent-primary) 88%, transparent);
+  color: #fff;
+  box-shadow: 0 2px 10px -3px color-mix(in oklab, var(--accent-primary) 60%, transparent);
 }
 
 .recolor-modal__tab--active:hover {
   background-color: var(--accent-hover);
-  color: white;
+  color: #fff;
 }
 
-.recolor-modal__tab span {
-  display: inline-flex;
-  width: 16px;
-  height: 16px;
-}
-
-.recolor-modal__tab span svg {
-  width: 16px;
-  height: 16px;
-}
+.recolor-modal__tab span { display: inline-flex; width: 16px; height: 16px; }
+.recolor-modal__tab span svg { width: 16px; height: 16px; display: block; }
 
 .recolor-modal__top {
   display: flex;
   gap: var(--space-xl);
 }
 
+/* Preview column: the frameless canvas surface + swap control beneath it. */
+.recolor-modal__preview-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
 .recolor-modal__preview {
   flex: 1;
-  min-height: 450px;
-  background-color: #000;
+  min-height: 420px;
+  background:
+    linear-gradient(color-mix(in oklab, var(--bg-primary) 55%, transparent),
+                    color-mix(in oklab, var(--bg-primary) 70%, transparent)),
+    repeating-conic-gradient(#2a2a2a 0% 25%, #202020 0% 50%) 0 0 / 22px 22px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
+  border-radius: 14px;
   overflow: hidden;
   cursor: pointer;
   position: relative;
 }
 
-.recolor-modal__preview:hover .recolor-modal__preview-badge {
-  opacity: 1;
+.recolor-modal__canvas {
+  max-width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+  display: block;
+  image-rendering: auto;
 }
+
+.recolor-modal__preview:hover .recolor-modal__preview-badge { opacity: 1; }
 
 .recolor-modal__preview-badge {
   position: absolute;
   top: var(--space-sm);
   left: var(--space-sm);
-  background-color: rgba(0, 0, 0, 0.7);
+  background: color-mix(in oklab, var(--bg-primary) 55%, transparent);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+  border: 1px solid var(--border);
   padding: 4px 12px;
-  border-radius: var(--radius-sm);
+  border-radius: 999px;
   font-size: var(--text-xs);
   color: var(--text-primary);
-  opacity: 0.7;
+  opacity: 0.75;
   transition: opacity var(--transition-fast);
 }
 
@@ -7520,11 +7535,40 @@ input.np-search:focus {
   opacity: 0.5;
 }
 
+/* Prev / next texture swap control (folder mode). */
+.recolor-modal__swap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: 6px 8px;
+  background: color-mix(in oklab, var(--bg-primary) 40%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.recolor-modal__swap-label {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recolor-modal__swap-count {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
 .recolor-modal__controls {
-  width: 320px;
+  width: 340px;
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
+  gap: var(--space-sm);
   padding: 0;
 }
 
@@ -7550,40 +7594,104 @@ input.np-search:focus {
 }
 
 .recolor-modal__color-btn--active {
-  border-color: white;
+  border-color: #fff;
   box-shadow: 0 0 0 2px var(--accent-primary);
 }
 
+/* Mode hint — translucent glass strip, not a solid grey box. */
 .recolor-modal__mode-hint {
-  padding: var(--space-md);
-  background-color: var(--bg-tertiary);
-  border-radius: var(--radius-sm);
+  padding: 10px var(--space-md);
+  background: color-mix(in oklab, var(--bg-primary) 34%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 10px;
   font-size: var(--text-sm);
   color: var(--text-secondary);
   line-height: 1.5;
 }
 
-.recolor-modal__mode-hint p {
-  margin: 0;
-}
+.recolor-modal__mode-hint p { margin: 0; }
 
-.recolor-modal__checkpoint {
-  margin-top: auto;
-  padding-top: var(--space-md);
-  border-top: 1px solid var(--border);
-}
-
+/* Overwrite warning — subtle tinted glass. */
 .recolor-modal__info {
   margin-top: var(--space-lg);
   padding: var(--space-md);
-  background-color: rgba(210, 153, 34, 0.1);
-  border: 1px solid var(--warning);
-  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--warning) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--warning) 45%, transparent);
+  border-radius: 10px;
   display: flex;
   align-items: center;
   gap: var(--space-md);
   color: var(--warning);
   font-size: var(--text-sm);
+}
+
+.recolor-modal__info svg { flex-shrink: 0; }
+
+/* --------------------------------------------------------------------------
+   SettingsRow primitive, reused inside the recolor modal.
+   The base .settings-row* rules are scoped to .modal--settings, so mirror the
+   needed pieces locally here (frameless clickable toggle rows, glass hover).
+   -------------------------------------------------------------------------- */
+.recolor-modal .settings-row {
+  display: grid;
+  grid-template-columns: 40px 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 12px;
+  border-radius: 12px;
+  position: relative;
+  transition: background var(--transition-fast);
+}
+
+.recolor-modal .settings-row--clickable { cursor: pointer; }
+.recolor-modal .settings-row--clickable button,
+.recolor-modal .settings-row--clickable input { cursor: pointer; }
+
+.recolor-modal .settings-row:hover {
+  background:
+    radial-gradient(120% 140% at 0% 50%,
+      color-mix(in oklab, var(--accent-primary) 10%, transparent) 0%,
+      transparent 60%);
+}
+
+.recolor-modal .settings-row__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--bg-primary) 40%, transparent);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.recolor-modal .settings-row__icon svg { display: block; width: 20px; height: 20px; }
+
+.recolor-modal .settings-row__body { display: grid; gap: 4px; min-width: 0; }
+
+.recolor-modal .settings-row__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.recolor-modal .settings-row__title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.recolor-modal .settings-row__sub {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.recolor-modal .settings-row__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .form-range {
@@ -7632,44 +7740,6 @@ input.np-search:focus {
 
 .form-range--hue {
   background: linear-gradient(to right, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%) !important;
-}
-
-.recolor-modal__preview-hint {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  text-align: center;
-  margin-top: var(--space-sm);
-  background-color: rgba(0, 0, 0, 0.4);
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
-}
-
-.recolor-modal__image-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 100%;
-  gap: var(--space-sm);
-}
-
-.recolor-modal__previews {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  width: 100%;
-}
-
-.recolor-modal__previews--dual {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-md);
-}
-
-.recolor-modal__previews img {
-  width: 100%;
-  height: auto;
-  min-height: 100px;
-  max-height: 450px !important;
 }
 
 /* --------------------------------------------------------------------------
