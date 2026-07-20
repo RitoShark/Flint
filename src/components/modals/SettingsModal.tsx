@@ -928,9 +928,6 @@ export const SettingsModal: React.FC = () => {
             </div>
 
             <ModalFooter>
-                <Button variant="secondary" onClick={closeModal}>
-                    Cancel
-                </Button>
                 <Button
                     variant="success"
                     icon="success"
