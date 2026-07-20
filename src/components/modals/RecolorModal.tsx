@@ -140,6 +140,7 @@ export const RecolorModal: React.FC = () => {
     const [targetHue, setTargetHue] = useState(0);
     const [preserveSaturation, setPreserveSaturation] = useState(true);
     const [presetsOpen, setPresetsOpen] = useState(false);
+    const [hoverTab, setHoverTab] = useState<RecolorMode | null>(null);
 
     const [imageData, setImageData] = useState<string | null>(null);
     const [imgLoaded, setImgLoaded] = useState(false);
@@ -158,8 +159,15 @@ export const RecolorModal: React.FC = () => {
     // Decode cache so cycling back to an already-seen texture is instant.
     const decodeCacheRef = useRef<Map<string, string>>(new Map());
 
+    // Zoom / pan on the preview.
+    const [zoom, setZoom] = useState(1);
+    const [pan, setPan] = useState({ x: 0, y: 0 });
+    const panDragRef = useRef<{ x: number; y: number; ox: number; oy: number; moved: boolean } | null>(null);
+
+    const resetView = useCallback(() => { setZoom(1); setPan({ x: 0, y: 0 }); }, []);
+
     // The <img> must reload whenever the source changes before we can redraw.
-    useEffect(() => { setImgLoaded(false); }, [imageData]);
+    useEffect(() => { setImgLoaded(false); resetView(); }, [imageData, resetView]);
 
     const isVisible = activeModal === 'recolor';
     const options = modalOptions as RecolorModalOptions | null;
@@ -358,6 +366,43 @@ export const RecolorModal: React.FC = () => {
         setPreviewIndex((i) => (i + delta + texturePaths.length) % texturePaths.length);
     };
 
+    const MIN_ZOOM = 1;
+    const MAX_ZOOM = 8;
+
+    const handleWheel = (e: React.WheelEvent) => {
+        if (!imageData) return;
+        e.preventDefault();
+        setZoom((z) => {
+            const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+            if (next === MIN_ZOOM) setPan({ x: 0, y: 0 });
+            return next;
+        });
+    };
+
+    const handlePreviewPointerDown = (e: React.PointerEvent) => {
+        if (!imageData || zoom <= MIN_ZOOM) return; // only pan when zoomed in
+        panDragRef.current = { x: e.clientX, y: e.clientY, ox: pan.x, oy: pan.y, moved: false };
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    };
+
+    const handlePreviewPointerMove = (e: React.PointerEvent) => {
+        const d = panDragRef.current;
+        if (!d) return;
+        const dx = e.clientX - d.x;
+        const dy = e.clientY - d.y;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) d.moved = true;
+        setPan({ x: d.ox + dx, y: d.oy + dy });
+    };
+
+    const handlePreviewPointerUp = (e: React.PointerEvent) => {
+        const d = panDragRef.current;
+        panDragRef.current = null;
+        try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* noop */ }
+        // A real drag shouldn't also toggle original/preview.
+        if (d && !d.moved && imageData) setShowOriginal((v) => !v);
+        else if (!d && imageData) setShowOriginal((v) => !v); // plain click when not zoomed
+    };
+
     const hasSwap = isFolder && texturePaths.length > 1;
     const currentTexName = isFolder && texturePaths.length > 0
         ? fileName(texturePaths[previewIndex])
@@ -370,24 +415,37 @@ export const RecolorModal: React.FC = () => {
             <ModalBody>
                 <div className="recolor-modal__tabs">
                     {MODE_TABS.map((tab) => (
-                        <button
+                        <div
                             key={tab.id}
-                            className={`recolor-modal__tab ${mode === tab.id ? 'recolor-modal__tab--active' : ''}`}
-                            onClick={() => setMode(tab.id)}
-                            title={tab.hint}
+                            className="recolor-modal__tab-wrap"
+                            onMouseEnter={() => setHoverTab(tab.id)}
+                            onMouseLeave={() => setHoverTab((h) => (h === tab.id ? null : h))}
                         >
-                            <Icon name={tab.icon} />
-                            {tab.label}
-                        </button>
+                            <button
+                                className={`recolor-modal__tab ${mode === tab.id ? 'recolor-modal__tab--active' : ''}`}
+                                onClick={() => setMode(tab.id)}
+                            >
+                                <Icon name={tab.icon} />
+                                {tab.label}
+                            </button>
+                            {hoverTab === tab.id && (
+                                <div className="recolor-modal__tab-tip" role="tooltip">
+                                    <strong>{tab.label}</strong>
+                                    {tab.hint}
+                                </div>
+                            )}
+                        </div>
                     ))}
                 </div>
 
                 <div className="recolor-modal__top">
                     <div className="recolor-modal__preview-wrap">
                         <div
-                            className="recolor-modal__preview"
-                            onClick={() => imageData && setShowOriginal((v) => !v)}
-                            title="Click to toggle original / preview"
+                            className={`recolor-modal__preview ${zoom > 1 ? 'is-zoomed' : ''}`}
+                            onWheel={handleWheel}
+                            onPointerDown={handlePreviewPointerDown}
+                            onPointerMove={handlePreviewPointerMove}
+                            onPointerUp={handlePreviewPointerUp}
                         >
                             {loading && <Spinner />}
 
@@ -404,11 +462,29 @@ export const RecolorModal: React.FC = () => {
 
                             {imageData ? (
                                 <>
-                                    <canvas ref={canvasRef} className="recolor-modal__canvas" />
+                                    <canvas
+                                        ref={canvasRef}
+                                        className="recolor-modal__canvas"
+                                        style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
+                                    />
                                     <div className="recolor-modal__preview-badge">
                                         {showOriginal ? 'Original' : 'Preview'}
-                                        <span className="text-muted"> — Click to toggle</span>
+                                        <span className="text-muted">{zoom > 1 ? ' — drag to pan' : ' — click to toggle'}</span>
                                     </div>
+                                    {zoom > 1 && (
+                                        <div className="recolor-modal__zoom-badge">
+                                            {Math.round(zoom * 100)}%
+                                            <button
+                                                type="button"
+                                                className="recolor-modal__zoom-reset"
+                                                onClick={(e) => { e.stopPropagation(); resetView(); }}
+                                                title="Reset zoom"
+                                            >
+                                                Reset
+                                            </button>
+                                        </div>
+                                    )}
+                                    <div className="recolor-modal__zoom-hint">Scroll to zoom</div>
                                 </>
                             ) : !isFolder ? (
                                 <div className="recolor-modal__placeholder">Loading preview…</div>
@@ -548,13 +624,6 @@ export const RecolorModal: React.FC = () => {
                                     />
                                 )}
 
-                                <div className="recolor-modal__mode-hint">
-                                    {mode === 'colorize' ? (
-                                        <p>Colorize replaces all hues with a single color while keeping the original shading and detail.</p>
-                                    ) : (
-                                        <p>Grayscale + Tint converts to monochrome and applies a subtle color overlay.</p>
-                                    )}
-                                </div>
                             </>
                         )}
 
