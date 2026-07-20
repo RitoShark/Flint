@@ -22,22 +22,39 @@ export const SettingsRow: React.FC<{
     actions?: React.ReactNode;
     /** Brand accent for the tag/hover tint. */
     accent?: string;
-}> = ({ icon, title, on, tags, sub, subTitle, actions, accent }) => (
-    <div className="settings-row" style={accent ? ({ ['--logo' as never]: accent }) : undefined}>
-        <span className="settings-row__icon" aria-hidden="true">{icon}</span>
-        <div className="settings-row__body">
-            <div className="settings-row__head">
-                {on !== undefined && <span className={`settings-row__dot ${on ? 'is-on' : ''}`} />}
-                <strong className="settings-row__title">{title}</strong>
-                {tags}
+    /** Makes the whole row a clickable toggle (e.g. a settings switch). Clicks
+     *  on real controls in `actions`/`sub` are ignored so they don't double-fire. */
+    onActivate?: () => void;
+}> = ({ icon, title, on, tags, sub, subTitle, actions, accent, onActivate }) => {
+    const handleClick = onActivate
+        ? (e: React.MouseEvent) => {
+            // Ignore clicks that land on an interactive control — let it handle
+            // itself (avoids toggling twice when the switch/button is clicked).
+            if ((e.target as HTMLElement).closest('button, input, textarea, a, label, select')) return;
+            onActivate();
+        }
+        : undefined;
+    return (
+        <div
+            className={`settings-row ${onActivate ? 'settings-row--clickable' : ''}`}
+            style={accent ? ({ ['--logo' as never]: accent }) : undefined}
+            onClick={handleClick}
+        >
+            <span className="settings-row__icon" aria-hidden="true">{icon}</span>
+            <div className="settings-row__body">
+                <div className="settings-row__head">
+                    {on !== undefined && <span className={`settings-row__dot ${on ? 'is-on' : ''}`} />}
+                    <strong className="settings-row__title">{title}</strong>
+                    {tags}
+                </div>
+                {sub !== undefined && (
+                    <div className="settings-row__sub" title={subTitle}>{sub}</div>
+                )}
             </div>
-            {sub !== undefined && (
-                <div className="settings-row__sub" title={subTitle}>{sub}</div>
-            )}
+            {actions && <div className="settings-row__actions">{actions}</div>}
         </div>
-        {actions && <div className="settings-row__actions">{actions}</div>}
-    </div>
-);
+    );
+};
 
 /** A small brand-tinted tag (Default / LIVE / PBE). */
 export const SettingsTag: React.FC<{ children: React.ReactNode }> = ({ children }) => (

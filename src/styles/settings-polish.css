@@ -681,6 +681,11 @@
     transition: background var(--motion-fast);
 }
 .modal--settings .settings-row:last-child { border-bottom: none; }
+.modal--settings .settings-row--clickable { cursor: pointer; }
+/* Keep the interactive control itself on its own cursor. */
+.modal--settings .settings-row--clickable .settings-toggle,
+.modal--settings .settings-row--clickable button,
+.modal--settings .settings-row--clickable input { cursor: pointer; }
 /* Really subtle, edgeless warm-up on hover — a soft radial tint fading out
    before the row edges, so there's no boxy frame. */
 .modal--settings .settings-row:hover {

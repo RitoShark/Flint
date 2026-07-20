@@ -630,12 +630,14 @@ export const SettingsModal: React.FC = () => {
                                 icon={<Icon name="code" />}
                                 title="Verbose Logging"
                                 sub={<span className="settings-row__sub">Show detailed debug output in the log panel</span>}
+                                onActivate={() => setVerboseLogging(!verboseLogging)}
                                 actions={<Checkbox toggle checked={verboseLogging} onChange={(e) => setVerboseLogging(e.target.checked)} />}
                             />
                             <SettingsRow
                                 icon={<Icon name="download" />}
                                 title="Automatic Updates"
                                 sub={<span className="settings-row__sub">Automatically download and install updates before Flint opens</span>}
+                                onActivate={() => setAutoUpdateEnabled(!autoUpdateEnabled)}
                                 actions={<Checkbox toggle checked={autoUpdateEnabled} onChange={(e) => setAutoUpdateEnabled(e.target.checked)} />}
                             />
 
