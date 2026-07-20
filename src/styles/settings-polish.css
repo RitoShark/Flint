@@ -946,8 +946,11 @@
    ========================================================================== */
 .modal--settings .theme-preset-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+@media (max-width: 560px) {
+    .modal--settings .theme-preset-grid { grid-template-columns: repeat(2, 1fr); }
 }
 .modal--settings .theme-custom-accent {
     display: flex;
