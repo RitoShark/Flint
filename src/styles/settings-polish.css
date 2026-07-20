@@ -773,19 +773,20 @@
 
 .modal--settings .dev-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 10px;
-    margin-bottom: 6px;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 12px;
+    margin-bottom: 10px;
 }
 .modal--settings .dev-tile {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 4px;
-    padding: 12px;
+    gap: 8px;
+    padding: 18px 16px;
+    min-height: 108px;
     text-align: left;
     border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
-    border-radius: 10px;
+    border-radius: 12px;
     background: color-mix(in oklab, var(--bg-primary) 22%, transparent);
     color: var(--text-primary);
     cursor: pointer;
@@ -793,26 +794,35 @@
     transition: border-color var(--motion-fast), background var(--motion-fast), transform var(--motion-fast);
 }
 .modal--settings .dev-tile:hover:not(:disabled) {
-    transform: translateY(-1px);
+    transform: translateY(-2px);
     border-color: color-mix(in oklab, var(--accent-primary) 35%, var(--border));
-    background: color-mix(in oklab, var(--accent-primary) 6%, transparent);
+    background: color-mix(in oklab, var(--accent-primary) 7%, transparent);
+    box-shadow: 0 6px 20px -12px color-mix(in oklab, var(--accent-primary) 55%, transparent);
 }
 .modal--settings .dev-tile:disabled { opacity: 0.45; cursor: not-allowed; }
+/* Icon in a small tinted chip so tiles have structure. */
 .modal--settings .dev-tile__ico {
+    width: 34px;
+    height: 34px;
     display: inline-flex;
-    line-height: 0;
-    color: color-mix(in oklab, var(--accent-primary) 55%, var(--text-secondary));
+    align-items: center;
+    justify-content: center;
+    border-radius: 9px;
+    color: color-mix(in oklab, var(--accent-primary) 60%, var(--text-primary));
+    background: color-mix(in oklab, var(--accent-primary) 12%, transparent);
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 20%, transparent);
+    margin-bottom: 2px;
 }
 .modal--settings .dev-tile__ico svg { display: block; width: 18px; height: 18px; }
 .modal--settings .dev-tile__label {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     letter-spacing: -0.005em;
 }
 .modal--settings .dev-tile__desc {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-muted);
-    line-height: 1.35;
+    line-height: 1.4;
 }
 
 /* Section subheader used across tabs (General: Preferences / Updates / System). */
