@@ -28,6 +28,7 @@ import { ThemePresetGrid } from './settings/ThemeTab';
 import { CreatorTab } from './settings/CreatorTab';
 import { IntegrationsTab } from './settings/IntegrationsTab';
 import { SettingsRow, SettingsTag } from './settings/SettingsRow';
+import { getIcon } from '../../lib/ui-helpers/fileIcons';
 
 export const SettingsModal: React.FC = () => {
     const closeModal = useModalStore((s) => s.closeModal);
@@ -826,294 +827,100 @@ export const SettingsModal: React.FC = () => {
                     )}
 
                     {activeTab === 'dev' && (
-                        <div className="settings-panel">
-                            {import.meta.env.DEV && (
-                                <div className="settings-item">
-                                    <label className="settings-item__label">
-                                        UI Primitives Preview
-                                        <span className="settings-item__badge">Dev only</span>
-                                    </label>
-                                    <div className="settings-item__hint" style={{ marginBottom: 8 }}>
-                                        Opens a fullscreen showcase of every component in the design system —
-                                        Button, Checkbox, Toggle, Radio, Dropdown, Modal, Input, Range, Spinner,
-                                        ProgressBar — in every variant. Use it to audit visual consistency
-                                        after style or theme changes.
+                        <div className="settings-panel settings-panel--flush">
+                            <div className="dev-header">
+                                <span className="dev-header__glyph"><Icon name="code" /></span>
+                                <div className="dev-header__text">
+                                    <div className="dev-header__title">
+                                        Developer Tools
+                                        <span className="dl-badge dl-badge--warn">{import.meta.env.DEV ? 'Dev build' : 'Advanced'}</span>
                                     </div>
-                                    <Button
-                                        variant="primary"
-                                        icon="info"
-                                        onClick={() => setShowUIPreview(true)}
-                                    >
-                                        Open UI Showcase
-                                    </Button>
+                                    <p className="dev-header__sub">
+                                        Internal utilities and schema extractors. Handle with care — these scan your
+                                        whole League install and write files to disk.
+                                    </p>
                                 </div>
-                            )}
-
-                            {import.meta.env.DEV && (
-                                <div className="settings-item">
-                                    <label className="settings-item__label">
-                                        Replay First-Time Setup
-                                        <span className="settings-item__badge">Dev only</span>
-                                    </label>
-                                    <div className="settings-item__hint" style={{ marginBottom: 8 }}>
-                                        Reopens the full-screen welcome wizard so you can re-test the onboarding
-                                        flow without wiping your settings. Closes the Settings modal first.
-                                    </div>
-                                    <Button
-                                        variant="secondary"
-                                        icon="refresh"
-                                        onClick={() => {
-                                            closeModal();
-                                            setTimeout(() => {
-                                                useModalStore.getState().openModal('firstTimeSetup');
-                                            }, 300);
-                                        }}
-                                    >
-                                        Replay Setup Wizard
-                                    </Button>
-                                </div>
-                            )}
-
-                            <div className="settings-item">
-                                <label className="settings-item__label">
-                                    Replay Tutorial
-                                    <span className="settings-item__badge">Dev only</span>
-                                </label>
-                                <div className="settings-item__hint" style={{ marginBottom: 8 }}>
-                                    Restarts the first-run guided tour from the beginning. Clears the
-                                    "onboarding done" flag and triggers the overlay immediately — useful
-                                    when validating tooltips after UI changes.
-                                </div>
-                                <Button
-                                    variant="secondary"
-                                    size="sm"
-                                    icon="info"
-                                    onClick={() => {
-                                        closeModal();
-                                        setTimeout(() => triggerTutorialReplay(), 320);
-                                    }}
-                                >
-                                    Restart Tutorial
-                                </Button>
                             </div>
 
                             {import.meta.env.DEV && (
-                                <div className="settings-item">
-                                    <label className="settings-item__label">
-                                        Test What's New Popup
-                                        <span className="settings-item__badge">Dev only</span>
-                                    </label>
-                                    <div className="settings-item__hint" style={{ marginBottom: 8 }}>
-                                        Preview the version update announcement modal without needing to clear your localStorage or bump the app version.
+                                <>
+                                    <div className="settings-subhead">Debug utilities · dev build only</div>
+                                    <div className="dev-grid">
+                                        <button className="dev-tile" onClick={() => setShowUIPreview(true)}>
+                                            <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('picture') }} />
+                                            <span className="dev-tile__label">UI Showcase</span>
+                                            <span className="dev-tile__desc">Every component, every variant</span>
+                                        </button>
+                                        <button className="dev-tile" onClick={() => { closeModal(); setTimeout(() => useModalStore.getState().openModal('firstTimeSetup'), 300); }}>
+                                            <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('refresh') }} />
+                                            <span className="dev-tile__label">Replay Setup</span>
+                                            <span className="dev-tile__desc">Reopen the welcome wizard</span>
+                                        </button>
+                                        <button className="dev-tile" onClick={() => { closeModal(); setTimeout(() => triggerTutorialReplay(), 320); }}>
+                                            <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('info') }} />
+                                            <span className="dev-tile__label">Restart Tutorial</span>
+                                            <span className="dev-tile__desc">Replay the guided tour</span>
+                                        </button>
+                                        <button className="dev-tile" onClick={() => openModal('whatsNew', {})}>
+                                            <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('info') }} />
+                                            <span className="dev-tile__label">What&rsquo;s New</span>
+                                            <span className="dev-tile__desc">Preview the update popup</span>
+                                        </button>
                                     </div>
-                                    <Button
-                                        variant="secondary"
-                                        size="sm"
-                                        icon="info"
-                                        onClick={() => openModal('whatsNew', {})}
-                                    >
-                                        Show What's New
-                                    </Button>
-                                </div>
+                                </>
                             )}
 
-
-                            <div className="settings-item">
-                                <label className="settings-item__label">BIN Schema Aggregator</label>
-                                <div className="settings-item__hint" style={{ marginBottom: 8 }}>
-                                    Scans all WAD archives in your League installation and extracts the complete
-                                    BIN class/field schema. Parses every BIN, unions all fields per class, and
-                                    outputs a ritobin-style schema reference with value ranges.
-                                </div>
-                                <Button
-                                    size="sm"
-                                    icon="download"
-                                    onClick={handleAggregateBinSchema}
-                                    disabled={isAggregating || !leaguePath}
-                                >
-                                    {isAggregating ? 'Aggregating...' : 'Get BIN Entries'}
-                                </Button>
-                                {!leaguePath && (
-                                    <div className="settings-item__hint" style={{ color: 'var(--color-warning)', marginTop: 4 }}>
-                                        Configure League path in the Paths tab first
-                                    </div>
-                                )}
+                            <div className="settings-subhead">Schema extractors</div>
+                            {!leaguePath && (
+                                <p className="dev-warn">Configure your League path in the Paths tab to enable these.</p>
+                            )}
+                            <div className="dev-grid">
+                                <button className="dev-tile" onClick={handleAggregateBinSchema} disabled={isAggregating || !leaguePath} title="Scans all WADs and unions every BIN class/field into a ritobin-style schema.">
+                                    <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('code') }} />
+                                    <span className="dev-tile__label">{isAggregating ? 'Aggregating…' : 'BIN Entries'}</span>
+                                    <span className="dev-tile__desc">All WADs → full BIN schema</span>
+                                </button>
+                                <button className="dev-tile" onClick={handleAggregateChampionSchema} disabled={isAggregatingChampion || !leaguePath} title="Champions WAD only: skin BINs + linked data BINs, merged into one ritobin block file.">
+                                    <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('code') }} />
+                                    <span className="dev-tile__label">{isAggregatingChampion ? 'Building…' : 'Champion'}</span>
+                                    <span className="dev-tile__desc">Skin + linked data BINs</span>
+                                </button>
+                                <button className="dev-tile" onClick={handleAggregateTftSchema} disabled={isAggregatingTft || !leaguePath} title="TFT WADs: companions + map-mode data (traits, items, augments), merged into one ritobin file.">
+                                    <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('code') }} />
+                                    <span className="dev-tile__label">{isAggregatingTft ? 'Building…' : 'TFT'}</span>
+                                    <span className="dev-tile__desc">Companions + mode data</span>
+                                </button>
+                                <button className="dev-tile" onClick={handleBuildLuabinSchema} disabled={isAggregatingLuabins || !leaguePath} title="Finds all .luabin/.luabin64 chunks and merges their global assignments into luabin-schema.lua.">
+                                    <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('code') }} />
+                                    <span className="dev-tile__label">{isAggregatingLuabins ? 'Building…' : 'Luabin'}</span>
+                                    <span className="dev-tile__desc">Global vars → schema.lua</span>
+                                </button>
+                                <button className="dev-tile" onClick={handleAggregateTroybinSchema} disabled={isAggregatingTroybin || !leaguePath} title="Picks up all .troybin files and merges every class property into one ritobin file.">
+                                    <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('code') }} />
+                                    <span className="dev-tile__label">{isAggregatingTroybin ? 'Building…' : 'Troybin'}</span>
+                                    <span className="dev-tile__desc">All .troybin → schema</span>
+                                </button>
                             </div>
 
                             {isAggregating && schemaProgress && <SchemaProgressView progress={schemaProgress} />}
                             {schemaResult && !isAggregating && (
-                                <SchemaResultView
-                                    classes={schemaResult.classes_found}
-                                    fields={schemaResult.total_fields}
-                                    binsParsed={schemaResult.bins_parsed}
-                                    binsFailed={schemaResult.bins_failed}
-                                    wads={schemaResult.wads_scanned}
-                                    outputPath={schemaResult.output_path}
-                                />
+                                <SchemaResultView classes={schemaResult.classes_found} fields={schemaResult.total_fields} binsParsed={schemaResult.bins_parsed} binsFailed={schemaResult.bins_failed} wads={schemaResult.wads_scanned} outputPath={schemaResult.output_path} />
                             )}
-
-                            <div
-                                className="settings-item"
-                                style={{ marginTop: 16 }}
-                            >
-                                <label className="settings-item__label">Champion BIN Schema Creator</label>
-                                <div className="settings-item__hint" style={{ marginBottom: 8 }}>
-                                    Walks only the Champions WAD folder, picks skin BINs and the data BINs they
-                                    link to — excludes champion-root, root.bin, animation, and corrupt BINs.
-                                    Merges every property of every class globally and emits ONE synthetic ritobin
-                                    file in real block syntax (with brackets). Copy any block straight into a
-                                    .ritobin file.
-                                </div>
-                                <Button
-                                    size="sm"
-                                    icon="download"
-                                    onClick={handleAggregateChampionSchema}
-                                    disabled={isAggregatingChampion || !leaguePath}
-                                >
-                                    {isAggregatingChampion ? 'Building...' : 'Build Champion Schema'}
-                                </Button>
-                                {!leaguePath && (
-                                    <div className="settings-item__hint" style={{ color: 'var(--color-warning)', marginTop: 4 }}>
-                                        Configure League path in the Paths tab first
-                                    </div>
-                                )}
-                            </div>
-
-                            {isAggregatingChampion && championSchemaProgress && (
-                                <SchemaProgressView progress={championSchemaProgress} />
-                            )}
+                            {isAggregatingChampion && championSchemaProgress && <SchemaProgressView progress={championSchemaProgress} />}
                             {championSchemaResult && !isAggregatingChampion && (
-                                <SchemaResultView
-                                    classes={championSchemaResult.classes_found}
-                                    fields={championSchemaResult.total_fields}
-                                    binsParsed={championSchemaResult.bins_parsed}
-                                    binsFailed={championSchemaResult.bins_failed}
-                                    wads={championSchemaResult.wads_scanned}
-                                    outputPath={championSchemaResult.output_path}
-                                    label="LinkedData BINs"
-                                />
+                                <SchemaResultView classes={championSchemaResult.classes_found} fields={championSchemaResult.total_fields} binsParsed={championSchemaResult.bins_parsed} binsFailed={championSchemaResult.bins_failed} wads={championSchemaResult.wads_scanned} outputPath={championSchemaResult.output_path} label="LinkedData BINs" />
                             )}
-
-                            <div
-                                className="settings-item"
-                                style={{ marginTop: 16 }}
-                            >
-                                <label className="settings-item__label">TFT BIN Schema Creator</label>
-                                <div className="settings-item__hint" style={{ marginBottom: 8 }}>
-                                    Scans only the Teamfight Tactics WADs — Companions.wad.client
-                                    (Little Legends / Tacticians) and the TFT game-mode map WADs
-                                    (Maps/Shipping/Map22) holding traits, items, augments, and unit
-                                    data. Parses every BIN, merges every property of every class
-                                    globally, and emits ONE synthetic ritobin file in real block
-                                    syntax (with brackets). Copy any block straight into a .ritobin file.
-                                </div>
-                                <Button
-                                    size="sm"
-                                    icon="download"
-                                    onClick={handleAggregateTftSchema}
-                                    disabled={isAggregatingTft || !leaguePath}
-                                >
-                                    {isAggregatingTft ? 'Building...' : 'Build TFT Schema'}
-                                </Button>
-                                {!leaguePath && (
-                                    <div className="settings-item__hint" style={{ color: 'var(--color-warning)', marginTop: 4 }}>
-                                        Configure League path in the Paths tab first
-                                    </div>
-                                )}
-                            </div>
-
-                            {isAggregatingTft && tftSchemaProgress && (
-                                <SchemaProgressView progress={tftSchemaProgress} />
-                            )}
+                            {isAggregatingTft && tftSchemaProgress && <SchemaProgressView progress={tftSchemaProgress} />}
                             {tftSchemaResult && !isAggregatingTft && (
-                                <SchemaResultView
-                                    classes={tftSchemaResult.classes_found}
-                                    fields={tftSchemaResult.total_fields}
-                                    binsParsed={tftSchemaResult.bins_parsed}
-                                    binsFailed={tftSchemaResult.bins_failed}
-                                    wads={tftSchemaResult.wads_scanned}
-                                    outputPath={tftSchemaResult.output_path}
-                                    label="TFT BINs"
-                                />
+                                <SchemaResultView classes={tftSchemaResult.classes_found} fields={tftSchemaResult.total_fields} binsParsed={tftSchemaResult.bins_parsed} binsFailed={tftSchemaResult.bins_failed} wads={tftSchemaResult.wads_scanned} outputPath={tftSchemaResult.output_path} label="TFT BINs" />
                             )}
-
-                            <div
-                                className="settings-item"
-                                style={{ marginTop: 16 }}
-                            >
-                                <label className="settings-item__label">Luabin Schema Aggregator</label>
-                                <div className="settings-item__hint" style={{ marginBottom: 8 }}>
-                                    Walks every WAD in your League installation, finds all .luabin / .luabin64
-                                    chunks (Lua 5.1 bytecode data files), and extracts all global variable
-                                    assignments into a single massive `luabin-schema.lua` file. Overlapping
-                                    tables from different files are recursively merged.
-                                </div>
-                                <Button
-                                    size="sm"
-                                    icon="download"
-                                    onClick={handleBuildLuabinSchema}
-                                    disabled={isAggregatingLuabins || !leaguePath}
-                                >
-                                    {isAggregatingLuabins ? 'Building...' : 'Build Luabin Schema'}
-                                </Button>
-                                {!leaguePath && (
-                                    <div className="settings-item__hint" style={{ color: 'var(--color-warning)', marginTop: 4 }}>
-                                        Configure League path in the Paths tab first
-                                    </div>
-                                )}
-                            </div>
-
-                            {isAggregatingLuabins && luabinSchemaProgress && (
-                                <SchemaProgressView progress={luabinSchemaProgress} />
-                            )}
+                            {isAggregatingLuabins && luabinSchemaProgress && <SchemaProgressView progress={luabinSchemaProgress} />}
                             {luabinSchemaResult && !isAggregatingLuabins && (
-                                <SchemaResultView
-                                    classes={luabinSchemaResult.classes_found}
-                                    fields={luabinSchemaResult.total_fields}
-                                    binsParsed={luabinSchemaResult.bins_parsed}
-                                    binsFailed={luabinSchemaResult.bins_failed}
-                                    wads={luabinSchemaResult.wads_scanned}
-                                    outputPath={luabinSchemaResult.output_path}
-                                    label="luabins"
-                                />
+                                <SchemaResultView classes={luabinSchemaResult.classes_found} fields={luabinSchemaResult.total_fields} binsParsed={luabinSchemaResult.bins_parsed} binsFailed={luabinSchemaResult.bins_failed} wads={luabinSchemaResult.wads_scanned} outputPath={luabinSchemaResult.output_path} label="luabins" />
                             )}
-
-                            <div
-                                className="settings-item"
-                                style={{ marginTop: 16 }}
-                            >
-                                <label className="settings-item__label">Troybin Schema Creator</label>
-                                <div className="settings-item__hint" style={{ marginBottom: 8 }}>
-                                    Walks all WADs, picks up .troybin files, merges every property of every class globally and emits ONE synthetic ritobin file in real block syntax.
-                                </div>
-                                <Button
-                                    size="sm"
-                                    icon="download"
-                                    onClick={handleAggregateTroybinSchema}
-                                    disabled={isAggregatingTroybin || !leaguePath}
-                                >
-                                    {isAggregatingTroybin ? 'Building...' : 'Build Troybin Schema'}
-                                </Button>
-                                {!leaguePath && (
-                                    <div className="settings-item__hint" style={{ color: 'var(--color-warning)', marginTop: 4 }}>
-                                        Configure League path in the Paths tab first
-                                    </div>
-                                )}
-                            </div>
-
-                            {isAggregatingTroybin && troybinSchemaProgress && (
-                                <SchemaProgressView progress={troybinSchemaProgress} />
-                            )}
+                            {isAggregatingTroybin && troybinSchemaProgress && <SchemaProgressView progress={troybinSchemaProgress} />}
                             {troybinSchemaResult && !isAggregatingTroybin && (
-                                <SchemaResultView
-                                    classes={troybinSchemaResult.classes_found}
-                                    fields={troybinSchemaResult.total_fields}
-                                    binsParsed={troybinSchemaResult.bins_parsed}
-                                    binsFailed={troybinSchemaResult.bins_failed}
-                                    wads={troybinSchemaResult.wads_scanned}
-                                    outputPath={troybinSchemaResult.output_path}
-                                    label=".troybin BINs"
-                                />
+                                <SchemaResultView classes={troybinSchemaResult.classes_found} fields={troybinSchemaResult.total_fields} binsParsed={troybinSchemaResult.bins_parsed} binsFailed={troybinSchemaResult.bins_failed} wads={troybinSchemaResult.wads_scanned} outputPath={troybinSchemaResult.output_path} label=".troybin BINs" />
                             )}
                         </div>
                     )}
