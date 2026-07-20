@@ -27,6 +27,7 @@ import { SchemaProgressView, SchemaResultView, type SchemaProgress } from './set
 import { ThemePresetGrid } from './settings/ThemeTab';
 import { CreatorTab } from './settings/CreatorTab';
 import { IntegrationsTab } from './settings/IntegrationsTab';
+import { SettingsRow, SettingsTag } from './settings/SettingsRow';
 
 export const SettingsModal: React.FC = () => {
     const closeModal = useModalStore((s) => s.closeModal);
@@ -623,50 +624,37 @@ export const SettingsModal: React.FC = () => {
                     )}
 
                     {activeTab === 'general' && (
-                        <div className="settings-panel">
-                            <div className="settings-item">
-                                <Checkbox
-                                    toggle
-                                    checked={verboseLogging}
-                                    onChange={(e) => setVerboseLogging(e.target.checked)}
-                                    label="Verbose Logging"
-                                    description="Show detailed debug output in the log panel"
-                                />
-                            </div>
+                        <div className="settings-panel settings-panel--flush">
+                            <div className="settings-subhead">Preferences</div>
+                            <SettingsRow
+                                icon={<Icon name="code" />}
+                                title="Verbose Logging"
+                                sub={<span className="settings-row__sub">Show detailed debug output in the log panel</span>}
+                                actions={<Checkbox toggle checked={verboseLogging} onChange={(e) => setVerboseLogging(e.target.checked)} />}
+                            />
+                            <SettingsRow
+                                icon={<Icon name="download" />}
+                                title="Automatic Updates"
+                                sub={<span className="settings-row__sub">Automatically download and install updates before Flint opens</span>}
+                                actions={<Checkbox toggle checked={autoUpdateEnabled} onChange={(e) => setAutoUpdateEnabled(e.target.checked)} />}
+                            />
 
-                            <div className="settings-item">
-                                <Checkbox
-                                    toggle
-                                    checked={autoUpdateEnabled}
-                                    onChange={(e) => setAutoUpdateEnabled(e.target.checked)}
-                                    label="Automatic Updates"
-                                    description="Automatically download and install updates before Flint opens"
-                                />
-                            </div>
-
-                            <div className="settings-assoc">
-                                <div className="settings-assoc__head">
-                                    <span className="settings-assoc__icon"><Icon name="link" /></span>
-                                    <strong className="settings-assoc__title">Open With — File Associations</strong>
-                                    <span className="dl-badge">Windows</span>
-                                    {assocStatus && (
-                                        assocStatus.registered.length === 0
-                                            ? <span className="dl-badge" style={{ marginLeft: 'auto' }}>Not registered</span>
-                                            : (
-                                                <span className={`dl-badge ${assocStatus.missing.length > 0 ? 'dl-badge--warn' : 'dl-badge--success'}`} style={{ marginLeft: 'auto' }}>
-                                                    {assocStatus.missing.length > 0
-                                                        ? `${assocStatus.missing.length} missing — re-register`
-                                                        : `${assocStatus.registered.length} registered`}
-                                                </span>
-                                            )
-                                    )}
-                                </div>
-                                <p className="settings-assoc__hint">
-                                    Adds Flint as an &ldquo;Open with&rdquo; option for .wad, .bin, .tex, .modpkg, .fantome and more.
-                                    Files opened this way go straight to Flint&rsquo;s file editor. Does <em>not</em> override your
-                                    current default app.
-                                </p>
-                                <div className="settings-assoc__actions">
+                            <div className="settings-subhead">Windows</div>
+                            <SettingsRow
+                                icon={<Icon name="link" />}
+                                title="Open With — File Associations"
+                                tags={<>
+                                    <SettingsTag>Windows</SettingsTag>
+                                    {assocStatus && (assocStatus.registered.length === 0
+                                        ? <span className="dl-badge">Not registered</span>
+                                        : <span className={`dl-badge ${assocStatus.missing.length > 0 ? 'dl-badge--warn' : 'dl-badge--success'}`}>
+                                            {assocStatus.missing.length > 0 ? `${assocStatus.missing.length} missing` : `${assocStatus.registered.length} registered`}
+                                        </span>)}
+                                </>}
+                                sub={<span className="settings-row__sub" style={{ whiteSpace: 'normal' }}>
+                                    Adds Flint as an “Open with” option for .wad, .bin, .tex, .modpkg, .fantome and more — files open straight in Flint&rsquo;s editor without changing your default app.
+                                </span>}
+                                actions={<>
                                     <button
                                         className="dl-btn dl-btn--primary dl-btn--sm"
                                         disabled={isRegisteringAssoc}
@@ -711,76 +699,53 @@ export const SettingsModal: React.FC = () => {
                                             Unregister
                                         </button>
                                     )}
-                                </div>
-                            </div>
+                                </>}
+                            />
 
-                            <div className={`settings-hash settings-hash--${hashesLoaded ? 'ok' : 'warn'}`}>
-                                <div className={`settings-hash__icon settings-hash__icon--${hashesLoaded ? 'ok' : 'warn'}`}>
-                                    <Icon name={hashesLoaded ? 'success' : 'warning'} />
+                            <div className="settings-subhead">Updates &amp; System</div>
+                            <div className="settings-duo">
+                                <div className="settings-fcard">
+                                    <div className="settings-fcard__head">
+                                        <span className="settings-fcard__glyph"><Icon name="info" /></span>
+                                        <span className="settings-fcard__title">Program Version</span>
+                                    </div>
+                                    <div className="settings-fcard__value">
+                                        v{currentVersion}
+                                        {updateAvailable && latestVersion && <span className="accent" style={{ fontSize: 12, marginLeft: 8 }}>→ v{latestVersion}</span>}
+                                    </div>
+                                    <p className="settings-fcard__hint">
+                                        {updateAvailable && latestVersion ? 'An update is available.' : 'You’re on the latest release.'}
+                                    </p>
+                                    <div className="settings-fcard__actions">
+                                        <button className="dl-btn dl-btn--sm" onClick={handleCheckForUpdates} disabled={isCheckingUpdate}>
+                                            {isCheckingUpdate ? 'Checking…' : 'Check for Updates'}
+                                        </button>
+                                        {updateAvailable && latestVersion && (
+                                            <button className="dl-btn dl-btn--primary dl-btn--sm" onClick={handleUpdateNow}>Update Now</button>
+                                        )}
+                                    </div>
                                 </div>
-                                <div className="settings-hash__body">
-                                    <div className="settings-hash__title">Hash Database</div>
-                                    <div className="settings-hash__count">
+
+                                <div className="settings-fcard">
+                                    <div className="settings-fcard__head">
+                                        <span className={`settings-fcard__glyph ${hashesLoaded ? 'settings-fcard__glyph--ok' : 'settings-fcard__glyph--warn'}`}>
+                                            <Icon name={hashesLoaded ? 'success' : 'warning'} />
+                                        </span>
+                                        <span className="settings-fcard__title">Hash Database</span>
+                                    </div>
+                                    <div className="settings-fcard__value">
                                         {hashesLoaded
-                                            ? <><strong>{hashCount.toLocaleString()}</strong> hashes loaded</>
-                                            : <span style={{ color: 'var(--color-warning)' }}>Hashes not loaded</span>}
+                                            ? <><span className="accent">{hashCount.toLocaleString()}</span> hashes</>
+                                            : <span style={{ color: 'var(--color-warning)' }}>Not loaded</span>}
                                     </div>
-                                    <div className="settings-hash__hint">
-                                        Rebuild to apply the latest fixes (BIN file resolution, new hash dumps, etc.)
+                                    <p className="settings-fcard__hint">
+                                        Rebuild to apply the latest fixes (BIN resolution, new hash dumps, etc.)
+                                    </p>
+                                    <div className="settings-fcard__actions">
+                                        <button className="dl-btn dl-btn--sm" onClick={handleForceRebuildHashes} disabled={isRebuildingHashes}>
+                                            {isRebuildingHashes ? 'Rebuilding…' : 'Force Rebuild'}
+                                        </button>
                                     </div>
-                                </div>
-                                <Button
-                                    size="sm"
-                                    icon="refresh"
-                                    onClick={handleForceRebuildHashes}
-                                    disabled={isRebuildingHashes}
-                                >
-                                    {isRebuildingHashes ? 'Rebuilding…' : 'Force Rebuild'}
-                                </Button>
-                            </div>
-
-                            <div className="version-card">
-                                <div className="version-card__content">
-                                    <div className="version-card__current">
-                                        <div className="version-card__label">Current</div>
-                                        <div className="version-card__version">v{currentVersion}</div>
-                                    </div>
-
-                                    {latestVersion && updateAvailable && (
-                                        <>
-                                            <Icon name="chevronRight" className="version-card__arrow" />
-                                            <div className="version-card__latest">
-                                                <div className="version-card__label version-card__label--accent">
-                                                    Latest
-                                                </div>
-                                                <div className="version-card__version version-card__version--accent">
-                                                    v{latestVersion}
-                                                </div>
-                                            </div>
-                                        </>
-                                    )}
-                                </div>
-
-                                <div className="version-card__actions">
-                                    <Button
-                                        icon="refresh"
-                                        onClick={handleCheckForUpdates}
-                                        disabled={isCheckingUpdate}
-                                        style={{ flex: 1 }}
-                                    >
-                                        {isCheckingUpdate ? 'Checking...' : 'Check for Updates'}
-                                    </Button>
-
-                                    {updateAvailable && latestVersion && (
-                                        <Button
-                                            variant="primary"
-                                            icon="download"
-                                            onClick={handleUpdateNow}
-                                            style={{ flex: 1 }}
-                                        >
-                                            Update Now
-                                        </Button>
-                                    )}
                                 </div>
                             </div>
                         </div>
