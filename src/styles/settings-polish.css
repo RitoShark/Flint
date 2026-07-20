@@ -30,8 +30,8 @@
     border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
 }
 .modal--settings .modal__footer {
-    background: color-mix(in oklab, var(--bg-tertiary) 50%, transparent);
-    border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+    background: transparent;
+    border-top: 1px solid color-mix(in oklab, var(--border) 35%, transparent);
 }
 
 /* --------------------------------------------------------------------------
