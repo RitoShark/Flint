@@ -8275,7 +8275,7 @@ input.np-search:focus {
   flex-direction: column;
   height: 100%;
   padding: var(--space-xl);
-  gap: var(--space-xl);
+  gap: var(--space-lg);
   background-color: var(--bg-primary);
   overflow: hidden;
 }
@@ -8284,20 +8284,40 @@ input.np-search:focus {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-lg);
   padding-bottom: var(--space-lg);
   border-bottom: 1px solid var(--border);
 }
 
-.checkpoint-view__create {
+.checkpoint-view__title {
   display: flex;
-  gap: var(--space-md);
-  width: 100%;
-  max-width: 600px;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
-.checkpoint-view__create input {
-  flex: 1;
+.checkpoint-view__title h2 { margin: 0; font-size: var(--text-lg); }
+
+.checkpoint-view__title-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: color-mix(in oklab, var(--accent-primary) 16%, transparent);
+  color: var(--accent-primary);
 }
+.checkpoint-view__title-icon svg { display: block; width: 17px; height: 17px; }
+
+.checkpoint-view__create {
+  display: flex;
+  gap: var(--space-sm);
+  width: 100%;
+  max-width: 560px;
+}
+
+.checkpoint-view__create .dl-input { flex: 1; }
 
 .checkpoint-view__content {
   flex: 1;
@@ -8307,49 +8327,82 @@ input.np-search:focus {
   overflow: hidden;
 }
 
+/* Timeline rail: a vertical line runs down the left, each card hangs a dot on it. */
 .checkpoint-view__list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
+  gap: 10px;
   overflow-y: auto;
-  padding-right: var(--space-sm);
+  padding: 2px 2px 2px 18px;
+  position: relative;
+}
+
+.checkpoint-view__list::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in oklab, var(--accent-primary) 55%, transparent),
+    var(--border) 85%);
+  border-radius: 2px;
 }
 
 .checkpoint-item {
   display: flex;
   gap: var(--space-md);
-  padding: var(--space-md);
-  background-color: var(--bg-secondary);
+  padding: 12px 14px;
+  background: color-mix(in oklab, var(--bg-secondary) 60%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: 12px;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: border-color var(--transition-fast), background var(--transition-fast), transform var(--transition-fast);
   position: relative;
 }
 
 .checkpoint-item:hover {
-  background-color: var(--bg-hover);
-  border-color: var(--accent-primary);
+  background: color-mix(in oklab, var(--bg-secondary) 80%, transparent);
+  border-color: color-mix(in oklab, var(--accent-primary) 45%, var(--border));
+  transform: translateX(1px);
 }
 
 .checkpoint-item--selected {
-  border-color: var(--accent-primary);
-  background-color: var(--bg-hover);
-  box-shadow: 0 0 0 1px var(--accent-primary);
+  border-color: color-mix(in oklab, var(--accent-primary) 70%, transparent);
+  background: color-mix(in oklab, var(--accent-primary) 8%, var(--bg-secondary));
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent-primary) 40%, transparent);
 }
 
+/* The rail dot (replaces the old 4px bar). */
 .checkpoint-item__marker {
-  width: 4px;
-  background-color: var(--accent-primary);
-  border-radius: 2px;
+  position: absolute;
+  left: -15px;
+  top: 16px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bg-primary);
+  border: 2px solid var(--accent-primary);
   flex-shrink: 0;
+  transition: box-shadow var(--transition-fast), background var(--transition-fast);
+}
+
+.checkpoint-item:hover .checkpoint-item__marker,
+.checkpoint-item--selected .checkpoint-item__marker {
+  background: var(--accent-primary);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent-primary) 22%, transparent);
 }
 
 .checkpoint-item__content {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: 6px;
+  min-width: 0;
 }
 
 .checkpoint-item__header {
@@ -8379,9 +8432,11 @@ input.np-search:focus {
 }
 
 .checkpoint-view__details {
-  background-color: var(--bg-secondary);
+  background: color-mix(in oklab, var(--bg-secondary) 55%, transparent);
+  backdrop-filter: blur(10px) saturate(130%);
+  -webkit-backdrop-filter: blur(10px) saturate(130%);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: 14px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -8453,31 +8508,33 @@ input.np-search:focus {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  padding: var(--space-xs) var(--space-sm);
+  padding: 7px var(--space-sm);
   font-size: var(--text-sm);
-  border-radius: var(--radius-sm);
+  border-radius: 8px;
+  border: 1px solid transparent;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: border-color var(--transition-fast), background var(--transition-fast);
 }
 
 .diff-file:hover {
-  filter: brightness(1.2);
+  border-color: color-mix(in oklab, var(--accent-primary) 40%, var(--border));
 }
 
 .diff-file--active {
-  outline: 1px solid var(--accent-primary);
+  border-color: color-mix(in oklab, var(--accent-primary) 70%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent-primary) 35%, transparent);
 }
 
 .diff-file--added {
-  background-color: rgba(63, 185, 80, 0.1);
+  background-color: color-mix(in oklab, var(--success) 10%, transparent);
 }
 
 .diff-file--modified {
-  background-color: rgba(210, 153, 34, 0.1);
+  background-color: color-mix(in oklab, var(--warning) 10%, transparent);
 }
 
 .diff-file--deleted {
-  background-color: rgba(248, 81, 73, 0.1);
+  background-color: color-mix(in oklab, var(--error) 10%, transparent);
 }
 
 .diff-file__badge {
@@ -8539,12 +8596,14 @@ input.np-search:focus {
 
 .checkpoint-tag {
   display: inline-block;
-  padding: 1px 6px;
+  padding: 1px 8px;
   font-size: 10px;
-  border-radius: 10px;
-  background-color: var(--accent-primary);
-  color: #fff;
-  font-weight: 500;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--accent-primary) 18%, transparent);
+  border: 1px solid color-mix(in oklab, var(--accent-primary) 40%, transparent);
+  color: color-mix(in oklab, var(--accent-primary) 88%, #fff);
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 /* Checkpoint card summary */
@@ -8567,10 +8626,12 @@ input.np-search:focus {
 
 /* Checkpoint creation progress bar */
 .checkpoint-progress {
-  padding: var(--space-sm) var(--space-md);
-  background-color: var(--bg-secondary);
+  padding: 10px var(--space-md);
+  background: color-mix(in oklab, var(--bg-secondary) 60%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: 12px;
 }
 
 .checkpoint-progress__info {
@@ -8590,7 +8651,9 @@ input.np-search:focus {
 
 .checkpoint-progress__fill {
   height: 100%;
-  background-color: var(--accent-primary);
+  background: linear-gradient(90deg,
+    color-mix(in oklab, var(--accent-primary) 75%, transparent),
+    var(--accent-primary));
   transition: width 0.2s ease;
   border-radius: 2px;
 }
@@ -8599,8 +8662,9 @@ input.np-search:focus {
 .checkpoint-preview {
   margin-top: var(--space-lg);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: 12px;
   overflow: hidden;
+  background: color-mix(in oklab, var(--bg-primary) 40%, transparent);
 }
 
 .checkpoint-preview__header {
@@ -8608,7 +8672,7 @@ input.np-search:focus {
   justify-content: space-between;
   align-items: center;
   padding: var(--space-sm) var(--space-md);
-  background-color: var(--bg-tertiary);
+  background: color-mix(in oklab, var(--bg-tertiary) 50%, transparent);
   border-bottom: 1px solid var(--border);
 }
 

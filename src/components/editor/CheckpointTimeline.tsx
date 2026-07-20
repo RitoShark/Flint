@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useProjectTabStore, useAppMetadataStore, useNotificationStore } from '../../lib/stores';
+import { useProjectTabStore, useAppMetadataStore, useNotificationStore, useModalStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { listen } from '@tauri-apps/api/event';
@@ -22,6 +22,7 @@ export const CheckpointTimeline: React.FC = () => {
     const showToast = useNotificationStore((s) => s.showToast);
     const setWorking = useAppMetadataStore((s) => s.setWorking);
     const setReady = useAppMetadataStore((s) => s.setReady);
+    const openConfirmDialog = useModalStore((s) => s.openConfirmDialog);
     const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [message, setMessage] = useState('');
@@ -135,40 +136,51 @@ export const CheckpointTimeline: React.FC = () => {
         }
     };
 
-    const handleRestore = async (id: string) => {
+    const handleRestore = (id: string) => {
         if (!currentProjectPath) return;
-        if (!window.confirm('Restore this checkpoint? An auto-backup of the current state will be created first.')) return;
-
-        setWorking('Restoring checkpoint...');
-        try {
-            await api.restoreCheckpoint(currentProjectPath, id);
-            showToast('success', 'Project restored successfully');
-            await loadCheckpoints();
-        } catch (err) {
-            console.error('Failed to restore checkpoint:', err);
-            showToast('error', 'Failed to restore checkpoint');
-        } finally {
-            setReady();
-        }
+        openConfirmDialog({
+            title: 'Restore this checkpoint?',
+            message: 'The project will be reverted to this state. An auto-backup of the current state is created first, so you can undo it.',
+            confirmLabel: 'Restore',
+            onConfirm: async () => {
+                setWorking('Restoring checkpoint...');
+                try {
+                    await api.restoreCheckpoint(currentProjectPath, id);
+                    showToast('success', 'Project restored successfully');
+                    await loadCheckpoints();
+                } catch (err) {
+                    console.error('Failed to restore checkpoint:', err);
+                    showToast('error', 'Failed to restore checkpoint');
+                } finally {
+                    setReady();
+                }
+            },
+        });
     };
 
-    const handleDelete = async (id: string) => {
+    const handleDelete = (id: string) => {
         if (!currentProjectPath) return;
-        if (!window.confirm('Delete this checkpoint? This cannot be undone.')) return;
-
-        try {
-            await api.deleteCheckpoint(currentProjectPath, id);
-            showToast('success', 'Checkpoint deleted');
-            await loadCheckpoints();
-            if (selectedCheckpoint === id) {
-                setSelectedCheckpoint(null);
-                setDiff(null);
-                setPreviewFile(null);
-            }
-        } catch (err) {
-            console.error('Failed to delete checkpoint:', err);
-            showToast('error', 'Failed to delete checkpoint');
-        }
+        openConfirmDialog({
+            title: 'Delete this checkpoint?',
+            message: 'This checkpoint will be permanently removed. This cannot be undone.',
+            confirmLabel: 'Delete',
+            danger: true,
+            onConfirm: async () => {
+                try {
+                    await api.deleteCheckpoint(currentProjectPath, id);
+                    showToast('success', 'Checkpoint deleted');
+                    await loadCheckpoints();
+                    if (selectedCheckpoint === id) {
+                        setSelectedCheckpoint(null);
+                        setDiff(null);
+                        setPreviewFile(null);
+                    }
+                } catch (err) {
+                    console.error('Failed to delete checkpoint:', err);
+                    showToast('error', 'Failed to delete checkpoint');
+                }
+            },
+        });
     };
 
     const handleFileClick = async (filePath: string, oldHash?: string, newHash?: string) => {
@@ -214,18 +226,21 @@ export const CheckpointTimeline: React.FC = () => {
     return (
         <div className="checkpoint-view">
             <div className="checkpoint-view__header">
-                <h2>Project History</h2>
+                <div className="checkpoint-view__title">
+                    <span className="checkpoint-view__title-icon" dangerouslySetInnerHTML={{ __html: getIcon('history') }} />
+                    <h2>Project History</h2>
+                </div>
                 <form className="checkpoint-view__create" onSubmit={handleCreateCheckpoint}>
                     <input
                         type="text"
-                        placeholder="Checkpoint message..."
+                        placeholder="Describe this checkpoint…"
                         value={message}
                         onChange={e => setMessage(e.target.value)}
-                        className="input"
+                        className="dl-input"
                         disabled={isCreating}
                     />
-                    <button type="submit" className="btn btn--primary" disabled={!message.trim() || isCreating}>
-                        {isCreating ? 'Saving...' : 'Create Checkpoint'}
+                    <button type="submit" className="dl-btn dl-btn--primary" disabled={!message.trim() || isCreating}>
+                        {isCreating ? 'Saving…' : 'Create Checkpoint'}
                     </button>
                 </form>
             </div>
@@ -307,14 +322,14 @@ export const CheckpointTimeline: React.FC = () => {
 
                                         <div className="checkpoint-item__actions">
                                             <button
-                                                className="btn btn--ghost btn--icon"
+                                                className="dl-btn dl-btn--ghost dl-btn--sm dl-btn--icon"
                                                 title="Restore this state"
                                                 onClick={(e) => { e.stopPropagation(); handleRestore(cp.id); }}
                                             >
                                                 <span dangerouslySetInnerHTML={{ __html: getIcon('refresh') }} />
                                             </button>
                                             <button
-                                                className="btn btn--ghost btn--icon btn--danger"
+                                                className="dl-btn dl-btn--ghost dl-btn--sm dl-btn--icon dl-btn--danger"
                                                 title="Delete checkpoint"
                                                 onClick={(e) => { e.stopPropagation(); handleDelete(cp.id); }}
                                             >
@@ -399,11 +414,11 @@ export const CheckpointTimeline: React.FC = () => {
                                             <div className="checkpoint-preview__header">
                                                 <h4>{getFileName(previewFile.path)}</h4>
                                                 <button
-                                                    className="btn btn--ghost btn--icon"
+                                                    className="dl-btn dl-btn--ghost dl-btn--sm dl-btn--icon"
                                                     onClick={() => { setPreviewFile(null); setPreviewOld(null); setPreviewNew(null); }}
                                                     title="Close preview"
                                                 >
-                                                    ×
+                                                    <span dangerouslySetInnerHTML={{ __html: getIcon('close') }} />
                                                 </button>
                                             </div>
                                             {isLoadingPreview ? (
