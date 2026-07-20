@@ -732,6 +732,21 @@
     color: color-mix(in oklab, var(--accent-primary) 30%, var(--text-muted));
 }
 .modal--settings .settings-subhead:first-child { margin-top: 0; }
+.modal--settings .settings-subhead__note {
+    margin: 0 0 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+/* Right-aligned value readout on slider rows (e.g. "16px", "80%"). */
+.modal--settings .settings-row__metric {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+    min-width: 44px;
+    text-align: right;
+}
+.modal--settings .settings-row .theme-range { width: 100%; }
 
 /* Two feature cards side by side (Version · Hash database). */
 .modal--settings .settings-duo {

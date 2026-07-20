@@ -754,102 +754,74 @@ export const SettingsModal: React.FC = () => {
                     )}
 
                     {activeTab === 'theme' && (
-                        <div className="settings-panel settings-panel--theme">
-                            <div className="settings-item">
-                                <label className="settings-item__label">Theme presets</label>
-                                <div className="settings-item__hint" style={{ marginBottom: 10 }}>
-                                    Curated palettes that swap bg, surfaces, accent and text in one click — or pick a custom accent.
-                                </div>
-                                <ThemePresetGrid
-                                    selectedTheme={configStore.selectedTheme}
-                                    customAccent={ux.accentPrimary}
-                                    onSelect={(id, accent) => {
-                                        configStore.setSelectedTheme(id);
-                                        ux.setAccentPrimary(accent);
-                                    }}
-                                    onCustomAccent={(hex) => {
-                                        configStore.setSelectedTheme('custom');
-                                        ux.setAccentPrimary(hex);
-                                    }}
-                                />
-                            </div>
+                        <div className="settings-panel settings-panel--flush">
+                            <div className="settings-subhead">Appearance</div>
+                            <p className="settings-subhead__note">
+                                Curated palettes that swap bg, surfaces, accent and text in one click — or pick a custom accent.
+                            </p>
+                            <ThemePresetGrid
+                                selectedTheme={configStore.selectedTheme}
+                                customAccent={ux.accentPrimary}
+                                onSelect={(id, accent) => {
+                                    configStore.setSelectedTheme(id);
+                                    ux.setAccentPrimary(accent);
+                                }}
+                                onCustomAccent={(hex) => {
+                                    configStore.setSelectedTheme('custom');
+                                    ux.setAccentPrimary(hex);
+                                }}
+                            />
 
-                            <div className="settings-item">
-                                <label className="settings-item__label">
-                                    Glassmorphism
-                                    <span className="settings-item__badge">Surfaces</span>
-                                </label>
-                                <Checkbox
-                                    toggle
-                                    checked={ux.glassmorphism}
-                                    onChange={(e) => ux.setGlassmorphism(e.target.checked)}
-                                    label="Frosted blur on panels and modals"
-                                    description="Beautiful but costs a few frames. Turn off for solid surfaces."
-                                />
-                            </div>
-
+                            <div className="settings-subhead">Surfaces</div>
+                            <SettingsRow
+                                icon={<Icon name="picture" />}
+                                title="Glassmorphism"
+                                sub={<span className="settings-row__sub">Frosted blur on panels and modals — turn off for solid surfaces.</span>}
+                                onActivate={() => ux.setGlassmorphism(!ux.glassmorphism)}
+                                actions={<Checkbox toggle checked={ux.glassmorphism} onChange={(e) => ux.setGlassmorphism(e.target.checked)} />}
+                            />
                             {ux.glassmorphism && (
                                 <>
-                                    <div className="settings-item">
-                                        <label className="settings-item__label">Glass blur</label>
-                                        <input
-                                            type="range"
-                                            min={0}
-                                            max={32}
-                                            step={1}
-                                            value={ux.glassBlur}
-                                            onChange={(e) => ux.setGlassBlur(Number(e.target.value))}
-                                            className="theme-range"
-                                        />
-                                        <div className="settings-item__hint">{ux.glassBlur}px</div>
-                                    </div>
-                                    <div className="settings-item">
-                                        <label className="settings-item__label">Glass opacity</label>
-                                        <input
-                                            type="range"
-                                            min={0.2}
-                                            max={1}
-                                            step={0.05}
-                                            value={ux.glassOpacity}
-                                            onChange={(e) => ux.setGlassOpacity(Number(e.target.value))}
-                                            className="theme-range"
-                                        />
-                                        <div className="settings-item__hint">{Math.round(ux.glassOpacity * 100)}%</div>
-                                    </div>
+                                    <SettingsRow
+                                        icon={<Icon name="settings" />}
+                                        title="Glass blur"
+                                        sub={
+                                            <input type="range" min={0} max={32} step={1} value={ux.glassBlur}
+                                                onChange={(e) => ux.setGlassBlur(Number(e.target.value))} className="theme-range" />
+                                        }
+                                        actions={<span className="settings-row__metric">{ux.glassBlur}px</span>}
+                                    />
+                                    <SettingsRow
+                                        icon={<Icon name="settings" />}
+                                        title="Glass opacity"
+                                        sub={
+                                            <input type="range" min={0.2} max={1} step={0.05} value={ux.glassOpacity}
+                                                onChange={(e) => ux.setGlassOpacity(Number(e.target.value))} className="theme-range" />
+                                        }
+                                        actions={<span className="settings-row__metric">{Math.round(ux.glassOpacity * 100)}%</span>}
+                                    />
                                 </>
                             )}
 
-                            <div className="settings-item">
-                                <label className="settings-item__label">
-                                    FPS Mode
-                                    <span className="settings-item__badge">Performance</span>
-                                </label>
-                                <Checkbox
-                                    toggle
-                                    checked={ux.fpsMode}
-                                    onChange={(e) => ux.setFpsMode(e.target.checked)}
-                                    label="Strip animations and transitions"
-                                    description="Disables every CSS transition, animation and backdrop blur. Maximum responsiveness — perfect for older hardware or focused work sessions."
-                                />
-                            </div>
-
-                            <div className="settings-item">
-                                <label className="settings-item__label">
-                                    Button Glow
-                                    <span className="settings-item__badge">Performance</span>
-                                </label>
-                                <Checkbox
-                                    toggle
-                                    checked={ux.buttonGlow && !ux.fpsMode}
-                                    disabled={ux.fpsMode}
-                                    onChange={(e) => ux.setButtonGlow(e.target.checked)}
-                                    label="Cursor-following glow on buttons"
-                                    description={ux.fpsMode
-                                        ? 'Turned off automatically while FPS Mode is on, since the cursor-tracking listener costs frames.'
-                                        : 'Adds a soft radial glow that tracks your cursor across buttons. On by default — turn it off (or enable FPS Mode) to skip the cursor-tracking listener on slower machines.'}
-                                />
-                            </div>
-
+                            <div className="settings-subhead">Performance</div>
+                            <SettingsRow
+                                icon={<Icon name="refresh" />}
+                                title="FPS Mode"
+                                tags={<SettingsTag>Performance</SettingsTag>}
+                                sub={<span className="settings-row__sub" style={{ whiteSpace: 'normal' }}>Strip every CSS transition, animation and backdrop blur for maximum responsiveness — great for older hardware.</span>}
+                                onActivate={() => ux.setFpsMode(!ux.fpsMode)}
+                                actions={<Checkbox toggle checked={ux.fpsMode} onChange={(e) => ux.setFpsMode(e.target.checked)} />}
+                            />
+                            <SettingsRow
+                                icon={<Icon name="picture" />}
+                                title="Button Glow"
+                                tags={<SettingsTag>Performance</SettingsTag>}
+                                sub={<span className="settings-row__sub" style={{ whiteSpace: 'normal' }}>{ux.fpsMode
+                                    ? 'Off automatically while FPS Mode is on (the cursor-tracking listener costs frames).'
+                                    : 'A soft radial glow that tracks your cursor across buttons. On by default.'}</span>}
+                                onActivate={ux.fpsMode ? undefined : () => ux.setButtonGlow(!ux.buttonGlow)}
+                                actions={<Checkbox toggle checked={ux.buttonGlow && !ux.fpsMode} disabled={ux.fpsMode} onChange={(e) => ux.setButtonGlow(e.target.checked)} />}
+                            />
                         </div>
                     )}
 
