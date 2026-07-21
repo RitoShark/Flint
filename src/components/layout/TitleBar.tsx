@@ -781,6 +781,17 @@ export const TitleBar: React.FC = () => {
                 )}
 
                 <button
+                    className="titlebar__button titlebar__button--skinfixer"
+                    onClick={() => openModal('skinFixer')}
+                    title="Skin Fixer — detect & fix broken skins"
+                    data-tauri-drag-region="false"
+                >
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                        <path d="M10.9 5.1a3 3 0 01-3.8 3.8L3.3 12.7a1.2 1.2 0 001.7 1.7l3.8-3.8a3 3 0 003.8-3.8l-1.7 1.7-1.4-.3-.3-1.4 1.7-1.7z" fill="currentColor"/>
+                    </svg>
+                </button>
+
+                <button
                     className="titlebar__button titlebar__button--settings"
                     onClick={handleSettings}
                     title="Settings"
