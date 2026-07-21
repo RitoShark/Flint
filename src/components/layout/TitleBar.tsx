@@ -787,7 +787,7 @@ export const TitleBar: React.FC = () => {
                     data-tauri-drag-region="false"
                 >
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-                        <path d="M14.7 6.3a4 4 0 00-5.2 5.2l-5.6 5.6a1.6 1.6 0 002.3 2.3l5.6-5.6a4 4 0 005.2-5.2l-2.7 2.7-2-.5-.5-2 2.6-2.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+                        <path d="M14.7 6.3a4 4 0 00-5.2 5.2l-5.6 5.6a1.6 1.6 0 002.3 2.3l5.6-5.6a4 4 0 005.2-5.2l-2.7 2.7-2-.5-.5-2 2.6-2.5z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"/>
                     </svg>
                 </button>
 

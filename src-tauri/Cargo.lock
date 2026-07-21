@@ -1161,7 +1161,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users 0.5.2",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1393,7 +1393,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2225,7 +2225,7 @@ dependencies = [
 [[package]]
 name = "hematite-core"
 version = "0.5.0"
-source = "git+https://github.com/RitoShark/Hematite?rev=96ce760#96ce760954982b13a8054f2af92ffbe466f5e3ef"
+source = "git+https://github.com/RitoShark/Hematite?rev=c1ded2c#c1ded2ce0e2555624cef2f7a414e7dd490597c35"
 dependencies = [
  "anyhow",
  "hematite-types",
@@ -2241,7 +2241,7 @@ dependencies = [
 [[package]]
 name = "hematite-file"
 version = "0.5.0"
-source = "git+https://github.com/RitoShark/Hematite?rev=96ce760#96ce760954982b13a8054f2af92ffbe466f5e3ef"
+source = "git+https://github.com/RitoShark/Hematite?rev=c1ded2c#c1ded2ce0e2555624cef2f7a414e7dd490597c35"
 dependencies = [
  "anyhow",
  "heed",
@@ -2278,7 +2278,7 @@ dependencies = [
 [[package]]
 name = "hematite-live"
 version = "0.5.0"
-source = "git+https://github.com/RitoShark/Hematite?rev=96ce760#96ce760954982b13a8054f2af92ffbe466f5e3ef"
+source = "git+https://github.com/RitoShark/Hematite?rev=c1ded2c#c1ded2ce0e2555624cef2f7a414e7dd490597c35"
 dependencies = [
  "flate2",
  "serde_json",
@@ -2293,7 +2293,7 @@ dependencies = [
 [[package]]
 name = "hematite-orchestrate"
 version = "0.5.0"
-source = "git+https://github.com/RitoShark/Hematite?rev=96ce760#96ce760954982b13a8054f2af92ffbe466f5e3ef"
+source = "git+https://github.com/RitoShark/Hematite?rev=c1ded2c#c1ded2ce0e2555624cef2f7a414e7dd490597c35"
 dependencies = [
  "anyhow",
  "hematite-core",
@@ -2307,7 +2307,7 @@ dependencies = [
 [[package]]
 name = "hematite-types"
 version = "0.5.0"
-source = "git+https://github.com/RitoShark/Hematite?rev=96ce760#96ce760954982b13a8054f2af92ffbe466f5e3ef"
+source = "git+https://github.com/RitoShark/Hematite?rev=c1ded2c#c1ded2ce0e2555624cef2f7a414e7dd490597c35"
 dependencies = [
  "indexmap 2.13.0",
  "serde",
@@ -3456,7 +3456,7 @@ dependencies = [
  "png 0.18.1",
  "serde",
  "thiserror 2.0.18",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3575,7 +3575,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5108,7 +5108,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5164,7 +5164,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6315,7 +6315,7 @@ dependencies = [
  "getrandom 0.4.1",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6785,7 +6785,7 @@ dependencies = [
  "png 0.18.1",
  "serde",
  "thiserror 2.0.18",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6814,7 +6814,7 @@ checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset",
  "tempfile",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -7315,7 +7315,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

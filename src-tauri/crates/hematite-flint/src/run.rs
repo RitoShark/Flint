@@ -65,6 +65,9 @@ fn options<'a>(
         relocate_combo_bins: selected.iter().any(|f| f == "combo_bin_relocate"),
         game_wad: None,
         live,
+        // Fix the project's OWN WADs in place, not a `.fixed.wad.client` sibling
+        // copy. Irrelevant on a scan (detect_only writes nothing regardless).
+        in_place: !detect_only,
     }
 }
 

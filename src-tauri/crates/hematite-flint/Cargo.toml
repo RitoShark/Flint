@@ -7,11 +7,11 @@ edition = "2021"
 # Hematite skin-fixer engine. Pinned at Hematite main rev 96ce760 (PR #2 merge).
 # Their rs_* crates are pinned at daff556 — IDENTICAL to Flint's ritoshark rev —
 # so exactly ONE copy of rs_* compiles across the whole Flint workspace.
-hematite-orchestrate = { git = "https://github.com/RitoShark/Hematite", rev = "96ce760" }
-hematite-core = { git = "https://github.com/RitoShark/Hematite", rev = "96ce760" }
-hematite-file = { git = "https://github.com/RitoShark/Hematite", rev = "96ce760" }
-hematite-live = { git = "https://github.com/RitoShark/Hematite", rev = "96ce760" }
-hematite-types = { git = "https://github.com/RitoShark/Hematite", rev = "96ce760" }
+hematite-orchestrate = { git = "https://github.com/RitoShark/Hematite", rev = "c1ded2c" }
+hematite-core = { git = "https://github.com/RitoShark/Hematite", rev = "c1ded2c" }
+hematite-file = { git = "https://github.com/RitoShark/Hematite", rev = "c1ded2c" }
+hematite-live = { git = "https://github.com/RitoShark/Hematite", rev = "c1ded2c" }
+hematite-types = { git = "https://github.com/RitoShark/Hematite", rev = "c1ded2c" }
 
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
