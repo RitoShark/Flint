@@ -372,16 +372,12 @@ const SplashPane: React.FC<{ onStart: () => void }> = ({ onStart }) => {
         >
             <div className="fwiz-splash__logo" aria-hidden="true">
                 <span className="fwiz-splash__logo-glow" />
-                <svg width="118" height="118" viewBox="0 0 24 24">
+                <svg width="118" height="118" viewBox="0 0 24 24" fill="currentColor">
                     <path
-                        d="M12 2C8.5 6 8 10 8 12c0 3.5 1.5 6 4 8 2.5-2 4-4.5 4-8 0-2-.5-6-4-10z"
-                        fill="currentColor"
+                        fillRule="evenodd"
+                        d="M12 2C8.5 6 8 10 8 12c0 3.5 1.5 6 4 8 2.5-2 4-4.5 4-8 0-2-.5-6-4-10zM12 5c-2 3-2.5 5.5-2.5 7 0 2 .8 3.5 2.5 5 1.7-1.5 2.5-3 2.5-5 0-1.5-.5-4-2.5-7z"
                     />
-                    <path
-                        d="M12 5c-2 3-2.5 5.5-2.5 7 0 2 .8 3.5 2.5 5 1.7-1.5 2.5-3 2.5-5 0-1.5-.5-4-2.5-7z"
-                        fill="currentColor"
-                        fillOpacity="0.55"
-                    />
+                    <path d="M12 8c-1 1.5-1.5 3-1.5 4 0 1.2.5 2.2 1.5 3 1-.8 1.5-1.8 1.5-3 0-1-.5-2.5-1.5-4z" />
                 </svg>
                 <span className="fwiz-splash__logo-ring" />
                 <span className="fwiz-splash__logo-ring fwiz-splash__logo-ring--two" />
@@ -442,10 +438,9 @@ const WizTitleBar: React.FC = () => {
                 <div className="titlebar__logo fwiz__titlebar-logo" data-tauri-drag-region="false">
                     <span className="fwiz-mark" aria-hidden="true">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M12 2C8.5 6 8 10 8 12c0 3.5 1.5 6 4 8 2.5-2 4-4.5 4-8 0-2-.5-6-4-10z" />
                             <path
-                                d="M12 5c-2 3-2.5 5.5-2.5 7 0 2 .8 3.5 2.5 5 1.7-1.5 2.5-3 2.5-5 0-1.5-.5-4-2.5-7z"
-                                fill="var(--bg-primary)"
+                                fillRule="evenodd"
+                                d="M12 2C8.5 6 8 10 8 12c0 3.5 1.5 6 4 8 2.5-2 4-4.5 4-8 0-2-.5-6-4-10zM12 5c-2 3-2.5 5.5-2.5 7 0 2 .8 3.5 2.5 5 1.7-1.5 2.5-3 2.5-5 0-1.5-.5-4-2.5-7z"
                             />
                             <path d="M12 8c-1 1.5-1.5 3-1.5 4 0 1.2.5 2.2 1.5 3 1-.8 1.5-1.8 1.5-3 0-1-.5-2.5-1.5-4z" />
                         </svg>
@@ -567,7 +562,11 @@ const IdentityPane: React.FC<{
                     <div className="fwiz-stamp__cover">
                         <span className="fwiz-stamp__cover-flame">
                             <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
-                                <path d="M12 2C8.5 6 8 10 8 12c0 3.5 1.5 6 4 8 2.5-2 4-4.5 4-8 0-2-.5-6-4-10z" />
+                                <path
+                                    fillRule="evenodd"
+                                    d="M12 2C8.5 6 8 10 8 12c0 3.5 1.5 6 4 8 2.5-2 4-4.5 4-8 0-2-.5-6-4-10zM12 5c-2 3-2.5 5.5-2.5 7 0 2 .8 3.5 2.5 5 1.7-1.5 2.5-3 2.5-5 0-1.5-.5-4-2.5-7z"
+                                />
+                                <path d="M12 8c-1 1.5-1.5 3-1.5 4 0 1.2.5 2.2 1.5 3 1-.8 1.5-1.8 1.5-3 0-1-.5-2.5-1.5-4z" />
                             </svg>
                         </span>
                         <span className="fwiz-stamp__cover-tag">.modpkg</span>
@@ -629,9 +628,6 @@ const PathRow: React.FC<PathRowProps> = ({
                     </span>
                 </div>
                 {hint && <p className="fwiz-prow__tagline">{hint}</p>}
-                {filled && (
-                    <p className="fwiz-prow__path" title={value}>{value}</p>
-                )}
                 <div className="fwiz-prow__field">
                     <input
                         type="text"

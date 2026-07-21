@@ -38,16 +38,13 @@ const SettingsIcon: React.FC = () => (
 
 const FlintLogo: React.FC = () => (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+        {/* One evenodd path: outer flame minus inner flame = a real transparent
+            ring (not a --bg-primary-filled fake cutout), plus the inner tongue. */}
         <path
-            d="M12 2C8.5 6 8 10 8 12c0 3.5 1.5 6 4 8 2.5-2 4-4.5 4-8 0-2-.5-6-4-10z"
+            fillRule="evenodd"
+            d="M12 2C8.5 6 8 10 8 12c0 3.5 1.5 6 4 8 2.5-2 4-4.5 4-8 0-2-.5-6-4-10zM12 5c-2 3-2.5 5.5-2.5 7 0 2 .8 3.5 2.5 5 1.7-1.5 2.5-3 2.5-5 0-1.5-.5-4-2.5-7z"
         />
-        <path
-            d="M12 5c-2 3-2.5 5.5-2.5 7 0 2 .8 3.5 2.5 5 1.7-1.5 2.5-3 2.5-5 0-1.5-.5-4-2.5-7z"
-            fill="var(--bg-primary)"
-        />
-        <path
-            d="M12 8c-1 1.5-1.5 3-1.5 4 0 1.2.5 2.2 1.5 3 1-.8 1.5-1.8 1.5-3 0-1-.5-2.5-1.5-4z"
-        />
+        <path d="M12 8c-1 1.5-1.5 3-1.5 4 0 1.2.5 2.2 1.5 3 1-.8 1.5-1.8 1.5-3 0-1-.5-2.5-1.5-4z" />
     </svg>
 );
 

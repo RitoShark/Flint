@@ -294,6 +294,10 @@ html[data-glass="off"] .modal--settings {
 }
 
 /* ── animated background ────────────────────────────────────────────────── */
+/* Calm, app-consistent backdrop: the plain app surface with the faintest top
+   glow. The old heavy red orbs + vignette + spot flooded the whole wizard on
+   the red theme; kept as a WHISPER so it still feels a touch special without
+   drowning the glass cards. */
 .fwiz__bg {
     position: absolute;
     inset: 0;
@@ -301,67 +305,56 @@ html[data-glass="off"] .modal--settings {
     --mx: 50%;
     --my: 50%;
     background:
-        radial-gradient(circle at 50% 0%, color-mix(in oklab, var(--accent-primary) 8%, transparent), transparent 60%),
+        radial-gradient(120% 60% at 50% -10%, color-mix(in oklab, var(--accent-primary) 6%, transparent), transparent 70%),
         var(--bg-primary);
 }
 .fwiz__bg-grid {
     position: absolute;
     inset: -1px;
     background-image:
-        linear-gradient(color-mix(in oklab, var(--text-primary) 5%, transparent) 1px, transparent 1px),
-        linear-gradient(90deg, color-mix(in oklab, var(--text-primary) 5%, transparent) 1px, transparent 1px);
-    background-size: 64px 64px;
-    mask-image: radial-gradient(ellipse at center,
-        rgba(0, 0, 0, 0.85) 0%,
-        rgba(0, 0, 0, 0.4) 50%,
-        transparent 80%);
-    opacity: 0.45;
+        linear-gradient(color-mix(in oklab, var(--text-primary) 4%, transparent) 1px, transparent 1px),
+        linear-gradient(90deg, color-mix(in oklab, var(--text-primary) 4%, transparent) 1px, transparent 1px);
+    background-size: 72px 72px;
+    mask-image: radial-gradient(ellipse at 50% 0%,
+        rgba(0, 0, 0, 0.5) 0%,
+        transparent 65%);
+    opacity: 0.35;
 }
+/* Cursor spotlight — barely-there, cool neutral not a red wash. */
 .fwiz__bg-spot {
     position: absolute;
     inset: 0;
     background: radial-gradient(
-        420px circle at var(--mx) var(--my),
-        color-mix(in oklab, var(--accent-primary) 14%, transparent) 0%,
+        520px circle at var(--mx) var(--my),
+        color-mix(in oklab, var(--text-primary) 4%, transparent) 0%,
         transparent 60%);
     transition: background 320ms var(--ux-ease);
     pointer-events: none;
 }
-.fwiz__bg-vignette {
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(ellipse at center,
-        transparent 30%,
-        rgba(0, 0, 0, 0.55) 100%);
-    pointer-events: none;
-}
+/* No heavy vignette — it darkened the edges into muddy red. */
+.fwiz__bg-vignette { display: none; }
+/* Two faint drifting orbs, dialed WAY down from the old red flood. */
 .fwiz__bg-orb {
     position: absolute;
     border-radius: 50%;
-    filter: blur(110px);
-    opacity: 0.32;
+    filter: blur(130px);
+    opacity: 0.10;
     will-change: transform;
 }
 .fwiz__bg-orb--a {
     width: 520px; height: 520px;
-    top: -180px; left: -180px;
+    top: -220px; left: -200px;
     background: var(--accent-primary);
-    animation: ux-orb-a 22s ease-in-out infinite;
+    animation: ux-orb-a 26s ease-in-out infinite;
 }
 .fwiz__bg-orb--b {
     width: 600px; height: 600px;
-    bottom: -240px; right: -180px;
-    background: color-mix(in oklab, var(--accent-primary) 50%, #6366f1);
-    opacity: 0.28;
-    animation: ux-orb-b 28s ease-in-out infinite;
+    bottom: -280px; right: -220px;
+    background: color-mix(in oklab, var(--accent-primary) 45%, #6366f1);
+    opacity: 0.08;
+    animation: ux-orb-b 30s ease-in-out infinite;
 }
-.fwiz__bg-orb--c {
-    width: 360px; height: 360px;
-    top: 55%; left: 60%;
-    background: color-mix(in oklab, var(--accent-primary) 35%, #06b6d4);
-    opacity: 0.18;
-    animation: ux-orb-c 32s ease-in-out infinite;
-}
+.fwiz__bg-orb--c { display: none; }
 @keyframes ux-orb-a {
     0%, 100% { transform: translate(0, 0) scale(1); }
     50%      { transform: translate(80px, 60px) scale(1.1); }
@@ -545,9 +538,9 @@ html[data-glass="off"] .modal--settings {
 }
 .fwiz-step__item.is-active {
     color: var(--text-primary);
-    border-color: color-mix(in oklab, var(--accent-primary) 50%, var(--border));
-    background: color-mix(in oklab, var(--accent-primary) 12%, var(--bg-secondary));
-    box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent-primary) 18%, transparent);
+    border-color: color-mix(in oklab, var(--accent-primary) 55%, transparent);
+    background: color-mix(in oklab, var(--accent-primary) 8%, color-mix(in oklab, var(--bg-secondary) 55%, transparent));
+    box-shadow: none;
 }
 .fwiz-step__item.is-done { color: color-mix(in oklab, var(--accent-primary) 30%, var(--text-secondary)); }
 .fwiz-step__dot {
@@ -693,13 +686,12 @@ html[data-glass="off"] .modal--settings {
     gap: 16px;
     padding: 16px 20px;
     background:
-        linear-gradient(135deg,
-            color-mix(in oklab, var(--accent-primary) 14%, transparent),
-            color-mix(in oklab, var(--accent-primary) 4%, transparent)),
-        color-mix(in oklab, var(--bg-secondary) 70%, transparent);
-    border: 1px solid color-mix(in oklab, var(--accent-primary) 35%, var(--border));
+        radial-gradient(120% 140% at 0% 50%, color-mix(in oklab, var(--accent-primary) 8%, transparent), transparent 60%),
+        color-mix(in oklab, var(--bg-secondary) 50%, transparent);
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 22%, var(--border));
     border-radius: 14px;
-    box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent-primary) 12%, transparent);
+    backdrop-filter: blur(8px) saturate(130%);
+    -webkit-backdrop-filter: blur(8px) saturate(130%);
 }
 .fwiz-paths__bar-text {
     flex: 1;
@@ -766,11 +758,10 @@ html[data-glass="off"] .modal--settings {
     border-color: color-mix(in oklab, var(--logo) 35%, var(--border));
 }
 .fwiz-prow.is-filled {
-    border-color: color-mix(in oklab, var(--logo) 35%, var(--border));
+    border-color: color-mix(in oklab, var(--logo) 28%, var(--border));
     box-shadow:
-        inset 0 1px 0 color-mix(in oklab, white 8%, transparent),
-        0 0 0 1px color-mix(in oklab, var(--logo) 14%, transparent),
-        0 8px 28px -14px color-mix(in oklab, var(--logo) 60%, transparent);
+        inset 0 1px 0 color-mix(in oklab, white 6%, transparent),
+        0 4px 18px -12px rgba(0, 0, 0, 0.55);
 }
 
 /* Logo / icon frame — gradient backdrop with conic ring glow when the
@@ -786,13 +777,11 @@ html[data-glass="off"] .modal--settings {
     justify-content: center;
     flex: none;
     background:
-        radial-gradient(circle at 30% 20%, color-mix(in oklab, var(--logo) 35%, transparent), transparent 60%),
-        color-mix(in oklab, var(--logo) 14%, var(--bg-tertiary));
+        radial-gradient(circle at 30% 20%, color-mix(in oklab, var(--logo) 20%, transparent), transparent 60%),
+        color-mix(in oklab, var(--bg-primary) 40%, transparent);
     color: var(--logo);
-    border: 1px solid color-mix(in oklab, var(--logo) 30%, transparent);
-    box-shadow:
-        inset 0 1px 0 color-mix(in oklab, white 22%, transparent),
-        0 8px 18px -8px color-mix(in oklab, var(--logo) 60%, transparent);
+    border: 1px solid color-mix(in oklab, var(--logo) 22%, var(--border));
+    box-shadow: inset 0 1px 0 color-mix(in oklab, white 12%, transparent);
 }
 .fwiz-prow__icon svg { width: 24px; height: 24px; position: relative; z-index: 2; }
 /* Image-bearing rows: drop the accent tint, let the artwork carry its
@@ -817,11 +806,11 @@ html[data-glass="off"] .modal--settings {
     inset: -3px;
     border-radius: 18px;
     background: conic-gradient(from 90deg,
-        color-mix(in oklab, var(--logo) 60%, transparent),
+        color-mix(in oklab, var(--logo) 45%, transparent),
         transparent 60%,
-        color-mix(in oklab, var(--logo) 50%, transparent));
+        color-mix(in oklab, var(--logo) 35%, transparent));
     filter: blur(6px);
-    opacity: 0.45;
+    opacity: 0.28;
     z-index: 1;
 }
 
@@ -925,23 +914,16 @@ html[data-glass="off"] .modal--settings {
     min-width: 0;
     min-height: 40px;
     padding: 10px 14px;
-    border-radius: 12px;
-    border: 1px solid color-mix(in oklab, white 8%, color-mix(in oklab, var(--accent-primary) 12%, var(--border)));
-    background:
-        linear-gradient(180deg,
-            color-mix(in oklab, white 5%, transparent) 0%,
-            transparent 40%,
-            color-mix(in oklab, var(--accent-primary) 4%, transparent) 100%),
-        color-mix(in oklab, #000 55%, var(--bg-primary));
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    /* Translucent glass, not a near-black box. Matches the app's dl-input. */
+    background: color-mix(in oklab, var(--bg-primary) 34%, transparent);
     color: var(--text-primary);
     font-family: var(--font-mono);
     font-size: 12.5px;
-    box-shadow:
-        inset 0 1px 0 color-mix(in oklab, white 8%, transparent),
-        inset 0 -1px 0 color-mix(in oklab, #000 35%, transparent),
-        0 1px 2px color-mix(in oklab, #000 30%, transparent);
-    backdrop-filter: blur(8px) saturate(140%);
-    -webkit-backdrop-filter: blur(8px) saturate(140%);
+    box-shadow: none;
+    backdrop-filter: blur(8px) saturate(130%);
+    -webkit-backdrop-filter: blur(8px) saturate(130%);
     transition:
         border-color var(--ux-fast),
         background var(--ux-fast),
@@ -964,13 +946,8 @@ html[data-glass="off"] .modal--settings {
 .fwiz-input:hover,
 .fwiz .form-input:hover,
 .fwiz .form-textarea:hover {
-    border-color: color-mix(in oklab, var(--accent-primary) 35%, var(--border));
-    background:
-        linear-gradient(180deg,
-            color-mix(in oklab, white 7%, transparent) 0%,
-            transparent 50%,
-            color-mix(in oklab, var(--accent-primary) 6%, transparent) 100%),
-        color-mix(in oklab, #000 50%, var(--bg-primary));
+    border-color: color-mix(in oklab, var(--accent-primary) 30%, var(--border));
+    background: color-mix(in oklab, var(--bg-primary) 42%, transparent);
 }
 .fwiz-input:focus,
 .fwiz .form-input:focus,
@@ -979,18 +956,9 @@ html[data-glass="off"] .modal--settings {
 .fwiz .form-input:focus-visible,
 .fwiz .form-textarea:focus-visible {
     outline: none;
-    border-color: color-mix(in oklab, var(--accent-primary) 70%, transparent);
-    background:
-        linear-gradient(180deg,
-            color-mix(in oklab, var(--accent-primary) 10%, transparent) 0%,
-            transparent 60%,
-            color-mix(in oklab, var(--accent-primary) 6%, transparent) 100%),
-        color-mix(in oklab, #000 65%, var(--bg-primary));
-    box-shadow:
-        0 0 0 3px color-mix(in oklab, var(--accent-primary) 22%, transparent),
-        inset 0 1px 0 color-mix(in oklab, white 14%, transparent),
-        inset 0 0 22px color-mix(in oklab, var(--accent-primary) 10%, transparent),
-        0 4px 16px -6px color-mix(in oklab, var(--accent-primary) 35%, transparent);
+    border-color: color-mix(in oklab, var(--accent-primary) 60%, transparent);
+    background: color-mix(in oklab, var(--bg-primary) 48%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-primary) 18%, transparent);
 }
 
 /* Inline icon-button — shown next to the input. Bigger, brighter icons. */
@@ -1263,15 +1231,12 @@ html[data-glass="off"] .modal--settings {
 .fwiz__cta.btn,
 .fwiz__cta.btn--primary,
 .fwiz__cta.btn--success {
-    background-color: color-mix(in oklab, var(--accent-primary) 14%, transparent) !important;
-    color: color-mix(in oklab, var(--accent-primary) 35%, var(--text-primary)) !important;
-    border: 1px solid color-mix(in oklab, var(--accent-primary) 50%, transparent) !important;
+    background-color: color-mix(in oklab, var(--accent-primary) 16%, transparent) !important;
+    color: color-mix(in oklab, var(--accent-primary) 30%, var(--text-primary)) !important;
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 45%, transparent) !important;
     padding: 0 22px !important;
-    border-radius: 12px !important;
-    box-shadow:
-        0 0 0 1px color-mix(in oklab, var(--accent-primary) 25%, transparent),
-        0 6px 24px -8px color-mix(in oklab, var(--accent-primary) 55%, transparent),
-        inset 0 1px 0 color-mix(in oklab, white 6%, transparent) !important;
+    border-radius: 10px !important;
+    box-shadow: inset 0 1px 0 color-mix(in oklab, white 6%, transparent) !important;
     transition:
         background-color var(--ux-fast),
         border-color var(--ux-fast),
@@ -1285,9 +1250,8 @@ html[data-glass="off"] .modal--settings {
     color: #fff !important;
     transform: translateY(-1px);
     box-shadow:
-        0 0 0 1px color-mix(in oklab, var(--accent-primary) 50%, transparent),
-        0 10px 32px -8px color-mix(in oklab, var(--accent-primary) 70%, transparent),
-        inset 0 1px 0 color-mix(in oklab, white 14%, transparent) !important;
+        0 8px 22px -10px color-mix(in oklab, var(--accent-primary) 55%, transparent),
+        inset 0 1px 0 color-mix(in oklab, white 12%, transparent) !important;
 }
 .fwiz__cta.btn:disabled { opacity: 0.45; box-shadow: none !important; }
 
