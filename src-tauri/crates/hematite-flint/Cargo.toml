@@ -1,0 +1,24 @@
+[package]
+name = "hematite-flint"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Hematite skin-fixer engine. Pinned at Hematite main rev 96ce760 (PR #2 merge).
+# Their rs_* crates are pinned at daff556 — IDENTICAL to Flint's ritoshark rev —
+# so exactly ONE copy of rs_* compiles across the whole Flint workspace.
+hematite-orchestrate = { git = "https://github.com/RitoShark/Hematite", rev = "96ce760" }
+hematite-core = { git = "https://github.com/RitoShark/Hematite", rev = "96ce760" }
+hematite-file = { git = "https://github.com/RitoShark/Hematite", rev = "96ce760" }
+hematite-live = { git = "https://github.com/RitoShark/Hematite", rev = "96ce760" }
+hematite-types = { git = "https://github.com/RitoShark/Hematite", rev = "96ce760" }
+
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+# Flint's shared HTTP stack (same pin as the binary crate — one rustls/ring copy).
+# `blocking` because config loading runs inside the command's spawn_blocking —
+# same TLS stack (rustls-no-provider + ring) as the binary crate, just the
+# blocking wrapper. No second HTTP stack.
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "blocking"] }

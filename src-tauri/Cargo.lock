@@ -1535,6 +1535,7 @@ dependencies = [
  "flate2",
  "flint-ltk",
  "futures",
+ "hematite-flint",
  "image",
  "image_dds",
  "indexmap 2.13.0",
@@ -2217,6 +2218,98 @@ dependencies = [
  "bincode",
  "byteorder",
  "heed-traits",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hematite-core"
+version = "0.5.0"
+source = "git+https://github.com/RitoShark/Hematite?rev=96ce760#96ce760954982b13a8054f2af92ffbe466f5e3ef"
+dependencies = [
+ "anyhow",
+ "hematite-types",
+ "indexmap 2.13.0",
+ "once_cell",
+ "regex",
+ "serde",
+ "serde_json",
+ "strsim",
+ "tracing",
+]
+
+[[package]]
+name = "hematite-file"
+version = "0.5.0"
+source = "git+https://github.com/RitoShark/Hematite?rev=96ce760#96ce760954982b13a8054f2af92ffbe466f5e3ef"
+dependencies = [
+ "anyhow",
+ "heed",
+ "hematite-core",
+ "hematite-types",
+ "image",
+ "indexmap 2.13.0",
+ "page_size",
+ "rs_bin",
+ "rs_io",
+ "rs_mesh",
+ "rs_tex",
+ "rs_wad",
+ "tracing",
+ "xxhash-rust",
+]
+
+[[package]]
+name = "hematite-flint"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hematite-core",
+ "hematite-file",
+ "hematite-live",
+ "hematite-orchestrate",
+ "hematite-types",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
+name = "hematite-live"
+version = "0.5.0"
+source = "git+https://github.com/RitoShark/Hematite?rev=96ce760#96ce760954982b13a8054f2af92ffbe466f5e3ef"
+dependencies = [
+ "flate2",
+ "serde_json",
+ "sysinfo 0.30.13",
+ "thiserror 1.0.69",
+ "tracing",
+ "walkdir",
+ "xxhash-rust",
+ "zstd 0.13.3",
+]
+
+[[package]]
+name = "hematite-orchestrate"
+version = "0.5.0"
+source = "git+https://github.com/RitoShark/Hematite?rev=96ce760#96ce760954982b13a8054f2af92ffbe466f5e3ef"
+dependencies = [
+ "anyhow",
+ "hematite-core",
+ "hematite-file",
+ "hematite-live",
+ "hematite-types",
+ "tracing",
+ "walkdir",
+]
+
+[[package]]
+name = "hematite-types"
+version = "0.5.0"
+source = "git+https://github.com/RitoShark/Hematite?rev=96ce760#96ce760954982b13a8054f2af92ffbe466f5e3ef"
+dependencies = [
+ "indexmap 2.13.0",
  "serde",
  "serde_json",
 ]
@@ -3107,7 +3200,7 @@ dependencies = [
  "camino",
  "serde",
  "serde_json",
- "sysinfo",
+ "sysinfo 0.32.1",
  "thiserror 2.0.18",
 ]
 
@@ -4720,6 +4813,7 @@ checksum = "ab3f43e3283ab1488b624b44b0e988d0acea0b3214e694730a055cb6b2efa801"
 dependencies = [
  "base64 0.22.1",
  "bytes",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "http",
@@ -5744,6 +5838,21 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "sysinfo"
+version = "0.30.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a5b4ddaee55fb2bea2bf0e5000747e5f5c0de765e5a5ff87f4cd106439f4bb3"
+dependencies = [
+ "cfg-if",
+ "core-foundation-sys",
+ "libc",
+ "ntapi",
+ "once_cell",
+ "rayon",
+ "windows 0.52.0",
 ]
 
 [[package]]
@@ -7232,6 +7341,16 @@ dependencies = [
 
 [[package]]
 name = "windows"
+version = "0.52.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e48a53791691ab099e5e2ad123536d0fff50652600abaf43bbf952894110d0be"
+dependencies = [
+ "windows-core 0.52.0",
+ "windows-targets 0.52.6",
+]
+
+[[package]]
+name = "windows"
 version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "12342cb4d8e3b046f3d80effd474a7a02447231330ef77d71daa6fbc40681143"
@@ -7260,6 +7379,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3beeceb5e5cfd9eb1d76b381630e82c4241ccd0d27f1a39ed41b2760b255c5e8"
 dependencies = [
  "windows-core 0.61.2",
+]
+
+[[package]]
+name = "windows-core"
+version = "0.52.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33ab640c8d7e35bf8ba19b884ba838ceb4fba93a4e8c65a9059d08afcfc683d9"
+dependencies = [
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
