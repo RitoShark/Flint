@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/flint-ltk", "crates/ltk_inibin"]
+members = [".", "crates/flint-ltk", "crates/ltk_inibin", "crates/hematite-flint"]
 
 [package]
 name = "flint"
@@ -23,6 +23,9 @@ tauri-build = { version = "2", features = [] }
 # Core library (all LTK deps live here)
 flint-ltk = { path = "crates/flint-ltk" }
 ltk_inibin = { path = "crates/ltk_inibin", features = ["serde"] }
+# Skin-fixer engine (wraps Hematite's hematite-orchestrate). Its hematite deps
+# pin rs_* at daff556 — IDENTICAL to ritoshark below — so ONE copy of rs_* compiles.
+hematite-flint = { path = "crates/hematite-flint" }
 # ltk_rst: MIGRATED to ritoshark::rst (Phase 4) — direct dep removed.
 # RitoShark crates — migration target. Binary-crate commands use ritoshark types directly;
 # same git rev as flint-ltk's dep, so cargo compiles ONE shared copy (identical types across crates).

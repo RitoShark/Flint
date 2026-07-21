@@ -72,3 +72,4 @@ export * from './chroma';
 export * from './taskbar';
 export * from './cdn';
 export * from './thumbnail';
+export * from './skinFixer';

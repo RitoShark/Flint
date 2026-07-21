@@ -1,0 +1,208 @@
+/* --------------------------------------------------------------------------
+   Skin Fixer modal — glass / design-lab language (matches settings + recolor).
+   -------------------------------------------------------------------------- */
+
+.skin-fixer-modal { max-width: 780px; }
+
+/* Step indicator */
+.skinfix-steps {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: var(--space-lg);
+  padding: 8px 12px;
+  background: color-mix(in oklab, var(--bg-primary) 40%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.skinfix-step {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  transition: color var(--transition-fast);
+}
+.skinfix-step.is-active { color: var(--accent-primary); }
+.skinfix-step-sep {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* Shared empty / scanning states */
+.skinfix-empty,
+.skinfix-scanning,
+.skinfix-running {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  min-height: 260px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.skinfix-empty svg { width: 44px; height: 44px; opacity: 0.5; }
+
+/* Step 1 — project picker */
+.skinfix-projects {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.skinfix-project {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  text-align: left;
+  background: color-mix(in oklab, var(--bg-secondary) 55%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+.skinfix-project:hover {
+  border-color: color-mix(in oklab, var(--accent-primary) 45%, var(--border));
+}
+.skinfix-project.is-on {
+  border-color: color-mix(in oklab, var(--accent-primary) 70%, transparent);
+  background: color-mix(in oklab, var(--accent-primary) 8%, var(--bg-secondary));
+}
+.skinfix-project__check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border);
+  flex-shrink: 0;
+  color: #fff;
+}
+.skinfix-project.is-on .skinfix-project__check {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+.skinfix-project__check svg { width: 14px; height: 14px; display: block; }
+.skinfix-project__body { display: grid; gap: 2px; min-width: 0; }
+.skinfix-project__body strong { color: var(--text-primary); font-size: var(--text-sm); }
+.skinfix-project__path {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Step 2 — detected fixes */
+.skinfix-fixes { display: flex; flex-direction: column; gap: 8px; }
+.skinfix-fixes__hint {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin: 0 0 4px;
+}
+.skinfix-fix {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  background: color-mix(in oklab, var(--bg-secondary) 55%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+.skinfix-fix:hover { border-color: color-mix(in oklab, var(--accent-primary) 40%, var(--border)); }
+.skinfix-fix.is-on { background: color-mix(in oklab, var(--accent-primary) 6%, var(--bg-secondary)); }
+.skinfix-fix__body { display: grid; gap: 4px; min-width: 0; flex: 1; }
+.skinfix-fix__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.skinfix-fix__head strong { color: var(--text-primary); font-size: var(--text-sm); }
+.skinfix-fix__count {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.skinfix-fix__desc {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+/* Severity pills */
+.skinfix-sev {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+.skinfix-sev--critical { color: var(--error);   background: color-mix(in oklab, var(--error) 14%, transparent);   border-color: color-mix(in oklab, var(--error) 45%, transparent); }
+.skinfix-sev--high     { color: var(--warning); background: color-mix(in oklab, var(--warning) 14%, transparent); border-color: color-mix(in oklab, var(--warning) 45%, transparent); }
+.skinfix-sev--medium   { color: var(--accent-primary); background: color-mix(in oklab, var(--accent-primary) 14%, transparent); border-color: color-mix(in oklab, var(--accent-primary) 40%, transparent); }
+.skinfix-sev--low      { color: var(--text-muted); background: color-mix(in oklab, var(--text-muted) 12%, transparent); border-color: var(--border); }
+
+/* Options + warning */
+.skinfix-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: var(--space-md);
+  padding: 12px 14px;
+  background: color-mix(in oklab, var(--bg-primary) 34%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.skinfix-opt { display: flex; }
+.skinfix-warn {
+  margin-top: var(--space-sm);
+  padding: 10px var(--space-md);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: color-mix(in oklab, var(--warning) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--warning) 45%, transparent);
+  border-radius: 10px;
+  color: var(--warning);
+  font-size: var(--text-sm);
+}
+.skinfix-warn svg { flex-shrink: 0; display: block; width: 18px; height: 18px; }
+
+/* Step 3 — running + results */
+.skinfix-running__stage { font-size: var(--text-base); color: var(--text-primary); margin: 0; }
+.skinfix-running__proj { font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); margin: 0; }
+
+.skinfix-results { display: flex; flex-direction: column; gap: 10px; max-height: 400px; overflow-y: auto; }
+.skinfix-result {
+  padding: 12px 14px;
+  background: color-mix(in oklab, var(--bg-secondary) 55%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.skinfix-result.is-error { border-color: color-mix(in oklab, var(--error) 50%, transparent); }
+.skinfix-result__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.skinfix-result__head strong { color: var(--text-primary); font-size: var(--text-sm); }
+.skinfix-result__stat { font-size: var(--text-xs); color: var(--text-secondary); font-family: var(--font-mono); }
+.skinfix-result__err { margin: 0; font-size: var(--text-xs); color: var(--error); }
+.skinfix-result__none { margin: 0; font-size: var(--text-xs); color: var(--text-muted); font-style: italic; }
+.skinfix-result__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.skinfix-result__list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  padding: 3px 0;
+}
+.skinfix-result__ochanges { color: var(--text-muted); font-family: var(--font-mono); }

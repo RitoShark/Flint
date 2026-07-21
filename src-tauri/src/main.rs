@@ -427,6 +427,10 @@ fn main() {
             commands::loadscreen_banner::get_loadscreen_banner_info,
             commands::loadscreen_banner::apply_loadscreen_banner,
             commands::loadscreen_banner::save_banner_mask,
+            // Skin fixer (Hematite integration)
+            commands::skin_fixer::hematite_list_fixes,
+            commands::skin_fixer::hematite_scan_projects,
+            commands::skin_fixer::hematite_run_fixes,
             // Format converter commands (luabin, troybin)
             commands::format_converters::convert_luabin_to_text,
             commands::format_converters::read_luabin_text,
