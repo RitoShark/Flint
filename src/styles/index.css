@@ -7416,13 +7416,15 @@ input.np-search:focus {
   max-width: 900px;
 }
 
+/* Segmented mode tabs — translucent track, glass active pill. */
 .recolor-modal__tabs {
   display: flex;
   gap: 2px;
   margin-bottom: var(--space-lg);
-  background-color: var(--bg-tertiary);
+  background: color-mix(in oklab, var(--bg-primary) 40%, transparent);
   padding: 4px;
   border-radius: var(--radius-md);
+  border: 1px solid var(--border);
 }
 
 .recolor-modal__tab {
@@ -7448,24 +7450,72 @@ input.np-search:focus {
 }
 
 .recolor-modal__tab--active {
-  background-color: var(--accent-primary);
-  color: white;
+  background: color-mix(in oklab, var(--accent-primary) 88%, transparent);
+  color: #fff;
+  box-shadow: 0 2px 10px -3px color-mix(in oklab, var(--accent-primary) 60%, transparent);
 }
 
 .recolor-modal__tab--active:hover {
   background-color: var(--accent-hover);
-  color: white;
+  color: #fff;
 }
 
-.recolor-modal__tab span {
-  display: inline-flex;
-  width: 16px;
-  height: 16px;
+.recolor-modal__tab span { display: inline-flex; width: 16px; height: 16px; }
+.recolor-modal__tab span svg { width: 16px; height: 16px; display: block; }
+
+/* Custom tab tooltip — wraps the full explanation (native title truncates). */
+.recolor-modal__tab-wrap {
+  flex: 1;
+  position: relative;
+  display: flex;
 }
 
-.recolor-modal__tab span svg {
-  width: 16px;
-  height: 16px;
+.recolor-modal__tab-wrap .recolor-modal__tab { flex: 1; }
+
+.recolor-modal__tab-tip {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 280px;
+  padding: 10px 12px;
+  background: color-mix(in oklab, var(--bg-secondary) 92%, transparent);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 16px 38px -14px rgba(0, 0, 0, .6);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  white-space: normal;
+  pointer-events: none;
+  animation: recolor-tip-in 120ms ease;
+}
+
+.recolor-modal__tab-tip strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+
+/* Little arrow pointing up at the tab. */
+.recolor-modal__tab-tip::before {
+  content: "";
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-bottom-color: var(--border);
+}
+
+@keyframes recolor-tip-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
 .recolor-modal__top {
@@ -7473,35 +7523,108 @@ input.np-search:focus {
   gap: var(--space-xl);
 }
 
+/* Preview column: the frameless canvas surface + swap control beneath it. */
+.recolor-modal__preview-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
 .recolor-modal__preview {
   flex: 1;
-  min-height: 450px;
-  background-color: #000;
+  min-height: 420px;
+  background:
+    linear-gradient(color-mix(in oklab, var(--bg-primary) 55%, transparent),
+                    color-mix(in oklab, var(--bg-primary) 70%, transparent)),
+    repeating-conic-gradient(#2a2a2a 0% 25%, #202020 0% 50%) 0 0 / 22px 22px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
+  border-radius: 14px;
   overflow: hidden;
   cursor: pointer;
   position: relative;
 }
 
-.recolor-modal__preview:hover .recolor-modal__preview-badge {
-  opacity: 1;
+.recolor-modal__canvas {
+  max-width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+  display: block;
+  image-rendering: auto;
+  transform-origin: center center;
+  will-change: transform;
 }
+
+.recolor-modal__preview.is-zoomed { cursor: grab; }
+.recolor-modal__preview.is-zoomed:active { cursor: grabbing; }
+
+.recolor-modal__preview:hover .recolor-modal__preview-badge { opacity: 1; }
+
+/* Zoom percentage + reset, top-right. */
+.recolor-modal__zoom-badge {
+  position: absolute;
+  top: var(--space-sm);
+  right: var(--space-sm);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: color-mix(in oklab, var(--bg-primary) 55%, transparent);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+  border: 1px solid var(--border);
+  padding: 3px 4px 3px 10px;
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+.recolor-modal__zoom-reset {
+  background: color-mix(in oklab, var(--accent-primary) 22%, transparent);
+  border: none;
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  padding: 2px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.recolor-modal__zoom-reset:hover { background: color-mix(in oklab, var(--accent-primary) 40%, transparent); }
+
+/* Faint "scroll to zoom" affordance, bottom-right, fades on hover. */
+.recolor-modal__zoom-hint {
+  position: absolute;
+  bottom: var(--space-sm);
+  right: var(--space-sm);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  background: color-mix(in oklab, var(--bg-primary) 45%, transparent);
+  padding: 2px 8px;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  pointer-events: none;
+}
+.recolor-modal__preview:hover .recolor-modal__zoom-hint { opacity: .7; }
+.recolor-modal__preview.is-zoomed .recolor-modal__zoom-hint { display: none; }
 
 .recolor-modal__preview-badge {
   position: absolute;
   top: var(--space-sm);
   left: var(--space-sm);
-  background-color: rgba(0, 0, 0, 0.7);
+  background: color-mix(in oklab, var(--bg-primary) 55%, transparent);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+  border: 1px solid var(--border);
   padding: 4px 12px;
-  border-radius: var(--radius-sm);
+  border-radius: 999px;
   font-size: var(--text-xs);
   color: var(--text-primary);
-  opacity: 0.7;
+  opacity: 0.75;
   transition: opacity var(--transition-fast);
 }
 
@@ -7520,19 +7643,41 @@ input.np-search:focus {
   opacity: 0.5;
 }
 
-.recolor-modal__controls {
-  width: 320px;
+/* Prev / next texture swap control (folder mode). */
+.recolor-modal__swap {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-  padding: 0;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: 6px 8px;
+  background: color-mix(in oklab, var(--bg-primary) 40%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 10px;
 }
 
-.recolor-modal__color-presets {
-  display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  gap: var(--space-xs);
-  margin-top: var(--space-xs);
+.recolor-modal__swap-label {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recolor-modal__swap-count {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.recolor-modal__controls {
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: 0;
 }
 
 .recolor-modal__color-btn {
@@ -7550,40 +7695,160 @@ input.np-search:focus {
 }
 
 .recolor-modal__color-btn--active {
-  border-color: white;
+  border-color: #fff;
   box-shadow: 0 0 0 2px var(--accent-primary);
 }
 
-.recolor-modal__mode-hint {
-  padding: var(--space-md);
-  background-color: var(--bg-tertiary);
-  border-radius: var(--radius-sm);
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-.recolor-modal__mode-hint p {
-  margin: 0;
-}
-
-.recolor-modal__checkpoint {
-  margin-top: auto;
-  padding-top: var(--space-md);
-  border-top: 1px solid var(--border);
-}
-
-.recolor-modal__info {
-  margin-top: var(--space-lg);
-  padding: var(--space-md);
-  background-color: rgba(210, 153, 34, 0.1);
-  border: 1px solid var(--warning);
-  border-radius: var(--radius-sm);
+/* Hue slider + live target-colour swatch (opens the preset popover). */
+.recolor-modal__hue-row {
   display: flex;
   align-items: center;
   gap: var(--space-md);
+}
+
+.recolor-modal__hue-row .form-range {
+  flex: 1;
+  margin: var(--space-sm) 0;
+}
+
+.recolor-modal__swatch-pop { position: relative; flex-shrink: 0; }
+
+.recolor-modal__swatch {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border: 2px solid color-mix(in oklab, #fff 55%, transparent);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, .4),
+    0 2px 8px rgba(0, 0, 0, .35);
+  cursor: pointer;
+  padding: 0;
+  transition: transform var(--transition-fast);
+}
+
+.recolor-modal__swatch:hover { transform: scale(1.08); }
+
+/* Invisible full-screen catch so an outside click closes the popover. */
+.recolor-modal__swatch-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.recolor-modal__presets-popover {
+  position: absolute;
+  z-index: 41;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  padding: 10px;
+  width: 184px;
+  background: color-mix(in oklab, var(--bg-secondary) 82%, transparent);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 18px 40px -14px rgba(0, 0, 0, .6);
+}
+
+.recolor-modal__presets-popover .recolor-modal__color-btn {
+  aspect-ratio: 1;
+  height: auto;
+}
+
+/* Overwrite warning — subtle tinted glass. */
+.recolor-modal__info {
+  margin-top: var(--space-lg);
+  padding: var(--space-md);
+  background: color-mix(in oklab, var(--warning) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--warning) 45%, transparent);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   color: var(--warning);
   font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
+/* The Icon wrapper is a <span>; center its glyph and stop it shrinking so it
+   sits on the text's vertical midline instead of the baseline. */
+.recolor-modal__info > span:first-child {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.recolor-modal__info svg { display: block; width: 18px; height: 18px; }
+
+/* --------------------------------------------------------------------------
+   SettingsRow primitive, reused inside the recolor modal.
+   The base .settings-row* rules are scoped to .modal--settings, so mirror the
+   needed pieces locally here (frameless clickable toggle rows, glass hover).
+   -------------------------------------------------------------------------- */
+.recolor-modal .settings-row {
+  display: grid;
+  grid-template-columns: 40px 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 12px;
+  border-radius: 12px;
+  position: relative;
+  transition: background var(--transition-fast);
+}
+
+.recolor-modal .settings-row--clickable { cursor: pointer; }
+.recolor-modal .settings-row--clickable button,
+.recolor-modal .settings-row--clickable input { cursor: pointer; }
+
+.recolor-modal .settings-row:hover {
+  background:
+    radial-gradient(120% 140% at 0% 50%,
+      color-mix(in oklab, var(--accent-primary) 10%, transparent) 0%,
+      transparent 60%);
+}
+
+.recolor-modal .settings-row__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--bg-primary) 40%, transparent);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.recolor-modal .settings-row__icon svg { display: block; width: 20px; height: 20px; }
+
+.recolor-modal .settings-row__body { display: grid; gap: 4px; min-width: 0; }
+
+.recolor-modal .settings-row__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.recolor-modal .settings-row__title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.recolor-modal .settings-row__sub {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.recolor-modal .settings-row__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .form-range {
@@ -7632,44 +7897,6 @@ input.np-search:focus {
 
 .form-range--hue {
   background: linear-gradient(to right, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%) !important;
-}
-
-.recolor-modal__preview-hint {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  text-align: center;
-  margin-top: var(--space-sm);
-  background-color: rgba(0, 0, 0, 0.4);
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
-}
-
-.recolor-modal__image-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 100%;
-  gap: var(--space-sm);
-}
-
-.recolor-modal__previews {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  width: 100%;
-}
-
-.recolor-modal__previews--dual {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-md);
-}
-
-.recolor-modal__previews img {
-  width: 100%;
-  height: auto;
-  min-height: 100px;
-  max-height: 450px !important;
 }
 
 /* --------------------------------------------------------------------------
@@ -8048,7 +8275,7 @@ input.np-search:focus {
   flex-direction: column;
   height: 100%;
   padding: var(--space-xl);
-  gap: var(--space-xl);
+  gap: var(--space-lg);
   background-color: var(--bg-primary);
   overflow: hidden;
 }
@@ -8057,20 +8284,40 @@ input.np-search:focus {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-lg);
   padding-bottom: var(--space-lg);
   border-bottom: 1px solid var(--border);
 }
 
-.checkpoint-view__create {
+.checkpoint-view__title {
   display: flex;
-  gap: var(--space-md);
-  width: 100%;
-  max-width: 600px;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
-.checkpoint-view__create input {
-  flex: 1;
+.checkpoint-view__title h2 { margin: 0; font-size: var(--text-lg); }
+
+.checkpoint-view__title-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: color-mix(in oklab, var(--accent-primary) 16%, transparent);
+  color: var(--accent-primary);
 }
+.checkpoint-view__title-icon svg { display: block; width: 17px; height: 17px; }
+
+.checkpoint-view__create {
+  display: flex;
+  gap: var(--space-sm);
+  width: 100%;
+  max-width: 560px;
+}
+
+.checkpoint-view__create .dl-input { flex: 1; }
 
 .checkpoint-view__content {
   flex: 1;
@@ -8080,49 +8327,82 @@ input.np-search:focus {
   overflow: hidden;
 }
 
+/* Timeline rail: a vertical line runs down the left, each card hangs a dot on it. */
 .checkpoint-view__list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
+  gap: 10px;
   overflow-y: auto;
-  padding-right: var(--space-sm);
+  padding: 2px 2px 2px 18px;
+  position: relative;
+}
+
+.checkpoint-view__list::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in oklab, var(--accent-primary) 55%, transparent),
+    var(--border) 85%);
+  border-radius: 2px;
 }
 
 .checkpoint-item {
   display: flex;
   gap: var(--space-md);
-  padding: var(--space-md);
-  background-color: var(--bg-secondary);
+  padding: 12px 14px;
+  background: color-mix(in oklab, var(--bg-secondary) 60%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: 12px;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: border-color var(--transition-fast), background var(--transition-fast), transform var(--transition-fast);
   position: relative;
 }
 
 .checkpoint-item:hover {
-  background-color: var(--bg-hover);
-  border-color: var(--accent-primary);
+  background: color-mix(in oklab, var(--bg-secondary) 80%, transparent);
+  border-color: color-mix(in oklab, var(--accent-primary) 45%, var(--border));
+  transform: translateX(1px);
 }
 
 .checkpoint-item--selected {
-  border-color: var(--accent-primary);
-  background-color: var(--bg-hover);
-  box-shadow: 0 0 0 1px var(--accent-primary);
+  border-color: color-mix(in oklab, var(--accent-primary) 70%, transparent);
+  background: color-mix(in oklab, var(--accent-primary) 8%, var(--bg-secondary));
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent-primary) 40%, transparent);
 }
 
+/* The rail dot (replaces the old 4px bar). */
 .checkpoint-item__marker {
-  width: 4px;
-  background-color: var(--accent-primary);
-  border-radius: 2px;
+  position: absolute;
+  left: -15px;
+  top: 16px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bg-primary);
+  border: 2px solid var(--accent-primary);
   flex-shrink: 0;
+  transition: box-shadow var(--transition-fast), background var(--transition-fast);
+}
+
+.checkpoint-item:hover .checkpoint-item__marker,
+.checkpoint-item--selected .checkpoint-item__marker {
+  background: var(--accent-primary);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent-primary) 22%, transparent);
 }
 
 .checkpoint-item__content {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: 6px;
+  min-width: 0;
 }
 
 .checkpoint-item__header {
@@ -8152,9 +8432,11 @@ input.np-search:focus {
 }
 
 .checkpoint-view__details {
-  background-color: var(--bg-secondary);
+  background: color-mix(in oklab, var(--bg-secondary) 55%, transparent);
+  backdrop-filter: blur(10px) saturate(130%);
+  -webkit-backdrop-filter: blur(10px) saturate(130%);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: 14px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -8226,31 +8508,33 @@ input.np-search:focus {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  padding: var(--space-xs) var(--space-sm);
+  padding: 7px var(--space-sm);
   font-size: var(--text-sm);
-  border-radius: var(--radius-sm);
+  border-radius: 8px;
+  border: 1px solid transparent;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: border-color var(--transition-fast), background var(--transition-fast);
 }
 
 .diff-file:hover {
-  filter: brightness(1.2);
+  border-color: color-mix(in oklab, var(--accent-primary) 40%, var(--border));
 }
 
 .diff-file--active {
-  outline: 1px solid var(--accent-primary);
+  border-color: color-mix(in oklab, var(--accent-primary) 70%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent-primary) 35%, transparent);
 }
 
 .diff-file--added {
-  background-color: rgba(63, 185, 80, 0.1);
+  background-color: color-mix(in oklab, var(--success) 10%, transparent);
 }
 
 .diff-file--modified {
-  background-color: rgba(210, 153, 34, 0.1);
+  background-color: color-mix(in oklab, var(--warning) 10%, transparent);
 }
 
 .diff-file--deleted {
-  background-color: rgba(248, 81, 73, 0.1);
+  background-color: color-mix(in oklab, var(--error) 10%, transparent);
 }
 
 .diff-file__badge {
@@ -8312,12 +8596,14 @@ input.np-search:focus {
 
 .checkpoint-tag {
   display: inline-block;
-  padding: 1px 6px;
+  padding: 1px 8px;
   font-size: 10px;
-  border-radius: 10px;
-  background-color: var(--accent-primary);
-  color: #fff;
-  font-weight: 500;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--accent-primary) 18%, transparent);
+  border: 1px solid color-mix(in oklab, var(--accent-primary) 40%, transparent);
+  color: color-mix(in oklab, var(--accent-primary) 88%, #fff);
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 /* Checkpoint card summary */
@@ -8340,10 +8626,12 @@ input.np-search:focus {
 
 /* Checkpoint creation progress bar */
 .checkpoint-progress {
-  padding: var(--space-sm) var(--space-md);
-  background-color: var(--bg-secondary);
+  padding: 10px var(--space-md);
+  background: color-mix(in oklab, var(--bg-secondary) 60%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: 12px;
 }
 
 .checkpoint-progress__info {
@@ -8363,7 +8651,9 @@ input.np-search:focus {
 
 .checkpoint-progress__fill {
   height: 100%;
-  background-color: var(--accent-primary);
+  background: linear-gradient(90deg,
+    color-mix(in oklab, var(--accent-primary) 75%, transparent),
+    var(--accent-primary));
   transition: width 0.2s ease;
   border-radius: 2px;
 }
@@ -8372,8 +8662,9 @@ input.np-search:focus {
 .checkpoint-preview {
   margin-top: var(--space-lg);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: 12px;
   overflow: hidden;
+  background: color-mix(in oklab, var(--bg-primary) 40%, transparent);
 }
 
 .checkpoint-preview__header {
@@ -8381,7 +8672,7 @@ input.np-search:focus {
   justify-content: space-between;
   align-items: center;
   padding: var(--space-sm) var(--space-md);
-  background-color: var(--bg-tertiary);
+  background: color-mix(in oklab, var(--bg-tertiary) 50%, transparent);
   border-bottom: 1px solid var(--border);
 }
 
