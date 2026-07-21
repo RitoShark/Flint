@@ -786,8 +786,8 @@ export const TitleBar: React.FC = () => {
                     title="Skin Fixer — detect & fix broken skins"
                     data-tauri-drag-region="false"
                 >
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                        <path d="M10.9 5.1a3 3 0 01-3.8 3.8L3.3 12.7a1.2 1.2 0 001.7 1.7l3.8-3.8a3 3 0 003.8-3.8l-1.7 1.7-1.4-.3-.3-1.4 1.7-1.7z" fill="currentColor"/>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+                        <path d="M14.7 6.3a4 4 0 00-5.2 5.2l-5.6 5.6a1.6 1.6 0 002.3 2.3l5.6-5.6a4 4 0 005.2-5.2l-2.7 2.7-2-.5-.5-2 2.6-2.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
                     </svg>
                 </button>
 
