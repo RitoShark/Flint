@@ -3,7 +3,7 @@ import { useModalStore, useNotificationStore, useConfigStore, useUxStore } from 
 import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Button, Input, Icon, Textarea, Checkbox } from '../ui';
+import { Button, Input, Icon, Textarea, Checkbox, Spinner } from '../ui';
 import { ThemePresetGrid } from './settings/ThemeTab';
 import { SettingsRow } from './settings/SettingsRow';
 import { PathSettingItem } from './settings/PathSettingItem';
@@ -57,6 +57,7 @@ export const FirstTimeSetupModal: React.FC = () => {
     const [celestialPath, setCelestialPath] = useState(celestialModPathStored || '');
     const [preferredLauncher, setPreferredLauncher] = useState<'ltk' | 'celestial' | null>(preferredLauncherStored);
     const [detectingAll, setDetectingAll] = useState<DetectingState>(false);
+    const autoDetectRan = useRef(false);
     const [flintHome, setFlintHome] = useState<string>('');
     const [accentChoice, setAccentChoice] = useState<string>(ux.accentPrimary || DEFAULT_ACCENT);
     const [glassChoice, setGlassChoice] = useState<boolean>(ux.glassmorphism);
@@ -164,6 +165,13 @@ export const FirstTimeSetupModal: React.FC = () => {
             setDetectingAll(false);
         }
     };
+
+    // Auto-run detection the first time the Paths step is reached — no button.
+    useEffect(() => {
+        if (!isVisible || step.id !== 'paths' || autoDetectRan.current) return;
+        autoDetectRan.current = true;
+        void detectAll();
+    }, [isVisible, step.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const browseDir = async (title: string, setter: (v: string) => void) => {
         const selected = await open({ title, directory: true });
@@ -283,7 +291,6 @@ export const FirstTimeSetupModal: React.FC = () => {
                                 onBrowseProject={() => browseDir('Where should new projects be created?', setDefaultProjectPath)}
                                 onBrowseLtk={() => browseDir('Select LTK Manager Mod Folder', setLtkPath)}
                                 onBrowseCelestial={() => browseDir('Select Celestial Mod Folder', setCelestialPath)}
-                                onDetectAll={detectAll}
                             />
                         )}
                         {step.id === 'theme' && (
@@ -567,32 +574,26 @@ const PathsPane: React.FC<{
     onBrowseProject: () => void;
     onBrowseLtk: () => void;
     onBrowseCelestial: () => void;
-    onDetectAll: () => void;
 }> = (p) => {
     const filledCount = [p.project, p.league, p.pbe, p.ltk || p.celestial].filter((v) => v.trim().length > 0).length;
     const progress = (filledCount / 4) * 100;
     return (
     <div className="fwiz-settings">
-        <div className="fwiz-detectbar">
+        <div className={`fwiz-detectbar ${p.detectingAll ? 'is-busy' : ''}`}>
+            <span className="fwiz-detectbar__icon" aria-hidden="true">
+                {p.detectingAll ? <Spinner size="sm" /> : <Icon name="success" />}
+            </span>
             <div className="fwiz-detectbar__text">
-                <strong>Find everything for me</strong>
-                <span>Scans your machine for League, PBE, LTK Manager and Celestial.</span>
-                <div className="fwiz-detectbar__progress" aria-hidden="true">
-                    <div className="fwiz-detectbar__track">
-                        <div className="fwiz-detectbar__fill" style={{ width: `${progress}%` }} />
-                    </div>
-                    <span className="fwiz-detectbar__label">{filledCount}/4 set</span>
-                </div>
+                <strong>{p.detectingAll ? 'Detecting your setup…' : 'Auto-detected your setup'}</strong>
+                <span>
+                    {p.detectingAll
+                        ? 'Scanning for League, PBE, LTK Manager and Celestial — adjust anything below.'
+                        : `Found ${filledCount}/4 — review and tweak any path below.`}
+                </span>
             </div>
-            <button
-                type="button"
-                className={`dl-btn dl-btn--primary ${p.detectingAll ? 'dl-btn--loading' : ''}`}
-                onClick={p.onDetectAll}
-                disabled={p.detectingAll}
-            >
-                <Icon name="search" />
-                <span>{p.detectingAll ? 'Scanning…' : 'Auto-detect everything'}</span>
-            </button>
+            <div className="fwiz-detectbar__track" aria-hidden="true">
+                <div className="fwiz-detectbar__fill" style={{ width: `${progress}%` }} />
+            </div>
         </div>
 
         <p className="settings-subhead">Workspace &amp; game</p>

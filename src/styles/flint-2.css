@@ -916,24 +916,42 @@ html[data-glass="off"] .modal--settings {
 }
 
 /* ── auto-detect banner (flat translucent, not a red flood) ─────────────── */
+/* Detection now runs automatically on entering the Paths step — this is a
+   passive status strip (spinner while scanning, check when done), NOT a button. */
 .fwiz-detectbar {
+    --db: var(--color-success);
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 14px 16px;
+    gap: 14px;
+    padding: 12px 16px;
     margin-bottom: 4px;
-    border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+    border: 1px solid color-mix(in oklab, var(--db) 26%, var(--border));
     border-radius: 12px;
     background:
         linear-gradient(180deg,
-            color-mix(in oklab, white 4%, transparent) 0%,
-            transparent 46%),
+            color-mix(in oklab, var(--db) 6%, transparent) 0%,
+            transparent 55%),
         color-mix(in oklab, var(--bg-primary) 24%, transparent);
     box-shadow: inset 0 1px 0 color-mix(in oklab, white 6%, transparent);
+    transition: border-color var(--ux-base);
 }
-.fwiz-detectbar__text { display: grid; gap: 4px; min-width: 0; flex: 1; }
+.fwiz-detectbar.is-busy { --db: var(--accent-primary); }
+.fwiz-detectbar__icon {
+    width: 30px;
+    height: 30px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9px;
+    color: color-mix(in oklab, var(--db) 65%, var(--text-primary));
+    background: color-mix(in oklab, var(--db) 14%, transparent);
+    border: 1px solid color-mix(in oklab, var(--db) 24%, transparent);
+}
+.fwiz-detectbar__icon svg { display: block; width: 16px; height: 16px; }
+.fwiz-detectbar__text { display: grid; gap: 3px; min-width: 0; flex: 1; }
 .fwiz-detectbar__text strong {
-    font-size: 14px;
+    font-size: 13.5px;
     font-weight: 600;
     color: var(--text-primary);
     letter-spacing: -0.005em;
@@ -941,16 +959,11 @@ html[data-glass="off"] .modal--settings {
 .fwiz-detectbar__text > span {
     font-size: 12px;
     color: var(--text-muted);
-    line-height: 1.5;
-}
-.fwiz-detectbar__progress {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-top: 4px;
+    line-height: 1.45;
 }
 .fwiz-detectbar__track {
-    flex: 1;
+    flex: none;
+    width: 120px;
     height: 5px;
     border-radius: 999px;
     overflow: hidden;
@@ -960,17 +973,9 @@ html[data-glass="off"] .modal--settings {
 .fwiz-detectbar__fill {
     height: 100%;
     border-radius: 999px;
-    background: color-mix(in oklab, var(--accent-primary) 65%, transparent);
-    transition: width var(--ux-base);
+    background: color-mix(in oklab, var(--db) 65%, transparent);
+    transition: width var(--ux-base), background var(--ux-base);
 }
-.fwiz-detectbar__label {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    color: var(--text-muted);
-    flex: none;
-}
-.fwiz-detectbar .dl-btn { flex: none; }
-.fwiz-detectbar .dl-btn svg { display: block; }
 
 /* ── launcher picker — flat settings-matching cards ─────────────────────── */
 .fwiz-launcher__grid {
@@ -1136,8 +1141,7 @@ html[data-glass="off"] .modal--settings {
     .fwiz__titlebar-mode { display: none; }
     .fwiz-step__label { display: none; }
     .fwiz-step__item { justify-content: center; padding: 10px; gap: 0; }
-    .fwiz-detectbar { flex-direction: column; align-items: stretch; }
-    .fwiz-detectbar .dl-btn { justify-content: center; }
+    .fwiz-detectbar__track { width: 100%; }
     .fwiz__nav-counter { display: none; }
 }
 
