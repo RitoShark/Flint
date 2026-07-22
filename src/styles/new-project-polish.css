@@ -591,6 +591,19 @@ input.np-search:focus {
     margin-top: 4px;
 }
 
+/* Progressive disclosure — steps 2 & 3 mount only after the prior choice is
+   made, and slide in so the reveal reads as a deliberate next step. */
+.np-form .np-map-reveal {
+    animation: np-map-reveal 320ms cubic-bezier(.22, 1, .36, 1) both;
+}
+@keyframes np-map-reveal {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .np-form .np-map-reveal { animation: none; }
+}
+
 .np-form .np-map-section__head {
     display: flex;
     align-items: center;
