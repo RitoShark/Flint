@@ -2,6 +2,7 @@ import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { useAppMetadataStore, useConfigStore, useProjectTabStore, useNavigationStore, useWadExtractStore, useWadExplorerStore, useModalStore, useNotificationStore } from '../../lib/stores';
 import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
 import { useShortcutEngine, useAction } from '../../lib/shortcuts/hooks';
+import { useTabShortcuts } from '../../lib/shortcuts/useTabShortcuts';
 import * as api from '../../lib/api';
 import { openWadInExtract, isWadPath } from '../../lib/openWad';
 import { listen } from '@tauri-apps/api/event';
@@ -132,6 +133,7 @@ export const App: React.FC = () => {
     });
 
     useShortcutEngine();
+    useTabShortcuts();
 
     useAction('app.newProject', () => openModal('newProject'));
     useAction('app.save', async () => {
