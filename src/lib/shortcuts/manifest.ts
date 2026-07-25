@@ -90,6 +90,36 @@ export const SHORTCUTS: readonly Shortcut[] = [
         scope: 'global',
     },
 
+    // ── File tree ────────────────────────────────────────────────────────────
+    // All in the 'file-tree' focus scope: unmodified keys like ArrowDown and
+    // Delete must not fire while the 3D preview or an editor has focus.
+    { id: 'tree.moveDown', keys: 'arrowdown', label: 'Move down', group: 'File tree', scope: 'file-tree' },
+    { id: 'tree.moveUp', keys: 'arrowup', label: 'Move up', group: 'File tree', scope: 'file-tree' },
+    { id: 'tree.expand', keys: 'arrowright', label: 'Expand folder / step in', group: 'File tree', scope: 'file-tree' },
+    { id: 'tree.collapse', keys: 'arrowleft', label: 'Collapse folder / step out', group: 'File tree', scope: 'file-tree' },
+    {
+        id: 'tree.extendDown',
+        keys: 'shift+arrowdown',
+        label: 'Extend selection down',
+        group: 'File tree',
+        scope: 'file-tree',
+    },
+    {
+        id: 'tree.extendUp',
+        keys: 'shift+arrowup',
+        label: 'Extend selection up',
+        group: 'File tree',
+        scope: 'file-tree',
+    },
+    { id: 'tree.first', keys: 'home', label: 'First item', group: 'File tree', scope: 'file-tree' },
+    { id: 'tree.last', keys: 'end', label: 'Last item', group: 'File tree', scope: 'file-tree' },
+    { id: 'tree.selectAll', keys: 'ctrl+a', label: 'Select all', group: 'File tree', scope: 'file-tree' },
+    { id: 'tree.open', keys: 'enter', label: 'Open / toggle folder', group: 'File tree', scope: 'file-tree' },
+    { id: 'tree.copyPath', keys: 'ctrl+c', label: 'Copy path', group: 'File tree', scope: 'file-tree' },
+    // Migrated from FileTree's own window listener.
+    { id: 'tree.rename', keys: 'f2', label: 'Rename', group: 'File tree', scope: 'file-tree' },
+    { id: 'tree.delete', keys: 'delete', label: 'Delete', group: 'File tree', scope: 'file-tree' },
+
     // ── Modal ────────────────────────────────────────────────────────────────
     {
         id: 'modal.close',

@@ -139,6 +139,22 @@
     border-top: 1px solid var(--border-default, rgba(255, 255, 255, 0.08));
 }
 
+/* File-tree keyboard cursor. Deliberately a ring rather than a fill: selection is
+   already a fill, and with multi-select the cursor is often one row inside a larger
+   selection, so the two have to be visually separable. */
+.file-tree__item--focused {
+    outline: 1px solid var(--accent-primary, #7aa2f7);
+    outline-offset: -1px;
+    border-radius: 3px;
+}
+
+/* The tree container owns the shortcut scope, so it takes focus — but a focus ring
+   around the whole panel would be noise given rows show the cursor themselves. */
+.file-tree:focus,
+.file-tree:focus-visible {
+    outline: none;
+}
+
 @keyframes sc-sheet-fade {
     from { opacity: 0; }
     to { opacity: 1; }
