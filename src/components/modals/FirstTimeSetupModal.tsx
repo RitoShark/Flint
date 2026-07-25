@@ -705,7 +705,7 @@ const PathsPane: React.FC<{
             </div>
         </div>
 
-        <div className="fwiz-pane--split">
+        <div className="fwiz-pane--split fwiz-pane--paths">
             <div className="fwiz-pane__col">
                 <p className="settings-subhead">Workspace &amp; game</p>
                 <PathSettingItem setting={{

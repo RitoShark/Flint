@@ -611,6 +611,13 @@ html[data-glass="off"] .modal--settings {
 /* A pane section that spans every column of the split grid. */
 .fwiz-pane__col--full { grid-column: 1 / -1; }
 
+/* Paths step: the left column carries three path rows (long absolute paths),
+   the right carries the launcher cards — so weight it toward the left rather
+   than splitting 50/50 and leaving both cramped. */
+@media (min-width: 1100px) {
+    .fwiz-pane--paths { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
+}
+
 /* Collapsible "Advanced" block (wizard Editors group) — auto-expands when
    auto-detect finds something. */
 .fwiz-disclose {
@@ -826,10 +833,13 @@ html[data-glass="off"] .modal--settings {
 .fwiz .creator-field .form-textarea,
 .fwiz .creator-field input,
 .fwiz .creator-field textarea { width: 100%; }
+/* Path rows: the input+Browse pair takes the whole row rather than sitting at a
+   240px basis with dead space to its right. */
 .fwiz .settings-row__field > .form-input--with-button {
-    flex: 1 1 240px;
+    flex: 1 1 100%;
     min-width: 0;
 }
+.fwiz .settings-row__field { width: 100%; }
 .fwiz .settings-row--clickable .settings-toggle,
 .fwiz .settings-row--clickable button { cursor: pointer; }
 .fwiz .settings-row:has(.settings-row__field) .settings-row__icon,
@@ -910,11 +920,9 @@ html[data-glass="off"] .modal--settings {
 }
 
 /* ── launcher picker — flat settings-matching cards ─────────────────────── */
-/* Cards need real width for the tagline — stack them rather than squeezing two
-   into a half-width pane, which truncated the text to "Divine Skin…". */
 .fwiz-launcher__grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
     gap: 10px;
     margin-bottom: 4px;
 }

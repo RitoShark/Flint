@@ -1190,14 +1190,16 @@
     padding: 0;
     transition: transform var(--ux-fast), border-color var(--ux-base), box-shadow var(--ux-base);
 }
+/* Lift only — no scale(). Scaling grew the card outside its grid track and
+   clipped against the neighbouring column once the cards got wide. */
 .modal--settings .theme-preset:hover,
 .fwiz .theme-preset:hover {
-    transform: translateY(-2px) scale(1.01);
+    transform: translateY(-2px);
     border-color: color-mix(in oklab, var(--accent) 55%, var(--border));
 }
 .modal--settings .theme-preset.is-active,
 .fwiz .theme-preset.is-active {
-    transform: translateY(-2px) scale(1.02);
+    transform: translateY(-2px);
     border-color: var(--accent);
     box-shadow:
         0 0 0 1px color-mix(in oklab, var(--accent) 30%, transparent),
