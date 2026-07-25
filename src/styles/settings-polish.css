@@ -133,7 +133,8 @@
 /* --------------------------------------------------------------------------
    4. Settings items — subtle card surface, refined hover
    -------------------------------------------------------------------------- */
-.modal--settings .settings-item {
+.modal--settings .settings-item,
+.fwiz .settings-item {
     padding: 14px 16px;
     background: var(--bg-tertiary);
     border: 1px solid var(--border);
@@ -141,12 +142,15 @@
     margin-bottom: 12px;
     transition: border-color var(--motion-fast);
 }
-.modal--settings .settings-item:hover {
+.modal--settings .settings-item:hover,
+.fwiz .settings-item:hover {
     border-color: color-mix(in oklab, var(--accent-primary) 22%, var(--border));
 }
 .modal--settings .settings-item:last-child { margin-bottom: 0; }
+.fwiz .settings-item:last-child { margin-bottom: 0; }
 
-.modal--settings .settings-item__label {
+.modal--settings .settings-item__label,
+.fwiz .settings-item__label {
     font-size: 12px;
     font-weight: 600;
     text-transform: uppercase;
@@ -154,13 +158,15 @@
     color: var(--text-secondary);
     margin-bottom: 8px;
 }
-.modal--settings .settings-item__hint {
+.modal--settings .settings-item__hint,
+.fwiz .settings-item__hint {
     font-size: 11px;
     color: var(--text-muted);
     margin-top: 6px;
     line-height: 1.4;
 }
-.modal--settings .settings-item__badge {
+.modal--settings .settings-item__badge,
+.fwiz .settings-item__badge {
     background: color-mix(in oklab, var(--accent-primary) 18%, transparent);
     color: color-mix(in oklab, var(--accent-primary) 35%, var(--text-primary));
     border: 1px solid color-mix(in oklab, var(--accent-primary) 30%, transparent);
@@ -170,7 +176,8 @@
 }
 
 /* Hash database info pill */
-.modal--settings .settings-item__info {
+.modal--settings .settings-item__info,
+.fwiz .settings-item__info {
     background: color-mix(in oklab, var(--bg-primary) 70%, transparent);
     border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
     border-radius: 10px;
@@ -178,11 +185,13 @@
 }
 
 /* Toggle row — drop the default boxy label */
-.modal--settings .settings-toggle {
+.modal--settings .settings-toggle,
+.fwiz .settings-toggle {
     padding: 0;
     background: transparent;
 }
 .modal--settings .settings-toggle:hover { background: transparent; }
+.fwiz .settings-toggle:hover { background: transparent; }
 
 /* Spring-snap toggle thumb (overrides the linear --transition-base in index.css) */
 .settings-toggle input[type="checkbox"] {
@@ -230,19 +239,22 @@
 }
 
 /* Open With — file associations: same flat card, header row + hint + actions. */
-.modal--settings .settings-assoc {
+.modal--settings .settings-assoc,
+.fwiz .settings-assoc {
     padding: 14px 16px;
     background: var(--bg-tertiary);
     border: 1px solid var(--border);
     border-radius: var(--dl-radius, 12px);
     margin-bottom: 12px;
 }
-.modal--settings .settings-assoc__head {
+.modal--settings .settings-assoc__head,
+.fwiz .settings-assoc__head {
     display: flex;
     align-items: center;
     gap: 10px;
 }
-.modal--settings .settings-assoc__icon {
+.modal--settings .settings-assoc__icon,
+.fwiz .settings-assoc__icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -250,19 +262,23 @@
     line-height: 0;
 }
 .modal--settings .settings-assoc__icon svg { display: block; width: 16px; height: 16px; }
-.modal--settings .settings-assoc__title {
+.fwiz .settings-assoc__icon svg { display: block; width: 16px; height: 16px; }
+.modal--settings .settings-assoc__title,
+.fwiz .settings-assoc__title {
     font-size: 14px;
     font-weight: 600;
     color: var(--text-primary);
     letter-spacing: -0.005em;
 }
-.modal--settings .settings-assoc__hint {
+.modal--settings .settings-assoc__hint,
+.fwiz .settings-assoc__hint {
     margin: 8px 0 0;
     color: var(--text-muted);
     font-size: 12.5px;
     line-height: 1.5;
 }
-.modal--settings .settings-assoc__actions {
+.modal--settings .settings-assoc__actions,
+.fwiz .settings-assoc__actions {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
@@ -352,7 +368,8 @@
 }
 
 /* Version card — same flat card base as the rest of the settings surfaces. */
-.modal--settings .version-card {
+.modal--settings .version-card,
+.fwiz .version-card {
     background: var(--bg-tertiary);
     border: 1px solid var(--border);
     border-radius: var(--dl-radius, 12px);
@@ -569,7 +586,9 @@
    Creator tab — hero card + iconified field labels
    ========================================================================== */
 .modal--settings .creator-tab { display: grid; gap: 16px; }
-.modal--settings .creator-hero {
+.fwiz .creator-tab { display: grid; gap: 16px; }
+.modal--settings .creator-hero,
+.fwiz .creator-hero {
     display: flex;
     align-items: center;
     gap: 16px;
@@ -585,7 +604,8 @@
         inset 0 1px 0 color-mix(in oklab, white 8%, transparent),
         0 8px 28px -14px color-mix(in oklab, var(--accent-primary) 50%, transparent);
 }
-.modal--settings .creator-hero__avatar {
+.modal--settings .creator-hero__avatar,
+.fwiz .creator-hero__avatar {
     width: 56px; height: 56px;
     border-radius: 16px;
     display: inline-flex;
@@ -603,14 +623,17 @@
     flex: none;
 }
 .modal--settings .creator-hero__lines { display: grid; gap: 4px; min-width: 0; }
-.modal--settings .creator-hero__eyebrow {
+.fwiz .creator-hero__lines { display: grid; gap: 4px; min-width: 0; }
+.modal--settings .creator-hero__eyebrow,
+.fwiz .creator-hero__eyebrow {
     font-family: var(--font-mono);
     font-size: 10.5px;
     text-transform: uppercase;
     letter-spacing: 0.12em;
     color: color-mix(in oklab, var(--accent-primary) 35%, var(--text-muted));
 }
-.modal--settings .creator-hero__lines strong {
+.modal--settings .creator-hero__lines strong,
+.fwiz .creator-hero__lines strong {
     font-size: 16px;
     font-weight: 700;
     color: var(--text-primary);
@@ -619,17 +642,20 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.modal--settings .creator-hero__sub {
+.modal--settings .creator-hero__sub,
+.fwiz .creator-hero__sub {
     font-size: 12.5px;
     color: var(--text-muted);
     line-height: 1.5;
 }
-.modal--settings .creator-tab .settings-item__label {
+.modal--settings .creator-tab .settings-item__label,
+.fwiz .creator-tab .settings-item__label {
     display: flex;
     align-items: center;
     gap: 8px;
 }
-.modal--settings .creator-tab .settings-item__label svg {
+.modal--settings .creator-tab .settings-item__label svg,
+.fwiz .creator-tab .settings-item__label svg {
     width: 14px;
     height: 14px;
     color: color-mix(in oklab, var(--accent-primary) 50%, var(--text-muted));
@@ -637,7 +663,9 @@
 
 /* Translucent inputs that sit ON the glass instead of a solid black box. */
 .modal--settings .creator-field .form-input,
-.modal--settings .creator-field .form-textarea {
+.modal--settings .creator-field .form-textarea,
+.fwiz .creator-field .form-input,
+.fwiz .creator-field .form-textarea {
     width: 100%;
     box-sizing: border-box;
     border-radius: 10px;
@@ -645,14 +673,17 @@
     background: color-mix(in oklab, var(--bg-primary) 32%, transparent);
     transition: border-color var(--motion-fast), background var(--motion-fast), box-shadow var(--motion-fast);
 }
-.modal--settings .creator-field .form-textarea {
+.modal--settings .creator-field .form-textarea,
+.fwiz .creator-field .form-textarea {
     min-height: 64px;
     padding: 10px 14px;
     line-height: 1.5;
     resize: vertical;
 }
 .modal--settings .creator-field .form-input:focus,
-.modal--settings .creator-field .form-textarea:focus {
+.modal--settings .creator-field .form-textarea:focus,
+.fwiz .creator-field .form-input:focus,
+.fwiz .creator-field .form-textarea:focus {
     border-color: color-mix(in oklab, var(--accent-primary) 55%, var(--border));
     background: color-mix(in oklab, var(--bg-primary) 40%, transparent);
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-primary) 16%, transparent);
@@ -662,7 +693,9 @@
    Integrations tab — branded "Connect" cards
    ========================================================================== */
 .modal--settings .integrations-tab { display: block; }
-.modal--settings .integrations-tab__intro {
+.fwiz .integrations-tab { display: block; }
+.modal--settings .integrations-tab__intro,
+.fwiz .integrations-tab__intro {
     margin: 0 0 4px;
     color: var(--text-muted);
     font-size: 12.5px;
@@ -672,7 +705,8 @@
    ONE shared row primitive for every Settings tab (Paths, Integrations, …).
    Icon · [ dot · title · tags / sub ] · actions, split by a thin divider.
    ========================================================================== */
-.modal--settings .settings-row {
+.modal--settings .settings-row,
+.fwiz .settings-row {
     --logo: var(--accent-primary);
     display: grid;
     grid-template-columns: 40px minmax(0, 1fr) auto;
@@ -684,14 +718,18 @@
     transition: background var(--motion-fast);
 }
 .modal--settings .settings-row:last-child { border-bottom: none; }
+.fwiz .settings-row:last-child { border-bottom: none; }
 .modal--settings .settings-row--clickable { cursor: pointer; }
+.fwiz .settings-row--clickable { cursor: pointer; }
 /* Keep the interactive control itself on its own cursor. */
 .modal--settings .settings-row--clickable .settings-toggle,
 .modal--settings .settings-row--clickable button,
 .modal--settings .settings-row--clickable input { cursor: pointer; }
+.fwiz .settings-row--clickable input { cursor: pointer; }
 /* Really subtle, edgeless warm-up on hover — a soft radial tint fading out
    before the row edges, so there's no boxy frame. */
-.modal--settings .settings-row:hover {
+.modal--settings .settings-row:hover,
+.fwiz .settings-row:hover {
     background:
         radial-gradient(120% 100% at 12% 50%,
             color-mix(in oklab, var(--logo) 8%, transparent) 0%,
@@ -699,7 +737,8 @@
 }
 
 /* Icon-only Auto-detect — glyph centered, label shows on hover via title. */
-.modal--settings .settings-row__detect > svg {
+.modal--settings .settings-row__detect > svg,
+.fwiz .settings-row__detect > svg {
     display: block;
     width: 15px;
     height: 15px;
@@ -707,7 +746,8 @@
 }
 
 /* Creator tab — each field is a SettingsRow whose sub is the input + a hint. */
-.modal--settings .creator-field {
+.modal--settings .creator-field,
+.fwiz .creator-field {
     display: grid;
     gap: 6px;
     min-width: 0;
@@ -715,10 +755,15 @@
 .modal--settings .creator-field .form-input,
 .modal--settings .creator-field .form-textarea,
 .modal--settings .creator-field input,
-.modal--settings .creator-field textarea {
+.modal--settings .creator-field textarea,
+.fwiz .creator-field .form-input,
+.fwiz .creator-field .form-textarea,
+.fwiz .creator-field input,
+.fwiz .creator-field textarea {
     width: 100%;
 }
-.modal--settings .creator-field__hint {
+.modal--settings .creator-field__hint,
+.fwiz .creator-field__hint {
     margin: 0;
     font-size: 11.5px;
     color: var(--text-muted);
@@ -728,7 +773,8 @@
 /* ==========================================================================
    Dev tab — header + compact tool grid
    ========================================================================== */
-.modal--settings .dev-header {
+.modal--settings .dev-header,
+.fwiz .dev-header {
     display: flex;
     align-items: center;
     gap: 14px;
@@ -740,7 +786,8 @@
         linear-gradient(180deg, color-mix(in oklab, var(--color-warning) 7%, transparent) 0%, transparent 60%),
         color-mix(in oklab, var(--bg-primary) 22%, transparent);
 }
-.modal--settings .dev-header__glyph {
+.modal--settings .dev-header__glyph,
+.fwiz .dev-header__glyph {
     width: 38px;
     height: 38px;
     flex: none;
@@ -753,7 +800,9 @@
     border: 1px solid color-mix(in oklab, var(--color-warning) 24%, transparent);
 }
 .modal--settings .dev-header__glyph svg { display: block; width: 18px; height: 18px; }
-.modal--settings .dev-header__title {
+.fwiz .dev-header__glyph svg { display: block; width: 18px; height: 18px; }
+.modal--settings .dev-header__title,
+.fwiz .dev-header__title {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -762,25 +811,29 @@
     color: var(--text-primary);
     letter-spacing: -0.01em;
 }
-.modal--settings .dev-header__sub {
+.modal--settings .dev-header__sub,
+.fwiz .dev-header__sub {
     margin: 3px 0 0;
     font-size: 12px;
     color: var(--text-muted);
     line-height: 1.5;
 }
-.modal--settings .dev-warn {
+.modal--settings .dev-warn,
+.fwiz .dev-warn {
     margin: 0 0 8px;
     font-size: 12px;
     color: var(--color-warning);
 }
 
-.modal--settings .dev-grid {
+.modal--settings .dev-grid,
+.fwiz .dev-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
     gap: 12px;
     margin-bottom: 10px;
 }
-.modal--settings .dev-tile {
+.modal--settings .dev-tile,
+.fwiz .dev-tile {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -796,15 +849,18 @@
     font-family: inherit;
     transition: border-color var(--motion-fast), background var(--motion-fast), transform var(--motion-fast);
 }
-.modal--settings .dev-tile:hover:not(:disabled) {
+.modal--settings .dev-tile:hover:not(:disabled),
+.fwiz .dev-tile:hover:not(:disabled) {
     transform: translateY(-2px);
     border-color: color-mix(in oklab, var(--accent-primary) 35%, var(--border));
     background: color-mix(in oklab, var(--accent-primary) 7%, transparent);
     box-shadow: 0 6px 20px -12px color-mix(in oklab, var(--accent-primary) 55%, transparent);
 }
 .modal--settings .dev-tile:disabled { opacity: 0.45; cursor: not-allowed; }
+.fwiz .dev-tile:disabled { opacity: 0.45; cursor: not-allowed; }
 /* Icon in a small tinted chip so tiles have structure. */
-.modal--settings .dev-tile__ico {
+.modal--settings .dev-tile__ico,
+.fwiz .dev-tile__ico {
     width: 34px;
     height: 34px;
     display: inline-flex;
@@ -817,19 +873,23 @@
     margin-bottom: 2px;
 }
 .modal--settings .dev-tile__ico svg { display: block; width: 18px; height: 18px; }
-.modal--settings .dev-tile__label {
+.fwiz .dev-tile__ico svg { display: block; width: 18px; height: 18px; }
+.modal--settings .dev-tile__label,
+.fwiz .dev-tile__label {
     font-size: 14px;
     font-weight: 600;
     letter-spacing: -0.005em;
 }
-.modal--settings .dev-tile__desc {
+.modal--settings .dev-tile__desc,
+.fwiz .dev-tile__desc {
     font-size: 12px;
     color: var(--text-muted);
     line-height: 1.4;
 }
 
 /* Section subheader used across tabs (General: Preferences / Updates / System). */
-.modal--settings .settings-subhead {
+.modal--settings .settings-subhead,
+.fwiz .settings-subhead {
     margin: 18px 0 2px;
     font-family: var(--font-mono);
     font-size: 10.5px;
@@ -838,14 +898,17 @@
     color: color-mix(in oklab, var(--accent-primary) 30%, var(--text-muted));
 }
 .modal--settings .settings-subhead:first-child { margin-top: 0; }
-.modal--settings .settings-subhead__note {
+.fwiz .settings-subhead:first-child { margin-top: 0; }
+.modal--settings .settings-subhead__note,
+.fwiz .settings-subhead__note {
     margin: 0 0 6px;
     font-size: 12px;
     color: var(--text-muted);
     line-height: 1.5;
 }
 /* Right-aligned value readout on slider rows (e.g. "16px", "80%"). */
-.modal--settings .settings-row__metric {
+.modal--settings .settings-row__metric,
+.fwiz .settings-row__metric {
     font-family: var(--font-mono);
     font-size: 12px;
     color: var(--text-secondary);
@@ -853,9 +916,11 @@
     text-align: right;
 }
 .modal--settings .settings-row .theme-range { width: 100%; }
+.fwiz .settings-row .theme-range { width: 100%; }
 
 /* Two feature cards side by side (Version · Hash database). */
-.modal--settings .settings-duo {
+.modal--settings .settings-duo,
+.fwiz .settings-duo {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
@@ -864,7 +929,8 @@
 @media (max-width: 640px) {
     .modal--settings .settings-duo { grid-template-columns: 1fr; }
 }
-.modal--settings .settings-fcard {
+.modal--settings .settings-fcard,
+.fwiz .settings-fcard {
     --fc: var(--accent-primary);
     position: relative;
     display: flex;
@@ -885,7 +951,8 @@
     overflow: hidden;
 }
 /* Thin brand-tinted accent strip down the left edge. */
-.modal--settings .settings-fcard::before {
+.modal--settings .settings-fcard::before,
+.fwiz .settings-fcard::before {
     content: "";
     position: absolute;
     inset: 0 auto 0 0;
@@ -893,22 +960,27 @@
     background: color-mix(in oklab, var(--fc) 55%, transparent);
     opacity: 0.7;
 }
-.modal--settings .settings-fcard:hover {
+.modal--settings .settings-fcard:hover,
+.fwiz .settings-fcard:hover {
     border-color: color-mix(in oklab, var(--fc) 26%, var(--border));
     box-shadow:
         inset 0 1px 0 color-mix(in oklab, white 8%, transparent),
         0 0 24px -12px color-mix(in oklab, var(--fc) 60%, transparent);
 }
 .modal--settings .settings-fcard--ok { --fc: var(--color-success); }
+.fwiz .settings-fcard--ok { --fc: var(--color-success); }
 .modal--settings .settings-fcard--warn { --fc: var(--color-warning); }
+.fwiz .settings-fcard--warn { --fc: var(--color-warning); }
 
-.modal--settings .settings-fcard__head {
+.modal--settings .settings-fcard__head,
+.fwiz .settings-fcard__head {
     display: flex;
     align-items: center;
     gap: 10px;
 }
 /* Icon in a small tinted rounded chip for a bit of structure. */
-.modal--settings .settings-fcard__glyph {
+.modal--settings .settings-fcard__glyph,
+.fwiz .settings-fcard__glyph {
     width: 30px;
     height: 30px;
     display: inline-flex;
@@ -921,14 +993,17 @@
     border: 1px solid color-mix(in oklab, var(--fc) 22%, transparent);
 }
 .modal--settings .settings-fcard__glyph svg { display: block; width: 16px; height: 16px; }
-.modal--settings .settings-fcard__title {
+.fwiz .settings-fcard__glyph svg { display: block; width: 16px; height: 16px; }
+.modal--settings .settings-fcard__title,
+.fwiz .settings-fcard__title {
     font-size: 10.5px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--text-muted);
 }
-.modal--settings .settings-fcard__value {
+.modal--settings .settings-fcard__value,
+.fwiz .settings-fcard__value {
     font-size: 22px;
     font-weight: 700;
     color: var(--text-primary);
@@ -936,20 +1011,24 @@
     line-height: 1.1;
 }
 .modal--settings .settings-fcard__value .accent { color: var(--color-success); }
-.modal--settings .settings-fcard__hint {
+.fwiz .settings-fcard__value .accent { color: var(--color-success); }
+.modal--settings .settings-fcard__hint,
+.fwiz .settings-fcard__hint {
     margin: 0;
     font-size: 11.5px;
     color: var(--text-muted);
     line-height: 1.45;
     flex: 1;
 }
-.modal--settings .settings-fcard__actions {
+.modal--settings .settings-fcard__actions,
+.fwiz .settings-fcard__actions {
     display: flex;
     gap: 8px;
     margin-top: auto;
 }
 
-.modal--settings .settings-row__icon {
+.modal--settings .settings-row__icon,
+.fwiz .settings-row__icon {
     width: 40px;
     height: 40px;
     display: flex;
@@ -961,15 +1040,20 @@
 }
 /* When the row body is tall (an input + hint), pin the icon and actions to the
    top so they line up with the title instead of floating to the middle. */
-.modal--settings .settings-row:has(.creator-field) {
+.modal--settings .settings-row:has(.creator-field),
+.fwiz .settings-row:has(.creator-field) {
     align-items: start;
 }
 .modal--settings .settings-row:has(.creator-field) .settings-row__icon,
-.modal--settings .settings-row:has(.settings-row__field) .settings-row__actions {
+.modal--settings .settings-row:has(.settings-row__field) .settings-row__actions,
+.fwiz .settings-row:has(.creator-field) .settings-row__icon,
+.fwiz .settings-row:has(.settings-row__field) .settings-row__actions {
     align-self: start;
 }
 .modal--settings .settings-row__icon svg { display: block; width: 20px; height: 20px; }
-.modal--settings .settings-row__logo-img {
+.fwiz .settings-row__icon svg { display: block; width: 20px; height: 20px; }
+.modal--settings .settings-row__logo-img,
+.fwiz .settings-row__logo-img {
     display: block;
     width: 32px;
     height: 32px;
@@ -977,30 +1061,36 @@
 }
 
 .modal--settings .settings-row__body { display: grid; gap: 6px; min-width: 0; }
-.modal--settings .settings-row__head {
+.fwiz .settings-row__body { display: grid; gap: 6px; min-width: 0; }
+.modal--settings .settings-row__head,
+.fwiz .settings-row__head {
     display: flex;
     align-items: center;
     gap: 9px;
     min-width: 0;
 }
-.modal--settings .settings-row__dot {
+.modal--settings .settings-row__dot,
+.fwiz .settings-row__dot {
     width: 7px; height: 7px;
     border-radius: 50%;
     flex: none;
     background: color-mix(in oklab, var(--text-muted) 55%, transparent);
 }
-.modal--settings .settings-row__dot.is-on {
+.modal--settings .settings-row__dot.is-on,
+.fwiz .settings-row__dot.is-on {
     background: #34d399;
     box-shadow: 0 0 7px color-mix(in oklab, #34d399 70%, transparent);
 }
-.modal--settings .settings-row__title {
+.modal--settings .settings-row__title,
+.fwiz .settings-row__title {
     font-size: 14px;
     font-weight: 600;
     color: var(--text-primary);
     letter-spacing: -0.005em;
     white-space: nowrap;
 }
-.modal--settings .settings-row__tag {
+.modal--settings .settings-row__tag,
+.fwiz .settings-row__tag {
     font-size: 9.5px;
     font-weight: 600;
     text-transform: uppercase;
@@ -1012,7 +1102,8 @@
     flex: none;
 }
 /* Second line as muted text (paths / taglines). */
-.modal--settings .settings-row__sub {
+.modal--settings .settings-row__sub,
+.fwiz .settings-row__sub {
     font-size: 12px;
     color: var(--text-muted);
     overflow: hidden;
@@ -1021,23 +1112,27 @@
     line-height: 1.5;
 }
 /* Second line as a control row (the path input + browse/detect buttons). */
-.modal--settings .settings-row__field {
+.modal--settings .settings-row__field,
+.fwiz .settings-row__field {
     display: flex;
     gap: 8px;
     align-items: center;
     flex-wrap: wrap;
 }
-.modal--settings .settings-row__field > .form-input--with-button {
+.modal--settings .settings-row__field > .form-input--with-button,
+.fwiz .settings-row__field > .form-input--with-button {
     flex: 1 1 240px;
     min-width: 0;
 }
-.modal--settings .settings-row__actions {
+.modal--settings .settings-row__actions,
+.fwiz .settings-row__actions {
     display: flex;
     gap: 6px;
     align-items: center;
     flex-shrink: 0;
 }
-.modal--settings .integrations-tab__group-label {
+.modal--settings .integrations-tab__group-label,
+.fwiz .integrations-tab__group-label {
     margin: 12px 0 -4px;
     font-family: var(--font-mono);
     font-size: 10.5px;
@@ -1046,11 +1141,13 @@
     color: color-mix(in oklab, var(--accent-primary) 30%, var(--text-muted));
 }
 .modal--settings .integrations-tab__group-label:first-of-type { margin-top: 4px; }
+.fwiz .integrations-tab__group-label:first-of-type { margin-top: 4px; }
 
 /* ==========================================================================
    Theme preset grid (Settings → Theme tab)
    ========================================================================== */
-.modal--settings .theme-preset-grid {
+.modal--settings .theme-preset-grid,
+.fwiz .theme-preset-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 12px;
@@ -1058,23 +1155,27 @@
 @media (max-width: 560px) {
     .modal--settings .theme-preset-grid { grid-template-columns: repeat(2, 1fr); }
 }
-.modal--settings .theme-custom-accent {
+.modal--settings .theme-custom-accent,
+.fwiz .theme-custom-accent {
     display: flex;
     align-items: center;
     gap: 10px;
     margin-top: 12px;
 }
-.modal--settings .theme-custom-accent__hex {
+.modal--settings .theme-custom-accent__hex,
+.fwiz .theme-custom-accent__hex {
     width: 110px;
     flex-shrink: 0;
     font-family: var(--font-mono, monospace);
     text-transform: uppercase;
 }
-.modal--settings .theme-custom-accent__hint {
+.modal--settings .theme-custom-accent__hint,
+.fwiz .theme-custom-accent__hint {
     font-size: 12px;
     color: var(--text-muted);
 }
-.modal--settings .theme-preset {
+.modal--settings .theme-preset,
+.fwiz .theme-preset {
     --accent: #ef4444;
     --bg: #0c0c10;
     --raised: #1a1a22;
@@ -1089,18 +1190,21 @@
     padding: 0;
     transition: transform var(--ux-fast), border-color var(--ux-base), box-shadow var(--ux-base);
 }
-.modal--settings .theme-preset:hover {
+.modal--settings .theme-preset:hover,
+.fwiz .theme-preset:hover {
     transform: translateY(-2px) scale(1.01);
     border-color: color-mix(in oklab, var(--accent) 55%, var(--border));
 }
-.modal--settings .theme-preset.is-active {
+.modal--settings .theme-preset.is-active,
+.fwiz .theme-preset.is-active {
     transform: translateY(-2px) scale(1.02);
     border-color: var(--accent);
     box-shadow:
         0 0 0 1px color-mix(in oklab, var(--accent) 30%, transparent),
         0 12px 28px -10px color-mix(in oklab, var(--accent) 50%, transparent);
 }
-.modal--settings .theme-preset__mock {
+.modal--settings .theme-preset__mock,
+.fwiz .theme-preset__mock {
     display: flex;
     align-items: stretch;
     gap: 4px;
@@ -1108,27 +1212,34 @@
     padding: 8px;
     background: var(--bg);
 }
-.modal--settings .theme-preset__mock-rail {
+.modal--settings .theme-preset__mock-rail,
+.fwiz .theme-preset__mock-rail {
     width: 12px;
     border-radius: 3px;
     background: var(--raised);
 }
-.modal--settings .theme-preset__mock-rows {
+.modal--settings .theme-preset__mock-rows,
+.fwiz .theme-preset__mock-rows {
     flex: 1;
     display: grid;
     gap: 4px;
 }
 .modal--settings .theme-preset__mock-row { display: flex; gap: 4px; }
-.modal--settings .theme-preset__mock-tile {
+.fwiz .theme-preset__mock-row { display: flex; gap: 4px; }
+.modal--settings .theme-preset__mock-tile,
+.fwiz .theme-preset__mock-tile {
     flex: 1;
     border-radius: 3px;
     background: var(--raised);
 }
 .modal--settings .theme-preset__mock-tile--accent { background: var(--accent); }
-.modal--settings .theme-preset__mock-tile--accent-soft {
+.fwiz .theme-preset__mock-tile--accent { background: var(--accent); }
+.modal--settings .theme-preset__mock-tile--accent-soft,
+.fwiz .theme-preset__mock-tile--accent-soft {
     background: color-mix(in oklab, var(--accent) 55%, var(--raised));
 }
-.modal--settings .theme-preset__foot {
+.modal--settings .theme-preset__foot,
+.fwiz .theme-preset__foot {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1136,22 +1247,26 @@
     background: color-mix(in oklab, var(--bg-secondary) 80%, transparent);
     border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
 }
-.modal--settings .theme-preset__name {
+.modal--settings .theme-preset__name,
+.fwiz .theme-preset__name {
     font-size: 12.5px;
     font-weight: 600;
     color: var(--text-primary);
 }
-.modal--settings .theme-preset__dots {
+.modal--settings .theme-preset__dots,
+.fwiz .theme-preset__dots {
     display: flex;
     gap: 5px;
     align-items: center;
 }
-.modal--settings .theme-preset__dot {
+.modal--settings .theme-preset__dot,
+.fwiz .theme-preset__dot {
     width: 12px; height: 12px;
     border-radius: 50%;
     border: 1.5px solid color-mix(in oklab, white 18%, transparent);
 }
-.modal--settings .theme-preset__check {
+.modal--settings .theme-preset__check,
+.fwiz .theme-preset__check {
     width: 14px; height: 14px;
     border-radius: 50%;
     display: inline-flex;
