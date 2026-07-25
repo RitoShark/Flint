@@ -324,6 +324,49 @@ Sequenced so each phase is independently verifiable:
 Phase 1 lands the engine with existing behaviour intact, so a regression there is caught
 before any new binding is added.
 
+## Implementation notes — deviations from this design
+
+Recorded 2026-07-25, after implementation.
+
+**Corrected during build:**
+
+- **`archive-` extract sessions are included in the tab order**, not excluded as
+  written above. `navigationCoordinator` excludes them as *fallback targets*, but
+  `TitleBar.tsx:637` maps `extractSessions` unfiltered, so they render as visible
+  tabs. Keyboard order mirrors the visible strip; a slot shortcut must reach a tab
+  where the user sees it.
+- **`Ctrl+0` and the `zoomable` scope were not built.** Zoom is bound in the
+  `model-preview` scope only (`Ctrl+=` / `Ctrl+-`). `zoomable` remains in `ScopeId`
+  for the deferred viewer unification below. `F` covers reset-to-framed.
+- **`ArrowLeft` on the expanded project root collapses it** rather than doing
+  nothing, folding the whole tree — matching VS Code. "Does nothing" applies only to
+  a top-level row with no parent and nothing to collapse.
+- **`view scope` gating replaced `useScope` for WAD Explorer.** Since App keeps the
+  explorer mounted behind `display:none`, a mount-pushed focus scope would have left
+  its shortcuts live while hidden; the `currentView`-derived view scope reproduces
+  the original hand-written check exactly.
+
+**Deferred, not implemented:**
+
+- `Ctrl+Shift+T` reopen-closed-tab. Needs every close path instrumented to record
+  enough state to reconstruct a tab, which is a larger change than the rest of the
+  tab work combined.
+- `useWheelZoom` unification across the five viewers that implement wheel-zoom with
+  different step maths. Their existing behaviour is untouched.
+- Arrow-key navigation inside WAD Explorer's own tree. Only its `Ctrl+F` / `Escape`
+  island was migrated.
+- The four remaining editor islands (`InibinEditor` `Ctrl+S`, `ThumbnailEditor`
+  `0/1/9/Delete`, `AudioCutterModal` `+/-/0`, `BnkPreview` `Delete`) and the ~20
+  per-modal `Escape`/`Enter` handlers. All are self-contained within modal surfaces
+  and none conflict with what shipped.
+- Shortcut hints in tooltips and context-menu items.
+
+**Unplanned prerequisite:** `vitest` was pinned at `^4.1.8` against `vite ^5`, a
+pair that has never been installable (vitest 4 requires vite ≥6), so `npm test`
+failed at startup and none of the 17 existing test files could run. Downgraded to
+`vitest ^3.2.7`, which has no vite peer constraint. This was a blocker for any
+test-first work.
+
 ## Risks
 
 - **`Ctrl+Tab` interception.** Webviews may treat it as focus traversal; needs
