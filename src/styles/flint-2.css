@@ -433,9 +433,11 @@ html[data-glass="off"] .modal--settings {
     z-index: 1;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr) auto;
-    width: min(880px, 92vw);
+    /* Scales with the window instead of sitting in a fixed 880px column — the
+       steps are two-column now and were being squashed on wide displays. */
+    width: min(1560px, 94vw);
     margin: 0 auto;
-    padding: 20px 28px 22px;
+    padding: 20px clamp(28px, 3vw, 56px) 22px;
     height: 100%;
     max-height: 100%;
     overflow: hidden;
@@ -472,7 +474,9 @@ html[data-glass="off"] .modal--settings {
 /* ── stepper ────────────────────────────────────────────────────────────── */
 .fwiz-step {
     list-style: none;
-    margin: 0;
+    /* The shell is wide now; don't let 4 tabs stretch across the whole window. */
+    margin: 0 auto;
+    width: min(920px, 100%);
     padding: 0 0 20px;
     display: grid;
     grid-auto-flow: column;
@@ -586,7 +590,7 @@ html[data-glass="off"] .modal--settings {
     text-shadow: 0 0 20px color-mix(in oklab, var(--accent-primary) 20%, transparent);
 }
 .fwiz__heading p {
-    margin: 0 0 16px;
+    margin: 0 0 26px;
     color: color-mix(in oklab, var(--text-primary) 70%, var(--text-secondary));
     font-size: clamp(12px, 1.3vw, 13.5px);
     line-height: 1.55;
@@ -594,18 +598,18 @@ html[data-glass="off"] .modal--settings {
 .fwiz__body { display: grid; gap: 16px; min-height: 0; overflow-y: auto; }
 
 /* Two-column step pane — Theme / Identity / Paths put related groups side by
-   side so the richer content fits without a tall scroll. Collapses to one
-   column on narrow windows. */
+   side so the richer content fits without a tall scroll. `auto-fit` + a min
+   track means it splits whenever there's room and folds to one column when
+   there isn't, without guessing viewport breakpoints. */
 .fwiz-pane--split {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 12px 28px;
+    grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+    gap: 12px clamp(24px, 2.5vw, 48px);
     align-items: start;
 }
-@media (max-width: 900px) {
-    .fwiz-pane--split { grid-template-columns: minmax(0, 1fr); }
-}
 .fwiz-pane__col { min-width: 0; display: block; }
+/* A pane section that spans every column of the split grid. */
+.fwiz-pane__col--full { grid-column: 1 / -1; }
 
 /* Collapsible "Advanced" block (wizard Editors group) — auto-expands when
    auto-detect finds something. */
@@ -650,7 +654,7 @@ html[data-glass="off"] .modal--settings {
     color: var(--text-muted);
 }
 .fwiz-disclose__body {
-    padding: 0 14px 8px;
+    padding: 6px 14px 10px;
     border-top: 1px solid color-mix(in oklab, var(--border) 45%, transparent);
 }
 
@@ -663,6 +667,123 @@ html[data-glass="off"] .modal--settings {
    ========================================================================== */
 .fwiz .fwiz-settings { display: block; }
 .fwiz .fwiz-settings__block { display: block; }
+
+/* Wizard sections carry far more content than a settings tab, so the shared
+   18px/2px subhead rhythm reads cramped here — give headers real breathing room
+   above and below. */
+.fwiz .settings-subhead {
+    margin: 28px 0 10px;
+    font-size: 11px;
+}
+.fwiz .settings-subhead:first-child { margin-top: 4px; }
+.fwiz .settings-subhead__note { margin: 0 0 12px; }
+
+/* Finish step — "what you can do now" explainer list. */
+.fwiz-intro {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 16px;
+}
+.fwiz-intro__item {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 14px;
+    align-items: start;
+}
+.fwiz-intro__ico {
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    border-radius: 10px;
+    color: color-mix(in oklab, var(--accent-primary) 60%, var(--text-primary));
+    background: color-mix(in oklab, var(--accent-primary) 12%, transparent);
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 20%, transparent);
+}
+.fwiz-intro__ico svg { display: block; width: 17px; height: 17px; }
+.fwiz-intro__item strong {
+    display: block;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.005em;
+    margin-bottom: 3px;
+}
+.fwiz-intro__item p {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text-muted);
+}
+
+/* Divine Skins wiki link */
+.fwiz-wiki {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-top: 20px;
+    padding: 13px 16px;
+    border-radius: 12px;
+    text-decoration: none;
+    border: 1px solid color-mix(in oklab, #A05CF6 30%, var(--border));
+    background:
+        linear-gradient(180deg, color-mix(in oklab, #A05CF6 9%, transparent) 0%, transparent 60%),
+        color-mix(in oklab, var(--bg-primary) 22%, transparent);
+    transition: border-color var(--ux-fast), background var(--ux-fast), transform var(--ux-fast);
+}
+.fwiz-wiki:hover {
+    transform: translateY(-1px);
+    border-color: color-mix(in oklab, #A05CF6 55%, var(--border));
+    background:
+        linear-gradient(180deg, color-mix(in oklab, #A05CF6 14%, transparent) 0%, transparent 60%),
+        color-mix(in oklab, var(--bg-primary) 26%, transparent);
+}
+.fwiz-wiki__logo {
+    width: 30px;
+    height: 30px;
+    flex: none;
+    display: block;
+    object-fit: contain;
+}
+.fwiz-wiki__text { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.fwiz-wiki__text strong {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.fwiz-wiki__text span {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    line-height: 1.45;
+}
+.fwiz-wiki__arrow {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    display: block;
+    color: color-mix(in oklab, #A05CF6 50%, var(--text-muted));
+    transition: transform var(--ux-fast);
+}
+.fwiz-wiki:hover .fwiz-wiki__arrow { transform: translateX(3px); }
+
+/* Editors disclosure: brand logos instead of a generic glyph. */
+.fwiz-disclose__logos {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+}
+.fwiz-disclose__logos img {
+    display: block;
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+    border-radius: 5px;
+}
+.fwiz-disclose__logos img + img { margin-left: -6px; }
 
 /* Wizard-only: translucent inputs that sit ON the glass, not a solid black box.
    The Settings modal styles only .creator-field inputs; the wizard puts bare
@@ -789,14 +910,13 @@ html[data-glass="off"] .modal--settings {
 }
 
 /* ── launcher picker — flat settings-matching cards ─────────────────────── */
+/* Cards need real width for the tagline — stack them rather than squeezing two
+   into a half-width pane, which truncated the text to "Divine Skin…". */
 .fwiz-launcher__grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
     gap: 10px;
     margin-bottom: 4px;
-}
-@media (max-width: 720px) {
-    .fwiz-launcher__grid { grid-template-columns: 1fr; }
 }
 .fwiz-launcher__card {
     --logo: var(--accent-primary);
@@ -861,9 +981,11 @@ html[data-glass="off"] .modal--settings {
     font-size: 11.5px;
     color: var(--text-muted);
     line-height: 1.4;
+    /* Wrap to a second line instead of ellipsising the tagline away. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 .fwiz-launcher__badge {
     flex: none;
@@ -1130,12 +1252,14 @@ html[data-glass="off"] .modal--settings {
     display: grid;
     grid-template-columns: minmax(260px, 1fr) minmax(0, 1.3fr);
     gap: 24px;
-    padding: 8px 0;
+    padding: 8px 0 4px;
     align-items: stretch;
 }
 @media (max-width: 880px) {
     .fwiz-finish { grid-template-columns: 1fr; }
 }
+/* The "One last thing" toggles sit under BOTH columns, not beside the hero. */
+.fwiz-finish > .fwiz-settings { grid-column: 1 / -1; }
 .fwiz-finish__hero {
     position: relative;
     display: flex;

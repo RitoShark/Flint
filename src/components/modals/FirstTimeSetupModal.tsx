@@ -370,15 +370,6 @@ export const FirstTimeSetupModal: React.FC = () => {
                         {step.id === 'finish' && (
                             <FinishPane
                                 creatorName={creatorName}
-                                creatorDescription={creatorDescription}
-                                leaguePath={leaguePath}
-                                pbePath={pbePath}
-                                projectPath={defaultProjectPath}
-                                ltkPath={ltkPath}
-                                celestialPath={celestialPath}
-                                preferredLauncher={preferredLauncher}
-                                jadePath={jadePath}
-                                quartzPath={quartzPath}
                                 accent={accentChoice}
                                 registerAssoc={registerAssoc}
                                 onRegisterAssoc={setRegisterAssoc}
@@ -770,11 +761,18 @@ const PathsPane: React.FC<{
                     onActivate={() => p.onAutoSync(!p.autoSync)}
                     actions={<Checkbox toggle checked={p.autoSync} onChange={(e) => p.onAutoSync(e.target.checked)} />}
                 />
+            </div>
 
+            {/* Editors span BOTH columns — it's a peer of Workspace and Launcher,
+                not a child of either, and its two rows read better side by side. */}
+            <div className="fwiz-pane__col fwiz-pane__col--full">
                 <p className="settings-subhead">Editors</p>
                 <div className={`fwiz-disclose ${p.editorsOpen ? 'is-open' : ''}`}>
                     <button type="button" className="fwiz-disclose__toggle" onClick={p.onEditorsToggle} aria-expanded={p.editorsOpen}>
-                        <Icon name="code" />
+                        <span className="fwiz-disclose__logos" aria-hidden="true">
+                            <img src="/jade-logo.webp" alt="" draggable={false} />
+                            <img src="/quartz-logo.webp" alt="" draggable={false} />
+                        </span>
                         <span>
                             Jade &amp; Quartz{' '}
                             <span className="fwiz-disclose__sub">
@@ -786,9 +784,10 @@ const PathsPane: React.FC<{
                         </svg>
                     </button>
                     {p.editorsOpen && (
-                        <div className="fwiz-disclose__body">
+                        <div className="fwiz-disclose__body fwiz-pane--split">
                             <PathSettingItem setting={{
-                                iconName: 'code',
+                                logoSrc: '/jade-logo.webp',
+                                logoColor: '#4ADE80',
                                 label: 'Jade',
                                 placeholder: 'Path to the Jade executable',
                                 value: p.jade,
@@ -797,7 +796,8 @@ const PathsPane: React.FC<{
                                 hint: 'Opens BIN files with full hash resolution.',
                             }} />
                             <PathSettingItem setting={{
-                                iconName: 'code',
+                                logoSrc: '/quartz-logo.webp',
+                                logoColor: '#F8FAFC',
                                 label: 'Quartz',
                                 placeholder: 'Path to the Quartz executable',
                                 value: p.quartz,
@@ -985,44 +985,18 @@ const ThemePane: React.FC<{
 
 const FinishPane: React.FC<{
     creatorName: string;
-    creatorDescription: string;
-    leaguePath: string;
-    pbePath: string;
-    projectPath: string;
-    ltkPath: string;
-    celestialPath: string;
-    preferredLauncher: 'ltk' | 'celestial' | null;
-    jadePath: string;
-    quartzPath: string;
     accent: string;
     registerAssoc: boolean;
     onRegisterAssoc: (b: boolean) => void;
     autoUpdate: boolean;
     onAutoUpdate: (b: boolean) => void;
 }> = ({
-    creatorName, creatorDescription, leaguePath, pbePath, projectPath, ltkPath, celestialPath,
-    preferredLauncher, jadePath, quartzPath, accent,
+    creatorName, accent,
     registerAssoc, onRegisterAssoc, autoUpdate, onAutoUpdate,
 }) => {
-    const desc = creatorDescription.trim();
     const initials = creatorName.trim()
         ? creatorName.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? '').join('') || creatorName.trim()[0]?.toUpperCase()
         : '?';
-    const launcherLabel = preferredLauncher === 'celestial'
-        ? `Celestial${celestialPath ? '' : ' (path missing)'}`
-        : preferredLauncher === 'ltk'
-            ? `LTK Manager${ltkPath ? '' : ' (path missing)'}`
-            : (ltkPath ? 'LTK Manager' : celestialPath ? 'Celestial' : 'None set');
-    const rows: { label: string; value: string; mono?: boolean }[] = [
-        { label: 'Creator',        value: creatorName.trim() || '—' },
-        { label: 'Launcher',       value: launcherLabel },
-        { label: 'League',         value: leaguePath || 'Skipped',  mono: !!leaguePath },
-    ];
-    if (pbePath) rows.push({ label: 'PBE', value: pbePath, mono: true });
-    if (projectPath) rows.push({ label: 'Workspace', value: projectPath, mono: true });
-    const editors = [jadePath && 'Jade', quartzPath && 'Quartz'].filter(Boolean).join(' · ');
-    if (editors) rows.push({ label: 'Editors', value: editors });
-    if (desc) rows.push({ label: 'Description', value: desc });
 
     return (
         <div className="fwiz-finish">
@@ -1047,17 +1021,58 @@ const FinishPane: React.FC<{
 
             <div className="fwiz-finish__panel">
                 <div className="fwiz-finish__panel-head">
-                    <span className="fwiz-finish__panel-eyebrow">Setup summary</span>
-                    <span className="fwiz-finish__panel-count">{rows.length} item{rows.length === 1 ? '' : 's'}</span>
+                    <span className="fwiz-finish__panel-eyebrow">What you can do now</span>
                 </div>
-                <ul className="fwiz-finish__rows">
-                    {rows.map((r) => (
-                        <li key={r.label} className="fwiz-finish__row">
-                            <span className="fwiz-finish__row-label">{r.label}</span>
-                            <span className={`fwiz-finish__row-value ${r.mono ? 'is-mono' : ''}`} title={r.value}>{r.value}</span>
-                        </li>
-                    ))}
+
+                <ul className="fwiz-intro">
+                    <li className="fwiz-intro__item">
+                        <span className="fwiz-intro__ico"><Icon name="plus" /></span>
+                        <div>
+                            <strong>Create a project</strong>
+                            <p>
+                                Pick a champion and skin, and Flint pulls the assets straight out of the game,
+                                repaths them under your creator name, and leaves you a clean folder to edit.
+                            </p>
+                        </div>
+                    </li>
+                    <li className="fwiz-intro__item">
+                        <span className="fwiz-intro__ico"><Icon name="package" /></span>
+                        <div>
+                            <strong>Browse the game with WAD Explorer</strong>
+                            <p>
+                                Search every WAD in your install by name — textures, models, BINs and audio —
+                                and preview them in place without extracting anything first.
+                            </p>
+                        </div>
+                    </li>
+                    <li className="fwiz-intro__item">
+                        <span className="fwiz-intro__ico"><Icon name="download" /></span>
+                        <div>
+                            <strong>Pull assets from the CDN</strong>
+                            <p>
+                                No install needed for the newest patch — Flint can fetch what it needs straight
+                                from Riot&rsquo;s servers, so you can start on a skin the day it ships.
+                            </p>
+                        </div>
+                    </li>
                 </ul>
+
+                <a
+                    className="fwiz-wiki"
+                    href="https://wiki.divineskins.gg/"
+                    target="_blank"
+                    rel="noreferrer noopener"
+                >
+                    <img className="fwiz-wiki__logo" src="/divine-logo.webp" alt="" draggable={false} />
+                    <span className="fwiz-wiki__text">
+                        <strong>New to modding? Read the Divine Skins wiki</strong>
+                        <span>Guides that cover modding from the ground up — wiki.divineskins.gg</span>
+                    </span>
+                    <svg className="fwiz-wiki__arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                </a>
+
                 <div className="fwiz-finish__shortcuts">
                     <div><kbd>Ctrl</kbd>+<kbd>N</kbd><span>New mod</span></div>
                     <div><kbd>Ctrl</kbd>+<kbd>,</kbd><span>Settings</span></div>

@@ -1149,11 +1149,11 @@
 .modal--settings .theme-preset-grid,
 .fwiz .theme-preset-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 12px;
 }
 @media (max-width: 560px) {
-    .modal--settings .theme-preset-grid { grid-template-columns: repeat(2, 1fr); }
+    .modal--settings .theme-preset-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .modal--settings .theme-custom-accent,
 .fwiz .theme-custom-accent {
