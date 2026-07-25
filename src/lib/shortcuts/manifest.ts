@@ -103,6 +103,28 @@ export const SHORTCUTS: readonly Shortcut[] = [
         // in the app and must still work.
         allowInTextEntry: true,
     },
+
+    // ── Help ─────────────────────────────────────────────────────────────────
+    {
+        id: 'help.cheatSheet',
+        keys: 'f1',
+        label: 'Show keyboard shortcuts',
+        group: 'Help',
+        scope: 'global',
+        // Reachable even with a dialog open — that's often exactly when you want it.
+        survivesModal: true,
+    },
+    {
+        id: 'help.closeCheatSheet',
+        keys: 'escape',
+        label: 'Close shortcuts',
+        group: 'Help',
+        // Declared in its own focus scope, pushed only while the sheet is open, so
+        // it doesn't compete with modal.close the rest of the time.
+        scope: 'cheat-sheet',
+        allowInTextEntry: true,
+        survivesModal: true,
+    },
 ] as const;
 
 /** Union of the ids actually declared, so `useAction` can be checked at compile time. */

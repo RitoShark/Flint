@@ -45,6 +45,7 @@ import { ManifestBrowser } from '../browser/ManifestBrowser';
 import { ToastContainer } from '../overlays/Toast';
 import { TutorialOverlay, isOnboardingDone, TUTORIAL_REPLAY_EVENT } from '../overlays/TutorialOverlay';
 import { TooltipProvider } from '../overlays/TooltipProvider';
+import { ShortcutCheatSheet } from '../overlays/ShortcutCheatSheet';
 import { UpdateShowcase } from '../update/UpdateShowcase';
 
 function getActiveTab(state: { activeTabId: string | null; openTabs: Array<{ id: string; project: any; projectPath: string; selectedFile: string | null }> }) {
@@ -104,6 +105,7 @@ export const App: React.FC = () => {
 
     const [leftPanelWidth, setLeftPanelWidth] = useState(280);
     const [showTutorial, setShowTutorial] = useState(false);
+    const [showCheatSheet, setShowCheatSheet] = useState(false);
     const resizerRef = useRef<HTMLDivElement>(null);
     const isResizingRef = useRef(false);
 
@@ -169,6 +171,7 @@ export const App: React.FC = () => {
     // No `if (activeModal)` guard needed — 'modal.close' is declared in the `modal`
     // scope, so it can only resolve while a modal is actually open.
     useAction('modal.close', () => closeModal());
+    useAction('help.cheatSheet', () => setShowCheatSheet((open) => !open));
 
     useEffect(() => {
         if (!startupRan) {
@@ -565,6 +568,8 @@ export const App: React.FC = () => {
             <TransferModal />
 
             {showTutorial && <TutorialOverlay onDone={() => setShowTutorial(false)} />}
+
+            {showCheatSheet && <ShortcutCheatSheet onClose={() => setShowCheatSheet(false)} />}
 
             <TooltipProvider />
 

@@ -21,6 +21,7 @@ export type ScopeId =
     | 'file-tree'
     | 'model-preview'
     | 'zoomable'
+    | 'cheat-sheet'
     // State-derived, and masks everything below it.
     | 'modal';
 

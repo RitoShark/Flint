@@ -83,8 +83,12 @@ describe('manifest — preserves the pre-existing App.tsx bindings', () => {
     });
 
     it('keeps Escape working while typing and while a modal is open', () => {
-        const esc = SHORTCUTS.find((s) => parseCombo(s.keys) === parseCombo('escape'));
+        // Escape is legitimately bound in more than one scope, so select the
+        // modal-scoped one by intent rather than by declaration order.
+        const esc = SHORTCUTS.find(
+            (s) => parseCombo(s.keys) === parseCombo('escape') && s.scope === 'modal',
+        );
+        expect(esc, 'no modal-scoped Escape binding').toBeDefined();
         expect(esc?.allowInTextEntry).toBe(true);
-        expect(esc?.scope).toBe('modal');
     });
 });
