@@ -842,10 +842,31 @@ html[data-glass="off"] .modal--settings {
 .fwiz .settings-row__field { width: 100%; }
 .fwiz .settings-row--clickable .settings-toggle,
 .fwiz .settings-row--clickable button { cursor: pointer; }
-.fwiz .settings-row:has(.settings-row__field) .settings-row__icon,
+/* Only the ACTIONS pin to the top on a tall field row — the icon stays centered
+   against the full row height (see the alignment rule in CLAUDE.md). */
 .fwiz .settings-row:has(.settings-row__field) .settings-row__actions {
     align-self: start;
 }
+.fwiz .settings-row:has(.settings-row__field) .settings-row__icon {
+    align-self: center;
+}
+
+/* Wizard rows are taller than a settings tab's, so the 20px glyph read small:
+   +20% for every row icon, +40% for the folder glyph (its shape carries less
+   visual weight at the same box size). The icon box grows with them so the
+   glyph stays centered — never nudge these with margins. */
+.fwiz .settings-row { grid-template-columns: 48px minmax(0, 1fr) auto; }
+.fwiz .settings-row__icon { width: 48px; height: 48px; }
+.fwiz .settings-row__icon svg { width: 24px; height: 24px; }
+.fwiz .settings-row__logo-img { width: 38px; height: 38px; }
+/* The glyph span must be a centered flex box in its own right, or the inline
+   SVG sits on the text baseline and reads low. */
+.fwiz .settings-row__glyph {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.fwiz .settings-row__glyph--folder svg { width: 28px; height: 28px; }
 .fwiz .theme-preset__check svg { display: block; }
 .fwiz .theme-custom-accent__circle {
     width: 30px;
