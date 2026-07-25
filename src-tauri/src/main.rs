@@ -408,6 +408,9 @@ fn main() {
             // ModPkg import commands
             commands::modpkg_import::analyze_modpkg,
             commands::modpkg_import::import_modpkg,
+            // Extracted-folder import commands
+            commands::folder_import::analyze_extracted_folder,
+            commands::folder_import::import_extracted_folder,
             // ModPkg edit (minimal metadata editor) commands
             commands::modpkg_edit::open_modpkg_session,
             commands::modpkg_edit::save_modpkg_session,

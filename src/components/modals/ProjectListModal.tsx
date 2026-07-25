@@ -1,11 +1,13 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { useModalStore, useAppMetadataStore, useProjectTabStore, useConfigStore, useNavigationStore } from '../../lib/stores';
+import { useModalStore, useAppMetadataStore, useProjectTabStore, useConfigStore, useNavigationStore, useNotificationStore } from '../../lib/stores';
 import { formatRelativeTime } from '../../lib/util/utils';
 import { open } from '@tauri-apps/plugin-dialog';
 import { appDataDir } from '@tauri-apps/api/path';
 import { Button, Icon, Input, Modal, ModalBody, ModalFooter, ModalHeader, Picker } from '../ui';
 import * as api from '../../lib/api';
 import { listen } from '@tauri-apps/api/event';
+import { useFolderDrop } from '../../lib/folderDrop';
+import { openOrImportFolder } from '../../lib/projectOpen';
 import type { SavedProject } from '../../lib/types';
 
 type SortMode = 'recent' | 'name' | 'champion';
@@ -309,6 +311,7 @@ export const ProjectListModal: React.FC = () => {
     const creatorName = useConfigStore((s) => s.creatorName);
     const defaultProjectPath = useConfigStore((s) => s.defaultProjectPath);
     const setSavedProjects = useConfigStore((s) => s.setSavedProjects);
+    const showToast = useNotificationStore((s) => s.showToast);
     const [removingId, setRemovingId] = useState<string | null>(null);
     const [search, setSearch] = useState('');
     const [sortMode, setSortMode] = useState<SortMode>('recent');
@@ -333,6 +336,10 @@ export const ProjectListModal: React.FC = () => {
                 const listings = await api.discoverProjects(defaultProjectPath);
                 if (cancelled) return;
                 const mapped: SavedProject[] = listings
+                    // `discover_projects` also returns index rows whose folder is
+                    // gone (so a project moved in Explorer stays findable). Those
+                    // are dead cards here — a deleted project would reappear.
+                    .filter((l) => l.exists)
                     .map((l) => ({
                         id: l.pid,
                         name: l.display_name || l.name || 'Unnamed',
@@ -438,12 +445,17 @@ export const ProjectListModal: React.FC = () => {
                     setRemovingId(projectId);
                     setWorking('Deleting folder files…');
                     try {
-                        await api.deleteProject(project.path);
+                        await api.deleteProject(project.path, defaultProjectPath);
                     } catch (deleteError) {
                         console.warn('Project folder may not exist, removing from list anyway:', deleteError);
                     }
                     setTimeout(() => {
                         useConfigStore.getState().removeSavedProject(projectId);
+                        // Also drop it from Recent Folders, which would otherwise
+                        // keep offering a dead path on the welcome screen.
+                        useConfigStore.getState().setRecentProjects(
+                            useConfigStore.getState().recentProjects.filter((p) => p.path !== project.path),
+                        );
                         setRemovingId(null);
                         setReady();
                     }, 200);
@@ -455,7 +467,7 @@ export const ProjectListModal: React.FC = () => {
                 }
             },
         });
-    }, [savedProjects, setWorking, setReady, setError, openConfirmDialog]);
+    }, [savedProjects, defaultProjectPath, setWorking, setReady, setError, openConfirmDialog]);
 
     const handleImportMod = useCallback(async () => {
         try {
@@ -573,6 +585,37 @@ export const ProjectListModal: React.FC = () => {
         }
     }, [leaguePath, creatorName, recentProjects, closeModal, setWorking, setReady, setError]);
 
+    /** Shared by the drop zone and the Import Folder button. */
+    const handleFolder = useCallback(async (path: string) => {
+        const outcome = await openOrImportFolder(path);
+        if (outcome.kind === 'rejected') {
+            showToast('error', outcome.reason);
+            return;
+        }
+        if (outcome.kind === 'imported') {
+            showToast('success', `Imported ${outcome.project.display_name || outcome.project.name}`);
+        }
+        closeModal();
+    }, [showToast, closeModal]);
+
+    // No zone ref: while this modal is up it owns the window, so a drop
+    // anywhere belongs to it. `enabled` keeps it from competing with the
+    // welcome screen's listener underneath.
+    const dragOver = useFolderDrop(handleFolder, { enabled: isVisible });
+
+    const handleImportFolder = useCallback(async () => {
+        try {
+            const selected = await open({
+                title: 'Import Extracted Folder',
+                directory: true,
+                multiple: false,
+            });
+            if (selected) await handleFolder(selected as string);
+        } catch (error) {
+            console.error('Failed to pick folder:', error);
+        }
+    }, [handleFolder]);
+
     const visibleProjects = useMemo(() => {
         const q = search.trim().toLowerCase();
         const haystack = (p: SavedProject) =>
@@ -641,8 +684,17 @@ export const ProjectListModal: React.FC = () => {
             )}
 
             <ModalBody className="pl-body">
+                {dragOver && (
+                    <div className="pl-drop-overlay">
+                        <Icon name="folder" />
+                        <span className="pl-drop-overlay__title">Drop to open or import</span>
+                        <span className="pl-drop-overlay__hint">
+                            A Flint project opens; an extracted WAD folder is imported
+                        </span>
+                    </div>
+                )}
                 {savedProjects.length === 0 ? (
-                    <ProjectsEmpty onBrowse={handleBrowseFiles} onImport={handleImportMod} />
+                    <ProjectsEmpty />
                 ) : visibleProjects.length === 0 ? (
                     <div className="pl-no-match">
                         <Icon name="search" />
@@ -668,6 +720,9 @@ export const ProjectListModal: React.FC = () => {
                 <Button variant="secondary" icon="folder" onClick={handleBrowseFiles}>
                     Open from disk
                 </Button>
+                <Button variant="secondary" icon="folderOpen2" onClick={handleImportFolder}>
+                    Import Folder
+                </Button>
                 <Button variant="success" icon="download" onClick={handleImportMod}>
                     Import Mod
                 </Button>
@@ -680,7 +735,9 @@ export const ProjectListModal: React.FC = () => {
 // Empty state
 // =============================================================================
 
-const ProjectsEmpty: React.FC<{ onBrowse: () => void; onImport: () => void }> = ({ onBrowse, onImport }) => (
+/** Actions live in the modal footer, which renders in this state too — so this
+ *  only sets the scene and points at them. */
+const ProjectsEmpty: React.FC = () => (
     <div className="pl-empty">
         <div className="pl-empty__art">
             <span className="pl-empty__ring" />
@@ -689,12 +746,8 @@ const ProjectsEmpty: React.FC<{ onBrowse: () => void; onImport: () => void }> = 
         </div>
         <h3 className="pl-empty__title">No folders yet</h3>
         <p className="pl-empty__desc">
-            Create a new workspace, open one from disk, or import a <code>.fantome</code> /
-            <code>.modpkg</code> to get started.
+            Drag a folder in to get started — a Flint project opens, an extracted WAD folder
+            is imported. Or use the buttons below.
         </p>
-        <div className="pl-empty__actions">
-            <Button icon="folder" onClick={onBrowse}>Open from disk</Button>
-            <Button variant="success" icon="download" onClick={onImport}>Import Mod</Button>
-        </div>
     </div>
 );

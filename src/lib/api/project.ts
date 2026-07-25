@@ -181,8 +181,14 @@ export async function hardRenameProject(
     return invokeCommand('hard_rename_project', { project, projectPath, newName });
 }
 
-export async function deleteProject(projectPath: string): Promise<void> {
-    return invokeCommand('delete_project', { projectPath });
+/**
+ * Delete the project folder AND drop it from `projects.json`. Passing
+ * `projectsRoot` lets the backend purge a project that lives outside the
+ * configured root; without the purge, `discoverProjects` resurrects the row on
+ * the next scan.
+ */
+export async function deleteProject(projectPath: string, projectsRoot?: string | null): Promise<void> {
+    return invokeCommand('delete_project', { projectPath, projectsRoot: projectsRoot ?? null });
 }
 
 /** Walk the projects root one level deep and return every Flint project

@@ -1569,25 +1569,91 @@ fn convert_bin_file_sync(bin_path: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Delete a project and all its files.
+/// Evict a project from every `projects.json` that could be holding it.
+///
+/// Without this, `discover_projects`' index-only pass re-emits the row on the
+/// next scan and the "deleted" project reappears in the list. Preferring `pid`
+/// keeps a relocated project's row from being clobbered by a stale path match;
+/// the path sweep is the fallback for folders already gone from disk.
+fn purge_from_index(project_path: &Path, projects_root: Option<&Path>, pid: Option<&str>) {
+    // The configured root, plus the parent directory, which is the real root
+    // for the standard `<projectsRoot>/<projectDir>` layout.
+    let mut roots: Vec<PathBuf> = Vec::new();
+    if let Some(root) = projects_root {
+        roots.push(root.to_path_buf());
+    }
+    if let Some(parent) = project_path.parent() {
+        if !roots.iter().any(|r| r == parent) {
+            roots.push(parent.to_path_buf());
+        }
+    }
+
+    for root in roots {
+        if !flint_ltk::project::index_path(&root).is_file() {
+            continue;
+        }
+        let removed = match pid {
+            Some(pid) => flint_ltk::project::remove_from_index(&root, pid)
+                .map(|hit| if hit { 1 } else { 0 }),
+            None => Ok(0),
+        };
+        let removed = match removed {
+            Ok(n) if n > 0 => n,
+            Ok(_) => flint_ltk::project::remove_from_index_by_path(&root, project_path)
+                .unwrap_or_else(|e| {
+                    tracing::warn!("Failed to purge {} from index at {}: {}", project_path.display(), root.display(), e);
+                    0
+                }),
+            Err(e) => {
+                tracing::warn!("Failed to purge pid from index at {}: {}", root.display(), e);
+                0
+            }
+        };
+        if removed > 0 {
+            tracing::info!("Purged {} index row(s) for {}", removed, project_path.display());
+        }
+    }
+}
+
+/// Delete a project and all its files, and drop it from the project index.
+///
+/// `projects_root` is optional so older callers keep working; when supplied it
+/// lets the purge reach a project that lives outside its configured root.
 #[tauri::command]
-pub async fn delete_project(project_path: String) -> Result<(), String> {
+pub async fn delete_project(
+    project_path: String,
+    projects_root: Option<String>,
+) -> Result<(), String> {
     tracing::info!("Frontend requested deleting project: {}", project_path);
 
     let path = PathBuf::from(&project_path);
+    let root = projects_root.map(PathBuf::from);
+
+    // Read the pid before the folder goes away — afterwards it is unrecoverable.
+    let pid = core_open_project(&path).ok().map(|p| p.pid);
 
     if !path.exists() {
         // Already deleted on disk (e.g. by the user in Explorer). Deletion is
         // idempotent — report success so the caller still drops it from the
-        // saved/recents list.
+        // saved/recents list. Still purge the index: this is what clears rows
+        // stranded by a delete that predates index cleanup.
         tracing::info!("Project path already gone, treating delete as success: {}", project_path);
+        purge_from_index(&path, root.as_deref(), pid.as_deref());
         return Ok(());
     }
 
     tokio::task::spawn_blocking(move || {
         match std::fs::remove_dir_all(&path) {
-            Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Ok(()) => {
+                purge_from_index(&path, root.as_deref(), pid.as_deref());
+                Ok(())
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                purge_from_index(&path, root.as_deref(), pid.as_deref());
+                Ok(())
+            }
+            // Folder still on disk (locked file, permissions) — leave the index
+            // row alone so the project stays recoverable.
             Err(e) => Err(format!("Failed to delete project: {}", e)),
         }
     })
@@ -1937,3 +2003,82 @@ pub async fn list_project_layers(project_path: String) -> Result<Vec<String>, St
     Ok(names)
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod delete_project_tests {
+    use super::*;
+    use flint_ltk::project::read_index;
+
+    /// Write a real project (mod.config.json + flint.json) and index it.
+    fn scaffold(root: &Path, dir_name: &str) -> (PathBuf, String) {
+        let project_path = root.join(dir_name);
+        std::fs::create_dir_all(&project_path).unwrap();
+        let project = Project::new(dir_name, "smolder", 0, PathBuf::new(), &project_path, Some("tester".into()));
+        core_save_project(&project).unwrap();
+        core_register_in_index(root, &project).unwrap();
+        (project_path, project.pid)
+    }
+
+    #[tokio::test]
+    async fn delete_drops_the_folder_and_its_index_row() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let (project_path, _pid) = scaffold(root, "Smolder_Skin0");
+        let (keep_path, keep_pid) = scaffold(root, "Ahri_Skin1");
+
+        assert_eq!(read_index(root).entries.len(), 2);
+
+        delete_project(
+            project_path.to_string_lossy().into_owned(),
+            Some(root.to_string_lossy().into_owned()),
+        )
+        .await
+        .unwrap();
+
+        assert!(!project_path.exists(), "project folder should be gone");
+        assert!(keep_path.exists(), "unrelated project must survive");
+
+        // The regression: leaving this row behind is what let discover_projects
+        // resurrect the project on the next scan.
+        let index = read_index(root);
+        assert_eq!(index.entries.len(), 1, "deleted project must leave no index row");
+        assert_eq!(index.entries[0].pid, keep_pid);
+    }
+
+    #[tokio::test]
+    async fn delete_purges_a_row_whose_folder_is_already_gone() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let (project_path, _pid) = scaffold(root, "Ghost_Skin0");
+
+        // Simulate the pre-fix state: folder removed, index row stranded.
+        std::fs::remove_dir_all(&project_path).unwrap();
+        assert_eq!(read_index(root).entries.len(), 1);
+
+        delete_project(
+            project_path.to_string_lossy().into_owned(),
+            Some(root.to_string_lossy().into_owned()),
+        )
+        .await
+        .unwrap();
+
+        assert!(read_index(root).entries.is_empty(), "stranded ghost row must be purged");
+    }
+
+    #[tokio::test]
+    async fn delete_without_a_projects_root_still_purges_via_the_parent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let (project_path, _pid) = scaffold(root, "NoRoot_Skin0");
+
+        delete_project(project_path.to_string_lossy().into_owned(), None)
+            .await
+            .unwrap();
+
+        assert!(read_index(root).entries.is_empty());
+    }
+}

@@ -140,3 +140,84 @@ pub fn remove(projects_root: &Path, pid: &str) -> Result<bool> {
     if removed { write_index(projects_root, &index)?; }
     Ok(removed)
 }
+
+/// Normalised form for comparing two recorded paths: separators unified and
+/// case folded, since the index may hold `C:\...\Foo` where the caller passes
+/// `C:/.../foo`. Case folding is safe here because this index is only ever
+/// consulted for Windows/macOS projects roots.
+fn path_key(p: &Path) -> String {
+    p.to_string_lossy().replace('\\', "/").trim_end_matches('/').to_lowercase()
+}
+
+/// Drops every row whose recorded `path` matches `path`, returning how many
+/// went away.
+///
+/// Deleting by `pid` is preferred, but a project whose folder is already gone
+/// can no longer be read for its `flint.json` — this is the only way to evict
+/// those rows, which would otherwise be resurrected by `discover_projects`'
+/// index-only pass on every scan.
+pub fn remove_by_path(projects_root: &Path, path: &Path) -> Result<usize> {
+    let mut index = read_index(projects_root);
+    let target = path_key(path);
+    let before = index.entries.len();
+    index.entries.retain(|e| path_key(&e.path) != target);
+    let removed = before - index.entries.len();
+    if removed > 0 { write_index(projects_root, &index)?; }
+    Ok(removed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(pid: &str, path: &str) -> ProjectIndexEntry {
+        let now = Utc::now();
+        ProjectIndexEntry {
+            pid: pid.to_string(),
+            path: PathBuf::from(path),
+            display_name: String::new(),
+            name: String::new(),
+            kind: ProjectKind::default(),
+            champion: String::new(),
+            skin_id: 0,
+            map_id: None,
+            created_at: now,
+            last_seen_at: now,
+            exists: true,
+        }
+    }
+
+    #[test]
+    fn remove_by_path_evicts_matching_row_ignoring_separator_and_case() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write_index(root, &ProjectIndex {
+            schema_version: 1,
+            entries: vec![
+                entry("a", &format!("{}\\Smolder_Skin0", root.display())),
+                entry("b", &format!("{}\\Ahri_Skin1", root.display())),
+            ],
+        }).unwrap();
+
+        // Same project, spelled with forward slashes and different casing.
+        let target = PathBuf::from(format!("{}/smolder_skin0", root.display()).replace('\\', "/"));
+        assert_eq!(remove_by_path(root, &target).unwrap(), 1);
+
+        let after = read_index(root);
+        assert_eq!(after.entries.len(), 1);
+        assert_eq!(after.entries[0].pid, "b");
+    }
+
+    #[test]
+    fn remove_by_path_is_a_noop_when_nothing_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write_index(root, &ProjectIndex {
+            schema_version: 1,
+            entries: vec![entry("a", &format!("{}\\Keep", root.display()))],
+        }).unwrap();
+
+        assert_eq!(remove_by_path(root, Path::new("D:/elsewhere/Gone")).unwrap(), 0);
+        assert_eq!(read_index(root).entries.len(), 1);
+    }
+}

@@ -113,6 +113,9 @@ libloading = "0.8"
 # Same version as tauri's `tao` so only one copy of the windows crate compiles.
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
+[dev-dependencies]
+tempfile = "3"
+
 [features]
 custom-protocol = ["tauri/custom-protocol"]
 
