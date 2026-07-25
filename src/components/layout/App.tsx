@@ -1,7 +1,7 @@
 import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { useAppMetadataStore, useConfigStore, useProjectTabStore, useNavigationStore, useWadExtractStore, useWadExplorerStore, useModalStore, useNotificationStore } from '../../lib/stores';
 import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
-import { initShortcuts, registerShortcut } from '../../lib/util/utils';
+import { useShortcutEngine, useAction } from '../../lib/shortcuts/hooks';
 import * as api from '../../lib/api';
 import { openWadInExtract, isWadPath } from '../../lib/openWad';
 import { listen } from '@tauri-apps/api/event';
@@ -131,46 +131,44 @@ export const App: React.FC = () => {
         };
     });
 
+    useShortcutEngine();
+
+    useAction('app.newProject', () => openModal('newProject'));
+    useAction('app.save', async () => {
+        const activeTab = getActiveTab(stateRef.current);
+        if (activeTab) {
+            try {
+                setWorking('Saving...');
+                await api.saveProject(activeTab.project);
+                setReady('Saved');
+            } catch (error) {
+                console.error('Failed to save:', error);
+                showToast('error', 'Save failed');
+            }
+        }
+    });
+    useAction('app.settings', () => openModal('settings'));
+    useAction('app.export', () => {
+        const activeTab = getActiveTab(stateRef.current);
+        if (activeTab) {
+            openModal('export');
+        }
+    });
+    useAction('app.closeCurrent', () => {
+        const s = stateRef.current;
+        if (s.currentView === 'wad-explorer') {
+            navigationCoordinator.closeWadExplorerWithFallback();
+        } else if (s.currentView === 'extract' && s.activeExtractId) {
+            navigationCoordinator.closeExtractSessionWithFallback(s.activeExtractId);
+        } else if (s.currentView === 'preview' && s.activeTabId) {
+            navigationCoordinator.removeTabWithFallback(s.activeTabId);
+        }
+    });
+    // No `if (activeModal)` guard needed — 'modal.close' is declared in the `modal`
+    // scope, so it can only resolve while a modal is actually open.
+    useAction('modal.close', () => closeModal());
+
     useEffect(() => {
-        initShortcuts();
-
-        registerShortcut('ctrl+n', () => openModal('newProject'));
-        registerShortcut('ctrl+s', async () => {
-            const activeTab = getActiveTab(stateRef.current);
-            if (activeTab) {
-                try {
-                    setWorking('Saving...');
-                    await api.saveProject(activeTab.project);
-                    setReady('Saved');
-                } catch (error) {
-                    console.error('Failed to save:', error);
-                    showToast('error', 'Save failed');
-                }
-            }
-        });
-        registerShortcut('ctrl+,', () => openModal('settings'));
-        registerShortcut('ctrl+e', () => {
-            const activeTab = getActiveTab(stateRef.current);
-            if (activeTab) {
-                openModal('export');
-            }
-        });
-        registerShortcut('ctrl+w', () => {
-            const s = stateRef.current;
-            if (s.currentView === 'wad-explorer') {
-                navigationCoordinator.closeWadExplorerWithFallback();
-            } else if (s.currentView === 'extract' && s.activeExtractId) {
-                navigationCoordinator.closeExtractSessionWithFallback(s.activeExtractId);
-            } else if (s.currentView === 'preview' && s.activeTabId) {
-                navigationCoordinator.removeTabWithFallback(s.activeTabId);
-            }
-        });
-        registerShortcut('escape', () => {
-            if (stateRef.current.activeModal) {
-                closeModal();
-            }
-        });
-
         if (!startupRan) {
             startupRan = true;
             useConfigStore.getState().hydrate().then(() => {

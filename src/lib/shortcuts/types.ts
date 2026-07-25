@@ -1,3 +1,5 @@
+import type { ViewType } from '../types';
+
 /**
  * Shortcut vocabulary.
  *
@@ -9,20 +11,17 @@
  *  - `modal`, derived from `modalStore.activeModal`, which masks lower scopes.
  */
 export type ScopeId =
-    // view scopes — mirror ViewType
+    // Always present, bottom of the stack.
     | 'global'
-    | 'welcome'
-    | 'preview'
-    | 'extract'
-    | 'wad-explorer'
-    | 'file-editor'
-    | 'archive-editor'
-    | 'manifest'
-    // focus scopes
+    // View scopes ARE ViewType, by construction — so a view added to ViewType can
+    // never desync from the scope union, and the currentView → scope mapping is
+    // total without a fallback branch.
+    | ViewType
+    // Focus scopes, pushed by whichever component owns the focused surface.
     | 'file-tree'
     | 'model-preview'
     | 'zoomable'
-    // state-derived, masking
+    // State-derived, and masks everything below it.
     | 'modal';
 
 export type ActionId = string;
