@@ -39,23 +39,37 @@ export const FirstTimeSetupModal: React.FC = () => {
     const config = useConfigStore();
 
     const creatorDescriptionStored = useConfigStore((s) => s.creatorDescription);
+    const creatorHomeStored = useConfigStore((s) => s.creatorHome);
+    const creatorTipStored = useConfigStore((s) => s.creatorTip);
     const leaguePathStored = useConfigStore((s) => s.leaguePath);
     const leaguePathPbeStored = useConfigStore((s) => s.leaguePathPbe);
     const defaultProjectPathStored = useConfigStore((s) => s.defaultProjectPath);
     const ltkManagerModPathStored = useConfigStore((s) => s.ltkManagerModPath);
     const celestialModPathStored = useConfigStore((s) => s.celestialModPath);
     const preferredLauncherStored = useConfigStore((s) => s.preferredLauncher);
+    const jadePathStored = useConfigStore((s) => s.jadePath);
+    const quartzPathStored = useConfigStore((s) => s.quartzPath);
+    const autoSyncStored = useConfigStore((s) => s.autoSyncToLauncher);
+    const autoUpdateStored = useConfigStore((s) => s.autoUpdateEnabled);
 
     const [stepIndex, setStepIndex] = useState(0);
     const [direction, setDirection] = useState<1 | -1>(1);
     const [creatorName, setCreatorName] = useState('');
     const [creatorDescription, setCreatorDescription] = useState(creatorDescriptionStored || '');
+    const [creatorHome, setCreatorHome] = useState(creatorHomeStored || '');
+    const [creatorTip, setCreatorTip] = useState(creatorTipStored || '');
     const [leaguePath, setLeaguePath] = useState(leaguePathStored || '');
     const [pbePath, setPbePath] = useState(leaguePathPbeStored || '');
     const [defaultProjectPath, setDefaultProjectPath] = useState(defaultProjectPathStored || '');
     const [ltkPath, setLtkPath] = useState(ltkManagerModPathStored || '');
     const [celestialPath, setCelestialPath] = useState(celestialModPathStored || '');
     const [preferredLauncher, setPreferredLauncher] = useState<'ltk' | 'celestial' | null>(preferredLauncherStored);
+    const [jadePath, setJadePath] = useState(jadePathStored || '');
+    const [quartzPath, setQuartzPath] = useState(quartzPathStored || '');
+    const [autoSync, setAutoSync] = useState<boolean>(autoSyncStored);
+    const [editorsOpen, setEditorsOpen] = useState(false);
+    const [registerAssoc, setRegisterAssoc] = useState(true);
+    const [autoUpdate, setAutoUpdate] = useState<boolean>(autoUpdateStored);
     const [detectingAll, setDetectingAll] = useState<DetectingState>(false);
     const autoDetectRan = useRef(false);
     const [flintHome, setFlintHome] = useState<string>('');
@@ -154,6 +168,18 @@ export const FirstTimeSetupModal: React.FC = () => {
             }
             setPreferredLauncher((prev) => prev ?? (celFound ? 'celestial' : ltkFound ? 'ltk' : null));
 
+            // Editors are optional — surface them only when actually found, so the
+            // block stays collapsed for users who don't have them installed.
+            if (ext.jade) {
+                setJadePath(ext.jade);
+                results.push('Jade');
+            }
+            if (ext.quartz) {
+                setQuartzPath(ext.quartz);
+                results.push('Quartz');
+            }
+            if (ext.jade || ext.quartz) setEditorsOpen(true);
+
             if (results.length === 0) {
                 showToast('warning', 'Nothing was auto-detected — fill paths manually.');
             } else if (failures.length === 0) {
@@ -201,12 +227,30 @@ export const FirstTimeSetupModal: React.FC = () => {
 
         config.setCreatorName(creatorName.trim());
         config.setCreatorDescription(creatorDescription.trim() || null);
+        config.setCreatorHome(creatorHome.trim() || null);
+        config.setCreatorTip(creatorTip.trim() || null);
         config.setLeaguePath(leaguePath || null);
         config.setLeaguePathPbe(pbePath || null);
         config.setDefaultProjectPath(defaultProjectPath || null);
         config.setLtkManagerModPath(ltkPath || null);
         config.setCelestialModPath(celestialPath || null);
         config.setPreferredLauncher(preferredLauncher);
+        config.setJadePath(jadePath || null);
+        config.setQuartzPath(quartzPath || null);
+        config.setAutoSyncToLauncher(autoSync);
+        config.setAutoUpdateEnabled(autoUpdate);
+
+        // Opt-in "Open with" registration. Never block entering Flint on it.
+        if (registerAssoc) {
+            try {
+                const result = await api.registerFileAssociations();
+                if (result.errors.length > 0) {
+                    showToast('warning', `File associations registered with ${result.errors.length} error(s).`);
+                }
+            } catch {
+                showToast('warning', "Couldn't register file associations — do it later in Settings.");
+            }
+        }
 
         closeModal();
         showToast('success', 'Setup complete — welcome to Flint.');
@@ -268,6 +312,10 @@ export const FirstTimeSetupModal: React.FC = () => {
                                 onKeyDown={onIdentityKey}
                                 description={creatorDescription}
                                 onDescriptionChange={setCreatorDescription}
+                                home={creatorHome}
+                                onHomeChange={setCreatorHome}
+                                tip={creatorTip}
+                                onTipChange={setCreatorTip}
                             />
                         )}
                         {step.id === 'paths' && (
@@ -278,6 +326,10 @@ export const FirstTimeSetupModal: React.FC = () => {
                                 ltk={ltkPath}
                                 celestial={celestialPath}
                                 preferredLauncher={preferredLauncher}
+                                jade={jadePath}
+                                quartz={quartzPath}
+                                autoSync={autoSync}
+                                editorsOpen={editorsOpen}
                                 flintHome={flintHome}
                                 detectingAll={detectingAll}
                                 onLeague={setLeaguePath}
@@ -285,6 +337,10 @@ export const FirstTimeSetupModal: React.FC = () => {
                                 onProject={setDefaultProjectPath}
                                 onLtk={setLtkPath}
                                 onCelestial={setCelestialPath}
+                                onJade={setJadePath}
+                                onQuartz={setQuartzPath}
+                                onAutoSync={setAutoSync}
+                                onEditorsToggle={() => setEditorsOpen((v) => !v)}
                                 onPreferredLauncherChange={setPreferredLauncher}
                                 onBrowseLeague={() => browseDir('Select League of Legends Folder', setLeaguePath)}
                                 onBrowsePbe={() => browseDir('Select PBE Folder', setPbePath)}
@@ -301,6 +357,14 @@ export const FirstTimeSetupModal: React.FC = () => {
                                 onSelectTheme={(id) => config.setSelectedTheme(id)}
                                 glass={glassChoice}
                                 onGlass={setGlassChoice}
+                                glassBlur={ux.glassBlur}
+                                onGlassBlur={ux.setGlassBlur}
+                                glassOpacity={ux.glassOpacity}
+                                onGlassOpacity={ux.setGlassOpacity}
+                                fpsMode={ux.fpsMode}
+                                onFpsMode={ux.setFpsMode}
+                                buttonGlow={ux.buttonGlow}
+                                onButtonGlow={ux.setButtonGlow}
                             />
                         )}
                         {step.id === 'finish' && (
@@ -313,7 +377,13 @@ export const FirstTimeSetupModal: React.FC = () => {
                                 ltkPath={ltkPath}
                                 celestialPath={celestialPath}
                                 preferredLauncher={preferredLauncher}
+                                jadePath={jadePath}
+                                quartzPath={quartzPath}
                                 accent={accentChoice}
+                                registerAssoc={registerAssoc}
+                                onRegisterAssoc={setRegisterAssoc}
+                                autoUpdate={autoUpdate}
+                                onAutoUpdate={setAutoUpdate}
                             />
                         )}
                     </div>
@@ -516,51 +586,93 @@ const IdentityPane: React.FC<{
     onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
     description: string;
     onDescriptionChange: (v: string) => void;
-}> = ({ value, onChange, onKeyDown, description, onDescriptionChange }) => (
-    <div className="fwiz-settings">
-        <p className="settings-subhead">Creator</p>
-        <SettingsRow
-            icon={<Icon name="user" />}
-            title="Your creator name"
-            sub={
-                <div className="creator-field">
-                    <Input
-                        placeholder="e.g. SirDexal"
-                        value={value}
-                        onChange={(e) => onChange(e.target.value)}
-                        onKeyDown={onKeyDown}
-                        autoFocus
-                    />
-                    <p className="creator-field__hint">
-                        Stamped into every mod you ship — proper credit, automatically.
-                    </p>
-                </div>
-            }
-        />
-        <SettingsRow
-            icon={<Icon name="document" />}
-            title="Default description"
-            sub={
-                <div className="creator-field">
-                    <Textarea
-                        placeholder="A tagline that pre-fills new mod projects (e.g. “Stylized recolors for Aatrox.”)"
-                        value={description}
-                        onChange={(e) => onDescriptionChange(e.target.value)}
-                        rows={3}
-                        maxLength={280}
-                    />
-                    <p className="creator-field__hint">
-                        Pre-fills the description on every new project — editable per-project later. {description.length}/280
-                    </p>
-                </div>
-            }
-        />
+    home: string;
+    onHomeChange: (v: string) => void;
+    tip: string;
+    onTipChange: (v: string) => void;
+}> = ({ value, onChange, onKeyDown, description, onDescriptionChange, home, onHomeChange, tip, onTipChange }) => (
+    <div className="fwiz-settings fwiz-pane--split">
+        <div className="fwiz-pane__col">
+            <p className="settings-subhead">Creator</p>
+            <SettingsRow
+                icon={<Icon name="user" />}
+                title="Your creator name"
+                sub={
+                    <div className="creator-field">
+                        <Input
+                            placeholder="e.g. SirDexal"
+                            value={value}
+                            onChange={(e) => onChange(e.target.value)}
+                            onKeyDown={onKeyDown}
+                            autoFocus
+                        />
+                        <p className="creator-field__hint">
+                            Stamped into every mod you ship — proper credit, automatically.
+                        </p>
+                    </div>
+                }
+            />
+            <SettingsRow
+                icon={<Icon name="document" />}
+                title="Default description"
+                sub={
+                    <div className="creator-field">
+                        <Textarea
+                            placeholder="A tagline that pre-fills new mod projects (e.g. “Stylized recolors for Aatrox.”)"
+                            value={description}
+                            onChange={(e) => onDescriptionChange(e.target.value)}
+                            rows={3}
+                            maxLength={280}
+                        />
+                        <p className="creator-field__hint">
+                            Pre-fills the description on every new project — editable per-project later. {description.length}/280
+                        </p>
+                    </div>
+                }
+            />
+        </div>
+
+        <div className="fwiz-pane__col">
+            <p className="settings-subhead">Links</p>
+            <p className="settings-subhead__note">Optional — shipped with your mods so people can find and support you.</p>
+            <SettingsRow
+                icon={<Icon name="link" />}
+                title="Home page"
+                sub={
+                    <div className="creator-field">
+                        <Input
+                            placeholder="https://your-site-or-socials"
+                            value={home}
+                            onChange={(e) => onHomeChange(e.target.value)}
+                        />
+                        <p className="creator-field__hint">Where people can find more of your work.</p>
+                    </div>
+                }
+            />
+            <SettingsRow
+                icon={<Icon name="link" />}
+                title="Tip / support link"
+                sub={
+                    <div className="creator-field">
+                        <Input
+                            placeholder="https://ko-fi.com/you"
+                            value={tip}
+                            onChange={(e) => onTipChange(e.target.value)}
+                        />
+                        <p className="creator-field__hint">Optional donate link for people who want to support you.</p>
+                    </div>
+                }
+            />
+        </div>
     </div>
 );
 
 const PathsPane: React.FC<{
     league: string; pbe: string; project: string; ltk: string; celestial: string;
     preferredLauncher: 'ltk' | 'celestial' | null;
+    jade: string; quartz: string;
+    autoSync: boolean;
+    editorsOpen: boolean;
     flintHome: string;
     detectingAll: boolean;
     onLeague: (v: string) => void;
@@ -568,6 +680,10 @@ const PathsPane: React.FC<{
     onProject: (v: string) => void;
     onLtk: (v: string) => void;
     onCelestial: (v: string) => void;
+    onJade: (v: string) => void;
+    onQuartz: (v: string) => void;
+    onAutoSync: (b: boolean) => void;
+    onEditorsToggle: () => void;
     onPreferredLauncherChange: (l: 'ltk' | 'celestial' | null) => void;
     onBrowseLeague: () => void;
     onBrowsePbe: () => void;
@@ -575,8 +691,10 @@ const PathsPane: React.FC<{
     onBrowseLtk: () => void;
     onBrowseCelestial: () => void;
 }> = (p) => {
-    const filledCount = [p.project, p.league, p.pbe, p.ltk || p.celestial].filter((v) => v.trim().length > 0).length;
-    const progress = (filledCount / 4) * 100;
+    const hasEditor = !!(p.jade.trim() || p.quartz.trim());
+    const filledCount = [p.project, p.league, p.pbe, p.ltk || p.celestial, p.jade || p.quartz]
+        .filter((v) => v.trim().length > 0).length;
+    const progress = (filledCount / 5) * 100;
     return (
     <div className="fwiz-settings">
         <div className={`fwiz-detectbar ${p.detectingAll ? 'is-busy' : ''}`}>
@@ -587,8 +705,8 @@ const PathsPane: React.FC<{
                 <strong>{p.detectingAll ? 'Detecting your setup…' : 'Auto-detected your setup'}</strong>
                 <span>
                     {p.detectingAll
-                        ? 'Scanning for League, PBE, LTK Manager and Celestial — adjust anything below.'
-                        : `Found ${filledCount}/4 — review and tweak any path below.`}
+                        ? 'Scanning for League, PBE, launchers and editors — adjust anything below.'
+                        : `Found ${filledCount}/5 — review and tweak any path below.`}
                 </span>
             </div>
             <div className="fwiz-detectbar__track" aria-hidden="true">
@@ -596,49 +714,102 @@ const PathsPane: React.FC<{
             </div>
         </div>
 
-        <p className="settings-subhead">Workspace &amp; game</p>
-        <PathSettingItem setting={{
-            iconName: 'folder',
-            label: 'Default project folder',
-            badge: 'Workspace',
-            placeholder: p.flintHome || 'Where new mods will be created',
-            value: p.project,
-            onChange: p.onProject,
-            browseTitle: 'Where should new projects be created?',
-            hint: 'Where every new mod project gets created.',
-        }} />
-        <PathSettingItem setting={{
-            logoSrc: '/lol-logo.png',
-            logoColor: '#0AC8B9',
-            label: 'League of Legends',
-            badge: 'Live',
-            placeholder: 'C:\\Riot Games\\League of Legends',
-            value: p.league,
-            onChange: p.onLeague,
-            browseTitle: 'Select League of Legends Folder',
-            hint: 'Powers in-game tooling, hash resolution, and previews.',
-        }} />
-        <PathSettingItem setting={{
-            logoSrc: '/lol-logo.png',
-            logoColor: '#F0884F',
-            label: 'League of Legends PBE',
-            badge: 'Optional',
-            placeholder: 'C:\\Riot Games\\League of Legends (PBE)',
-            value: p.pbe,
-            onChange: p.onPbe,
-            browseTitle: 'Select PBE Folder',
-            hint: 'Lets Flint pull pre-release champion BINs and assets.',
-        }} />
+        <div className="fwiz-pane--split">
+            <div className="fwiz-pane__col">
+                <p className="settings-subhead">Workspace &amp; game</p>
+                <PathSettingItem setting={{
+                    iconName: 'folder',
+                    label: 'Default project folder',
+                    badge: 'Workspace',
+                    placeholder: p.flintHome || 'Where new mods will be created',
+                    value: p.project,
+                    onChange: p.onProject,
+                    browseTitle: 'Where should new projects be created?',
+                    hint: 'Where every new mod project gets created.',
+                }} />
+                <PathSettingItem setting={{
+                    logoSrc: '/lol-logo.png',
+                    logoColor: '#0AC8B9',
+                    label: 'League of Legends',
+                    badge: 'Live',
+                    placeholder: 'C:\\Riot Games\\League of Legends',
+                    value: p.league,
+                    onChange: p.onLeague,
+                    browseTitle: 'Select League of Legends Folder',
+                    hint: 'Powers in-game tooling, hash resolution, and previews.',
+                }} />
+                <PathSettingItem setting={{
+                    logoSrc: '/lol-logo.png',
+                    logoColor: '#F0884F',
+                    label: 'League of Legends PBE',
+                    badge: 'Optional',
+                    placeholder: 'C:\\Riot Games\\League of Legends (PBE)',
+                    value: p.pbe,
+                    onChange: p.onPbe,
+                    browseTitle: 'Select PBE Folder',
+                    hint: 'Lets Flint pull pre-release champion BINs and assets.',
+                }} />
+            </div>
 
-        <p className="settings-subhead">Launcher</p>
-        <LauncherPicker
-            ltk={p.ltk}
-            celestial={p.celestial}
-            preferred={p.preferredLauncher}
-            onPreferredChange={p.onPreferredLauncherChange}
-            onLtk={p.onLtk}
-            onCelestial={p.onCelestial}
-        />
+            <div className="fwiz-pane__col">
+                <p className="settings-subhead">Launcher</p>
+                <LauncherPicker
+                    ltk={p.ltk}
+                    celestial={p.celestial}
+                    preferred={p.preferredLauncher}
+                    onPreferredChange={p.onPreferredLauncherChange}
+                    onLtk={p.onLtk}
+                    onCelestial={p.onCelestial}
+                />
+                <SettingsRow
+                    icon={<Icon name="refresh" />}
+                    title="Auto-sync to launcher"
+                    sub={<span className="settings-row__sub" style={{ whiteSpace: 'normal' }}>
+                        Push changes to your launcher automatically while you work.
+                    </span>}
+                    onActivate={() => p.onAutoSync(!p.autoSync)}
+                    actions={<Checkbox toggle checked={p.autoSync} onChange={(e) => p.onAutoSync(e.target.checked)} />}
+                />
+
+                <p className="settings-subhead">Editors</p>
+                <div className={`fwiz-disclose ${p.editorsOpen ? 'is-open' : ''}`}>
+                    <button type="button" className="fwiz-disclose__toggle" onClick={p.onEditorsToggle} aria-expanded={p.editorsOpen}>
+                        <Icon name="code" />
+                        <span>
+                            Jade &amp; Quartz{' '}
+                            <span className="fwiz-disclose__sub">
+                                {hasEditor ? '— detected' : '— optional, not detected'}
+                            </span>
+                        </span>
+                        <svg className="fwiz-disclose__chev" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                            <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                    </button>
+                    {p.editorsOpen && (
+                        <div className="fwiz-disclose__body">
+                            <PathSettingItem setting={{
+                                iconName: 'code',
+                                label: 'Jade',
+                                placeholder: 'Path to the Jade executable',
+                                value: p.jade,
+                                onChange: p.onJade,
+                                browseTitle: 'Select Jade Executable',
+                                hint: 'Opens BIN files with full hash resolution.',
+                            }} />
+                            <PathSettingItem setting={{
+                                iconName: 'code',
+                                label: 'Quartz',
+                                placeholder: 'Path to the Quartz executable',
+                                value: p.quartz,
+                                onChange: p.onQuartz,
+                                browseTitle: 'Select Quartz Executable',
+                                hint: 'VFX recolor & port editor, launched from the BIN preview.',
+                            }} />
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
     </div>
     );
 };
@@ -733,24 +904,82 @@ const ThemePane: React.FC<{
     onSelectTheme: (id: string | null) => void;
     glass: boolean;
     onGlass: (b: boolean) => void;
-}> = ({ accent, onAccent, selectedTheme, onSelectTheme, glass, onGlass }) => (
-    <div className="fwiz-settings">
-        <p className="settings-subhead">Appearance</p>
-        <ThemePresetGrid
-            selectedTheme={selectedTheme}
-            customAccent={accent}
-            onSelect={(id, hex) => { onSelectTheme(id); onAccent(hex); }}
-            onCustomAccent={(hex) => { onSelectTheme('custom'); onAccent(hex); }}
-        />
+    glassBlur: number;
+    onGlassBlur: (n: number) => void;
+    glassOpacity: number;
+    onGlassOpacity: (n: number) => void;
+    fpsMode: boolean;
+    onFpsMode: (b: boolean) => void;
+    buttonGlow: boolean;
+    onButtonGlow: (b: boolean) => void;
+}> = ({
+    accent, onAccent, selectedTheme, onSelectTheme, glass, onGlass,
+    glassBlur, onGlassBlur, glassOpacity, onGlassOpacity,
+    fpsMode, onFpsMode, buttonGlow, onButtonGlow,
+}) => (
+    <div className="fwiz-settings fwiz-pane--split">
+        <div className="fwiz-pane__col">
+            <p className="settings-subhead">Appearance</p>
+            <ThemePresetGrid
+                selectedTheme={selectedTheme}
+                customAccent={accent}
+                onSelect={(id, hex) => { onSelectTheme(id); onAccent(hex); }}
+                onCustomAccent={(hex) => { onSelectTheme('custom'); onAccent(hex); }}
+            />
+        </div>
 
-        <p className="settings-subhead">Surfaces</p>
-        <SettingsRow
-            icon={<Icon name="picture" />}
-            title="Glassmorphism"
-            sub={<span className="settings-row__sub">Frosted blur on panels and modals — turn off for solid surfaces.</span>}
-            onActivate={() => onGlass(!glass)}
-            actions={<Checkbox toggle checked={glass} onChange={(e) => onGlass(e.target.checked)} />}
-        />
+        <div className="fwiz-pane__col">
+            <p className="settings-subhead">Surfaces</p>
+            <SettingsRow
+                icon={<Icon name="picture" />}
+                title="Glassmorphism"
+                sub={<span className="settings-row__sub">Frosted blur on panels and modals — turn off for solid surfaces.</span>}
+                onActivate={() => onGlass(!glass)}
+                actions={<Checkbox toggle checked={glass} onChange={(e) => onGlass(e.target.checked)} />}
+            />
+            {glass && (
+                <>
+                    <SettingsRow
+                        icon={<Icon name="settings" />}
+                        title="Glass blur"
+                        sub={
+                            <input type="range" min={0} max={32} step={1} value={glassBlur}
+                                onChange={(e) => onGlassBlur(Number(e.target.value))} className="theme-range" />
+                        }
+                        actions={<span className="settings-row__metric">{glassBlur}px</span>}
+                    />
+                    <SettingsRow
+                        icon={<Icon name="settings" />}
+                        title="Glass opacity"
+                        sub={
+                            <input type="range" min={0.2} max={1} step={0.05} value={glassOpacity}
+                                onChange={(e) => onGlassOpacity(Number(e.target.value))} className="theme-range" />
+                        }
+                        actions={<span className="settings-row__metric">{Math.round(glassOpacity * 100)}%</span>}
+                    />
+                </>
+            )}
+
+            <p className="settings-subhead">Performance</p>
+            <SettingsRow
+                icon={<Icon name="refresh" />}
+                title="FPS Mode"
+                sub={<span className="settings-row__sub" style={{ whiteSpace: 'normal' }}>
+                    Strip every CSS transition, animation and backdrop blur for maximum responsiveness — great for older hardware.
+                </span>}
+                onActivate={() => onFpsMode(!fpsMode)}
+                actions={<Checkbox toggle checked={fpsMode} onChange={(e) => onFpsMode(e.target.checked)} />}
+            />
+            <SettingsRow
+                icon={<Icon name="picture" />}
+                title="Button Glow"
+                sub={<span className="settings-row__sub" style={{ whiteSpace: 'normal' }}>{fpsMode
+                    ? 'Off automatically while FPS Mode is on (the cursor-tracking listener costs frames).'
+                    : 'A soft radial glow that tracks your cursor across buttons. On by default.'}</span>}
+                onActivate={fpsMode ? undefined : () => onButtonGlow(!buttonGlow)}
+                actions={<Checkbox toggle checked={buttonGlow && !fpsMode} disabled={fpsMode} onChange={(e) => onButtonGlow(e.target.checked)} />}
+            />
+        </div>
     </div>
 );
 
@@ -763,8 +992,18 @@ const FinishPane: React.FC<{
     ltkPath: string;
     celestialPath: string;
     preferredLauncher: 'ltk' | 'celestial' | null;
+    jadePath: string;
+    quartzPath: string;
     accent: string;
-}> = ({ creatorName, creatorDescription, leaguePath, pbePath, projectPath, ltkPath, celestialPath, preferredLauncher, accent }) => {
+    registerAssoc: boolean;
+    onRegisterAssoc: (b: boolean) => void;
+    autoUpdate: boolean;
+    onAutoUpdate: (b: boolean) => void;
+}> = ({
+    creatorName, creatorDescription, leaguePath, pbePath, projectPath, ltkPath, celestialPath,
+    preferredLauncher, jadePath, quartzPath, accent,
+    registerAssoc, onRegisterAssoc, autoUpdate, onAutoUpdate,
+}) => {
     const desc = creatorDescription.trim();
     const initials = creatorName.trim()
         ? creatorName.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? '').join('') || creatorName.trim()[0]?.toUpperCase()
@@ -781,6 +1020,8 @@ const FinishPane: React.FC<{
     ];
     if (pbePath) rows.push({ label: 'PBE', value: pbePath, mono: true });
     if (projectPath) rows.push({ label: 'Workspace', value: projectPath, mono: true });
+    const editors = [jadePath && 'Jade', quartzPath && 'Quartz'].filter(Boolean).join(' · ');
+    if (editors) rows.push({ label: 'Editors', value: editors });
     if (desc) rows.push({ label: 'Description', value: desc });
 
     return (
@@ -822,6 +1063,28 @@ const FinishPane: React.FC<{
                     <div><kbd>Ctrl</kbd>+<kbd>,</kbd><span>Settings</span></div>
                     <div><kbd>Ctrl</kbd>+<kbd>K</kbd><span>Command palette</span></div>
                 </div>
+            </div>
+
+            <div className="fwiz-settings">
+                <p className="settings-subhead">One last thing</p>
+                <SettingsRow
+                    icon={<Icon name="link" />}
+                    title="Open Flint from Explorer"
+                    sub={<span className="settings-row__sub" style={{ whiteSpace: 'normal' }}>
+                        Adds Flint to the “Open with” menu for .wad, .bin, .tex, .fantome and more. Your default apps stay unchanged.
+                    </span>}
+                    onActivate={() => onRegisterAssoc(!registerAssoc)}
+                    actions={<Checkbox toggle checked={registerAssoc} onChange={(e) => onRegisterAssoc(e.target.checked)} />}
+                />
+                <SettingsRow
+                    icon={<Icon name="download" />}
+                    title="Automatic updates"
+                    sub={<span className="settings-row__sub" style={{ whiteSpace: 'normal' }}>
+                        Download and install updates before Flint opens.
+                    </span>}
+                    onActivate={() => onAutoUpdate(!autoUpdate)}
+                    actions={<Checkbox toggle checked={autoUpdate} onChange={(e) => onAutoUpdate(e.target.checked)} />}
+                />
             </div>
         </div>
     );
