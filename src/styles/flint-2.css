@@ -742,13 +742,21 @@ html[data-glass="off"] .modal--settings {
         color-mix(in oklab, var(--bg-primary) 22%, transparent);
     transition: border-color var(--ux-fast), background var(--ux-fast), transform var(--ux-fast);
 }
+.fwiz-wiki,
+.fwiz-wiki:hover,
+.fwiz-wiki:focus-visible { text-decoration: none; }
+.fwiz-wiki * { text-decoration: none; }
 .fwiz-wiki:hover {
     transform: translateY(-1px);
-    border-color: color-mix(in oklab, #A05CF6 55%, var(--border));
+    border-color: #A05CF6;
     background:
-        linear-gradient(180deg, color-mix(in oklab, #A05CF6 14%, transparent) 0%, transparent 60%),
+        linear-gradient(180deg, color-mix(in oklab, #A05CF6 22%, transparent) 0%,
+            color-mix(in oklab, #A05CF6 6%, transparent) 70%),
         color-mix(in oklab, var(--bg-primary) 26%, transparent);
+    box-shadow: 0 8px 24px -12px color-mix(in oklab, #A05CF6 75%, transparent);
 }
+.fwiz-wiki:hover .fwiz-wiki__text strong { color: color-mix(in oklab, #A05CF6 30%, var(--text-primary)); }
+.fwiz-wiki:hover .fwiz-wiki__arrow { color: #A05CF6; }
 .fwiz-wiki__logo {
     width: 30px;
     height: 30px;
@@ -1277,93 +1285,25 @@ html[data-glass="off"] .modal--settings {
 /* ==========================================================================
    Finish step — calmed hero + flat summary panel
    ========================================================================== */
+/* Single column, stacked top to bottom: welcome line → what you can do now →
+   one last thing. (The tall left hero block was removed — it wasted the width
+   and pushed everything else into a cramped right column.) */
 .fwiz-finish {
     display: grid;
-    grid-template-columns: minmax(260px, 1fr) minmax(0, 1.3fr);
-    gap: 24px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
     padding: 8px 0 4px;
-    align-items: stretch;
-}
-@media (max-width: 880px) {
-    .fwiz-finish { grid-template-columns: 1fr; }
+    align-content: start;
 }
 /* The "One last thing" toggles sit under BOTH columns, not beside the hero. */
 .fwiz-finish > .fwiz-settings { grid-column: 1 / -1; }
-.fwiz-finish__hero {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    padding: 28px 22px;
-    border-radius: 16px;
-    border: 1px solid color-mix(in oklab, var(--accent-primary) 26%, var(--border));
-    background:
-        radial-gradient(circle at 50% 0%,
-            color-mix(in oklab, var(--accent-primary) 14%, transparent) 0%,
-            transparent 60%),
-        linear-gradient(180deg,
-            color-mix(in oklab, white 4%, transparent) 0%,
-            transparent 50%),
-        color-mix(in oklab, var(--bg-primary) 24%, transparent);
-    box-shadow: inset 0 1px 0 color-mix(in oklab, white 6%, transparent);
-}
-.fwiz-finish__halo {
-    position: relative;
-    width: 140px;
-    height: 140px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-.fwiz-finish__check {
-    width: 76px; height: 76px;
-    border-radius: 50%;
-    background:
-        radial-gradient(circle,
-            color-mix(in oklab, var(--accent-primary) 80%, transparent),
-            color-mix(in oklab, var(--accent-primary) 45%, transparent));
-    color: #fff;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow:
-        0 0 0 4px color-mix(in oklab, var(--accent-primary) 18%, transparent),
-        0 0 40px color-mix(in oklab, var(--accent-primary) 40%, transparent);
-    animation: ux-finish-pop 600ms var(--ux-ease-spring);
-}
-.fwiz-finish__check svg { display: block; }
-@keyframes ux-finish-pop {
-    from { opacity: 0; transform: scale(0.4) rotate(-30deg); }
-    to   { opacity: 1; transform: scale(1)   rotate(0); }
-}
-.fwiz-finish__spark {
-    position: absolute;
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    background: var(--accent-primary);
-    top: 50%; left: 50%;
-    transform-origin: 0 0;
-    opacity: 0;
-    --angle: calc(var(--n) * 30deg);
-    animation: ux-spark 1100ms calc(var(--n) * 40ms + 200ms) ease-out forwards;
-}
-@keyframes ux-spark {
-    0%   { opacity: 0; transform: translate(-50%, -50%) rotate(var(--angle)) translate(0px) scale(0.6); }
-    40%  { opacity: 1; }
-    100% { opacity: 0; transform: translate(-50%, -50%) rotate(var(--angle)) translate(72px) scale(0.2); }
-}
-.fwiz-finish__eyebrow {
-    margin-top: 10px;
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    text-transform: uppercase;
-    letter-spacing: 0.18em;
-    color: color-mix(in oklab, var(--accent-primary) 35%, var(--text-muted));
+/* Welcome header — a single line with the avatar, not a tall hero block. */
+.fwiz-finish__welcome {
+    padding: 0 2px 2px;
 }
 .fwiz-finish__title {
-    margin: 4px 0 8px;
-    font-size: clamp(22px, 2.6vw, 30px);
+    margin: 0 0 4px;
+    font-size: clamp(20px, 2.2vw, 26px);
     font-weight: 800;
     letter-spacing: -0.015em;
     color: var(--text-primary);
@@ -1374,7 +1314,6 @@ html[data-glass="off"] .modal--settings {
     color: var(--text-muted);
     font-size: 12.5px;
     line-height: 1.55;
-    max-width: 260px;
 }
 .fwiz-finish__sub kbd {
     display: inline-block;
@@ -1386,24 +1325,6 @@ html[data-glass="off"] .modal--settings {
     font-family: var(--font-mono);
     font-size: 11px;
     color: var(--text-primary);
-}
-.fwiz-finish__avatar {
-    --accent: var(--accent-primary);
-    margin-top: 18px;
-    width: 56px; height: 56px;
-    border-radius: 16px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: #fff;
-    font-weight: 800;
-    font-size: 18px;
-    background: linear-gradient(135deg,
-        var(--accent),
-        color-mix(in oklab, var(--accent) 50%, #6366f1));
-    box-shadow:
-        0 8px 22px -8px color-mix(in oklab, var(--accent) 55%, transparent),
-        inset 0 1px 0 color-mix(in oklab, white 22%, transparent);
 }
 .fwiz-finish__panel {
     display: flex;
@@ -1485,14 +1406,22 @@ html[data-glass="off"] .modal--settings {
     padding-top: 12px;
     border-top: 1px dashed color-mix(in oklab, var(--border) 70%, transparent);
 }
+/* The keys ("Ctrl + N") must read on ONE line with the label under them — a
+   column flex here stacked Ctrl / + / N vertically. */
 .fwiz-finish__shortcuts > div {
     display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    padding: 8px 4px;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: center;
+    gap: 2px 4px;
+    padding: 9px 8px;
     border-radius: 8px;
     background: color-mix(in oklab, var(--bg-primary) 20%, transparent);
+}
+.fwiz-finish__shortcuts > div > span {
+    flex-basis: 100%;
+    text-align: center;
+    margin-top: 4px;
 }
 .fwiz-finish__shortcuts span {
     font-size: 10.5px;

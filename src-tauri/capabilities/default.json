@@ -24,7 +24,9 @@
         "dialog:allow-confirm",
         "updater:default",
         "updater:allow-check",
-        "process:default",
+        "opener:default",
+    "opener:allow-open-url",
+    "process:default",
         "process:allow-restart"
     ]
 }

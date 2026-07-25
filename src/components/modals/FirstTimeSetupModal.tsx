@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useModalStore, useNotificationStore, useConfigStore, useUxStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Button, Input, Icon, Textarea, Checkbox, Spinner } from '../ui';
 import { ThemePresetGrid } from './settings/ThemeTab';
@@ -23,7 +24,7 @@ const STEPS: Step[] = [
     { id: 'theme',    short: 'Theme',    title: 'Pick a vibe',                   subtitle: 'Choose an accent and surface style. Tweakable later in Settings.' },
     { id: 'identity', short: 'Identity', title: "Let's get acquainted",          subtitle: 'Your creator name is stamped into every mod you publish.' },
     { id: 'paths',    short: 'Paths',    title: 'Point Flint at your install',   subtitle: 'All optional — but each one unlocks a piece of the IDE.' },
-    { id: 'finish',   short: 'Finish',   title: "You're all set",                subtitle: 'Time to make something. Welcome to the workshop.' },
+    { id: 'finish',   short: 'Finish',   title: '',                              subtitle: '' },
 ];
 
 /** Default accent used before the user picks a theme. */
@@ -299,10 +300,12 @@ export const FirstTimeSetupModal: React.FC = () => {
                 />
 
                 <main className={`fwiz__stage fwiz__stage--${direction > 0 ? 'fwd' : 'back'}`} key={step.id}>
-                    <div className="fwiz__heading">
-                        <h1>{step.title}</h1>
-                        <p>{step.subtitle}</p>
-                    </div>
+                    {(step.title || step.subtitle) && (
+                        <div className="fwiz__heading">
+                            {step.title && <h1>{step.title}</h1>}
+                            {step.subtitle && <p>{step.subtitle}</p>}
+                        </div>
+                    )}
 
                     <div className="fwiz__body">
                         {step.id === 'identity' && (
@@ -370,7 +373,6 @@ export const FirstTimeSetupModal: React.FC = () => {
                         {step.id === 'finish' && (
                             <FinishPane
                                 creatorName={creatorName}
-                                accent={accentChoice}
                                 registerAssoc={registerAssoc}
                                 onRegisterAssoc={setRegisterAssoc}
                                 autoUpdate={autoUpdate}
@@ -985,38 +987,21 @@ const ThemePane: React.FC<{
 
 const FinishPane: React.FC<{
     creatorName: string;
-    accent: string;
     registerAssoc: boolean;
     onRegisterAssoc: (b: boolean) => void;
     autoUpdate: boolean;
     onAutoUpdate: (b: boolean) => void;
 }> = ({
-    creatorName, accent,
+    creatorName,
     registerAssoc, onRegisterAssoc, autoUpdate, onAutoUpdate,
 }) => {
-    const initials = creatorName.trim()
-        ? creatorName.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? '').join('') || creatorName.trim()[0]?.toUpperCase()
-        : '?';
-
     return (
         <div className="fwiz-finish">
-            <div className="fwiz-finish__hero">
-                <div className="fwiz-finish__halo" aria-hidden="true">
-                    <div className="fwiz-finish__check">
-                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                    </div>
-                    {Array.from({ length: 14 }).map((_, i) => (
-                        <span key={i} className="fwiz-finish__spark" style={{ '--n': i } as React.CSSProperties} />
-                    ))}
-                </div>
-                <span className="fwiz-finish__eyebrow">Confirmed</span>
-                <h2 className="fwiz-finish__title">{creatorName.trim() || 'Anonymous'}</h2>
+            <div className="fwiz-finish__welcome">
+                <h2 className="fwiz-finish__title">Welcome, {creatorName.trim() || 'Anonymous'}</h2>
                 <p className="fwiz-finish__sub">
                     Workshop wired up. Hit <kbd>Ctrl</kbd>+<kbd>N</kbd> any time to spin up a mod.
                 </p>
-                <div className="fwiz-finish__avatar" style={{ ['--accent' as never]: accent }}>{initials}</div>
             </div>
 
             <div className="fwiz-finish__panel">
@@ -1060,8 +1045,7 @@ const FinishPane: React.FC<{
                 <a
                     className="fwiz-wiki"
                     href="https://wiki.divineskins.gg/"
-                    target="_blank"
-                    rel="noreferrer noopener"
+                    onClick={(e) => { e.preventDefault(); openUrl('https://wiki.divineskins.gg/').catch(() => {}); }}
                 >
                     <img className="fwiz-wiki__logo" src="/divine-logo.webp" alt="" draggable={false} />
                     <span className="fwiz-wiki__text">
