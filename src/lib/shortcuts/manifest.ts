@@ -120,6 +120,52 @@ export const SHORTCUTS: readonly Shortcut[] = [
     { id: 'tree.rename', keys: 'f2', label: 'Rename', group: 'File tree', scope: 'file-tree' },
     { id: 'tree.delete', keys: 'delete', label: 'Delete', group: 'File tree', scope: 'file-tree' },
 
+    // ── WAD Explorer ─────────────────────────────────────────────────────────
+    // Migrated from WadExplorer's own window listener, which fired in addition to
+    // the old registry because the two listened on different targets.
+    {
+        id: 'wadExplorer.focusSearch',
+        keys: 'ctrl+f',
+        label: 'Focus search',
+        group: 'WAD Explorer',
+        scope: 'wad-explorer',
+        // Re-focusing the search box while already typing in it is legitimate.
+        allowInTextEntry: true,
+    },
+    {
+        id: 'wadExplorer.clearSearch',
+        keys: 'escape',
+        label: 'Clear search',
+        group: 'WAD Explorer',
+        scope: 'wad-explorer',
+        allowInTextEntry: true,
+    },
+
+    // ── 3D preview ───────────────────────────────────────────────────────────
+    // Orbit / wheel-zoom / pan still come from Babylon's own attachControl; these
+    // only add what the camera could not previously do at all.
+    {
+        id: 'view.frameCamera',
+        keys: 'f',
+        label: 'Frame model',
+        group: '3D preview',
+        scope: 'model-preview',
+    },
+    {
+        id: 'view.zoomIn',
+        keys: 'ctrl+=',
+        label: 'Zoom in',
+        group: '3D preview',
+        scope: 'model-preview',
+    },
+    {
+        id: 'view.zoomOut',
+        keys: 'ctrl+-',
+        label: 'Zoom out',
+        group: '3D preview',
+        scope: 'model-preview',
+    },
+
     // ── Modal ────────────────────────────────────────────────────────────────
     {
         id: 'modal.close',

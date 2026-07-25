@@ -2,7 +2,7 @@ import React, {
     useState, useCallback, useEffect, useRef, useMemo,
 } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { useConfigStore, useWadExplorerStore, useNavigationStore, useModalStore, useNotificationStore } from '../../lib/stores';
+import { useConfigStore, useWadExplorerStore, useModalStore, useNotificationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getIcon, getFileIcon } from '../../lib/ui-helpers/fileIcons';
@@ -22,6 +22,7 @@ import {
     flattenTree, flattenSearchResults,
 } from './wad-explorer/helpers';
 import { VirtualizedList, type VirtualizedListHandle } from './wad-explorer/VirtualizedList';
+import { useAction } from '../../lib/shortcuts/hooks';
 import { ChunkPreview } from './wad-explorer/ChunkPreview';
 import { QuickActionPanel, WadListSkeleton } from './wad-explorer/QuickActionPanel';
 import { ExtractOverlay } from './wad-explorer/ExtractOverlay';
@@ -40,7 +41,6 @@ export const WadExplorer: React.FC = () => {
         checkedCountPerWad: s.checkedCountPerWad,
     })));
     const leaguePath = useConfigStore((s) => s.leaguePath);
-    const currentView = useNavigationStore((s) => s.currentView);
     const openContextMenu = useModalStore((s) => s.openContextMenu);
     const openModal = useModalStore((s) => s.openModal);
     const showToast = useNotificationStore((s) => s.showToast);
@@ -485,22 +485,22 @@ export const WadExplorer: React.FC = () => {
         }, 300);
     }, []);
 
-    useEffect(() => {
-        const onKey = (e: KeyboardEvent) => {
-            if (e.ctrlKey && e.key === 'f' && currentView === 'wad-explorer') {
-                e.preventDefault();
-                searchRef.current?.focus();
-                searchRef.current?.select();
-            }
-            if (e.key === 'Escape' && document.activeElement === searchRef.current) {
-                setInputValue('');
-                useWadExplorerStore.getState().setSearch('');
-                searchRef.current?.blur();
-            }
-        };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-    }, [currentView]);
+    // No useScope here: 'wad-explorer' is a view scope derived from currentView, so
+    // these stay inert while the explorer is mounted-but-hidden (App keeps it alive
+    // behind display:none) — the same gate the old listener did by hand.
+    useAction('wadExplorer.focusSearch', () => {
+        searchRef.current?.focus();
+        searchRef.current?.select();
+    });
+
+    useAction('wadExplorer.clearSearch', () => {
+        // Only meaningful with the search box focused; otherwise Escape is a no-op,
+        // which is exactly what it did before.
+        if (document.activeElement !== searchRef.current) return;
+        setInputValue('');
+        useWadExplorerStore.getState().setSearch('');
+        searchRef.current?.blur();
+    });
 
     // ── Context menus ────────────────────────────────────────────────────────
     /** Build the "Extract ▸" submenu for any extraction action. Default item

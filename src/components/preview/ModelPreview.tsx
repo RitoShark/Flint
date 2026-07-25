@@ -18,6 +18,15 @@ import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder';
 import { SkeletonViewer } from '@babylonjs/core/Debug/skeletonViewer';
 
 import * as api from '../../lib/api';
+import {
+    computeFraming,
+    applyFraming,
+    type BoundingBox,
+} from '../../lib/babylon/cameraFraming';
+import { useAction, useScope } from '../../lib/shortcuts/hooks';
+
+/** Adapter so cameraFraming never has to import Babylon. */
+const makeVector3 = (x: number, y: number, z: number) => new Vector3(x, y, z);
 import { useAppMetadataStore } from '../../lib/stores';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 
@@ -264,6 +273,29 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const [scene, setScene] = useState<Scene | null>(null);
     const [camera, setCamera] = useState<ArcRotateCamera | null>(null);
+
+    // ── Viewport shortcuts ───────────────────────────────────────────────────
+    // Scoped to the preview being mounted with a live camera rather than to canvas
+    // focus: orbiting doesn't require a focus click, so a focus-gated scope would
+    // leave 'F' dead in the common case. Re-framing is idempotent, so falling
+    // through from another surface is harmless.
+    useScope('model-preview', !!camera);
+
+    useAction('view.frameCamera', () => {
+        if (!camera || !meshData) return;
+        applyFraming(camera, computeFraming(meshData.bounding_box as BoundingBox), makeVector3);
+    });
+
+    /** Multiplicative zoom, clamped to the scale-aware limits framing installed. */
+    const zoomByFactor = React.useCallback((factor: number) => {
+        if (!camera) return;
+        const lower = camera.lowerRadiusLimit ?? 0.01;
+        const upper = camera.upperRadiusLimit ?? Number.POSITIVE_INFINITY;
+        camera.radius = Math.min(upper, Math.max(lower, camera.radius * factor));
+    }, [camera]);
+
+    useAction('view.zoomIn', () => zoomByFactor(1 / 1.2));
+    useAction('view.zoomOut', () => zoomByFactor(1.2));
 
     const activeMeshesRef = useRef<Mesh[]>([]);
     const skeletonRef = useRef<Skeleton | null>(null);
@@ -813,40 +845,10 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             );
         });
 
-        let [[minX, minY, minZ], [maxX, maxY, maxZ]] = meshData.bounding_box;
-        const boxValid =
-            [minX, minY, minZ, maxX, maxY, maxZ].every(Number.isFinite) &&
-            maxX >= minX && maxY >= minY && maxZ >= minZ;
-        if (!boxValid) {
-            minX = minY = minZ = -1;
-            maxX = maxY = maxZ = 1;
-        }
-        const center = new Vector3(
-            (minX + maxX) / 2,
-            (minY + maxY) / 2,
-            (minZ + maxZ) / 2
-        );
-        const sizeX = maxX - minX;
-        const sizeY = maxY - minY;
-        const sizeZ = maxZ - minZ;
-        const size = Math.max(sizeX, sizeY, sizeZ, 0.01) || 5;
-        /* Y-weighted framing so tall/winged silhouettes (Aatrox, etc.) get the
-           extra vertical room they need instead of being clipped. */
-        const radius = Math.max(sizeY * 1.4, sizeX, sizeZ, 0.01) || 5;
-
-        camera.target = center;
-        camera.radius = radius;
-        /* Scale-aware limits + control speeds keyed off the framed radius so you
-           can always zoom/pan/orbit a model of any size. Generous upper limit so
-           a bad/tiny bbox never traps the camera. */
-        camera.lowerRadiusLimit = radius * 0.02;
-        camera.upperRadiusLimit = radius * 50.0;
-        camera.wheelPrecision = 80 / radius;
-        camera.pinchPrecision = 160 / radius;
-        camera.panningSensibility = 8000 / Math.max(radius, 0.001);
-        camera.speed = radius * 0.02;
-        camera.alpha = Math.PI / 2 + Math.PI / 8;
-        camera.beta = Math.PI / 3;
+        // Framing math lives in cameraFraming.ts so it can also be re-run on demand
+        // by the 'F' shortcut, and unit-tested without Babylon.
+        const framing = computeFraming(meshData.bounding_box as BoundingBox);
+        applyFraming(camera, framing, makeVector3);
 
         const camRestore = restoreRef.current?.camera;
         if (camRestore) {
@@ -856,8 +858,8 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             camera.target = new Vector3(camRestore.target[0], camRestore.target[1], camRestore.target[2]);
         }
         console.debug(
-            `[MeshPreview] camera: boxValid=${boxValid} size=${size.toFixed(3)} ` +
-            `radius=${radius.toFixed(3)} target=(${center.x.toFixed(2)},${center.y.toFixed(2)},${center.z.toFixed(2)})`
+            `[MeshPreview] camera: radius=${framing.radius.toFixed(3)} ` +
+            `target=(${framing.center.map((n) => n.toFixed(2)).join(',')})`
         );
 
         if (showSkeleton && babylonSkeleton && meshes.length > 0) {
