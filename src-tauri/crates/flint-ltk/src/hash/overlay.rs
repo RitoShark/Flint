@@ -107,6 +107,24 @@ pub fn collect_disk_paths(project_path: &Path, overlay: &mut ProjectHashOverlay)
     }
 }
 
+/// Scan the project's BINs for referenced asset paths, catching files a BIN
+/// points at that have not been extracted to disk yet.
+///
+/// Only references that carry a recoverable path string are inserted. A bare
+/// hash with no string behind it adds nothing an overlay could display.
+pub fn collect_bin_asset_refs(project_path: &Path, overlay: &mut ProjectHashOverlay) {
+    let content = project_path.join("content");
+    if !content.is_dir() {
+        return;
+    }
+
+    for asset in crate::repath::unhash::collect_referenced_assets(&content) {
+        if let Some(path) = asset.path {
+            overlay.insert_wad(asset.hash, &path);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,6 +169,43 @@ mod tests {
         let mut o = ProjectHashOverlay::new();
         collect_disk_paths(dir.path(), &mut o);
 
+        assert_eq!(o.wad_len(), 0);
+    }
+
+    #[test]
+    fn bin_asset_refs_are_collected_with_their_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let wad = dir.path().join("content/base/Aatrox.wad.client/data");
+        std::fs::create_dir_all(&wad).unwrap();
+        std::fs::write(
+            wad.join("skin99.bin"),
+            b"\x00ASSETS/Perso/MyMod/particles/glow.dds\x00",
+        )
+        .unwrap();
+
+        let mut o = ProjectHashOverlay::new();
+        collect_bin_asset_refs(dir.path(), &mut o);
+
+        let expected =
+            xxhash_rust::xxh64::xxh64(b"assets/perso/mymod/particles/glow.dds", 0);
+        assert_eq!(
+            o.wad_get(expected),
+            Some("assets/perso/mymod/particles/glow.dds")
+        );
+    }
+
+    #[test]
+    fn bin_asset_refs_skip_hashes_with_no_recoverable_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let wad = dir.path().join("content/base/Aatrox.wad.client/data");
+        std::fs::create_dir_all(&wad).unwrap();
+        // A bare 16-hex token: a referenced hash with no path string behind it.
+        std::fs::write(wad.join("skin99.bin"), b"\x00deadbeefcafe0001\x00").unwrap();
+
+        let mut o = ProjectHashOverlay::new();
+        collect_bin_asset_refs(dir.path(), &mut o);
+
+        // Nothing to name it with, so it must not enter the overlay.
         assert_eq!(o.wad_len(), 0);
     }
 }
