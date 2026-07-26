@@ -28,6 +28,7 @@
  *   - checkpoint     — project history
  *   - export         — fantome / modpkg export
  *   - import         — fantome / modpkg import
+ *   - hashOverlay    — project-local hash overlay build/clear
  *   - hud            — HUD editor
  *   - externalApps   — Jade/Quartz launch + Windows file associations
  *   - dev            — schema aggregation (dev-only)
@@ -60,6 +61,7 @@ export * from './audio';
 export * from './checkpoint';
 export * from './export';
 export * from './import';
+export * from './hashOverlay';
 export * from './hud';
 export * from './externalApps';
 export * from './dev';
