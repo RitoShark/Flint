@@ -3,7 +3,9 @@
 
 use crate::hash::lmdb_cache::ResolvedHashes;
 use rustc_hash::FxHashMap;
-use std::path::Path;
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 use walkdir::WalkDir;
 
 /// A project's own hashes, in both keyspaces Flint resolves.
@@ -193,6 +195,87 @@ pub fn collect_ritobin_identifiers(project_path: &Path, overlay: &mut ProjectHas
     }
 }
 
+/// Cheap staleness check for the on-disk overlay cache: how many files the
+/// project's `content/` tree holds and the newest mtime among them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OverlayFingerprint {
+    pub file_count: u64,
+    pub max_mtime_secs: u64,
+}
+
+impl OverlayFingerprint {
+    pub fn compute(project_path: &Path) -> Self {
+        let content = project_path.join("content");
+        let mut file_count = 0u64;
+        let mut max_mtime_secs = 0u64;
+
+        for entry in WalkDir::new(&content).into_iter().filter_map(|e| e.ok()) {
+            if !entry.path().is_file() {
+                continue;
+            }
+            file_count += 1;
+            if let Ok(meta) = entry.metadata() {
+                if let Ok(modified) = meta.modified() {
+                    if let Ok(dur) = modified.duration_since(UNIX_EPOCH) {
+                        max_mtime_secs = max_mtime_secs.max(dur.as_secs());
+                    }
+                }
+            }
+        }
+
+        Self { file_count, max_mtime_secs }
+    }
+}
+
+/// Serialized form of the cache. Kept flat so the file stays readable.
+#[derive(Serialize, Deserialize)]
+struct CacheFile {
+    fingerprint: OverlayFingerprint,
+    wad: Vec<(u64, String)>,
+    bin: Vec<(u32, String)>,
+}
+
+/// `<project>/.flint/hashes.json`. The `.flint` directory is already excluded
+/// from checkpoints, so this derived cache never enters a snapshot.
+pub fn cache_path(project_path: &Path) -> PathBuf {
+    project_path.join(".flint").join("hashes.json")
+}
+
+pub fn load_cache(project_path: &Path) -> Option<(OverlayFingerprint, ProjectHashOverlay)> {
+    let text = std::fs::read_to_string(cache_path(project_path)).ok()?;
+    let parsed: CacheFile = serde_json::from_str(&text).ok()?;
+
+    let mut overlay = ProjectHashOverlay::new();
+    for (hash, path) in &parsed.wad {
+        overlay.insert_wad(*hash, path);
+    }
+    for (hash, name) in &parsed.bin {
+        overlay.insert_bin(*hash, name);
+    }
+    Some((parsed.fingerprint, overlay))
+}
+
+pub fn save_cache(
+    project_path: &Path,
+    fingerprint: &OverlayFingerprint,
+    overlay: &ProjectHashOverlay,
+) -> std::io::Result<()> {
+    let path = cache_path(project_path);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let payload = CacheFile {
+        fingerprint: *fingerprint,
+        wad: overlay.wad_iter().map(|(h, s)| (h, s.to_string())).collect(),
+        bin: overlay.bin_iter().map(|(h, s)| (h, s.to_string())).collect(),
+    };
+
+    let text = serde_json::to_string(&payload)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(path, text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -322,5 +405,44 @@ mod tests {
 
         // "x" is below the minimum length; "1.0" is not an identifier.
         assert_eq!(o.bin_get(bin_identifier_hash("x")), None);
+    }
+
+    #[test]
+    fn cache_round_trips_both_keyspaces() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".flint")).unwrap();
+
+        let mut o = ProjectHashOverlay::new();
+        o.insert_wad(42, "assets/characters/test/x.dds");
+        o.insert_bin(7, "MyCustomVfxDefinition");
+        let fp = OverlayFingerprint { file_count: 3, max_mtime_secs: 99 };
+
+        save_cache(dir.path(), &fp, &o).unwrap();
+        let (loaded_fp, loaded) = load_cache(dir.path()).expect("cache did not load");
+
+        assert_eq!(loaded_fp, fp);
+        assert_eq!(loaded.wad_get(42), Some("assets/characters/test/x.dds"));
+        assert_eq!(loaded.bin_get(7), Some("MyCustomVfxDefinition"));
+    }
+
+    #[test]
+    fn missing_cache_loads_as_none() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(load_cache(dir.path()).is_none());
+    }
+
+    #[test]
+    fn fingerprint_changes_when_a_file_is_added() {
+        let dir = tempfile::tempdir().unwrap();
+        let wad = dir.path().join("content/base/Aatrox.wad.client");
+        std::fs::create_dir_all(&wad).unwrap();
+        std::fs::write(wad.join("a.dds"), b"a").unwrap();
+
+        let before = OverlayFingerprint::compute(dir.path());
+        std::fs::write(wad.join("b.dds"), b"b").unwrap();
+        let after = OverlayFingerprint::compute(dir.path());
+
+        assert_ne!(before, after);
+        assert_eq!(after.file_count, before.file_count + 1);
     }
 }
