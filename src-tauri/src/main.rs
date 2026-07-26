@@ -10,7 +10,7 @@ use commands::project_watcher::WatcherState;
 use commands::settings::{initialize_app_home, get_flint_home};
 use flint_ltk::hash::get_hash_dir;
 use core::frontend_log::{FrontendLogLayer, set_app_handle};
-use state::{CdnSessionState, LmdbCacheState, PendingFileOpenState, WadCacheState, WadEditState};
+use state::{CdnSessionState, HashOverlayState, LmdbCacheState, PendingFileOpenState, WadCacheState, WadEditState};
 use tauri::{Emitter, Manager};
 use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter};
 
@@ -115,6 +115,7 @@ fn main() {
         .manage(WadEditState::new())
         .manage(CdnSessionState::new())
         .manage(PendingFileOpenState::new())
+        .manage(HashOverlayState::new())
         .on_page_load(move |_webview, payload| {
             tracing::info!(
                 "[startup] webview page_load (event={:?}, url={}) +{}ms",
@@ -268,6 +269,8 @@ fn main() {
             commands::project::preconvert_project_bins,
             commands::project::create_project_layer,
             commands::project::list_project_layers,
+            commands::project::hash_overlay::build_project_hash_overlay,
+            commands::project::hash_overlay::clear_project_hash_overlay,
             // Map project commands
             commands::map_project::list_available_maps,
             commands::map_project::list_map_variants,

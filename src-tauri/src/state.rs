@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use flint_ltk::heed;
 use flint_ltk::hash::{drop_lmdb_cache, get_or_open_env, get_wad_env, hashes_present};
+use flint_ltk::hash::ProjectHashOverlay;
 use flint_ltk::wad::cache::WadCache;
 use flint_ltk::wad_jade::format::WadChunk;
 use parking_lot::RwLock;
@@ -192,5 +193,84 @@ impl CdnSessionState {
 
     pub fn remove(&self, session_id: &str) -> bool {
         self.0.write().remove(session_id).is_some()
+    }
+}
+
+// =============================================================================
+// Project-local hash overlay
+// =============================================================================
+
+/// The active project's hash overlay, if one has been built.
+///
+/// Only one project is active at a time, so a single slot is enough. Switching
+/// projects replaces it wholesale.
+#[derive(Clone, Default)]
+pub struct HashOverlayState(Arc<RwLock<Option<(String, Arc<ProjectHashOverlay>)>>>);
+
+impl HashOverlayState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn set(&self, project_path: String, overlay: Arc<ProjectHashOverlay>) {
+        *self.0.write() = Some((project_path, overlay));
+    }
+
+    pub fn clear(&self) {
+        *self.0.write() = None;
+    }
+
+    pub fn get(&self) -> Option<Arc<ProjectHashOverlay>> {
+        self.0.read().as_ref().map(|(_, o)| Arc::clone(o))
+    }
+
+    pub fn active_project(&self) -> Option<String> {
+        self.0.read().as_ref().map(|(p, _)| p.clone())
+    }
+}
+
+#[cfg(test)]
+mod hash_overlay_state_tests {
+    use super::*;
+    use flint_ltk::hash::ProjectHashOverlay;
+
+    #[test]
+    fn set_then_get_returns_the_overlay() {
+        let state = HashOverlayState::new();
+        assert!(state.get().is_none());
+
+        let mut o = ProjectHashOverlay::new();
+        o.insert_wad(42, "assets/x.dds");
+        state.set("C:\\p".to_string(), std::sync::Arc::new(o));
+
+        assert_eq!(state.active_project().as_deref(), Some("C:\\p"));
+        assert_eq!(state.get().unwrap().wad_get(42), Some("assets/x.dds"));
+    }
+
+    #[test]
+    fn clear_drops_the_overlay_and_the_project() {
+        let state = HashOverlayState::new();
+        state.set("C:\\p".to_string(), std::sync::Arc::new(ProjectHashOverlay::new()));
+
+        state.clear();
+
+        assert!(state.get().is_none());
+        assert!(state.active_project().is_none());
+    }
+
+    #[test]
+    fn setting_a_new_project_replaces_the_previous_overlay() {
+        let state = HashOverlayState::new();
+        let mut first = ProjectHashOverlay::new();
+        first.insert_wad(1, "assets/a.dds");
+        state.set("C:\\a".to_string(), std::sync::Arc::new(first));
+
+        let mut second = ProjectHashOverlay::new();
+        second.insert_wad(2, "assets/b.dds");
+        state.set("C:\\b".to_string(), std::sync::Arc::new(second));
+
+        assert_eq!(state.active_project().as_deref(), Some("C:\\b"));
+        assert!(state.get().unwrap().wad_get(1).is_none());
+        assert_eq!(state.get().unwrap().wad_get(2), Some("assets/b.dds"));
     }
 }
