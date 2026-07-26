@@ -292,6 +292,44 @@ pub fn save_cache(
     std::fs::write(path, text)
 }
 
+/// Build the project's overlay, reusing the on-disk cache when the project has
+/// not changed since it was written.
+///
+/// All three collectors are cheap, so a fingerprint mismatch triggers a full
+/// rebuild rather than an incremental update — there is no partial-invalidation
+/// path to get wrong.
+pub fn build_overlay(project_path: &Path) -> ProjectHashOverlay {
+    let fingerprint = OverlayFingerprint::compute(project_path);
+
+    if let Some((cached_fp, cached)) = load_cache(project_path) {
+        if cached_fp == fingerprint {
+            tracing::debug!(
+                "Hash overlay: cache hit ({} wad, {} bin)",
+                cached.wad_len(),
+                cached.bin_len()
+            );
+            return cached;
+        }
+    }
+
+    let mut overlay = ProjectHashOverlay::new();
+    collect_disk_paths(project_path, &mut overlay);
+    collect_bin_asset_refs(project_path, &mut overlay);
+    collect_ritobin_identifiers(project_path, &mut overlay);
+
+    tracing::info!(
+        "Hash overlay: rebuilt ({} wad, {} bin)",
+        overlay.wad_len(),
+        overlay.bin_len()
+    );
+
+    if let Err(e) = save_cache(project_path, &fingerprint, &overlay) {
+        tracing::warn!("Hash overlay: failed to write cache: {}", e);
+    }
+
+    overlay
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -509,5 +547,74 @@ mod tests {
         assert_eq!(fp.file_count, 0);
         assert_eq!(fp.max_mtime_secs, 0);
         assert_eq!(fp.path_set_hash, 0);
+    }
+
+    #[test]
+    fn build_overlay_merges_all_three_collectors() {
+        let dir = tempfile::tempdir().unwrap();
+        let wad = dir.path().join("content/base/Aatrox.wad.client/assets/x");
+        std::fs::create_dir_all(&wad).unwrap();
+        // Source 1: a real file on disk.
+        std::fs::write(wad.join("Real.dds"), b"x").unwrap();
+        // Source 2: a BIN referencing a path that is NOT on disk.
+        std::fs::write(
+            wad.join("s.bin"),
+            b"\x00assets/perso/mymod/ghost.dds\x00",
+        )
+        .unwrap();
+        // Source 3: a ritobin sidecar carrying an identifier name.
+        std::fs::write(wad.join("s.bin.ritobin"), b"MyCustomThing = X {}\n").unwrap();
+
+        let o = build_overlay(dir.path());
+
+        assert_eq!(
+            o.wad_get(xxhash_rust::xxh64::xxh64(b"assets/x/real.dds", 0)),
+            Some("assets/x/real.dds")
+        );
+        assert_eq!(
+            o.wad_get(xxhash_rust::xxh64::xxh64(b"assets/perso/mymod/ghost.dds", 0)),
+            Some("assets/perso/mymod/ghost.dds")
+        );
+        assert_eq!(
+            o.bin_get(bin_identifier_hash("MyCustomThing")),
+            Some("MyCustomThing")
+        );
+    }
+
+    #[test]
+    fn build_overlay_writes_then_reuses_the_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let wad = dir.path().join("content/base/Aatrox.wad.client/assets");
+        std::fs::create_dir_all(&wad).unwrap();
+        std::fs::write(wad.join("a.dds"), b"x").unwrap();
+
+        let first = build_overlay(dir.path());
+        assert!(cache_path(dir.path()).exists());
+
+        // Nothing changed, so the second build must load the cache and agree.
+        let second = build_overlay(dir.path());
+        assert_eq!(first.wad_len(), second.wad_len());
+        assert_eq!(
+            second.wad_get(xxhash_rust::xxh64::xxh64(b"assets/a.dds", 0)),
+            Some("assets/a.dds")
+        );
+    }
+
+    #[test]
+    fn build_overlay_rebuilds_when_the_fingerprint_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let wad = dir.path().join("content/base/Aatrox.wad.client/assets");
+        std::fs::create_dir_all(&wad).unwrap();
+        std::fs::write(wad.join("a.dds"), b"x").unwrap();
+
+        let first = build_overlay(dir.path());
+        std::fs::write(wad.join("b.dds"), b"y").unwrap();
+        let second = build_overlay(dir.path());
+
+        assert_eq!(second.wad_len(), first.wad_len() + 1);
+        assert_eq!(
+            second.wad_get(xxhash_rust::xxh64::xxh64(b"assets/b.dds", 0)),
+            Some("assets/b.dds")
+        );
     }
 }
