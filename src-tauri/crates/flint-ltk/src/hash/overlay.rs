@@ -195,12 +195,18 @@ pub fn collect_ritobin_identifiers(project_path: &Path, overlay: &mut ProjectHas
     }
 }
 
-/// Cheap staleness check for the on-disk overlay cache: how many files the
-/// project's `content/` tree holds and the newest mtime among them.
+/// Cheap staleness check for the on-disk overlay cache.
+///
+/// `path_set_hash` is what catches renames: a rename leaves `file_count`
+/// unchanged, and on NTFS and ext4 it bumps only the parent directory's mtime,
+/// not the file's — so the first two fields alone would call a renamed tree
+/// fresh and serve the old path forever. Folding every relative path in costs
+/// nothing extra, since the walk already visits each one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OverlayFingerprint {
     pub file_count: u64,
     pub max_mtime_secs: u64,
+    pub path_set_hash: u64,
 }
 
 impl OverlayFingerprint {
@@ -208,12 +214,22 @@ impl OverlayFingerprint {
         let content = project_path.join("content");
         let mut file_count = 0u64;
         let mut max_mtime_secs = 0u64;
+        let mut path_set_hash = 0u64;
 
         for entry in WalkDir::new(&content).into_iter().filter_map(|e| e.ok()) {
             if !entry.path().is_file() {
                 continue;
             }
             file_count += 1;
+
+            // `wrapping_add` so the fold is order-independent — WalkDir's
+            // traversal order must not change the fingerprint.
+            if let Ok(rel) = entry.path().strip_prefix(&content) {
+                let rel = rel.to_string_lossy().replace('\\', "/").to_lowercase();
+                path_set_hash =
+                    path_set_hash.wrapping_add(xxhash_rust::xxh64::xxh64(rel.as_bytes(), 0));
+            }
+
             if let Ok(meta) = entry.metadata() {
                 if let Ok(modified) = meta.modified() {
                     if let Ok(dur) = modified.duration_since(UNIX_EPOCH) {
@@ -223,7 +239,7 @@ impl OverlayFingerprint {
             }
         }
 
-        Self { file_count, max_mtime_secs }
+        Self { file_count, max_mtime_secs, path_set_hash }
     }
 }
 
@@ -415,7 +431,7 @@ mod tests {
         let mut o = ProjectHashOverlay::new();
         o.insert_wad(42, "assets/characters/test/x.dds");
         o.insert_bin(7, "MyCustomVfxDefinition");
-        let fp = OverlayFingerprint { file_count: 3, max_mtime_secs: 99 };
+        let fp = OverlayFingerprint { file_count: 3, max_mtime_secs: 99, path_set_hash: 7 };
 
         save_cache(dir.path(), &fp, &o).unwrap();
         let (loaded_fp, loaded) = load_cache(dir.path()).expect("cache did not load");
@@ -444,5 +460,54 @@ mod tests {
 
         assert_ne!(before, after);
         assert_eq!(after.file_count, before.file_count + 1);
+    }
+
+    #[test]
+    fn corrupt_cache_loads_as_none_rather_than_panicking() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".flint")).unwrap();
+        std::fs::write(cache_path(dir.path()), "{ not valid json").unwrap();
+
+        // A corrupt cache must degrade to a rebuild, never break project open.
+        assert!(load_cache(dir.path()).is_none());
+    }
+
+    #[test]
+    fn save_cache_creates_the_flint_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        // .flint deliberately absent — save_cache must create it.
+        let fp = OverlayFingerprint { file_count: 0, max_mtime_secs: 0, path_set_hash: 0 };
+
+        save_cache(dir.path(), &fp, &ProjectHashOverlay::new()).unwrap();
+
+        assert!(cache_path(dir.path()).exists());
+    }
+
+    #[test]
+    fn fingerprint_changes_when_a_file_is_renamed() {
+        let dir = tempfile::tempdir().unwrap();
+        let wad = dir.path().join("content/base/Aatrox.wad.client");
+        std::fs::create_dir_all(&wad).unwrap();
+        std::fs::write(wad.join("a.dds"), b"x").unwrap();
+
+        let before = OverlayFingerprint::compute(dir.path());
+        std::fs::rename(wad.join("a.dds"), wad.join("b.dds")).unwrap();
+        let after = OverlayFingerprint::compute(dir.path());
+
+        // file_count and mtime are both unchanged by a rename — only the
+        // path-set hash catches it.
+        assert_eq!(after.file_count, before.file_count);
+        assert_ne!(after.path_set_hash, before.path_set_hash);
+        assert_ne!(after, before);
+    }
+
+    #[test]
+    fn fingerprint_is_zero_when_content_is_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let fp = OverlayFingerprint::compute(dir.path());
+
+        assert_eq!(fp.file_count, 0);
+        assert_eq!(fp.max_mtime_secs, 0);
+        assert_eq!(fp.path_set_hash, 0);
     }
 }
