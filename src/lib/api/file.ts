@@ -131,7 +131,9 @@ export async function moveFile(
     sourcePath: string,
     destFolder: string,
 ): Promise<string> {
-    return invokeCommand('move_file', { projectPath, sourcePath, destFolder });
+    const result = await invokeCommand<string>('move_file', { projectPath, sourcePath, destFolder });
+    rebuildOverlayInBackground(projectPath);
+    return result;
 }
 
 export async function importExternalFiles(
