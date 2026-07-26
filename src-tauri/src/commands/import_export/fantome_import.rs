@@ -557,10 +557,7 @@ fn analyze_fantome_internal(
 
     let hashes: Vec<u64> = chunks.iter().map(|chunk| chunk.path_hash).collect();
 
-    let resolver = match &overlay {
-        Some(o) => HashResolver::with_overlay(hash_dir, Arc::clone(o)),
-        None => HashResolver::global(hash_dir),
-    };
+    let resolver = HashResolver::new(hash_dir, overlay.as_ref());
     if !resolver.has_global_wad() {
         return Err("Hash databases not found. Run hash download first.".to_string());
     }
@@ -664,10 +661,7 @@ fn import_fantome_internal(
             "message": format!("Resolving {} file paths...", hashes.len())
         }));
 
-        let resolver = match &overlay {
-            Some(o) => HashResolver::with_overlay(hash_dir, Arc::clone(o)),
-            None => HashResolver::global(hash_dir),
-        };
+        let resolver = HashResolver::new(hash_dir, overlay.as_ref());
         if !resolver.has_global_wad() {
             return Err("Hash databases not found. Run hash download first.".to_string());
         }
@@ -798,10 +792,7 @@ fn import_fantome_internal(
     // Re-resolve unresolved paths and rename files on disk
     if !unresolved_files.is_empty() {
         let hashes_to_resolve: Vec<u64> = unresolved_files.iter().map(|(h, _, _, _)| *h).collect();
-        let resolver = match &overlay {
-            Some(o) => HashResolver::with_overlay(hash_dir, Arc::clone(o)),
-            None => HashResolver::global(hash_dir),
-        };
+        let resolver = HashResolver::new(hash_dir, overlay.as_ref());
         let newly_resolved = resolver.resolve_wad(&hashes_to_resolve);
 
         let mut resolved_count = 0;

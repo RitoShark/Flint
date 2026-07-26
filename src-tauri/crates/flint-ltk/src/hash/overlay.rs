@@ -8,6 +8,13 @@ use std::time::UNIX_EPOCH;
 use walkdir::WalkDir;
 
 /// A project's own hashes, in the WAD keyspace Flint resolves.
+///
+/// Invariant: every entry satisfies `key == wad_chunk_hash(value)` — each
+/// entry stores the hash of the very string it stores. This is what makes it
+/// safe to attach this overlay to *any* WAD resolution, including a
+/// Riot-shipped game WAD: a hit can only supply a name where the global
+/// database had none, never rename a chunk wrongly. Any future collector
+/// added to this overlay must preserve it.
 #[derive(Default)]
 pub struct ProjectHashOverlay {
     /// xxh64 WAD path hash → path.
@@ -20,6 +27,12 @@ impl ProjectHashOverlay {
     }
 
     pub fn insert_wad(&mut self, hash: u64, path: &str) {
+        debug_assert_eq!(
+            hash,
+            crate::export::wad_chunk_hash(path),
+            "overlay entries must satisfy key == wad_chunk_hash(value) — this is what makes \
+             attaching an overlay to any WAD resolution safe"
+        );
         self.wad.insert(hash, path);
     }
 
@@ -39,14 +52,6 @@ impl ProjectHashOverlay {
     pub fn wad_iter(&self) -> impl Iterator<Item = (u64, &str)> + '_ {
         self.wad.iter()
     }
-}
-
-/// Canonical WAD path hash: xxh64 of the lowercased forward-slash path, seed 0.
-///
-/// Mirrors `crate::export::wad_chunk_hash`. Hashing mixed case yields a hash no
-/// tool can reverse from the lowercase string stored in a BIN.
-fn wad_path_hash(wad_relative_path: &str) -> u64 {
-    xxhash_rust::xxh64::xxh64(wad_relative_path.to_lowercase().as_bytes(), 0)
 }
 
 /// Given a path under a project, return its WAD-relative portion — everything
@@ -94,7 +99,7 @@ pub fn collect_disk_paths(project_path: &Path, overlay: &mut ProjectHashOverlay)
             continue;
         }
         let Some(rel) = wad_relative(path, project_path) else { continue };
-        overlay.insert_wad(wad_path_hash(&rel), &rel);
+        overlay.insert_wad(crate::export::wad_chunk_hash(&rel), &rel);
     }
 }
 
@@ -243,10 +248,11 @@ mod tests {
     #[test]
     fn overlay_round_trips_wad_entries() {
         let mut o = ProjectHashOverlay::new();
-        o.insert_wad(42, "assets/characters/test/x.dds");
+        let hash = crate::export::wad_chunk_hash("assets/characters/test/x.dds");
+        o.insert_wad(hash, "assets/characters/test/x.dds");
 
-        assert_eq!(o.wad_get(42), Some("assets/characters/test/x.dds"));
-        assert_eq!(o.wad_get(43), None);
+        assert_eq!(o.wad_get(hash), Some("assets/characters/test/x.dds"));
+        assert_eq!(o.wad_get(hash.wrapping_add(1)), None);
         assert_eq!(o.wad_len(), 1);
     }
 
@@ -323,14 +329,15 @@ mod tests {
         std::fs::create_dir_all(dir.path().join(".flint")).unwrap();
 
         let mut o = ProjectHashOverlay::new();
-        o.insert_wad(42, "assets/characters/test/x.dds");
+        let hash = crate::export::wad_chunk_hash("assets/characters/test/x.dds");
+        o.insert_wad(hash, "assets/characters/test/x.dds");
         let fp = OverlayFingerprint { file_count: 3, max_mtime_secs: 99, path_set_hash: 7 };
 
         save_cache(dir.path(), &fp, &o).unwrap();
         let (loaded_fp, loaded) = load_cache(dir.path()).expect("cache did not load");
 
         assert_eq!(loaded_fp, fp);
-        assert_eq!(loaded.wad_get(42), Some("assets/characters/test/x.dds"));
+        assert_eq!(loaded.wad_get(hash), Some("assets/characters/test/x.dds"));
     }
 
     #[test]
@@ -457,21 +464,25 @@ mod tests {
 
         let first = build_overlay(dir.path());
 
-        // Plant an entry no collector could ever produce, leaving the fingerprint
-        // untouched. Idempotency alone cannot distinguish "loaded the cache" from
-        // "rescanned to the same answer" — a planted sentinel can.
+        // Plant an entry no collector could ever produce (the file doesn't
+        // exist on disk and no BIN references it), leaving the fingerprint
+        // untouched. Idempotency alone cannot distinguish "loaded the cache"
+        // from "rescanned to the same answer" — a planted sentinel can. Its
+        // key must still be the real hash of its value to satisfy the
+        // overlay's invariant.
         let fingerprint = OverlayFingerprint::compute(dir.path());
+        let sentinel_hash = crate::export::wad_chunk_hash("assets/planted/sentinel.dds");
         let mut planted = ProjectHashOverlay::new();
         for (hash, path) in first.wad_iter() {
             planted.insert_wad(hash, path);
         }
-        planted.insert_wad(0xDEAD_BEEF_0000_0001, "assets/planted/sentinel.dds");
+        planted.insert_wad(sentinel_hash, "assets/planted/sentinel.dds");
         save_cache(dir.path(), &fingerprint, &planted).unwrap();
 
         let second = build_overlay(dir.path());
 
         assert_eq!(
-            second.wad_get(0xDEAD_BEEF_0000_0001),
+            second.wad_get(sentinel_hash),
             Some("assets/planted/sentinel.dds"),
             "build_overlay rescanned instead of reading the cache"
         );

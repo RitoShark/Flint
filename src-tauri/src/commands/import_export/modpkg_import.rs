@@ -197,10 +197,7 @@ fn import_modpkg_internal(
     );
 
     let paths: Vec<String> = chunk_entries.iter().map(|(_, _, p)| p.clone()).collect();
-    let resolver = match &overlay {
-        Some(o) => HashResolver::with_overlay(&hash_dir, Arc::clone(o)),
-        None => HashResolver::global(&hash_dir),
-    };
+    let resolver = HashResolver::new(&hash_dir, overlay.as_ref());
 
     let mut resolved_modpkg_paths: Vec<String> = Vec::with_capacity(paths.len());
     for (i, path) in paths.iter().enumerate() {
@@ -367,10 +364,7 @@ fn import_modpkg_internal(
     // Re-resolve unresolved paths and rename files on disk
     if !unresolved_files.is_empty() {
         let hashes_to_resolve: Vec<u64> = unresolved_files.iter().map(|(h, _, _, _)| *h).collect();
-        let resolver = match &overlay {
-            Some(o) => HashResolver::with_overlay(&hash_dir, Arc::clone(o)),
-            None => HashResolver::global(&hash_dir),
-        };
+        let resolver = HashResolver::new(&hash_dir, overlay.as_ref());
         let newly_resolved = resolver.resolve_wad(&hashes_to_resolve);
 
         let mut resolved_count = 0;

@@ -241,17 +241,26 @@ mod hash_overlay_state_tests {
     use super::*;
     use flint_ltk::hash::ProjectHashOverlay;
 
+    /// Overlay entries must satisfy `key == wad_chunk_hash(value)`; the
+    /// canonical hash function itself is crate-private to flint-ltk, so tests
+    /// outside that crate recompute the documented formula (xxh64 of the
+    /// lowercased path, seed 0) directly.
+    fn wad_hash(path: &str) -> u64 {
+        xxhash_rust::xxh64::xxh64(path.to_lowercase().as_bytes(), 0)
+    }
+
     #[test]
     fn set_then_get_returns_the_overlay() {
         let state = HashOverlayState::new();
         assert!(state.get().is_none());
 
         let mut o = ProjectHashOverlay::new();
-        o.insert_wad(42, "assets/x.dds");
+        let hash = wad_hash("assets/x.dds");
+        o.insert_wad(hash, "assets/x.dds");
         state.set("C:\\p".to_string(), std::sync::Arc::new(o));
 
         assert_eq!(state.active_project().as_deref(), Some("C:\\p"));
-        assert_eq!(state.get().unwrap().wad_get(42), Some("assets/x.dds"));
+        assert_eq!(state.get().unwrap().wad_get(hash), Some("assets/x.dds"));
     }
 
     #[test]
@@ -268,16 +277,18 @@ mod hash_overlay_state_tests {
     #[test]
     fn setting_a_new_project_replaces_the_previous_overlay() {
         let state = HashOverlayState::new();
+        let hash_a = wad_hash("assets/a.dds");
         let mut first = ProjectHashOverlay::new();
-        first.insert_wad(1, "assets/a.dds");
+        first.insert_wad(hash_a, "assets/a.dds");
         state.set("C:\\a".to_string(), std::sync::Arc::new(first));
 
+        let hash_b = wad_hash("assets/b.dds");
         let mut second = ProjectHashOverlay::new();
-        second.insert_wad(2, "assets/b.dds");
+        second.insert_wad(hash_b, "assets/b.dds");
         state.set("C:\\b".to_string(), std::sync::Arc::new(second));
 
         assert_eq!(state.active_project().as_deref(), Some("C:\\b"));
-        assert!(state.get().unwrap().wad_get(1).is_none());
-        assert_eq!(state.get().unwrap().wad_get(2), Some("assets/b.dds"));
+        assert!(state.get().unwrap().wad_get(hash_a).is_none());
+        assert_eq!(state.get().unwrap().wad_get(hash_b), Some("assets/b.dds"));
     }
 }

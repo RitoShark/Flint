@@ -14,7 +14,7 @@ fn is_unresolved_hash(path: &str) -> bool {
 /// and Quartz's `WadChunkBuilder::with_path`). Hashing a mixed-case path yields
 /// a chunk the game can't find and no tool can reverse from the (lowercase)
 /// string stored in the BIN.
-fn wad_chunk_hash(wad_path: &str) -> u64 {
+pub(crate) fn wad_chunk_hash(wad_path: &str) -> u64 {
     xxhash_rust::xxh64::xxh64(wad_path.to_lowercase().as_bytes(), 0)
 }
 

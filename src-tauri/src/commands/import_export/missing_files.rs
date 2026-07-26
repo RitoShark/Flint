@@ -197,10 +197,7 @@ pub fn recover_missing_files_from_league(
     let mut wad_reader = WadReader::open(champion_wad.to_str().unwrap())
         .map_err(|e| format!("Failed to open champion WAD: {}", e))?;
 
-    let resolver = match &overlay {
-        Some(o) => HashResolver::with_overlay(hash_dir, Arc::clone(o)),
-        None => HashResolver::global(hash_dir),
-    };
+    let resolver = HashResolver::new(hash_dir, overlay.as_ref());
     if !resolver.has_global_wad() {
         return Err("Hash databases not found. Run hash download first.".to_string());
     }

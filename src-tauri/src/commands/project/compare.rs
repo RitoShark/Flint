@@ -228,10 +228,7 @@ pub async fn find_original_file(
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
     let overlay = hash_overlay_state.get();
-    let resolver = match &overlay {
-        Some(o) => HashResolver::with_overlay(&hash_dir, Arc::clone(o)),
-        None => HashResolver::global(&hash_dir),
-    };
+    let resolver = HashResolver::new(&hash_dir, overlay.as_ref());
     let hashes: Vec<u64> = chunks.iter().map(|c| c.path_hash).collect();
     // `resolve_wad` returns a 16-hex fallback string for misses instead of
     // omitting them (unlike the old `resolve_hashes_lmdb_bulk`), so filter

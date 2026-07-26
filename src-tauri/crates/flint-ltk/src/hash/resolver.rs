@@ -6,9 +6,9 @@ use crate::hash::lmdb_cache::{get_wad_env, resolve_hashes_lmdb};
 use crate::hash::overlay::ProjectHashOverlay;
 use std::sync::Arc;
 
-/// Owns the global hash environments plus an optional project overlay.
+/// Owns the global hash environment plus an optional project overlay.
 ///
-/// The global LMDBs stay read-only; the overlay is an in-memory table built
+/// The global LMDB stays read-only; the overlay is an in-memory table built
 /// from the project itself.
 pub struct HashResolver {
     pub(crate) wad_env: Option<Arc<heed::Env>>,
@@ -16,7 +16,7 @@ pub struct HashResolver {
 }
 
 impl HashResolver {
-    /// Global databases only. Use this for game files — a project overlay must
+    /// Global database only. Use this for game files — a project overlay must
     /// never influence how a Riot-shipped WAD resolves.
     pub fn global(hash_dir: &str) -> Self {
         Self {
@@ -25,11 +25,19 @@ impl HashResolver {
         }
     }
 
-    /// Global databases with a project overlay consulted first.
+    /// Global database with a project overlay consulted first.
     pub fn with_overlay(hash_dir: &str, overlay: Arc<ProjectHashOverlay>) -> Self {
         Self {
             wad_env: get_wad_env(hash_dir),
             overlay: Some(overlay),
+        }
+    }
+
+    /// Global database, with the project overlay attached when one is active.
+    pub fn new(hash_dir: &str, overlay: Option<&Arc<ProjectHashOverlay>>) -> Self {
+        Self {
+            wad_env: get_wad_env(hash_dir),
+            overlay: overlay.cloned(),
         }
     }
 
@@ -83,12 +91,13 @@ mod tests {
     #[test]
     fn overlay_hit_wins_over_hex_fallback() {
         let mut o = ProjectHashOverlay::new();
-        o.insert_wad(0x2a, "assets/characters/test/x.dds");
+        let hash = crate::export::wad_chunk_hash("assets/characters/test/x.dds");
+        o.insert_wad(hash, "assets/characters/test/x.dds");
 
         let r = overlay_only(o);
 
         assert_eq!(
-            r.resolve_wad(&[0x2a]),
+            r.resolve_wad(&[hash]),
             vec!["assets/characters/test/x.dds".to_string()]
         );
     }
@@ -133,13 +142,14 @@ mod tests {
     #[test]
     fn with_overlay_constructor_attaches_the_overlay() {
         let mut o = ProjectHashOverlay::new();
-        o.insert_wad(0x2a, "assets/characters/test/x.dds");
+        let hash = crate::export::wad_chunk_hash("assets/characters/test/x.dds");
+        o.insert_wad(hash, "assets/characters/test/x.dds");
 
         let r = HashResolver::with_overlay(NO_HASH_DIR, Arc::new(o));
 
         assert!(r.has_overlay());
         assert_eq!(
-            r.resolve_wad(&[0x2a]),
+            r.resolve_wad(&[hash]),
             vec!["assets/characters/test/x.dds".to_string()]
         );
     }
@@ -157,7 +167,8 @@ mod tests {
     #[test]
     fn resolve_wad_preserves_order_across_mixed_hits_and_misses() {
         let mut o = ProjectHashOverlay::new();
-        o.insert_wad(2, "assets/b.dds");
+        let hit = crate::export::wad_chunk_hash("assets/b.dds");
+        o.insert_wad(hit, "assets/b.dds");
 
         let r = overlay_only(o);
 
@@ -165,7 +176,7 @@ mod tests {
         // from "there was only one index". Task 9 swaps this into call sites
         // that depend on positional correspondence.
         assert_eq!(
-            r.resolve_wad(&[1, 2, 3]),
+            r.resolve_wad(&[1, hit, 3]),
             vec![
                 "0000000000000001".to_string(),
                 "assets/b.dds".to_string(),
