@@ -8,6 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use walkdir::WalkDir;
+use rustc_hash::FxHashMap;
 
 /// Result of the unhash pass.
 #[derive(Debug, Default, Clone)]
@@ -58,12 +59,28 @@ fn collect_file_hashes_from_value(value: &crate::bin::BinValue, set: &mut HashSe
     }
 }
 
-/// Scan all `.bin` files under `wad_root` and return the set of u64 hashes that
-/// are referenced — either as bare 16-hex tokens or via `xxh64(lowercased path
-/// string)` for any asset-path-looking ASCII substring, OR as structured
-/// `BinValue::File(u64)` values parsed from the binary BIN format.
-fn collect_referenced_hashes(wad_root: &Path) -> HashSet<u64> {
-    let mut referenced: HashSet<u64> = HashSet::new();
+/// One referenced asset found while scanning a project's BINs.
+///
+/// `path` is `Some` when the reference came from a path string (so the name is
+/// recoverable) and `None` for structured `BinValue::File(u64)` references,
+/// which store only the hash.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReferencedAsset {
+    pub hash: u64,
+    pub path: Option<String>,
+}
+
+/// Scan all `.bin` files under `wad_root` for referenced assets — structured
+/// `BinValue::File(u64)` values, bare 16-hex tokens, and `xxh64(lowercased
+/// path)` for any asset-path-looking ASCII substring.
+pub fn collect_referenced_assets(wad_root: &Path) -> Vec<ReferencedAsset> {
+    // hash → best-known path. `None` means "referenced, but no string behind it
+    // yet"; a later hit carrying a path upgrades the entry in place.
+    //
+    // Keyed rather than a Vec because duplicate hashes are the common case —
+    // the same asset path recurs across many BINs and repeatedly within each —
+    // so the upgrade lookup must be O(1), not a rescan.
+    let mut found: FxHashMap<u64, Option<String>> = FxHashMap::default();
 
     for entry in WalkDir::new(wad_root).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
@@ -75,22 +92,23 @@ fn collect_referenced_hashes(wad_root: &Path) -> HashSet<u64> {
         }
         let Ok(bytes) = std::fs::read(path) else { continue };
 
-        // --- Structured pass: parse the binary BIN and extract File(u64) values. ---
+        // --- Structured pass: parse the binary BIN and extract File(u64). ---
         // Ignore parse errors; the byte-scan below acts as a fallback.
         if let Ok(bin) = crate::bin::read_bin(&bytes) {
+            let mut hashes: HashSet<u64> = HashSet::new();
             for entry in &bin.entries {
                 for value in entry.fields.values() {
-                    collect_file_hashes_from_value(value, &mut referenced);
+                    collect_file_hashes_from_value(value, &mut hashes);
                 }
+            }
+            for h in hashes {
+                found.entry(h).or_insert(None);
             }
         }
 
         // --- Byte-scan pass: walk bytes collecting printable ASCII runs. ---
-        // This catches bare 16-hex tokens and path strings even in files that
-        // fail the structured parse.
         let mut i = 0usize;
         while i < bytes.len() {
-            // Collect an ASCII run.
             let start = i;
             while i < bytes.len() && bytes[i].is_ascii_graphic() {
                 i += 1;
@@ -105,20 +123,20 @@ fn collect_referenced_hashes(wad_root: &Path) -> HashSet<u64> {
                 continue;
             };
 
-            // Check if this run looks like a 16-hex hash stem (bare token).
             if run_len == 16 && s.chars().all(|c| c.is_ascii_hexdigit()) {
                 if let Ok(h) = u64::from_str_radix(s, 16) {
-                    referenced.insert(h);
+                    found.entry(h).or_insert(None);
                 }
             }
 
-            // Check if this run looks like an asset path (contains '/' and ends
-            // with a known extension), then hash it.
             if s.contains('/') {
                 let lower = s.to_lowercase();
                 if ASSET_EXTS.iter().any(|ext| lower.ends_with(&format!(".{}", ext))) {
                     let h = xxhash_rust::xxh64::xxh64(lower.as_bytes(), 0);
-                    referenced.insert(h);
+                    let slot = found.entry(h).or_insert(None);
+                    if slot.is_none() {
+                        *slot = Some(lower);
+                    }
                 }
             }
 
@@ -126,7 +144,18 @@ fn collect_referenced_hashes(wad_root: &Path) -> HashSet<u64> {
         }
     }
 
-    referenced
+    found
+        .into_iter()
+        .map(|(hash, path)| ReferencedAsset { hash, path })
+        .collect()
+}
+
+/// Set of u64 hashes referenced by BINs under `wad_root`.
+fn collect_referenced_hashes(wad_root: &Path) -> HashSet<u64> {
+    collect_referenced_assets(wad_root)
+        .into_iter()
+        .map(|r| r.hash)
+        .collect()
 }
 
 /// Rename every `<16hex>.ext` file under `wad_root` to the path `resolve`
@@ -377,5 +406,43 @@ mod tests {
             "file referenced by BinValue::File must not be deleted"
         );
         assert!(root.join(&name).exists(), "asset protected by binary File ref must survive");
+    }
+
+    #[test]
+    fn collect_referenced_assets_returns_path_with_its_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        // Not a valid BIN — the structured parse fails and the byte-scan
+        // fallback is what must produce the hit.
+        std::fs::write(
+            dir.path().join("a.bin"),
+            b"\x00\x00assets/characters/test/x.dds\x00",
+        )
+        .unwrap();
+
+        let found = collect_referenced_assets(dir.path());
+
+        let expected_hash =
+            xxhash_rust::xxh64::xxh64(b"assets/characters/test/x.dds", 0);
+        let hit = found
+            .iter()
+            .find(|r| r.hash == expected_hash)
+            .expect("path hash not collected");
+        assert_eq!(hit.path.as_deref(), Some("assets/characters/test/x.dds"));
+    }
+
+    #[test]
+    fn collect_referenced_hashes_still_returns_bare_hashes() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("a.bin"),
+            b"\x00\x00assets/characters/test/x.dds\x00",
+        )
+        .unwrap();
+
+        let hashes = collect_referenced_hashes(dir.path());
+
+        let expected_hash =
+            xxhash_rust::xxh64::xxh64(b"assets/characters/test/x.dds", 0);
+        assert!(hashes.contains(&expected_hash));
     }
 }
