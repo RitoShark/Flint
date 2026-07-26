@@ -173,6 +173,16 @@ mod tests {
     }
 
     #[test]
+    fn a_global_resolver_ignores_project_paths_entirely() {
+        // A game-file resolver must not resolve a project's invented path even
+        // when an overlay exists elsewhere in the process.
+        let r = HashResolver { wad_env: None, bin_env: None, overlay: None };
+        let invented = xxhash_rust::xxh64::xxh64(b"assets/perso/mymod/ghost.dds", 0);
+
+        assert_eq!(r.resolve_wad(&[invented]), vec![format!("{:016x}", invented)]);
+    }
+
+    #[test]
     fn resolve_wad_preserves_order_across_mixed_hits_and_misses() {
         let mut o = ProjectHashOverlay::new();
         o.insert_wad(2, "assets/b.dds");
