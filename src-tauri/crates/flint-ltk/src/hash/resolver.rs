@@ -145,4 +145,50 @@ mod tests {
         let r = HashResolver { wad_env: None, bin_env: None, overlay: None };
         assert!(!r.has_overlay());
     }
+
+    /// A hash dir that does not exist yields no envs, which is fine — these two
+    /// assert on the overlay field, and they must go through the real
+    /// constructors. Setting `overlay: None` via a struct literal proves only
+    /// that `has_overlay` reads the field, not that `global()` sets it.
+    const NO_HASH_DIR: &str = "Z:/nonexistent-hash-dir";
+
+    #[test]
+    fn global_constructor_never_attaches_an_overlay() {
+        let r = HashResolver::global(NO_HASH_DIR);
+        assert!(!r.has_overlay());
+    }
+
+    #[test]
+    fn with_overlay_constructor_attaches_the_overlay() {
+        let mut o = ProjectHashOverlay::new();
+        o.insert_wad(0x2a, "assets/characters/test/x.dds");
+
+        let r = HashResolver::with_overlay(NO_HASH_DIR, Arc::new(o));
+
+        assert!(r.has_overlay());
+        assert_eq!(
+            r.resolve_wad(&[0x2a]),
+            vec!["assets/characters/test/x.dds".to_string()]
+        );
+    }
+
+    #[test]
+    fn resolve_wad_preserves_order_across_mixed_hits_and_misses() {
+        let mut o = ProjectHashOverlay::new();
+        o.insert_wad(2, "assets/b.dds");
+
+        let r = overlay_only(o);
+
+        // Single-element inputs cannot distinguish "index i maps to input i"
+        // from "there was only one index". Task 9 swaps this into call sites
+        // that depend on positional correspondence.
+        assert_eq!(
+            r.resolve_wad(&[1, 2, 3]),
+            vec![
+                "0000000000000001".to_string(),
+                "assets/b.dds".to_string(),
+                "0000000000000003".to_string(),
+            ]
+        );
+    }
 }
