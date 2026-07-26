@@ -582,7 +582,7 @@ mod tests {
     }
 
     #[test]
-    fn build_overlay_writes_then_reuses_the_cache() {
+    fn build_overlay_writes_the_cache_and_is_idempotent() {
         let dir = tempfile::tempdir().unwrap();
         let wad = dir.path().join("content/base/Aatrox.wad.client/assets");
         std::fs::create_dir_all(&wad).unwrap();
@@ -597,6 +597,35 @@ mod tests {
         assert_eq!(
             second.wad_get(xxhash_rust::xxh64::xxh64(b"assets/a.dds", 0)),
             Some("assets/a.dds")
+        );
+    }
+
+    #[test]
+    fn build_overlay_reads_from_the_cache_rather_than_rescanning() {
+        let dir = tempfile::tempdir().unwrap();
+        let wad = dir.path().join("content/base/Aatrox.wad.client/assets");
+        std::fs::create_dir_all(&wad).unwrap();
+        std::fs::write(wad.join("a.dds"), b"x").unwrap();
+
+        let first = build_overlay(dir.path());
+
+        // Plant an entry no collector could ever produce, leaving the fingerprint
+        // untouched. Idempotency alone cannot distinguish "loaded the cache" from
+        // "rescanned to the same answer" — a planted sentinel can.
+        let fingerprint = OverlayFingerprint::compute(dir.path());
+        let mut planted = ProjectHashOverlay::new();
+        for (hash, path) in first.wad_iter() {
+            planted.insert_wad(hash, path);
+        }
+        planted.insert_wad(0xDEAD_BEEF_0000_0001, "assets/planted/sentinel.dds");
+        save_cache(dir.path(), &fingerprint, &planted).unwrap();
+
+        let second = build_overlay(dir.path());
+
+        assert_eq!(
+            second.wad_get(0xDEAD_BEEF_0000_0001),
+            Some("assets/planted/sentinel.dds"),
+            "build_overlay rescanned instead of reading the cache"
         );
     }
 
