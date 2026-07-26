@@ -169,9 +169,10 @@ pub(crate) fn extract_linked_bin_paths(bin_data: &[u8]) -> Vec<String> {
 /// the mod's own files), and `event_name` is the importer's progress channel
 /// (`fantome-import-progress` / `modpkg-import-progress`). `overlay` is the
 /// active project's hash overlay (if any), threaded in from `HashOverlayState`
-/// by the calling command — this resolves the League WAD itself, which never
-/// needs the overlay in practice, but is threaded through for consistency with
-/// the other project-aware resolution sites.
+/// by the calling command. This resolves the League WAD itself, so an overlay
+/// entry that names a chunk the global database missed still lands in
+/// `path_to_hash` below — letting recovery pull a file it otherwise could not
+/// have matched.
 #[allow(clippy::too_many_arguments)]
 pub fn recover_missing_files_from_league(
     app: &AppHandle,
@@ -200,6 +201,9 @@ pub fn recover_missing_files_from_league(
         Some(o) => HashResolver::with_overlay(hash_dir, Arc::clone(o)),
         None => HashResolver::global(hash_dir),
     };
+    if !resolver.has_global_wad() {
+        return Err("Hash databases not found. Run hash download first.".to_string());
+    }
 
     // Resolve every WAD chunk hash → path once so we can look paths up cheaply.
     let all_wad_hashes: Vec<u64> = wad_reader.chunks().iter().map(|c| c.path_hash).collect();

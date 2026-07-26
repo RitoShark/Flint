@@ -227,6 +227,10 @@ impl HashOverlayState {
         self.0.read().as_ref().map(|(_, o)| Arc::clone(o))
     }
 
+    // Test-only for now: exercised by three tests below. Kept as a plausible
+    // consumer for a future guard against a project switch racing an
+    // in-flight overlay build.
+    #[allow(dead_code)]
     pub fn active_project(&self) -> Option<String> {
         self.0.read().as_ref().map(|(p, _)| p.clone())
     }

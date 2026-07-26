@@ -237,12 +237,14 @@ pub async fn find_original_file(
     // omitting them (unlike the old `resolve_hashes_lmdb_bulk`), so filter
     // those back out by comparing against the fallback for THAT hash — not
     // just "looks like hex" — so a legitimately-resolved path that happens to
-    // consist only of hex characters is never mistaken for a miss.
+    // consist only of hex characters is never mistaken for a miss. Length is
+    // checked first so the `format!` allocation is skipped for essentially
+    // every real (non-16-char) path — this runs per chunk, per compare click.
     let resolved: ResolvedHashes = resolver
         .resolve_wad(&hashes)
         .into_iter()
         .zip(hashes.iter())
-        .filter(|(path, hash)| *path != format!("{:016x}", hash))
+        .filter(|(path, hash)| !(path.len() == 16 && *path == format!("{:016x}", hash)))
         .map(|(path, hash)| (*hash, path))
         .collect();
 

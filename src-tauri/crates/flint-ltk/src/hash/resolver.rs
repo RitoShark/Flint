@@ -43,6 +43,15 @@ impl HashResolver {
         self.overlay.is_some()
     }
 
+    /// Whether the global WAD hash database is available.
+    ///
+    /// `resolve_wad` degrades to hex when it is not, which is indistinguishable
+    /// from "every hash missed" — callers that must not proceed on an unusable
+    /// database check this first.
+    pub fn has_global_wad(&self) -> bool {
+        self.wad_env.is_some()
+    }
+
     /// Resolve WAD path hashes: overlay → global LMDB → 16-hex fallback.
     pub fn resolve_wad(&self, hashes: &[u64]) -> Vec<String> {
         // Resolve through LMDB once, then let overlay hits override. This keeps
@@ -144,6 +153,18 @@ mod tests {
     fn a_resolver_without_an_overlay_reports_so() {
         let r = HashResolver { wad_env: None, bin_env: None, overlay: None };
         assert!(!r.has_overlay());
+    }
+
+    #[test]
+    fn a_resolver_with_no_wad_env_reports_no_global_wad() {
+        let r = HashResolver { wad_env: None, bin_env: None, overlay: None };
+        assert!(!r.has_global_wad());
+    }
+
+    #[test]
+    fn global_constructor_over_a_nonexistent_dir_reports_no_global_wad() {
+        let r = HashResolver::global(NO_HASH_DIR);
+        assert!(!r.has_global_wad());
     }
 
     /// A hash dir that does not exist yields no envs, which is fine — these two

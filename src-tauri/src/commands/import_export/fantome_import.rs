@@ -561,6 +561,9 @@ fn analyze_fantome_internal(
         Some(o) => HashResolver::with_overlay(hash_dir, Arc::clone(o)),
         None => HashResolver::global(hash_dir),
     };
+    if !resolver.has_global_wad() {
+        return Err("Hash databases not found. Run hash download first.".to_string());
+    }
 
     let resolved_paths = resolver.resolve_wad(&hashes);
 
@@ -665,6 +668,9 @@ fn import_fantome_internal(
             Some(o) => HashResolver::with_overlay(hash_dir, Arc::clone(o)),
             None => HashResolver::global(hash_dir),
         };
+        if !resolver.has_global_wad() {
+            return Err("Hash databases not found. Run hash download first.".to_string());
+        }
 
         let resolved_paths = resolver.resolve_wad(&hashes);
 
