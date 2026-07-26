@@ -13,11 +13,12 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter};
 use walkdir::WalkDir;
 
-use flint_ltk::hash::lmdb_cache::{get_or_open_env, resolve_hashes_lmdb};
+use flint_ltk::hash::{HashResolver, ProjectHashOverlay};
 use flint_ltk::wad_jade::adapter::{find_champion_wad, WadHandle as WadReader};
 
 /// Summary of what recovery pulled in, surfaced to the importer for logging.
@@ -166,13 +167,19 @@ pub(crate) fn extract_linked_bin_paths(bin_data: &[u8]) -> Vec<String> {
 /// `output_path` is the extracted `<champion>.wad.client` folder, `existing_hashes`
 /// is the set of WAD path-hashes the mod already provided (so we never overwrite
 /// the mod's own files), and `event_name` is the importer's progress channel
-/// (`fantome-import-progress` / `modpkg-import-progress`).
+/// (`fantome-import-progress` / `modpkg-import-progress`). `overlay` is the
+/// active project's hash overlay (if any), threaded in from `HashOverlayState`
+/// by the calling command — this resolves the League WAD itself, which never
+/// needs the overlay in practice, but is threaded through for consistency with
+/// the other project-aware resolution sites.
+#[allow(clippy::too_many_arguments)]
 pub fn recover_missing_files_from_league(
     app: &AppHandle,
     event_name: &str,
     output_path: &Path,
     league_path: &str,
     hash_dir: &str,
+    overlay: Option<Arc<ProjectHashOverlay>>,
     champion: &str,
     existing_hashes: &HashSet<u64>,
 ) -> Result<RecoveryReport, String> {
@@ -189,11 +196,14 @@ pub fn recover_missing_files_from_league(
     let mut wad_reader = WadReader::open(champion_wad.to_str().unwrap())
         .map_err(|e| format!("Failed to open champion WAD: {}", e))?;
 
-    let env = get_or_open_env(hash_dir).ok_or("Failed to open LMDB environment")?;
+    let resolver = match &overlay {
+        Some(o) => HashResolver::with_overlay(hash_dir, Arc::clone(o)),
+        None => HashResolver::global(hash_dir),
+    };
 
     // Resolve every WAD chunk hash → path once so we can look paths up cheaply.
     let all_wad_hashes: Vec<u64> = wad_reader.chunks().iter().map(|c| c.path_hash).collect();
-    let all_wad_paths = resolve_hashes_lmdb(&all_wad_hashes, &env);
+    let all_wad_paths = resolver.resolve_wad(&all_wad_hashes);
     let mut path_to_hash: HashMap<String, u64> = HashMap::new();
     for (hash, path) in all_wad_hashes.iter().zip(all_wad_paths.iter()) {
         path_to_hash.insert(path.to_lowercase(), *hash);
