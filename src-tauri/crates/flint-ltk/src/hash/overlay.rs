@@ -1,20 +1,17 @@
-//! Project-local hash overlay: resolves a modder's own asset paths and BIN
-//! identifiers, which appear in no global hash database.
+//! Project-local hash overlay: resolves a modder's own asset paths, which
+//! appear in no global hash database.
 
 use crate::hash::lmdb_cache::ResolvedHashes;
-use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 use walkdir::WalkDir;
 
-/// A project's own hashes, in both keyspaces Flint resolves.
+/// A project's own hashes, in the WAD keyspace Flint resolves.
 #[derive(Default)]
 pub struct ProjectHashOverlay {
     /// xxh64 WAD path hash → path.
     wad: ResolvedHashes,
-    /// FNV-1a BIN identifier hash → name.
-    bin: FxHashMap<u32, String>,
 }
 
 impl ProjectHashOverlay {
@@ -26,38 +23,21 @@ impl ProjectHashOverlay {
         self.wad.insert(hash, path);
     }
 
-    pub fn insert_bin(&mut self, hash: u32, name: &str) {
-        self.bin.insert(hash, name.to_string());
-    }
-
     pub fn wad_get(&self, hash: u64) -> Option<&str> {
         self.wad.get(&hash)
-    }
-
-    pub fn bin_get(&self, hash: u32) -> Option<&str> {
-        self.bin.get(&hash).map(String::as_str)
     }
 
     pub fn wad_len(&self) -> usize {
         self.wad.len()
     }
 
-    pub fn bin_len(&self) -> usize {
-        self.bin.len()
-    }
-
     pub fn is_empty(&self) -> bool {
-        self.wad.is_empty() && self.bin.is_empty()
+        self.wad.is_empty()
     }
 
     /// Iterate the WAD keyspace, for serialization.
     pub fn wad_iter(&self) -> impl Iterator<Item = (u64, &str)> + '_ {
         self.wad.iter()
-    }
-
-    /// Iterate the BIN keyspace, for serialization.
-    pub fn bin_iter(&self) -> impl Iterator<Item = (u32, &str)> + '_ {
-        self.bin.iter().map(|(h, s)| (*h, s.as_str()))
     }
 }
 
@@ -135,66 +115,6 @@ pub fn collect_bin_asset_refs(project_path: &Path, overlay: &mut ProjectHashOver
     }
 }
 
-/// Shortest token worth recording. Single letters are almost always loop
-/// variables or type tags, not identifiers a user would want unhashed.
-const MIN_IDENTIFIER_LEN: usize = 2;
-
-/// FNV-1a 32-bit over the lowercased name — the BIN identifier hash.
-///
-/// Note this is FNV-1**a**. `crate::audio::event_mapper::fnv1_hash` is FNV-1
-/// (multiply-then-XOR) for Wwise event names and is a different function.
-pub fn bin_identifier_hash(name: &str) -> u32 {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in name.to_lowercase().as_bytes() {
-        hash ^= *byte as u32;
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
-    hash
-}
-
-/// Scan `*.ritobin` sidecars for identifier tokens and record them.
-///
-/// Coverage is partial by nature: an identifier is only recoverable if the user
-/// has written it as text, because that is the only place it ever exists as a
-/// name rather than a hash.
-pub fn collect_ritobin_identifiers(project_path: &Path, overlay: &mut ProjectHashOverlay) {
-    let Some(content) = content_dir(project_path) else {
-        return;
-    };
-
-    for entry in WalkDir::new(&content).into_iter().filter_map(|e| e.ok()) {
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        let is_ritobin = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .map(|n| n.to_lowercase().ends_with(".ritobin"))
-            .unwrap_or(false);
-        if !is_ritobin {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(path) else { continue };
-
-        for token in text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
-            if token.len() < MIN_IDENTIFIER_LEN {
-                continue;
-            }
-            // Identifiers start with a letter or underscore, never a digit.
-            if !token
-                .chars()
-                .next()
-                .map(|c| c.is_ascii_alphabetic() || c == '_')
-                .unwrap_or(false)
-            {
-                continue;
-            }
-            overlay.insert_bin(bin_identifier_hash(token), token);
-        }
-    }
-}
-
 /// Cheap staleness check for the on-disk overlay cache.
 ///
 /// `path_set_hash` is what catches renames: a rename leaves `file_count`
@@ -248,7 +168,6 @@ impl OverlayFingerprint {
 struct CacheFile {
     fingerprint: OverlayFingerprint,
     wad: Vec<(u64, String)>,
-    bin: Vec<(u32, String)>,
 }
 
 /// `<project>/.flint/hashes.json`. The `.flint` directory is already excluded
@@ -264,9 +183,6 @@ pub fn load_cache(project_path: &Path) -> Option<(OverlayFingerprint, ProjectHas
     let mut overlay = ProjectHashOverlay::new();
     for (hash, path) in &parsed.wad {
         overlay.insert_wad(*hash, path);
-    }
-    for (hash, name) in &parsed.bin {
-        overlay.insert_bin(*hash, name);
     }
     Some((parsed.fingerprint, overlay))
 }
@@ -284,7 +200,6 @@ pub fn save_cache(
     let payload = CacheFile {
         fingerprint: *fingerprint,
         wad: overlay.wad_iter().map(|(h, s)| (h, s.to_string())).collect(),
-        bin: overlay.bin_iter().map(|(h, s)| (h, s.to_string())).collect(),
     };
 
     let text = serde_json::to_string(&payload)
@@ -295,7 +210,7 @@ pub fn save_cache(
 /// Build the project's overlay, reusing the on-disk cache when the project has
 /// not changed since it was written.
 ///
-/// All three collectors are cheap, so a fingerprint mismatch triggers a full
+/// Both collectors are cheap, so a fingerprint mismatch triggers a full
 /// rebuild rather than an incremental update — there is no partial-invalidation
 /// path to get wrong.
 pub fn build_overlay(project_path: &Path) -> ProjectHashOverlay {
@@ -303,11 +218,7 @@ pub fn build_overlay(project_path: &Path) -> ProjectHashOverlay {
 
     if let Some((cached_fp, cached)) = load_cache(project_path) {
         if cached_fp == fingerprint {
-            tracing::debug!(
-                "Hash overlay: cache hit ({} wad, {} bin)",
-                cached.wad_len(),
-                cached.bin_len()
-            );
+            tracing::debug!("Hash overlay: cache hit ({} wad)", cached.wad_len());
             return cached;
         }
     }
@@ -315,13 +226,8 @@ pub fn build_overlay(project_path: &Path) -> ProjectHashOverlay {
     let mut overlay = ProjectHashOverlay::new();
     collect_disk_paths(project_path, &mut overlay);
     collect_bin_asset_refs(project_path, &mut overlay);
-    collect_ritobin_identifiers(project_path, &mut overlay);
 
-    tracing::info!(
-        "Hash overlay: rebuilt ({} wad, {} bin)",
-        overlay.wad_len(),
-        overlay.bin_len()
-    );
+    tracing::info!("Hash overlay: rebuilt ({} wad)", overlay.wad_len());
 
     if let Err(e) = save_cache(project_path, &fingerprint, &overlay) {
         tracing::warn!("Hash overlay: failed to write cache: {}", e);
@@ -335,16 +241,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn overlay_round_trips_both_keyspaces() {
+    fn overlay_round_trips_wad_entries() {
         let mut o = ProjectHashOverlay::new();
         o.insert_wad(42, "assets/characters/test/x.dds");
-        o.insert_bin(7, "MyCustomVfxDefinition");
 
         assert_eq!(o.wad_get(42), Some("assets/characters/test/x.dds"));
-        assert_eq!(o.bin_get(7), Some("MyCustomVfxDefinition"));
         assert_eq!(o.wad_get(43), None);
         assert_eq!(o.wad_len(), 1);
-        assert_eq!(o.bin_len(), 1);
     }
 
     #[test]
@@ -415,60 +318,12 @@ mod tests {
     }
 
     #[test]
-    fn bin_identifier_hash_is_fnv1a_over_lowercase() {
-        // Known-good FNV-1a 32-bit values, lowercased input.
-        assert_eq!(bin_identifier_hash("mWeightList"), 0xa3c8_0380);
-        assert_eq!(bin_identifier_hash("mMaskDataMap"), 0xde04_746e);
-        // Case must not matter.
-        assert_eq!(
-            bin_identifier_hash("MWEIGHTLIST"),
-            bin_identifier_hash("mWeightList")
-        );
-    }
-
-    #[test]
-    fn ritobin_identifiers_are_collected() {
-        let dir = tempfile::tempdir().unwrap();
-        let wad = dir.path().join("content/base/Aatrox.wad.client/data");
-        std::fs::create_dir_all(&wad).unwrap();
-        std::fs::write(
-            wad.join("skin99.bin.ritobin"),
-            b"MyCustomVfxDefinition = SkinCharacterDataProperties {\n  mFooBar: f32 = 1.0\n}\n",
-        )
-        .unwrap();
-
-        let mut o = ProjectHashOverlay::new();
-        collect_ritobin_identifiers(dir.path(), &mut o);
-
-        assert_eq!(
-            o.bin_get(bin_identifier_hash("MyCustomVfxDefinition")),
-            Some("MyCustomVfxDefinition")
-        );
-        assert_eq!(o.bin_get(bin_identifier_hash("mFooBar")), Some("mFooBar"));
-    }
-
-    #[test]
-    fn ritobin_collector_ignores_numbers_and_short_tokens() {
-        let dir = tempfile::tempdir().unwrap();
-        let wad = dir.path().join("content/base/Aatrox.wad.client/data");
-        std::fs::create_dir_all(&wad).unwrap();
-        std::fs::write(wad.join("a.bin.ritobin"), b"x: f32 = 1.0\n").unwrap();
-
-        let mut o = ProjectHashOverlay::new();
-        collect_ritobin_identifiers(dir.path(), &mut o);
-
-        // "x" is below the minimum length; "1.0" is not an identifier.
-        assert_eq!(o.bin_get(bin_identifier_hash("x")), None);
-    }
-
-    #[test]
-    fn cache_round_trips_both_keyspaces() {
+    fn cache_round_trips_wad_entries() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join(".flint")).unwrap();
 
         let mut o = ProjectHashOverlay::new();
         o.insert_wad(42, "assets/characters/test/x.dds");
-        o.insert_bin(7, "MyCustomVfxDefinition");
         let fp = OverlayFingerprint { file_count: 3, max_mtime_secs: 99, path_set_hash: 7 };
 
         save_cache(dir.path(), &fp, &o).unwrap();
@@ -476,7 +331,6 @@ mod tests {
 
         assert_eq!(loaded_fp, fp);
         assert_eq!(loaded.wad_get(42), Some("assets/characters/test/x.dds"));
-        assert_eq!(loaded.bin_get(7), Some("MyCustomVfxDefinition"));
     }
 
     #[test]
@@ -550,7 +404,7 @@ mod tests {
     }
 
     #[test]
-    fn build_overlay_merges_all_three_collectors() {
+    fn build_overlay_merges_both_collectors() {
         let dir = tempfile::tempdir().unwrap();
         let wad = dir.path().join("content/base/Aatrox.wad.client/assets/x");
         std::fs::create_dir_all(&wad).unwrap();
@@ -562,8 +416,6 @@ mod tests {
             b"\x00assets/perso/mymod/ghost.dds\x00",
         )
         .unwrap();
-        // Source 3: a ritobin sidecar carrying an identifier name.
-        std::fs::write(wad.join("s.bin.ritobin"), b"MyCustomThing = X {}\n").unwrap();
 
         let o = build_overlay(dir.path());
 
@@ -574,10 +426,6 @@ mod tests {
         assert_eq!(
             o.wad_get(xxhash_rust::xxh64::xxh64(b"assets/perso/mymod/ghost.dds", 0)),
             Some("assets/perso/mymod/ghost.dds")
-        );
-        assert_eq!(
-            o.bin_get(bin_identifier_hash("MyCustomThing")),
-            Some("MyCustomThing")
         );
     }
 

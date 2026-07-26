@@ -13,9 +13,6 @@ pub use lmdb_cache::{
 /// WAD-LMDB resolver.
 pub use lmdb_cache::ResolvedHashes;
 
-pub use overlay::{
-    bin_identifier_hash, build_overlay, collect_bin_asset_refs, collect_disk_paths,
-    collect_ritobin_identifiers, ProjectHashOverlay,
-};
+pub use overlay::{build_overlay, collect_bin_asset_refs, collect_disk_paths, ProjectHashOverlay};
 
 pub use resolver::HashResolver;

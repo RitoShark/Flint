@@ -8,7 +8,7 @@ describe('hashOverlay api', () => {
     beforeEach(() => vi.mocked(invokeCommand).mockReset());
 
     it('builds the overlay for a project path', async () => {
-        vi.mocked(invokeCommand).mockResolvedValue({ wad_entries: 12, bin_entries: 3 });
+        vi.mocked(invokeCommand).mockResolvedValue({ wad_entries: 12 });
 
         const stats = await buildProjectHashOverlay('C:\\p');
 
@@ -27,10 +27,10 @@ describe('hashOverlay api', () => {
     });
 
     it('resolves to zeroed stats when the backend reports nothing', async () => {
-        vi.mocked(invokeCommand).mockResolvedValue({ wad_entries: 0, bin_entries: 0 });
+        vi.mocked(invokeCommand).mockResolvedValue({ wad_entries: 0 });
 
         const stats = await buildProjectHashOverlay('C:\\empty');
 
-        expect(stats).toEqual({ wad_entries: 0, bin_entries: 0 });
+        expect(stats).toEqual({ wad_entries: 0 });
     });
 });

@@ -11,7 +11,6 @@ use tauri::State;
 #[derive(Debug, Clone, Serialize)]
 pub struct OverlayStats {
     pub wad_entries: usize,
-    pub bin_entries: usize,
 }
 
 /// Build (or reload from cache) the overlay for `project_path` and make it the
@@ -29,10 +28,7 @@ pub async fn build_project_hash_overlay(
         .await
         .map_err(|e| format!("overlay build panicked: {}", e))?;
 
-    let stats = OverlayStats {
-        wad_entries: overlay.wad_len(),
-        bin_entries: overlay.bin_len(),
-    };
+    let stats = OverlayStats { wad_entries: overlay.wad_len() };
     state.set(project_path, Arc::new(overlay));
     Ok(stats)
 }

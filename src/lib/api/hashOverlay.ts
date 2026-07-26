@@ -6,7 +6,6 @@ import { invokeCommand } from './core';
 // structs (see `HashStatus.loaded_count` in src/lib/types.ts).
 export interface OverlayStats {
     wad_entries: number;
-    bin_entries: number;
 }
 
 /**

@@ -2,11 +2,8 @@
 //! → hex. Game-file call sites construct a resolver with no overlay; only
 //! project-aware call sites attach one.
 
-use crate::hash::lmdb_cache::{
-    get_bin_env, get_wad_env, resolve_bin_hashes_lmdb, resolve_hashes_lmdb,
-};
+use crate::hash::lmdb_cache::{get_wad_env, resolve_hashes_lmdb};
 use crate::hash::overlay::ProjectHashOverlay;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Owns the global hash environments plus an optional project overlay.
@@ -15,7 +12,6 @@ use std::sync::Arc;
 /// from the project itself.
 pub struct HashResolver {
     pub(crate) wad_env: Option<Arc<heed::Env>>,
-    pub(crate) bin_env: Option<Arc<heed::Env>>,
     pub(crate) overlay: Option<Arc<ProjectHashOverlay>>,
 }
 
@@ -25,7 +21,6 @@ impl HashResolver {
     pub fn global(hash_dir: &str) -> Self {
         Self {
             wad_env: get_wad_env(hash_dir),
-            bin_env: get_bin_env(hash_dir),
             overlay: None,
         }
     }
@@ -34,7 +29,6 @@ impl HashResolver {
     pub fn with_overlay(hash_dir: &str, overlay: Arc<ProjectHashOverlay>) -> Self {
         Self {
             wad_env: get_wad_env(hash_dir),
-            bin_env: get_bin_env(hash_dir),
             overlay: Some(overlay),
         }
     }
@@ -71,37 +65,17 @@ impl HashResolver {
 
         out
     }
-
-    /// Resolve BIN identifier hashes: overlay → global LMDB → 8-hex fallback.
-    pub fn resolve_bin(&self, hashes: &[u32]) -> HashMap<u32, String> {
-        let mut out: HashMap<u32, String> = match &self.bin_env {
-            Some(env) => resolve_bin_hashes_lmdb(hashes, env),
-            None => hashes.iter().map(|h| (*h, format!("{:08x}", h))).collect(),
-        };
-
-        if let Some(overlay) = &self.overlay {
-            for hash in hashes {
-                if let Some(name) = overlay.bin_get(*hash) {
-                    out.insert(*hash, name.to_string());
-                }
-            }
-        }
-
-        out
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hash::overlay::bin_identifier_hash;
 
     /// A resolver with no LMDB envs at all — isolates overlay-vs-hex behavior
     /// from whatever hash databases happen to be installed on the machine.
     fn overlay_only(overlay: ProjectHashOverlay) -> HashResolver {
         HashResolver {
             wad_env: None,
-            bin_env: None,
             overlay: Some(Arc::new(overlay)),
         }
     }
@@ -127,37 +101,14 @@ mod tests {
     }
 
     #[test]
-    fn bin_overlay_hit_wins_over_hex_fallback() {
-        let mut o = ProjectHashOverlay::new();
-        let h = bin_identifier_hash("MyCustomVfxDefinition");
-        o.insert_bin(h, "MyCustomVfxDefinition");
-
-        let r = overlay_only(o);
-        let resolved = r.resolve_bin(&[h]);
-
-        assert_eq!(
-            resolved.get(&h).map(String::as_str),
-            Some("MyCustomVfxDefinition")
-        );
-    }
-
-    #[test]
-    fn bin_miss_yields_8_hex() {
-        let r = overlay_only(ProjectHashOverlay::new());
-        let resolved = r.resolve_bin(&[0xdead_beef]);
-
-        assert_eq!(resolved.get(&0xdead_beef).map(String::as_str), Some("deadbeef"));
-    }
-
-    #[test]
     fn a_resolver_without_an_overlay_reports_so() {
-        let r = HashResolver { wad_env: None, bin_env: None, overlay: None };
+        let r = HashResolver { wad_env: None, overlay: None };
         assert!(!r.has_overlay());
     }
 
     #[test]
     fn a_resolver_with_no_wad_env_reports_no_global_wad() {
-        let r = HashResolver { wad_env: None, bin_env: None, overlay: None };
+        let r = HashResolver { wad_env: None, overlay: None };
         assert!(!r.has_global_wad());
     }
 
@@ -197,7 +148,7 @@ mod tests {
     fn a_global_resolver_ignores_project_paths_entirely() {
         // A game-file resolver must not resolve a project's invented path even
         // when an overlay exists elsewhere in the process.
-        let r = HashResolver { wad_env: None, bin_env: None, overlay: None };
+        let r = HashResolver { wad_env: None, overlay: None };
         let invented = xxhash_rust::xxh64::xxh64(b"assets/perso/mymod/ghost.dds", 0);
 
         assert_eq!(r.resolve_wad(&[invented]), vec![format!("{:016x}", invented)]);
