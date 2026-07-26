@@ -269,8 +269,8 @@ fn main() {
             commands::project::preconvert_project_bins,
             commands::project::create_project_layer,
             commands::project::list_project_layers,
-            commands::project::hash_overlay::build_project_hash_overlay,
-            commands::project::hash_overlay::clear_project_hash_overlay,
+            commands::hash_overlay::build_project_hash_overlay,
+            commands::hash_overlay::clear_project_hash_overlay,
             // Map project commands
             commands::map_project::list_available_maps,
             commands::map_project::list_map_variants,

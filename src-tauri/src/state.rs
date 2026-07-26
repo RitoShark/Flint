@@ -200,12 +200,15 @@ impl CdnSessionState {
 // Project-local hash overlay
 // =============================================================================
 
+/// The active project's path paired with its built overlay.
+type HashOverlaySlot = Option<(String, Arc<ProjectHashOverlay>)>;
+
 /// The active project's hash overlay, if one has been built.
 ///
 /// Only one project is active at a time, so a single slot is enough. Switching
 /// projects replaces it wholesale.
 #[derive(Clone, Default)]
-pub struct HashOverlayState(Arc<RwLock<Option<(String, Arc<ProjectHashOverlay>)>>>);
+pub struct HashOverlayState(Arc<RwLock<HashOverlaySlot>>);
 
 impl HashOverlayState {
     pub fn new() -> Self {
