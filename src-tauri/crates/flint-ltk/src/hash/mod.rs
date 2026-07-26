@@ -1,6 +1,7 @@
 pub mod downloader;
 pub mod lmdb_cache;
 pub mod overlay;
+pub mod resolver;
 
 pub use downloader::{download_hashes, get_hash_dir, get_ritoshark_hash_dir, hashes_present, DownloadStats};
 pub use lmdb_cache::{
@@ -16,3 +17,5 @@ pub use overlay::{
     bin_identifier_hash, build_overlay, collect_bin_asset_refs, collect_disk_paths,
     collect_ritobin_identifiers, ProjectHashOverlay,
 };
+
+pub use resolver::HashResolver;
