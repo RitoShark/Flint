@@ -322,3 +322,21 @@ pub fn resolve_bin_hashes_lmdb(hashes: &[u32], env: &heed::Env) -> HashMap<u32, 
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn insert_overwrites_on_a_duplicate_key() {
+        let mut r = ResolvedHashes::new();
+        r.insert(7, "assets/first.dds");
+        r.insert(7, "assets/second.dds");
+
+        // resolve_wad_bulk layers overlay hits over LMDB results by re-inserting
+        // the same hash — if insert did not overwrite, the overlay would
+        // silently lose to the global database.
+        assert_eq!(r.get(&7), Some("assets/second.dds"));
+        assert_eq!(r.len(), 1);
+    }
+}

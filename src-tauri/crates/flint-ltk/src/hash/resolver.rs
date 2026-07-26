@@ -105,6 +105,35 @@ mod tests {
         }
     }
 
+    /// Build a fresh temp LMDB env with one `(hash -> path)` row in the named
+    /// `"wad"` database, keyed by the 8-byte big-endian hash — the same layout
+    /// `lmdb_cache.rs` reads. This is a fixture the test owns and drops; it is
+    /// not the global read-only database.
+    ///
+    /// `map_size`/`max_dbs` mirror `lmdb_cache::open_env`; the write path
+    /// mirrors `extract_hashes.rs`'s `merge_into_wad_lmdb`.
+    fn write_test_wad_env(dir: &std::path::Path, hash: u64, path: &str) -> heed::Env {
+        use heed::types::{Bytes, Str};
+        use heed::{Database, EnvOpenOptions};
+
+        let env = unsafe {
+            EnvOpenOptions::new()
+                .map_size(1024 * 1024 * 1024)
+                .max_dbs(2)
+                .open(dir)
+                .expect("open temp lmdb env")
+        };
+
+        let mut wtxn = env.write_txn().expect("write_txn");
+        let db: Database<Bytes, Str> = env
+            .create_database(&mut wtxn, Some("wad"))
+            .expect("create_database wad");
+        db.put(&mut wtxn, &hash.to_be_bytes()[..], path).expect("put");
+        wtxn.commit().expect("commit");
+
+        env
+    }
+
     #[test]
     fn overlay_hit_wins_over_hex_fallback() {
         let mut o = ProjectHashOverlay::new();
@@ -198,6 +227,51 @@ mod tests {
         // resolve_wad_bulk from resolve_wad.
         assert_eq!(out.get(&0xdead_beef), None);
         assert_eq!(out.len(), 1);
+    }
+
+    #[test]
+    fn overlay_shadows_a_real_global_lmdb_hit() {
+        let dir = tempfile::tempdir().unwrap();
+        let overlay_path = "assets/mine/override.dds";
+        // The key is the hash of the OVERLAY's own path, satisfying
+        // insert_wad's invariant. The global LMDB row is planted at that same
+        // key but with a different value — proving the overlay genuinely wins
+        // the collision rather than merely agreeing with the global value.
+        let hash = crate::export::wad_chunk_hash(overlay_path);
+        let env = write_test_wad_env(dir.path(), hash, "assets/riot/real.dds");
+
+        let mut o = ProjectHashOverlay::new();
+        o.insert_wad(hash, overlay_path);
+
+        let r = HashResolver {
+            wad_env: Some(std::sync::Arc::new(env)),
+            overlay: Some(Arc::new(o)),
+        };
+
+        assert_eq!(
+            r.resolve_wad(&[hash]),
+            vec![overlay_path.to_string()],
+            "the project overlay must win over the global database"
+        );
+    }
+
+    #[test]
+    fn without_an_overlay_the_global_lmdb_value_is_returned() {
+        let dir = tempfile::tempdir().unwrap();
+        let hash = crate::export::wad_chunk_hash("assets/riot/real.dds");
+        let env = write_test_wad_env(dir.path(), hash, "assets/riot/real.dds");
+
+        let r = HashResolver {
+            wad_env: Some(std::sync::Arc::new(env)),
+            overlay: None,
+        };
+
+        // Proves the LMDB arm executes at all — every other test in this file
+        // runs with wad_env: None.
+        assert_eq!(
+            r.resolve_wad(&[hash]),
+            vec!["assets/riot/real.dds".to_string()]
+        );
     }
 
     #[test]
