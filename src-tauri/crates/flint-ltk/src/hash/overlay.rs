@@ -90,12 +90,21 @@ fn wad_relative(path: &Path, project_path: &Path) -> Option<String> {
     Some(components.join("/").to_lowercase())
 }
 
+/// The project's `content/` directory, or `None` when it does not exist.
+fn content_dir(project_path: &Path) -> Option<std::path::PathBuf> {
+    let content = project_path.join("content");
+    if content.is_dir() {
+        Some(content)
+    } else {
+        None
+    }
+}
+
 /// Walk `content/**` and record every real file's WAD-relative path.
 pub fn collect_disk_paths(project_path: &Path, overlay: &mut ProjectHashOverlay) {
-    let content = project_path.join("content");
-    if !content.is_dir() {
+    let Some(content) = content_dir(project_path) else {
         return;
-    }
+    };
 
     for entry in WalkDir::new(&content).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
@@ -113,14 +122,73 @@ pub fn collect_disk_paths(project_path: &Path, overlay: &mut ProjectHashOverlay)
 /// Only references that carry a recoverable path string are inserted. A bare
 /// hash with no string behind it adds nothing an overlay could display.
 pub fn collect_bin_asset_refs(project_path: &Path, overlay: &mut ProjectHashOverlay) {
-    let content = project_path.join("content");
-    if !content.is_dir() {
+    let Some(content) = content_dir(project_path) else {
         return;
-    }
+    };
 
     for asset in crate::repath::unhash::collect_referenced_assets(&content) {
         if let Some(path) = asset.path {
             overlay.insert_wad(asset.hash, &path);
+        }
+    }
+}
+
+/// Shortest token worth recording. Single letters are almost always loop
+/// variables or type tags, not identifiers a user would want unhashed.
+const MIN_IDENTIFIER_LEN: usize = 2;
+
+/// FNV-1a 32-bit over the lowercased name — the BIN identifier hash.
+///
+/// Note this is FNV-1**a**. `crate::audio::event_mapper::fnv1_hash` is FNV-1
+/// (multiply-then-XOR) for Wwise event names and is a different function.
+pub fn bin_identifier_hash(name: &str) -> u32 {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in name.to_lowercase().as_bytes() {
+        hash ^= *byte as u32;
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    hash
+}
+
+/// Scan `*.ritobin` sidecars for identifier tokens and record them.
+///
+/// Coverage is partial by nature: an identifier is only recoverable if the user
+/// has written it as text, because that is the only place it ever exists as a
+/// name rather than a hash.
+pub fn collect_ritobin_identifiers(project_path: &Path, overlay: &mut ProjectHashOverlay) {
+    let Some(content) = content_dir(project_path) else {
+        return;
+    };
+
+    for entry in WalkDir::new(&content).into_iter().filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let is_ritobin = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| n.to_lowercase().ends_with(".ritobin"))
+            .unwrap_or(false);
+        if !is_ritobin {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(path) else { continue };
+
+        for token in text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
+            if token.len() < MIN_IDENTIFIER_LEN {
+                continue;
+            }
+            // Identifiers start with a letter or underscore, never a digit.
+            if !token
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_alphabetic() || c == '_')
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            overlay.insert_bin(bin_identifier_hash(token), token);
         }
     }
 }
@@ -207,5 +275,52 @@ mod tests {
 
         // Nothing to name it with, so it must not enter the overlay.
         assert_eq!(o.wad_len(), 0);
+    }
+
+    #[test]
+    fn bin_identifier_hash_is_fnv1a_over_lowercase() {
+        // Known-good FNV-1a 32-bit values, lowercased input.
+        assert_eq!(bin_identifier_hash("mWeightList"), 0xa3c8_0380);
+        assert_eq!(bin_identifier_hash("mMaskDataMap"), 0xde04_746e);
+        // Case must not matter.
+        assert_eq!(
+            bin_identifier_hash("MWEIGHTLIST"),
+            bin_identifier_hash("mWeightList")
+        );
+    }
+
+    #[test]
+    fn ritobin_identifiers_are_collected() {
+        let dir = tempfile::tempdir().unwrap();
+        let wad = dir.path().join("content/base/Aatrox.wad.client/data");
+        std::fs::create_dir_all(&wad).unwrap();
+        std::fs::write(
+            wad.join("skin99.bin.ritobin"),
+            b"MyCustomVfxDefinition = SkinCharacterDataProperties {\n  mFooBar: f32 = 1.0\n}\n",
+        )
+        .unwrap();
+
+        let mut o = ProjectHashOverlay::new();
+        collect_ritobin_identifiers(dir.path(), &mut o);
+
+        assert_eq!(
+            o.bin_get(bin_identifier_hash("MyCustomVfxDefinition")),
+            Some("MyCustomVfxDefinition")
+        );
+        assert_eq!(o.bin_get(bin_identifier_hash("mFooBar")), Some("mFooBar"));
+    }
+
+    #[test]
+    fn ritobin_collector_ignores_numbers_and_short_tokens() {
+        let dir = tempfile::tempdir().unwrap();
+        let wad = dir.path().join("content/base/Aatrox.wad.client/data");
+        std::fs::create_dir_all(&wad).unwrap();
+        std::fs::write(wad.join("a.bin.ritobin"), b"x: f32 = 1.0\n").unwrap();
+
+        let mut o = ProjectHashOverlay::new();
+        collect_ritobin_identifiers(dir.path(), &mut o);
+
+        // "x" is below the minimum length; "1.0" is not an identifier.
+        assert_eq!(o.bin_get(bin_identifier_hash("x")), None);
     }
 }
