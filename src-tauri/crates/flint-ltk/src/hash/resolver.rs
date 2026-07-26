@@ -2,7 +2,7 @@
 //! → hex. Game-file call sites construct a resolver with no overlay; only
 //! project-aware call sites attach one.
 
-use crate::hash::lmdb_cache::{get_wad_env, resolve_hashes_lmdb};
+use crate::hash::lmdb_cache::{get_wad_env, resolve_hashes_lmdb, resolve_hashes_lmdb_bulk, ResolvedHashes};
 use crate::hash::overlay::ProjectHashOverlay;
 use std::sync::Arc;
 
@@ -71,6 +71,23 @@ impl HashResolver {
             }
         }
 
+        out
+    }
+
+    /// Bulk WAD resolution: the parallel LMDB path with overlay hits layered on
+    /// top. Misses are omitted, matching `resolve_hashes_lmdb_bulk`.
+    pub fn resolve_wad_bulk(&self, hashes: &[u64]) -> ResolvedHashes {
+        let mut out = match &self.wad_env {
+            Some(env) => resolve_hashes_lmdb_bulk(hashes, env),
+            None => ResolvedHashes::default(),
+        };
+        if let Some(overlay) = &self.overlay {
+            for h in hashes {
+                if let Some(path) = overlay.wad_get(*h) {
+                    out.insert(*h, path);
+                }
+            }
+        }
         out
     }
 }
@@ -162,6 +179,25 @@ mod tests {
         let invented = xxhash_rust::xxh64::xxh64(b"assets/perso/mymod/ghost.dds", 0);
 
         assert_eq!(r.resolve_wad(&[invented]), vec![format!("{:016x}", invented)]);
+    }
+
+    #[test]
+    fn resolve_wad_bulk_applies_overlay_and_omits_misses() {
+        let mut o = ProjectHashOverlay::new();
+        o.insert_wad(
+            crate::export::wad_chunk_hash("assets/mine/x.dds"),
+            "assets/mine/x.dds",
+        );
+        let hit = crate::export::wad_chunk_hash("assets/mine/x.dds");
+
+        let r = overlay_only(o);
+        let out = r.resolve_wad_bulk(&[hit, 0xdead_beef]);
+
+        assert_eq!(out.get(&hit), Some("assets/mine/x.dds"));
+        // Misses are omitted, not hex-filled — this is what distinguishes
+        // resolve_wad_bulk from resolve_wad.
+        assert_eq!(out.get(&0xdead_beef), None);
+        assert_eq!(out.len(), 1);
     }
 
     #[test]

@@ -1,6 +1,6 @@
-use flint_ltk::hash::{resolve_hashes_lmdb, resolve_hashes_lmdb_bulk, ResolvedHashes};
+use flint_ltk::hash::{HashResolver, ResolvedHashes};
 use flint_ltk::wad_jade::adapter::WadHandle as WadReader;
-use crate::state::{LmdbCacheState, WadCacheState};
+use crate::state::{HashOverlayState, LmdbCacheState, WadCacheState};
 use crate::core::ipc_trace;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -42,8 +42,9 @@ pub async fn read_wad(path: String) -> Result<WadInfo, String> {
 #[tauri::command]
 pub async fn get_wad_chunks(
     path: String,
-    lmdb: State<'_, LmdbCacheState>,
+    _lmdb: State<'_, LmdbCacheState>,
     wad_cache_state: State<'_, WadCacheState>,
+    overlay_state: State<'_, HashOverlayState>,
 ) -> Result<Vec<ChunkInfo>, String> {
     let _t = ipc_trace::enter("get_wad_chunks");
     let total_start = Instant::now();
@@ -69,15 +70,12 @@ pub async fn get_wad_chunks(
     let d_hash_collect = t_hashes.elapsed();
 
     let t_resolve = Instant::now();
-    let resolved: Vec<String> = if let Some(env) = lmdb.get_env(
-        &flint_ltk::hash::get_hash_dir()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_default()
-    ) {
-        resolve_hashes_lmdb(&hash_u64s, &env)
-    } else {
-        hash_u64s.iter().map(|h| format!("{:016x}", h)).collect()
-    };
+    let hash_dir = flint_ltk::hash::get_hash_dir()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let overlay = overlay_state.get();
+    let resolver = HashResolver::new(&hash_dir, overlay.as_ref());
+    let resolved: Vec<String> = resolver.resolve_wad(&hash_u64s);
     let d_resolve = t_resolve.elapsed();
 
     let t_build = Instant::now();
@@ -141,8 +139,9 @@ pub async fn get_wad_chunks(
 #[tauri::command]
 pub async fn load_all_wad_chunks(
     paths: Vec<String>,
-    lmdb: State<'_, LmdbCacheState>,
+    _lmdb: State<'_, LmdbCacheState>,
     wad_cache_state: State<'_, WadCacheState>,
+    overlay_state: State<'_, HashOverlayState>,
 ) -> Result<tauri::ipc::Response, String> {
     let _t = ipc_trace::enter("load_all_wad_chunks");
     let total_start = Instant::now();
@@ -151,7 +150,8 @@ pub async fn load_all_wad_chunks(
     let hash_dir = flint_ltk::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let env_opt = lmdb.get_env(&hash_dir);
+    let overlay = overlay_state.get();
+    let resolver = HashResolver::new(&hash_dir, overlay.as_ref());
 
     // Phase 1: parallel WAD header reads (rayon).
     let t_phase1 = Instant::now();
@@ -195,11 +195,7 @@ pub async fn load_all_wad_chunks(
     let t_phase3 = Instant::now();
     let unique_vec: Vec<u64> = unique_hashes.into_iter().collect();
     let unique_count = unique_vec.len();
-    let resolved_map: ResolvedHashes = if let Some(ref env) = env_opt {
-        resolve_hashes_lmdb_bulk(&unique_vec, env)
-    } else {
-        ResolvedHashes::default()
-    };
+    let resolved_map: ResolvedHashes = resolver.resolve_wad_bulk(&unique_vec);
     let d_phase3 = t_phase3.elapsed();
 
     // Phase 4: encode binary payload in parallel (each WAD's bytes are independent).
@@ -331,16 +327,18 @@ pub async fn extract_wad(
     wad_path: String,
     output_dir: String,
     chunk_hashes: Option<Vec<String>>,
-    lmdb: State<'_, LmdbCacheState>,
+    _lmdb: State<'_, LmdbCacheState>,
+    overlay_state: State<'_, HashOverlayState>,
 ) -> Result<ExtractionResult, String> {
     let _t = ipc_trace::enter("extract_wad");
 
-    // Snapshot the LMDB env so the move into spawn_blocking doesn't borrow
-    // the Tauri State guard across an await.
+    // Build the resolver before spawn_blocking so the move doesn't borrow the
+    // Tauri State guard across an await.
     let hash_dir = flint_ltk::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let env_opt = lmdb.get_env(&hash_dir);
+    let overlay = overlay_state.get();
+    let hash_resolver = HashResolver::new(&hash_dir, overlay.as_ref());
 
     let want_hashes: Option<HashSet<u64>> = match chunk_hashes {
         None => None,
@@ -357,13 +355,7 @@ pub async fn extract_wad(
 
     let output_dir_clone = output_dir.clone();
     let result: Result<(usize, usize, std::collections::HashMap<String, String>), String> = tokio::task::spawn_blocking(move || {
-        let resolver = |hashes: &[u64]| -> ResolvedHashes {
-            if let Some(ref env) = env_opt {
-                resolve_hashes_lmdb_bulk(hashes, env)
-            } else {
-                hashes.iter().map(|h| (*h, format!("{:016x}", h))).collect()
-            }
-        };
+        let resolver = |hashes: &[u64]| -> ResolvedHashes { hash_resolver.resolve_wad_bulk(hashes) };
         flint_ltk::wad_jade::adapter::extract_chunks_parallel(
             &wad_path,
             &output_dir,
@@ -412,8 +404,9 @@ pub struct WadModelPreviewResult {
 pub async fn extract_wad_model_preview(
     wad_path: String,
     skn_hash: String,
-    lmdb: State<'_, LmdbCacheState>,
+    _lmdb: State<'_, LmdbCacheState>,
     wad_cache_state: State<'_, WadCacheState>,
+    overlay_state: State<'_, HashOverlayState>,
 ) -> Result<WadModelPreviewResult, String> {
     let target_hash = u64::from_str_radix(&skn_hash, 16)
         .map_err(|e| format!("Invalid hash '{}': {}", skn_hash, e))?;
@@ -434,11 +427,22 @@ pub async fn extract_wad_model_preview(
     let hash_dir = flint_ltk::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let resolved_map: ResolvedHashes = if let Some(ref env) = lmdb.get_env(&hash_dir) {
-        resolve_hashes_lmdb_bulk(&hash_u64s, env)
-    } else {
-        hash_u64s.iter().map(|h| (*h, format!("{:016x}", h))).collect()
-    };
+    let overlay = overlay_state.get();
+    let resolver = HashResolver::new(&hash_dir, overlay.as_ref());
+    let mut resolved_map: ResolvedHashes = resolver.resolve_wad_bulk(&hash_u64s);
+    if !resolver.has_global_wad() {
+        // No downloaded global hash DB: `resolve_wad_bulk` omits misses (the
+        // bulk contract other call sites rely on), but this site's original
+        // fallback hex-filled every hash so `target_hash` below always
+        // resolved to *something*. Preserve that — overlay hits (already in
+        // `resolved_map`) still win over the hex filler.
+        for h in &hash_u64s {
+            if !resolved_map.contains_key(h) {
+                let hex = format!("{:016x}", h);
+                resolved_map.insert(*h, &hex);
+            }
+        }
+    }
 
     let skn_resolved = resolved_map.get(&target_hash)
         .ok_or_else(|| format!("Mesh chunk {:016x} not found in WAD", target_hash))?;

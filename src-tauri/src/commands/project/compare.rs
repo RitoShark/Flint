@@ -224,26 +224,16 @@ pub async fn find_original_file(
     };
 
     // Bulk-resolve all paths — project overlay first, then global LMDB.
+    // `resolve_wad_bulk` is the rayon-parallel bulk path and omits misses
+    // natively, so no hex-filter is needed to strip unresolved entries back
+    // out.
     let hash_dir = flint_ltk::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
     let overlay = hash_overlay_state.get();
     let resolver = HashResolver::new(&hash_dir, overlay.as_ref());
     let hashes: Vec<u64> = chunks.iter().map(|c| c.path_hash).collect();
-    // `resolve_wad` returns a 16-hex fallback string for misses instead of
-    // omitting them (unlike the old `resolve_hashes_lmdb_bulk`), so filter
-    // those back out by comparing against the fallback for THAT hash — not
-    // just "looks like hex" — so a legitimately-resolved path that happens to
-    // consist only of hex characters is never mistaken for a miss. Length is
-    // checked first so the `format!` allocation is skipped for essentially
-    // every real (non-16-char) path — this runs per chunk, per compare click.
-    let resolved: ResolvedHashes = resolver
-        .resolve_wad(&hashes)
-        .into_iter()
-        .zip(hashes.iter())
-        .filter(|(path, hash)| !(path.len() == 16 && *path == format!("{:016x}", hash)))
-        .map(|(path, hash)| (*hash, path))
-        .collect();
+    let resolved: ResolvedHashes = resolver.resolve_wad_bulk(&hashes);
 
     let target_lower = internal_path.to_lowercase().replace('\\', "/");
     let target_swapped_ext = swap_texture_ext(&target_lower);
