@@ -6,5 +6,6 @@
 pub mod wad;
 pub mod wad_edit;
 pub mod extract_hashes;
+pub mod wad_pack;
 
 pub use wad::*;

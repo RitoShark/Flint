@@ -486,6 +486,8 @@ fn main() {
             commands::wad_edit::discard_session_changes,
             commands::wad_edit::save_session_to_path,
             commands::wad_edit::folder_wad_chunks,
+            // Pack an extracted WAD folder back into a .wad.client
+            commands::wad_pack::pack_folder_to_wad,
             // Windows file association (per-user, OpenWithProgids — non-default)
             commands::file_assoc::register_file_associations,
             commands::file_assoc::unregister_file_associations,
