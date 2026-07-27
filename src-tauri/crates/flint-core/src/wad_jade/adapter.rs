@@ -4,7 +4,7 @@
 
 use crate::error::{Error, Result};
 use crate::hash::ResolvedHashes;
-use crate::wad_jade::extractor::chunk_io::read_chunk_decompressed_bytes;
+use crate::wad_jade::chunk_io::read_chunk_decompressed_bytes;
 use crate::wad_jade::format::WadChunk;
 use crate::wad_jade::reader::{read_wad_toc, WadToc};
 use rayon::prelude::*;

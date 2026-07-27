@@ -2,7 +2,6 @@
 //! hashtable. Adds an extension to the resolved fallback name (e.g.
 //! `aabbccddeeff0011` → `aabbccddeeff0011.dds`).
 
-use crate::wad_jade::extractor::sniff_magic;
 use crate::wad_jade::format::{WadChunk, WadCompression};
 use crate::wad_jade::mount::{registry_write, with_mount};
 use crate::error::{Error, Result};
@@ -122,4 +121,59 @@ fn read_exact_or_eof<R: Read>(r: &mut R, buf: &mut [u8]) -> std::io::Result<usiz
         filled += n;
     }
     Ok(filled)
+}
+
+/// Extension for `data`'s magic bytes, leading dot included.
+pub(crate) fn sniff_magic(data: &[u8]) -> Option<&'static str> {
+    if data.len() < 4 {
+        return None;
+    }
+
+    // Eight-byte r3d2-family magics before the four-byte `r3d2` catch-all.
+    if data.len() >= 8 && &data[0..4] == b"r3d2" {
+        return Some(match &data[0..8] {
+            b"r3d2sklt" => ".skl",
+            b"r3d2anmd" | b"r3d2canm" => ".anm",
+            b"r3d2Mesh" => ".scb",
+            b"r3d2aims" => ".aimesh",
+            // Other r3d2-prefixed chunks are most often Wwise packages.
+            _ => ".wpk",
+        });
+    }
+
+    // SKN — magic `0x00112233` little-endian as the first u32.
+    if u32::from_le_bytes([data[0], data[1], data[2], data[3]]) == 0x0011_2233 {
+        return Some(".skn");
+    }
+
+    match &data[0..4] {
+        b"PROP" | b"PTCH" => return Some(".bin"),
+        b"DDS " => return Some(".dds"),
+        b"OggS" => return Some(".ogg"),
+        b"\x89PNG" => return Some(".png"),
+        b"BKHD" => return Some(".bnk"),
+        b"OEGM" => return Some(".mapgeo"),
+        b"TEX\0" => return Some(".tex"),
+        b"\x1bLua" | b"\x1bLJ\x01" | b"\x1bLJ\x02" => return Some(".luaobj"),
+        _ => {}
+    }
+
+    if data.starts_with(b"\xff\xd8\xff") {
+        return Some(".jpg");
+    }
+    if data.starts_with(b"RST") {
+        return Some(".stringtable");
+    }
+    if data.starts_with(b"<lua") {
+        return Some(".lua");
+    }
+    if data.starts_with(b"GIF8") {
+        return Some(".gif");
+    }
+    // Everything else with a leading `{` in the corpus is JSON-ish.
+    if data.starts_with(b"{") {
+        return Some(".json");
+    }
+
+    None
 }

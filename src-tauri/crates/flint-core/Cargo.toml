@@ -88,13 +88,8 @@ base64 = "0.22"
 # ZIP
 zip = { version = "2.4", features = ["deflate"] }
 
-# Logging (tracing macros only — no Tauri dependency)
+# Logging (tracing macros only)
 tracing = "0.1"
-
-# Tauri — wad_jade::extractor / hash_extractor / hash_downloader emit
-# progress events through tauri::Emitter. Same major as the binary crate.
-# `wry` enables the `tauri::Wry` runtime alias used in AppHandle generics.
-tauri = { version = "2", default-features = false, features = ["wry"] }
 
 # Windows registry access (Windows only)
 [target.'cfg(windows)'.dependencies]
