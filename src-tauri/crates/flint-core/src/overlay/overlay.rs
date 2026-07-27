@@ -113,7 +113,7 @@ pub fn collect_bin_asset_refs(project_path: &Path, overlay: &mut ProjectHashOver
         return;
     };
 
-    for asset in crate::hash::bin_refs::collect_referenced_assets(&content) {
+    for asset in crate::overlay::bin_refs::collect_referenced_assets(&content) {
         if let Some(path) = asset.path {
             overlay.insert_wad(asset.hash, &path);
         }

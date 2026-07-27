@@ -9,14 +9,16 @@ pub use codec::{
     read_bin,
     write_bin,
     tree_to_text_cached,
-    get_cached_bin_hashes,
-    reload_bin_hash_cache,
     text_to_tree,
     unhash_text_cached,
     MAX_BIN_SIZE,
 };
 
 pub use ritoshark::bin::{Bin, BinEntry, BinType, BinValue};
+
+/// Hash dictionary the text form resolves names through. Owned by `hash`,
+/// re-exported here so callers reach it alongside the codec that uses it.
+pub use crate::hash::bin_dict::{get_cached_bin_hashes, reload_bin_hash_cache};
 
 pub use converter::{bin_to_text, text_to_bin, bin_to_json, json_to_bin};
 

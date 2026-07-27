@@ -20,6 +20,7 @@ pub mod inibin_text;
 pub mod stringtable;
 pub mod manifest;
 pub mod cdn;
+pub mod overlay;
 pub mod net;
 
 pub use heed;

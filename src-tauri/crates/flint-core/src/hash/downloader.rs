@@ -169,7 +169,7 @@ pub async fn download_hashes(output_dir: impl AsRef<Path>, force: bool) -> Resul
         meta.release_tag = Some(latest_tag);
         meta.updated_at = Some(now_iso());
 
-        crate::bin::codec::reload_bin_hash_cache();
+        crate::hash::bin_dict::reload_bin_hash_cache();
         tracing::info!("BIN hash cache reloaded after successful download");
     }
     meta.last_checked_at = Some(now_iso());

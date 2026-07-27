@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use flint_core::heed;
 use flint_core::hash::{drop_lmdb_cache, get_or_open_env, get_wad_env, hashes_present};
-use flint_core::hash::ProjectHashOverlay;
+use flint_core::overlay::ProjectHashOverlay;
 use flint_core::wad::cache::WadCache;
 use flint_core::wad_jade::format::WadChunk;
 use parking_lot::RwLock;
@@ -302,7 +302,7 @@ impl HashOverlayState {
 #[cfg(test)]
 mod hash_overlay_state_tests {
     use super::*;
-    use flint_core::hash::ProjectHashOverlay;
+    use flint_core::overlay::ProjectHashOverlay;
 
     /// Overlay entries must satisfy `key == wad_chunk_hash(value)`; the
     /// canonical hash function itself is crate-private to flint-core, so tests

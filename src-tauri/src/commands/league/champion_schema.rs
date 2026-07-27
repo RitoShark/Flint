@@ -6,7 +6,8 @@ use tauri::{AppHandle, Emitter};
 use walkdir::WalkDir;
 
 use crate::state::LmdbCacheState;
-use flint_core::bin::codec::{get_cached_bin_hashes, read_bin, MAX_BIN_SIZE};
+use flint_core::bin::codec::{read_bin, MAX_BIN_SIZE};
+use flint_core::bin::get_cached_bin_hashes;
 use flint_core::bin::{classify_bin, BinCategory};
 use flint_core::hash::{get_hash_dir, resolve_hashes_lmdb_bulk, ResolvedHashes};
 use flint_core::hash::HashMapper;

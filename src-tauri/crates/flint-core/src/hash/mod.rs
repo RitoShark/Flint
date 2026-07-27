@@ -1,8 +1,6 @@
 pub mod downloader;
 pub mod lmdb_cache;
-pub mod overlay;
-pub mod bin_refs;
-pub mod resolver;
+pub mod bin_dict;
 
 pub use downloader::{download_hashes, get_hash_dir, get_ritoshark_hash_dir, hashes_present, DownloadStats};
 pub use lmdb_cache::{
@@ -14,9 +12,7 @@ pub use lmdb_cache::{
 /// WAD-LMDB resolver.
 pub use lmdb_cache::ResolvedHashes;
 
-pub use overlay::{build_overlay, collect_bin_asset_refs, collect_disk_paths, ProjectHashOverlay};
 
-pub use resolver::HashResolver;
 
 /// Hash-to-name dictionary used when printing BIN in its text form.
 pub use ritoshark::hash::HashMapper;

@@ -3,7 +3,7 @@
 //! project-aware call sites attach one.
 
 use crate::hash::lmdb_cache::{get_wad_env, resolve_hashes_lmdb, resolve_hashes_lmdb_bulk, ResolvedHashes};
-use crate::hash::overlay::ProjectHashOverlay;
+use crate::overlay::overlay::ProjectHashOverlay;
 use std::sync::Arc;
 
 /// Owns the global hash environment plus an optional project overlay.

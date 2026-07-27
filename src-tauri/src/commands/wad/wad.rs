@@ -1,4 +1,5 @@
-use flint_core::hash::{HashResolver, ResolvedHashes};
+use flint_core::overlay::HashResolver;
+use flint_core::hash::ResolvedHashes;
 use flint_core::wad_jade::adapter::WadHandle as WadReader;
 use crate::state::{HashOverlayState, LmdbCacheState, WadCacheState};
 use crate::core::ipc_trace;

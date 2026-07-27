@@ -11,7 +11,7 @@ use flint_core::export::Modpkg;
 use crate::commands::import_export::fantome_import::{
     extract_champion_from_paths, extract_skin_id_from_path, is_unresolved_hash, ImportOptions,
 };
-use flint_core::hash::{HashResolver, ProjectHashOverlay};
+use flint_core::overlay::{HashResolver, ProjectHashOverlay};
 use flint_core::project::Project;
 use crate::state::HashOverlayState;
 

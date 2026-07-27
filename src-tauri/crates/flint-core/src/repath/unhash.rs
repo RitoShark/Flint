@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use walkdir::WalkDir;
-use crate::hash::bin_refs::collect_referenced_assets;
+use crate::overlay::bin_refs::collect_referenced_assets;
 
 /// Result of the unhash pass.
 #[derive(Debug, Default, Clone)]
