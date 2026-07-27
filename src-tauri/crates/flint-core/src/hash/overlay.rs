@@ -29,7 +29,7 @@ impl ProjectHashOverlay {
     pub fn insert_wad(&mut self, hash: u64, path: &str) {
         debug_assert_eq!(
             hash,
-            crate::export::wad_chunk_hash(path),
+            crate::hash::wad_chunk_hash(path),
             "overlay entries must satisfy key == wad_chunk_hash(value) — this is what makes \
              attaching an overlay to any WAD resolution safe"
         );
@@ -99,7 +99,7 @@ pub fn collect_disk_paths(project_path: &Path, overlay: &mut ProjectHashOverlay)
             continue;
         }
         let Some(rel) = wad_relative(path, project_path) else { continue };
-        overlay.insert_wad(crate::export::wad_chunk_hash(&rel), &rel);
+        overlay.insert_wad(crate::hash::wad_chunk_hash(&rel), &rel);
     }
 }
 
@@ -113,7 +113,7 @@ pub fn collect_bin_asset_refs(project_path: &Path, overlay: &mut ProjectHashOver
         return;
     };
 
-    for asset in crate::repath::unhash::collect_referenced_assets(&content) {
+    for asset in crate::hash::bin_refs::collect_referenced_assets(&content) {
         if let Some(path) = asset.path {
             overlay.insert_wad(asset.hash, &path);
         }
@@ -248,7 +248,7 @@ mod tests {
     #[test]
     fn overlay_round_trips_wad_entries() {
         let mut o = ProjectHashOverlay::new();
-        let hash = crate::export::wad_chunk_hash("assets/characters/test/x.dds");
+        let hash = crate::hash::wad_chunk_hash("assets/characters/test/x.dds");
         o.insert_wad(hash, "assets/characters/test/x.dds");
 
         assert_eq!(o.wad_get(hash), Some("assets/characters/test/x.dds"));
@@ -329,7 +329,7 @@ mod tests {
         std::fs::create_dir_all(dir.path().join(".flint")).unwrap();
 
         let mut o = ProjectHashOverlay::new();
-        let hash = crate::export::wad_chunk_hash("assets/characters/test/x.dds");
+        let hash = crate::hash::wad_chunk_hash("assets/characters/test/x.dds");
         o.insert_wad(hash, "assets/characters/test/x.dds");
         let fp = OverlayFingerprint { file_count: 3, max_mtime_secs: 99, path_set_hash: 7 };
 
@@ -471,7 +471,7 @@ mod tests {
         // key must still be the real hash of its value to satisfy the
         // overlay's invariant.
         let fingerprint = OverlayFingerprint::compute(dir.path());
-        let sentinel_hash = crate::export::wad_chunk_hash("assets/planted/sentinel.dds");
+        let sentinel_hash = crate::hash::wad_chunk_hash("assets/planted/sentinel.dds");
         let mut planted = ProjectHashOverlay::new();
         for (hash, path) in first.wad_iter() {
             planted.insert_wad(hash, path);

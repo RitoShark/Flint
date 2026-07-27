@@ -12,16 +12,7 @@ fn is_unresolved_hash(path: &str) -> bool {
     name.len() == 16 && name.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-/// Canonical WAD path-hash: xxh64 of the **lowercased** forward-slash path.
-///
-/// This MUST lowercase before hashing — the game, the LMDB hash tables, and
-/// every unhash tool key on `xxh64(lowercase)` (see `hash_scanner::xxhash_path`
-/// and Quartz's `WadChunkBuilder::with_path`). Hashing a mixed-case path yields
-/// a chunk the game can't find and no tool can reverse from the (lowercase)
-/// string stored in the BIN.
-pub(crate) fn wad_chunk_hash(wad_path: &str) -> u64 {
-    xxhash_rust::xxh64::xxh64(wad_path.to_lowercase().as_bytes(), 0)
-}
+use crate::hash::wad_chunk_hash;
 
 /// Builds a valid WAD v3.4 binary (zstd-compressed, deduplicated chunks) from a
 /// `.wad.client` directory.
