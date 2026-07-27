@@ -34,6 +34,8 @@ export const SettingsModal: React.FC = () => {
     const closeModal = useModalStore((s) => s.closeModal);
     const openModal = useModalStore((s) => s.openModal);
     const activeModal = useModalStore((s) => s.activeModal);
+    const setCloseGuard = useModalStore((s) => s.setCloseGuard);
+    const openConfirmDialog = useModalStore((s) => s.openConfirmDialog);
     const showToast = useNotificationStore((s) => s.showToast);
     const hashesLoaded = useAppMetadataStore((s) => s.hashesLoaded);
     const hashCount = useAppMetadataStore((s) => s.hashCount);
@@ -96,26 +98,74 @@ export const SettingsModal: React.FC = () => {
 
     const isVisible = activeModal === 'settings';
 
+    // Seed the form from the store when the modal opens. Keyed on `isVisible`
+    // alone and read through getState(): keying it on the individual store values
+    // (as this once did) re-ran the whole reset mid-edit, and since picking a
+    // theme writes `selectedTheme` live, that silently reverted in-progress edits.
     useEffect(() => {
         if (!isVisible) return;
-        setLeaguePath(configStore.leaguePath || '');
-        setLeaguePathPbe(configStore.leaguePathPbe || '');
-        setDefaultProjectPath(configStore.defaultProjectPath || '');
-        setCreatorName(configStore.creatorName || '');
-        setCreatorDescription(configStore.creatorDescription || '');
-        setCreatorHome(configStore.creatorHome || '');
-        setCreatorTip(configStore.creatorTip || '');
-        setAutoUpdateEnabled(configStore.autoUpdateEnabled);
-        setVerboseLogging(verboseLoggingStore);
-        setLtkManagerModPath(configStore.ltkManagerModPath || '');
-        setAutoSyncToLauncher(configStore.autoSyncToLauncher);
-        setCelestialPath(configStore.celestialModPath || '');
-        setPreferredLauncher(configStore.preferredLauncher);
-        setJadePath(configStore.jadePath || '');
-        setQuartzPath(configStore.quartzPath || '');
+        const c = useConfigStore.getState();
+        setLeaguePath(c.leaguePath || '');
+        setLeaguePathPbe(c.leaguePathPbe || '');
+        setDefaultProjectPath(c.defaultProjectPath || '');
+        setCreatorName(c.creatorName || '');
+        setCreatorDescription(c.creatorDescription || '');
+        setCreatorHome(c.creatorHome || '');
+        setCreatorTip(c.creatorTip || '');
+        setAutoUpdateEnabled(c.autoUpdateEnabled);
+        setVerboseLogging(useAppMetadataStore.getState().verboseLogging);
+        setLtkManagerModPath(c.ltkManagerModPath || '');
+        setAutoSyncToLauncher(c.autoSyncToLauncher);
+        setCelestialPath(c.celestialModPath || '');
+        setPreferredLauncher(c.preferredLauncher);
+        setJadePath(c.jadePath || '');
+        setQuartzPath(c.quartzPath || '');
         getVersion().then(setCurrentVersion).catch(() => setCurrentVersion('0.0.0'));
         api.getFileAssociationStatus().then(setAssocStatus).catch(() => {});
-    }, [isVisible, configStore.leaguePath, configStore.leaguePathPbe, configStore.defaultProjectPath, configStore.creatorName, configStore.creatorDescription, configStore.creatorHome, configStore.creatorTip, configStore.autoUpdateEnabled, verboseLoggingStore, configStore.ltkManagerModPath, configStore.autoSyncToLauncher, configStore.jadePath, configStore.quartzPath, configStore.selectedTheme]);
+    }, [isVisible]);
+
+    const isDirty =
+        leaguePath !== (configStore.leaguePath || '')
+        || leaguePathPbe !== (configStore.leaguePathPbe || '')
+        || defaultProjectPath !== (configStore.defaultProjectPath || '')
+        || creatorName !== (configStore.creatorName || '')
+        || creatorDescription !== (configStore.creatorDescription || '')
+        || creatorHome !== (configStore.creatorHome || '')
+        || creatorTip !== (configStore.creatorTip || '')
+        || autoUpdateEnabled !== configStore.autoUpdateEnabled
+        || verboseLogging !== verboseLoggingStore
+        || ltkManagerModPath !== (configStore.ltkManagerModPath || '')
+        || autoSyncToLauncher !== configStore.autoSyncToLauncher
+        || celestialPath !== (configStore.celestialModPath || '')
+        || preferredLauncher !== configStore.preferredLauncher
+        || jadePath !== (configStore.jadePath || '')
+        || quartzPath !== (configStore.quartzPath || '');
+
+    // Nothing here is written to the store until "Save Settings", so an
+    // unguarded close silently discards the edit. The guard lives on the store
+    // because Escape reaches closeModal directly through the `modal.close`
+    // shortcut, bypassing this modal's own onClose.
+    useEffect(() => {
+        if (!isVisible || !isDirty) {
+            setCloseGuard(null);
+            return;
+        }
+        setCloseGuard(() => {
+            openConfirmDialog({
+                title: 'Unsaved Settings',
+                message: "You've changed settings but haven't saved them. Closing now discards those changes.",
+                confirmLabel: 'Discard Changes',
+                cancelLabel: 'Keep Editing',
+                danger: true,
+                onConfirm: () => {
+                    setCloseGuard(null);
+                    closeModal();
+                },
+            });
+            return true;
+        });
+        return () => setCloseGuard(null);
+    }, [isVisible, isDirty, setCloseGuard, openConfirmDialog, closeModal]);
 
     useEffect(() => {
         const unlisten = listen<SchemaProgress>('schema-progress', (event) => {
@@ -447,6 +497,9 @@ export const SettingsModal: React.FC = () => {
 
         api.setLogLevel(verboseLogging).catch(() => {});
         showToast('success', 'Settings saved');
+        // The store writes above haven't re-rendered yet, so `isDirty` — and the
+        // guard built from it — is still stale. Drop it before closing.
+        setCloseGuard(null);
         closeModal();
     };
 
