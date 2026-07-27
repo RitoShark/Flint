@@ -24,6 +24,7 @@
  *   - file           — file IO + management + folder grid
  *   - texture        — DDS/TEX/PNG conversions + preview decoding
  *   - mesh           — SKN/SCB/SKL/animation
+ *   - animask        — animation mask blend weights
  *   - audio          — BNK/WPK editor
  *   - checkpoint     — project history
  *   - export         — fantome / modpkg export
@@ -58,6 +59,7 @@ export * from './binSplit';
 export * from './file';
 export * from './texture';
 export * from './mesh';
+export * from './animask';
 export * from './audio';
 export * from './checkpoint';
 export * from './export';
