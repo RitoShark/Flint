@@ -40,11 +40,10 @@ pub struct MaskDocument {
     pub skeleton_joint_count: usize,
 }
 
-/// Pair weights with joint names, or refuse to if the lengths disagree.
+/// Pair weights with joint names. Returns `(rows, mismatched)`.
 ///
-/// Returns `(rows, mismatched)`. On mismatch every weight is still returned and
-/// still editable — only the names are withheld, because index `i` no longer
-/// provably refers to bone `i`.
+/// On a length mismatch every weight is still returned and editable; only the
+/// names are withheld, since index `i` no longer provably refers to bone `i`.
 pub fn pair_with_joints(weights: &[f32], bones: &[BoneData]) -> (Vec<JointWeight>, bool) {
     let mismatched = weights.len() != bones.len();
 
@@ -67,12 +66,8 @@ pub fn pair_with_joints(weights: &[f32], bones: &[BoneData]) -> (Vec<JointWeight
 
 /// Read the masks in `bin_path`, paired with joint names from `skl_path`.
 ///
-/// `skl_path` is optional: when omitted, the skeleton is resolved from the
-/// BIN itself via `resolve_skl_for_animation_bin` (the animations/ -> skins/
-/// sibling swap, then that skin's `skeleton`). Skeleton resolution is skipped
-/// entirely when the BIN has no mask map — the common case for any BIN that
-/// isn't an animation graph — which is also what makes this command cheap
-/// enough to use as a "does this BIN have masks?" probe.
+/// Omit `skl_path` to resolve the skeleton from the BIN itself. Resolution is
+/// skipped entirely when the BIN has no mask map.
 #[tauri::command]
 pub async fn read_animation_masks(
     bin_path: String,
@@ -120,19 +115,10 @@ pub async fn read_animation_masks(
     })
 }
 
-/// Cheap presence probe: does this BIN have an `mMaskDataMap` at all?
+/// Presence probe: does this BIN have an `mMaskDataMap`?
 ///
-/// Deliberately does NOT resolve or parse a skeleton — only `read_bin` +
-/// `flint_core::bin::read_masks`, so it stays cheap enough to call for every
-/// BIN opened in the editor (VFX/material/mesh BINs included) without paying
-/// for skeleton resolution on files that were never going to need it.
-///
-/// This is also why detection is a separate command from `read_animation_masks`
-/// rather than reusing it: if this probe piggybacked on skeleton resolution, a
-/// real animation-graph BIN whose skeleton fails to resolve (unusual project
-/// layout) would read as "no masks" and its panel would never be offered —
-/// even though the masks are real and `read_animation_masks` could still
-/// report the failure usefully once the user actually opens the panel.
+/// Skips skeleton resolution deliberately — cheap enough to run on every BIN
+/// opened, and a skeleton that fails to resolve must not hide a real mask map.
 #[tauri::command]
 pub async fn bin_has_animation_masks(bin_path: String) -> Result<bool, String> {
     let _t = ipc_trace::enter("bin_has_animation_masks");

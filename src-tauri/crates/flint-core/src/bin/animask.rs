@@ -1,8 +1,4 @@
-//! Read and write `mMaskDataMap` — the per-joint animation blend weights held
-//! in an animation BIN.
-//!
-//! Layout reverse-engineered from `LeagueofLegends.x86_64.exe` 16.13 and
-//! cross-checked against LtMAO's `sborf`:
+//! Read and write `mMaskDataMap` — per-joint animation blend weights.
 //!
 //! ```text
 //! AnimationGraphData (0xf5fb07c7)
@@ -12,10 +8,7 @@
 //!             └─ mWeightList  (0xa3c80380) : list[f32]
 //! ```
 //!
-//! `mWeightList` is a flat, positionally-indexed float list: entry `i` is the
-//! blend weight of joint `i` **in the SKL's own joint order**. It is not a
-//! (jointHash, weight) map — the type registrar writes BIN type code 10
-//! (`BinType::F32`) with element size 4.
+//! `mWeightList` is positional: entry `i` is joint `i` in SKL order.
 
 use ritoshark::bin::{Bin, BinValue};
 
@@ -105,17 +98,10 @@ pub fn read_masks(bin: &Bin) -> Vec<MaskEntry> {
         .collect()
 }
 
-/// Overwrite the weights of the named masks, leaving every other mask alone.
+/// Overwrite the named masks' weights, leaving every other mask alone.
 ///
-/// **All-or-nothing.** Every mask is validated before any is mutated, so an
-/// error leaves `bin` untouched. Mutating as we go would mean a batch like
-/// `[valid, missing]` half-applies and *then* returns an error that reads like
-/// nothing happened — silently drifting the caller's file, which is exactly
-/// what erroring on a missing key exists to prevent.
-///
-/// Returns how many masks were written. A mask key that is not in the BIN is an
-/// error rather than a silent no-op — it means the caller's view of the file has
-/// drifted, and silently discarding an edit is worse than refusing it.
+/// All-or-nothing: every mask is validated before any is mutated, so an error
+/// leaves `bin` untouched. An unknown mask key is an error, not a no-op.
 pub fn write_masks(bin: &mut Bin, masks: &[MaskEntry]) -> Result<usize, String> {
     let Some(entries) = mask_map_mut(bin) else {
         return Err("This BIN has no mMaskDataMap (not an animation graph).".to_string());

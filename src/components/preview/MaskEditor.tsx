@@ -11,35 +11,18 @@ interface MaskEditorProps {
     sklPath?: string;
 }
 
-/** Per-level hierarchy indent, in px — tight enough to keep a dense grid scannable. */
 const INDENT_STEP_PX = 12;
-/** Indent stops growing past this depth so a deeply-nested joint (real
- *  skeletons can run past depth 10) never pushes its slider and number box
- *  off the right edge of a narrow panel — it just stops indenting further. */
+/** Indent caps here so deep joints don't push the slider off a narrow panel. */
 const MAX_INDENT_DEPTH = 8;
 
-/** Clamp to the valid weight range; slider and numeric input share this. */
 function clampWeight(value: number): number {
     return Math.min(1, Math.max(0, value));
 }
 
 /**
- * Render a weight exactly as LtMAO does, so values can be compared side by side.
- *
- * Weights are f32 on disk. Rust serialises an f32 with the SHORTEST decimal
- * string that round-trips it, so `0.64` arrives here as literally `0.64` —
- * there are no extra digits in the JSON to show. LtMAO is Python, where
- * `struct.unpack('<f', ...)` widens the f32 into a float64 and printing that
- * reveals the stored value in full: `0.6399999856948853`.
- *
- * `Math.fround` reproduces that exactly: it rounds our f64 to the nearest f32
- * and hands it back widened, and because the incoming string is guaranteed to
- * round-trip the original f32, the result is bit-identical to what Python read.
- * No backend or IPC change is needed to recover the digits.
- *
- * The `.0` suffix matches Python's float repr, which keeps the column uniform
- * (every row shows a decimal point). The integer test guards exponent form —
- * `1e-7` must not become `1e-7.0`.
+ * Weights are f32 on disk. `Math.fround` widens back to the stored value
+ * (`0.64` → `0.6399999856948853`) so it matches other mask tools digit for
+ * digit. The integer test guards exponent form: `1e-7` must not gain `.0`.
  */
 function formatWeight(value: number): string {
     const text = String(Math.fround(value));
@@ -50,21 +33,12 @@ function formatMaskKey(key: number): string {
     return `0x${(key >>> 0).toString(16).padStart(8, '0')}`;
 }
 
-/** True when this mask's weights could not be paired to joint names —
- *  the backend withholds names for every row in a mask, all-or-nothing,
- *  whenever that mask's weight count disagrees with the skeleton's. */
+/** Names are withheld all-or-nothing when a mask's weight count != joint count. */
 function isMismatched(mask: MaskView): boolean {
     return mask.joints.some((j) => j.name === null);
 }
 
-/**
- * Depth of `joint` in the hierarchy, walked via `parentIndex`.
- *
- * Uses a visited set so a cyclic `parentIndex` in a corrupt file terminates
- * instead of hanging the UI — a cycle is detected the moment we'd revisit a
- * node, and we just stop climbing (rendering that joint unindented) rather
- * than looping forever.
- */
+/** Depth via `parentIndex`. Visited set so a cyclic parent can't hang the UI. */
 function jointDepth(index: number, byIndex: Map<number, JointWeight>): number {
     const visited = new Set<number>();
     let current: number | null = index;

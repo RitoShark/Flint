@@ -127,6 +127,12 @@ git commit -m "feat(scope): short imperative message"
 
 ---
 
+## Credits
+
+- **[LtMAO](https://github.com/tarngaina/LtMAO)** by [tarngaina](https://github.com/tarngaina) — the long-running toolpack most League modders learned on. Its `animask_viewer` and `sborf` were the reference for Flint's animation mask editor, and confirmed that `mWeightList` is indexed by SKL joint order.
+
+---
+
 ## License
 
 [MIT](LICENSE) — do whatever, just don't sue.
