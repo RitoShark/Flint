@@ -75,6 +75,10 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({ binPath, sklPath }) => {
         return doc.masks.find((m) => m.key === selectedKey) ?? null;
     }, [doc, selectedKey]);
 
+    // Derived per-mask rather than read off `doc.jointCountMismatch` directly:
+    // that flag is an OR across every mask in the document, so a document
+    // containing one broken mask and one healthy one would otherwise make
+    // the healthy mask's pane show a warning (and hide its real names) too.
     const mismatched = selectedMask ? isMismatched(selectedMask) : false;
 
     const depthByIndex = useMemo(() => {
@@ -190,6 +194,9 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({ binPath, sklPath }) => {
                                         different skeleton.
                                     </span>
                                 </div>
+                            )}
+                            {selectedMask.joints.length === 0 && (
+                                <div style={{ padding: 10, opacity: 0.6, fontSize: 12 }}>This mask has no weights.</div>
                             )}
                             {selectedMask.joints.map((joint) => (
                                 <div
