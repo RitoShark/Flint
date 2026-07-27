@@ -11,7 +11,7 @@
     flex-direction: column;
     height: 100%;
     background: var(--bg);
-    color: var(--text);
+    color: var(--text, var(--text-primary));
 }
 
 /* Header — the Save button must never be clipped; only the descriptive
@@ -61,7 +61,7 @@
     flex-shrink: 0;
     border-right: 1px solid var(--border);
     overflow-y: auto;
-    background: var(--bg-2);
+    background: var(--bg-2, var(--bg-secondary));
 }
 
 .mask-editor__mask-row {
@@ -81,7 +81,7 @@
 }
 
 .mask-editor__mask-row.is-selected {
-    background: var(--accent-bg);
+    background: var(--accent-bg, rgba(239, 68, 68, 0.14));
     box-shadow: inset 2px 0 0 var(--accent);
 }
 
@@ -167,7 +167,7 @@
 }
 
 .mask-editor__row:nth-child(even) {
-    background: var(--bg-2);
+    background: var(--bg-2, var(--bg-secondary));
 }
 
 .mask-editor__row:hover {
@@ -236,10 +236,10 @@
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
     font-size: 12px;
-    background: var(--bg-2);
+    background: var(--bg-2, var(--bg-secondary));
     border: 1px solid var(--border);
     border-radius: 4px;
-    color: var(--text);
+    color: var(--text, var(--text-primary));
 }
 
 /* Compact button variant for Subtree / Set all / Invert, sized to fit a
