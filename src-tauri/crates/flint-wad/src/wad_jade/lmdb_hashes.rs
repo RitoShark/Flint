@@ -119,7 +119,7 @@ pub fn resolve_wad(hash: u64, hash_dir: &Path) -> String {
     let Some(env) = clone_wad_env(hash_dir) else {
         return format!("{:016x}", hash);
     };
-    let Some(db) = crate::hash::lmdb_cache::cached_db(&env, "wad") else {
+    let Some(db) = flint_hash::hash::lmdb_cache::cached_db(&env, "wad") else {
         return format!("{:016x}", hash);
     };
     let Ok(rtxn) = env.read_txn() else {
@@ -158,7 +158,7 @@ pub fn resolve_wad_bulk(hashes: &[u64], hash_dir: &Path) -> HashMap<u64, String>
         }
         return out;
     };
-    let db = match crate::hash::lmdb_cache::cached_db(&env, "wad") {
+    let db = match flint_hash::hash::lmdb_cache::cached_db(&env, "wad") {
         Some(db) => db,
         None => {
             for &h in hashes {
@@ -202,7 +202,7 @@ pub fn lookup_bin(hash: u32, hash_dir: &Path) -> Option<Arc<str>> {
 
     let env = clone_bin_env(hash_dir)?;
     let result: Option<Arc<str>> = (|| {
-        let db = crate::hash::lmdb_cache::cached_db(&env, "bin")?;
+        let db = flint_hash::hash::lmdb_cache::cached_db(&env, "bin")?;
         let rtxn = env.read_txn().ok()?;
         let bytes = db.get(&rtxn, &hash.to_be_bytes()[..]).ok().flatten()?;
         Some(Arc::from(bytes))
@@ -232,7 +232,7 @@ pub fn lookup_wad(hash: u64, hash_dir: &Path) -> Option<Arc<str>> {
 
     let env = clone_wad_env(hash_dir)?;
     let result: Option<Arc<str>> = (|| {
-        let db = crate::hash::lmdb_cache::cached_db(&env, "wad")?;
+        let db = flint_hash::hash::lmdb_cache::cached_db(&env, "wad")?;
         let rtxn = env.read_txn().ok()?;
         let bytes = db.get(&rtxn, &hash.to_be_bytes()[..]).ok().flatten()?;
         Some(Arc::from(bytes))

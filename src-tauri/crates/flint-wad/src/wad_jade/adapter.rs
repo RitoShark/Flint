@@ -2,8 +2,8 @@
 //! `.get_chunk(hash)`, `.wad_mut()`), the `WadChunks` collection, and the
 //! `extract_chunks_parallel` / `extract_chunk` / `find_champion_wad` helpers.
 
-use crate::error::{Error, Result};
-use crate::hash::ResolvedHashes;
+use flint_hash::error::{Error, Result};
+use flint_hash::hash::ResolvedHashes;
 use crate::wad_jade::chunk_io::read_chunk_decompressed_bytes;
 use crate::wad_jade::format::WadChunk;
 use crate::wad_jade::reader::{read_wad_toc, WadToc};

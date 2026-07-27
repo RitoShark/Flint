@@ -1608,6 +1608,7 @@ dependencies = [
  "flint-formats",
  "flint-hash",
  "flint-net",
+ "flint-wad",
  "futures",
  "heed",
  "image",
@@ -1688,6 +1689,32 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "zstd 0.12.4",
+]
+
+[[package]]
+name = "flint-wad"
+version = "0.1.0"
+dependencies = [
+ "byteorder",
+ "chrono",
+ "dashmap",
+ "flate2",
+ "flint-bin",
+ "flint-hash",
+ "heed",
+ "memmap2",
+ "parking_lot",
+ "rayon",
+ "reqwest",
+ "ritoshark",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+ "walkdir",
+ "xxhash-rust",
  "zstd 0.12.4",
 ]
 

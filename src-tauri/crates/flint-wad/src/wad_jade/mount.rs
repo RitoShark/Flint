@@ -1,11 +1,11 @@
 //! Mount registry — keeps parsed WAD TOCs alive between Tauri command
 //! calls so the frontend can navigate without re-parsing on every click.
 
-use crate::hash::downloader::get_hash_dir;
+use flint_hash::hash::downloader::get_hash_dir;
 use crate::wad_jade::format::{WadChunk, WadVersion};
 use crate::wad_jade::lmdb_hashes::resolve_wad_bulk;
 use crate::wad_jade::reader::{read_wad_toc, WadToc};
-use crate::error::Result;
+use flint_hash::error::Result;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::PathBuf;

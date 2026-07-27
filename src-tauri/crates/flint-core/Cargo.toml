@@ -50,6 +50,7 @@ flint-formats = { path = "../flint-formats" }
 flint-hash = { path = "../flint-hash" }
 flint-net = { path = "../flint-net" }
 flint-bin = { path = "../flint-bin" }
+flint-wad = { path = "../flint-wad" }
 
 
 # Hematite fixer: REMOVED 2026-07-14 (skin fixing disabled; owner is reworking

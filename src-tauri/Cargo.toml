@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/flint-core", "crates/flint-formats", "crates/flint-hash", "crates/flint-net", "crates/flint-bin", "crates/ltk_inibin", "crates/hematite-flint"]
+members = [".", "crates/flint-core", "crates/flint-formats", "crates/flint-hash", "crates/flint-net", "crates/flint-bin", "crates/flint-wad", "crates/ltk_inibin", "crates/hematite-flint"]
 
 [package]
 name = "flint"

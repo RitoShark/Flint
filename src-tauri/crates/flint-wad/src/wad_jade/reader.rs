@@ -1,7 +1,7 @@
 //! Custom WAD parser — header + TOC only. No decompression.
 
 use crate::wad_jade::format::{WadChunk, WadCompression, WadVersion};
-use crate::error::{Error, Result};
+use flint_hash::error::{Error, Result};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};

@@ -1,0 +1,32 @@
+[package]
+name = "flint-wad"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+flint-hash = { path = "../flint-hash" }
+flint-bin = { path = "../flint-bin" }
+
+tracing = "0.1"
+walkdir = "2.4"
+parking_lot = "0.12"
+rayon = "1.10"
+rustc-hash = "2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+xxhash-rust = { version = "0.8", features = ["xxh64"] }
+
+# Whole-archive reads are mmapped; chunks are gzip or zstd framed.
+memmap2 = "0.9"
+flate2 = "1.0"
+zstd = "0.12"
+heed = "0.20"
+dashmap = "6"
+byteorder = "1.4"
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls-no-provider"] }
+
+ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "daff556", features = ["rman-verify"] }
+
+[dev-dependencies]
+tempfile = "3"

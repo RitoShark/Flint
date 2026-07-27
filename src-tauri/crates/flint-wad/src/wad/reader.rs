@@ -1,4 +1,4 @@
-use crate::error::{Error, Result};
+use flint_hash::error::{Error, Result};
 use ritoshark::prelude::*;
 use ritoshark::wad::{Wad, WadChunk};
 #[cfg(test)]

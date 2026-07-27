@@ -1,5 +1,5 @@
-use crate::error::{Error, Result};
-use crate::hash::ResolvedHashes;
+use flint_hash::error::{Error, Result};
+use flint_hash::hash::ResolvedHashes;
 use ritoshark::bin::BinValue;
 use ritoshark::file::{detect, FileKind};
 use ritoshark::prelude::*;
@@ -607,7 +607,7 @@ pub fn extract_skin_assets_selective(
         };
         want_paths.insert(bin_path.clone());
 
-        let bin = match crate::bin::codec::read_bin(&bytes) {
+        let bin = match flint_bin::codec::read_bin(&bytes) {
             Ok(b) => b,
             Err(e) => {
                 tracing::warn!("[selective] failed to parse {}: {}", bin_path, e);

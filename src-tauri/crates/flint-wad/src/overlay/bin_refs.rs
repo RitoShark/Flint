@@ -19,8 +19,8 @@ const ASSET_EXTS: &[&str] = &[
 /// `File` is the only `BinValue` variant that holds a u64 WAD-style xxh64 file
 /// reference.  `Hash(u32)` and `Link(u32)` are FNV1a-32 entry/type hashes —
 /// NOT file path hashes — so they are intentionally skipped.
-fn collect_file_hashes_from_value(value: &crate::bin::BinValue, set: &mut HashSet<u64>) {
-    use crate::bin::BinValue;
+fn collect_file_hashes_from_value(value: &flint_bin::BinValue, set: &mut HashSet<u64>) {
+    use flint_bin::BinValue;
     match value {
         BinValue::File(h) => { set.insert(*h); }
         BinValue::List { items, .. } => {
@@ -81,7 +81,7 @@ pub fn collect_referenced_assets(wad_root: &Path) -> Vec<ReferencedAsset> {
 
         // --- Structured pass: parse the binary BIN and extract File(u64). ---
         // Ignore parse errors; the byte-scan below acts as a fallback.
-        if let Ok(bin) = crate::bin::read_bin(&bytes) {
+        if let Ok(bin) = flint_bin::read_bin(&bytes) {
             let mut hashes: HashSet<u64> = HashSet::new();
             for entry in &bin.entries {
                 for value in entry.fields.values() {

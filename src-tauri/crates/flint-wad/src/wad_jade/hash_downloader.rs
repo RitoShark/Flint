@@ -4,7 +4,7 @@
 //! (`hashes-wad.lmdb` + `hashes-bin.lmdb`). The installed release tag is
 //! stamped into `hashes-meta.json` and compared against the latest release.
 
-use crate::error::{Error, Result};
+use flint_hash::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
