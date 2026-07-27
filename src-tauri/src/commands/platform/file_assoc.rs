@@ -474,7 +474,11 @@ mod verb_tests {
     }
 
     #[test]
-    fn every_verb_command_carries_its_flag_and_the_path_placeholder() {
+    fn every_verb_arg_is_a_flag() {
+        // Only the table's `arg` is checked here. The full command string —
+        // `"<exe>" <flag> "%1"` — is assembled inside the registration
+        // functions and is covered by the manual registry round-trip, not by
+        // this test. Naming it for the placeholder would overstate it.
         for verb in FILE_VERBS.iter().chain(DIRECTORY_VERBS.iter()) {
             assert!(
                 verb.arg.starts_with("--"),
