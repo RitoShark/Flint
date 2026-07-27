@@ -37,6 +37,64 @@ const ASSOCS: &[AssocSpec] = &[
     AssocSpec { ext: ".fantome",    prog_id: "Flint.FantomeFile",    description: "Fantome Mod Package" },
 ];
 
+/// One context-menu verb. `verb_key` is the registry subkey under
+/// `…\shell\`; `mui_verb` is the label Explorer shows.
+struct VerbSpec {
+    verb_key: &'static str,
+    mui_verb: &'static str,
+    /// The flag passed before `"%1"`.
+    arg: &'static str,
+    /// Which ProgID this verb attaches to. Unused for directory verbs.
+    prog_id: &'static str,
+}
+
+/// Verbs attached to our file ProgIDs.
+const FILE_VERBS: &[VerbSpec] = &[
+    VerbSpec {
+        verb_key: "Flint.ExtractWad",
+        mui_verb: "Extract WAD here",
+        arg: "--extract-wad",
+        prog_id: "Flint.WadFile",
+    },
+    VerbSpec {
+        verb_key: "Flint.ExtractWad",
+        mui_verb: "Extract WAD here",
+        arg: "--extract-wad",
+        prog_id: "Flint.WadClientFile",
+    },
+    VerbSpec {
+        verb_key: "Flint.ImportMod",
+        mui_verb: "Import mod into Flint",
+        arg: "--import-mod",
+        prog_id: "Flint.FantomeFile",
+    },
+    VerbSpec {
+        verb_key: "Flint.ImportMod",
+        mui_verb: "Import mod into Flint",
+        arg: "--import-mod",
+        prog_id: "Flint.ModPkgFile",
+    },
+];
+
+/// Verbs attached to `Directory`. On Windows 11 these appear under
+/// "Show more options" — reaching the primary menu would require an
+/// IExplorerCommand handler in a sparse MSIX package, which was
+/// deliberately not taken on.
+const DIRECTORY_VERBS: &[VerbSpec] = &[
+    VerbSpec {
+        verb_key: "Flint.PackWad",
+        mui_verb: "Pack folder to WAD",
+        arg: "--pack-wad",
+        prog_id: "",
+    },
+    VerbSpec {
+        verb_key: "Flint.OpenProject",
+        mui_verb: "Open folder as Flint project",
+        arg: "--open-project",
+        prog_id: "",
+    },
+];
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssocStatus {
     pub registered: Vec<String>,
@@ -134,6 +192,26 @@ pub async fn register_file_associations() -> Result<AssocResult, String> {
                 }
             }
 
+            for verb in FILE_VERBS.iter().filter(|v| v.prog_id == spec.prog_id) {
+                let verb_path = format!(r"Software\Classes\{}\shell\{}", spec.prog_id, verb.verb_key);
+                match hkcu.create_subkey(&verb_path) {
+                    Ok((key, _)) => {
+                        let _ = key.set_value("MUIVerb", &verb.mui_verb);
+                        let _ = key.set_value("Icon", &icon_value);
+                        match key.create_subkey("command") {
+                            Ok((cmd, _)) => {
+                                let value = format!("\"{}\" {} \"%1\"", exe, verb.arg);
+                                if let Err(e) = cmd.set_value("", &value) {
+                                    errors.push(format!("{}: verb command: {}", verb.verb_key, e));
+                                }
+                            }
+                            Err(e) => errors.push(format!("{}: verb command key: {}", verb.verb_key, e)),
+                        }
+                    }
+                    Err(e) => errors.push(format!("{}: verb key: {}", verb.verb_key, e)),
+                }
+            }
+
             let ext_key_path = format!(r"Software\Classes\{}", spec.ext);
             match hkcu.create_subkey(&ext_key_path) {
                 Ok((ext_key, _)) => {
@@ -159,6 +237,26 @@ pub async fn register_file_associations() -> Result<AssocResult, String> {
             }
 
             touched.push(spec.ext.to_string());
+        }
+
+        for verb in DIRECTORY_VERBS {
+            let verb_path = format!(r"Software\Classes\Directory\shell\{}", verb.verb_key);
+            match hkcu.create_subkey(&verb_path) {
+                Ok((key, _)) => {
+                    let _ = key.set_value("MUIVerb", &verb.mui_verb);
+                    let _ = key.set_value("Icon", &icon_value);
+                    match key.create_subkey("command") {
+                        Ok((cmd, _)) => {
+                            let value = format!("\"{}\" {} \"%1\"", exe, verb.arg);
+                            if let Err(e) = cmd.set_value("", &value) {
+                                errors.push(format!("{}: verb command: {}", verb.verb_key, e));
+                            }
+                        }
+                        Err(e) => errors.push(format!("{}: verb command key: {}", verb.verb_key, e)),
+                    }
+                }
+                Err(e) => errors.push(format!("{}: verb key: {}", verb.verb_key, e)),
+            }
         }
 
         let exe_basename = std::path::Path::new(&exe)
@@ -222,7 +320,7 @@ pub async fn unregister_file_associations() -> Result<AssocResult, String> {
         use winreg::RegKey;
 
         let mut touched = Vec::new();
-        let errors = Vec::new();
+        let mut errors = Vec::new();
 
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
 
@@ -255,6 +353,20 @@ pub async fn unregister_file_associations() -> Result<AssocResult, String> {
             .unwrap_or("flint.exe");
         let app_key_path = format!(r"Software\Classes\Applications\{}", exe_basename);
         let _ = hkcu.delete_subkey_all(&app_key_path);
+
+        // ASSOCS-driven deletes above recursively remove file verbs along with
+        // their ProgID, but Directory verbs live outside any ProgID and would
+        // otherwise orphan as dead context-menu entries after uninstall.
+        for verb in DIRECTORY_VERBS {
+            let path = format!(r"Software\Classes\Directory\shell\{}", verb.verb_key);
+            // Absent keys are the normal case on a partial install; only a real
+            // failure is worth reporting.
+            match hkcu.delete_subkey_all(&path) {
+                Ok(()) => touched.push(verb.verb_key.to_string()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => errors.push(format!("{}: {}", verb.verb_key, e)),
+            }
+        }
 
         notify_shell_change();
 
@@ -341,6 +453,56 @@ pub async fn get_file_association_status() -> Result<AssocStatus, String> {
             missing,
             current_exe_path,
         })
+    }
+}
+
+#[cfg(test)]
+mod verb_tests {
+    use super::*;
+
+    #[test]
+    fn every_file_verb_targets_a_registered_progid() {
+        // A verb on a ProgID we never create would silently never appear.
+        for verb in FILE_VERBS {
+            assert!(
+                ASSOCS.iter().any(|a| a.prog_id == verb.prog_id),
+                "verb {} targets unregistered ProgID {}",
+                verb.verb_key,
+                verb.prog_id
+            );
+        }
+    }
+
+    #[test]
+    fn every_verb_command_carries_its_flag_and_the_path_placeholder() {
+        for verb in FILE_VERBS.iter().chain(DIRECTORY_VERBS.iter()) {
+            assert!(
+                verb.arg.starts_with("--"),
+                "verb {} has a non-flag arg {}",
+                verb.verb_key,
+                verb.arg
+            );
+        }
+    }
+
+    #[test]
+    fn verb_keys_are_unique_within_each_scope() {
+        // The SAME verb key deliberately appears on more than one ProgID
+        // (e.g. Extract WAD on both .wad and .wad.client), so file verbs are
+        // unique per (prog_id, verb_key) pair, not per key.
+        let mut file_keys: Vec<(&str, &str)> =
+            FILE_VERBS.iter().map(|v| (v.prog_id, v.verb_key)).collect();
+        file_keys.sort_unstable();
+        let before = file_keys.len();
+        file_keys.dedup();
+        assert_eq!(before, file_keys.len(), "duplicate (prog_id, verb_key)");
+
+        // Directory verbs share one scope, so their keys must be unique outright.
+        let mut dir_keys: Vec<&str> = DIRECTORY_VERBS.iter().map(|v| v.verb_key).collect();
+        dir_keys.sort_unstable();
+        let before = dir_keys.len();
+        dir_keys.dedup();
+        assert_eq!(before, dir_keys.len(), "duplicate directory verb key");
     }
 }
 
