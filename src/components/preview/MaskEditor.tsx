@@ -5,7 +5,8 @@ import type { JointWeight, MaskDocument, MaskView } from '../../lib/api/animask'
 
 interface MaskEditorProps {
     binPath: string;
-    sklPath: string;
+    /** Omit to let the backend resolve the skeleton from the BIN itself. */
+    sklPath?: string;
 }
 
 /** Clamp to the valid weight range; slider and numeric input share this. */

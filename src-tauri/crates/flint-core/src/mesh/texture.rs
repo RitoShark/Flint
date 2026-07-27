@@ -808,7 +808,10 @@ fn resolve_material_by_name_hash(content: &str, target: u32) -> Option<MaterialP
 }
 
 /// `start_after` should point to (or before) the opening `{`.
-fn extract_braced_block(content: &str, start_after: usize) -> Option<String> {
+///
+/// `pub(crate)` so `mesh::animation` can reuse it to isolate a single
+/// `skinMeshProperties` embed (see `extract_skeleton_from_skin_mesh_properties`).
+pub(crate) fn extract_braced_block(content: &str, start_after: usize) -> Option<String> {
     let bytes = content.as_bytes();
     let mut brace_count = 0;
     let mut block_start = None;

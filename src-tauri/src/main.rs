@@ -368,6 +368,7 @@ fn main() {
             commands::mesh::resolve_anm_skin,
             commands::animask::read_animation_masks,
             commands::animask::save_animation_masks,
+            commands::animask::bin_has_animation_masks,
             // CDN manifest browser commands
             commands::cdn::cdn_list_manifests,
             commands::cdn::cdn_list_versions,

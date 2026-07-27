@@ -5,8 +5,10 @@
 
 use crate::core::ipc_trace;
 use flint_core::bin::{read_bin, write_bin, MaskEntry};
+use flint_core::mesh::animation::resolve_skl_for_animation_bin;
 use flint_core::mesh::skl::{parse_skl_file, BoneData};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,10 +65,18 @@ pub fn pair_with_joints(weights: &[f32], bones: &[BoneData]) -> (Vec<JointWeight
     (rows, mismatched)
 }
 
+/// Read the masks in `bin_path`, paired with joint names from `skl_path`.
+///
+/// `skl_path` is optional: when omitted, the skeleton is resolved from the
+/// BIN itself via `resolve_skl_for_animation_bin` (the animations/ -> skins/
+/// sibling swap, then that skin's `skeleton`). Skeleton resolution is skipped
+/// entirely when the BIN has no mask map — the common case for any BIN that
+/// isn't an animation graph — which is also what makes this command cheap
+/// enough to use as a "does this BIN have masks?" probe.
 #[tauri::command]
 pub async fn read_animation_masks(
     bin_path: String,
-    skl_path: String,
+    skl_path: Option<String>,
 ) -> Result<MaskDocument, String> {
     let _t = ipc_trace::enter("read_animation_masks");
 
@@ -74,8 +84,24 @@ pub async fn read_animation_masks(
     let bin = read_bin(&bytes).map_err(|e| format!("Failed to parse BIN: {}", e))?;
     let masks = flint_core::bin::read_masks(&bin);
 
-    let skl = parse_skl_file(&skl_path)
-        .map_err(|e| format!("Failed to parse SKL {}: {}", skl_path, e))?;
+    if masks.is_empty() {
+        return Ok(MaskDocument {
+            masks: Vec::new(),
+            joint_count_mismatch: false,
+            skeleton_joint_count: 0,
+        });
+    }
+
+    let resolved_skl_path = match skl_path {
+        Some(p) => p,
+        None => resolve_skl_for_animation_bin(Path::new(&bin_path))
+            .map_err(|e| format!("Failed to resolve skeleton for {}: {}", bin_path, e))?
+            .to_string_lossy()
+            .into_owned(),
+    };
+
+    let skl = parse_skl_file(&resolved_skl_path)
+        .map_err(|e| format!("Failed to parse SKL {}: {}", resolved_skl_path, e))?;
 
     let mut mismatch = false;
     let views = masks
@@ -92,6 +118,28 @@ pub async fn read_animation_masks(
         joint_count_mismatch: mismatch,
         skeleton_joint_count: skl.bones.len(),
     })
+}
+
+/// Cheap presence probe: does this BIN have an `mMaskDataMap` at all?
+///
+/// Deliberately does NOT resolve or parse a skeleton — only `read_bin` +
+/// `flint_core::bin::read_masks`, so it stays cheap enough to call for every
+/// BIN opened in the editor (VFX/material/mesh BINs included) without paying
+/// for skeleton resolution on files that were never going to need it.
+///
+/// This is also why detection is a separate command from `read_animation_masks`
+/// rather than reusing it: if this probe piggybacked on skeleton resolution, a
+/// real animation-graph BIN whose skeleton fails to resolve (unusual project
+/// layout) would read as "no masks" and its panel would never be offered —
+/// even though the masks are real and `read_animation_masks` could still
+/// report the failure usefully once the user actually opens the panel.
+#[tauri::command]
+pub async fn bin_has_animation_masks(bin_path: String) -> Result<bool, String> {
+    let _t = ipc_trace::enter("bin_has_animation_masks");
+
+    let bytes = std::fs::read(&bin_path).map_err(|e| format!("Failed to read {}: {}", bin_path, e))?;
+    let bin = read_bin(&bytes).map_err(|e| format!("Failed to parse BIN: {}", e))?;
+    Ok(!flint_core::bin::read_masks(&bin).is_empty())
 }
 
 #[tauri::command]

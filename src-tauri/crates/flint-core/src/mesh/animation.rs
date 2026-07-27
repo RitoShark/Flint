@@ -383,6 +383,112 @@ pub fn resolve_skn_for_anm(anm_path: &Path) -> anyhow::Result<PathBuf> {
         .ok_or_else(|| anyhow::anyhow!("Could not resolve simpleSkin '{}' to a file on disk", simple_skin))
 }
 
+/// Swap an animation-graph BIN's `animations` path component for `skins`,
+/// keeping the filename (`skin<N>.bin`) unchanged.
+///
+/// Only the LAST `animations` component — the one nearest the file — is
+/// swapped, so a path that happens to contain "animations" earlier (e.g. as
+/// an unrelated ancestor directory name) is not rewritten there instead.
+///
+/// Returns `None` when `anim_bin` has no `animations` component at all: the
+/// sibling-swap assumption this resolver depends on doesn't hold, and the
+/// caller must fail rather than guess where a skin BIN might be.
+fn skin_bin_sibling_path(anim_bin: &Path) -> Option<PathBuf> {
+    let components: Vec<_> = anim_bin.components().collect();
+    let anim_idx = components.iter().rposition(|c| {
+        matches!(c, std::path::Component::Normal(name) if name.eq_ignore_ascii_case("animations"))
+    })?;
+
+    let mut out = PathBuf::new();
+    for (i, component) in components.iter().enumerate() {
+        if i == anim_idx {
+            out.push("skins");
+        } else {
+            out.push(component.as_os_str());
+        }
+    }
+    Some(out)
+}
+
+/// Pull `skeleton` out of a skin BIN's ritobin text — but only from the SAME
+/// `skinMeshProperties` embed that `simpleSkin` lives in, not the first
+/// `skeleton:` occurrence anywhere in the file.
+///
+/// A skin BIN commonly embeds particle definitions elsewhere (for attached
+/// VFX) that carry their own `skeleton` field for a *different* rig. Scanning
+/// the whole file for the first `skeleton:` match would silently pick one of
+/// those instead of the character's own skeleton — exactly the mis-pairing
+/// the mask editor's mismatch handling exists to catch, so this must not
+/// guess. Isolating the `skinMeshProperties` embed first, then requiring that
+/// same block to also contain `simpleSkin`, is what guarantees `skeleton` and
+/// `simpleSkin` come from the same embed.
+fn extract_skeleton_from_skin_mesh_properties(content: &str) -> Option<String> {
+    let header_re =
+        regex::Regex::new(r"skinMeshProperties:\s*embed\s*=\s*(?:SkinMeshDataProperties\s*)?").ok()?;
+    let header_match = header_re.find(content)?;
+    let block = crate::mesh::texture::extract_braced_block(content, header_match.end().saturating_sub(1))?;
+
+    // Sanity check: this embed must be the one that owns simpleSkin. If it
+    // isn't, the assumption this function relies on doesn't hold here, and
+    // returning a skeleton anyway would risk pairing against the wrong rig.
+    extract_simple_skin_from_text(&block)?;
+
+    let skeleton_re = regex::Regex::new(r#"(?i)skeleton:\s*string\s*=\s*"([^"]+)""#).ok()?;
+    skeleton_re
+        .captures(&block)
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Given an animation-graph BIN (`…/animations/skin<N>.bin`), find its sibling
+/// skin BIN and resolve that skin's `skeleton` to a `.skl` on disk.
+///
+/// The chain, verified against a real extracted project:
+///
+/// ```text
+/// data/characters/<champ>/animations/skin<N>.bin   (the animation graph)
+///         ↓ deterministic sibling swap: animations/ → skins/
+/// data/characters/<champ>/skins/skin<N>.bin        (the skin BIN)
+///         ↓ skinMeshProperties (same embed as simpleSkin)
+/// skeleton: "ASSETS/…/Smolder_Base.skl"
+///         ↓ resolve_animation_path
+/// a real .skl on disk
+/// ```
+pub fn resolve_skl_for_animation_bin(anim_bin: &Path) -> anyhow::Result<PathBuf> {
+    let skin_bin_path = skin_bin_sibling_path(anim_bin).ok_or_else(|| {
+        anyhow::anyhow!(
+            "{} has no 'animations' path component; cannot locate its sibling skin BIN",
+            anim_bin.display()
+        )
+    })?;
+
+    if !skin_bin_path.exists() {
+        return Err(anyhow::anyhow!(
+            "Sibling skin BIN not found at {}",
+            skin_bin_path.display()
+        ));
+    }
+
+    let data = fs::read(&skin_bin_path)
+        .map_err(|e| anyhow::anyhow!("Failed to read skin BIN {}: {}", skin_bin_path.display(), e))?;
+    let tree = codec::read_bin(&data).map_err(|e| anyhow::anyhow!("Failed to parse skin BIN: {}", e))?;
+    let text = crate::bin::converter::bin_to_text(&tree)
+        .map_err(|e| anyhow::anyhow!("Failed to convert skin BIN to text: {}", e))?;
+
+    let skeleton = extract_skeleton_from_skin_mesh_properties(&text).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Skin BIN {} has no skeleton field in its skinMeshProperties embed",
+            skin_bin_path.display()
+        )
+    })?;
+
+    let base_dir = skin_bin_path.parent().unwrap_or_else(|| Path::new("."));
+    resolve_animation_path(base_dir, &skeleton)
+        .filter(|p| p.exists())
+        .ok_or_else(|| anyhow::anyhow!("Could not resolve skeleton '{}' to a file on disk", skeleton))
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct BakedFrame {
     pub translation: [f32; 3],
@@ -490,6 +596,107 @@ mod tests {
     fn missing_simple_skin_returns_none() {
         let text = r#"skinMeshProperties: embed = SkinMeshDataProperties { }"#;
         assert!(extract_simple_skin_from_text(text).is_none());
+    }
+
+    // ── skin_bin_sibling_path: the animations/ -> skins/ path derivation ──────
+    //
+    // Pure path math, no fixtures needed — exactly where an off-by-one in the
+    // sibling swap would hide.
+
+    #[test]
+    fn swaps_animations_for_skins_keeping_the_filename() {
+        let anim_bin = Path::new("data/characters/Aatrox/animations/skin0.bin");
+        assert_eq!(
+            skin_bin_sibling_path(anim_bin),
+            Some(PathBuf::from("data/characters/Aatrox/skins/skin0.bin")),
+        );
+    }
+
+    #[test]
+    fn swaps_only_the_last_animations_component_when_it_appears_earlier_too() {
+        // "animations" also appears as an unrelated ancestor directory name
+        // here (e.g. a project checked out into a folder literally called
+        // "animations"). Only the LAST occurrence — the one nearest the file,
+        // which is the one the game's own folder layout actually uses — must
+        // be swapped.
+        let anim_bin = Path::new("C:/mods/animations/data/characters/Aatrox/animations/skin0.bin");
+        assert_eq!(
+            skin_bin_sibling_path(anim_bin),
+            Some(PathBuf::from("C:/mods/animations/data/characters/Aatrox/skins/skin0.bin")),
+        );
+    }
+
+    #[test]
+    fn a_path_with_no_animations_component_fails_cleanly() {
+        // Not under an animations/ folder at all — the sibling-swap
+        // assumption doesn't hold. Must return None, not panic or guess.
+        let bin = Path::new("data/characters/Aatrox/skins/skin0.bin");
+        assert_eq!(skin_bin_sibling_path(bin), None);
+    }
+
+    // ── extract_skeleton_from_skin_mesh_properties: same-embed guarantee ────
+
+    #[test]
+    fn reads_skeleton_from_the_skin_mesh_properties_embed() {
+        let text = r#"
+        skinMeshProperties: embed = SkinMeshDataProperties {
+            skeleton: string = "ASSETS/Characters/Test/Skins/Skin0/Test.skl"
+            simpleSkin: string = "ASSETS/Characters/Test/Skins/Skin0/Test.skn"
+            texture: string = "ASSETS/Characters/Test/Skins/Skin0/Test.tex"
+        }
+        "#;
+        assert_eq!(
+            extract_skeleton_from_skin_mesh_properties(text).as_deref(),
+            Some("ASSETS/Characters/Test/Skins/Skin0/Test.skl"),
+        );
+    }
+
+    #[test]
+    fn ignores_a_particle_skeleton_that_lives_outside_skin_mesh_properties() {
+        // Mirrors the real smolder skin BIN: the character's own skeleton
+        // sits in skinMeshProperties alongside simpleSkin, but a VFX particle
+        // definition elsewhere in the same file embeds its OWN skeleton for a
+        // different rig. Only the skinMeshProperties one may be returned —
+        // picking the particle's would silently pair weights against the
+        // wrong skeleton.
+        let text = r#"
+        skinMeshProperties: embed = SkinMeshDataProperties {
+            simpleSkin: string = "ASSETS/Characters/Smolder/Skins/Base/Smolder_Base.skn"
+            skeleton: string = "ASSETS/Characters/Smolder/Skins/Base/Smolder_Base.skl"
+        }
+        "Characters/Smolder/Skins/Skin0/Particles/Q_ball" = VfxSystemDefinitionData {
+            complexEmitterDefinitionData: list[embed] = {
+                VfxEmitterDefinitionData {
+                    particleSkin: embed = ParticleSkinDataProperties {
+                        skeleton: string = "ASSETS/skin0_smolder_particles/Smolder_Base_Q_ball.skl"
+                    }
+                }
+            }
+        }
+        "#;
+        assert_eq!(
+            extract_skeleton_from_skin_mesh_properties(text).as_deref(),
+            Some("ASSETS/Characters/Smolder/Skins/Base/Smolder_Base.skl"),
+            "must pick the skinMeshProperties skeleton, not the particle's",
+        );
+    }
+
+    #[test]
+    fn no_skin_mesh_properties_embed_returns_none() {
+        let text = r#""SomeVfx" = VfxSystemDefinitionData { skeleton: string = "ASSETS/Whatever.skl" }"#;
+        assert!(extract_skeleton_from_skin_mesh_properties(text).is_none());
+    }
+
+    #[test]
+    fn skin_mesh_properties_without_simple_skin_is_not_trusted() {
+        // If the block we found doesn't even own simpleSkin, it isn't the
+        // embed we think it is — refuse rather than guess.
+        let text = r#"
+        skinMeshProperties: embed = SkinMeshDataProperties {
+            skeleton: string = "ASSETS/Characters/Test/Skins/Skin0/Test.skl"
+        }
+        "#;
+        assert!(extract_skeleton_from_skin_mesh_properties(text).is_none());
     }
 }
 
