@@ -1591,6 +1591,7 @@ dependencies = [
  "directories",
  "flate2",
  "flint-formats",
+ "flint-hash",
  "futures",
  "heed",
  "image",
@@ -1635,6 +1636,28 @@ dependencies = [
  "serde",
  "serde_json",
  "tracing",
+]
+
+[[package]]
+name = "flint-hash"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "directories",
+ "futures",
+ "heed",
+ "parking_lot",
+ "rayon",
+ "reqwest",
+ "ritoshark",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "xxhash-rust",
+ "zstd 0.12.4",
 ]
 
 [[package]]

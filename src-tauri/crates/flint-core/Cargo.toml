@@ -47,6 +47,7 @@ ltk_fantome = "0.2"
 ltk_modpkg = { version = "0.2", features = ["project"] }
 ltk_inibin = { path = "../ltk_inibin", features = ["serde"] }
 flint-formats = { path = "../flint-formats" }
+flint-hash = { path = "../flint-hash" }
 
 
 # Hematite fixer: REMOVED 2026-07-14 (skin fixing disabled; owner is reworking

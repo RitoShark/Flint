@@ -1,8 +1,7 @@
-pub mod error;
 pub mod bin;
 pub mod wad;
 pub mod wad_jade;
-pub mod hash;
+
 pub mod mesh;
 pub mod champion;
 pub mod league;
@@ -17,5 +16,6 @@ pub mod overlay;
 pub mod net;
 
 pub use flint_formats::{audio, hud, inibin_text, luabin, manifest, stringtable, troybin};
+pub use flint_hash::{error, hash};
 
 pub use heed;
