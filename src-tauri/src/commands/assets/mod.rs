@@ -6,3 +6,4 @@ pub mod file;
 pub mod texture_convert;
 pub mod format_converters;
 pub mod mesh;
+pub mod animask;
