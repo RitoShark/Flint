@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import * as api from '../../lib/api';
 import { useNotificationStore } from '../../lib/stores';
 import type { JointWeight, MaskDocument, MaskView } from '../../lib/api/animask';
+import { invertAll, setAll, setSubtree } from '../../lib/maskOps';
 
 interface MaskEditorProps {
     binPath: string;
@@ -56,12 +57,17 @@ interface JointRowProps {
     joint: JointWeight;
     depth: number;
     onWeightChange: (index: number, weight: number) => void;
+    onSetSubtree: (index: number, weight: number) => void;
+    /** True when this mask's hierarchy can't be trusted (see `isMismatched`) —
+     *  index `i` no longer provably refers to bone `i`, so "this joint and
+     *  everything below it" has no meaning and the control is disabled. */
+    subtreeDisabled: boolean;
 }
 
 /** One joint's slider + numeric input. Edits update the parent's state on
  *  every slider drag; the numeric field validates on blur/Enter so a
  *  mid-keystroke string (`"0."`, empty, `"-"`) is never sent upstream. */
-const JointRow: React.FC<JointRowProps> = ({ joint, depth, onWeightChange }) => {
+const JointRow: React.FC<JointRowProps> = ({ joint, depth, onWeightChange, onSetSubtree, subtreeDisabled }) => {
     const [draft, setDraft] = useState(() => formatWeight(joint.weight));
     const [focused, setFocused] = useState(false);
 
@@ -140,6 +146,19 @@ const JointRow: React.FC<JointRowProps> = ({ joint, depth, onWeightChange }) => 
                     fontSize: 12,
                 }}
             />
+            <button
+                className="btn btn--sm"
+                onClick={() => onSetSubtree(joint.index, joint.weight)}
+                disabled={subtreeDisabled}
+                title={
+                    subtreeDisabled
+                        ? 'Unavailable: this mask\'s joint hierarchy is unreliable'
+                        : `Apply ${formatWeight(joint.weight)} to this joint and every descendant`
+                }
+                style={{ fontSize: 10, padding: '2px 6px', flexShrink: 0 }}
+            >
+                Subtree
+            </button>
         </div>
     );
 };
@@ -157,6 +176,9 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({ binPath, sklPath }) => {
     // switching masks cannot silently discard unsaved edits.
     const [editedByKey, setEditedByKey] = useState<Record<number, JointWeight[]>>({});
     const [saving, setSaving] = useState(false);
+
+    // The value "Set all" applies to every joint in the selected mask.
+    const [bulkValue, setBulkValue] = useState(1);
 
     useEffect(() => {
         let cancelled = false;
@@ -242,6 +264,33 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({ binPath, sklPath }) => {
             if (!joints) return prev;
             const next = joints.map((j) => (j.index === jointIndex ? { ...j, weight } : j));
             return { ...prev, [maskKey]: next };
+        });
+    }, []);
+
+    // Bulk operations — same guarded update-in-place shape as
+    // `handleWeightChange`, just delegating the transform to the pure
+    // `maskOps` functions instead of touching one joint.
+    const handleSetAll = useCallback((maskKey: number, weight: number) => {
+        setEditedByKey((prev) => {
+            const joints = prev[maskKey];
+            if (!joints) return prev;
+            return { ...prev, [maskKey]: setAll(joints, weight) };
+        });
+    }, []);
+
+    const handleInvertAll = useCallback((maskKey: number) => {
+        setEditedByKey((prev) => {
+            const joints = prev[maskKey];
+            if (!joints) return prev;
+            return { ...prev, [maskKey]: invertAll(joints) };
+        });
+    }, []);
+
+    const handleSetSubtree = useCallback((maskKey: number, jointIndex: number, weight: number) => {
+        setEditedByKey((prev) => {
+            const joints = prev[maskKey];
+            if (!joints) return prev;
+            return { ...prev, [maskKey]: setSubtree(joints, jointIndex, weight) };
         });
     }, []);
 
@@ -385,6 +434,54 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({ binPath, sklPath }) => {
                 <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
                     {selectedMask ? (
                         <>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                padding: '6px 10px',
+                                borderBottom: '1px solid var(--border-subtle, #222)',
+                                fontSize: 12,
+                                flexShrink: 0,
+                            }}>
+                                <span style={{ opacity: 0.7 }}>Bulk</span>
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={1}
+                                    step={0.01}
+                                    value={bulkValue}
+                                    onChange={(e) => {
+                                        const parsed = parseFloat(e.target.value);
+                                        if (Number.isFinite(parsed)) setBulkValue(clampWeight(parsed));
+                                    }}
+                                    style={{
+                                        width: 56,
+                                        textAlign: 'right',
+                                        fontFamily: 'var(--font-mono, monospace)',
+                                        background: 'var(--bg-tertiary)',
+                                        border: '1px solid var(--border)',
+                                        borderRadius: 4,
+                                        color: 'var(--text-primary)',
+                                        fontSize: 12,
+                                    }}
+                                />
+                                <button
+                                    className="btn btn--sm"
+                                    onClick={() => handleSetAll(selectedMask.key, bulkValue)}
+                                    title={`Set every joint in this mask to ${formatWeight(bulkValue)}`}
+                                    style={{ fontSize: 11, padding: '2px 8px' }}
+                                >
+                                    Set all
+                                </button>
+                                <button
+                                    className="btn btn--sm"
+                                    onClick={() => handleInvertAll(selectedMask.key)}
+                                    title="Map every weight w to 1 - w"
+                                    style={{ fontSize: 11, padding: '2px 8px' }}
+                                >
+                                    Invert
+                                </button>
+                            </div>
                             {mismatched && (
                                 <div style={{
                                     display: 'flex',
@@ -417,6 +514,8 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({ binPath, sklPath }) => {
                                     joint={joint}
                                     depth={depthByIndex.get(joint.index) ?? 0}
                                     onWeightChange={(idx, w) => handleWeightChange(selectedMask.key, idx, w)}
+                                    onSetSubtree={(idx, w) => handleSetSubtree(selectedMask.key, idx, w)}
+                                    subtreeDisabled={mismatched}
                                 />
                             ))}
                         </>
