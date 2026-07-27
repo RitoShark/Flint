@@ -12,8 +12,8 @@ use tauri::{AppHandle, Emitter};
 use crate::state::LmdbCacheState;
 use flint_core::bin::codec::{get_cached_bin_hashes, read_bin, MAX_BIN_SIZE};
 use flint_core::hash::{get_hash_dir, resolve_hashes_lmdb_bulk, ResolvedHashes};
-use flint_core::types::HashMapper;
-use flint_core::types::{BinType, BinValue};
+use flint_core::hash::HashMapper;
+use flint_core::bin::{BinType, BinValue};
 use flint_core::wad_jade::adapter::WadHandle as WadReader;
 
 const SAMPLE_LIMIT_COMPLEX: usize = 3;

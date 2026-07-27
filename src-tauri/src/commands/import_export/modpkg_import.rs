@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
-use flint_core::types::Modpkg;
+use flint_core::export::Modpkg;
 
 use crate::commands::import_export::fantome_import::{
     extract_champion_from_paths, extract_skin_id_from_path, is_unresolved_hash, ImportOptions,

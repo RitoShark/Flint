@@ -16,3 +16,6 @@ pub use lmdb_cache::ResolvedHashes;
 pub use overlay::{build_overlay, collect_bin_asset_refs, collect_disk_paths, ProjectHashOverlay};
 
 pub use resolver::HashResolver;
+
+/// Hash-to-name dictionary used when printing BIN in its text form.
+pub use ritoshark::hash::HashMapper;

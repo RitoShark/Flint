@@ -55,7 +55,7 @@ pub async fn analyze_bin_for_split(bin_path: String) -> Result<BinSplitAnalysis,
 }
 
 fn lookup_bin_hash_name(
-    provider: &flint_core::types::HashMapper,
+    provider: &flint_core::hash::HashMapper,
     hash: u32,
 ) -> Option<String> {
     provider.get(hash as u64).map(|s| s.to_string())

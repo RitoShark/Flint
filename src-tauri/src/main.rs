@@ -20,7 +20,7 @@ fn main() {
     // reqwest uses `rustls-no-provider`; install the ring crypto provider as the
     // process default before any HTTPS request, or the first fetch panics with
     // "No provider set" (CDN manifest browse, updater, …).
-    flint_core::install_tls_provider();
+    flint_core::net::install_tls_provider();
 
     let log_dir = get_flint_home()
         .map(|h| h.join("logs"))

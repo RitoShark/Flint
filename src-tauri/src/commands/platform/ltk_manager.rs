@@ -263,7 +263,7 @@ pub async fn sync_project_to_launcher(
 
 fn package_project(project_path: &std::path::Path, output_path: &std::path::Path) -> Result<(), String> {
     use flint_core::export::build_wad_from_directory;
-    use flint_core::types::{ModProject, ModProjectAuthor};
+    use flint_core::project::{ModProject, ModProjectAuthor};
     use std::io::Write;
     use zip::write::SimpleFileOptions;
     use zip::ZipWriter;

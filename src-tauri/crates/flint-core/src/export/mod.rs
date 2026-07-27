@@ -1,6 +1,11 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+/// Mod-package container types, re-exported so callers build archives through
+/// this module rather than depending on the packaging crate directly.
+pub use ltk_modpkg::builder::{ModpkgBuilder, ModpkgChunkBuilder, ModpkgLayerBuilder};
+pub use ltk_modpkg::{Modpkg, ModpkgAuthor, ModpkgMetadata};
+
 fn is_unresolved_hash(path: &str) -> bool {
     let p = path.to_lowercase();
     let name = Path::new(&p).file_stem().unwrap_or_default().to_string_lossy();

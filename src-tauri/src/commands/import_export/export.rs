@@ -1,5 +1,5 @@
 use flint_core::repath::{organize_project, OrganizerConfig};
-use flint_core::types::{ModProject, ModProjectAuthor};
+use flint_core::project::{ModProject, ModProjectAuthor};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
@@ -150,7 +150,7 @@ pub async fn export_fantome(
             authors: vec![ModProjectAuthor::Name(metadata.author.clone())],
             license: None,
             transformers: vec![],
-            layers: flint_core::types::default_layers(),
+            layers: flint_core::project::default_layers(),
             thumbnail: None,
         }
     };
@@ -423,8 +423,8 @@ fn export_with_ltk_modpkg(
     output_path: &Path,
     mod_project: &ModProject,
 ) -> Result<(usize, u64), String> {
-    use flint_core::types::{ModpkgBuilder, ModpkgChunkBuilder, ModpkgLayerBuilder};
-    use flint_core::types::{ModpkgMetadata, ModpkgAuthor};
+    use flint_core::export::{ModpkgBuilder, ModpkgChunkBuilder, ModpkgLayerBuilder};
+    use flint_core::export::{ModpkgMetadata, ModpkgAuthor};
     use std::io::Write;
 
     let content_base = project_path.join("content").join("base");
@@ -466,8 +466,8 @@ fn export_with_ltk_modpkg(
         },
         authors: mod_project.authors.iter().map(|author| {
             match author {
-                flint_core::types::ModProjectAuthor::Name(name) => ModpkgAuthor::new(name.clone(), None),
-                flint_core::types::ModProjectAuthor::Role { name, role } => ModpkgAuthor::new(name.clone(), Some(role.clone())),
+                flint_core::project::ModProjectAuthor::Name(name) => ModpkgAuthor::new(name.clone(), None),
+                flint_core::project::ModProjectAuthor::Role { name, role } => ModpkgAuthor::new(name.clone(), Some(role.clone())),
             }
         }).collect(),
         ..Default::default()

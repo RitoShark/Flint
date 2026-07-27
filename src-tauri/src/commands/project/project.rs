@@ -781,7 +781,7 @@ fn fnv1a_lower(s: &str) -> u32 {
 
 /// Build a `(field_hash, value)` pair — the hash is the FNV1a-32 of the
 /// lowercased field name.
-fn bin_prop(name: &str, value: flint_core::types::BinValue) -> (u32, flint_core::types::BinValue) {
+fn bin_prop(name: &str, value: flint_core::bin::BinValue) -> (u32, flint_core::bin::BinValue) {
     (fnv1a_lower(name), value)
 }
 
@@ -799,7 +799,7 @@ fn inject_animation_block(
     frame_width: u32,
     frame_height: u32,
 ) -> Result<(), String> {
-    use flint_core::types::{BinEntry, BinValue};
+    use flint_core::bin::{BinEntry, BinValue};
 
     tracing::info!("Injecting animation block into uibase BIN");
 
@@ -910,7 +910,7 @@ struct AnimationParams {
 /// Read the existing uibase BIN in the project and extract the animation params
 /// from the injected `UiElementEffectAnimationData` entry.
 fn extract_animation_params_from_bin(uibase_bytes: &[u8]) -> Result<AnimationParams, String> {
-    use flint_core::types::BinValue;
+    use flint_core::bin::BinValue;
 
     let bin = flint_core::bin::read_bin(uibase_bytes)
         .map_err(|e| format!("Failed to parse project uibase BIN: {}", e))?;
