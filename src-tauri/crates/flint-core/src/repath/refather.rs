@@ -13,6 +13,8 @@ use walkdir::WalkDir;
 use rayon::prelude::*;
 use dashmap::DashSet;
 use regex::Regex;
+pub(crate) use super::paths::*;
+pub(crate) use super::prune::*;
 
 fn fnv1a_hash(s: &str) -> u32 {
     let mut hash: u32 = 0x811c9dc5;
@@ -28,16 +30,16 @@ static CHAMPION_SKIN_NAME_HASH: LazyLock<u32> = LazyLock::new(|| {
 });
 
 /// Case-insensitive: League uses mixed case ("skin19/" / "Skin19/") internally.
-static SKIN_FOLDER_RE: LazyLock<Regex> = LazyLock::new(|| {
+pub(crate) static SKIN_FOLDER_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^(skin)(\d+)(/)").expect("Invalid skin folder regex")
 });
 
-static BASE_MIDDLE_RE: LazyLock<Regex> = LazyLock::new(|| {
+pub(crate) static BASE_MIDDLE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)/base/").expect("Invalid base folder regex")
 });
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum AssetPath<'a> {
+pub(crate) enum AssetPath<'a> {
     /// SFX files — repath to audio/sfx/. Live in the champion WAD.
     SoundSfx {
         filename: &'a str,
@@ -88,7 +90,7 @@ enum AssetPath<'a> {
 }
 
 impl<'a> AssetPath<'a> {
-    fn parse(path: &'a str, target_champion: &str, sub_characters: &[String]) -> Option<Self> {
+    pub(crate) fn parse(path: &'a str, target_champion: &str, sub_characters: &[String]) -> Option<Self> {
         let stripped = if path.len() >= 7 && path[..7].eq_ignore_ascii_case("assets/") {
             &path[7..]
         } else if path.len() >= 5 && path[..5].eq_ignore_ascii_case("data/") {
@@ -151,7 +153,7 @@ impl<'a> AssetPath<'a> {
         Some(AssetPath::Shared { subpath })
     }
 
-    fn to_repathed(&self, config: &RepathConfig) -> String {
+    pub(crate) fn to_repathed(&self, config: &RepathConfig) -> String {
         let creator = config.creator_name.replace(' ', "-");
         let prefix = config.prefix();
 
@@ -198,7 +200,7 @@ impl<'a> AssetPath<'a> {
     }
 
     #[inline]
-    fn strip_prefix_ignore_case<'b>(s: &'b str, prefix: &str) -> Option<&'b str> {
+    pub(crate) fn strip_prefix_ignore_case<'b>(s: &'b str, prefix: &str) -> Option<&'b str> {
         if s.len() >= prefix.len() && s[..prefix.len()].eq_ignore_ascii_case(prefix) {
             Some(&s[prefix.len()..])
         } else {
@@ -462,93 +464,6 @@ pub fn repath_project(
     Ok(result)
 }
 
-fn scan_bin_for_paths(bin_path: &Path) -> Result<Vec<String>> {
-    let data = fs::read(bin_path).map_err(|e| Error::io_with_path(e, bin_path))?;
-
-    let bin = read_bin(&data)
-        .map_err(|e| Error::InvalidInput(format!("Failed to parse BIN: {}", e)))?;
-
-    let mut paths = Vec::new();
-
-    for entry in &bin.entries {
-        for value in entry.fields.values() {
-            collect_paths_from_value(value, &mut paths);
-        }
-    }
-
-    Ok(paths)
-}
-
-fn collect_paths_from_value(value: &BinValue, paths: &mut Vec<String>) {
-    match value {
-        BinValue::String(s) => {
-            if is_asset_path(s) {
-                paths.push(normalize_path(s));
-            }
-        }
-        BinValue::List { items, .. } => {
-            for item in items {
-                collect_paths_from_value(item, paths);
-            }
-        }
-        BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
-            for v in fields.values() {
-                collect_paths_from_value(v, paths);
-            }
-        }
-        BinValue::Option { value: Some(inner), .. } => {
-            collect_paths_from_value(inner, paths);
-        }
-        BinValue::Map { entries, .. } => {
-            for (key, val) in entries {
-                collect_paths_from_value(key, paths);
-                collect_paths_from_value(val, paths);
-            }
-        }
-        _ => {}
-    }
-}
-
-pub(crate) fn is_asset_path(s: &str) -> bool {
-    if s.len() < 5 {
-        return false;
-    }
-
-    (s.len() >= 7 && s[..7].eq_ignore_ascii_case("assets/")) ||
-    (s.len() >= 5 && s[..5].eq_ignore_ascii_case("data/"))
-}
-
-/// Lowercase with forward slashes.
-fn normalize_path(s: &str) -> String {
-    s.to_lowercase().replace('\\', "/")
-}
-
-/// Find the byte index where a `particles/` path segment begins (case-insensitive).
-/// A segment match requires `particles/` to be at the start of `subpath` or
-/// immediately preceded by `/` (so `myparticles/x` does NOT match).
-fn particles_segment_start(subpath: &str) -> Option<usize> {
-    let lower = subpath.to_lowercase();
-    let needle = "particles/";
-    let mut from = 0usize;
-    while let Some(rel) = lower[from..].find(needle) {
-        let idx = from + rel;
-        if idx == 0 || lower.as_bytes()[idx - 1] == b'/' {
-            return Some(idx);
-        }
-        from = idx + 1;
-    }
-    None
-}
-
-fn apply_prefix_to_path(path: &str, _prefix: &str, config: &RepathConfig) -> String {
-    if let Some(asset_path) = AssetPath::parse(path, &config.champion, &config.sub_characters) {
-        asset_path.to_repathed(config)
-    } else {
-        tracing::warn!("Invalid asset path (no assets/ or data/ prefix): {}", path);
-        path.to_string()
-    }
-}
-
 fn repath_bin_file(bin_path: &Path, existing_paths: &HashSet<String>, prefix: &str, config: &RepathConfig) -> Result<usize> {
     let data = fs::read(bin_path).map_err(|e| Error::io_with_path(e, bin_path))?;
 
@@ -623,56 +538,6 @@ fn repath_value(value: &mut BinValue, existing_paths: &HashSet<String>, prefix: 
 }
 
 /// `skins/skinN/base/…` → flattened path with the animation BIN remapped to the target skin id.
-fn strip_skin_layout(subpath: &str, target_skin_id: u32) -> String {
-    let after_skins = AssetPath::strip_prefix_ignore_case(subpath, "skins/").unwrap_or(subpath);
-    let without_skin_folder = SKIN_FOLDER_RE.replace(after_skins, "").into_owned();
-    let without_base = strip_base_folder(&without_skin_folder);
-    remap_animation_bin_filename(&without_base, target_skin_id)
-}
-
-/// Strips a leading or mid-path "base/" folder. Case-insensitive.
-fn strip_base_folder(path: &str) -> String {
-    let lower = path.to_lowercase();
-
-    if lower.starts_with("base/") {
-        return path[5..].to_string();
-    }
-
-    if lower.contains("/base/") {
-        return BASE_MIDDLE_RE.replace_all(path, "/").into_owned();
-    }
-
-    path.to_string()
-}
-
-/// Remaps `animations/skinN.bin` → `animations/skin{target}.bin`; other paths unchanged.
-fn remap_animation_bin_filename(path: &str, target_skin_id: u32) -> String {
-    let lower = path.to_lowercase();
-
-    if (lower.contains("/animations/skin") || lower.contains("animations/skin")) && lower.ends_with(".bin") {
-        if let Some(last_slash) = path.rfind('/') {
-            let dir = &path[..=last_slash];
-            let filename = &path[last_slash + 1..];
-
-            if filename.starts_with("skin") && filename.ends_with(".bin") {
-                let without_ext = &filename[..filename.len() - 4];
-                if without_ext.len() > 4 {
-                    let number_part = &without_ext[4..];
-                    if number_part.chars().all(|c| c.is_ascii_digit()) {
-                        return format!("{}skin{}.bin", dir, target_skin_id);
-                    }
-                }
-            }
-        }
-    }
-
-    path.to_string()
-}
-
-fn replace_base_folder_in_animation_path(path: &str, _target_skin_id: u32) -> String {
-    strip_base_folder(path)
-}
-
 fn relocate_assets(content_base: &Path, existing_paths: &HashSet<String>, prefix: &str, config: &RepathConfig) -> Result<usize> {
     /* Pass 1 (serial): plan the moves with first-writer-wins conflict
        detection (cheap — one HashMap insert per path). */
@@ -737,315 +602,7 @@ fn relocate_assets(content_base: &Path, existing_paths: &HashSet<String>, prefix
     Ok(relocated)
 }
 
-fn cleanup_unused_files(content_base: &Path, referenced_paths: &HashSet<String>, prefix: &str, config: &RepathConfig) -> Result<usize> {
-    use rayon::prelude::*;
-
-    let expected_paths: HashSet<String> = referenced_paths
-        .iter()
-        .flat_map(|p| {
-            let raw = normalize_path(p);
-            let repathed = normalize_path(&apply_prefix_to_path(p, prefix, config));
-            [raw, repathed]
-        })
-        .collect();
-
-    // Walk serially (WalkDir holds file-handle state), then delete in parallel.
-    let to_delete: Vec<PathBuf> = WalkDir::new(content_base)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter_map(|entry| {
-            let path = entry.path();
-            if !path.is_file() {
-                return None;
-            }
-            // BIN files are handled by cleanup_irrelevant_bins.
-            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                if ext.eq_ignore_ascii_case("bin") {
-                    return None;
-                }
-            }
-            let rel_path = path.strip_prefix(content_base).ok()?;
-            let normalized = normalize_path(&rel_path.to_string_lossy());
-            let filename = path.file_stem().unwrap_or_default().to_string_lossy();
-            let is_unresolved = filename.len() == 16 && filename.chars().all(|c| c.is_ascii_hexdigit());
-
-            if is_unresolved {
-                tracing::debug!("Preserving unresolved hash file: {}", path.display());
-                return None;
-            }
-
-            // Referenced (raw OR repathed) → always keep.
-            if expected_paths.contains(&normalized) {
-                return None;
-            }
-            // Not referenced → delete candidate (original behavior: non-expected was
-            // always deleted, in BOTH in_new_tree states).
-            Some(path.to_path_buf())
-        })
-        .collect();
-
-    let removed = to_delete
-        .par_iter()
-        .filter(|path| match fs::remove_file(path) {
-            Ok(()) => true,
-            Err(e) => {
-                tracing::warn!("Failed to remove {}: {}", path.display(), e);
-                false
-            }
-        })
-        .count();
-
-    Ok(removed)
-}
-
-/// Project-creation safety net: delete non-BIN files still sitting under the
-/// ORIGINAL game-layout `characters/` tree that were NOT relocated (i.e. their
-/// path is not referenced by any BIN). These are un-relocated orphans —
-/// unreferenced HD twins (`2x_`/`4x_`) or leftover clones whose real copy has
-/// already moved to the project folder. Scoped strictly to `assets/characters/`
-/// and `data/characters/` so it can never touch the relocated project tree.
-fn sweep_source_tree_orphans(
-    content_base: &Path,
-    referenced_paths: &HashSet<String>,
-    prefix: &str,
-    config: &RepathConfig,
-) -> usize {
-    use rayon::prelude::*;
-
-    // A file is "referenced" if its raw OR repathed form is in existing_paths.
-    let expected: HashSet<String> = referenced_paths
-        .iter()
-        .flat_map(|p| {
-            let raw = normalize_path(p);
-            let repathed = normalize_path(&apply_prefix_to_path(p, prefix, config));
-            [raw, repathed]
-        })
-        .collect();
-
-    let to_delete: Vec<PathBuf> = WalkDir::new(content_base)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter_map(|entry| {
-            let path = entry.path();
-            if !path.is_file() {
-                return None;
-            }
-            let rel = path.strip_prefix(content_base).ok()?;
-            let normalized = normalize_path(&rel.to_string_lossy());
-
-            // Only the original game-layout characters/ tree.
-            if !(normalized.starts_with("assets/characters/")
-                || normalized.starts_with("data/characters/"))
-            {
-                return None;
-            }
-            // Never touch BINs (cleanup_irrelevant_bins owns those).
-            if normalized.ends_with(".bin") {
-                return None;
-            }
-            // Preserve unresolved hash files (16-hex stem) — recovered later.
-            let stem = path.file_stem().unwrap_or_default().to_string_lossy();
-            if stem.len() == 16 && stem.chars().all(|c| c.is_ascii_hexdigit()) {
-                return None;
-            }
-            // Referenced (raw or repathed) → keep; the relocate pass handles it.
-            if expected.contains(&normalized) {
-                return None;
-            }
-            Some(path.to_path_buf())
-        })
-        .collect();
-
-    to_delete
-        .par_iter()
-        .filter(|path| match fs::remove_file(path) {
-            Ok(()) => true,
-            Err(e) => {
-                tracing::warn!("Failed to sweep orphan {}: {}", path.display(), e);
-                false
-            }
-        })
-        .count()
-}
-
-/// Transitive closure of every BIN reachable from any BIN's `linked` list,
-/// as lowercased forward-slashed project-relative paths. Used to protect
-/// referenced bins from cleanup deletion.
-///
-/// Champion-root bins (`<champ>/<champ>.bin`, `root.bin`) are deliberately
-/// EXCLUDED: on the project-creation path the concat BIN replaces them, so the
-/// original champ root must still be deleted even though the skin BIN links it
-/// (`update_main_bin_links` keeps it as a link). Keeping it here would leave the
-/// stale `<champ>.bin` behind and pin the assets it references to their original
-/// (un-repathed) locations. Imports skip `cleanup_irrelevant_bins` entirely
-/// (`skip_bin_cleanup: true`), so this exclusion only affects project creation.
-fn referenced_bin_keep_set(content_base: &Path) -> std::collections::HashSet<String> {
-    use std::collections::HashSet;
-    let mut keep: HashSet<String> = HashSet::new();
-    for entry in WalkDir::new(content_base)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path()
-                .extension()
-                .map(|ext| ext.eq_ignore_ascii_case("bin"))
-                .unwrap_or(false)
-        })
-    {
-        let path = entry.path();
-        let Ok(data) = fs::read(path) else { continue };
-        let Ok(bin) = read_bin(&data) else { continue };
-        for dep in bin.linked {
-            if crate::bin::classify_bin(&dep) == crate::bin::BinCategory::ChampionRoot {
-                continue;
-            }
-            keep.insert(dep.replace('\\', "/").trim_start_matches('/').to_lowercase());
-        }
-    }
-    keep
-}
-
-/// Whitelist approach: keeps the main skin BIN (skins/skin{ID}.bin), the
-/// animation BIN (animations/skin{ID}.bin), and the concat BIN (_Concat.bin);
-/// everything else is deleted.
-fn cleanup_irrelevant_bins(
-    content_base: &Path,
-    champion: &str,
-    target_skin_id: u32,
-    keep: &std::collections::HashSet<String>,
-) -> Result<usize> {
-    let mut removed = 0;
-    let champion_lower = champion.to_lowercase();
-
-    let target_skin_name = format!("skin{}.bin", target_skin_id);
-    let target_skin_name_padded = format!("skin{:02}.bin", target_skin_id);
-
-    let mut referenced_animation_bin: Option<String> = None;
-    if let Some(main_bin_path) = find_main_skin_bin(content_base, champion, target_skin_id) {
-        if let Ok(data) = fs::read(&main_bin_path) {
-            if let Ok(bin) = read_bin(&data) {
-                for dep in &bin.linked {
-                    if crate::bin::classify_bin(dep) == crate::bin::BinCategory::Animation {
-                        if let Some(filename) = Path::new(dep).file_name() {
-                            referenced_animation_bin = Some(filename.to_string_lossy().to_lowercase());
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if let Some(ref ref_anim) = referenced_animation_bin {
-        tracing::info!(
-            "Cleaning up BINs (keeping only: {}, {}, referenced animation: {}, and _Concat.bin)",
-            target_skin_name,
-            target_skin_name_padded,
-            ref_anim
-        );
-    } else {
-        tracing::info!(
-            "Cleaning up BINs (keeping only: {}, {}, and _Concat.bin)",
-            target_skin_name,
-            target_skin_name_padded
-        );
-    }
-
-    for entry in WalkDir::new(content_base)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path()
-                .extension()
-                .map(|ext| ext.eq_ignore_ascii_case("bin"))
-                .unwrap_or(false)
-        })
-    {
-        let path = entry.path();
-        if let Ok(rel_path) = path.strip_prefix(content_base) {
-            let rel_str = rel_path.to_string_lossy().to_lowercase().replace('\\', "/");
-            let filename = path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-
-            if keep.contains(&rel_str) {
-                tracing::debug!("Keeping referenced BIN (keep-set): {}", rel_str);
-                continue;
-            }
-
-            if filename.contains("_concat") {
-                tracing::debug!("Keeping concat BIN: {}", rel_str);
-                continue;
-            }
-
-            if rel_str.contains("/skins/") &&
-               (filename == target_skin_name || filename == target_skin_name_padded) {
-                tracing::debug!("Keeping main skin BIN: {}", rel_str);
-                continue;
-            }
-
-            let file_stem = path.file_stem().unwrap_or_default().to_string_lossy();
-            let is_unresolved = file_stem.len() == 16 && file_stem.chars().all(|c| c.is_ascii_hexdigit());
-            if is_unresolved {
-                tracing::debug!("Keeping unresolved hash BIN: {}", rel_str);
-                continue;
-            }
-
-            if rel_str.contains("/animations/") {
-                let is_match = filename == target_skin_name
-                    || filename == target_skin_name_padded
-                    || referenced_animation_bin.as_ref().is_some_and(|ref_anim| filename == *ref_anim);
-                if is_match {
-                    tracing::debug!("Keeping animation BIN: {}", rel_str);
-                    continue;
-                }
-            }
-
-            let reason = if rel_str.contains("/animations/") {
-                "wrong animation"
-            } else if rel_str.contains("/skins/") {
-                "wrong skin"
-            } else if filename == format!("{}.bin", champion_lower) {
-                "champion root"
-            } else if filename.contains("_skins_") || filename.contains("_skin") {
-                "linked data"
-            } else {
-                "unreferenced"
-            };
-
-            if let Err(e) = fs::remove_file(path) {
-                tracing::warn!("Failed to remove {} BIN {}: {}", reason, path.display(), e);
-            } else {
-                tracing::debug!("Removed {} BIN: {}", reason, rel_str);
-                removed += 1;
-            }
-        }
-    }
-    
-    if removed > 0 {
-        tracing::info!("Cleaned up {} irrelevant BIN files", removed);
-    }
-    
-    Ok(removed)
-}
-
-fn cleanup_empty_dirs(dir: &Path) -> Result<()> {
-    for entry in WalkDir::new(dir)
-        .contents_first(true)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        let path = entry.path();
-        if path.is_dir() {
-            if let Ok(entries) = fs::read_dir(path) {
-                if entries.count() == 0 {
-                    let _ = fs::remove_dir(path);
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-fn find_main_skin_bin(content_base: &Path, champion: &str, skin_id: u32) -> Option<PathBuf> {
+pub(crate) fn find_main_skin_bin(content_base: &Path, champion: &str, skin_id: u32) -> Option<PathBuf> {
     let champion_lower = champion.to_lowercase();
     
     let patterns = vec![
