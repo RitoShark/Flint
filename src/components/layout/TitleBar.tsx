@@ -11,6 +11,13 @@ import * as api from '../../lib/api';
 import { sanitizeChampionName } from '../../lib/util/utils';
 import type { ProjectTab, ExtractSession } from '../../lib/types';
 
+// Brand mark for whichever launcher the sync button currently targets. Paths live in public/, so
+// they are served verbatim and need no import.
+const SYNC_LOGOS: Record<'ltk' | 'celestial', string> = {
+    ltk: '/ltk-manager-logo.svg',
+    celestial: '/celestial-logo.svg',
+};
+
 const MinimizeIcon: React.FC = () => (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
         <path d="M2 7H12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -687,15 +694,22 @@ export const TitleBar: React.FC = () => {
 
                 {currentView === 'preview' && currentProject && launcherTarget && (
                     <button
-                        className="titlebar__button titlebar__button--sync"
+                        className={`titlebar__button titlebar__button--sync${isSyncing ? ' titlebar__button--syncing' : ''}`}
                         onClick={handleSyncToLauncher}
                         disabled={isSyncing}
                         title={`Sync to ${launcherTarget.name}`}
+                        aria-label={`Sync to ${launcherTarget.name}`}
                         data-tauri-drag-region="false"
                     >
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                            <path d="M13.65 2.35A7 7 0 1014.25 8h-1.5a5.5 5.5 0 11-1.1-3.4l1.1 1.1.9-2.35z" fill="currentColor"/>
-                        </svg>
+                        <img
+                            className="titlebar__sync-logo"
+                            src={SYNC_LOGOS[launcherTarget.kind]}
+                            alt=""
+                            width={16}
+                            height={16}
+                            draggable={false}
+                            data-tauri-drag-region="false"
+                        />
                     </button>
                 )}
 
