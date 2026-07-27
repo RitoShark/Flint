@@ -21,6 +21,11 @@ export interface FlintSettings {
     jadePath: string | null;
     quartzPath: string | null;
     selectedTheme: string | null;
+    /**
+     * Rust types this as a plain `String` with a serde default, so `null` fails
+     * to deserialize and rejects the whole save — omit it when unknown.
+     */
+    binConverterEngine?: string;
 }
 
 export async function getAppHome(): Promise<string> {
