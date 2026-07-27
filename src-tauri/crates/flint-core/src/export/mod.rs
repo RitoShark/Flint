@@ -17,7 +17,7 @@ use crate::hash::wad_chunk_hash;
 /// Builds a valid WAD v3.4 binary (zstd-compressed, deduplicated chunks) from a
 /// `.wad.client` directory.
 pub fn build_wad_from_directory(wad_dir: &Path) -> Result<Vec<u8>, String> {
-    use crate::wad_jade::writer::{write_wad, EntryToWrite};
+    use crate::wad::writer::{write_wad, EntryToWrite};
 
     let mut wad_files: HashMap<String, PathBuf> = HashMap::new();
     for entry in walkdir::WalkDir::new(wad_dir)

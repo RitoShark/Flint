@@ -389,13 +389,13 @@ fn extract_uibase_from_game(league_path: &std::path::Path) -> Result<Vec<u8>, St
 
 /// Extract the uibase chunk from a WAD file by its known hash.
 fn extract_uibase_chunk(wad_path: &std::path::Path) -> Result<Vec<u8>, String> {
-    use flint_core::wad::reader::WadReader;
+    use flint_core::wad::adapter::WadHandle;
 
     tracing::info!("Extracting uibase from: {}", wad_path.display());
 
     let uibase_hash: u64 = 0x667b27d63a614c36;
 
-    let mut reader = WadReader::open(wad_path)
+    let mut reader = WadHandle::open(wad_path)
         .map_err(|e| format!("Failed to open UI.wad.client: {}", e))?;
 
     let chunk = *reader
@@ -408,7 +408,7 @@ fn extract_uibase_chunk(wad_path: &std::path::Path) -> Result<Vec<u8>, String> {
 
     let bytes = reader
         .wad_mut()
-        .chunk_data(&chunk)
+        .load_chunk_decompressed(&chunk)
         .map_err(|e| format!("Failed to decompress uibase chunk: {}", e))?;
 
     tracing::info!("Extracted uibase: {} bytes", bytes.len());

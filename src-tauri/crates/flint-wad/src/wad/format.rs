@@ -45,7 +45,7 @@ impl fmt::Display for WadCompression {
 }
 
 /// Detected WAD version. Major is always 3 in practice; minor changes the
-/// chunk record layout slightly — see [`crate::wad_jade::reader`].
+/// chunk record layout slightly — see [`crate::wad::reader`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WadVersion {
     pub major: u8,

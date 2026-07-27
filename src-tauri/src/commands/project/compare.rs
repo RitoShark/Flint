@@ -10,7 +10,7 @@
 
 use flint_core::overlay::HashResolver;
 use flint_core::hash::ResolvedHashes;
-use flint_core::wad_jade::adapter::WadHandle as WadReader;
+use flint_core::wad::adapter::WadHandle as WadReader;
 use crate::state::{HashOverlayState, WadCacheState};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};

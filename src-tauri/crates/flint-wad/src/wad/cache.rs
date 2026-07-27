@@ -1,7 +1,7 @@
 //! WAD chunk metadata cache. WAD files are immutable once written, so parsed
 //! headers can be cached and validated by mtime.
 use dashmap::DashMap;
-use crate::wad_jade::format::WadChunk;
+use crate::wad::format::WadChunk;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;

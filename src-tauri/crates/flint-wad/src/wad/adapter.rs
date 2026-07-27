@@ -1,19 +1,19 @@
-//! Jade-backed WAD reader + extractor API: `WadHandle` (`.chunks()`,
+//! WAD reader + extractor API: `WadHandle` (`.chunks()`,
 //! `.get_chunk(hash)`, `.wad_mut()`), the `WadChunks` collection, and the
 //! `extract_chunks_parallel` / `extract_chunk` / `find_champion_wad` helpers.
 
 use flint_hash::error::{Error, Result};
 use flint_hash::hash::ResolvedHashes;
-use crate::wad_jade::chunk_io::read_chunk_decompressed_bytes;
-use crate::wad_jade::format::WadChunk;
-use crate::wad_jade::reader::{read_wad_toc, WadToc};
+use crate::wad::chunk_io::read_chunk_decompressed_bytes;
+use crate::wad::format::WadChunk;
+use crate::wad::reader::{read_wad_toc, WadToc};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-pub use crate::wad_jade::format::WadChunk as Chunk;
+pub use crate::wad::format::WadChunk as Chunk;
 
 /// One entry in the extraction plan: chunk descriptor, output path, and an
 /// optional (relative-path, absolute-path) mapping recorded when a long
@@ -48,7 +48,7 @@ pub struct WadHandle {
 impl WadHandle {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
-        tracing::debug!("Opening WAD (jade): {}", path.display());
+        tracing::debug!("Opening WAD: {}", path.display());
         let toc = read_wad_toc(path)?;
         let chunks_vec = toc.chunks.clone();
         let by_hash: HashMap<u64, usize> = chunks_vec

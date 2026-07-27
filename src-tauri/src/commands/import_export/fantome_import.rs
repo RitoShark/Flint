@@ -8,7 +8,7 @@ use tauri::{AppHandle, Emitter, State};
 use zip::ZipArchive;
 
 use flint_core::overlay::{HashResolver, ProjectHashOverlay};
-use flint_core::wad_jade::adapter::WadHandle as WadReader;
+use flint_core::wad::adapter::WadHandle as WadReader;
 use flint_core::project::Project;
 use crate::state::{HashOverlayState, LmdbCacheState};
 

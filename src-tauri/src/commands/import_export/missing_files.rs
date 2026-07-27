@@ -19,7 +19,7 @@ use tauri::{AppHandle, Emitter};
 use walkdir::WalkDir;
 
 use flint_core::overlay::{HashResolver, ProjectHashOverlay};
-use flint_core::wad_jade::adapter::{find_champion_wad, WadHandle as WadReader};
+use flint_core::wad::adapter::{find_champion_wad, WadHandle as WadReader};
 
 /// Summary of what recovery pulled in, surfaced to the importer for logging.
 #[derive(Debug, Default, Clone)]

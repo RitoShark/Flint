@@ -19,6 +19,6 @@ pub use flint_formats::{audio, hud, inibin_text, luabin, manifest, stringtable, 
 pub use flint_hash::{error, hash};
 pub use flint_net::{cdn, net};
 pub use flint_bin as bin;
-pub use flint_wad::{overlay, wad, wad_jade};
+pub use flint_wad::{overlay, wad};
 
 pub use heed;

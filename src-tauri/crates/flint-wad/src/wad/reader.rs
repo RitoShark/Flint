@@ -1,161 +1,146 @@
+//! Custom WAD parser — header + TOC only. No decompression.
+
+use crate::wad::format::{WadChunk, WadCompression, WadVersion};
 use flint_hash::error::{Error, Result};
-use ritoshark::prelude::*;
-use ritoshark::wad::{Wad, WadChunk};
-#[cfg(test)]
+use byteorder::{LittleEndian, ReadBytesExt};
 use std::fs::File;
-#[cfg(test)]
-use std::io::Read;
-use std::path::Path;
+use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
 
-/// A reader for WAD archive files. Supports WAD versions 3.0 through 3.4+:
-/// - WAD 3.0: SHA-256 checksums
-/// - WAD 3.1-3.2: xxh3_64bits checksums
-/// - WAD 3.3: Subchunked entries (compression type 4 with multiple ZStandard frames)
-/// - WAD 3.4+: Extended subchunk indexing
-pub struct WadReader {
-    wad: Wad,
+#[derive(Debug)]
+pub struct WadToc {
+    pub path: PathBuf,
+    pub version: WadVersion,
+    pub chunks: Vec<WadChunk>,
 }
 
-impl WadReader {
-    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        let path = path.as_ref();
-        tracing::debug!("Opening WAD file: {}", path.display());
+const MAGIC_RW: u16 = 0x5752; // "RW" little-endian: 'R' (0x52) then 'W' (0x57).
 
-        let wad = Wad::from_path(path)
-            .map_err(|e| {
-                tracing::error!("Failed to mount WAD file '{}': {}", path.display(), e);
-                Error::wad_with_path(format!("Failed to mount WAD file: {}", e), path)
-            })?;
+pub fn read_wad_toc(path: impl AsRef<Path>) -> Result<WadToc> {
+    let path = path.as_ref();
+    let file = File::open(path).map_err(|e| Error::io_with_path(e, path))?;
+    let mut reader = BufReader::with_capacity(64 * 1024, file);
 
-        tracing::debug!(
-            "Successfully opened WAD '{}' with {} chunks",
-            path.display(),
-            wad.chunks.len()
-        );
-
-        Ok(Self { wad })
+    let magic = reader
+        .read_u16::<LittleEndian>()
+        .map_err(|e| Error::io_with_path(e, path))?;
+    if magic != MAGIC_RW {
+        return Err(Error::wad_with_path(
+            format!("Bad magic 0x{:04x} (expected 0x{:04x} \"RW\")", magic, MAGIC_RW),
+            path,
+        ));
     }
 
-    /// Returns the `(major, minor)` version tuple.
-    #[cfg(test)]
-    fn read_wad_version(path: impl AsRef<Path>) -> Result<(u8, u8)> {
-        let mut file = File::open(path.as_ref())
-            .map_err(|e| Error::io_with_path(e, path.as_ref()))?;
+    let major = reader
+        .read_u8()
+        .map_err(|e| Error::io_with_path(e, path))?;
+    let minor = reader
+        .read_u8()
+        .map_err(|e| Error::io_with_path(e, path))?;
 
-        // Magic bytes (2 bytes: "RW")
-        let mut magic = [0u8; 2];
-        file.read_exact(&mut magic)
-            .map_err(|e| Error::io_with_path(e, path.as_ref()))?;
-
-        if magic != [0x52, 0x57] {  // "RW"
-            return Err(Error::Wad {
-                message: format!("Invalid WAD magic bytes: expected 'RW', got '{:?}'", magic),
-                path: Some(path.as_ref().to_path_buf()),
-            });
-        }
-
-        // Version (major, minor)
-        let mut version = [0u8; 2];
-        file.read_exact(&mut version)
-            .map_err(|e| Error::io_with_path(e, path.as_ref()))?;
-
-        Ok((version[0], version[1]))
+    if major != 3 {
+        return Err(Error::wad_with_path(
+            format!("Unsupported WAD major version {}.{}", major, minor),
+            path,
+        ));
     }
 
-    pub fn chunks(&self) -> &[WadChunk] {
-        &self.wad.chunks
+    // 256-byte ECDSA signature block + 8-byte data checksum before the chunk count.
+    reader
+        .seek(SeekFrom::Current(256 + 8))
+        .map_err(|e| Error::io_with_path(e, path))?;
+
+    let chunk_count = reader
+        .read_i32::<LittleEndian>()
+        .map_err(|e| Error::io_with_path(e, path))?;
+    if chunk_count < 0 {
+        return Err(Error::wad_with_path(
+            format!("Negative chunk count: {}", chunk_count),
+            path,
+        ));
     }
+    let chunk_count = chunk_count as usize;
 
-    pub fn get_chunk(&self, path_hash: u64) -> Option<&WadChunk> {
-        self.wad.chunk_by_hash(path_hash)
-    }
-
-    pub fn chunk_count(&self) -> usize {
-        self.wad.chunks.len()
-    }
-
-    /// Decompresses and returns the bytes of a single chunk by its path hash.
-    ///
-    /// # Errors
-    /// Returns an error if the chunk is not present in the archive.
-    pub fn read_chunk(&self, path_hash: u64) -> Result<Vec<u8>> {
-        let chunk = self
-            .wad
-            .chunk_by_hash(path_hash)
-            .ok_or_else(|| Error::Wad {
-                message: format!("chunk with hash {:016x} not found", path_hash),
-                path: None,
-            })?;
-        self.wad
-            .chunk_data(chunk)
-            .map_err(|e| Error::Wad {
-                message: format!("Failed to decompress chunk {:016x}: {}", path_hash, e),
-                path: None,
-            })
-    }
-
-    pub fn wad_mut(&mut self) -> &Wad {
-        &self.wad
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::{Read, Write};
-    use tempfile::NamedTempFile;
-
-    #[test]
-    fn test_read_wad_version_33() {
-        let mut temp_file = NamedTempFile::new().unwrap();
-
-        temp_file.write_all(&[0x52, 0x57]).unwrap(); // "RW" magic
-        temp_file.write_all(&[3, 3]).unwrap();        // version 3.3
-        temp_file.flush().unwrap();
-
-        let version = WadReader::read_wad_version(temp_file.path()).unwrap();
-        assert_eq!(version, (3, 3), "Should detect WAD version 3.3");
-    }
-
-    #[test]
-    fn test_read_wad_version_31() {
-        let mut temp_file = NamedTempFile::new().unwrap();
-
-        temp_file.write_all(&[0x52, 0x57]).unwrap(); // "RW" magic
-        temp_file.write_all(&[3, 1]).unwrap();        // version 3.1
-        temp_file.flush().unwrap();
-
-        let version = WadReader::read_wad_version(temp_file.path()).unwrap();
-        assert_eq!(version, (3, 1), "Should detect WAD version 3.1");
-    }
-
-    #[test]
-    fn test_read_wad_version_34() {
-        let mut temp_file = NamedTempFile::new().unwrap();
-
-        temp_file.write_all(&[0x52, 0x57]).unwrap(); // "RW" magic
-        temp_file.write_all(&[3, 4]).unwrap();        // version 3.4
-        temp_file.flush().unwrap();
-
-        let version = WadReader::read_wad_version(temp_file.path()).unwrap();
-        assert_eq!(version, (3, 4), "Should detect WAD version 3.4");
-    }
-
-    #[test]
-    fn test_read_wad_version_invalid_magic() {
-        let mut temp_file = NamedTempFile::new().unwrap();
-
-        temp_file.write_all(&[0x00, 0x00]).unwrap(); // Invalid magic
-        temp_file.write_all(&[3, 3]).unwrap();
-        temp_file.flush().unwrap();
-
-        let result = WadReader::read_wad_version(temp_file.path());
-        assert!(result.is_err(), "Should fail with invalid magic bytes");
-
-        if let Err(Error::Wad { message, .. }) = result {
-            assert!(message.contains("Invalid WAD magic"), "Error should mention invalid magic");
+    let mut chunks = Vec::with_capacity(chunk_count);
+    let version = WadVersion { major, minor };
+    for i in 0..chunk_count {
+        let chunk = if version.is_v3_4_plus() {
+            read_chunk_v3_4(&mut reader)
         } else {
-            panic!("Expected WAD error with invalid magic message");
+            read_chunk_v3_1(&mut reader)
         }
+        .map_err(|e| match e {
+            Error::Io { source, .. } => Error::wad_with_path(
+                format!("Failed reading chunk {}/{}: {}", i + 1, chunk_count, source),
+                path,
+            ),
+            other => other,
+        })?;
+        chunks.push(chunk);
     }
+
+    Ok(WadToc {
+        path: path.to_path_buf(),
+        version,
+        chunks,
+    })
+}
+
+fn read_chunk_v3_1<R: Read>(reader: &mut R) -> Result<WadChunk> {
+    let path_hash = reader.read_u64::<LittleEndian>()?;
+    let data_offset = reader.read_u32::<LittleEndian>()? as u64;
+    let compressed_size = reader.read_i32::<LittleEndian>()?.max(0) as u64;
+    let uncompressed_size = reader.read_i32::<LittleEndian>()?.max(0) as u64;
+
+    let type_frame_count = reader.read_u8()?;
+    let compression_byte = type_frame_count & 0x0F;
+    let compression = WadCompression::from_u8(compression_byte).ok_or_else(|| {
+        Error::Wad {
+            message: format!("Unknown compression type {}", compression_byte),
+            path: None,
+        }
+    })?;
+
+    // Advance past is_duplicated (u8), start_frame (u16), checksum (u64).
+    reader.read_u8()?;
+    reader.read_u16::<LittleEndian>()?;
+    reader.read_u64::<LittleEndian>()?;
+
+    Ok(WadChunk {
+        path_hash,
+        data_offset,
+        compressed_size,
+        uncompressed_size,
+        compression,
+    })
+}
+
+fn read_chunk_v3_4<R: Read>(reader: &mut R) -> Result<WadChunk> {
+    let path_hash = reader.read_u64::<LittleEndian>()?;
+    let data_offset = reader.read_u32::<LittleEndian>()? as u64;
+    let compressed_size = reader.read_u32::<LittleEndian>()? as u64;
+    let uncompressed_size = reader.read_u32::<LittleEndian>()? as u64;
+
+    let type_frame_count = reader.read_u8()?;
+    let compression_byte = type_frame_count & 0x0F;
+    let compression = WadCompression::from_u8(compression_byte).ok_or_else(|| {
+        Error::Wad {
+            message: format!("Unknown compression type {}", compression_byte),
+            path: None,
+        }
+    })?;
+
+    // Advance past the 24-bit start_frame (3 bytes) and checksum (u64).
+    reader.read_u8()?;
+    reader.read_u8()?;
+    reader.read_u8()?;
+    reader.read_u64::<LittleEndian>()?;
+
+    Ok(WadChunk {
+        path_hash,
+        data_offset,
+        compressed_size,
+        uncompressed_size,
+        compression,
+    })
 }

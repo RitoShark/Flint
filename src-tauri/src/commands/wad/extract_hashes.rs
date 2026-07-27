@@ -10,7 +10,7 @@
 //! Pairs are merged into `hashes.extracted.txt` (xxhash64 hex → path) and
 //! `hashes.binhashes.extracted.txt` (fnv1a hex → name) in the user hash dir.
 
-use flint_core::wad_jade::adapter::WadHandle as WadReader;
+use flint_core::wad::adapter::WadHandle as WadReader;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;

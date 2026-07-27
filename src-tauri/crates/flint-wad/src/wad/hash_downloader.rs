@@ -76,7 +76,7 @@ pub async fn check_for_hash_update(hash_dir: &Path) -> Result<HashUpdateStatus> 
     let current_tag = meta.release_tag.clone().unwrap_or_default();
 
     let client = reqwest::Client::builder()
-        .user_agent("Jade-WadHashes/1.0")
+        .user_agent("Flint-WadHashes/1.0")
         .timeout(std::time::Duration::from_secs(20))
         .build()
         .map_err(Error::Network)?;

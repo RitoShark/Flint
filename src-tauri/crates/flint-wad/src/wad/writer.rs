@@ -27,7 +27,7 @@
 //! the chunk goes in uncompressed.
 
 use flint_hash::error::{Error, Result};
-use crate::wad_jade::format::WadCompression;
+use crate::wad::format::WadCompression;
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::{Cursor, Write};
 

@@ -13,10 +13,10 @@
 
 use crate::core::ipc_trace;
 use crate::state::{WadEditBacking, WadEditDelta, WadEditSession, WadEditState};
-use flint_core::wad_jade::format::{WadChunk, WadCompression};
-use flint_core::wad_jade::read_chunk_decompressed_bytes;
-use flint_core::wad_jade::reader::read_wad_toc;
-use flint_core::wad_jade::writer::{write_wad, EntryToWrite};
+use flint_core::wad::format::{WadChunk, WadCompression};
+use flint_core::wad::read_chunk_decompressed_bytes;
+use flint_core::wad::reader::read_wad_toc;
+use flint_core::wad::writer::{write_wad, EntryToWrite};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;

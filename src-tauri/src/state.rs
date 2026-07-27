@@ -6,7 +6,7 @@ use flint_core::heed;
 use flint_core::hash::{drop_lmdb_cache, get_or_open_env, get_wad_env, hashes_present};
 use flint_core::overlay::ProjectHashOverlay;
 use flint_core::wad::cache::WadCache;
-use flint_core::wad_jade::format::WadChunk;
+use flint_core::wad::format::WadChunk;
 use parking_lot::RwLock;
 
 /// Holds a file path handed to Flint via "Open with" / a file association at

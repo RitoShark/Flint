@@ -8,7 +8,7 @@ use walkdir::WalkDir;
 use flint_core::bin::codec::{read_bin, MAX_BIN_SIZE};
 use flint_core::bin::get_cached_bin_hashes;
 use flint_core::hash::{get_hash_dir, resolve_hashes_lmdb_bulk, ResolvedHashes};
-use flint_core::wad_jade::adapter::WadHandle as WadReader;
+use flint_core::wad::adapter::WadHandle as WadReader;
 use crate::state::LmdbCacheState;
 
 use flint_core::bin::{BinType, BinValue};

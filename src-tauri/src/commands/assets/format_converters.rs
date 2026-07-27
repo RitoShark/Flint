@@ -1,6 +1,6 @@
 //! Format conversion commands for luabin and troybin files
 
-use flint_core::wad_jade::adapter::WadHandle as WadReader;
+use flint_core::wad::adapter::WadHandle as WadReader;
 
 /// Convert a luabin (Lua 5.1 bytecode) buffer to readable Lua source text
 #[tauri::command]

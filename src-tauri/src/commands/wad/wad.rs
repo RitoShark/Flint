@@ -1,6 +1,6 @@
 use flint_core::overlay::HashResolver;
 use flint_core::hash::ResolvedHashes;
-use flint_core::wad_jade::adapter::WadHandle as WadReader;
+use flint_core::wad::adapter::WadHandle as WadReader;
 use crate::state::{HashOverlayState, LmdbCacheState, WadCacheState};
 use crate::core::ipc_trace;
 use rayon::prelude::*;
@@ -241,7 +241,7 @@ trait WadChunkMeta {
     fn uncompressed_size_u32(&self) -> u32;
 }
 
-impl WadChunkMeta for flint_core::wad_jade::format::WadChunk {
+impl WadChunkMeta for flint_core::wad::format::WadChunk {
     fn path_hash_le(&self) -> u64 { self.path_hash }
     fn uncompressed_size_u32(&self) -> u32 { self.uncompressed_size as u32 }
 }
@@ -357,7 +357,7 @@ pub async fn extract_wad(
     let output_dir_clone = output_dir.clone();
     let result: Result<(usize, usize, std::collections::HashMap<String, String>), String> = tokio::task::spawn_blocking(move || {
         let resolver = |hashes: &[u64]| -> ResolvedHashes { hash_resolver.resolve_wad_bulk(hashes) };
-        flint_core::wad_jade::adapter::extract_chunks_parallel(
+        flint_core::wad::adapter::extract_chunks_parallel(
             &wad_path,
             &output_dir,
             want_hashes.as_ref(),
@@ -490,7 +490,7 @@ pub async fn extract_wad_model_preview(
                 let _ = std::fs::create_dir_all(parent);
             }
             let chunk_copy = *chunk;
-            if let Err(e) = flint_core::wad_jade::adapter::extract_chunk(
+            if let Err(e) = flint_core::wad::adapter::extract_chunk(
                 &mut reader.wad_mut(), &chunk_copy, &output_path, None,
             ) {
                 tracing::warn!("Failed to extract {}: {}", rel_path, e);

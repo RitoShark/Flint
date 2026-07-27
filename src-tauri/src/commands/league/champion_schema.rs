@@ -12,7 +12,7 @@ use flint_core::bin::{classify_bin, BinCategory};
 use flint_core::hash::{get_hash_dir, resolve_hashes_lmdb_bulk, ResolvedHashes};
 use flint_core::hash::HashMapper;
 use flint_core::bin::{BinType, BinValue};
-use flint_core::wad_jade::adapter::WadHandle as WadReader;
+use flint_core::wad::adapter::WadHandle as WadReader;
 
 const SAMPLE_LIMIT_COMPLEX: usize = 3;
 const SAMPLE_LIMIT_SCALAR: usize = 1;
