@@ -659,11 +659,11 @@ mod tests {
         // different rig. Only the skinMeshProperties one may be returned —
         // picking the particle's would silently pair weights against the
         // wrong skeleton.
+        // Ordering is load-bearing: the particle entry deliberately comes FIRST so
+        // that a "take the first skeleton: in the file" implementation would return
+        // the particle's skeleton and fail this test. BIN entries are emitted in
+        // stored hash order, so particle-before-skin is a realistic layout.
         let text = r#"
-        skinMeshProperties: embed = SkinMeshDataProperties {
-            simpleSkin: string = "ASSETS/Characters/Smolder/Skins/Base/Smolder_Base.skn"
-            skeleton: string = "ASSETS/Characters/Smolder/Skins/Base/Smolder_Base.skl"
-        }
         "Characters/Smolder/Skins/Skin0/Particles/Q_ball" = VfxSystemDefinitionData {
             complexEmitterDefinitionData: list[embed] = {
                 VfxEmitterDefinitionData {
@@ -672,6 +672,10 @@ mod tests {
                     }
                 }
             }
+        }
+        skinMeshProperties: embed = SkinMeshDataProperties {
+            simpleSkin: string = "ASSETS/Characters/Smolder/Skins/Base/Smolder_Base.skn"
+            skeleton: string = "ASSETS/Characters/Smolder/Skins/Base/Smolder_Base.skl"
         }
         "#;
         assert_eq!(
