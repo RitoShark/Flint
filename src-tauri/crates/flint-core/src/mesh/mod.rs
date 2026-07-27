@@ -7,4 +7,5 @@ pub mod animation;
 pub mod submesh_visibility;
 pub mod scb;
 pub mod wire;
+pub mod discovery;
 
