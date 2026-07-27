@@ -4,8 +4,11 @@ import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
 import { useShortcutEngine, useAction } from '../../lib/shortcuts/hooks';
 import { useTabShortcuts } from '../../lib/shortcuts/useTabShortcuts';
 import * as api from '../../lib/api';
+import type { PendingFileOpen } from '../../lib/api/shell';
 import { openWadInExtract, isWadPath } from '../../lib/openWad';
+import { openOrImportFolder } from '../../lib/projectOpen';
 import { listen } from '@tauri-apps/api/event';
+import { open } from '@tauri-apps/plugin-dialog';
 import { invalidateCachedImage } from '../../lib/ui-helpers/imageCache';
 import { isSidecarFile } from '../../lib/editor/sidecarFiles';
 
@@ -291,7 +294,10 @@ export const App: React.FC = () => {
         };
     }, []);
 
-    const handleFileOpenRequest = useCallback(async (filePath: string) => {
+    // Renamed from `handleFileOpenRequest` — this is the existing double-click
+    // "open a file in the right editor" routing, byte-for-byte unchanged. It is
+    // now one branch of `handleShellRequest` below, reached by the `open` action.
+    const openPathInEditor = useCallback(async (filePath: string) => {
         if (!filePath) return;
         const lower = filePath.toLowerCase();
 
@@ -328,20 +334,88 @@ export const App: React.FC = () => {
         useNavigationStore.getState().navigateToFileEditor({ filePath, kind });
     }, [setWorking, setReady, showToast]);
 
+    // Dispatches every way Explorer can launch Flint with a target: a plain
+    // double-click open, or one of the four context-menu verbs. Each non-`open`
+    // branch reuses the flow that already exists for that action rather than
+    // duplicating it — see docs/superpowers/plans/2026-07-27-explorer-shell-verbs.md.
+    const handleShellRequest = useCallback(async (pending: PendingFileOpen) => {
+        switch (pending.action) {
+            case 'open':
+                return openPathInEditor(pending.path);
+
+            case 'extractWad': {
+                // Same prompt-then-extract-everything flow as the WAD Explorer's
+                // own extract actions (e.g. ChunkPreview.tsx), but with no chunk
+                // filter so the whole archive comes out.
+                try {
+                    const dest = await open({ title: 'Choose Extraction Folder', directory: true });
+                    if (!dest) return;
+                    setWorking('Extracting WAD...');
+                    const res = await api.extractWad(pending.path, dest as string, null);
+                    showToast('success', `Extracted ${res.extracted} files`);
+                    setReady('Extracted');
+                } catch (err) {
+                    console.error('Failed to extract WAD:', err);
+                    showToast('error', 'Failed to extract WAD');
+                    setReady('Error');
+                }
+                return;
+            }
+
+            case 'packWad': {
+                try {
+                    setWorking('Packing WAD...');
+                    const outPath = await api.packFolderToWad(pending.path);
+                    showToast('success', `Packed to ${outPath}`);
+                    setReady('Packed');
+                } catch (err) {
+                    console.error('Failed to pack folder to WAD:', err);
+                    showToast('error', 'Failed to pack folder to WAD');
+                    setReady('Error');
+                }
+                return;
+            }
+
+            case 'importMod':
+                // Seeds the same import wizard modal the file-association-driven
+                // import flow was built for; it runs api.analyzeFantome/analyzeModpkg
+                // itself once given a filePath (see ImportModModal.tsx).
+                openModal('importMod', { filePath: pending.path });
+                return;
+
+            case 'openProject': {
+                // Identical to the folder drag-and-drop handler in WelcomeScreen.tsx
+                // and ProjectListModal.tsx.
+                try {
+                    const outcome = await openOrImportFolder(pending.path);
+                    if (outcome.kind === 'rejected') {
+                        showToast('error', outcome.reason);
+                    } else if (outcome.kind === 'imported') {
+                        showToast('success', `Imported ${outcome.project.display_name || outcome.project.name}`);
+                    }
+                } catch (err) {
+                    console.error('Failed to open project folder:', err);
+                    showToast('error', 'Failed to open folder as a Flint project');
+                }
+                return;
+            }
+        }
+    }, [openPathInEditor, setWorking, setReady, showToast, openModal]);
+
     useEffect(() => {
-        const unlistenFileOpen = listen<string>('file-open-request', (event) => {
-            void handleFileOpenRequest(event.payload);
+        const unlistenFileOpen = listen<PendingFileOpen>('file-open-request', (event) => {
+            void handleShellRequest(event.payload);
         });
         // On a cold start the webview boots long after the backend emits its
         // fixed-delay `file-open-request`, so that event is lost. Now that the
-        // listener is mounted, PULL any pending "Open with" path from the
+        // listener is mounted, PULL any pending Explorer action from the
         // backend — race-free regardless of boot time. (This is why double-
         // clicking a file used to just open Flint; you had to double-click again.)
         api.takePendingFileOpen()
-            .then((pending) => { if (pending) void handleFileOpenRequest(pending); })
+            .then((pending) => { if (pending) void handleShellRequest(pending); })
             .catch((err) => console.error('takePendingFileOpen failed:', err));
         return () => { unlistenFileOpen.then((unlisten) => unlisten()); };
-    }, [handleFileOpenRequest]);
+    }, [handleShellRequest]);
 
     const previewWatcherRunningRef = React.useRef(false);
     useEffect(() => {

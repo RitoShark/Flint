@@ -31,6 +31,7 @@
  *   - hashOverlay    — project-local hash overlay build/clear
  *   - hud            — HUD editor
  *   - externalApps   — Jade/Quartz launch + Windows file associations
+ *   - shell          — pending Explorer-verb action (ShellAction/PendingFileOpen)
  *   - dev            — schema aggregation (dev-only)
  *   - settings       — disk-backed settings + themes
  *   - updater        — self-update
@@ -64,6 +65,7 @@ export * from './import';
 export * from './hashOverlay';
 export * from './hud';
 export * from './externalApps';
+export * from './shell';
 export * from './dev';
 export * from './legacyFormats';
 export * from './settings';
