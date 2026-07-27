@@ -16,18 +16,43 @@ use parking_lot::RwLock;
 /// the path here and let the frontend drain it once its listener exists
 /// (`take_pending_file_open`) — race-free regardless of boot time.
 #[derive(Clone, Default)]
-pub struct PendingFileOpenState(Arc<RwLock<Option<String>>>);
+pub struct PendingFileOpenState(Arc<RwLock<Option<crate::shell_args::PendingFileOpen>>>);
 
 impl PendingFileOpenState {
     pub fn new() -> Self { Self::default() }
 
-    pub fn set(&self, path: String) {
-        *self.0.write() = Some(path);
+    pub fn set(&self, pending: crate::shell_args::PendingFileOpen) {
+        *self.0.write() = Some(pending);
     }
 
-    /// Return the pending path (if any) and clear it, so it's delivered once.
-    pub fn take(&self) -> Option<String> {
+    /// Return the pending action (if any) and clear it, so it's delivered once.
+    pub fn take(&self) -> Option<crate::shell_args::PendingFileOpen> {
         self.0.write().take()
+    }
+}
+
+#[cfg(test)]
+mod pending_file_open_tests {
+    use super::*;
+    use crate::shell_args::{PendingFileOpen, ShellAction};
+
+    #[test]
+    fn take_returns_the_pending_action_once() {
+        let state = PendingFileOpenState::new();
+        assert!(state.take().is_none());
+
+        state.set(PendingFileOpen {
+            action: ShellAction::PackWad,
+            path: "C:/x/mod".into(),
+        });
+
+        let taken = state.take().expect("nothing pending");
+        assert_eq!(taken.action, ShellAction::PackWad);
+        assert_eq!(taken.path, "C:/x/mod");
+
+        // Delivered once — a second take must be empty, or a cold-start pull
+        // followed by the event would act twice.
+        assert!(state.take().is_none());
     }
 }
 

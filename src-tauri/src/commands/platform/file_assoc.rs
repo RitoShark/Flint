@@ -344,12 +344,15 @@ pub async fn get_file_association_status() -> Result<AssocStatus, String> {
     }
 }
 
-/// Drain the file path (if any) that Flint was launched with via "Open with" /
-/// a file association. The frontend calls this once its `file-open-request`
-/// listener is mounted, so a cold-start launch opens the file regardless of how
-/// long the webview took to boot (the fixed-delay event emit races that boot
-/// and is otherwise lost). Returns `None` when there's nothing pending.
+/// Drain the pending shell action (if any) that Flint was launched with via
+/// "Open with" / a file association / an Explorer context-menu verb. The
+/// frontend calls this once its `file-open-request` listener is mounted, so a
+/// cold-start launch acts on it regardless of how long the webview took to
+/// boot (the fixed-delay event emit races that boot and is otherwise lost).
+/// Returns `None` when there's nothing pending.
 #[tauri::command]
-pub fn take_pending_file_open(pending: State<'_, PendingFileOpenState>) -> Option<String> {
+pub fn take_pending_file_open(
+    pending: State<'_, PendingFileOpenState>,
+) -> Option<crate::shell_args::PendingFileOpen> {
     pending.take()
 }

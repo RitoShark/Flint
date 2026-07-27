@@ -3,6 +3,7 @@
 
 mod commands;
 mod core;
+mod shell_args;
 mod startup;
 mod state;
 
@@ -10,6 +11,7 @@ use commands::project_watcher::WatcherState;
 use commands::settings::{initialize_app_home, get_flint_home};
 use flint_ltk::hash::get_hash_dir;
 use core::frontend_log::{FrontendLogLayer, set_app_handle};
+use shell_args::PendingFileOpen;
 use state::{CdnSessionState, HashOverlayState, LmdbCacheState, PendingFileOpenState, WadCacheState, WadEditState};
 use tauri::{Emitter, Manager};
 use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter};
@@ -93,19 +95,25 @@ fn main() {
                 let _ = window.set_focus();
                 let _ = window.request_user_attention(Some(tauri::UserAttentionType::Informational));
             }
-            let file_arg = args.iter().skip(1).find(|a| {
-                !a.starts_with("--") && std::path::Path::new(a.as_str()).is_file()
-            });
-            if let Some(path) = file_arg {
-                let clean_path = std::fs::canonicalize(path)
-                    .map(|p| {
-                        let s = p.to_string_lossy().into_owned();
-                        s.strip_prefix(r"\\?\").map(str::to_owned).unwrap_or(s)
-                    })
-                    .unwrap_or_else(|_| path.clone());
-                // Stash for pull-on-mount AND emit for an already-running frontend.
-                app.state::<PendingFileOpenState>().set(clean_path.clone());
-                let _ = app.emit("file-open-request", clean_path);
+            if let Some(pending) = crate::shell_args::parse_shell_args(&args) {
+                let target = std::path::Path::new(&pending.path);
+                let valid = if pending.action.targets_directory() {
+                    target.is_dir()
+                } else {
+                    target.is_file()
+                };
+                if valid {
+                    let clean = std::fs::canonicalize(target)
+                        .map(|p| {
+                            let s = p.to_string_lossy().into_owned();
+                            s.strip_prefix(r"\\?\").map(str::to_owned).unwrap_or(s)
+                        })
+                        .unwrap_or_else(|_| pending.path.clone());
+                    let pending = PendingFileOpen { path: clean, ..pending };
+                    // Stash for pull-on-mount AND emit for an already-running frontend.
+                    app.state::<PendingFileOpenState>().set(pending.clone());
+                    let _ = app.emit("file-open-request", pending);
+                }
             }
         }))
         .manage(startup::StartupGate::default())
@@ -188,30 +196,39 @@ fn main() {
             });
 
             // CLI arg passthrough: when Windows hands us a file via "Open with"
-            // the path arrives as `argv[1]`. Emit a `file-open-request` event
-            // (on a short delay so the webview is mounted) for the frontend to
-            // act on.
-            let pending_file_arg: Option<String> = std::env::args()
-                .nth(1)
-                .filter(|a| !a.starts_with("--") && std::path::Path::new(a).is_file())
-                .map(|a| {
-                    std::fs::canonicalize(&a)
+            // or a context-menu verb, the action arrives as argv. Emit a
+            // `file-open-request` event (on a short delay so the webview is
+            // mounted) for the frontend to act on.
+            let cli_args: Vec<String> = std::env::args().collect();
+            let pending_shell_open: Option<PendingFileOpen> =
+                crate::shell_args::parse_shell_args(&cli_args).and_then(|pending| {
+                    let target = std::path::Path::new(&pending.path);
+                    let valid = if pending.action.targets_directory() {
+                        target.is_dir()
+                    } else {
+                        target.is_file()
+                    };
+                    if !valid {
+                        return None;
+                    }
+                    let clean = std::fs::canonicalize(target)
                         .map(|p| {
                             let s = p.to_string_lossy().into_owned();
                             s.strip_prefix(r"\\?\").map(str::to_owned).unwrap_or(s)
                         })
-                        .unwrap_or(a)
+                        .unwrap_or_else(|_| pending.path.clone());
+                    Some(PendingFileOpen { path: clean, ..pending })
                 });
-            if let Some(path) = pending_file_arg {
-                tracing::info!("CLI arg file: {}", path);
+            if let Some(pending) = pending_shell_open {
+                tracing::info!("CLI arg: {:?} {}", pending.action, pending.path);
                 // Stash so the frontend can pull it once its listener mounts —
                 // on a cold start the webview boot far outlasts any fixed delay,
                 // so the event alone races the listener and is lost.
-                app.state::<PendingFileOpenState>().set(path.clone());
+                app.state::<PendingFileOpenState>().set(pending.clone());
                 let h = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-                    let _ = h.emit("file-open-request", &path);
+                    let _ = h.emit("file-open-request", &pending);
                 });
             }
 
