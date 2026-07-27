@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use ritoshark::rman::{ChunkHashType, ChunkRange};
 
-use crate::error::{Error, Result};
+use flint_hash::error::{Error, Result};
 
 /// A run of consecutive chunks in the same bundle, fetchable in one HTTP range request.
 #[derive(Clone, Debug)]

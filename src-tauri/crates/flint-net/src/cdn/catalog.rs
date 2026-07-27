@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{Error, Result};
+use flint_hash::error::{Error, Result};
 
 const TREE_URL: &str =
     "https://api.github.com/repos/Morilli/riot-manifests/git/trees/master?recursive=1";

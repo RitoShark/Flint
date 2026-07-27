@@ -1592,6 +1592,7 @@ dependencies = [
  "flate2",
  "flint-formats",
  "flint-hash",
+ "flint-net",
  "futures",
  "heed",
  "image",
@@ -1657,6 +1658,21 @@ dependencies = [
  "tokio",
  "tracing",
  "xxhash-rust",
+ "zstd 0.12.4",
+]
+
+[[package]]
+name = "flint-net"
+version = "0.1.0"
+dependencies = [
+ "flint-hash",
+ "reqwest",
+ "ritoshark",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
  "zstd 0.12.4",
 ]
 

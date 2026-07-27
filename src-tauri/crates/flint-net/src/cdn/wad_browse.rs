@@ -4,7 +4,7 @@ use ritoshark::rman::ChunkRange;
 use ritoshark::wad::{Wad, WadChunk};
 
 use crate::cdn::downloader::bundle_url;
-use crate::error::{Error, Result};
+use flint_hash::error::{Error, Result};
 
 /// One inner file inside a WAD, from its TOC.
 #[derive(Clone, Debug, PartialEq, Eq)]

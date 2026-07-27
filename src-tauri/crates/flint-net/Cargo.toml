@@ -1,0 +1,19 @@
+[package]
+name = "flint-net"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+flint-hash = { path = "../flint-hash" }
+
+tracing = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+zstd = "0.12"
+
+tokio = { version = "1.0", features = ["rt-multi-thread", "fs", "io-util", "sync", "macros", "time"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls-no-provider"] }
+# The provider is not installed by default; `net::install_tls_provider` does it.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+
+ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "daff556", features = ["rman-verify"] }

@@ -11,11 +11,12 @@ pub mod map;
 pub mod export;
 pub mod checkpoint;
 pub mod loadscreen_banner;
-pub mod cdn;
+
 pub mod overlay;
-pub mod net;
+
 
 pub use flint_formats::{audio, hud, inibin_text, luabin, manifest, stringtable, troybin};
 pub use flint_hash::{error, hash};
+pub use flint_net::{cdn, net};
 
 pub use heed;

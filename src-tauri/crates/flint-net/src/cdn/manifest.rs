@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use ritoshark::io::Parse;
 use ritoshark::rman::Rman;
 
-use crate::error::{Error, Result};
+use flint_hash::error::{Error, Result};
 
 /// One node in the virtual asset tree. Directory if `file_index` is `None`.
 #[derive(Clone, Debug, Default)]
