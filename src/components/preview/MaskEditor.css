@@ -187,38 +187,98 @@
     color: var(--text-muted);
 }
 
-/* Slider — house style, matching HUDCanvas.css's control-group range input
-   (4px track, 14px round accent thumb). `--fill` is set inline per row from
-   the live weight so the track itself is scannable, not just the thumb. */
+/* Slider — 4px track, 12px round accent thumb. `--fill` is set inline per row
+   from the live weight so the track itself is scannable, not just the thumb.
+
+   `appearance: none` on the INPUT is load-bearing and easy to miss: with it
+   absent, Chromium draws its own native slider on top of the background
+   gradient below, so the control renders in the browser's blue instead of
+   Flint's accent and `--fill` never shows. Setting it only on
+   `::-webkit-slider-thumb` (as HUDCanvas.css does) is not enough.
+
+   The element is 14px tall to give a comfortable grab target across a 160-row
+   grid, while the gradient is drawn as a 4px band centred in it — so the track
+   stays visually thin without making the thumb hard to hit. */
 .mask-editor__slider {
     --fill: 0%;
+    -webkit-appearance: none;
+    appearance: none;
     flex: 1 1 120px;
     min-width: 60px;
     max-width: 260px;
-    height: 4px;
-    border-radius: 2px;
+    height: 14px;
+    border: none;
     outline: none;
     cursor: pointer;
-    background: linear-gradient(to right, var(--accent) var(--fill), var(--bg) var(--fill));
+    background:
+        linear-gradient(
+            to right,
+            var(--accent) var(--fill),
+            var(--border) var(--fill)
+        )
+        center / 100% 4px no-repeat;
+    border-radius: 2px;
+}
+
+/* Track kept transparent so the gradient above is what shows through, in both
+   engines rather than only one. */
+.mask-editor__slider::-webkit-slider-runnable-track {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    border: none;
+    height: 14px;
+}
+
+.mask-editor__slider::-moz-range-track {
+    background: transparent;
+    border: none;
+    height: 14px;
 }
 
 .mask-editor__slider::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
+    margin-top: 1px;
     background: var(--accent);
+    /* Ring in the row background so the thumb stays legible where it sits on
+       top of the filled portion of its own track. */
+    border: 2px solid var(--bg);
+    box-shadow: 0 0 0 1px var(--accent);
     border-radius: 50%;
     cursor: pointer;
+    transition: transform 80ms ease;
 }
 
 .mask-editor__slider::-moz-range-thumb {
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
     background: var(--accent);
+    border: 2px solid var(--bg);
+    box-shadow: 0 0 0 1px var(--accent);
     border-radius: 50%;
     cursor: pointer;
-    border: none;
+    transition: transform 80ms ease;
+}
+
+.mask-editor__slider:hover::-webkit-slider-thumb,
+.mask-editor__slider:active::-webkit-slider-thumb {
+    transform: scale(1.15);
+}
+
+.mask-editor__slider:hover::-moz-range-thumb,
+.mask-editor__slider:active::-moz-range-thumb {
+    transform: scale(1.15);
+}
+
+/* Keyboard focus needs a visible ring — `outline: none` above removes the
+   default one, and the thumb alone doesn't indicate focus. */
+.mask-editor__slider:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
 }
 
 /* Numeric weight input — shared by the per-joint row and the bulk-set
@@ -229,9 +289,12 @@
 .mask-editor__row input.mask-editor__weight-input,
 .mask-editor__bulk-bar input.mask-editor__weight-input {
     flex-shrink: 0;
-    width: 66px;
+    /* Sized for the longest exact-f32 rendering — `0.6399999856948853` is 18
+       mono characters. A narrower box would clip the very digits this field
+       exists to show. */
+    width: 152px;
     height: 22px;
-    padding: 2px 6px;
+    padding: 2px 7px;
     text-align: right;
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
@@ -240,6 +303,35 @@
     border: 1px solid var(--border);
     border-radius: 4px;
     color: var(--text, var(--text-primary));
+    transition: border-color 100ms ease, box-shadow 100ms ease;
+}
+
+/* Spinners cost ~14px of a 86px field and are useless at `step="any"` —
+   drag the slider or type instead. */
+.mask-editor__row input.mask-editor__weight-input::-webkit-outer-spin-button,
+.mask-editor__row input.mask-editor__weight-input::-webkit-inner-spin-button,
+.mask-editor__bulk-bar input.mask-editor__weight-input::-webkit-outer-spin-button,
+.mask-editor__bulk-bar input.mask-editor__weight-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    appearance: none;
+    margin: 0;
+}
+
+.mask-editor__row input.mask-editor__weight-input {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.mask-editor__row input.mask-editor__weight-input:hover,
+.mask-editor__bulk-bar input.mask-editor__weight-input:hover {
+    border-color: var(--text-muted);
+}
+
+.mask-editor__row input.mask-editor__weight-input:focus,
+.mask-editor__bulk-bar input.mask-editor__weight-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 25%, transparent);
 }
 
 /* Compact button variant for Subtree / Set all / Invert, sized to fit a

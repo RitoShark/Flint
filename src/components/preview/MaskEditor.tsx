@@ -23,8 +23,27 @@ function clampWeight(value: number): number {
     return Math.min(1, Math.max(0, value));
 }
 
+/**
+ * Render a weight exactly as LtMAO does, so values can be compared side by side.
+ *
+ * Weights are f32 on disk. Rust serialises an f32 with the SHORTEST decimal
+ * string that round-trips it, so `0.64` arrives here as literally `0.64` —
+ * there are no extra digits in the JSON to show. LtMAO is Python, where
+ * `struct.unpack('<f', ...)` widens the f32 into a float64 and printing that
+ * reveals the stored value in full: `0.6399999856948853`.
+ *
+ * `Math.fround` reproduces that exactly: it rounds our f64 to the nearest f32
+ * and hands it back widened, and because the incoming string is guaranteed to
+ * round-trip the original f32, the result is bit-identical to what Python read.
+ * No backend or IPC change is needed to recover the digits.
+ *
+ * The `.0` suffix matches Python's float repr, which keeps the column uniform
+ * (every row shows a decimal point). The integer test guards exponent form —
+ * `1e-7` must not become `1e-7.0`.
+ */
 function formatWeight(value: number): string {
-    return value.toFixed(2);
+    const text = String(Math.fround(value));
+    return /^-?\d+$/.test(text) ? `${text}.0` : text;
 }
 
 function formatMaskKey(key: number): string {
@@ -96,8 +115,15 @@ const JointRow: React.FC<JointRowProps> = ({ joint, depth, onWeightChange, onSet
             return;
         }
         const clamped = clampWeight(parsed);
-        if (clamped !== joint.weight) onWeightChange(joint.index, clamped);
-        else setDraft(formatWeight(clamped));
+        // Compare at the precision the field DISPLAYS, not by raw equality.
+        // Parsing back the text we rendered must never count as an edit, or
+        // merely tabbing through a field would commit the displayed rounding
+        // over the stored value and quietly degrade it.
+        if (formatWeight(clamped) === formatWeight(joint.weight)) {
+            setDraft(formatWeight(joint.weight));
+            return;
+        }
+        onWeightChange(joint.index, clamped);
     };
 
     const indentPx = 10 + Math.min(depth, MAX_INDENT_DEPTH) * INDENT_STEP_PX;
@@ -120,17 +146,21 @@ const JointRow: React.FC<JointRowProps> = ({ joint, depth, onWeightChange, onSet
                 className="mask-editor__slider"
                 min={0}
                 max={1}
-                step={0.01}
+                step={0.001}
                 value={joint.weight}
                 onChange={(e) => onWeightChange(joint.index, clampWeight(parseFloat(e.target.value)))}
                 style={{ '--fill': `${fillPct}%` } as React.CSSProperties}
+                aria-label={`${displayName} weight`}
             />
             <input
                 type="number"
                 className="mask-editor__weight-input"
                 min={0}
                 max={1}
-                step={0.01}
+                // `step="any"` — a fixed step makes the browser treat any finer
+                // value as a stepMismatch (`:invalid`), which f32 weights like
+                // 0.6428571 routinely are.
+                step="any"
                 value={draft}
                 onFocus={() => setFocused(true)}
                 onChange={(e) => setDraft(e.target.value)}
@@ -410,8 +440,9 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({ binPath, sklPath }) => {
                                     className="mask-editor__weight-input"
                                     min={0}
                                     max={1}
-                                    step={0.01}
+                                    step="any"
                                     value={bulkValue}
+                                    aria-label="Bulk weight value"
                                     onChange={(e) => {
                                         const parsed = parseFloat(e.target.value);
                                         if (Number.isFinite(parsed)) setBulkValue(clampWeight(parsed));
