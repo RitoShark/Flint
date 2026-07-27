@@ -3,12 +3,20 @@ import * as api from '../../lib/api';
 import { useNotificationStore } from '../../lib/stores';
 import type { JointWeight, MaskDocument, MaskView } from '../../lib/api/animask';
 import { invertAll, setAll, setSubtree } from '../../lib/maskOps';
+import './MaskEditor.css';
 
 interface MaskEditorProps {
     binPath: string;
     /** Omit to let the backend resolve the skeleton from the BIN itself. */
     sklPath?: string;
 }
+
+/** Per-level hierarchy indent, in px — tight enough to keep a dense grid scannable. */
+const INDENT_STEP_PX = 12;
+/** Indent stops growing past this depth so a deeply-nested joint (real
+ *  skeletons can run past depth 10) never pushes its slider and number box
+ *  off the right edge of a narrow panel — it just stops indenting further. */
+const MAX_INDENT_DEPTH = 8;
 
 /** Clamp to the valid weight range; slider and numeric input share this. */
 function clampWeight(value: number): number {
@@ -92,39 +100,34 @@ const JointRow: React.FC<JointRowProps> = ({ joint, depth, onWeightChange, onSet
         else setDraft(formatWeight(clamped));
     };
 
+    const indentPx = 10 + Math.min(depth, MAX_INDENT_DEPTH) * INDENT_STEP_PX;
+    const displayName = joint.name ?? `#${joint.index}`;
+    const fillPct = clampWeight(joint.weight) * 100;
+
     return (
         <div
-            style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '4px 10px',
-                paddingLeft: 10 + depth * 14,
-                borderBottom: '1px solid var(--border-subtle, #222)',
-                fontSize: 12,
-            }}
+            className="mask-editor__row"
+            style={{ '--indent': `${indentPx}px` } as React.CSSProperties}
         >
-            <span style={{
-                flex: 1,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                fontFamily: joint.name ? undefined : 'var(--font-mono, monospace)',
-                opacity: joint.name ? 1 : 0.75,
-            }}>
-                {joint.name ?? `#${joint.index}`}
+            <span
+                className={`mask-editor__joint-name${joint.name ? '' : ' is-unnamed'}`}
+                title={displayName}
+            >
+                {displayName}
             </span>
             <input
                 type="range"
+                className="mask-editor__slider"
                 min={0}
                 max={1}
                 step={0.01}
                 value={joint.weight}
                 onChange={(e) => onWeightChange(joint.index, clampWeight(parseFloat(e.target.value)))}
-                style={{ width: 100 }}
+                style={{ '--fill': `${fillPct}%` } as React.CSSProperties}
             />
             <input
                 type="number"
+                className="mask-editor__weight-input"
                 min={0}
                 max={1}
                 step={0.01}
@@ -135,19 +138,9 @@ const JointRow: React.FC<JointRowProps> = ({ joint, depth, onWeightChange, onSet
                 onKeyDown={(e) => {
                     if (e.key === 'Enter') { commitDraft(); (e.target as HTMLInputElement).blur(); }
                 }}
-                style={{
-                    width: 56,
-                    textAlign: 'right',
-                    fontFamily: 'var(--font-mono, monospace)',
-                    background: 'var(--bg-tertiary)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 4,
-                    color: 'var(--text-primary)',
-                    fontSize: 12,
-                }}
             />
             <button
-                className="btn btn--sm"
+                className="btn mask-editor__mini-btn"
                 onClick={() => onSetSubtree(joint.index, joint.weight)}
                 disabled={subtreeDisabled}
                 title={
@@ -155,7 +148,6 @@ const JointRow: React.FC<JointRowProps> = ({ joint, depth, onWeightChange, onSet
                         ? 'Unavailable: this mask\'s joint hierarchy is unreliable'
                         : `Apply ${formatWeight(joint.weight)} to this joint and every descendant`
                 }
-                style={{ fontSize: 10, padding: '2px 6px', flexShrink: 0 }}
             >
                 Subtree
             </button>
@@ -354,22 +346,13 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({ binPath, sklPath }) => {
     }
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 12,
-                padding: '6px 10px',
-                borderBottom: '1px solid var(--border-color, #333)',
-                fontSize: 12,
-                flexShrink: 0,
-            }}>
-                <span style={{ opacity: 0.7 }}>
+        <div className="mask-editor">
+            <div className="mask-editor__header">
+                <span className="mask-editor__header-info">
                     {doc.masks.length} mask{doc.masks.length === 1 ? '' : 's'} · skeleton has {doc.skeletonJointCount} joint{doc.skeletonJointCount === 1 ? '' : 's'}
                 </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ opacity: 0.7 }}>
+                <div className="mask-editor__header-actions">
+                    <span className="mask-editor__header-status">
                         {dirtyKeys.length === 0
                             ? 'No changes'
                             : `${dirtyWeightCount} weight${dirtyWeightCount === 1 ? '' : 's'} changed in ${dirtyKeys.length} mask${dirtyKeys.length === 1 ? '' : 's'}`}
@@ -385,67 +368,46 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({ binPath, sklPath }) => {
                 </div>
             </div>
 
-            <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-                <div style={{
-                    width: 220,
-                    flexShrink: 0,
-                    borderRight: '1px solid var(--border-color, #333)',
-                    overflowY: 'auto',
-                }}>
+            <div className="mask-editor__body">
+                <div className="mask-editor__sidebar">
                     {doc.masks.map((m) => {
                         const rowMismatched = isMismatched(m);
                         const isSelected = selectedKey === m.key;
                         const rowDirty = dirtyKeySet.has(m.key);
+                        const keyLabel = formatMaskKey(m.key);
                         return (
                             <div
                                 key={m.key}
                                 onClick={() => setSelectedKey(m.key)}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 6,
-                                    padding: '6px 10px',
-                                    cursor: 'pointer',
-                                    fontFamily: 'var(--font-mono, monospace)',
-                                    fontSize: 12,
-                                    background: isSelected ? 'var(--bg-hover, #2a2d35)' : 'transparent',
-                                    borderBottom: '1px solid var(--border-subtle, #222)',
-                                }}
+                                className={`mask-editor__mask-row${isSelected ? ' is-selected' : ''}`}
                             >
                                 {rowMismatched && (
-                                    <span title="Weight count does not match the skeleton" style={{ color: 'var(--warning, #f0a020)' }}>
+                                    <span className="mask-editor__mask-warning" title="Weight count does not match the skeleton">
                                         ⚠
                                     </span>
                                 )}
-                                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {formatMaskKey(m.key)}
+                                <span className="mask-editor__mask-key" title={keyLabel}>
+                                    {keyLabel}
                                 </span>
                                 {rowDirty && (
-                                    <span title="This mask has unsaved edits" style={{ color: 'var(--accent-primary)', fontSize: 8 }}>
+                                    <span className="mask-editor__mask-dirty-dot" title="This mask has unsaved edits">
                                         ●
                                     </span>
                                 )}
-                                <span style={{ opacity: 0.6 }}>{m.joints.length}</span>
+                                <span className="mask-editor__mask-count">{m.joints.length}</span>
                             </div>
                         );
                     })}
                 </div>
 
-                <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+                <div className="mask-editor__content">
                     {selectedMask ? (
                         <>
-                            <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                                padding: '6px 10px',
-                                borderBottom: '1px solid var(--border-subtle, #222)',
-                                fontSize: 12,
-                                flexShrink: 0,
-                            }}>
-                                <span style={{ opacity: 0.7 }}>Bulk</span>
+                            <div className="mask-editor__bulk-bar">
+                                <span className="mask-editor__bulk-label">Bulk</span>
                                 <input
                                     type="number"
+                                    className="mask-editor__weight-input"
                                     min={0}
                                     max={1}
                                     step={0.01}
@@ -454,48 +416,24 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({ binPath, sklPath }) => {
                                         const parsed = parseFloat(e.target.value);
                                         if (Number.isFinite(parsed)) setBulkValue(clampWeight(parsed));
                                     }}
-                                    style={{
-                                        width: 56,
-                                        textAlign: 'right',
-                                        fontFamily: 'var(--font-mono, monospace)',
-                                        background: 'var(--bg-tertiary)',
-                                        border: '1px solid var(--border)',
-                                        borderRadius: 4,
-                                        color: 'var(--text-primary)',
-                                        fontSize: 12,
-                                    }}
                                 />
                                 <button
-                                    className="btn btn--sm"
+                                    className="btn mask-editor__mini-btn"
                                     onClick={() => handleSetAll(selectedMask.key, bulkValue)}
                                     title={`Set every joint in this mask to ${formatWeight(bulkValue)}`}
-                                    style={{ fontSize: 11, padding: '2px 8px' }}
                                 >
                                     Set all
                                 </button>
                                 <button
-                                    className="btn btn--sm"
+                                    className="btn mask-editor__mini-btn"
                                     onClick={() => handleInvertAll(selectedMask.key)}
                                     title="Map every weight w to 1 - w"
-                                    style={{ fontSize: 11, padding: '2px 8px' }}
                                 >
                                     Invert
                                 </button>
                             </div>
                             {mismatched && (
-                                <div style={{
-                                    display: 'flex',
-                                    alignItems: 'flex-start',
-                                    gap: 8,
-                                    margin: 10,
-                                    padding: '8px 10px',
-                                    background: 'color-mix(in oklab, var(--warning, #f0a020) 12%, transparent)',
-                                    border: '1px solid color-mix(in oklab, var(--warning, #f0a020) 30%, transparent)',
-                                    borderRadius: 4,
-                                    color: 'var(--warning, #f0a020)',
-                                    fontSize: 12,
-                                    flexShrink: 0,
-                                }}>
+                                <div className="mask-editor__warning-banner">
                                     <span>⚠</span>
                                     <span>
                                         This mask has {selectedMaskJoints.length} weights but the skeleton has{' '}
@@ -506,7 +444,7 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({ binPath, sklPath }) => {
                                 </div>
                             )}
                             {selectedMaskJoints.length === 0 && (
-                                <div style={{ padding: 10, opacity: 0.6, fontSize: 12 }}>This mask has no weights.</div>
+                                <div className="mask-editor__empty-note">This mask has no weights.</div>
                             )}
                             {selectedMaskJoints.map((joint) => (
                                 <JointRow
@@ -520,7 +458,7 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({ binPath, sklPath }) => {
                             ))}
                         </>
                     ) : (
-                        <div style={{ padding: 10, opacity: 0.6, fontSize: 12 }}>Select a mask to view its joint weights.</div>
+                        <div className="mask-editor__empty-note">Select a mask to view its joint weights.</div>
                     )}
                 </div>
             </div>
