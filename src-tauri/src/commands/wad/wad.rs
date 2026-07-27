@@ -512,7 +512,7 @@ pub async fn extract_wad_model_preview(
         if rel_path.to_lowercase().ends_with(".bin") {
             let bin_path = temp_dir.join(rel_path);
             let ritobin_path = std::path::PathBuf::from(format!("{}.ritobin", bin_path.display()));
-            if let Err(e) = crate::commands::mesh::create_ritobin_cache(&bin_path, &ritobin_path) {
+            if let Err(e) = flint_core::mesh::ritobin::create_ritobin_cache(&bin_path, &ritobin_path) {
                 tracing::warn!("Failed to create ritobin cache for {}: {}", rel_path, e);
             }
         }
