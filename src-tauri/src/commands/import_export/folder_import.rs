@@ -8,7 +8,7 @@
 //!   data/characters/smolder/skins/skin0.bin
 //! ```
 //!
-//! which is exactly the layout Flint keeps under `content/<champion>.wad.client/`.
+//! which is exactly the layout Flint keeps under `content/base/<champion>.wad.client/`.
 //! Importing is therefore a detect-then-copy: work out the champion and skin from
 //! the `data/characters/...` paths, scaffold `mod.config.json` + `flint.json`
 //! around the tree, and drop the files in place. Unlike the Fantome/ModPkg
@@ -296,8 +296,13 @@ fn perform_import(
         .map_err(|e| format!("Failed to create project folder: {}", e))?;
 
     let champion_lower = champion.to_lowercase();
+    // `base` is the layer every consumer expects — `Project::assets_path()` is
+    // `content_path("base")`, and export, LTK sync, the loadscreen banner and
+    // mesh lookup all resolve `content/base`. Writing the WAD folder directly
+    // under `content/` produces a project that cannot be exported.
     let wad_dir = project_path
         .join("content")
+        .join("base")
         .join(format!("{}.wad.client", champion_lower));
     std::fs::create_dir_all(&wad_dir)
         .map_err(|e| format!("Failed to create content folder: {}", e))?;
@@ -560,9 +565,10 @@ mod tests {
         assert_eq!(project.champion, "smolder");
         assert_eq!(project.skin_id, 0);
 
-        // Content must land under content/<champion>.wad.client/, which is what
-        // makes the tree loadable by the rest of Flint.
-        let wad = dest.join("content/smolder.wad.client");
+        // Content must land under content/base/<champion>.wad.client/ — the
+        // `base` layer is what `Project::assets_path()` resolves and what
+        // export reads. Without it the project imports but cannot be exported.
+        let wad = dest.join("content/base/smolder.wad.client");
         assert!(wad.join("data/characters/smolder/skins/skin0.bin").is_file());
         assert!(wad.join("assets/yveltal/Characters/Smolder/HUD/icons2d/dragon.dds").is_file());
 
