@@ -437,7 +437,10 @@ fn resolve_chunk_path(path: &str, chunk_data: &[u8]) -> PathBuf {
             .to_string_lossy()
             .to_string();
 
-        match file_kind_extension(file_kind) {
+        let extension =
+            file_kind_extension(file_kind).or_else(|| crate::wad::sniff::sniff(chunk_data));
+
+        match extension {
             Some(extension) => {
                 chunk_path = chunk_path.with_file_name(format!("{}.ltk.{}", filename, extension));
             }
@@ -894,5 +897,15 @@ mod tests {
         let data = vec![0u8; 100];
         let resolved = resolve_chunk_path(path, &data);
         assert!(resolved.to_string_lossy().contains(".ltk"));
+    }
+
+    #[test]
+    fn test_resolve_chunk_path_sniffs_generic_format_when_ritoshark_is_unknown() {
+        // ritoshark::file::detect doesn't know PNG; the sniff fallback should
+        // still give the chunk a usable extension instead of a bare `.ltk`.
+        let path = "1a2b3c4d5e6f7a8b";
+        let data = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+        let resolved = resolve_chunk_path(path, &data);
+        assert!(resolved.to_string_lossy().ends_with(".ltk.png"));
     }
 }
