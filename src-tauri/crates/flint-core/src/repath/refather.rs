@@ -1,7 +1,7 @@
 //! Repathing engine: scans BIN files for asset paths (`assets/`, `data/`),
 //! prefixes them with `ASSETS/{creator}/{project}`, and relocates the files.
 
-use crate::bin::ltk_bridge::{read_bin, write_bin};
+use crate::bin::codec::{read_bin, write_bin};
 use crate::error::{Error, Result};
 use ritoshark::bin::BinValue;
 use std::collections::{HashMap, HashSet};

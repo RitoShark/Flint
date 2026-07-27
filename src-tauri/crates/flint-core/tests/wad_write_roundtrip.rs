@@ -3,9 +3,9 @@
 //! real save/read path; guards against the offset/size/compression-flag
 //! corruption seen after the save parallelization.
 
-use flint_ltk::wad_jade::reader::read_wad_toc;
-use flint_ltk::wad_jade::read_chunk_decompressed_bytes;
-use flint_ltk::wad_jade::writer::{write_wad, EntryToWrite};
+use flint_core::wad_jade::reader::read_wad_toc;
+use flint_core::wad_jade::read_chunk_decompressed_bytes;
+use flint_core::wad_jade::writer::{write_wad, EntryToWrite};
 
 fn make_entries() -> Vec<(u64, Vec<u8>)> {
     let mut v = Vec::new();

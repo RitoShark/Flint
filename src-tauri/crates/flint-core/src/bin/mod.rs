@@ -1,13 +1,13 @@
-pub mod ltk_bridge;
+pub mod codec;
 pub mod converter;
 pub mod bin_json;
 pub mod concat;
 pub mod split;
 pub mod animask;
 
-pub use ltk_bridge::{
-    read_bin as read_bin_ltk,
-    write_bin as write_bin_ltk,
+pub use codec::{
+    read_bin,
+    write_bin,
     tree_to_text_cached,
     get_cached_bin_hashes,
     reload_bin_hash_cache,
@@ -17,9 +17,6 @@ pub use ltk_bridge::{
 };
 
 pub use ritoshark::bin::{Bin, BinEntry, BinType, BinValue};
-
-pub use ltk_bridge::read_bin;
-pub use ltk_bridge::write_bin;
 
 pub use converter::{bin_to_text, text_to_bin, bin_to_json, json_to_bin};
 

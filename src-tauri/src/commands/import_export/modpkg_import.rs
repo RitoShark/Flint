@@ -6,13 +6,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
-use flint_ltk::ltk_types::Modpkg;
+use flint_core::types::Modpkg;
 
 use crate::commands::import_export::fantome_import::{
     extract_champion_from_paths, extract_skin_id_from_path, is_unresolved_hash, ImportOptions,
 };
-use flint_ltk::hash::{HashResolver, ProjectHashOverlay};
-use flint_ltk::project::Project;
+use flint_core::hash::{HashResolver, ProjectHashOverlay};
+use flint_core::project::Project;
 use crate::state::HashOverlayState;
 
 // =============================================================================
@@ -131,7 +131,7 @@ fn import_modpkg_internal(
     options: &ImportOptions,
     overlay: Option<Arc<ProjectHashOverlay>>,
 ) -> Result<Project, String> {
-    use flint_ltk::project::save_project as core_save_project;
+    use flint_core::project::save_project as core_save_project;
 
     let _ = app.emit(
         "modpkg-import-progress",
@@ -182,7 +182,7 @@ fn import_modpkg_internal(
         .collect();
 
     // We will extract files and scan them for hashes in a single pass later.
-    let hash_dir = flint_ltk::hash::get_hash_dir()
+    let hash_dir = flint_core::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .map_err(|e| format!("Hash directory not found: {}", e))?;
 
@@ -359,7 +359,7 @@ fn import_modpkg_internal(
         }
     }
 
-    flint_ltk::hash::lmdb_cache::drop_lmdb_cache();
+    flint_core::hash::lmdb_cache::drop_lmdb_cache();
 
     // Re-resolve unresolved paths and rename files on disk
     if !unresolved_files.is_empty() {
@@ -457,7 +457,7 @@ fn import_modpkg_internal(
                 }),
             );
 
-            let hash_dir = flint_ltk::hash::get_hash_dir()
+            let hash_dir = flint_core::hash::get_hash_dir()
                 .map(|p| p.to_string_lossy().into_owned())
                 .map_err(|e| format!("Hash directory not found: {}", e))?;
 
@@ -556,7 +556,7 @@ fn import_modpkg_internal(
             }),
         );
 
-        use flint_ltk::repath::organizer::{organize_project, OrganizerConfig};
+        use flint_core::repath::organizer::{organize_project, OrganizerConfig};
 
         let config = OrganizerConfig {
             enable_concat: true,

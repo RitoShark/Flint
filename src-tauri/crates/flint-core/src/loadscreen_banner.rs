@@ -635,8 +635,8 @@ mod tests {
         let mask = mask_path_from_loadscreen("ASSETS/X/p/load.tex");
         apply_banner_to_bin(&mut bin, &name, &mask, &BannerParams::default()).unwrap();
 
-        let bytes = crate::bin::write_bin_ltk(&bin).expect("write");
-        let reparsed = crate::bin::read_bin_ltk(&bytes).expect("read");
+        let bytes = crate::bin::write_bin(&bin).expect("write");
+        let reparsed = crate::bin::read_bin(&bytes).expect("read");
 
         let status = banner_status(&reparsed);
         assert!(status.applied);

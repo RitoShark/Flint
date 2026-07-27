@@ -4,8 +4,8 @@ use tauri::{AppHandle, Emitter};
 use walkdir::WalkDir;
 
 use crate::state::LmdbCacheState;
-use flint_ltk::hash::{get_hash_dir, resolve_hashes_lmdb_bulk, ResolvedHashes};
-use flint_ltk::wad_jade::adapter::WadHandle as WadReader;
+use flint_core::hash::{get_hash_dir, resolve_hashes_lmdb_bulk, ResolvedHashes};
+use flint_core::wad_jade::adapter::WadHandle as WadReader;
 
 // =============================================================================
 // Progress / public stats
@@ -90,7 +90,7 @@ pub async fn extract_all_luabins(
     let mut bins_parsed: usize = 0;
     let mut bins_failed: usize = 0;
 
-    let mut global_schema: HashMap<String, flint_ltk::luabin::LuaValue> = HashMap::new();
+    let mut global_schema: HashMap<String, flint_core::luabin::LuaValue> = HashMap::new();
 
     for (wad_idx, wad_path) in wad_paths.iter().enumerate() {
         let _ = app.emit(
@@ -141,7 +141,7 @@ pub async fn extract_all_luabins(
                 }
             };
 
-            let globals = match flint_ltk::luabin::parse_luabin_globals(&data) {
+            let globals = match flint_core::luabin::parse_luabin_globals(&data) {
                 Ok(g) => g,
                 Err(e) => {
                     tracing::debug!(
@@ -175,7 +175,7 @@ pub async fn extract_all_luabins(
     for key in keys {
         let val = &global_schema[key];
 
-        if let flint_ltk::luabin::LuaValue::Table(entries) = val {
+        if let flint_core::luabin::LuaValue::Table(entries) = val {
             total_fields += entries.len();
         } else {
             total_fields += 1;

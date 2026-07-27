@@ -110,7 +110,7 @@ fn xxhash_path(s: &str) -> u64 {
 }
 
 /// FNV1a-32 of a lowercased ASCII string. Matches Riot's BIN hash function
-/// (used by `ltk_ritobin` for entry/field/type/hash lookups).
+/// (used by ritobin for entry/field/type/hash lookups).
 fn fnv1a_lower(s: &str) -> u32 {
     let mut h: u32 = 0x811c_9dc5;
     for b in s.bytes().map(|b| b.to_ascii_lowercase()) {

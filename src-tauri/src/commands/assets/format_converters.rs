@@ -1,32 +1,32 @@
 //! Format conversion commands for luabin and troybin files
 
-use flint_ltk::wad_jade::adapter::WadHandle as WadReader;
+use flint_core::wad_jade::adapter::WadHandle as WadReader;
 
 /// Convert a luabin (Lua 5.1 bytecode) buffer to readable Lua source text
 #[tauri::command]
 pub async fn convert_luabin_to_text(data: Vec<u8>) -> Result<String, String> {
-    flint_ltk::luabin::convert_luabin(&data)
+    flint_core::luabin::convert_luabin(&data)
 }
 
 /// Read a `.luabin64` file and return decompiled Lua source as raw UTF-8 bytes.
 #[tauri::command]
 pub async fn read_luabin_text(path: String) -> Result<tauri::ipc::Response, String> {
     let data = std::fs::read(&path).map_err(|e| format!("Failed to read {path}: {e}"))?;
-    let text = flint_ltk::luabin::convert_luabin(&data)?;
+    let text = flint_core::luabin::convert_luabin(&data)?;
     Ok(tauri::ipc::Response::new(text.into_bytes()))
 }
 
 /// Convert a troybin binary buffer to INI-like text
 #[tauri::command]
 pub async fn convert_troybin_to_text(data: Vec<u8>) -> Result<String, String> {
-    flint_ltk::troybin::convert_troybin(&data)
+    flint_core::troybin::convert_troybin(&data)
 }
 
 /// Read a `.troybin` file and return INI-like text as raw UTF-8 bytes.
 #[tauri::command]
 pub async fn read_troybin_text(path: String) -> Result<tauri::ipc::Response, String> {
     let data = std::fs::read(&path).map_err(|e| format!("Failed to read {path}: {e}"))?;
-    let text = flint_ltk::troybin::convert_troybin(&data)?;
+    let text = flint_core::troybin::convert_troybin(&data)?;
     Ok(tauri::ipc::Response::new(text.into_bytes()))
 }
 
@@ -49,7 +49,7 @@ pub async fn read_wad_luabin(
         .load_chunk_decompressed(&chunk)
         .map_err(|e| format!("Failed to decompress chunk {:016x}: {}", path_hash, e))?;
 
-    flint_ltk::luabin::convert_luabin(&data)
+    flint_core::luabin::convert_luabin(&data)
 }
 
 /// Read and convert a troybin chunk from a WAD file
@@ -71,7 +71,7 @@ pub async fn read_wad_troybin(
         .load_chunk_decompressed(&chunk)
         .map_err(|e| format!("Failed to decompress chunk {:016x}: {}", path_hash, e))?;
 
-    flint_ltk::troybin::convert_troybin(&data)
+    flint_core::troybin::convert_troybin(&data)
 }
 
 /// Read and convert an inibin chunk from a WAD file to JSON
@@ -105,14 +105,14 @@ pub async fn read_wad_inibin(
 pub async fn read_inibin_text(path: String) -> Result<tauri::ipc::Response, String> {
     let data = std::fs::read(&path).map_err(|e| format!("Failed to read {path}: {e}"))?;
     let file = ltk_inibin::from_slice(&data).map_err(|e| format!("Failed to parse inibin: {e}"))?;
-    let text = flint_ltk::inibin_text::inibin_to_text(&file);
+    let text = flint_core::inibin_text::inibin_to_text(&file);
     Ok(tauri::ipc::Response::new(text.into_bytes()))
 }
 
 /// Parse INI-style text and write it back to a `.inibin` (v2 binary).
 #[tauri::command]
 pub async fn save_inibin_text(path: String, content: String) -> Result<(), String> {
-    let file = flint_ltk::inibin_text::text_to_inibin(&content)?;
+    let file = flint_core::inibin_text::text_to_inibin(&content)?;
     if file.version() == 1 {
         return Err("Legacy v1 inibin files are read-only".into());
     }
@@ -148,14 +148,14 @@ pub async fn read_wad_rst(
 #[tauri::command]
 pub async fn read_stringtable_json(path: String) -> Result<tauri::ipc::Response, String> {
     let data = std::fs::read(&path).map_err(|e| format!("Failed to read {path}: {e}"))?;
-    let json = flint_ltk::stringtable::rst_to_json(&data)?;
+    let json = flint_core::stringtable::rst_to_json(&data)?;
     Ok(tauri::ipc::Response::new(json.into_bytes()))
 }
 
 /// Write editor JSON back to a `.stringtable` (RST) file.
 #[tauri::command]
 pub async fn save_stringtable_json(path: String, content: String) -> Result<(), String> {
-    let bytes = flint_ltk::stringtable::json_to_rst(&content)?;
+    let bytes = flint_core::stringtable::json_to_rst(&content)?;
     std::fs::write(&path, &bytes).map_err(|e| format!("Failed to write {path}: {e}"))?;
     Ok(())
 }
@@ -164,7 +164,7 @@ pub async fn save_stringtable_json(path: String, content: String) -> Result<(), 
 #[tauri::command]
 pub async fn read_manifest_json(path: String) -> Result<tauri::ipc::Response, String> {
     let data = std::fs::read(&path).map_err(|e| format!("Failed to read {path}: {e}"))?;
-    let json = flint_ltk::manifest::rman_to_json(&data)?;
+    let json = flint_core::manifest::rman_to_json(&data)?;
     Ok(tauri::ipc::Response::new(json.into_bytes()))
 }
 

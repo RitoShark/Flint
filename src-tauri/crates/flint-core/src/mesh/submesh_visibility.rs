@@ -21,7 +21,7 @@ use ritoshark::bin::{Bin, BinValue};
 use ritoshark::hash::fnv1a;
 use serde::Serialize;
 
-use crate::bin::ltk_bridge;
+use crate::bin::codec;
 
 // Class hashes (FNV1a-32, lowercased). `fnv1a` is a const fn, so these fold at compile time.
 const CLASS_SUBMESH_VIS_EVENT: u32 = fnv1a("SubmeshVisibilityEventData");
@@ -66,7 +66,7 @@ pub fn parse_initial_hidden_file(skin_bin_path: &Path) -> InitialHidden {
     let Ok(data) = std::fs::read(skin_bin_path) else {
         return InitialHidden::default();
     };
-    let Ok(tree) = ltk_bridge::read_bin(&data) else {
+    let Ok(tree) = codec::read_bin(&data) else {
         return InitialHidden::default();
     };
     parse_initial_hidden(&tree)
@@ -100,7 +100,7 @@ pub fn parse_clip_visibility_events_file(anim_bin_path: &Path) -> HashMap<String
     let Ok(data) = std::fs::read(anim_bin_path) else {
         return HashMap::new();
     };
-    let Ok(tree) = ltk_bridge::read_bin(&data) else {
+    let Ok(tree) = codec::read_bin(&data) else {
         return HashMap::new();
     };
     parse_clip_visibility_events(&tree)

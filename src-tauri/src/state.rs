@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use flint_ltk::heed;
-use flint_ltk::hash::{drop_lmdb_cache, get_or_open_env, get_wad_env, hashes_present};
-use flint_ltk::hash::ProjectHashOverlay;
-use flint_ltk::wad::cache::WadCache;
-use flint_ltk::wad_jade::format::WadChunk;
+use flint_core::heed;
+use flint_core::hash::{drop_lmdb_cache, get_or_open_env, get_wad_env, hashes_present};
+use flint_core::hash::ProjectHashOverlay;
+use flint_core::wad::cache::WadCache;
+use flint_core::wad_jade::format::WadChunk;
 use parking_lot::RwLock;
 
 /// Holds a file path handed to Flint via "Open with" / a file association at
@@ -82,7 +82,7 @@ impl WadCacheState {
 // =============================================================================
 
 /// Tauri-managed handle to the global LMDB env caches, backed by process-wide
-/// statics in `flint_ltk::hash::lmdb_cache`. Two LMDBs are managed: WAD hashes
+/// statics in `flint_core::hash::lmdb_cache`. Two LMDBs are managed: WAD hashes
 /// (`hashes-wad.lmdb`, 64-bit xxh64 keys, named DB `"wad"`) and BIN hashes
 /// (`hashes-bin.lmdb`, 32-bit FNV1a keys, named DB `"bin"`).
 #[derive(Clone, Default)]
@@ -199,7 +199,7 @@ impl WadEditState {
 /// Mirrors `WadEditState`: one entry per open manifest tab. The `Manifest` is
 /// read-only after parse, so it's stored as a plain `Arc` (no inner lock).
 #[derive(Clone, Default)]
-pub struct CdnSessionState(Arc<RwLock<HashMap<String, Arc<flint_ltk::cdn::manifest::Manifest>>>>);
+pub struct CdnSessionState(Arc<RwLock<HashMap<String, Arc<flint_core::cdn::manifest::Manifest>>>>);
 
 impl CdnSessionState {
     pub fn new() -> Self {
@@ -207,13 +207,13 @@ impl CdnSessionState {
     }
 
     /// Store a manifest, returning its new session id.
-    pub fn insert(&self, manifest: flint_ltk::cdn::manifest::Manifest) -> String {
+    pub fn insert(&self, manifest: flint_core::cdn::manifest::Manifest) -> String {
         let id = uuid::Uuid::new_v4().to_string();
         self.0.write().insert(id.clone(), Arc::new(manifest));
         id
     }
 
-    pub fn get(&self, session_id: &str) -> Option<Arc<flint_ltk::cdn::manifest::Manifest>> {
+    pub fn get(&self, session_id: &str) -> Option<Arc<flint_core::cdn::manifest::Manifest>> {
         self.0.read().get(session_id).cloned()
     }
 
@@ -302,10 +302,10 @@ impl HashOverlayState {
 #[cfg(test)]
 mod hash_overlay_state_tests {
     use super::*;
-    use flint_ltk::hash::ProjectHashOverlay;
+    use flint_core::hash::ProjectHashOverlay;
 
     /// Overlay entries must satisfy `key == wad_chunk_hash(value)`; the
-    /// canonical hash function itself is crate-private to flint-ltk, so tests
+    /// canonical hash function itself is crate-private to flint-core, so tests
     /// outside that crate recompute the documented formula (xxh64 of the
     /// lowercased path, seed 0) directly.
     fn wad_hash(path: &str) -> u64 {

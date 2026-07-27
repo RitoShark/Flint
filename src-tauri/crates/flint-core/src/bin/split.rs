@@ -63,7 +63,7 @@ pub struct MultiAnalysis {
 
 /// Compute the FNV-1a 32-bit hash of a string. Used to derive BIN class
 /// hashes from their textual class names. Always lowercases the input,
-/// matching the convention `ltk_ritobin` and Riot's tooling use.
+/// matching the convention ritobin and Riot's tooling use.
 fn fnv1a_lower(s: &str) -> u32 {
     let mut h: u32 = 0x811c9dc5;
     for b in s.to_lowercase().bytes() {

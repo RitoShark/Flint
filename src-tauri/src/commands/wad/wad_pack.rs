@@ -38,7 +38,7 @@ pub async fn pack_folder_to_wad(folder_path: String) -> Result<String, String> {
     // Packing walks and compresses every file; keep it off the async runtime.
     let bytes = tokio::task::spawn_blocking({
         let folder = folder.clone();
-        move || flint_ltk::export::build_wad_from_directory(&folder)
+        move || flint_core::export::build_wad_from_directory(&folder)
     })
     .await
     .map_err(|e| format!("pack panicked: {}", e))??;

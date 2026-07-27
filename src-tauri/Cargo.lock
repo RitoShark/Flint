@@ -1533,7 +1533,7 @@ dependencies = [
  "dashmap",
  "ddsfile",
  "flate2",
- "flint-ltk",
+ "flint-core",
  "futures",
  "hematite-flint",
  "image",
@@ -1578,7 +1578,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "flint-ltk"
+name = "flint-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",

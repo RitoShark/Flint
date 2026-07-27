@@ -905,7 +905,7 @@ fn replace_filename_in_paths(text: &str, old_name: &str, new_name: &str) -> Stri
 /// Matches by filename only (case-insensitive) because BIN text uses mixed-case
 /// game paths (e.g. `ASSETS/Characters/...`) that differ from the project's lowercase paths.
 fn update_bin_references(project_root: &Path, old_rel: &str, new_rel: &str) -> u32 {
-    use flint_ltk::bin::{read_bin_ltk, write_bin_ltk, tree_to_text_cached, text_to_tree};
+    use flint_core::bin::{read_bin, write_bin, tree_to_text_cached, text_to_tree};
 
     // Match by filename only — BIN text paths have different casing/prefixes.
     let old_name = match Path::new(old_rel).file_name().and_then(|n| n.to_str()) {
@@ -946,7 +946,7 @@ fn update_bin_references(project_root: &Path, old_rel: &str, new_rel: &str) -> u
             continue;
         }
 
-        let tree = match read_bin_ltk(&data) {
+        let tree = match read_bin(&data) {
             Ok(t) => t,
             Err(e) => {
                 tracing::warn!("Skipping BIN (parse failed) {}: {}", path.display(), e);
@@ -975,7 +975,7 @@ fn update_bin_references(project_root: &Path, old_rel: &str, new_rel: &str) -> u
             }
         };
 
-        let new_data = match write_bin_ltk(&new_tree) {
+        let new_data = match write_bin(&new_tree) {
             Ok(d) => d,
             Err(e) => {
                 tracing::warn!("Skipping BIN (write failed) {}: {}", path.display(), e);

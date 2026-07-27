@@ -1,4 +1,4 @@
-use flint_ltk::hash::{
+use flint_core::hash::{
     download_hashes as core_download_hashes, get_hash_dir, DownloadStats,
 };
 use crate::state::LmdbCacheState;
@@ -67,7 +67,7 @@ pub async fn reload_hashes(lmdb: State<'_, LmdbCacheState>) -> Result<(), String
         .await
         .map_err(|e| format!("Failed to download hashes: {}", e))?;
 
-    flint_ltk::bin::reload_bin_hash_cache();
+    flint_core::bin::reload_bin_hash_cache();
 
     if lmdb.prime(&hash_dir_str).is_some() {
         tracing::info!("Hash LMDBs reloaded from {}", hash_dir_str);
@@ -89,7 +89,7 @@ pub async fn force_rebuild_hashes(lmdb: State<'_, LmdbCacheState>) -> Result<(),
         .await
         .map_err(|e| format!("Failed to force-download hashes: {}", e))?;
 
-    flint_ltk::bin::reload_bin_hash_cache();
+    flint_core::bin::reload_bin_hash_cache();
 
     if lmdb.prime(&hash_dir_str).is_some() {
         tracing::info!("Hash LMDBs force-re-downloaded from {}", hash_dir_str);

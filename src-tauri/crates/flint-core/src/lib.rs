@@ -22,10 +22,10 @@ pub mod manifest;
 pub mod cdn;
 
 // =============================================================================
-// Re-exports for types the binary crate imports from LTK crates.
+// Re-exports for types the binary crate imports from upstream format/mod crates.
 // =============================================================================
 
-pub mod ltk_types {
+pub mod types {
     pub use ritoshark::bin::{Bin, BinEntry, BinType, BinValue};
 
     pub use ritoshark::hash::HashMapper;

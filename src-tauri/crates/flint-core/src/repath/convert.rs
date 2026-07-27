@@ -9,7 +9,7 @@ use walkdir::WalkDir;
 
 use crate::bin::BinValue;
 use crate::error::{Error, Result};
-// The texture API is ritoshark's (NOT flint_ltk::ltk_types). flint-ltk depends
+// The texture API is ritoshark's (NOT flint_core::types). flint-core depends
 // on ritoshark directly (pinned rev b775b0c). Mirrors texture_convert.rs.
 use ritoshark::prelude::Serialize as _;
 use ritoshark::tex::{TexFormat, Texture};

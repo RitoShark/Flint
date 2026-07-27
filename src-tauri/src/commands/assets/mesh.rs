@@ -4,9 +4,9 @@ use std::path::Path;
 use std::collections::HashMap;
 
 use crate::core::ipc_trace;
-use flint_ltk::mesh::skn::{parse_skn_file, SknMeshData};
-use flint_ltk::mesh::scb::{parse_scb_file, ScbMeshData};
-use flint_ltk::mesh::texture::{find_skin_bin, MaterialProperties};
+use flint_core::mesh::skn::{parse_skn_file, SknMeshData};
+use flint_core::mesh::scb::{parse_scb_file, ScbMeshData};
+use flint_core::mesh::texture::{find_skin_bin, MaterialProperties};
 use crate::commands::file::decode_texture_file_sync;
 
 /// Synchronous decode wrapper for use inside rayon `par_iter` blocks.
@@ -15,7 +15,7 @@ fn decode_texture_blocking(path: &Path) -> Result<String, String> {
 }
 
 /// Read and parse an SCB (Static Mesh Binary) file. Returns the mesh in a
-/// packed binary wire format (see `flint_ltk::mesh::wire`).
+/// packed binary wire format (see `flint_core::mesh::wire`).
 #[tauri::command]
 pub async fn read_scb_mesh(path: String) -> Result<tauri::ipc::Response, String> {
     let mesh = read_scb_mesh_inner(path).await?;
@@ -30,7 +30,7 @@ pub async fn read_scb_mesh(path: String) -> Result<tauri::ipc::Response, String>
         mesh.material_data.keys().collect::<Vec<_>>(),
         mesh.bounding_box
     );
-    let buf = flint_ltk::mesh::wire::encode_scb_binary(&mesh)?;
+    let buf = flint_core::mesh::wire::encode_scb_binary(&mesh)?;
     Ok(tauri::ipc::Response::new(buf))
 }
 
@@ -83,7 +83,7 @@ async fn read_scb_mesh_inner(path: String) -> Result<ScbMeshData, String> {
             None => combined_text,
         };
 
-        use flint_ltk::mesh::texture::extract_texture_mapping_from_text;
+        use flint_core::mesh::texture::extract_texture_mapping_from_text;
 
         let texture_mapping = match extract_texture_mapping_from_text(&combined_text) {
             Ok(mapping) => mapping,
@@ -158,7 +158,7 @@ async fn read_scb_mesh_inner(path: String) -> Result<ScbMeshData, String> {
                     decoded_textures.insert(result.0, result.1);
                 }
 
-                use flint_ltk::mesh::skn::MaterialData;
+                use flint_core::mesh::skn::MaterialData;
                 let mut material_data: HashMap<String, MaterialData> = HashMap::new();
 
                 for (material_name, props) in material_props_map {
@@ -313,7 +313,7 @@ fn find_concat_ritobin_text(mesh_path: &Path) -> Option<String> {
 fn find_linked_bin_ritobin_text(mesh_path: &Path) -> Option<String> {
     let skin_bin = find_skin_bin(mesh_path)?;
     let data = std::fs::read(&skin_bin).ok()?;
-    let tree = flint_ltk::bin::ltk_bridge::read_bin(&data).ok()?;
+    let tree = flint_core::bin::codec::read_bin(&data).ok()?;
     if tree.linked.is_empty() {
         return None;
     }
@@ -400,17 +400,17 @@ fn resolve_linked_bin_path(
 /// Read a BIN file, convert it to text using cached hashes, and write a
 /// `.ritobin` cache file.
 pub fn create_ritobin_cache(bin_path: &Path, ritobin_path: &Path) -> anyhow::Result<String> {
-    use flint_ltk::bin::ltk_bridge;
+    use flint_core::bin::codec;
 
     tracing::debug!("Reading BIN file: {}", bin_path.display());
 
     let data = std::fs::read(bin_path)
         .map_err(|e| anyhow::anyhow!("Failed to read BIN file: {}", e))?;
 
-    let tree = ltk_bridge::read_bin(&data)
+    let tree = codec::read_bin(&data)
         .map_err(|e| anyhow::anyhow!("Failed to parse BIN file: {}", e))?;
 
-    let text = ltk_bridge::tree_to_text_cached(&tree)
+    let text = codec::tree_to_text_cached(&tree)
         .map_err(|e| anyhow::anyhow!("Failed to convert BIN to text: {}", e))?;
 
     std::fs::write(ritobin_path, &text)
@@ -457,7 +457,7 @@ fn find_ritobin_in_dir(dir: &Path) -> Option<String> {
 }
 
 /// Read and parse an SKN (Simple Skin) mesh file. Returns the mesh in a
-/// packed binary wire format (see `flint_ltk::mesh::wire`).
+/// packed binary wire format (see `flint_core::mesh::wire`).
 #[tauri::command]
 pub async fn read_skn_mesh(path: String) -> Result<tauri::ipc::Response, String> {
     let mesh = read_skn_mesh_inner(path).await?;
@@ -470,7 +470,7 @@ pub async fn read_skn_mesh(path: String) -> Result<tauri::ipc::Response, String>
         mesh.bone_weights.len(),
         mesh.bounding_box
     );
-    let buf = flint_ltk::mesh::wire::encode_skn_binary(&mesh)?;
+    let buf = flint_core::mesh::wire::encode_skn_binary(&mesh)?;
     Ok(tauri::ipc::Response::new(buf))
 }
 
@@ -524,7 +524,7 @@ async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {
             None => combined_text,
         };
 
-        use flint_ltk::mesh::texture::extract_texture_mapping_from_text;
+        use flint_core::mesh::texture::extract_texture_mapping_from_text;
 
         let texture_mapping = match extract_texture_mapping_from_text(&combined_text) {
             Ok(mapping) => mapping,
@@ -552,7 +552,7 @@ async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {
             let mat_props = material_props.get(material_name).cloned()
                 .or_else(|| {
                     tracing::debug!("  Material '{}' not in override list, searching for StaticMaterialDef...", material_name);
-                    use flint_ltk::mesh::texture::lookup_material_texture_by_name;
+                    use flint_core::mesh::texture::lookup_material_texture_by_name;
                     lookup_material_texture_by_name(&combined_text, material_name)
                 })
                 .or_else(|| {
@@ -609,7 +609,7 @@ async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {
                     decoded_textures.insert(result.0, result.1);
                 }
 
-                use flint_ltk::mesh::skn::MaterialData;
+                use flint_core::mesh::skn::MaterialData;
                 let mut material_data: HashMap<String, MaterialData> = HashMap::new();
 
                 for (material_name, props) in material_props_map {
@@ -809,7 +809,7 @@ fn search_wad_folders(base_folder: &Path, stripped: &str) -> Option<String> {
     None
 }
 
-use flint_ltk::mesh::skl::{parse_skl_file, SklData};
+use flint_core::mesh::skl::{parse_skl_file, SklData};
 
 /// Read and parse an SKL (Skeleton) file
 /// 
@@ -826,7 +826,7 @@ pub async fn read_skl_skeleton(path: String) -> Result<SklData, String> {
         })
 }
 
-use flint_ltk::mesh::animation::{
+use flint_core::mesh::animation::{
     find_animation_bin, extract_animation_list,
     resolve_animation_path, resolve_skn_for_anm,
     AnimationList, BakedAnimation,
@@ -853,8 +853,8 @@ pub async fn read_animation_list(skn_path: String) -> Result<AnimationList, Stri
         })?;
 
     // Attach the static submesh baseline from the skin BIN (non-fatal if not found).
-    if let Some(skin_bin) = flint_ltk::mesh::texture::find_skin_bin(skn_path) {
-        let initial = flint_ltk::mesh::submesh_visibility::parse_initial_hidden_file(&skin_bin);
+    if let Some(skin_bin) = flint_core::mesh::texture::find_skin_bin(skn_path) {
+        let initial = flint_core::mesh::submesh_visibility::parse_initial_hidden_file(&skin_bin);
         list.initial_hide = initial.hide;
         list.initial_shadow_hide = initial.shadow_hide;
     }
@@ -881,7 +881,7 @@ pub async fn read_animation(path: String, base_path: Option<String>) -> Result<B
         return Err(format!("Animation file not found: {}", anim_path.display()));
     }
     
-    flint_ltk::mesh::animation::bake_animation_file(&anim_path)
+    flint_core::mesh::animation::bake_animation_file(&anim_path)
         .map_err(|e| {
             tracing::error!("Failed to bake animation {}: {}", anim_path.display(), e);
             format!("Failed to parse and bake animation: {}", e)
@@ -1043,7 +1043,7 @@ fn find_project_root(file_path: &Path) -> Option<std::path::PathBuf> {
         }
         // Never walk above the Flint project root — a stray `data\` dir in
         // AppData / the user's home hijacks resolution (machine-dependent).
-        if flint_ltk::mesh::texture::is_flint_project_root(current) {
+        if flint_core::mesh::texture::is_flint_project_root(current) {
             break;
         }
         current = match current.parent() {

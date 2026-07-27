@@ -1,18 +1,18 @@
 //! Tauri commands for project management.
 
-use flint_ltk::project::{
+use flint_core::project::{
     create_project as core_create_project,
     open_project as core_open_project,
     register_in_index as core_register_in_index,
     save_project as core_save_project,
     Project,
 };
-use flint_ltk::repath::{organize_project, rename_project_asset_prefix, OrganizerConfig, RenameResult};
-use flint_ltk::bin::{classify_bin, BinCategory};
-use flint_ltk::wad::extractor::{
+use flint_core::repath::{organize_project, rename_project_asset_prefix, OrganizerConfig, RenameResult};
+use flint_core::bin::{classify_bin, BinCategory};
+use flint_core::wad::extractor::{
     find_champion_wad, extract_skin_assets, extract_skin_assets_selective, wad_contains_skin_bin,
 };
-use flint_ltk::hash::{resolve_hashes_lmdb_bulk, ResolvedHashes};
+use flint_core::hash::{resolve_hashes_lmdb_bulk, ResolvedHashes};
 use crate::state::LmdbCacheState;
 use crate::core::ipc_trace;
 use serde::Serialize;
@@ -82,7 +82,7 @@ pub async fn create_project(
         "message": "Initializing..."
     }));
 
-    let hash_dir = flint_ltk::hash::get_hash_dir()
+    let hash_dir = flint_core::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
     let t = Instant::now();
@@ -743,7 +743,7 @@ fn extract_uibase_from_game(league_path: &std::path::Path) -> Result<Vec<u8>, St
 
 /// Extract the uibase chunk from a WAD file by its known hash.
 fn extract_uibase_chunk(wad_path: &std::path::Path) -> Result<Vec<u8>, String> {
-    use flint_ltk::wad::reader::WadReader;
+    use flint_core::wad::reader::WadReader;
 
     tracing::info!("Extracting uibase from: {}", wad_path.display());
 
@@ -781,7 +781,7 @@ fn fnv1a_lower(s: &str) -> u32 {
 
 /// Build a `(field_hash, value)` pair — the hash is the FNV1a-32 of the
 /// lowercased field name.
-fn bin_prop(name: &str, value: flint_ltk::ltk_types::BinValue) -> (u32, flint_ltk::ltk_types::BinValue) {
+fn bin_prop(name: &str, value: flint_core::types::BinValue) -> (u32, flint_core::types::BinValue) {
     (fnv1a_lower(name), value)
 }
 
@@ -799,11 +799,11 @@ fn inject_animation_block(
     frame_width: u32,
     frame_height: u32,
 ) -> Result<(), String> {
-    use flint_ltk::ltk_types::{BinEntry, BinValue};
+    use flint_core::types::{BinEntry, BinValue};
 
     tracing::info!("Injecting animation block into uibase BIN");
 
-    let mut bin = flint_ltk::bin::read_bin_ltk(uibase_bytes)
+    let mut bin = flint_core::bin::read_bin(uibase_bytes)
         .map_err(|e| format!("Failed to parse uibase BIN: {}", e))?;
 
     tracing::info!("uibase parsed: {} objects", bin.entries.len());
@@ -872,7 +872,7 @@ fn inject_animation_block(
 
     tracing::info!("Animation object inserted ({} objects total), writing binary", bin.entries.len());
 
-    let binary_data = flint_ltk::bin::write_bin_ltk(&bin)
+    let binary_data = flint_core::bin::write_bin(&bin)
         .map_err(|e| format!("Failed to write modified BIN: {}", e))?;
 
     let uibase_dir = assets_base
@@ -910,9 +910,9 @@ struct AnimationParams {
 /// Read the existing uibase BIN in the project and extract the animation params
 /// from the injected `UiElementEffectAnimationData` entry.
 fn extract_animation_params_from_bin(uibase_bytes: &[u8]) -> Result<AnimationParams, String> {
-    use flint_ltk::ltk_types::BinValue;
+    use flint_core::types::BinValue;
 
-    let bin = flint_ltk::bin::read_bin_ltk(uibase_bytes)
+    let bin = flint_core::bin::read_bin(uibase_bytes)
         .map_err(|e| format!("Failed to parse project uibase BIN: {}", e))?;
 
     let anim_class_hash = fnv1a_lower("UiElementEffectAnimationData");
@@ -1100,7 +1100,7 @@ pub async fn open_project(path: String) -> Result<Project, String> {
         let project_clone = project.clone();
         let parent = parent.to_path_buf();
         let _ = tokio::task::spawn_blocking(move || {
-            flint_ltk::project::register_in_index(&parent, &project_clone)
+            flint_core::project::register_in_index(&parent, &project_clone)
         })
         .await;
     }
@@ -1113,9 +1113,9 @@ pub async fn open_project(path: String) -> Result<Project, String> {
 #[tauri::command]
 pub async fn discover_projects(
     projects_root: String,
-) -> Result<Vec<flint_ltk::project::ProjectListing>, String> {
+) -> Result<Vec<flint_core::project::ProjectListing>, String> {
     let root = PathBuf::from(projects_root);
-    tokio::task::spawn_blocking(move || flint_ltk::project::discover_projects(&root))
+    tokio::task::spawn_blocking(move || flint_core::project::discover_projects(&root))
         .await
         .map_err(|e| format!("Task failed: {}", e))?
         .map_err(|e| e.to_string())
@@ -1129,7 +1129,7 @@ pub async fn forget_project(
     pid: String,
 ) -> Result<bool, String> {
     let root = PathBuf::from(projects_root);
-    tokio::task::spawn_blocking(move || flint_ltk::project::remove_from_index(&root, &pid))
+    tokio::task::spawn_blocking(move || flint_core::project::remove_from_index(&root, &pid))
         .await
         .map_err(|e| format!("Task failed: {}", e))?
         .map_err(|e| e.to_string())
@@ -1404,7 +1404,7 @@ pub async fn preconvert_project_bins(
 
     // Pre-warm the hash cache on this thread before workers access it.
     tracing::info!("Pre-warming BIN hash cache...");
-    let _ = flint_ltk::bin::get_cached_bin_hashes();
+    let _ = flint_core::bin::get_cached_bin_hashes();
     tracing::info!("Hash cache ready");
 
     let bin_files: Vec<_> = WalkDir::new(&path)
@@ -1539,7 +1539,7 @@ pub async fn preconvert_project_bins(
 /// Synchronously convert a single BIN file to ritobin (used from rayon workers).
 fn convert_bin_file_sync(bin_path: &str) -> Result<(), String> {
     use std::fs;
-    use flint_ltk::bin::{read_bin_ltk, tree_to_text_cached, MAX_BIN_SIZE};
+    use flint_core::bin::{read_bin, tree_to_text_cached, MAX_BIN_SIZE};
 
     let metadata = fs::metadata(bin_path)
         .map_err(|e| format!("Failed to get file metadata for '{}': {}", bin_path, e))?;
@@ -1556,7 +1556,7 @@ fn convert_bin_file_sync(bin_path: &str) -> Result<(), String> {
     let data = fs::read(bin_path)
         .map_err(|e| format!("Failed to read file '{}': {}", bin_path, e))?;
 
-    let bin = read_bin_ltk(&data)
+    let bin = read_bin(&data)
         .map_err(|e| format!("Failed to parse bin file '{}': {}", bin_path, e))?;
 
     let text = tree_to_text_cached(&bin)
@@ -1589,17 +1589,17 @@ fn purge_from_index(project_path: &Path, projects_root: Option<&Path>, pid: Opti
     }
 
     for root in roots {
-        if !flint_ltk::project::index_path(&root).is_file() {
+        if !flint_core::project::index_path(&root).is_file() {
             continue;
         }
         let removed = match pid {
-            Some(pid) => flint_ltk::project::remove_from_index(&root, pid)
+            Some(pid) => flint_core::project::remove_from_index(&root, pid)
                 .map(|hit| if hit { 1 } else { 0 }),
             None => Ok(0),
         };
         let removed = match removed {
             Ok(n) if n > 0 => n,
-            Ok(_) => flint_ltk::project::remove_from_index_by_path(&root, project_path)
+            Ok(_) => flint_core::project::remove_from_index_by_path(&root, project_path)
                 .unwrap_or_else(|e| {
                     tracing::warn!("Failed to purge {} from index at {}: {}", project_path.display(), root.display(), e);
                     0
@@ -2011,7 +2011,7 @@ pub async fn list_project_layers(project_path: String) -> Result<Vec<String>, St
 #[cfg(test)]
 mod delete_project_tests {
     use super::*;
-    use flint_ltk::project::read_index;
+    use flint_core::project::read_index;
 
     /// Write a real project (mod.config.json + flint.json) and index it.
     fn scaffold(root: &Path, dir_name: &str) -> (PathBuf, String) {

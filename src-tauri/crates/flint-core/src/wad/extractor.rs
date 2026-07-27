@@ -604,7 +604,7 @@ pub fn extract_skin_assets_selective(
         };
         want_paths.insert(bin_path.clone());
 
-        let bin = match crate::bin::ltk_bridge::read_bin(&bytes) {
+        let bin = match crate::bin::codec::read_bin(&bytes) {
             Ok(b) => b,
             Err(e) => {
                 tracing::warn!("[selective] failed to parse {}: {}", bin_path, e);

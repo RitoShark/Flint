@@ -9,7 +9,7 @@ mod state;
 
 use commands::project_watcher::WatcherState;
 use commands::settings::{initialize_app_home, get_flint_home};
-use flint_ltk::hash::get_hash_dir;
+use flint_core::hash::get_hash_dir;
 use core::frontend_log::{FrontendLogLayer, set_app_handle};
 use shell_args::PendingFileOpen;
 use state::{CdnSessionState, HashOverlayState, LmdbCacheState, PendingFileOpenState, WadCacheState, WadEditState};
@@ -20,7 +20,7 @@ fn main() {
     // reqwest uses `rustls-no-provider`; install the ring crypto provider as the
     // process default before any HTTPS request, or the first fetch panics with
     // "No provider set" (CDN manifest browse, updater, …).
-    flint_ltk::install_tls_provider();
+    flint_core::install_tls_provider();
 
     let log_dir = get_flint_home()
         .map(|h| h.join("logs"))
@@ -170,7 +170,7 @@ fn main() {
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 tracing::info!("Checking for hash updates...");
-                match flint_ltk::hash::download_hashes(&hash_dir, false).await {
+                match flint_core::hash::download_hashes(&hash_dir, false).await {
                     Ok(stats) => {
                         tracing::info!(
                             "Hash sync: {} downloaded, {} up-to-date, {} errors",

@@ -18,8 +18,8 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use walkdir::WalkDir;
 
-use flint_ltk::hash::{HashResolver, ProjectHashOverlay};
-use flint_ltk::wad_jade::adapter::{find_champion_wad, WadHandle as WadReader};
+use flint_core::hash::{HashResolver, ProjectHashOverlay};
+use flint_core::wad_jade::adapter::{find_champion_wad, WadHandle as WadReader};
 
 /// Summary of what recovery pulled in, surfaced to the importer for logging.
 #[derive(Debug, Default, Clone)]
@@ -55,7 +55,7 @@ fn resolve_linked_hash(
         }
     }
     // 2) Try every path variant: LMDB first, then a direct xxhash64 against the WAD.
-    for variant in flint_ltk::repath::path_variants::bin_path_variants(linked_key) {
+    for variant in flint_core::repath::path_variants::bin_path_variants(linked_key) {
         if let Some(h) = path_to_hash.get(&variant).copied() {
             return Some((h, variant));
         }
@@ -76,7 +76,7 @@ fn resolve_linked_hash(
     //    that Riot moved 2 folders deeper, renamed with `_multi_`, AND grew with
     //    newer skins. Match by member-set containment against the live WAD names
     //    (the keys of `path_to_hash`), taking the tightest superset.
-    if let Some(live) = flint_ltk::repath::path_variants::best_multi_bin_superset(
+    if let Some(live) = flint_core::repath::path_variants::best_multi_bin_superset(
         linked_key,
         champion,
         path_to_hash.keys().map(|s| s.as_str()),
@@ -232,7 +232,7 @@ pub fn recover_missing_files_from_league(
             for lp in extract_linked_bin_paths(&bin_data) {
                 linked.insert(lp);
             }
-            if let Ok(bin) = flint_ltk::bin::read_bin(&bin_data) {
+            if let Ok(bin) = flint_core::bin::read_bin(&bin_data) {
                 for lp in bin.linked {
                     linked.insert(lp);
                 }
@@ -254,7 +254,7 @@ pub fn recover_missing_files_from_league(
                     for lp in extract_linked_bin_paths(&orig_data) {
                         linked.insert(lp);
                     }
-                    if let Ok(bin) = flint_ltk::bin::read_bin(&orig_data) {
+                    if let Ok(bin) = flint_core::bin::read_bin(&orig_data) {
                         for lp in bin.linked {
                             linked.insert(lp);
                         }
@@ -337,7 +337,7 @@ pub fn recover_missing_files_from_league(
                         queue.push(lp);
                     }
                 }
-                if let Ok(bin) = flint_ltk::bin::read_bin(&data) {
+                if let Ok(bin) = flint_core::bin::read_bin(&data) {
                     for lp in bin.linked {
                         if !seen.contains(&lp.to_lowercase()) {
                             queue.push(lp);
@@ -374,7 +374,7 @@ pub fn recover_missing_files_from_league(
         {
             let bin_path = entry.path();
             let Ok(data) = std::fs::read(bin_path) else { continue };
-            let Ok(mut bin) = flint_ltk::bin::read_bin(&data) else { continue };
+            let Ok(mut bin) = flint_core::bin::read_bin(&data) else { continue };
             let mut changed = false;
             for link in bin.linked.iter_mut() {
                 let norm = link.replace('\\', "/").trim_start_matches('/').to_lowercase();
@@ -384,7 +384,7 @@ pub fn recover_missing_files_from_league(
                 }
             }
             if changed {
-                if let Ok(bytes) = flint_ltk::bin::write_bin(&bin) {
+                if let Ok(bytes) = flint_core::bin::write_bin(&bin) {
                     if std::fs::write(bin_path, &bytes).is_ok() {
                         rewritten_bins += 1;
                     }

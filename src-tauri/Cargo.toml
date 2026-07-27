@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/flint-ltk", "crates/ltk_inibin", "crates/hematite-flint"]
+members = [".", "crates/flint-core", "crates/ltk_inibin", "crates/hematite-flint"]
 
 [package]
 name = "flint"
@@ -20,15 +20,15 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-# Core library (all LTK deps live here)
-flint-ltk = { path = "crates/flint-ltk" }
+# Core library (all format/domain deps live here)
+flint-core = { path = "crates/flint-core" }
 ltk_inibin = { path = "crates/ltk_inibin", features = ["serde"] }
 # Skin-fixer engine (wraps Hematite's hematite-orchestrate). Its hematite deps
 # pin rs_* at daff556 — IDENTICAL to ritoshark below — so ONE copy of rs_* compiles.
 hematite-flint = { path = "crates/hematite-flint" }
-# ltk_rst: MIGRATED to ritoshark::rst (Phase 4) — direct dep removed.
+# RST: MIGRATED to ritoshark::rst (Phase 4) — the standalone dep was removed.
 # RitoShark crates — migration target. Binary-crate commands use ritoshark types directly;
-# same git rev as flint-ltk's dep, so cargo compiles ONE shared copy (identical types across crates).
+# same git rev as flint-core's dep, so cargo compiles ONE shared copy (identical types across crates).
 ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "daff556", features = ["rman-verify"] }
 # 0.4 matches image_dds's pin so only ONE copy of the ISPC kernels compiles
 # (0.4 and 0.5 have identical Surface/bc1 APIs).
@@ -51,7 +51,7 @@ serde_json = "1.0"
 # Async runtime
 tokio = { version = "1.0", features = ["rt-multi-thread", "fs", "io-util", "sync", "macros", "time"] }
 # Same major as tauri-plugin-updater's reqwest so ONE HTTP stack compiles.
-# `rustls-no-provider` + the explicit ring pin in flint-ltk avoids compiling the
+# `rustls-no-provider` + the explicit ring pin in flint-core avoids compiling the
 # heavy aws-lc-sys default provider (mirrors tauri-plugin-updater's TLS setup).
 reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls-no-provider"] }
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
@@ -70,7 +70,7 @@ dashmap = "6"
 # are xxh64 outputs; SipHash-1-3 on top of them is 5-10× slower than FxHash.
 rustc-hash = "2"
 
-# Hashing (matches flint-ltk's version — used by extract_hashes)
+# Hashing (matches flint-core's version — used by extract_hashes)
 xxhash-rust = { version = "0.8", features = ["xxh64"] }
 
 # Logging

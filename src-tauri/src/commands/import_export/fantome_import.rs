@@ -7,9 +7,9 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 use zip::ZipArchive;
 
-use flint_ltk::hash::{HashResolver, ProjectHashOverlay};
-use flint_ltk::wad_jade::adapter::WadHandle as WadReader;
-use flint_ltk::project::Project;
+use flint_core::hash::{HashResolver, ProjectHashOverlay};
+use flint_core::wad_jade::adapter::WadHandle as WadReader;
+use flint_core::project::Project;
 use crate::state::{HashOverlayState, LmdbCacheState};
 
 // =============================================================================
@@ -390,7 +390,7 @@ fn extract_fantome_wad(fantome_path: &str) -> Result<PathBuf, String> {
         return Err("No .wad.client file or folder found in fantome package".into());
     }
 
-    let wad_bytes = flint_ltk::export::build_wad_from_directory(&scratch)?;
+    let wad_bytes = flint_core::export::build_wad_from_directory(&scratch)?;
     let wad_path = temp_dir.join(wad_name.replace('/', "_"));
     std::fs::write(&wad_path, &wad_bytes)
         .map_err(|e| format!("Failed to write packed WAD: {}", e))?;
@@ -488,7 +488,7 @@ fn apply_refathering(
     target_skin_id: u32,
     path_mappings: &HashMap<String, String>,
 ) -> Result<(), String> {
-    use flint_ltk::repath::organizer::{organize_project, OrganizerConfig};
+    use flint_core::repath::organizer::{organize_project, OrganizerConfig};
 
     tracing::info!("Applying refathering to imported mod...");
 
@@ -524,7 +524,7 @@ pub async fn analyze_fantome(
     _lmdb_state: State<'_, LmdbCacheState>,
     overlay_state: State<'_, HashOverlayState>,
 ) -> Result<FantomeAnalysis, String> {
-    let hash_dir = flint_ltk::hash::get_hash_dir()
+    let hash_dir = flint_core::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .map_err(|e| format!("Hash directory not found: {}", e))?;
     let overlay = overlay_state.get();
@@ -606,7 +606,7 @@ pub async fn import_fantome_wad(
     _lmdb_state: State<'_, LmdbCacheState>,
     overlay_state: State<'_, HashOverlayState>,
 ) -> Result<Project, String> {
-    let hash_dir = flint_ltk::hash::get_hash_dir()
+    let hash_dir = flint_core::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .map_err(|e| format!("Hash directory not found: {}", e))?;
     let overlay = overlay_state.get();
@@ -626,7 +626,7 @@ fn import_fantome_internal(
     hash_dir: &str,
     overlay: Option<Arc<ProjectHashOverlay>>,
 ) -> Result<Project, String> {
-    use flint_ltk::project::save_project as core_save_project;
+    use flint_core::project::save_project as core_save_project;
 
     let _ = app.emit("fantome-import-progress", serde_json::json!({
         "status": "starting",
@@ -787,7 +787,7 @@ fn import_fantome_internal(
         tracing::warn!("Failed to auto-unhash WAD file during import: {}", e);
     }
 
-    flint_ltk::hash::lmdb_cache::drop_lmdb_cache();
+    flint_core::hash::lmdb_cache::drop_lmdb_cache();
 
     // Re-resolve unresolved paths and rename files on disk
     if !unresolved_files.is_empty() {

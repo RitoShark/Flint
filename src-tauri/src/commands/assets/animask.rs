@@ -4,8 +4,8 @@
 //! weight list and a bone list of different lengths cannot be paired safely.
 
 use crate::core::ipc_trace;
-use flint_ltk::bin::{read_bin, write_bin, MaskEntry};
-use flint_ltk::mesh::skl::{parse_skl_file, BoneData};
+use flint_core::bin::{read_bin, write_bin, MaskEntry};
+use flint_core::mesh::skl::{parse_skl_file, BoneData};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,7 +72,7 @@ pub async fn read_animation_masks(
 
     let bytes = std::fs::read(&bin_path).map_err(|e| format!("Failed to read {}: {}", bin_path, e))?;
     let bin = read_bin(&bytes).map_err(|e| format!("Failed to parse BIN: {}", e))?;
-    let masks = flint_ltk::bin::read_masks(&bin);
+    let masks = flint_core::bin::read_masks(&bin);
 
     let skl = parse_skl_file(&skl_path)
         .map_err(|e| format!("Failed to parse SKL {}: {}", skl_path, e))?;
@@ -113,7 +113,7 @@ pub async fn save_animation_masks(
         })
         .collect();
 
-    let written = flint_ltk::bin::write_masks(&mut bin, &edits)?;
+    let written = flint_core::bin::write_masks(&mut bin, &edits)?;
 
     let out = write_bin(&bin).map_err(|e| format!("Failed to serialize BIN: {}", e))?;
     std::fs::write(&bin_path, out).map_err(|e| format!("Failed to write {}: {}", bin_path, e))?;
@@ -125,7 +125,7 @@ pub async fn save_animation_masks(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flint_ltk::mesh::skl::BoneData;
+    use flint_core::mesh::skl::BoneData;
 
     fn bone(name: &str, id: i16, parent_id: i16) -> BoneData {
         BoneData {

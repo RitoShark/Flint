@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::bin::ltk_bridge;
+use crate::bin::codec;
 use ritoshark::bin::BinValue;
 use ritoshark::anim::Animation;
 use ritoshark::prelude::Parse;
@@ -38,7 +38,7 @@ pub fn extract_animation_graph_path(skin_bin_path: &Path) -> Option<PathBuf> {
     tracing::debug!("Extracting animation BIN from dependencies: {}", skin_bin_path.display());
 
     let data = fs::read(skin_bin_path).ok()?;
-    let tree = ltk_bridge::read_bin(&data).ok()?;
+    let tree = codec::read_bin(&data).ok()?;
 
     tracing::debug!("Skin BIN has {} linked files", tree.linked.len());
 
@@ -226,7 +226,7 @@ pub fn find_animation_bin(skn_path: &Path) -> Option<PathBuf> {
 
 pub fn extract_animation_list(bin_path: &Path) -> anyhow::Result<AnimationList> {
     let data = fs::read(bin_path)?;
-    let tree = ltk_bridge::read_bin(&data)
+    let tree = codec::read_bin(&data)
         .map_err(|e| anyhow::anyhow!("Failed to parse animation BIN: {}", e))?;
 
     let mut clips = Vec::new();
@@ -366,10 +366,10 @@ pub fn resolve_skn_for_anm(anm_path: &Path) -> anyhow::Result<PathBuf> {
         .ok_or_else(|| anyhow::anyhow!("No skin BIN found near {}", anm_path.display()))?;
 
     // 2. Parse the BIN to a tree, render ritobin text, and pull simpleSkin.
-    //    `ltk_bridge::read_bin` -> `Bin`; `converter::bin_to_text(&Bin)` -> text.
+    //    `codec::read_bin` -> `Bin`; `converter::bin_to_text(&Bin)` -> text.
     let data = fs::read(&bin_path)
         .map_err(|e| anyhow::anyhow!("Failed to read BIN {}: {}", bin_path.display(), e))?;
-    let tree = ltk_bridge::read_bin(&data)
+    let tree = codec::read_bin(&data)
         .map_err(|e| anyhow::anyhow!("Failed to parse BIN: {}", e))?;
     let text = crate::bin::converter::bin_to_text(&tree)
         .map_err(|e| anyhow::anyhow!("Failed to convert BIN to text: {}", e))?;

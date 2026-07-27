@@ -8,8 +8,8 @@
 //!   2. same directory + same extension + same leading stem token,
 //!      ranked by how many leading dot-separated tokens both filenames share.
 
-use flint_ltk::hash::{HashResolver, ResolvedHashes};
-use flint_ltk::wad_jade::adapter::WadHandle as WadReader;
+use flint_core::hash::{HashResolver, ResolvedHashes};
+use flint_core::wad_jade::adapter::WadHandle as WadReader;
 use crate::state::{HashOverlayState, WadCacheState};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -227,7 +227,7 @@ pub async fn find_original_file(
     // `resolve_wad_bulk` is the rayon-parallel bulk path and omits misses
     // natively, so no hex-filter is needed to strip unresolved entries back
     // out.
-    let hash_dir = flint_ltk::hash::get_hash_dir()
+    let hash_dir = flint_core::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
     let overlay = hash_overlay_state.get();

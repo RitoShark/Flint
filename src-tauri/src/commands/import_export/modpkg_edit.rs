@@ -19,7 +19,7 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use flint_ltk::ltk_types::{
+use flint_core::types::{
     Modpkg, ModpkgAuthor, ModpkgBuilder, ModpkgChunkBuilder, ModpkgLayerBuilder, ModpkgMetadata,
 };
 

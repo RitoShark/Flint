@@ -2,7 +2,7 @@
 
 use crate::core::ipc_trace;
 use crate::state::HashOverlayState;
-use flint_ltk::hash::build_overlay;
+use flint_core::hash::build_overlay;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;

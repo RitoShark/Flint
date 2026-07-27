@@ -6,7 +6,7 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
-use flint_ltk::ltk_types::{Bin, HashMapper};
+use flint_core::types::{Bin, HashMapper};
 use ritoshark::bin::{from_text, to_text};
 use ritoshark::prelude::{Parse as _, Serialize as _};
 

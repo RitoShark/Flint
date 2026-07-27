@@ -10,14 +10,14 @@
 //! Pairs are merged into `hashes.extracted.txt` (xxhash64 hex → path) and
 //! `hashes.binhashes.extracted.txt` (fnv1a hex → name) in the user hash dir.
 
-use flint_ltk::wad_jade::adapter::WadHandle as WadReader;
+use flint_core::wad_jade::adapter::WadHandle as WadReader;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-use flint_ltk::heed::types::{Bytes, Str};
-use flint_ltk::heed::Database;
+use flint_core::heed::types::{Bytes, Str};
+use flint_core::heed::Database;
 
 // ─── Scanners (port of Quartz's bin_hashes.rs) ──────────────────────────────
 
@@ -211,7 +211,7 @@ fn merge_into_wad_lmdb(
     hash_dir: &str,
     entries: &BTreeMap<u64, String>,
 ) -> Result<usize, String> {
-    let env = flint_ltk::hash::get_wad_env(hash_dir)
+    let env = flint_core::hash::get_wad_env(hash_dir)
         .ok_or_else(|| "WAD LMDB not present (run hash download first)".to_string())?;
     let mut wtxn = env.write_txn().map_err(|e| format!("write_txn: {}", e))?;
     let db: Database<Bytes, Str> = env
@@ -234,7 +234,7 @@ fn merge_into_bin_lmdb(
     hash_dir: &str,
     entries: &BTreeMap<u32, String>,
 ) -> Result<usize, String> {
-    let env = flint_ltk::hash::get_bin_env(hash_dir)
+    let env = flint_core::hash::get_bin_env(hash_dir)
         .ok_or_else(|| "BIN LMDB not present (run hash download first)".to_string())?;
     let mut wtxn = env.write_txn().map_err(|e| format!("write_txn: {}", e))?;
     let db: Database<Bytes, Str> = env
@@ -328,7 +328,7 @@ pub struct ExtractHashesResult {
 pub async fn extract_hashes_from_wad(
     wad_path: String,
 ) -> Result<ExtractHashesResult, String> {
-    let hash_dir = flint_ltk::hash::get_hash_dir()
+    let hash_dir = flint_core::hash::get_hash_dir()
         .map_err(|e| format!("Failed to locate hash dir: {}", e))?;
     fs::create_dir_all(&hash_dir)
         .map_err(|e| format!("Failed to create hash dir {}: {}", hash_dir.display(), e))?;

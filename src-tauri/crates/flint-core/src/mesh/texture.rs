@@ -347,7 +347,7 @@ fn search_skins_dir(skins_dir: &Path, skin_folder: Option<&str>) -> Option<PathB
 ///     }
 /// }
 /// "#;
-/// let m = flint_ltk::mesh::texture::extract_texture_mapping_from_text(ritobin).unwrap();
+/// let m = flint_core::mesh::texture::extract_texture_mapping_from_text(ritobin).unwrap();
 /// assert_eq!(
 ///     m.material_properties.get("Body").map(|p| p.texture_path.as_str()),
 ///     Some("ASSETS/Characters/Aatrox/Skins/Skin0/Body.tex"),
