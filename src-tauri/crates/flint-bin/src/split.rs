@@ -25,7 +25,7 @@
 //! BIN class hashes are 32-bit FNV1a of the lowercase class name string.
 //! See `event_mapper.rs::fnv1_hash` for FNV-1 vs FNV-1a; we use 1a here.
 
-use crate::error::{Error, Result};
+use flint_hash::error::{Error, Result};
 use ritoshark::bin::{Bin, BinEntry};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -138,7 +138,7 @@ pub fn split_bin(
 
     let parent_data = std::fs::read(parent_bin_path)
         .map_err(|e| Error::io_with_path(e, parent_bin_path))?;
-    let mut parent = crate::bin::read_bin(&parent_data)
+    let mut parent = crate::read_bin(&parent_data)
         .map_err(|e| Error::InvalidInput(format!("Failed to parse parent BIN: {}", e)))?;
 
     let mut moved_objects: Vec<BinEntry> = Vec::with_capacity(move_hashes.len());
@@ -195,7 +195,7 @@ pub fn split_bin(
 
     /* Write the new BIN to disk first — only mutate the parent if this
        succeeds, so a failure leaves the project in its original state. */
-    let new_bytes = crate::bin::write_bin(&new_bin)
+    let new_bytes = crate::write_bin(&new_bin)
         .map_err(|e| Error::InvalidInput(format!("Failed to serialize new BIN: {}", e)))?;
     std::fs::write(&new_full_path, &new_bytes)
         .map_err(|e| Error::io_with_path(e, &new_full_path))?;
@@ -204,7 +204,7 @@ pub fn split_bin(
         parent.linked.push(link_rel.clone());
     }
 
-    let parent_bytes = crate::bin::write_bin(&parent)
+    let parent_bytes = crate::write_bin(&parent)
         .map_err(|e| Error::InvalidInput(format!("Failed to serialize parent BIN: {}", e)))?;
     std::fs::write(parent_bin_path, &parent_bytes)
         .map_err(|e| Error::io_with_path(e, parent_bin_path))?;
@@ -234,7 +234,7 @@ pub fn analyze_multi(bin_paths: &[PathBuf]) -> MultiAnalysis {
                 continue;
             }
         };
-        let bin = match crate::bin::read_bin(&data) {
+        let bin = match crate::read_bin(&data) {
             Ok(b) => b,
             Err(e) => {
                 tracing::warn!("analyze_multi: skip {} (parse error): {}", path.display(), e);
@@ -300,7 +300,7 @@ pub fn split_bin_multi(
     let mut sources: Vec<Source> = Vec::with_capacity(source_paths.len());
     for path in source_paths {
         let data = std::fs::read(path).map_err(|e| Error::io_with_path(e, path))?;
-        let bin = crate::bin::read_bin(&data)
+        let bin = crate::read_bin(&data)
             .map_err(|e| Error::InvalidInput(format!("Failed to parse {}: {}", path.display(), e)))?;
         sources.push(Source { path: path.clone(), bin });
     }
@@ -355,7 +355,7 @@ pub fn split_bin_multi(
         .replace('\\', "/")
         .to_lowercase();
 
-    let new_bytes = crate::bin::write_bin(&new_bin)
+    let new_bytes = crate::write_bin(&new_bin)
         .map_err(|e| Error::InvalidInput(format!("Failed to serialize new BIN: {}", e)))?;
     std::fs::write(&new_full_path, &new_bytes).map_err(|e| Error::io_with_path(e, &new_full_path))?;
 
@@ -368,17 +368,17 @@ pub fn split_bin_multi(
             // Owner wasn't included in sources; load it separately, mutate,
             // and write. Rare but possible if the caller didn't include it.
             let data = std::fs::read(owner_path).map_err(|e| Error::io_with_path(e, owner_path))?;
-            let mut bin = crate::bin::read_bin(&data)
+            let mut bin = crate::read_bin(&data)
                 .map_err(|e| Error::InvalidInput(format!("Failed to parse owner BIN: {}", e)))?;
             if !bin.linked.iter().any(|d| d.eq_ignore_ascii_case(&link_rel)) {
                 bin.linked.push(link_rel.clone());
             }
-            let bytes = crate::bin::write_bin(&bin)
+            let bytes = crate::write_bin(&bin)
                 .map_err(|e| Error::InvalidInput(format!("Failed to serialize owner BIN: {}", e)))?;
             std::fs::write(owner_path, &bytes).map_err(|e| Error::io_with_path(e, owner_path))?;
             for (idx, src) in sources.iter().enumerate() {
                 if !sources_changed[idx] { continue; }
-                let bytes = crate::bin::write_bin(&src.bin).map_err(|e| {
+                let bytes = crate::write_bin(&src.bin).map_err(|e| {
                     Error::InvalidInput(format!("Failed to serialize {}: {}", src.path.display(), e))
                 })?;
                 std::fs::write(&src.path, &bytes).map_err(|e| Error::io_with_path(e, &src.path))?;
@@ -393,7 +393,7 @@ pub fn split_bin_multi(
 
     for (idx, src) in sources.iter().enumerate() {
         if !sources_changed[idx] { continue; }
-        let bytes = crate::bin::write_bin(&src.bin).map_err(|e| {
+        let bytes = crate::write_bin(&src.bin).map_err(|e| {
             Error::InvalidInput(format!("Failed to serialize {}: {}", src.path.display(), e))
         })?;
         std::fs::write(&src.path, &bytes).map_err(|e| Error::io_with_path(e, &src.path))?;
@@ -465,7 +465,7 @@ pub fn organize_vfx_in_folder(
     let mut sources: Vec<Source> = Vec::with_capacity(source_paths.len());
     for path in source_paths {
         let data = std::fs::read(path).map_err(|e| Error::io_with_path(e, path))?;
-        let bin = crate::bin::read_bin(&data)
+        let bin = crate::read_bin(&data)
             .map_err(|e| Error::InvalidInput(format!("Failed to parse {}: {}", path.display(), e)))?;
         let is_owner = paths_match(path, owner_path);
         sources.push(Source { path: path.clone(), bin, is_owner });
@@ -578,7 +578,7 @@ pub fn organize_vfx_in_folder(
 
     if vfx_count > 0 {
         let vfx_bin = Bin { entries: vfx_bucket, ..Bin::new() };
-        let vfx_bytes = crate::bin::write_bin(&vfx_bin)
+        let vfx_bytes = crate::write_bin(&vfx_bin)
             .map_err(|e| Error::InvalidInput(format!("Failed to serialize VFX BIN: {}", e)))?;
         std::fs::write(&vfx_path, &vfx_bytes).map_err(|e| Error::io_with_path(e, &vfx_path))?;
     }
@@ -600,7 +600,7 @@ pub fn organize_vfx_in_folder(
         .retain(|link| link_target_exists(project_root, link));
 
     {
-        let owner_bytes = crate::bin::write_bin(&sources[owner_idx].bin)
+        let owner_bytes = crate::write_bin(&sources[owner_idx].bin)
             .map_err(|e| Error::InvalidInput(format!("Failed to serialize owner BIN: {}", e)))?;
         std::fs::write(&sources[owner_idx].path, &owner_bytes)
             .map_err(|e| Error::io_with_path(e, &sources[owner_idx].path))?;
@@ -611,7 +611,7 @@ pub fn organize_vfx_in_folder(
     for src in sources.iter() {
         if src.is_owner { continue; }
         if src.bin.entries.is_empty() { continue; } // gets deleted below
-        let bytes = crate::bin::write_bin(&src.bin).map_err(|e| {
+        let bytes = crate::write_bin(&src.bin).map_err(|e| {
             Error::InvalidInput(format!("Failed to serialize {}: {}", src.path.display(), e))
         })?;
         std::fs::write(&src.path, &bytes).map_err(|e| Error::io_with_path(e, &src.path))?;
@@ -727,7 +727,7 @@ mod organize_import_tests {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).unwrap();
         }
-        std::fs::write(path, crate::bin::write_bin(bin).unwrap()).unwrap();
+        std::fs::write(path, crate::write_bin(bin).unwrap()).unwrap();
     }
 
     /// Mirrors the import layout: a skin BIN (owner) plus a separate BIN holding
@@ -769,7 +769,7 @@ mod organize_import_tests {
         // The VFX BIN exists with the VFX object.
         let vfx_out = root.join("data/x_vfx.bin");
         assert!(vfx_out.exists(), "consolidated VFX BIN should be created");
-        let vfx_bin = crate::bin::read_bin(&std::fs::read(&vfx_out).unwrap()).unwrap();
+        let vfx_bin = crate::read_bin(&std::fs::read(&vfx_out).unwrap()).unwrap();
         assert!(vfx_bin.entries.iter().any(|e| e.class_hash == vfx_class));
 
         // The empty source was deleted.
@@ -777,7 +777,7 @@ mod organize_import_tests {
         assert!(result.sources_deleted.iter().any(|p| p == &src_path));
 
         // The owner gained the non-VFX object and links the VFX file.
-        let owner_after = crate::bin::read_bin(&std::fs::read(&owner_path).unwrap()).unwrap();
+        let owner_after = crate::read_bin(&std::fs::read(&owner_path).unwrap()).unwrap();
         assert!(owner_after.entries.iter().any(|e| e.path_hash == 3));
         assert!(owner_after.linked.iter().any(|d| d.eq_ignore_ascii_case("data/x_vfx.bin")));
     }
@@ -797,14 +797,14 @@ mod organize_import_tests {
         owner.linked.push("data/real_sibling.bin".to_string());
         owner.linked.push("data/characters/yone/yone_multi_skins_root_gone.bin".to_string());
         let owner_path = data.join("skin0.bin");
-        std::fs::write(&owner_path, crate::bin::write_bin(&owner).unwrap()).unwrap();
+        std::fs::write(&owner_path, crate::write_bin(&owner).unwrap()).unwrap();
         // The real sibling exists on disk; the multi-bin does not.
-        std::fs::write(data.join("real_sibling.bin"), crate::bin::write_bin(&ritoshark::bin::Bin::new()).unwrap()).unwrap();
+        std::fs::write(data.join("real_sibling.bin"), crate::write_bin(&ritoshark::bin::Bin::new()).unwrap()).unwrap();
 
         let sources = vec![owner_path.clone()];
         let _ = organize_vfx_in_folder(&sources, &owner_path, root, "yone_vfx.bin").unwrap();
 
-        let reread = crate::bin::read_bin(&std::fs::read(&owner_path).unwrap()).unwrap();
+        let reread = crate::read_bin(&std::fs::read(&owner_path).unwrap()).unwrap();
         assert!(reread.linked.iter().any(|l| l == "data/real_sibling.bin"), "real sibling link kept");
         assert!(!reread.linked.iter().any(|l| l.contains("yone_multi_skins_root_gone")), "dangling link pruned");
     }
@@ -822,18 +822,18 @@ mod organize_import_tests {
         owner.entries.push(entry(1, fnv1a_lower("VfxSystemDefinitionData")));
         owner.linked.push("data/mixedcase_sibling.bin".to_string());
         let owner_path = data.join("skin0.bin");
-        std::fs::write(&owner_path, crate::bin::write_bin(&owner).unwrap()).unwrap();
+        std::fs::write(&owner_path, crate::write_bin(&owner).unwrap()).unwrap();
         // The sibling exists under DIFFERENT casing than the (lowercased) link.
         std::fs::write(
             data.join("MixedCase_Sibling.bin"),
-            crate::bin::write_bin(&ritoshark::bin::Bin::new()).unwrap(),
+            crate::write_bin(&ritoshark::bin::Bin::new()).unwrap(),
         )
         .unwrap();
 
         let sources = vec![owner_path.clone()];
         let _ = organize_vfx_in_folder(&sources, &owner_path, root, "casing_vfx.bin").unwrap();
 
-        let reread = crate::bin::read_bin(&std::fs::read(&owner_path).unwrap()).unwrap();
+        let reread = crate::read_bin(&std::fs::read(&owner_path).unwrap()).unwrap();
         assert!(
             reread.linked.iter().any(|l| l == "data/mixedcase_sibling.bin"),
             "link to a file present under different casing must be kept"

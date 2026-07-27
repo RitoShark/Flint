@@ -1,0 +1,18 @@
+[package]
+name = "flint-bin"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+flint-hash = { path = "../flint-hash" }
+
+tracing = "0.1"
+walkdir = "2.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+indexmap = { version = "2.1", features = ["serde"] }
+
+ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "daff556", features = ["rman-verify"] }
+
+[dev-dependencies]
+tempfile = "3"

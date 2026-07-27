@@ -5,9 +5,9 @@
 //! printer/parser via `codec`; JSON conversion uses the local `bin_json`
 //! mapping (`rs_bin::BinValue` is not serde-derived).
 
-use crate::bin::bin_json;
-use crate::bin::codec::{tree_to_text_cached, text_to_tree};
-use crate::error::{Error, Result};
+use crate::bin_json;
+use crate::codec::{tree_to_text_cached, text_to_tree};
+use flint_hash::error::{Error, Result};
 use ritoshark::bin::Bin;
 
 fn bin_error(message: impl Into<String>) -> Error {

@@ -5,7 +5,7 @@
 //! application. Hash-name resolution for the text form goes through a globally
 //! cached `HashMapper` populated from the `hashes-bin.lmdb` dictionary.
 
-use crate::hash::bin_dict::get_cached_bin_hashes;
+use flint_hash::hash::bin_dict::get_cached_bin_hashes;
 use ritoshark::bin::Bin;
 use ritoshark::hash::HashMapper;
 use ritoshark::prelude::{Parse as _, Serialize as _};
