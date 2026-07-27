@@ -107,6 +107,12 @@ pub fn read_masks(bin: &Bin) -> Vec<MaskEntry> {
 
 /// Overwrite the weights of the named masks, leaving every other mask alone.
 ///
+/// **All-or-nothing.** Every mask is validated before any is mutated, so an
+/// error leaves `bin` untouched. Mutating as we go would mean a batch like
+/// `[valid, missing]` half-applies and *then* returns an error that reads like
+/// nothing happened — silently drifting the caller's file, which is exactly
+/// what erroring on a missing key exists to prevent.
+///
 /// Returns how many masks were written. A mask key that is not in the BIN is an
 /// error rather than a silent no-op — it means the caller's view of the file has
 /// drifted, and silently discarding an edit is worse than refusing it.
@@ -115,27 +121,37 @@ pub fn write_masks(bin: &mut Bin, masks: &[MaskEntry]) -> Result<usize, String> 
         return Err("This BIN has no mMaskDataMap (not an animation graph).".to_string());
     };
 
-    let mut written = 0usize;
+    // ── Validate pass: resolve every target to an index, mutating nothing. ──
+    let mut targets = Vec::with_capacity(masks.len());
     for mask in masks {
-        let slot = entries
-            .iter_mut()
-            .find(|(k, _)| key_of(k) == Some(mask.key))
+        let idx = entries
+            .iter()
+            .position(|(k, _)| key_of(k) == Some(mask.key))
             .ok_or_else(|| format!("Mask {} is not present in this BIN.", mask.key))?;
 
-        let (BinValue::Embed { fields, .. } | BinValue::Pointer { fields, .. }) = &mut slot.1 else {
+        let (BinValue::Embed { fields, .. } | BinValue::Pointer { fields, .. }) = &entries[idx].1
+        else {
             return Err(format!("Mask {} is not an embedded MaskData.", mask.key));
         };
+        if !matches!(fields.get(&MWEIGHTLIST), Some(BinValue::List { .. })) {
+            return Err(format!("Mask {} has no mWeightList.", mask.key));
+        }
+        targets.push(idx);
+    }
 
-        match fields.get_mut(&MWEIGHTLIST) {
-            Some(BinValue::List { items, .. }) => {
-                *items = mask.weights.iter().map(|w| BinValue::F32(*w)).collect();
-                written += 1;
-            }
-            _ => return Err(format!("Mask {} has no mWeightList.", mask.key)),
+    // ── Apply pass: every target is known good, so this cannot fail. ──
+    for (mask, idx) in masks.iter().zip(targets) {
+        let (BinValue::Embed { fields, .. } | BinValue::Pointer { fields, .. }) =
+            &mut entries[idx].1
+        else {
+            unreachable!("validated above")
+        };
+        if let Some(BinValue::List { items, .. }) = fields.get_mut(&MWEIGHTLIST) {
+            *items = mask.weights.iter().map(|w| BinValue::F32(*w)).collect();
         }
     }
 
-    Ok(written)
+    Ok(masks.len())
 }
 
 #[cfg(test)]
@@ -233,5 +249,42 @@ mod tests {
         let masks = read_masks(&bin);
         assert_eq!(masks[0].weights, vec![0.0]);
         assert_eq!(masks[1].weights, vec![0.5], "untouched mask was modified");
+    }
+
+    #[test]
+    fn a_failed_batch_write_leaves_the_bin_untouched() {
+        // The valid mask comes FIRST, so a mutate-as-you-go implementation
+        // would have already overwritten it by the time it reaches the bad key
+        // — returning an error that reads like nothing happened.
+        let mut bin = animation_bin(&[(1, vec![1.0])]);
+
+        let err = write_masks(
+            &mut bin,
+            &[
+                MaskEntry { key: 1, id: None, weights: vec![0.0] },
+                MaskEntry { key: 999, id: None, weights: vec![0.0] },
+            ],
+        )
+        .unwrap_err();
+
+        assert!(err.contains("999"));
+        assert_eq!(
+            read_masks(&bin)[0].weights,
+            vec![1.0],
+            "a failed batch must not partially apply"
+        );
+    }
+
+    #[test]
+    fn reads_the_mask_id_when_present() {
+        let mut bin = animation_bin(&[(1, vec![1.0])]);
+        // Inject mId into the first mask's MaskData.
+        if let Some(BinValue::Map { entries, .. }) = bin.entries[0].fields.get_mut(&MMASKDATAMAP) {
+            if let BinValue::Embed { fields, .. } = &mut entries[0].1 {
+                fields.insert(MID, BinValue::U32(7));
+            }
+        }
+
+        assert_eq!(read_masks(&bin)[0].id, Some(7));
     }
 }
