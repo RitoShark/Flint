@@ -5193,6 +5193,9 @@ input.np-search:focus {
 .bin-editor__toolbar-actions {
   display: flex;
   gap: var(--space-sm);
+  /* Never squeezed or clipped — Save must stay reachable at any width, and
+     the group can grow to fit the conditional Fix/Masks buttons. */
+  flex-shrink: 0;
 }
 
 .bin-editor__tree {
@@ -5351,18 +5354,35 @@ input.np-search:focus {
 }
 
 /* BIN Editor - Text Editor Styles */
+/* `min-width: 0` is load-bearing: a flex item defaults to `min-width: auto`,
+   which refuses to shrink below its content's min-content width. An unbreakable
+   path/filename therefore pushed the actions group out of the toolbar instead
+   of truncating itself. */
 .bin-editor__filename {
   font-weight: 500;
   color: var(--text-secondary);
   display: flex;
   align-items: center;
   gap: var(--space-md);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 
+.bin-editor__filename-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The line count and bracket badges are short and always worth reading —
+   only the filename absorbs the shrink. */
 .bin-editor__stats {
   font-size: var(--text-xs);
   color: var(--text-muted);
   font-weight: normal;
+  flex-shrink: 0;
 }
 
 .bin-editor__bracket-error {
@@ -5373,6 +5393,7 @@ input.np-search:focus {
   padding: 1px 6px;
   border-radius: 3px;
   background: rgba(255, 68, 68, 0.12);
+  flex-shrink: 0;
 }
 
 .bin-editor__bracket-error:hover {
@@ -5386,6 +5407,7 @@ input.np-search:focus {
   padding: 1px 6px;
   border-radius: 3px;
   background: rgba(105, 219, 124, 0.08);
+  flex-shrink: 0;
 }
 
 /* Monaco decoration for bracket error lines */

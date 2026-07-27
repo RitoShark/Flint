@@ -275,7 +275,7 @@ export const LuaBin64Editor: React.FC<LuaBin64EditorProps> = ({ filePath, hideFi
         setShowPreview(false);
     }, []);
 
-    const fileName = filePath.split('\\').pop() || filePath.split('/').pop() || 'file.lua';
+    const fileName = filePath.split(/[/\\]/).pop() || 'file.lua';
 
     if (loading) {
         return (
@@ -300,9 +300,9 @@ export const LuaBin64Editor: React.FC<LuaBin64EditorProps> = ({ filePath, hideFi
             <div className="bin-editor__toolbar">
                 <span className="bin-editor__filename">
                     {!hideFilename && (
-                        <>
+                        <span className="bin-editor__filename-text" title={filePath}>
                             {fileName}{isDirty ? ' \u2022' : ''}
-                        </>
+                        </span>
                     )}
                     <span className="bin-editor__stats" style={hideFilename ? { marginLeft: 0 } : undefined}>
                         {lineCount.toLocaleString()} lines

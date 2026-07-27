@@ -1323,7 +1323,11 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         }
     }, [content, setWorking, setReady, showToast]);
 
-    const fileName = filePath.split('\\').pop() || filePath.split('/').pop() || 'file.bin';
+    // Split on BOTH separators in one pass. Chaining `split('\\') || split('/')`
+    // never reaches the second branch: on a forward-slash path the first split
+    // returns [wholePath], whose `pop()` is truthy, so the whole path leaked
+    // through as the "basename" and blew the toolbar past its buttons.
+    const fileName = filePath.split(/[/\\]/).pop() || 'file.bin';
 
     const bracketLabel = useMemo(() => {
         if (bracketStatus.valid) return null;
@@ -1359,9 +1363,9 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             <div className="bin-editor__toolbar">
                 <span className="bin-editor__filename">
                     {!hideFilename && (
-                        <>
+                        <span className="bin-editor__filename-text" title={filePath}>
                             {fileName}{isDirty ? ' \u2022' : ''}
-                        </>
+                        </span>
                     )}
                     <span className="bin-editor__stats" style={hideFilename ? { marginLeft: 0 } : undefined}>
                         {lineCount.toLocaleString()} lines
