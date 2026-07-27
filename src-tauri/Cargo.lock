@@ -1590,6 +1590,7 @@ dependencies = [
  "ddsfile",
  "directories",
  "flate2",
+ "flint-formats",
  "futures",
  "heed",
  "image",
@@ -1621,6 +1622,19 @@ dependencies = [
  "xxhash-rust",
  "zip 2.4.2",
  "zstd 0.12.4",
+]
+
+[[package]]
+name = "flint-formats"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "byteorder",
+ "ltk_inibin",
+ "ritoshark",
+ "serde",
+ "serde_json",
+ "tracing",
 ]
 
 [[package]]
