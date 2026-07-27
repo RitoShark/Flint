@@ -3,6 +3,7 @@ pub mod converter;
 pub mod bin_json;
 pub mod concat;
 pub mod split;
+pub mod animask;
 
 pub use ltk_bridge::{
     read_bin as read_bin_ltk,
@@ -28,3 +29,5 @@ pub use split::{
     analyze_multi, classify_vfx_objects, group_by_class, organize_vfx_in_folder, split_bin,
     split_bin_multi, MultiAnalysis, MultiSourceInfo, OrganizeResult, SplitResult, VFX_CLASS_NAMES,
 };
+
+pub use animask::{read_masks, write_masks, MaskEntry};
