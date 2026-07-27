@@ -25,12 +25,4 @@ describe('hashOverlay api', () => {
 
         expect(invokeCommand).toHaveBeenCalledWith('clear_project_hash_overlay', undefined);
     });
-
-    it('resolves to zeroed stats when the backend reports nothing', async () => {
-        vi.mocked(invokeCommand).mockResolvedValue({ wad_entries: 0 });
-
-        const stats = await buildProjectHashOverlay('C:\\empty');
-
-        expect(stats).toEqual({ wad_entries: 0 });
-    });
 });

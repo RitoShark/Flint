@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use flint_ltk::heed;
 use flint_ltk::hash::{drop_lmdb_cache, get_or_open_env, get_wad_env, hashes_present};
@@ -203,28 +204,42 @@ impl CdnSessionState {
 /// The active project's path paired with its built overlay.
 type HashOverlaySlot = Option<(String, Arc<ProjectHashOverlay>)>;
 
+/// `slot` and `generation` are grouped behind one `Arc` (rather than each
+/// clone holding its own `AtomicU64`) so every clone of `HashOverlayState`
+/// shares the same counter — a build kicked off from one clone must be
+/// validated against generation bumps made through any other.
+#[derive(Default)]
+struct HashOverlayInner {
+    slot: RwLock<HashOverlaySlot>,
+    generation: AtomicU64,
+}
+
 /// The active project's hash overlay, if one has been built.
 ///
 /// Only one project is active at a time, so a single slot is enough. Switching
-/// projects replaces it wholesale.
+/// projects replaces it wholesale. `generation` is bumped on every store and
+/// every `clear`; `set_if_current` uses it to detect that a build's result
+/// has been superseded (by a newer build, or by a `clear`) before it gets a
+/// chance to store — see `set_if_current`, the only way to store into this
+/// state. There is no unconditional `set`: every write must prove its
+/// generation is still current, so a stale build can never resurrect state
+/// out from under a newer one.
 #[derive(Clone, Default)]
-pub struct HashOverlayState(Arc<RwLock<HashOverlaySlot>>);
+pub struct HashOverlayState(Arc<HashOverlayInner>);
 
 impl HashOverlayState {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn set(&self, project_path: String, overlay: Arc<ProjectHashOverlay>) {
-        *self.0.write() = Some((project_path, overlay));
-    }
-
     pub fn clear(&self) {
-        *self.0.write() = None;
+        let mut slot = self.0.slot.write();
+        *slot = None;
+        self.0.generation.fetch_add(1, Ordering::SeqCst);
     }
 
     pub fn get(&self) -> Option<Arc<ProjectHashOverlay>> {
-        self.0.read().as_ref().map(|(_, o)| Arc::clone(o))
+        self.0.slot.read().as_ref().map(|(_, o)| Arc::clone(o))
     }
 
     // Test-only for now: exercised by three tests below. Kept as a plausible
@@ -232,7 +247,30 @@ impl HashOverlayState {
     // in-flight overlay build.
     #[allow(dead_code)]
     pub fn active_project(&self) -> Option<String> {
-        self.0.read().as_ref().map(|(p, _)| p.clone())
+        self.0.slot.read().as_ref().map(|(p, _)| p.clone())
+    }
+
+    /// A snapshot to capture *before* starting a build. Pass it to
+    /// `set_if_current` once the build finishes.
+    pub fn current_generation(&self) -> u64 {
+        self.0.generation.load(Ordering::SeqCst)
+    }
+
+    /// Store only if `gen` is still current — a build that began before a
+    /// `clear` or a newer store must not resurrect itself. Returns whether
+    /// the store happened.
+    ///
+    /// The generation check and the write both happen while holding the
+    /// `slot` write lock, so a concurrent `clear`/`set_if_current` cannot
+    /// interleave between the check and the write.
+    pub fn set_if_current(&self, gen: u64, project_path: String, overlay: Arc<ProjectHashOverlay>) -> bool {
+        let mut slot = self.0.slot.write();
+        if self.0.generation.load(Ordering::SeqCst) != gen {
+            return false;
+        }
+        *slot = Some((project_path, overlay));
+        self.0.generation.fetch_add(1, Ordering::SeqCst);
+        true
     }
 }
 
@@ -257,7 +295,8 @@ mod hash_overlay_state_tests {
         let mut o = ProjectHashOverlay::new();
         let hash = wad_hash("assets/x.dds");
         o.insert_wad(hash, "assets/x.dds");
-        state.set("C:\\p".to_string(), std::sync::Arc::new(o));
+        let gen = state.current_generation();
+        assert!(state.set_if_current(gen, "C:\\p".to_string(), std::sync::Arc::new(o)));
 
         assert_eq!(state.active_project().as_deref(), Some("C:\\p"));
         assert_eq!(state.get().unwrap().wad_get(hash), Some("assets/x.dds"));
@@ -266,7 +305,8 @@ mod hash_overlay_state_tests {
     #[test]
     fn clear_drops_the_overlay_and_the_project() {
         let state = HashOverlayState::new();
-        state.set("C:\\p".to_string(), std::sync::Arc::new(ProjectHashOverlay::new()));
+        let gen = state.current_generation();
+        assert!(state.set_if_current(gen, "C:\\p".to_string(), std::sync::Arc::new(ProjectHashOverlay::new())));
 
         state.clear();
 
@@ -280,15 +320,56 @@ mod hash_overlay_state_tests {
         let hash_a = wad_hash("assets/a.dds");
         let mut first = ProjectHashOverlay::new();
         first.insert_wad(hash_a, "assets/a.dds");
-        state.set("C:\\a".to_string(), std::sync::Arc::new(first));
+        let gen = state.current_generation();
+        assert!(state.set_if_current(gen, "C:\\a".to_string(), std::sync::Arc::new(first)));
 
         let hash_b = wad_hash("assets/b.dds");
         let mut second = ProjectHashOverlay::new();
         second.insert_wad(hash_b, "assets/b.dds");
-        state.set("C:\\b".to_string(), std::sync::Arc::new(second));
+        let gen = state.current_generation();
+        assert!(state.set_if_current(gen, "C:\\b".to_string(), std::sync::Arc::new(second)));
 
         assert_eq!(state.active_project().as_deref(), Some("C:\\b"));
         assert!(state.get().unwrap().wad_get(hash_a).is_none());
         assert_eq!(state.get().unwrap().wad_get(hash_b), Some("assets/b.dds"));
+    }
+
+    #[test]
+    fn set_if_current_stores_when_the_generation_still_matches() {
+        let state = HashOverlayState::new();
+        let gen = state.current_generation();
+
+        let hash = wad_hash("assets/fresh.dds");
+        let mut overlay = ProjectHashOverlay::new();
+        overlay.insert_wad(hash, "assets/fresh.dds");
+
+        let stored = state.set_if_current(gen, "C:\\p".to_string(), std::sync::Arc::new(overlay));
+
+        assert!(stored);
+        assert_eq!(state.active_project().as_deref(), Some("C:\\p"));
+        assert_eq!(state.get().unwrap().wad_get(hash), Some("assets/fresh.dds"));
+    }
+
+    #[test]
+    fn set_if_current_rejects_a_stale_generation_and_leaves_state_untouched() {
+        let state = HashOverlayState::new();
+
+        // A build "starts": it captures the generation before doing any work.
+        let stale_gen = state.current_generation();
+
+        // Meanwhile a clear happens — e.g. the project closed while the build
+        // was in flight — which bumps the generation past what the build saw.
+        state.clear();
+
+        // The stale build finishes and tries to store its (now outdated) result.
+        let hash = wad_hash("assets/stale.dds");
+        let mut stale_overlay = ProjectHashOverlay::new();
+        stale_overlay.insert_wad(hash, "assets/stale.dds");
+        let stored = state.set_if_current(stale_gen, "C:\\stale".to_string(), std::sync::Arc::new(stale_overlay));
+
+        assert!(!stored, "a stale generation must not be allowed to store");
+        // State must remain exactly as `clear` left it — not resurrected.
+        assert!(state.get().is_none());
+        assert!(state.active_project().is_none());
     }
 }

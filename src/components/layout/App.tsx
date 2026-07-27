@@ -188,6 +188,20 @@ export const App: React.FC = () => {
         return activeTab?.projectPath || null;
     }, [activeTabId, openTabs]);
 
+    // The hash overlay is a single backend slot for "the active project," not
+    // one per tab (see HashOverlayState in state.rs). `currentProjectPath`
+    // transitioning to null means the last open project tab just closed —
+    // the only point at which "no project is active" is unambiguous in a
+    // multi-tab UI. Clearing there, rather than on every tab close, avoids
+    // wiping a still-open tab's overlay when a *different* tab closes.
+    const lastProjectPathRef = React.useRef<string | null>(null);
+    useEffect(() => {
+        if (lastProjectPathRef.current && !currentProjectPath) {
+            api.clearProjectHashOverlay().catch(() => { });
+        }
+        lastProjectPathRef.current = currentProjectPath;
+    }, [currentProjectPath]);
+
     useEffect(() => {
         const onContextMenu = (e: MouseEvent) => {
             const t = e.target as HTMLElement | null;

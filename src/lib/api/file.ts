@@ -1,17 +1,5 @@
 import { invokeCommand, invokeRaw, utf8Decoder } from './core';
-import { buildProjectHashOverlay } from './hashOverlay';
-
-/**
- * Fire-and-forget overlay rebuild after a tree mutation that adds, renames, or
- * removes a project file — the previous overlay's path→name mapping for the
- * affected entry is stale. A failure here must never surface to the caller;
- * the overlay only improves hash display.
- */
-function rebuildOverlayInBackground(projectPath: string): void {
-    void buildProjectHashOverlay(projectPath).catch((e) => {
-        console.warn('hash overlay build failed', e);
-    });
-}
+import { fireOverlayRebuild } from './hashOverlay';
 
 export async function readFileBytes(path: string, opts: { silent?: boolean } = {}): Promise<Uint8Array> {
     const buf = await invokeCommand<ArrayBuffer>('read_file_bytes', { path }, opts);
@@ -99,13 +87,13 @@ export async function renameFile(
     newName: string
 ): Promise<RenameResult> {
     const result = await invokeCommand<RenameResult>('rename_file', { projectPath, filePath, newName });
-    rebuildOverlayInBackground(projectPath);
+    fireOverlayRebuild(projectPath);
     return result;
 }
 
 export async function deleteFile(projectPath: string, filePath: string): Promise<void> {
     await invokeCommand('delete_file', { projectPath, filePath });
-    rebuildOverlayInBackground(projectPath);
+    fireOverlayRebuild(projectPath);
 }
 
 export async function openInExplorer(path: string): Promise<void> {
@@ -122,7 +110,7 @@ export async function createDirectory(projectPath: string, dirPath: string): Pro
 
 export async function duplicateFile(projectPath: string, filePath: string): Promise<string> {
     const result = await invokeCommand<string>('duplicate_file', { projectPath, filePath });
-    rebuildOverlayInBackground(projectPath);
+    fireOverlayRebuild(projectPath);
     return result;
 }
 
@@ -132,7 +120,7 @@ export async function moveFile(
     destFolder: string,
 ): Promise<string> {
     const result = await invokeCommand<string>('move_file', { projectPath, sourcePath, destFolder });
-    rebuildOverlayInBackground(projectPath);
+    fireOverlayRebuild(projectPath);
     return result;
 }
 
@@ -142,7 +130,7 @@ export async function importExternalFiles(
     sources: string[],
 ): Promise<string[]> {
     const result = await invokeCommand<string[]>('import_external_files', { projectPath, destFolder, sources });
-    rebuildOverlayInBackground(projectPath);
+    fireOverlayRebuild(projectPath);
     return result;
 }
 

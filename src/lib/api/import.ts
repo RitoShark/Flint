@@ -1,18 +1,15 @@
 import { invokeCommand } from './core';
-import { buildProjectHashOverlay } from './hashOverlay';
+import { fireOverlayRebuild } from './hashOverlay';
 import type { Project } from '../types';
 
 /**
- * Fire-and-forget overlay rebuild after an import that refathered — refathering
- * rewrites every asset path, so any previous overlay is entirely stale. A
- * failure here must never surface to the caller; the overlay only improves
- * hash display.
+ * Trigger a debounced overlay rebuild after an import that refathered —
+ * refathering rewrites every asset path, so any previous overlay is entirely
+ * stale.
  */
 function rebuildOverlayAfterRefather(projectDir: string, options: ImportOptions): void {
     if (!options.refather) return;
-    void buildProjectHashOverlay(projectDir).catch((e) => {
-        console.warn('hash overlay build failed', e);
-    });
+    fireOverlayRebuild(projectDir);
 }
 
 export interface FantomeMetadata {
