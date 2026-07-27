@@ -51,6 +51,8 @@ flint-hash = { path = "../flint-hash" }
 flint-net = { path = "../flint-net" }
 flint-bin = { path = "../flint-bin" }
 flint-wad = { path = "../flint-wad" }
+# 0.4 matches image_dds's pin so only ONE copy of the ISPC kernels compiles.
+intel_tex_2 = "0.4"
 
 
 # Hematite fixer: REMOVED 2026-07-14 (skin fixing disabled; owner is reworking
