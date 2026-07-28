@@ -392,7 +392,7 @@ export const FirstTimeSetupModal: React.FC = () => {
                         {String(visibleIndex + 1).padStart(2, '0')}<span> / {visibleTotal}</span>
                     </span>
                     {isLast ? (
-                        <Button variant="success" size="lg" icon="success" onClick={handleFinish} className="fwiz__cta">
+                        <Button variant="success" size="lg" iconRight="chevronRight" onClick={handleFinish} className="fwiz__cta">
                             Enter Flint
                         </Button>
                     ) : (
