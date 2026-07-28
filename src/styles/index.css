@@ -57,6 +57,14 @@
   /* Dark blue */
   --accent-gold: #dcb67a;
   /* Folder icon yellow */
+
+  /* Flint flame shades — the logo's four fire layers, derived from the accent so
+     the mark follows the theme. Ordered darkest → lightest, mirroring the source
+     artwork's #ac1b0d / #c04711 / #dd8515 / #f5a422 ramp. */
+  --flame-1: color-mix(in oklab, var(--accent-primary) 68%, #000);
+  --flame-2: color-mix(in oklab, var(--accent-primary) 84%, #000);
+  --flame-3: var(--accent-primary);
+  --flame-4: color-mix(in oklab, var(--accent-primary) 82%, #fff);
   --success: #3FB950;
   --warning: #D29922;
   --error: #F85149;
