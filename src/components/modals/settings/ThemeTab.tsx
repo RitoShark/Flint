@@ -7,14 +7,14 @@ import { openColorPicker } from '../../common/ColorPicker';
 /* -------------------------------------------------------------------------- */
 export type SettingsThemePreset = { id: string | null; name: string; bg: string; raised: string; accent: string };
 export const SETTINGS_THEME_PRESETS: SettingsThemePreset[] = [
-    { id: null,        name: 'Flint',     bg: '#0c0c10', raised: '#15151b', accent: '#EF5B44' },
+    { id: null,        name: 'Flint',     bg: '#0c0c10', raised: '#15151b', accent: '#EF5244' },
     { id: 'celestial', name: 'Celestial', bg: '#0a0a14', raised: '#13132a', accent: '#A05CF6' },
     { id: 'jade',      name: 'Jade',      bg: '#08111a', raised: '#0f1c28', accent: '#06B6D4' },
     { id: 'froggy',    name: 'Froggy',    bg: '#0a1410', raised: '#11241c', accent: '#22C55E' },
     { id: 'quartz',    name: 'Quartz',    bg: '#0f0a14', raised: '#1d1424', accent: '#EC4899' },
 ];
 /** Default accent shown on the Custom card before the user picks one. */
-const CUSTOM_DEFAULT_ACCENT = '#EF5B44';
+const CUSTOM_DEFAULT_ACCENT = '#EF5244';
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
 export const ThemePresetGrid: React.FC<{
@@ -141,7 +141,7 @@ export const ThemePresetGrid: React.FC<{
                             setHexText(v);
                             applyCustom(v);
                         }}
-                        placeholder="#EF5B44"
+                        placeholder="#EF5244"
                     />
                     <span className="theme-custom-accent__hint">Click the circle to pick any accent — the dark base stays.</span>
                 </div>

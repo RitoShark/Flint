@@ -29,7 +29,7 @@ const STEPS: Step[] = [
 ];
 
 /** Default accent used before the user picks a theme. */
-const DEFAULT_ACCENT = '#EF5B44';
+const DEFAULT_ACCENT = '#EF5244';
 
 type DetectingState = boolean;
 

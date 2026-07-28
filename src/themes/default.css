@@ -1,13 +1,13 @@
 /* Flint Default Theme - Gray/Red
    This is the default theme with red accents.
-   The ramp sits at hue 8° — still red, warmed toward the flame in the logo
-   rather than the pure hue-0 red it used to be. Saturation and lightness are
-   unchanged from the originals, so only the hue shifts. */
+   The ramp sits at hue 5° — still clearly red, just warmed off the pure hue-0
+   red it used to be. Saturation and lightness are unchanged from the originals,
+   so only the hue shifts. */
 
 :root {
-  --accent-primary: #EF5B44;
-  --accent-hover: #DC3E26;
-  --accent-secondary: #F88371;
-  --accent-muted: #992C1B;
-  --button-primary: #EF5B44;
+  --accent-primary: #EF5244;
+  --accent-hover: #DC3526;
+  --accent-secondary: #F87C71;
+  --accent-muted: #99251B;
+  --button-primary: #EF5244;
 }
