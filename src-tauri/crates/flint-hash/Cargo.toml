@@ -23,4 +23,4 @@ futures = { version = "0.3", default-features = false, features = ["std", "async
 directories = "5.0"
 zstd = "0.12"
 
-ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "daff556", features = ["rman-verify"] }
+ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "8a4f03f", features = ["rman-verify"] }

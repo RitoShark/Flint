@@ -29,7 +29,7 @@ hematite-flint = { path = "crates/hematite-flint" }
 # RST: MIGRATED to ritoshark::rst (Phase 4) — the standalone dep was removed.
 # RitoShark crates — migration target. Binary-crate commands use ritoshark types directly;
 # same git rev as flint-core's dep, so cargo compiles ONE shared copy (identical types across crates).
-ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "daff556", features = ["rman-verify"] }
+ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "8a4f03f", features = ["rman-verify"] }
 # 0.4 matches image_dds's pin so only ONE copy of the ISPC kernels compiles
 # (0.4 and 0.5 have identical Surface/bc1 APIs).
 intel_tex_2 = "0.4"

@@ -89,6 +89,10 @@ pub(crate) fn guess_extension(data: &[u8]) -> &'static str {
         FileKind::StaticMeshText => "sco",
         FileKind::StaticMeshBinary => "scb",
         FileKind::Rst => "stringtable",
+        FileKind::LuaBin => "luabin",
+        FileKind::LuaBin64 => "luabin64",
+        FileKind::TroyBin => "troybin",
+        FileKind::Preload => "preload",
         FileKind::Wad | FileKind::Rman | FileKind::Unknown => {
             if data.len() >= 4 {
                 let head = &data[..4];

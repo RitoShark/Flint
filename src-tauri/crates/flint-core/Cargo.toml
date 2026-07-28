@@ -38,7 +38,7 @@ rustc-hash = "2"
 
 # RitoShark crates (owner's workspace — migrating off league-toolkit onto these).
 # Pinned to main HEAD; bump as the owner pushes (WadBuilder, etc.). Default features = all formats.
-ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "daff556", features = ["rman-verify"] }
+ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "8a4f03f", features = ["rman-verify"] }
 
 # league-mod crates (still on crates.io — removed from league-toolkit monorepo)
 ltk_mod_project = "0.2"

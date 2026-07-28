@@ -16,4 +16,4 @@ reqwest = { version = "0.13", default-features = false, features = ["json", "str
 # The provider is not installed by default; `net::install_tls_provider` does it.
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
-ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "daff556", features = ["rman-verify"] }
+ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "8a4f03f", features = ["rman-verify"] }

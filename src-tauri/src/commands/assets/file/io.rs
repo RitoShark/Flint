@@ -35,6 +35,9 @@ fn detect_file_type(path: &Path, data: &[u8]) -> (String, String) {
         FileKind::StaticMeshText => "model/x-lol-sco".to_string(),
         FileKind::StaticMeshBinary => "model/x-lol-scb".to_string(),
         FileKind::Rst => "application/x-stringtable".to_string(),
+        FileKind::LuaBin | FileKind::LuaBin64 => "application/x-luabin".to_string(),
+        FileKind::TroyBin => "application/x-troybin".to_string(),
+        FileKind::Preload => "application/x-preload".to_string(),
         FileKind::Wad | FileKind::Rman | FileKind::Unknown => {
             if let Some(mime) = detect_aux_mime_from_magic(data) {
                 mime.to_string()

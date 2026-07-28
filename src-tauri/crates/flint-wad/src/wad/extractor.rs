@@ -30,6 +30,12 @@ fn file_kind_extension(kind: FileKind) -> Option<&'static str> {
         FileKind::Rman => "rman",
         FileKind::Wpk => "wpk",
         FileKind::Bnk => "bnk",
+        // Flint already has editors for these; without an extension they
+        // extracted as bare `.ltk` and the editor could never route them.
+        FileKind::LuaBin => "luabin",
+        FileKind::LuaBin64 => "luabin64",
+        FileKind::TroyBin => "troybin",
+        FileKind::Preload => "preload",
     })
 }
 
@@ -908,4 +914,22 @@ mod tests {
         let resolved = resolve_chunk_path(path, &data);
         assert!(resolved.to_string_lossy().ends_with(".ltk.png"));
     }
+
+    #[test]
+    fn the_league_kinds_flint_has_editors_for_all_map_to_an_extension() {
+        // A new FileKind upstream must not silently fall through to `.ltk`.
+        for kind in [
+            FileKind::LuaBin,
+            FileKind::LuaBin64,
+            FileKind::TroyBin,
+            FileKind::Preload,
+        ] {
+            assert!(
+                file_kind_extension(kind).is_some(),
+                "{:?} has no extension mapping",
+                kind
+            );
+        }
+    }
+
 }
