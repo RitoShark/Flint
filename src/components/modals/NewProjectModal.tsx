@@ -281,7 +281,9 @@ export const NewProjectModal: React.FC = () => {
                 const variants = await api.listMapVariants(effectiveLeaguePath, selectedMapId);
                 if (cancelled) return;
                 setMapVariants(variants);
-                setSelectedVariant(variants[0]?.name ?? '');
+                // Don't auto-pick — the user chooses the variant, which reveals
+                // the extraction-strategy step (progressive disclosure).
+                setSelectedVariant('');
             } catch (err) {
                 console.error('[NewProject] listMapVariants failed:', err);
                 if (!cancelled) {
@@ -1463,62 +1465,73 @@ export const NewProjectModal: React.FC = () => {
                                 </div>
                             </header>
 
-                            <div className="np-map-row">
-                                <div className="np-map-field">
-                                    <label className="np-label">Map</label>
-                                    <Picker
-                                        fullWidth
-                                        menuMaxHeight={210}
-                                        value={selectedMapId}
-                                        onChange={setSelectedMapId}
-                                        disabled={mapsLoading || availableMaps.length === 0}
-                                        placeholder={
-                                            mapsLoading ? 'Scanning maps…'
-                                            : availableMaps.length === 0 ? 'No maps found in League folder'
-                                            : 'Select a map…'
-                                        }
-                                        options={availableMaps.map(m => ({
-                                            value: m.id,
-                                            label: m.displayName,
-                                            hint: `${m.id}${m.hasLevels ? ' · +LEVELS' : ''}`,
-                                        }))}
-                                    />
-                                </div>
-                                <div className="np-map-field">
-                                    <label className="np-label">
-                                        Variant
-                                        {mapVariants.length > 0 && (
-                                            <span className="np-map-count">{mapVariants.length}</span>
-                                        )}
-                                    </label>
-                                    <Picker
-                                        fullWidth
-                                        menuMaxHeight={210}
-                                        value={selectedVariant}
-                                        onChange={setSelectedVariant}
-                                        disabled={
-                                            mapExtractMode === 'full' ||
-                                            variantsLoading ||
-                                            mapVariants.length === 0
-                                        }
-                                        placeholder={
-                                            mapExtractMode === 'full' ? 'Not used in Full WAD mode'
-                                            : variantsLoading ? 'Scanning variants…'
-                                            : mapVariants.length === 0 ? 'No variants found'
-                                            : 'Select a variant…'
-                                        }
-                                        options={mapVariants.map(v => ({
-                                            value: v.name,
-                                            label: v.name,
-                                        }))}
-                                    />
-                                </div>
+                            <div className="np-map-field">
+                                <label className="np-label">Map</label>
+                                <Picker
+                                    fullWidth
+                                    menuMaxHeight={210}
+                                    value={selectedMapId}
+                                    onChange={setSelectedMapId}
+                                    disabled={mapsLoading || availableMaps.length === 0}
+                                    placeholder={
+                                        mapsLoading ? 'Scanning maps…'
+                                        : availableMaps.length === 0 ? 'No maps found in League folder'
+                                        : 'Select a map…'
+                                    }
+                                    options={availableMaps.map(m => ({
+                                        value: m.id,
+                                        label: m.displayName,
+                                        hint: `${m.id}${m.hasLevels ? ' · +LEVELS' : ''}`,
+                                    }))}
+                                />
                             </div>
                         </section>
 
-                        <section className="np-map-section">
+                        {/* Step 2 — revealed once a map is picked. */}
+                        {selectedMapId && (
+                        <section className="np-map-section np-map-reveal">
                             <header className="np-map-section__head">
                                 <span className="np-map-section__step">2</span>
+                                <div>
+                                    <div className="np-map-section__title">Variant</div>
+                                    <div className="np-map-section__sub">
+                                        Which shipped version of the map to base the project on
+                                    </div>
+                                </div>
+                            </header>
+
+                            <div className="np-map-field">
+                                <label className="np-label">
+                                    Variant
+                                    {mapVariants.length > 0 && (
+                                        <span className="np-map-count">{mapVariants.length}</span>
+                                    )}
+                                </label>
+                                <Picker
+                                    fullWidth
+                                    menuMaxHeight={210}
+                                    value={selectedVariant}
+                                    onChange={setSelectedVariant}
+                                    disabled={variantsLoading || mapVariants.length === 0}
+                                    placeholder={
+                                        variantsLoading ? 'Scanning variants…'
+                                        : mapVariants.length === 0 ? 'No variants found'
+                                        : 'Select a variant…'
+                                    }
+                                    options={mapVariants.map(v => ({
+                                        value: v.name,
+                                        label: v.name,
+                                    }))}
+                                />
+                            </div>
+                        </section>
+                        )}
+
+                        {/* Step 3 — revealed once a variant is chosen. */}
+                        {selectedMapId && selectedVariant && (
+                        <section className="np-map-section np-map-reveal">
+                            <header className="np-map-section__head">
+                                <span className="np-map-section__step">3</span>
                                 <div>
                                     <div className="np-map-section__title">Extraction strategy</div>
                                     <div className="np-map-section__sub">
@@ -1586,17 +1599,18 @@ export const NewProjectModal: React.FC = () => {
                                 label="Include LEVELS WAD"
                                 description="Pull lightmaps, lightgrid and grass-tint textures"
                             />
-                        </section>
 
-                        <div className="np-hint">
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{marginRight: '8px', flexShrink: 0}}>
-                                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                                <path d="M8 5v3M8 10v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                            </svg>
-                            {mapExtractMode === 'variant'
-                                ? 'Pulls only the variant’s mapgeo + materials.bin and the asset paths it references (kit-pieces, textures, lightmaps). Matches MapgeoAddon’s scoped flow.'
-                                : 'Dumps the entire map WAD into your project. Use this if you need every chunk — most users want “Variant only”.'}
-                        </div>
+                            <div className="np-hint">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{marginRight: '8px', flexShrink: 0}}>
+                                    <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                                    <path d="M8 5v3M8 10v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                                </svg>
+                                {mapExtractMode === 'variant'
+                                    ? 'Pulls only the variant’s mapgeo + materials.bin and the asset paths it references (kit-pieces, textures, lightmaps). Matches MapgeoAddon’s scoped flow.'
+                                    : 'Dumps the entire map WAD into your project. Use this if you need every chunk — most users want “Variant only”.'}
+                            </div>
+                        </section>
+                        )}
                     </div>
                 </div>
 

@@ -39,7 +39,7 @@ export const PathSettingItem: React.FC<{ setting: PathSetting }> = ({ setting })
             accent={setting.logoColor}
             icon={setting.logoSrc
                 ? <img src={setting.logoSrc} alt="" className="settings-row__logo-img" draggable={false} />
-                : <Icon name={setting.iconName ?? 'folder'} />}
+                : <Icon name={setting.iconName ?? 'folder'} className={`settings-row__glyph settings-row__glyph--${setting.iconName ?? 'folder'}`} />}
             on={filled}
             title={setting.label}
             tags={setting.badge ? <SettingsTag>{setting.badge}</SettingsTag> : undefined}

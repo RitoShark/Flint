@@ -580,15 +580,35 @@ input.np-search:focus {
 .np-form .np-map-section {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 14px;
     padding: 16px 18px;
-    background: color-mix(in oklab, var(--bg-tertiary) 50%, transparent);
-    border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
-    border-radius: 12px;
+    /* Glass surface — a faint top highlight over a barely-tinted fill, matching
+       the settings/wizard cards (not the flat grey --bg-tertiary box). */
+    background:
+        linear-gradient(180deg,
+            color-mix(in oklab, white 4%, transparent) 0%,
+            transparent 46%),
+        color-mix(in oklab, var(--bg-primary) 24%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+    border-radius: 14px;
+    box-shadow: inset 0 1px 0 color-mix(in oklab, white 6%, transparent);
 }
 
 .np-form .np-map-section+.np-map-section {
     margin-top: 4px;
+}
+
+/* Progressive disclosure — steps 2 & 3 mount only after the prior choice is
+   made, and slide in so the reveal reads as a deliberate next step. */
+.np-form .np-map-reveal {
+    animation: np-map-reveal 320ms cubic-bezier(.22, 1, .36, 1) both;
+}
+@keyframes np-map-reveal {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .np-form .np-map-reveal { animation: none; }
 }
 
 .np-form .np-map-section__head {
@@ -598,32 +618,34 @@ input.np-search:focus {
 }
 
 .np-form .np-map-section__step {
-    width: 22px;
-    height: 22px;
-    display: grid;
-    place-items: center;
-    background: color-mix(in oklab, var(--accent-primary) 22%, var(--bg-tertiary));
-    border: 1px solid color-mix(in oklab, var(--accent-primary) 35%, var(--border));
-    border-radius: 50%;
-    font-size: 11px;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 30%, transparent);
+    border-radius: 9px;
+    font-size: 12px;
     font-weight: 700;
-    color: var(--accent-primary);
+    color: color-mix(in oklab, var(--accent-primary) 65%, var(--text-primary));
     font-family: var(--font-mono);
     flex: none;
 }
 
 .np-form .np-map-section__title {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     color: var(--text-primary);
+    letter-spacing: -0.005em;
     line-height: 1.2;
 }
 
 .np-form .np-map-section__sub {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-muted);
     margin-top: 2px;
-    line-height: 1.4;
+    line-height: 1.45;
 }
 
 .np-form .np-map-section__sub code {
@@ -686,16 +708,18 @@ input.np-search:focus {
     text-align: left;
     cursor: pointer;
     position: relative;
+    overflow: hidden;
     display: grid;
     grid-template-columns: 38px 1fr;
     grid-template-rows: auto auto;
     column-gap: 12px;
     row-gap: 4px;
-    padding: 14px 14px 14px 14px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
+    padding: 14px;
+    background: color-mix(in oklab, var(--bg-primary) 24%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
     border-radius: 12px;
     color: var(--text-secondary);
+    box-shadow: inset 0 1px 0 color-mix(in oklab, white 5%, transparent);
     transition:
         background var(--motion-fast),
         border-color var(--motion-fast),
@@ -705,7 +729,7 @@ input.np-search:focus {
 }
 
 .np-form .np-map-mode:hover {
-    background: color-mix(in oklab, var(--accent-primary) 6%, var(--bg-tertiary));
+    background: color-mix(in oklab, var(--accent-primary) 7%, transparent);
     border-color: color-mix(in oklab, var(--accent-primary) 30%, var(--border));
     color: var(--text-primary);
 }
@@ -715,14 +739,18 @@ input.np-search:focus {
 }
 
 .np-form .np-map-mode--active {
-    background:
-        radial-gradient(circle at top right,
-            color-mix(in oklab, var(--accent-primary) 14%, transparent) 0%,
-            transparent 60%),
-        color-mix(in oklab, var(--accent-primary) 8%, var(--bg-tertiary));
-    border-color: color-mix(in oklab, var(--accent-primary) 55%, var(--border));
+    background: color-mix(in oklab, var(--accent-primary) 10%, transparent);
+    border-color: color-mix(in oklab, var(--accent-primary) 45%, transparent);
     color: var(--text-primary);
-    box-shadow: 0 8px 22px -14px color-mix(in oklab, var(--accent-primary) 60%, transparent);
+}
+
+/* Thin brand accent strip down the left edge of the selected card. */
+.np-form .np-map-mode--active::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    background: color-mix(in oklab, var(--accent-primary) 65%, transparent);
 }
 
 .np-form .np-map-mode__check {
@@ -750,18 +778,21 @@ input.np-search:focus {
     grid-row: 1 / span 2;
     width: 38px;
     height: 38px;
-    display: grid;
-    place-items: center;
-    background: color-mix(in oklab, var(--bg-primary) 80%, transparent);
-    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in oklab, var(--bg-primary) 45%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
     border-radius: 10px;
     color: var(--text-secondary);
-    transition: color var(--motion-fast), border-color var(--motion-fast);
+    transition: color var(--motion-fast), border-color var(--motion-fast), background var(--motion-fast);
 }
+.np-form .np-map-mode__icon svg { display: block; }
 
 .np-form .np-map-mode--active .np-map-mode__icon {
-    color: var(--accent-primary);
-    border-color: color-mix(in oklab, var(--accent-primary) 45%, var(--border));
+    color: color-mix(in oklab, var(--accent-primary) 65%, var(--text-primary));
+    background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+    border-color: color-mix(in oklab, var(--accent-primary) 30%, transparent);
 }
 
 .np-form .np-map-mode__body {
@@ -815,20 +846,32 @@ input.np-search:focus {
     align-items: center;
     gap: 12px;
     padding: 12px 14px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
+    background: color-mix(in oklab, var(--bg-primary) 24%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
     border-radius: 10px;
+    box-shadow: inset 0 1px 0 color-mix(in oklab, white 5%, transparent);
     cursor: pointer;
     transition: border-color var(--motion-fast), background var(--motion-fast);
 }
 
 .np-form .np-map-toggle.checkbox-label:hover {
+    background: color-mix(in oklab, var(--accent-primary) 6%, transparent);
     border-color: color-mix(in oklab, var(--accent-primary) 30%, var(--border));
 }
 
 .np-form .np-map-toggle .checkbox-label__label {
     font-weight: 600;
 }
+
+/* Hint inside the map step — glass, not the shared near-black #141414 box. */
+.np-form .np-map-section .np-hint {
+    align-items: center;
+    background: color-mix(in oklab, var(--bg-primary) 22%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+    border-radius: 10px;
+    color: var(--text-muted);
+}
+.np-form .np-map-section .np-hint svg { color: color-mix(in oklab, var(--accent-primary) 55%, var(--text-muted)); }
 
 /* Stack the two-column grids on narrow modals */
 @media (max-width: 720px) {
