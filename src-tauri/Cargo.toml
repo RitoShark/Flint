@@ -24,7 +24,8 @@ tauri-build = { version = "2", features = [] }
 flint-core = { path = "crates/flint-core" }
 ltk_inibin = { path = "crates/ltk_inibin", features = ["serde"] }
 # Skin-fixer engine (wraps Hematite's hematite-orchestrate). Its hematite deps
-# pin rs_* at daff556 — IDENTICAL to ritoshark below — so ONE copy of rs_* compiles.
+# pin rs_* at their own rev. Cargo unifies them with ritoshark below into ONE
+# copy of rs_* — verified in Cargo.lock, which holds a single rs_file entry.
 hematite-flint = { path = "crates/hematite-flint" }
 # RST: MIGRATED to ritoshark::rst (Phase 4) — the standalone dep was removed.
 # RitoShark crates — migration target. Binary-crate commands use ritoshark types directly;
