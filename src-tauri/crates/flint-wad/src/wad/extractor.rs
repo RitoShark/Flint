@@ -444,7 +444,8 @@ fn resolve_chunk_path(path: &str, chunk_data: &[u8]) -> PathBuf {
             .to_string();
 
         let extension =
-            file_kind_extension(file_kind).or_else(|| crate::wad::sniff::sniff(chunk_data));
+            file_kind_extension(file_kind)
+                .or_else(|| crate::wad::sniff::sniff(chunk_data).map(|f| f.ext));
 
         match extension {
             Some(extension) => {

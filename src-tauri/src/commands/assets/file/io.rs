@@ -78,20 +78,16 @@ fn detect_file_type(path: &Path, data: &[u8]) -> (String, String) {
 fn detect_aux_mime_from_magic(data: &[u8]) -> Option<&'static str> {
     let len = data.len();
 
-    if len >= 4 && &data[1..4] == b"PNG" {
-        return Some("image/png");
+    // Shared high-confidence table first — one answer for png/jpg/svg/RIFF/
+    // WGEO/fonts/archives, so this panel and WAD extraction cannot disagree.
+    if let Some(format) = flint_core::wad::sniff::sniff(data) {
+        return Some(format.mime);
     }
-    if len >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF {
-        return Some("image/jpeg");
-    }
-    if len >= 4 && &data[0..4] == b"<svg" {
-        return Some("image/svg+xml");
-    }
+
+    // Partial-signature leftovers. `ritoshark::file::detect` claims the full
+    // magic for these upstream, so these only fire on truncated heads.
     if len >= 5 && &data[1..5] == b"LuaQ" {
         return Some("application/x-luaobj");
-    }
-    if len >= 4 && &data[0..4] == b"WGEO" {
-        return Some("model/x-lol-wgeo");
     }
     if len >= 7 && &data[0..7] == b"PreLoad" {
         return Some("application/x-preload");
@@ -99,6 +95,10 @@ fn detect_aux_mime_from_magic(data: &[u8]) -> Option<&'static str> {
     if len >= 8 && &data[0..8] == b"r3d2sklt" {
         return Some("model/x-lol-skl");
     }
+
+    // Heuristics below match on byte RANGES, not signatures, so they stay
+    // here rather than in the shared table — they would mislabel a large
+    // fraction of arbitrary WAD chunks.
     // TGA heuristic: color-map type byte ∈ {0,1} + image-type byte ∈ {1,2,3,9,10,11}.
     if len >= 3 {
         let color_map_type = data[1];
@@ -310,6 +310,25 @@ mod tests {
         assert_eq!(detect_aux_mime_from_magic(&[0x03, 0x00, 0x00, 0x00]), Some("application/x-lightgrid"));
         // TGA heuristic: uncompressed true-color (image type 2, no color map).
         assert_eq!(detect_aux_mime_from_magic(&[0x00, 0x00, 0x02, 0x00]), Some("image/tga"));
+    }
+
+    #[test]
+    fn aux_magic_discriminates_riff_family_via_shared_table() {
+        // RIFF fronts WEBP, WAV, and Wwise's own WEM. Before this function
+        // delegated to the shared `flint_core::wad::sniff` table it had no
+        // RIFF handling at all, so every one of these fell straight through.
+        assert_eq!(
+            detect_aux_mime_from_magic(b"RIFF\x24\x00\x00\x00WEBPVP8 "),
+            Some("image/webp")
+        );
+        assert_eq!(
+            detect_aux_mime_from_magic(b"RIFF\x24\x00\x00\x00WAVEfmt "),
+            Some("audio/wav")
+        );
+        assert_eq!(
+            detect_aux_mime_from_magic(b"RIFFxxxxWSMPfmt "),
+            Some("audio/x-wwise-wem")
+        );
     }
 
     #[test]

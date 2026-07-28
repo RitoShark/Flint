@@ -94,15 +94,11 @@ pub(crate) fn guess_extension(data: &[u8]) -> &'static str {
         FileKind::TroyBin => "troybin",
         FileKind::Preload => "preload",
         FileKind::Wad | FileKind::Rman | FileKind::Unknown => {
-            if data.len() >= 4 {
-                let head = &data[..4];
-                if head == b"OggS" { return "ogg"; }
-                if head == b"\x89PNG" { return "png"; }
-                if head == b"RIFF" { return "wem"; }
-                if data.starts_with(b"\xff\xd8\xff") { return "jpg"; }
-                if data.starts_with(b"{") { return "json"; }
-            }
-            "dat"
+            // Shared table — the inline version here read every RIFF as `wem`,
+            // which named WEBP images imported from a `.fantome` as audio.
+            flint_core::wad::sniff::sniff(data)
+                .map(|f| f.ext)
+                .unwrap_or("dat")
         }
     }
 }
@@ -1047,6 +1043,17 @@ fn extract_and_save_fantome_thumbnail(fantome_path: &str, project_path: &Path) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn guess_extension_discriminates_riff_family() {
+        // RIFF fronts WEBP, WAV, and Wwise's own WEM. The old blanket
+        // `RIFF -> wem` silently mis-named WEBP images imported from a
+        // `.fantome` (routing them into the audio player); only the WEM
+        // case is correct against the pre-fix behaviour.
+        assert_eq!(guess_extension(b"RIFF\x24\x00\x00\x00WEBPVP8 "), "webp");
+        assert_eq!(guess_extension(b"RIFF\x24\x00\x00\x00WAVEfmt "), "wav");
+        assert_eq!(guess_extension(b"RIFFxxxxWSMPfmt "), "wem");
+    }
 
     #[test]
     fn test_extract_champion_from_path() {
