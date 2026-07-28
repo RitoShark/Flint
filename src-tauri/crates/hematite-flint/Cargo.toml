@@ -15,10 +15,10 @@ hematite-file = { git = "https://github.com/RitoShark/Hematite", rev = "c1ded2c"
 hematite-live = { git = "https://github.com/RitoShark/Hematite", rev = "c1ded2c" }
 hematite-types = { git = "https://github.com/RitoShark/Hematite", rev = "c1ded2c" }
 
-anyhow = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tracing = "0.1"
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
 # Flint's shared HTTP stack (same pin as the binary crate — one rustls/ring copy).
 # `blocking` because config loading runs inside the command's spawn_blocking —
 # same TLS stack (rustls-no-provider + ring) as the binary crate, just the

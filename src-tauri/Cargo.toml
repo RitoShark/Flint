@@ -1,6 +1,20 @@
 [workspace]
 members = [".", "crates/flint-core", "crates/flint-formats", "crates/flint-hash", "crates/flint-net", "crates/flint-bin", "crates/flint-wad", "crates/ltk_inibin", "crates/hematite-flint"]
 
+# Single source of truth for deps shared across the workspace crates. Before
+# this, bumping `ritoshark` meant editing seven manifests and silently getting
+# two incompatible copies of `rs_file` if you missed one.
+[workspace.dependencies]
+ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "8a4f03f", features = ["rman-verify"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tokio = { version = "1.0", features = ["rt-multi-thread", "fs", "io-util", "sync", "macros", "time"] }
+anyhow = "1.0"
+thiserror = "1.0"
+rayon = "1.10"
+walkdir = "2.4"
+
 [package]
 name = "flint"
 version = "2.5.0"
@@ -30,7 +44,7 @@ hematite-flint = { path = "crates/hematite-flint" }
 # RST: MIGRATED to ritoshark::rst (Phase 4) — the standalone dep was removed.
 # RitoShark crates — migration target. Binary-crate commands use ritoshark types directly;
 # same git rev as flint-core's dep, so cargo compiles ONE shared copy (identical types across crates).
-ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "8a4f03f", features = ["rman-verify"] }
+ritoshark.workspace = true
 # 0.4 matches image_dds's pin so only ONE copy of the ISPC kernels compiles
 # (0.4 and 0.5 have identical Surface/bc1 APIs).
 intel_tex_2 = "0.4"
@@ -46,11 +60,11 @@ tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
 
 # Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde.workspace = true
+serde_json.workspace = true
 
 # Async runtime
-tokio = { version = "1.0", features = ["rt-multi-thread", "fs", "io-util", "sync", "macros", "time"] }
+tokio.workspace = true
 # Same major as tauri-plugin-updater's reqwest so ONE HTTP stack compiles.
 # `rustls-no-provider` + the explicit ring pin in flint-core avoids compiling the
 # heavy aws-lc-sys default provider (mirrors tauri-plugin-updater's TLS setup).
@@ -58,12 +72,12 @@ reqwest = { version = "0.13", default-features = false, features = ["json", "str
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 
 # Error handling
-thiserror = "1.0"
-anyhow = "1.0"
+thiserror.workspace = true
+anyhow.workspace = true
 
 # Concurrency
 parking_lot = "0.12"
-rayon = "1.10"
+rayon.workspace = true
 dashmap = "6"
 
 # Fast hashing for u64-keyed maps (avoid SipHash on already-hashed xxh64 keys).
@@ -81,7 +95,7 @@ xxhash-rust = { version = "0.8", features = ["xxh64"] }
 # "Verbose logging" toggle a silent no-op in the shipped app (exactly when
 # users need it to diagnose issues). Disabled debug! callsites are cheap at
 # runtime (callsite-cached filter check) while the level stays at `info`.
-tracing = "0.1"
+tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 
@@ -99,7 +113,7 @@ ddsfile = "0.5"
 base64 = "0.22"
 
 # Filesystem
-walkdir = "2.4"
+walkdir.workspace = true
 notify = "7.0"
 notify-debouncer-full = "0.4"
 opener = "0.7"

@@ -4,23 +4,23 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-thiserror = "1.0"
-tracing = "0.1"
+thiserror.workspace = true
+tracing.workspace = true
 parking_lot = "0.12"
-rayon = "1.10"
+rayon.workspace = true
 rustc-hash = "2"
 xxhash-rust = { version = "0.8", features = ["xxh64"] }
 chrono = { version = "0.4", features = ["serde"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde.workspace = true
+serde_json.workspace = true
 
 # Memory-mapped B-tree store backing the hash dictionaries.
 heed = "0.20"
 
-tokio = { version = "1.0", features = ["rt-multi-thread", "fs", "io-util", "sync", "macros", "time"] }
+tokio.workspace = true
 reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls-no-provider"] }
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 directories = "5.0"
 zstd = "0.12"
 
-ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "8a4f03f", features = ["rman-verify"] }
+ritoshark.workspace = true

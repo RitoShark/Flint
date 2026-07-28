@@ -6,15 +6,15 @@ autobins = false
 
 [dependencies]
 # Error handling
-thiserror = "1.0"
-anyhow = "1.0"
+thiserror.workspace = true
+anyhow.workspace = true
 
 # Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde.workspace = true
+serde_json.workspace = true
 
 # Async
-tokio = { version = "1.0", features = ["rt-multi-thread", "fs", "io-util", "sync", "macros", "time"] }
+tokio.workspace = true
 # Same major as tauri-plugin-updater's reqwest so ONE HTTP stack compiles.
 # `rustls-no-provider` avoids the heavy aws-lc-sys default provider; the ring
 # provider below is what actually does the crypto (same setup as tauri-plugin-updater).
@@ -23,7 +23,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 
 # Concurrency
-rayon = "1.10"
+rayon.workspace = true
 dashmap = "6.0"
 parking_lot = "0.12"
 
@@ -38,7 +38,7 @@ rustc-hash = "2"
 
 # RitoShark crates (owner's workspace — migrating off league-toolkit onto these).
 # Pinned to main HEAD; bump as the owner pushes (WadBuilder, etc.). Default features = all formats.
-ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "8a4f03f", features = ["rman-verify"] }
+ritoshark.workspace = true
 
 # league-mod crates (still on crates.io — removed from league-toolkit monorepo)
 ltk_mod_project = "0.2"
@@ -74,7 +74,7 @@ xxhash-rust = { version = "0.8", features = ["xxh64"] }
 
 # Filesystem/path
 camino = "1.1"
-walkdir = "2.4"
+walkdir.workspace = true
 directories = "5.0"
 
 # Hashing/crypto (checkpoint content digests)
@@ -96,7 +96,7 @@ base64 = "0.22"
 zip = { version = "2.4", features = ["deflate"] }
 
 # Logging (tracing macros only)
-tracing = "0.1"
+tracing.workspace = true
 
 # Windows registry access (Windows only)
 [target.'cfg(windows)'.dependencies]
