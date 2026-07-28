@@ -7,7 +7,7 @@ import { Button, Icon, Input, Modal, ModalBody, ModalFooter, ModalHeader, Picker
 import * as api from '../../lib/api';
 import { listen } from '@tauri-apps/api/event';
 import { useFolderDrop } from '../../lib/folderDrop';
-import { openOrImportFolder } from '../../lib/projectOpen';
+import { openOrImportFolder, isSameProjectPath } from '../../lib/projectOpen';
 import type { SavedProject } from '../../lib/types';
 
 type SortMode = 'recent' | 'name' | 'champion';
@@ -253,23 +253,23 @@ const ProjectCard: React.FC<{
         <button
             ref={cardRef}
             type="button"
-            className={`pl-card ${removing ? 'pl-card--removing' : ''}`}
+            className={`pl-row ${removing ? 'pl-row--removing' : ''}`}
             onClick={onOpen}
             style={cssVars}
             title={`Open ${subtitle} — ${project.name}`}
         >
             {showMonogram ? (
-                <span className="pl-card__tile">
-                    <span className="pl-card__monogram">{monogram(project)}</span>
+                <span className="pl-row__tile">
+                    <span className="pl-row__monogram">{monogram(project)}</span>
                 </span>
             ) : isLoading || !url ? (
-                <span className="pl-card__tile pl-card__tile--loading" />
+                <span className="pl-row__tile pl-row__tile--loading" />
             ) : (
-                <span className="pl-card__tile pl-card__tile--art">
+                <span className="pl-row__tile pl-row__tile--art">
                     <img
                         src={url}
                         alt=""
-                        className="pl-card__art"
+                        className="pl-row__art"
                         loading="lazy"
                         crossOrigin="anonymous"
                         onLoad={handleImgLoad}
@@ -277,15 +277,15 @@ const ProjectCard: React.FC<{
                     />
                 </span>
             )}
-            <span className="pl-card__body">
-                <span className="pl-card__name">{project.name}</span>
-                <span className="pl-card__champ">{subtitle}</span>
-                <span className="pl-card__path" title={project.path}>{project.path}</span>
+            <span className="pl-row__body">
+                <span className="pl-row__name">{project.name}</span>
+                <span className="pl-row__champ">{subtitle}</span>
+                <span className="pl-row__path" title={project.path}>{project.path}</span>
             </span>
-            <span className="pl-card__meta">
-                <span className="pl-card__time">{formatRelativeTime(project.lastOpened)}</span>
+            <span className="pl-row__meta">
+                <span className="pl-row__time">{formatRelativeTime(project.lastOpened)}</span>
                 <span
-                    className="pl-card__remove"
+                    className="pl-row__remove"
                     role="button"
                     tabIndex={-1}
                     onClick={onRemove}
@@ -452,10 +452,22 @@ export const ProjectListModal: React.FC = () => {
                     setTimeout(() => {
                         useConfigStore.getState().removeSavedProject(projectId);
                         // Also drop it from Recent Folders, which would otherwise
-                        // keep offering a dead path on the welcome screen.
+                        // keep offering a dead path on the welcome screen. Compared
+                        // by canonical key, not raw string: recents store mixed
+                        // separators (`C:/…/projects\name`) while this card's path
+                        // comes back all-backslash from `discover_projects`.
                         useConfigStore.getState().setRecentProjects(
-                            useConfigStore.getState().recentProjects.filter((p) => p.path !== project.path),
+                            useConfigStore.getState().recentProjects
+                                .filter((p) => !isSameProjectPath(p.path, project.path)),
                         );
+                        // Close any tab open on it too — it would otherwise sit
+                        // there pointing at a folder that no longer exists.
+                        const doomedTabs = useProjectTabStore.getState().openTabs
+                            .filter((t) => isSameProjectPath(t.projectPath, project.path))
+                            .map((t) => t.id);
+                        for (const tabId of doomedTabs) {
+                            useProjectTabStore.getState().removeTab(tabId);
+                        }
                         setRemovingId(null);
                         setReady();
                     }, 200);
@@ -701,7 +713,7 @@ export const ProjectListModal: React.FC = () => {
                         <span>No folders match “{search}”.</span>
                     </div>
                 ) : (
-                    <div className="pl-grid">
+                    <div className="pl-list">
                         {visibleProjects.map((project: SavedProject, i: number) => (
                             <ProjectCard
                                 key={project.id}
