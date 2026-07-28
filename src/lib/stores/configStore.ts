@@ -76,6 +76,30 @@ function normalizeLauncher(value: unknown): 'ltk' | 'celestial' | null {
   return value === 'celestial' ? 'celestial' : value === 'ltk' ? 'ltk' : null;
 }
 
+/**
+ * Repair recent-project paths written by older builds.
+ *
+ * Those joined a forward-slashed projects root to a `\`-separated folder name,
+ * saving mixed paths like `C:/Users/…/projects\my-mod`. The backend rejects
+ * that spelling ("Project file not found"), and it never string-matched the
+ * all-backslash paths from `discover_projects`, so deletes left the entry
+ * behind. Settling on one separator makes old entries open again and lets
+ * de-duplication work; also drops entries that collapse to the same project.
+ */
+function normalizeRecentPaths(recents: RecentProject[]): RecentProject[] {
+  const seen = new Set<string>();
+  const out: RecentProject[] = [];
+  for (const entry of recents) {
+    if (typeof entry?.path !== 'string') continue;
+    const path = entry.path.replace(/\\/g, '/').replace(/\/+$/, '');
+    const key = path.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(path === entry.path ? entry : { ...entry, path });
+  }
+  return out;
+}
+
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 const PERSIST_DEBOUNCE_MS = 50;
 
@@ -323,7 +347,7 @@ export const useConfigStore = create<ConfigState>()((set) => ({
         creatorTip: s.creatorTip,
         autoUpdateEnabled: s.autoUpdateEnabled,
         skippedUpdateVersion: s.skippedUpdateVersion,
-        recentProjects: (s.recentProjects ?? []) as RecentProject[],
+        recentProjects: normalizeRecentPaths((s.recentProjects ?? []) as RecentProject[]),
         savedProjects: (s.savedProjects ?? []) as SavedProject[],
         ltkManagerModPath: s.ltkManagerModPath,
         autoSyncToLauncher: s.autoSyncToLauncher,

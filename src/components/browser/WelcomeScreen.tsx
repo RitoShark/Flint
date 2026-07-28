@@ -5,7 +5,7 @@ import { formatRelativeTime } from '../../lib/util/utils';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { useFolderDrop } from '../../lib/folderDrop';
-import { openOrImportFolder, openProjectAt } from '../../lib/projectOpen';
+import { openOrImportFolder, openProjectAt, isSameProjectPath } from '../../lib/projectOpen';
 import type { RecentProject } from '../../lib/types';
 
 const ClockIcon: React.FC = () => (
@@ -112,7 +112,7 @@ export const WelcomeScreen: React.FC = () => {
     const handleRemoveRecent = (e: React.MouseEvent, projectPath: string) => {
         e.stopPropagation();
         useConfigStore.getState().setRecentProjects(
-            recentProjects.filter(p => p.path !== projectPath),
+            recentProjects.filter(p => !isSameProjectPath(p.path, projectPath)),
         );
     };
 

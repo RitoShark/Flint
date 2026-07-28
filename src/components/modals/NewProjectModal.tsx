@@ -5,6 +5,7 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 import { useShallow } from 'zustand/react/shallow';
 import { useModalStore, useNotificationStore, useAppMetadataStore, useProjectTabStore, useConfigStore, useNavigationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
+import { isSameProjectPath } from '../../lib/projectOpen';
 import * as datadragon from '../../lib/data/datadragon';
 import * as tftApi from '../../lib/data/tftApi';
 import { getChromaImageUrl } from '../../lib/data/datadragon';
@@ -960,7 +961,7 @@ export const NewProjectModal: React.FC = () => {
         const tabId = useProjectTabStore.getState().activeTabId;
         if (tabId) useProjectTabStore.getState().setFileTree(tabId, files);
 
-        const recent = recentProjects.filter(p => p.path !== projectDir);
+        const recent = recentProjects.filter(p => !isSameProjectPath(p.path, projectDir));
         recent.unshift({
             name: project.display_name || project.name,
             champion: championName,

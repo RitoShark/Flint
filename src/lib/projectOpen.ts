@@ -37,6 +37,28 @@ export function toProjectDir(path: string): string {
         : path;
 }
 
+/**
+ * Canonical key for comparing two project paths.
+ *
+ * The same project reaches us spelled several ways: `resolveProjectsDir`
+ * forward-slashes the configured root before joining a `\`-separated name
+ * (producing mixed `C:/Users/…/projects\my-mod`), while `discover_projects`
+ * returns all-backslash paths from Rust. A raw `===` between those two
+ * spellings is false, which is why a deleted project used to survive in
+ * Recent Folders. Windows paths are also case-insensitive, so fold case too.
+ */
+export function projectPathKey(path: string): string {
+    return toProjectDir(path)
+        .replace(/\\/g, '/')
+        .replace(/\/+$/, '')
+        .toLowerCase();
+}
+
+/** True when both paths point at the same project, whatever their spelling. */
+export function isSameProjectPath(a: string, b: string): boolean {
+    return projectPathKey(a) === projectPathKey(b);
+}
+
 /** Register an opened/imported project across tabs, saved list and recents. */
 function registerOpenedProject(project: Project, projectDir: string) {
     useProjectTabStore.getState().addTab(project, projectDir);
@@ -51,7 +73,8 @@ function registerOpenedProject(project: Project, projectDir: string) {
         lastOpened: new Date().toISOString(),
     });
 
-    const recents = useConfigStore.getState().recentProjects.filter((p) => p.path !== projectDir);
+    const recents = useConfigStore.getState().recentProjects
+        .filter((p) => !isSameProjectPath(p.path, projectDir));
     recents.unshift({
         name: project.display_name || project.name,
         champion: project.champion,
