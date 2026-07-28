@@ -5,6 +5,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Button, Input, Icon, Textarea, Checkbox, Spinner } from '../ui';
+import { FlintFlameMark } from '../ui/FlintFlameMark';
 import { ThemePresetGrid } from './settings/ThemeTab';
 import { SettingsRow } from './settings/SettingsRow';
 import { PathSettingItem } from './settings/PathSettingItem';
@@ -28,7 +29,7 @@ const STEPS: Step[] = [
 ];
 
 /** Default accent used before the user picks a theme. */
-const DEFAULT_ACCENT = '#EF4444';
+const DEFAULT_ACCENT = '#EF5B44';
 
 type DetectingState = boolean;
 
@@ -437,13 +438,7 @@ const SplashPane: React.FC<{ onStart: () => void }> = ({ onStart }) => {
         >
             <div className="fwiz-splash__logo" aria-hidden="true">
                 <span className="fwiz-splash__logo-glow" />
-                <svg width="118" height="118" viewBox="0 0 24 24" fill="currentColor">
-                    <path
-                        fillRule="evenodd"
-                        d="M12 2C8.5 6 8 10 8 12c0 3.5 1.5 6 4 8 2.5-2 4-4.5 4-8 0-2-.5-6-4-10zM12 5c-2 3-2.5 5.5-2.5 7 0 2 .8 3.5 2.5 5 1.7-1.5 2.5-3 2.5-5 0-1.5-.5-4-2.5-7z"
-                    />
-                    <path d="M12 8c-1 1.5-1.5 3-1.5 4 0 1.2.5 2.2 1.5 3 1-.8 1.5-1.8 1.5-3 0-1-.5-2.5-1.5-4z" />
-                </svg>
+                <FlintFlameMark size={118} />
                 <span className="fwiz-splash__logo-ring" />
                 <span className="fwiz-splash__logo-ring fwiz-splash__logo-ring--two" />
             </div>
@@ -502,13 +497,7 @@ const WizTitleBar: React.FC = () => {
             <div className="titlebar__left fwiz__titlebar-left" data-tauri-drag-region>
                 <div className="titlebar__logo fwiz__titlebar-logo" data-tauri-drag-region="false">
                     <span className="fwiz-mark" aria-hidden="true">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                            <path
-                                fillRule="evenodd"
-                                d="M12 2C8.5 6 8 10 8 12c0 3.5 1.5 6 4 8 2.5-2 4-4.5 4-8 0-2-.5-6-4-10zM12 5c-2 3-2.5 5.5-2.5 7 0 2 .8 3.5 2.5 5 1.7-1.5 2.5-3 2.5-5 0-1.5-.5-4-2.5-7z"
-                            />
-                            <path d="M12 8c-1 1.5-1.5 3-1.5 4 0 1.2.5 2.2 1.5 3 1-.8 1.5-1.8 1.5-3 0-1-.5-2.5-1.5-4z" />
-                        </svg>
+                        <FlintFlameMark size={22} />
                         <span className="fwiz-mark__halo" />
                     </span>
                     <span className="titlebar__app-name">Flint</span>

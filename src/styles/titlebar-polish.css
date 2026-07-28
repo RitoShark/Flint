@@ -69,8 +69,8 @@
     left: -2px;
     top: 50%;
     transform: translateY(-50%);
-    width: 26px;
-    height: 26px;
+    width: 30px;
+    height: 30px;
     border-radius: 50%;
     background: radial-gradient(circle,
         color-mix(in oklab, var(--accent-primary) 22%, transparent) 0%,
