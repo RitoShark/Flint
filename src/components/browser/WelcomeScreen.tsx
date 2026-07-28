@@ -36,6 +36,31 @@ export const WelcomeScreen: React.FC = () => {
     const [showAllRecent, setShowAllRecent] = useState(false);
     const dropZoneRef = useRef<HTMLDivElement>(null);
 
+    // Drop recents whose folder is gone. App.tsx also sweeps once ~3s after
+    // launch, but a project deleted while Flint is running would otherwise sit
+    // in the list until the next restart — so re-check whenever the list is
+    // actually shown. Reads the store directly instead of depending on
+    // `recentProjects`, which would re-run the effect on every prune.
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            const recent = useConfigStore.getState().recentProjects;
+            if (recent.length === 0) return;
+            try {
+                const validity = await api.projectsPathValid(recent.map((p) => p.path));
+                if (cancelled) return;
+                const valid = recent.filter((_, i) => validity[i]);
+                if (valid.length !== recent.length) {
+                    useConfigStore.getState().setRecentProjects(valid);
+                }
+            } catch (error) {
+                // Non-fatal: a failed check just leaves the list as-is.
+                console.debug('[Welcome] recent-project validity check failed:', error);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, []);
+
     // Drop a Flint project folder to open it, or an extracted WAD folder to
     // import it. The whole welcome surface is the target.
     const handleDroppedFolder = useCallback(async (path: string) => {
