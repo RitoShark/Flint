@@ -129,12 +129,15 @@ const WadExtractMainView: React.FC = () => {
 
     return (
         <div ref={containerRef} style={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden', position: 'relative' }}>
-            <WadBrowserPanel style={{ 
-                width: hasPreview ? `${splitPercent}%` : '100%', 
-                height: '100%', 
+            {/* The standalone viewer owns the whole window, so it navigates one
+                folder at a time behind a path bar rather than indenting. The
+                archive editor's narrow embedded pane keeps the tree. */}
+            <WadBrowserPanel mode="browse" style={{
+                width: hasPreview ? `${splitPercent}%` : '100%',
+                height: '100%',
                 minWidth: hasPreview ? '200px' : 'unset',
                 maxWidth: 'none',
-                borderRight: 'none' 
+                borderRight: 'none'
             }} />
             {hasPreview && (
                 <>

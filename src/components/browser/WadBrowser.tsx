@@ -102,8 +102,19 @@ function formatSize(bytes: number): string {
  * alongside its own session and must NOT follow the globally active one — that
  * is shared with the user's WAD viewer tabs, so without pinning, opening a WAD
  * elsewhere would swap this panel's contents out from under it.
+ *
+ * `mode` picks the navigation model:
+ *   - 'browse' walks ONE directory at a time behind a path bar, the way a file
+ *     manager does. The standalone WAD viewer uses this; it owns the full window,
+ *     so a deep archive is easier to move through than to indent.
+ *   - 'tree' keeps the expandable indented listing, which suits the archive
+ *     editor's narrow embedded pane where a path bar has nowhere to go.
  */
-export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties; sessionId?: string }> = ({ style, sessionId }) => {
+export const WadBrowserPanel: React.FC<{
+    style?: React.CSSProperties;
+    sessionId?: string;
+    mode?: 'browse' | 'tree';
+}> = ({ style, sessionId, mode = 'tree' }) => {
     const extractSessions = useWadExtractStore((s) => s.extractSessions);
     const activeExtractId = useWadExtractStore((s) => s.activeExtractId);
     const showToast = useNotificationStore((s) => s.showToast);
@@ -151,13 +162,16 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties; sessionId?
         loadTokenRef.current = {};
     }, [chunks]);
 
-    // Expanding a folder records it here; an effect below does the fetching, so
+    // In browse mode only the current directory is listed; in tree mode the root
+    // plus whatever the user has expanded. An effect below does the fetching, so
     // no listing is kicked off from inside a state updater.
+    const currentDir = session?.currentDir ?? '';
     const wantedDirs = useMemo(() => {
+        if (mode === 'browse') return [currentDir];
         const out = [''];
         for (const dir of expandedFolders) out.push(dir);
         return out;
-    }, [expandedFolders]);
+    }, [mode, currentDir, expandedFolders]);
 
     useEffect(() => {
         if (!mount) return;
@@ -186,6 +200,27 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties; sessionId?
             return next;
         });
     }, []);
+
+    // ── Browse-mode navigation ───────────────────────────────────────────────
+    const navigateTo = useCallback((dir: string) => {
+        if (!session) return;
+        useWadExtractStore.getState().setCurrentDir(session.id, dir);
+    }, [session?.id]);
+
+    const goHistory = useCallback((direction: 'back' | 'forward' | 'up') => {
+        if (!session) return;
+        useWadExtractStore.getState().navigateHistory(session.id, direction);
+    }, [session?.id]);
+
+    /** Each ancestor of the current directory, for the path bar. */
+    const crumbs = useMemo(() => {
+        if (!currentDir) return [];
+        const parts = currentDir.split('/');
+        return parts.map((name, i) => ({ name, path: parts.slice(0, i + 1).join('/') }));
+    }, [currentDir]);
+
+    const canGoBack = !!session && session.historyIndex > 0;
+    const canGoForward = !!session && session.historyIndex < session.history.length - 1;
 
     const unknownChunksCount = useMemo(() => {
         if (!session) return 0;
@@ -563,6 +598,74 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties; sessionId?
         );
     };
 
+    // Browse-mode row: one directory's contents, no indentation. A folder opens
+    // on double-click (single click selects, matching a file manager); a file
+    // previews on click.
+    const renderBrowseRow = (node: WadTreeNode): React.ReactNode => {
+        if (node.type === 'folder') {
+            const childHashes = chunkHashesUnder(session.chunks, node.fullPath);
+            const allSelected = childHashes.length > 0 && childHashes.every(h => session.selectedHashes.has(h));
+            const someSelected = !allSelected && childHashes.some(h => session.selectedHashes.has(h));
+            return (
+                <div
+                    key={node.fullPath}
+                    className="wadb-row wadb-row--folder"
+                    onDoubleClick={() => navigateTo(node.fullPath)}
+                    onContextMenu={(e) => handleFolderContextMenu(e, node)}
+                    title={`${node.name} — double-click to open`}
+                >
+                    <span
+                        className="wadb-row__check"
+                        dangerouslySetInnerHTML={{ __html: checkboxSvg(allSelected ? 'all' : someSelected ? 'some' : 'none') }}
+                        onClick={(e) => { e.stopPropagation(); handleToggleFolderSelection(node); }}
+                    />
+                    <span className="wadb-row__icon" dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
+                    <span className="wadb-row__name">{node.name}</span>
+                    <span className="wadb-row__meta">
+                        {childHashes.length.toLocaleString()} item{childHashes.length === 1 ? '' : 's'}
+                    </span>
+                </div>
+            );
+        }
+        const chunk = node.chunk;
+        const isSelected = session.selectedHashes.has(chunk.hash);
+        const isPreviewing = session.previewHash === chunk.hash;
+        return (
+            <div
+                key={chunk.hash}
+                className={`wadb-row${isPreviewing ? ' wadb-row--active' : ''}`}
+                onClick={() => onPreview(chunk.hash)}
+                onContextMenu={(e) => handleContextMenu(e, chunk)}
+                title={chunk.path ?? chunk.hash}
+            >
+                <span
+                    className="wadb-row__check"
+                    dangerouslySetInnerHTML={{ __html: checkboxSvg(isSelected ? 'all' : 'none') }}
+                    onClick={(e) => { e.stopPropagation(); onToggleChunk(chunk.hash); }}
+                />
+                <span className="wadb-row__icon" dangerouslySetInnerHTML={{ __html: getFileIcon(node.name, false) }} />
+                {renamingHash === chunk.hash ? (
+                    <input
+                        className="dl-input wadb-row__rename"
+                        autoFocus
+                        defaultValue={chunk.path ?? ''}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleRenameCommit(chunk, (e.target as HTMLInputElement).value);
+                            else if (e.key === 'Escape') setRenamingHash(null);
+                        }}
+                        onBlur={(e) => handleRenameCommit(chunk, e.target.value)}
+                    />
+                ) : (
+                    <span className="wadb-row__name">{node.name}</span>
+                )}
+                <span className="wadb-row__meta">{formatSize(chunk.size)}</span>
+            </div>
+        );
+    };
+
+    const browseRows = dirs.get(currentDir);
+
     return (
         <div className="left-panel" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', ...style }}>
             {/* One compact header: filter, then the archive's own affordances.
@@ -600,6 +703,48 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties; sessionId?
                     </span>
                 )}
             </div>
+
+            {/* Path bar: history controls plus a clickable breadcrumb. Browse
+                mode only — the tree shows its position by indentation. */}
+            {mode === 'browse' && !isSearching && (
+                <div className="wadb-pathbar">
+                    <button
+                        className="wadb-nav" onClick={() => goHistory('back')}
+                        disabled={!canGoBack} title="Back"
+                        dangerouslySetInnerHTML={{ __html: getIcon('chevronLeft') }}
+                    />
+                    <button
+                        className="wadb-nav" onClick={() => goHistory('forward')}
+                        disabled={!canGoForward} title="Forward"
+                        dangerouslySetInnerHTML={{ __html: getIcon('chevronRight') }}
+                    />
+                    <button
+                        className="wadb-nav" onClick={() => goHistory('up')}
+                        disabled={!currentDir} title="Up one level"
+                        dangerouslySetInnerHTML={{ __html: getIcon('chevronUp') }}
+                    />
+                    <div className="wadb-crumbs">
+                        <button
+                            className={`wadb-crumb${currentDir ? '' : ' wadb-crumb--current'}`}
+                            onClick={() => navigateTo('')}
+                            title={session.wadName}
+                        >
+                            {session.wadName}
+                        </button>
+                        {crumbs.map((c, i) => (
+                            <React.Fragment key={c.path}>
+                                <span className="wadb-crumb__sep">/</span>
+                                <button
+                                    className={`wadb-crumb${i === crumbs.length - 1 ? ' wadb-crumb--current' : ''}`}
+                                    onClick={() => navigateTo(c.path)}
+                                >
+                                    {c.name}
+                                </button>
+                            </React.Fragment>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             <div className="file-tree" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
                 {session.loading ? (
@@ -657,17 +802,20 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties; sessionId?
                             );
                         })
                     )
+                ) : mode === 'browse' ? (
+                    browseRows === undefined ? (
+                        // Still listing — distinct from a folder that came back
+                        // empty, which would otherwise flash "empty" on entry.
+                        <div className="wadb-empty">Reading contents…</div>
+                    ) : browseRows.length === 0 ? (
+                        <div className="wadb-empty">{currentDir ? 'This folder is empty.' : 'This archive is empty.'}</div>
+                    ) : (
+                        browseRows.map(renderBrowseRow)
+                    )
                 ) : !dirs.has('') ? (
-                    // The root listing is still in flight — distinct from a root
-                    // that came back empty, which would otherwise flash "empty"
-                    // every time an archive opens.
-                    <div style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '12px' }}>
-                        Reading contents…
-                    </div>
+                    <div className="wadb-empty">Reading contents…</div>
                 ) : nodes.length === 0 ? (
-                    <div style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '12px' }}>
-                        This archive is empty.
-                    </div>
+                    <div className="wadb-empty">This archive is empty.</div>
                 ) : (
                     nodes.map(node => renderNode(node, 0))
                 )}

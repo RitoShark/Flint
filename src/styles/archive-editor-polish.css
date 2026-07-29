@@ -227,6 +227,156 @@
 .wadb-chip span { display: inline-flex; align-items: center; }
 .wadb-chip svg { display: block; width: 12px; height: 12px; }
 
+/* --------------------------------------------------------------------------
+   Path bar — browse mode
+
+   History controls plus a clickable breadcrumb, so the current location is
+   readable at a glance and every ancestor is one click away. The tree shows
+   position by indentation and has none of this.
+   -------------------------------------------------------------------------- */
+.wadb-pathbar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 10px;
+    flex-shrink: 0;
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 50%, transparent);
+    background: color-mix(in oklab, var(--bg-secondary) 40%, transparent);
+}
+
+.wadb-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    flex-shrink: 0;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background .14s ease;
+}
+.wadb-nav svg { display: block; width: 15px; height: 15px; }
+.wadb-nav:hover:not(:disabled) { background: color-mix(in oklab, white 8%, transparent); }
+.wadb-nav:disabled { opacity: .3; cursor: default; }
+
+/* Scrolls horizontally when the path is deeper than the bar is wide, rather
+   than wrapping the bar to a second line. */
+.wadb-crumbs {
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    flex: 1;
+    min-width: 0;
+    margin-left: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    white-space: nowrap;
+}
+.wadb-crumbs::-webkit-scrollbar { display: none; }
+
+.wadb-crumb {
+    flex-shrink: 0;
+    padding: 3px 7px;
+    border: none;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background .14s ease, color .14s ease;
+}
+.wadb-crumb:hover {
+    background: color-mix(in oklab, white 8%, transparent);
+    color: var(--text-primary);
+}
+.wadb-crumb--current {
+    color: var(--text-primary);
+    font-weight: 600;
+    cursor: default;
+}
+.wadb-crumb--current:hover { background: transparent; }
+.wadb-crumb__sep { flex-shrink: 0; color: var(--text-muted); opacity: .5; font-size: 11px; }
+
+/* --------------------------------------------------------------------------
+   Browse rows — one directory's contents, flat
+   -------------------------------------------------------------------------- */
+.wadb-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 0 12px;
+    height: 30px;
+    cursor: pointer;
+    font-size: 12.5px;
+    color: var(--text-primary);
+    isolation: isolate;
+    user-select: none;
+}
+.wadb-row::before {
+    content: '';
+    position: absolute;
+    inset: 0 6px;
+    border-radius: 6px;
+    background: color-mix(in oklab, white 7%, transparent);
+    opacity: 0;
+    transition: opacity .12s ease;
+    z-index: -1;
+}
+.wadb-row:hover::before { opacity: 1; }
+.wadb-row--active::before {
+    opacity: 1;
+    background: color-mix(in oklab, var(--accent-primary) 18%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent-primary) 34%, transparent);
+}
+
+/* Glyphs are centered by their box, never nudged into place. */
+.wadb-row__check,
+.wadb-row__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.wadb-row__check { width: 15px; height: 15px; cursor: pointer; }
+.wadb-row__icon { width: 17px; height: 17px; }
+.wadb-row__icon svg { display: block; width: 16px; height: 16px; }
+.wadb-row--folder .wadb-row__icon { color: var(--accent-primary); }
+
+.wadb-row__name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.wadb-row--folder .wadb-row__name { font-weight: 500; }
+
+.wadb-row__meta {
+    flex-shrink: 0;
+    font-size: 10.5px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.wadb-row__rename {
+    flex: 1;
+    min-width: 0;
+    height: 22px;
+    font-size: 12px;
+}
+
+.wadb-empty {
+    padding: 18px 16px;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
 .wadb-chip--readonly {
     cursor: help;
     color: var(--error, #e5534b);

@@ -164,6 +164,41 @@ describe('wadExtractStore WAD mounts', () => {
         expect(after.caps.write).toBe(true);
     });
 
+    it('walks into a folder and back out through history', () => {
+        const store = useWadExtractStore.getState();
+        store.openSession('user-1', 'C:/wads/kayn.wad.client');
+        store.setChunks('user-1', chunks);
+        const s = () => useWadExtractStore.getState().extractSessions[0];
+
+        store.setCurrentDir('user-1', 'data');
+        store.setCurrentDir('user-1', 'data/characters');
+        expect(s().currentDir).toBe('data/characters');
+
+        store.navigateHistory('user-1', 'back');
+        expect(s().currentDir).toBe('data');
+
+        store.navigateHistory('user-1', 'forward');
+        expect(s().currentDir).toBe('data/characters');
+
+        store.navigateHistory('user-1', 'up');
+        expect(s().currentDir).toBe('data');
+        store.navigateHistory('user-1', 'up');
+        expect(s().currentDir).toBe('');
+    });
+
+    it('treats the unresolved-hash folder as a root-level folder', () => {
+        const store = useWadExtractStore.getState();
+        store.openSession('user-1', 'C:/wads/kayn.wad.client');
+        store.setChunks('user-1', chunks);
+        const s = () => useWadExtractStore.getState().extractSessions[0];
+
+        // It has no '/' in its name, so "up" must land back at the root rather
+        // than leaving currentDir pointing at a folder that does not exist.
+        store.setCurrentDir('user-1', '[Unknown Hashes]');
+        store.navigateHistory('user-1', 'up');
+        expect(s().currentDir).toBe('');
+    });
+
     it('leaves a modpkg mount alone instead of replacing it with a WAD mount', () => {
         const store = useWadExtractStore.getState();
         store.openSession('archive-modpkg-1', 'C:/mods/kayn.modpkg', undefined, {
