@@ -1,11 +1,11 @@
 [workspace]
-members = [".", "crates/flint-core", "crates/flint-formats", "crates/flint-hash", "crates/flint-net", "crates/flint-bin", "crates/flint-wad", "crates/ltk_inibin", "crates/hematite-flint"]
+members = [".", "crates/flint-core", "crates/flint-formats", "crates/flint-hash", "crates/flint-net", "crates/flint-bin", "crates/flint-wad", "crates/hematite-flint"]
 
 # Single source of truth for deps shared across the workspace crates. Before
 # this, bumping `ritoshark` meant editing seven manifests and silently getting
 # two incompatible copies of `rs_file` if you missed one.
 [workspace.dependencies]
-ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "8a4f03f", features = ["rman-verify"] }
+ritoshark = { git = "https://github.com/RitoShark/RitoShark-Crates", rev = "49d637a", features = ["rman-verify"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tracing = "0.1"
@@ -19,6 +19,7 @@ walkdir = "2.4"
 name = "flint"
 version = "2.5.0"
 edition = "2021"
+license = "AGPL-3.0-only"
 default-run = "flint"
 
 [lib]
@@ -36,7 +37,6 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 # Core library (all format/domain deps live here)
 flint-core = { path = "crates/flint-core" }
-ltk_inibin = { path = "crates/ltk_inibin", features = ["serde"] }
 # Skin-fixer engine (wraps Hematite's hematite-orchestrate). Its hematite deps
 # pin rs_* at their own rev. Cargo unifies them with ritoshark below into ONE
 # copy of rs_* — verified in Cargo.lock, which holds a single rs_file entry.

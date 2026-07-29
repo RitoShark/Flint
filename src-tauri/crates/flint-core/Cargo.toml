@@ -47,8 +47,6 @@ ritoshark.workspace = true
 ltk_mod_project = "0.2"
 ltk_fantome = "0.2"
 ltk_modpkg = { version = "0.2", features = ["project"] }
-# Not a league-toolkit crate — vendored in-house at ../ltk_inibin.
-ltk_inibin = { path = "../ltk_inibin", features = ["serde"] }
 flint-formats = { path = "../flint-formats" }
 flint-hash = { path = "../flint-hash" }
 flint-net = { path = "../flint-net" }

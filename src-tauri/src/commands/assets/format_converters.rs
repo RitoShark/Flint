@@ -74,7 +74,8 @@ pub async fn read_wad_troybin(
     flint_core::troybin::convert_troybin(&data)
 }
 
-/// Read and convert an inibin chunk from a WAD file to JSON
+/// Read an inibin chunk from a WAD file as INI-style text, the same form the
+/// editor shows — the preview pane renders it as text, like `read_wad_troybin`.
 #[tauri::command]
 pub async fn read_wad_inibin(
     wad_path: String,
@@ -93,18 +94,18 @@ pub async fn read_wad_inibin(
         .load_chunk_decompressed(&chunk)
         .map_err(|e| format!("Failed to decompress chunk {:016x}: {}", path_hash, e))?;
 
-    let file = ltk_inibin::from_slice(&data)
+    let file = ritoshark::troybin::Inibin::from_slice(&data)
         .map_err(|e| format!("Failed to parse inibin: {}", e))?;
 
-    serde_json::to_string_pretty(&file)
-        .map_err(|e| format!("Failed to serialize inibin to JSON: {}", e))
+    Ok(flint_core::inibin_text::inibin_to_text(&file))
 }
 
 /// Read a `.inibin`/`.cfgbin` and return INI-style editable text as raw UTF-8 bytes.
 #[tauri::command]
 pub async fn read_inibin_text(path: String) -> Result<tauri::ipc::Response, String> {
     let data = std::fs::read(&path).map_err(|e| format!("Failed to read {path}: {e}"))?;
-    let file = ltk_inibin::from_slice(&data).map_err(|e| format!("Failed to parse inibin: {e}"))?;
+    let file = ritoshark::troybin::Inibin::from_slice(&data)
+        .map_err(|e| format!("Failed to parse inibin: {e}"))?;
     let text = flint_core::inibin_text::inibin_to_text(&file);
     Ok(tauri::ipc::Response::new(text.into_bytes()))
 }
@@ -112,12 +113,12 @@ pub async fn read_inibin_text(path: String) -> Result<tauri::ipc::Response, Stri
 /// Parse INI-style text and write it back to a `.inibin` (v2 binary).
 #[tauri::command]
 pub async fn save_inibin_text(path: String, content: String) -> Result<(), String> {
+    use ritoshark::io::Serialize;
     let file = flint_core::inibin_text::text_to_inibin(&content)?;
-    if file.version() == 1 {
+    if file.version == 1 {
         return Err("Legacy v1 inibin files are read-only".into());
     }
-    let mut out = Vec::new();
-    ltk_inibin::write(&mut out, &file).map_err(|e| format!("Failed to write inibin: {e}"))?;
+    let out = file.to_bytes().map_err(|e| format!("Failed to write inibin: {e}"))?;
     std::fs::write(&path, &out).map_err(|e| format!("Failed to write {path}: {e}"))?;
     Ok(())
 }

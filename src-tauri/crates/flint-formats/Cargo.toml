@@ -11,4 +11,3 @@ serde_json.workspace = true
 tracing.workspace = true
 
 ritoshark.workspace = true
-ltk_inibin = { path = "../ltk_inibin", features = ["serde"] }
