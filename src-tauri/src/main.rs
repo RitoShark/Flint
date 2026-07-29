@@ -438,6 +438,13 @@ fn main() {
             commands::modpkg_edit::open_modpkg_session,
             commands::modpkg_edit::save_modpkg_session,
             commands::modpkg_edit::close_modpkg_session,
+            commands::modpkg_edit::list_modpkg_chunks,
+            commands::modpkg_edit::read_modpkg_chunk,
+            commands::modpkg_edit::write_modpkg_chunk,
+            commands::modpkg_edit::remove_modpkg_chunk,
+            commands::modpkg_edit::rename_modpkg_chunk,
+            commands::modpkg_edit::modpkg_dirty_chunks,
+            commands::modpkg_edit::discard_modpkg_changes,
             // Fantome/ModPkg archive editor commands
             commands::archive_edit::open_archive_session,
             commands::archive_edit::write_archive_meta,
