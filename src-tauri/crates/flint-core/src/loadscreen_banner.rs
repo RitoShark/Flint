@@ -444,6 +444,39 @@ pub fn apply_banner_to_bin(
     })
 }
 
+/// Undo [`apply_banner_to_bin`] in place: drop the loadscreen material link from
+/// the `SkinCharacterDataProperties` entry and remove the `StaticMaterialDef`
+/// entry it pointed at.
+///
+/// Returns `true` when the BIN actually changed. Safe to call on a BIN that
+/// never had a banner — it simply reports `false`.
+pub fn remove_banner_from_bin(bin: &mut Bin) -> bool {
+    let Some(skin_idx) = find_skin_entry_index(bin) else {
+        return false;
+    };
+
+    // Take the link first: it names the material entry to delete.
+    let material_hash = match bin.entries[skin_idx]
+        .fields
+        .shift_remove(&LOADSCREEN_MATERIAL_FIELD)
+    {
+        Some(BinValue::Link(h)) => Some(h),
+        // A non-link value under that key is still ours to clear, but there is
+        // no entry to chase.
+        Some(_) => None,
+        None => return false,
+    };
+
+    let Some(hash) = material_hash else {
+        return true;
+    };
+
+    let material_class = fnv1a_32("StaticMaterialDef");
+    bin.entries
+        .retain(|e| !(e.path_hash == hash && e.class_hash == material_class));
+    true
+}
+
 /// Derive the mask `.tex` BIN asset path from the loadscreen image asset path:
 /// insert `-mask` before the extension. `foo/bar.tex` → `foo/bar-mask.tex`.
 pub fn mask_path_from_loadscreen(loadscreen_asset_path: &str) -> String {
@@ -573,6 +606,73 @@ mod tests {
             ls_idx + 1,
             "material link must be inserted right after loadScreen"
         );
+    }
+
+    #[test]
+    fn remove_restores_the_bin_to_its_pre_apply_state() {
+        let original = skin_bin_with_loadscreen("ASSETS/X/p/load.tex");
+        let mut bin = original.clone();
+        let name = material_name("Test", "Proj");
+        let mask = mask_path_from_loadscreen("ASSETS/X/p/load.tex");
+
+        apply_banner_to_bin(&mut bin, &name, &mask, &BannerParams::default()).unwrap();
+        assert!(banner_status(&bin).applied);
+        assert_eq!(bin.entries.len(), 2);
+
+        assert!(remove_banner_from_bin(&mut bin));
+
+        // Cancelling has to leave the skin exactly as it was found — the
+        // material entry gone, the link field gone, everything else untouched.
+        assert!(!banner_status(&bin).applied);
+        assert_eq!(bin.entries.len(), original.entries.len());
+        let skin = bin
+            .entries
+            .iter()
+            .find(|e| e.class_hash == skin_character_class_hash())
+            .unwrap();
+        let before = original
+            .entries
+            .iter()
+            .find(|e| e.class_hash == skin_character_class_hash())
+            .unwrap();
+        assert!(skin.fields.get(&LOADSCREEN_MATERIAL_FIELD).is_none());
+        assert_eq!(
+            skin.fields.keys().collect::<Vec<_>>(),
+            before.fields.keys().collect::<Vec<_>>(),
+            "field order must survive an apply/remove round-trip"
+        );
+    }
+
+    #[test]
+    fn remove_is_a_no_op_when_no_banner_is_applied() {
+        let mut bin = skin_bin_with_loadscreen("ASSETS/X/p/load.tex");
+        assert!(!remove_banner_from_bin(&mut bin));
+        assert_eq!(bin.entries.len(), 1);
+    }
+
+    #[test]
+    fn remove_keeps_unrelated_entries() {
+        let mut bin = skin_bin_with_loadscreen("ASSETS/X/p/load.tex");
+        // An unrelated StaticMaterialDef must survive — only the banner's own
+        // material (matched by path hash) may be dropped.
+        let other = BinEntry {
+            path_hash: fnv1a_32("Some/Other/Material"),
+            class_hash: fnv1a_32("StaticMaterialDef"),
+            fields: Default::default(),
+        };
+        bin.entries.push(other);
+
+        let name = material_name("Test", "Proj");
+        let mask = mask_path_from_loadscreen("ASSETS/X/p/load.tex");
+        apply_banner_to_bin(&mut bin, &name, &mask, &BannerParams::default()).unwrap();
+        assert_eq!(bin.entries.len(), 3);
+
+        assert!(remove_banner_from_bin(&mut bin));
+        assert_eq!(bin.entries.len(), 2);
+        assert!(bin
+            .entries
+            .iter()
+            .any(|e| e.path_hash == fnv1a_32("Some/Other/Material")));
     }
 
     #[test]

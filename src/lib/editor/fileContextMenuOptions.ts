@@ -95,14 +95,24 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                                         showToast('error', 'This project has no loadscreen image to build a banner on.');
                                         return;
                                     }
-                                    const open = () => openModal('loadscreenBanner', { projectPath });
                                     if (info.applied) {
-                                        open();
+                                        // Already on the skin — just edit the mask;
+                                        // cancelling must not strip an existing banner.
+                                        openModal('loadscreenBanner', { projectPath });
                                         return;
                                     }
+                                    // Applying writes the BIN + mask up front so the
+                                    // editor has something to paint on. Tell the modal,
+                                    // so Cancel there rolls this back instead of
+                                    // leaving the banner applied.
+                                    const maskExistedBefore = info.mask_exists;
                                     await api.applyLoadscreenBanner(projectPath);
                                     await refreshFileTree();
-                                    open();
+                                    openModal('loadscreenBanner', {
+                                        projectPath,
+                                        appliedForThisSession: true,
+                                        maskExistedBefore,
+                                    });
                                 } catch (e) {
                                     const fe = e as api.FlintError;
                                     showToast('error', fe.getUserMessage?.() || (e instanceof Error ? e.message : 'Failed to add loadscreen banner'));

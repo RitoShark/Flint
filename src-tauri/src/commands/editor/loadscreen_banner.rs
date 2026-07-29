@@ -204,6 +204,44 @@ pub async fn apply_loadscreen_banner(
     })
 }
 
+/// Undo an `apply_loadscreen_banner` that the user backed out of.
+///
+/// Applying writes to disk immediately (BIN + mask) so the editor has something
+/// to paint on, which means cancelling has to actively put the project back —
+/// there is nothing to simply "not do". Strips the material link and entry from
+/// the BIN, invalidates the `.ritobin` cache so the editor re-reads the reverted
+/// file, and deletes the generated mask.
+///
+/// `delete_mask` should be false when the mask already existed before this apply,
+/// so a cancel never destroys artwork the user painted earlier.
+#[tauri::command]
+pub async fn revert_loadscreen_banner(
+    project_path: String,
+    delete_mask: Option<bool>,
+) -> Result<(), String> {
+    let mut r = resolve(&project_path)?;
+
+    if banner::remove_banner_from_bin(&mut r.bin) {
+        let bytes =
+            flint_core::bin::write_bin(&r.bin).map_err(|e| format!("Failed to write BIN: {e}"))?;
+        write_atomic(&r.main_bin, &bytes)?;
+
+        let ritobin_cache = {
+            let mut p = r.main_bin.clone().into_os_string();
+            p.push(".ritobin");
+            std::path::PathBuf::from(p)
+        };
+        let _ = std::fs::remove_file(&ritobin_cache);
+    }
+
+    if delete_mask.unwrap_or(true) && r.mask_disk.exists() {
+        std::fs::remove_file(&r.mask_disk)
+            .map_err(|e| format!("Failed to remove generated mask: {e}"))?;
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn save_banner_mask(
     request: tauri::ipc::Request<'_>,

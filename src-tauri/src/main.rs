@@ -452,6 +452,7 @@ fn main() {
             // Animated loadscreen banner
             commands::loadscreen_banner::get_loadscreen_banner_info,
             commands::loadscreen_banner::apply_loadscreen_banner,
+            commands::loadscreen_banner::revert_loadscreen_banner,
             commands::loadscreen_banner::save_banner_mask,
             // Skin fixer (Hematite integration)
             commands::skin_fixer::hematite_list_fixes,
