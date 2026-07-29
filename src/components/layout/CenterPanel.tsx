@@ -5,6 +5,7 @@ import { PreviewPanel } from '../editor/PreviewPanel';
 import { CheckpointTimeline } from '../editor/CheckpointTimeline';
 import { WadPreviewPanel } from '../editor/WadPreviewPanel';
 import { WadBrowserPanel } from '../browser/WadBrowser';
+import { WadFolderGrid } from '../browser/WadFolderGrid';
 import { FileEditorPage } from '../editor/FileEditorPage';
 import { ArchiveEditor } from '../editor/ArchiveEditor';
 import { getIcon, icons } from '../../lib/ui-helpers/fileIcons';
@@ -76,7 +77,9 @@ const WadExtractMainView: React.FC = () => {
     const activeExtractId = useWadExtractStore((s) => s.activeExtractId);
     const session = extractSessions.find(s => s.id === activeExtractId);
 
-    const [splitPercent, setSplitPercent] = useState(60);
+    // The tree is a navigator, not the main surface — the grid/preview beside it
+    // is what the user reads, so it starts narrow. Draggable from here either way.
+    const [splitPercent, setSplitPercent] = useState(28);
     const containerRef = useRef<HTMLDivElement>(null);
     const isDraggingRef = useRef(false);
 
@@ -127,35 +130,41 @@ const WadExtractMainView: React.FC = () => {
 
     const hasPreview = !!session.previewHash;
 
+    // The tree keeps a fixed share and the right side always holds something:
+    // the preview once a file is picked, otherwise the folder grid. It used to
+    // stretch the tree across the whole window and leave the rest blank.
     return (
         <div ref={containerRef} style={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden', position: 'relative' }}>
-            {/* The standalone viewer owns the whole window, so it navigates one
-                folder at a time behind a path bar rather than indenting. The
-                archive editor's narrow embedded pane keeps the tree. */}
-            <WadBrowserPanel mode="browse" style={{
-                width: hasPreview ? `${splitPercent}%` : '100%',
+            <WadBrowserPanel withGrid style={{
+                width: `${splitPercent}%`,
                 height: '100%',
-                minWidth: hasPreview ? '200px' : 'unset',
+                minWidth: '200px',
                 maxWidth: 'none',
                 borderRight: 'none'
             }} />
-            {hasPreview && (
-                <>
-                    <div 
-                        className="panel-resizer" 
-                        onMouseDown={handleMouseDown}
-                        style={{ 
-                            width: '4px', 
-                            cursor: 'col-resize', 
-                            flexShrink: 0
-                        }} 
-                    />
-                    <WadPreviewPanel style={{ 
-                        width: `${100 - splitPercent}%`, 
-                        height: '100%', 
-                        minWidth: '380px' 
-                    }} />
-                </>
+            <div
+                className="panel-resizer"
+                onMouseDown={handleMouseDown}
+                style={{ width: '4px', cursor: 'col-resize', flexShrink: 0 }}
+            />
+            {hasPreview ? (
+                <WadPreviewPanel style={{
+                    width: `${100 - splitPercent}%`,
+                    height: '100%',
+                    minWidth: '380px'
+                }} />
+            ) : (
+                <div style={{ width: `${100 - splitPercent}%`, height: '100%', minWidth: '380px', overflow: 'hidden' }}>
+                    {session.mount && (
+                        <WadFolderGrid
+                            mount={session.mount}
+                            dir={session.currentDir}
+                            archiveLabel={session.wadName}
+                            onOpenFolder={(path) => useWadExtractStore.getState().setCurrentDir(session.id, path)}
+                            onPreviewFile={(entry) => useWadExtractStore.getState().setPreview(session.id, entry.key)}
+                        />
+                    )}
+                </div>
             )}
         </div>
     );

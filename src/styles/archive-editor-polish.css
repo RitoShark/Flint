@@ -228,154 +228,136 @@
 .wadb-chip svg { display: block; width: 12px; height: 12px; }
 
 /* --------------------------------------------------------------------------
-   Path bar — browse mode
+   WAD folder grid
 
-   History controls plus a clickable breadcrumb, so the current location is
-   readable at a glance and every ancestor is one click away. The tree shows
-   position by indentation and has none of this.
+   The card grid that fills the viewer's right-hand side when no file is
+   previewed — the same surface the project screen shows for a selected folder,
+   sourced from a VFS mount.
    -------------------------------------------------------------------------- */
-.wadb-pathbar {
+.wgrid {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+.wgrid__bar {
     display: flex;
     align-items: center;
-    gap: 2px;
-    padding: 6px 10px;
+    gap: 10px;
+    padding: 8px 12px;
     flex-shrink: 0;
-    border-bottom: 1px solid color-mix(in oklab, var(--border) 50%, transparent);
+    font-size: 12px;
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 55%, transparent);
     background: color-mix(in oklab, var(--bg-secondary) 40%, transparent);
 }
 
-.wadb-nav {
-    display: flex;
+.wgrid__up {
+    display: inline-flex;
     align-items: center;
-    justify-content: center;
-    width: 26px;
+    gap: 6px;
+    flex-shrink: 0;
+    max-width: 220px;
     height: 26px;
-    flex-shrink: 0;
-    padding: 0;
-    border: none;
-    border-radius: 6px;
-    background: transparent;
+    padding: 0 10px 0 7px;
+    border-radius: 7px;
+    border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+    background: color-mix(in oklab, var(--bg-primary) 60%, transparent);
     color: var(--text-primary);
-    cursor: pointer;
-    transition: background .14s ease;
-}
-.wadb-nav svg { display: block; width: 15px; height: 15px; }
-.wadb-nav:hover:not(:disabled) { background: color-mix(in oklab, white 8%, transparent); }
-.wadb-nav:disabled { opacity: .3; cursor: default; }
-
-/* Scrolls horizontally when the path is deeper than the bar is wide, rather
-   than wrapping the bar to a second line. */
-.wadb-crumbs {
-    display: flex;
-    align-items: center;
-    gap: 1px;
-    flex: 1;
-    min-width: 0;
-    margin-left: 6px;
-    overflow-x: auto;
-    scrollbar-width: none;
-    white-space: nowrap;
-}
-.wadb-crumbs::-webkit-scrollbar { display: none; }
-
-.wadb-crumb {
-    flex-shrink: 0;
-    padding: 3px 7px;
-    border: none;
-    border-radius: 5px;
-    background: transparent;
-    color: var(--text-muted);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
-    transition: background .14s ease, color .14s ease;
+    transition: background .14s ease, border-color .14s ease;
 }
-.wadb-crumb:hover {
+.wgrid__up:hover {
     background: color-mix(in oklab, white 8%, transparent);
-    color: var(--text-primary);
+    border-color: color-mix(in oklab, var(--accent-primary) 40%, transparent);
 }
-.wadb-crumb--current {
-    color: var(--text-primary);
-    font-weight: 600;
-    cursor: default;
-}
-.wadb-crumb--current:hover { background: transparent; }
-.wadb-crumb__sep { flex-shrink: 0; color: var(--text-muted); opacity: .5; font-size: 11px; }
+.wgrid__up-icon { display: flex; align-items: center; justify-content: center; }
+.wgrid__up-icon svg { display: block; width: 14px; height: 14px; }
+.wgrid__up-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* --------------------------------------------------------------------------
-   Browse rows — one directory's contents, flat
-   -------------------------------------------------------------------------- */
-.wadb-row {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    padding: 0 12px;
-    height: 30px;
-    cursor: pointer;
-    font-size: 12.5px;
-    color: var(--text-primary);
-    isolation: isolate;
-    user-select: none;
-}
-.wadb-row::before {
-    content: '';
-    position: absolute;
-    inset: 0 6px;
-    border-radius: 6px;
-    background: color-mix(in oklab, white 7%, transparent);
-    opacity: 0;
-    transition: opacity .12s ease;
-    z-index: -1;
-}
-.wadb-row:hover::before { opacity: 1; }
-.wadb-row--active::before {
-    opacity: 1;
-    background: color-mix(in oklab, var(--accent-primary) 18%, transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent-primary) 34%, transparent);
-}
-
-/* Glyphs are centered by their box, never nudged into place. */
-.wadb-row__check,
-.wadb-row__icon {
+.wgrid__root {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
+    gap: 6px;
     flex-shrink: 0;
+    color: var(--text-muted);
 }
-.wadb-row__check { width: 15px; height: 15px; cursor: pointer; }
-.wadb-row__icon { width: 17px; height: 17px; }
-.wadb-row__icon svg { display: block; width: 16px; height: 16px; }
-.wadb-row--folder .wadb-row__icon { color: var(--accent-primary); }
+.wgrid__root-icon { display: flex; align-items: center; justify-content: center; }
+.wgrid__root-icon svg { display: block; width: 14px; height: 14px; }
 
-.wadb-row__name {
+.wgrid__path {
     flex: 1;
     min-width: 0;
+    color: var(--text-muted);
+    font-family: var(--font-mono), Consolas, monospace;
+    font-size: 11.5px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.wadb-row--folder .wadb-row__name { font-weight: 500; }
 
-.wadb-row__meta {
-    flex-shrink: 0;
-    font-size: 10.5px;
-    color: var(--text-muted);
-    font-variant-numeric: tabular-nums;
+.wgrid__count,
+.wgrid__zoom { flex-shrink: 0; color: var(--text-muted); }
+.wgrid__zoom { font-size: 11px; }
+
+.wgrid__body { flex: 1; overflow: auto; padding: 14px; }
+.wgrid__error { padding: 12px; color: var(--danger, #e5534b); font-size: 12px; }
+.wgrid__empty { padding: 28px; text-align: center; color: var(--text-muted); font-size: 12px; }
+
+.wgrid__cards { display: grid; gap: 12px; }
+
+.wgrid-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+    padding: 9px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in oklab, var(--border) 65%, transparent);
+    background: color-mix(in oklab, var(--bg-secondary) 65%, transparent);
+    color: var(--text-primary);
+    text-align: center;
+    overflow: hidden;
+    cursor: pointer;
+    font-family: inherit;
+    transition: border-color .14s ease, background .14s ease, transform .14s ease;
+}
+.wgrid-card:hover {
+    background: color-mix(in oklab, var(--bg-secondary) 85%, transparent);
+    border-color: color-mix(in oklab, var(--accent-primary) 45%, transparent);
+    transform: translateY(-2px);
 }
 
-.wadb-row__rename {
-    flex: 1;
-    min-width: 0;
-    height: 22px;
-    font-size: 12px;
+.wgrid-card__art {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 7px;
+    background: var(--bg-tertiary, rgba(0, 0, 0, .2));
+    overflow: hidden;
 }
+.wgrid-card__art img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    /* Game textures are small and read better crisp than smoothed. */
+    image-rendering: pixelated;
+}
+.wgrid-card__icon { display: flex; align-items: center; justify-content: center; }
+.wgrid-card__icon svg { display: block; }
 
-.wadb-empty {
-    padding: 18px 16px;
-    color: var(--text-muted);
-    font-size: 12px;
+.wgrid-card__name {
+    width: 100%;
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
+.wgrid-card__meta { font-size: 10px; color: var(--text-muted); }
 
 .wadb-chip--readonly {
     cursor: help;
