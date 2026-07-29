@@ -57,21 +57,26 @@ function buildWadTree(chunks: WadChunk[]): WadTreeNode[] {
     // WadChunk the rest of this panel acts on.
     const byHash = new Map(chunks.map((c) => [c.hash, c]));
 
-    const toNodes = (dir: string): WadTreeNode[] =>
-        index.list(dir).map((entry) =>
-            entry.isDirectory
-                ? {
-                    type: 'folder' as const,
+    const toNodes = (dir: string): WadTreeNode[] => {
+        const out: WadTreeNode[] = [];
+        for (const entry of index.list(dir)) {
+            if (entry.isDirectory) {
+                out.push({
+                    type: 'folder',
                     name: entry.name,
                     fullPath: entry.path,
                     children: toNodes(entry.path),
-                }
-                : {
-                    type: 'file' as const,
-                    name: entry.name,
-                    chunk: byHash.get(entry.key)!,
-                },
-        );
+                });
+                continue;
+            }
+            // Every entry key came from a chunk hash above, so a miss would mean
+            // duplicate hashes collapsed the lookup. Skip rather than render a
+            // row with no chunk behind it, which would crash on click.
+            const chunk = byHash.get(entry.key);
+            if (chunk) out.push({ type: 'file', name: entry.name, chunk });
+        }
+        return out;
+    };
 
     return toNodes('');
 }
