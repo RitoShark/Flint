@@ -49,14 +49,23 @@ interface WadMountBacking {
     add?(path: string, bytes: Uint8Array): Promise<void>;
 }
 
+/**
+ * A WAD mount re-indexes in place when its chunk set changes (a staged rename,
+ * delete or a re-resolve after unhashing), so the session keeps ONE mount for
+ * its lifetime instead of callers rebuilding one per edit.
+ */
+export interface WadMount extends Vfs {
+    reindex(next: readonly ChunkLike[]): void;
+}
+
 function makeMount(
     chunks: readonly ChunkLike[],
     backing: WadMountBacking,
     caps = READ_ONLY,
-): Vfs {
+): WadMount {
     let index = new PathIndex(toRecords(chunks));
 
-    const mount: Vfs = {
+    const mount: WadMount = {
         id: backing.id,
         label: backing.label,
         caps,
@@ -68,6 +77,9 @@ function makeMount(
             return index.filter(makeMatcher(query));
         },
         read: (entry) => backing.readBytes(entry),
+        reindex(next) {
+            index = new PathIndex(toRecords(next));
+        },
     };
 
     // Only expose the mutating methods a mount actually supports, so a caller
@@ -77,16 +89,11 @@ function makeMount(
     if (caps.remove && backing.remove) mount.remove = backing.remove;
     if (caps.add && backing.add) mount.add = backing.add;
 
-    /** Re-index after a mutation changes the chunk set. */
-    (mount as Vfs & { reindex(next: readonly ChunkLike[]): void }).reindex = (next) => {
-        index = new PathIndex(toRecords(next));
-    };
-
     return mount;
 }
 
 /** A `.wad.client` on disk, read-only. */
-export function mountWad(wadPath: string, chunks: readonly ChunkLike[]): Vfs {
+export function mountWad(wadPath: string, chunks: readonly ChunkLike[]): WadMount {
     return makeMount(chunks, {
         id: `wad:${wadPath}`,
         label: wadPath.split(/[\\/]/).pop() ?? wadPath,
@@ -99,7 +106,7 @@ export function mountWad(wadPath: string, chunks: readonly ChunkLike[]): Vfs {
  * on save, which is why every mutation here is a session command rather than a
  * file write.
  */
-export function mountWadSession(sessionId: string, label: string, chunks: readonly ChunkLike[]): Vfs {
+export function mountWadSession(sessionId: string, label: string, chunks: readonly ChunkLike[]): WadMount {
     return makeMount(
         chunks,
         {
@@ -125,7 +132,7 @@ export function mountCdnWad(
     wadFileIndex: number,
     label: string,
     chunks: readonly ChunkLike[],
-): Vfs {
+): WadMount {
     return makeMount(chunks, {
         id: `cdn:${sessionId}:${wadFileIndex}`,
         label,

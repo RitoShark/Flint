@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { ExtractSession, WadChunk } from '../types';
 import type { Vfs } from '../vfs/types';
+import { mountWad, mountWadSession, type WadMount } from '../vfs/wadMount';
 import { useConfigStore } from './configStore';
 import * as api from '../api';
 
@@ -30,6 +31,16 @@ interface WadExtractState {
   setSessionDirty: (sessionId: string, isDirty: boolean) => void;
   /** Attach the VFS mount a non-WAD archive (e.g. a modpkg) reads and writes through. */
   setSessionMount: (sessionId: string, mount: Vfs) => void;
+}
+
+/**
+ * Point a mount at a new chunk set. WAD mounts index their chunks up front and
+ * expose `reindex`; a modpkg mount reloads from its own session instead, so it
+ * has none and is left alone.
+ */
+function reindexMount(mount: Vfs, chunks: readonly { hash: string; path: string | null; size?: number }[]): void {
+  const reindex = (mount as Partial<WadMount>).reindex;
+  if (typeof reindex === 'function') reindex.call(mount, chunks);
 }
 
 export const useWadExtractStore = create<WadExtractState>((set, get) => ({
@@ -110,9 +121,18 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
     if (!readOnly && !editSessionId && !opts?.mountBacked) {
       api.openWadEditSession(wadPath).then((res) => {
         set((state) => ({
-          extractSessions: state.extractSessions.map((s) =>
-            s.id === id ? { ...s, editSessionId: res.session_id } : s
-          ),
+          extractSessions: state.extractSessions.map((s) => {
+            if (s.id !== id) return s;
+            // The edit session arrives after the chunks usually have, so any
+            // mount built in the meantime is the read-only on-disk one. Rebuild
+            // it against the session now that writes are possible — otherwise
+            // the browser would report the WAD as uneditable.
+            return {
+              ...s,
+              editSessionId: res.session_id,
+              mount: mountWadSession(res.session_id, s.wadName, s.chunks),
+            };
+          }),
         }));
         console.log(`[WAD Edit] Opened edit session ${res.session_id} for WAD:`, wadPath);
       }).catch((err) => {
@@ -159,9 +179,20 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
 
   setChunks: (sessionId, chunks) => {
     set((state) => ({
-      extractSessions: state.extractSessions.map(s =>
-        s.id === sessionId ? { ...s, chunks, loading: false } : s
-      ),
+      extractSessions: state.extractSessions.map(s => {
+        if (s.id !== sessionId) return s;
+        // Every WAD session reads and writes through a mount, so the browser and
+        // preview panels go through one interface for WADs, packages and CDN
+        // archives alike. A session that already carries a mount (a modpkg) keeps
+        // it — its chunks are keyed by path, not hash.
+        const mount = s.mount ?? (s.editSessionId
+          ? mountWadSession(s.editSessionId, s.wadName, chunks)
+          : mountWad(s.wadPath, chunks));
+        // A mount indexes the chunk list at construction, so re-index in place
+        // rather than rebuilding it on every staged edit.
+        reindexMount(mount, chunks);
+        return { ...s, chunks, loading: false, mount };
+      }),
     }));
   },
 

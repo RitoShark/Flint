@@ -1,10 +1,10 @@
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import { useAppMetadataStore, useModalStore, useNotificationStore, useWadExtractStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getIcon, getFileIcon } from '../../lib/ui-helpers/fileIcons';
 import { checkboxSvg } from './wad-explorer/helpers';
-import { PathIndex } from '../../lib/vfs/pathIndex';
+import { UNKNOWN_DIR, type Vfs } from '../../lib/vfs/types';
 import type { WadChunk } from '../../lib/types';
 
 // =============================================================================
@@ -15,7 +15,6 @@ interface WadTreeFolder {
     type: 'folder';
     name: string;
     fullPath: string;
-    children: WadTreeNode[];
 }
 
 interface WadTreeFile {
@@ -30,55 +29,62 @@ type WadTreeNode = WadTreeFolder | WadTreeFile;
 // Tree Construction and Navigation Helpers
 // =============================================================================
 
-function getAllChunkHashes(nodes: WadTreeNode[]): string[] {
-    const hashes: string[] = [];
-    for (const node of nodes) {
-        if (node.type === 'file') {
-            hashes.push(node.chunk.hash);
-        } else {
-            hashes.push(...getAllChunkHashes(node.children));
-        }
+/**
+ * Every chunk at or below a folder.
+ *
+ * Derived from the flat chunk list by path prefix rather than by walking tree
+ * nodes: folders load lazily now, so an unexpanded folder has no children to
+ * walk, and "select this folder" must still cover what it contains.
+ */
+function chunkHashesUnder(chunks: WadChunk[], folderPath: string): string[] {
+    if (folderPath === UNKNOWN_DIR) {
+        return chunks.filter(c => !c.path).map(c => c.hash);
     }
-    return hashes;
+    const prefix = `${folderPath}/`;
+    return chunks.filter(c => c.path?.startsWith(prefix)).map(c => c.hash);
 }
 
 /**
- * Group chunks into the folder tree this panel renders.
+ * Look chunks up by whatever key the mount addresses them with.
  *
- * The layout (folders first, then files, each alphabetical; pathless chunks
- * collected under one synthetic folder) comes from `PathIndex`, so this and the
- * other browser surfaces agree instead of each having their own arrangement.
+ * A WAD keys by chunk hash and a package by path, so the lookup has to follow
+ * `keyedBy` — using the wrong one silently finds a different file rather than
+ * failing (see the note on `Vfs.keyedBy`).
  */
-function buildWadTree(chunks: WadChunk[]): WadTreeNode[] {
-    const index = new PathIndex(
-        chunks.map((c) => ({ path: c.path, key: c.hash, size: c.size })),
-    );
-    // Chunk lookup by the key PathIndex carries, so file nodes keep the real
-    // WadChunk the rest of this panel acts on.
-    const byHash = new Map(chunks.map((c) => [c.hash, c]));
+function chunkLookup(chunks: WadChunk[], keyedBy: 'hash' | 'path'): Map<string, WadChunk> {
+    const out = new Map<string, WadChunk>();
+    for (const c of chunks) {
+        const key = keyedBy === 'path' ? (c.path ?? c.hash) : c.hash;
+        if (!out.has(key)) out.set(key, c);
+    }
+    return out;
+}
 
-    const toNodes = (dir: string): WadTreeNode[] => {
-        const out: WadTreeNode[] = [];
-        for (const entry of index.list(dir)) {
-            if (entry.isDirectory) {
-                out.push({
-                    type: 'folder',
-                    name: entry.name,
-                    fullPath: entry.path,
-                    children: toNodes(entry.path),
-                });
-                continue;
-            }
-            // Every entry key came from a chunk hash above, so a miss would mean
-            // duplicate hashes collapsed the lookup. Skip rather than render a
-            // row with no chunk behind it, which would crash on click.
-            const chunk = byHash.get(entry.key);
-            if (chunk) out.push({ type: 'file', name: entry.name, chunk });
+/**
+ * One level of the mount, as rows this panel can render.
+ *
+ * Deliberately NOT recursive: `Vfs.list` answers a single directory, and folders
+ * fill in only once expanded. Building the whole tree up front is what made a
+ * 40k-chunk WAD slow to open.
+ */
+async function listLevel(
+    mount: Vfs,
+    dir: string,
+    byKey: Map<string, WadChunk>,
+): Promise<WadTreeNode[]> {
+    const out: WadTreeNode[] = [];
+    for (const entry of await mount.list(dir)) {
+        if (entry.isDirectory) {
+            out.push({ type: 'folder', name: entry.name, fullPath: entry.path });
+            continue;
         }
-        return out;
-    };
-
-    return toNodes('');
+        // Every key came from a chunk, so a miss means two chunks collapsed onto
+        // one key. Skip rather than render a row with no chunk behind it, which
+        // would crash on click.
+        const chunk = byKey.get(entry.key);
+        if (chunk) out.push({ type: 'file', name: entry.name, chunk });
+    }
+    return out;
 }
 
 function formatSize(bytes: number): string {
@@ -115,14 +121,71 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties; sessionId?
     // Inline expand/collapse tree state (mirrors WadExplorer's look): the set of
     // expanded folder paths. Local — search mode bypasses it entirely.
     const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+    // Directory listings fetched from the mount, keyed by directory path ('' is
+    // the root). Populated on expand, so an unopened folder costs nothing.
+    const [dirs, setDirs] = useState<Map<string, WadTreeNode[]>>(new Map());
+
+    const mount = session?.mount;
+    // Chunk rows come back from the mount keyed the way that mount addresses
+    // them; a WAD by hash, a package by path.
+    const byKey = useMemo(
+        () => (session && mount ? chunkLookup(session.chunks, mount.keyedBy) : new Map<string, WadChunk>()),
+        [session?.chunks, mount],
+    );
+
+    // A changed chunk set (staged edit, unhash re-resolve, different session)
+    // invalidates every cached listing.
+    useEffect(() => {
+        setDirs(new Map());
+        setExpandedFolders(new Set());
+    }, [mount, session?.chunks]);
+
+    // Identifies the chunk set a listing was requested against. Several folders
+    // can be loading at once, so a stale result is one whose mount/chunks have
+    // since been replaced — not merely one that started earlier.
+    const loadTokenRef = useRef<object>({});
+    useEffect(() => {
+        loadTokenRef.current = {};
+    }, [mount, session?.chunks]);
+
+    const loadDir = useCallback((dir: string) => {
+        if (!mount) return;
+        const token = loadTokenRef.current;
+        listLevel(mount, dir, byKey)
+            .then((nodes) => {
+                // The chunk set changed while this was in flight; its listing
+                // describes a tree that no longer exists.
+                if (token !== loadTokenRef.current) return;
+                setDirs((prev) => {
+                    const next = new Map(prev);
+                    next.set(dir, nodes);
+                    return next;
+                });
+            })
+            .catch((e) => {
+                console.error('[WadBrowser] Failed to list directory', dir, e);
+            });
+    }, [mount, byKey]);
+
+    // Root level, whenever the mount or its chunk set changes.
+    useEffect(() => {
+        if (mount) loadDir('');
+    }, [mount, loadDir]);
 
     const toggleFolder = useCallback((fullPath: string) => {
         setExpandedFolders((prev) => {
             const next = new Set(prev);
-            if (next.has(fullPath)) next.delete(fullPath); else next.add(fullPath);
+            if (next.has(fullPath)) {
+                next.delete(fullPath);
+            } else {
+                next.add(fullPath);
+                // Fetch the level the first time it is opened; afterwards the
+                // cached listing is reused until the chunk set changes.
+                if (!dirs.has(fullPath)) loadDir(fullPath);
+            }
             return next;
         });
-    }, []);
+    }, [dirs, loadDir]);
 
     const unknownChunksCount = useMemo(() => {
         if (!session) return 0;
@@ -210,23 +273,34 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties; sessionId?
         }
     }, [session, showToast]);
 
-    const nodes = useMemo(() => {
-        if (!session) return [];
-        return buildWadTree(session.chunks);
-    }, [session?.chunks]);
+    const nodes = dirs.get('') ?? [];
 
-    const filteredChunks = useMemo(() => {
-        if (!session) return [];
-        const q = session.searchQuery.toLowerCase().trim();
-        const results = [];
-        for (const c of session.chunks) {
-            if ((c.path?.toLowerCase().includes(q)) || (!c.path && c.hash.toLowerCase().includes(q))) {
-                results.push(c);
-                if (results.length >= 500) break;
-            }
+    // Search runs through the mount so its matching rules (a bare '.' stays
+    // literal, a real metacharacter engages regex) are the same ones every
+    // other browser surface uses, instead of a second substring test here.
+    const [filteredChunks, setFilteredChunks] = useState<WadChunk[]>([]);
+    const query = session?.searchQuery ?? '';
+    useEffect(() => {
+        if (!mount || !query.trim()) {
+            setFilteredChunks([]);
+            return;
         }
-        return results;
-    }, [session?.chunks, session?.searchQuery]);
+        const token = loadTokenRef.current;
+        let cancelled = false;
+        mount.search(query)
+            .then((entries) => {
+                if (cancelled || token !== loadTokenRef.current) return;
+                const out: WadChunk[] = [];
+                for (const e of entries) {
+                    const chunk = byKey.get(e.key);
+                    if (chunk) out.push(chunk);
+                    if (out.length >= 500) break;
+                }
+                setFilteredChunks(out);
+            })
+            .catch((e) => console.error('[WadBrowser] Search failed:', e));
+        return () => { cancelled = true; };
+    }, [mount, query, byKey]);
 
     const onPreview = useCallback((hash: string) => {
         if (!session) return;
@@ -240,8 +314,8 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties; sessionId?
 
     const handleToggleFolderSelection = useCallback((node: WadTreeFolder) => {
         if (!session) return;
-        const hashes = getAllChunkHashes([node]);
-        const allSelected = hashes.every(h => session.selectedHashes.has(h));
+        const hashes = chunkHashesUnder(session.chunks, node.fullPath);
+        const allSelected = hashes.length > 0 && hashes.every(h => session.selectedHashes.has(h));
         
         for (const hash of hashes) {
             const isCurrentlySelected = session.selectedHashes.has(hash);
@@ -365,7 +439,7 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties; sessionId?
                         const dest = await open({ title: 'Choose Extraction Folder', directory: true });
                         if (!dest) return;
                         setStatus('working', 'Extracting...');
-                        const hashes = getAllChunkHashes([node]);
+                        const hashes = chunkHashesUnder(session.chunks, node.fullPath);
                         const res = await api.extractWad(session.wadPath, dest as string, hashes);
                         showToast('success', `Extracted ${res.extracted} files`);
                     } catch {
@@ -413,10 +487,13 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties; sessionId?
         const indent = 8 + depth * 14;
         if (node.type === 'folder') {
             const isExpanded = expandedFolders.has(node.fullPath);
-            const childHashes = getAllChunkHashes(node.children);
+            // From the chunk list, not the rendered children — a collapsed
+            // folder has not been listed yet but still has contents to reflect.
+            const childHashes = chunkHashesUnder(session.chunks, node.fullPath);
             const allSelected = childHashes.length > 0 && childHashes.every(h => session.selectedHashes.has(h));
             const someSelected = !allSelected && childHashes.some(h => session.selectedHashes.has(h));
             const folderState = allSelected ? 'all' : someSelected ? 'some' : 'none';
+            const children = dirs.get(node.fullPath);
             return (
                 <div key={node.fullPath}>
                     <div
@@ -435,7 +512,13 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties; sessionId?
                         <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getIcon(isExpanded ? 'folderOpen' : 'folder') }} />
                         <span className="file-tree__name">{node.name}</span>
                     </div>
-                    {isExpanded && node.children.map(c => renderNode(c, depth + 1))}
+                    {isExpanded && (
+                        children === undefined
+                            // Listed on expand, so a deep folder shows feedback
+                            // instead of looking like it opened onto nothing.
+                            ? <div className="file-tree__item" style={{ paddingLeft: `${indent + 16}px`, color: 'var(--text-muted)', fontSize: '11px' }}>Loading…</div>
+                            : children.map(c => renderNode(c, depth + 1))
+                    )}
                 </div>
             );
         }
@@ -574,9 +657,16 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties; sessionId?
                             );
                         })
                     )
+                ) : !dirs.has('') ? (
+                    // The root listing is still in flight — distinct from a root
+                    // that came back empty, which would otherwise flash "empty"
+                    // every time an archive opens.
+                    <div style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '12px' }}>
+                        Reading contents…
+                    </div>
                 ) : nodes.length === 0 ? (
                     <div style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '12px' }}>
-                        WAD folder is empty.
+                        This archive is empty.
                     </div>
                 ) : (
                     nodes.map(node => renderNode(node, 0))

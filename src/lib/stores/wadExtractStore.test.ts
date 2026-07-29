@@ -71,3 +71,85 @@ describe('wadExtractStore embedded sessions', () => {
         expect(useWadExtractStore.getState().activeExtractId).toBe('user-2');
     });
 });
+
+/**
+ * Every WAD session reads through a VFS mount, so the browser and preview talk
+ * to one interface for WADs, packages and CDN archives alike.
+ */
+describe('wadExtractStore WAD mounts', () => {
+    beforeEach(() => {
+        useWadExtractStore.setState({ extractSessions: [], activeExtractId: null });
+    });
+
+    const chunks = [
+        { hash: 'aa', path: 'data/characters/kayn/skin0.bin', size: 10 },
+        { hash: 'bb', path: 'assets/textures/body.tex', size: 20 },
+        { hash: 'cc', path: null, size: 30 },
+    ];
+
+    it('attaches a hash-keyed mount when chunks arrive', async () => {
+        const store = useWadExtractStore.getState();
+        store.openSession('user-1', 'C:/wads/kayn.wad.client');
+        store.setChunks('user-1', chunks);
+
+        const mount = useWadExtractStore.getState().extractSessions[0].mount;
+        expect(mount).toBeDefined();
+        // A WAD addresses chunks by hash; keying by path would read the wrong
+        // file rather than fail.
+        expect(mount!.keyedBy).toBe('hash');
+
+        const root = await mount!.list('');
+        expect(root.map(e => e.name).sort()).toEqual(['[Unknown Hashes]', 'assets', 'data'].sort());
+    });
+
+    it('lists one level at a time rather than the whole tree', async () => {
+        const store = useWadExtractStore.getState();
+        store.openSession('user-1', 'C:/wads/kayn.wad.client');
+        store.setChunks('user-1', chunks);
+        const mount = useWadExtractStore.getState().extractSessions[0].mount!;
+
+        const data = await mount.list('data');
+        expect(data).toHaveLength(1);
+        expect(data[0]).toMatchObject({ name: 'characters', isDirectory: true });
+
+        const leaf = await mount.list('assets/textures');
+        expect(leaf).toHaveLength(1);
+        expect(leaf[0]).toMatchObject({ name: 'body.tex', isDirectory: false, key: 'bb' });
+    });
+
+    it('re-indexes the existing mount when the chunk set changes', async () => {
+        const store = useWadExtractStore.getState();
+        store.openSession('user-1', 'C:/wads/kayn.wad.client');
+        store.setChunks('user-1', chunks);
+        const first = useWadExtractStore.getState().extractSessions[0].mount!;
+
+        // A staged delete re-publishes a smaller chunk list.
+        store.setChunks('user-1', chunks.filter(c => c.hash !== 'bb'));
+        const second = useWadExtractStore.getState().extractSessions[0].mount!;
+
+        // Same mount object, updated contents — not a fresh mount per edit.
+        expect(second).toBe(first);
+        const root = await second.list('');
+        expect(root.map(e => e.name)).not.toContain('assets');
+    });
+
+    it('leaves a modpkg mount alone instead of replacing it with a WAD mount', () => {
+        const store = useWadExtractStore.getState();
+        store.openSession('archive-modpkg-1', 'C:/mods/kayn.modpkg', undefined, {
+            mountBacked: true,
+            embedded: true,
+        });
+        const pkgMount = {
+            id: 'modpkg:1', label: 'kayn.modpkg',
+            caps: { write: true, rename: true, remove: true, add: true },
+            keyedBy: 'path' as const,
+            list: async () => [], search: async () => [], read: async () => new Uint8Array(),
+        };
+        store.setSessionMount('archive-modpkg-1', pkgMount);
+        store.setChunks('archive-modpkg-1', [{ hash: 'x/y.bin', path: 'x/y.bin', size: 1 }]);
+
+        const mount = useWadExtractStore.getState().extractSessions[0].mount;
+        expect(mount).toBe(pkgMount);
+        expect(mount!.keyedBy).toBe('path');
+    });
+});
