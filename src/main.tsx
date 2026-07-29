@@ -27,6 +27,7 @@ import './styles/wad-explorer-polish.css';
 import './styles/cheat-sheet-polish.css';
 import './styles/shortcut-cheatsheet.css';
 import './styles/browse-wad-polish.css';
+import './styles/archive-editor-polish.css';
 import './styles/titlebar-polish.css';
 import './styles/skin-fixer.css';
 import './styles/tutorial-polish.css';

@@ -198,6 +198,12 @@ export interface ExtractSession {
      * through the mount instead of `*_session_chunk`.
      */
     mount?: import('./vfs/types').Vfs;
+    /**
+     * Owned by another surface (the archive editor) rather than by the user.
+     * Embedded sessions are rendered inside that surface, so they must not
+     * appear in the tab strip or take over the globally active session.
+     */
+    embedded?: boolean;
 }
 
 /** A WAD file discovered while scanning a game installation */

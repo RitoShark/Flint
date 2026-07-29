@@ -542,7 +542,10 @@ export const TitleBar: React.FC = () => {
         }
     }, [openConfirmDialog]);
 
-    const hasTabs = openTabs.length > 0 || extractSessions.length > 0 || manifestList.length > 0 || openArchiveTabs.length > 0 || isWadExplorerOpen || fileEditorTabs.length > 0;
+    // Sessions the archive editor opened for its own panes are not tabs.
+    const userExtractSessions = useMemo(() => extractSessions.filter(s => !s.embedded), [extractSessions]);
+
+    const hasTabs = openTabs.length > 0 || userExtractSessions.length > 0 || manifestList.length > 0 || openArchiveTabs.length > 0 || isWadExplorerOpen || fileEditorTabs.length > 0;
 
     return (
         <div className="titlebar" data-tauri-drag-region>
@@ -629,7 +632,7 @@ export const TitleBar: React.FC = () => {
                                 onClose={(e) => handleCloseTab(e, tab.id)}
                             />
                         ))}
-                        {extractSessions.map(session => (
+                        {userExtractSessions.map(session => (
                             <ExtractTab
                                 key={session.id}
                                 session={session}

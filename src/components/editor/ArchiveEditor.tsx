@@ -72,6 +72,10 @@ export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
     // unchanged rather than re-reading the file.
     const modpkgMetaRef = useRef<api.ModpkgMetadataInput | null>(null);
     const [modpkgChunkCount, setModpkgChunkCount] = useState(0);
+    // The extract-store session the embedded browser/preview panes render. Held
+    // explicitly because those panes must not follow the global active session,
+    // which belongs to the user's own WAD tabs.
+    const [paneSessionId, setPaneSessionId] = useState<string | null>(null);
 
     // Open the archive session on mount; close + clean up on unmount.
     useEffect(() => {
@@ -126,10 +130,8 @@ export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
             // Seed (or re-activate) a wadExtractStore session pointing at the
             // already-open backend edit session for this inner WAD.
             const existing = useWadExtractStore.getState().extractSessions.find((s) => s.id === exId);
-            if (existing) {
-                useWadExtractStore.getState().switchSession(exId);
-            } else {
-                useWadExtractStore.getState().openSession(exId, info.source_path, info.session_id);
+            if (!existing) {
+                useWadExtractStore.getState().openSession(exId, info.source_path, info.session_id, { embedded: true });
                 seededSessionIdsRef.current.add(exId);
                 // Folder-backed WADs supply their REAL paths directly (no LMDB,
                 // no hashed `data/`). Packed WADs use the normal resolve path.
@@ -138,6 +140,7 @@ export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
                     : await api.getWadChunks(info.source_path);
                 useWadExtractStore.getState().setChunks(exId, chunks);
             }
+            setPaneSessionId(exId);
             openWad(name, info.session_id);
             setSelected({ wad: name });
         } catch (e) {
@@ -161,6 +164,13 @@ export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
      */
     const handleOpenModpkg = useCallback(async () => {
         if (!layout) return;
+        // Already open — just show it. Opening a second backend session would
+        // strand the first along with any edits staged in it.
+        if (modpkgSessionIdRef.current) {
+            setSelected('modpkg');
+            closeWad();
+            return;
+        }
         setBusy(true);
         try {
             const session = await api.openModpkgSession(layout.source_path);
@@ -177,9 +187,10 @@ export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
             const exId = `archive-modpkg-${session.session_id}`;
 
             const store = useWadExtractStore.getState();
-            store.openSession(exId, layout.source_path, undefined, { mountBacked: true });
+            store.openSession(exId, layout.source_path, undefined, { mountBacked: true, embedded: true });
             seededSessionIdsRef.current.add(exId);
             store.setSessionMount(exId, mount);
+            setPaneSessionId(exId);
 
             // The browser works in WadChunk shape; a modpkg is keyed by path, so
             // the hash column carries the path and stays a stable row identity.
@@ -241,31 +252,27 @@ export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
             className="dl-root archive-editor"
             style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', overflow: 'hidden' }}
         >
-            {/* Toolbar */}
-            <div
-                style={{
-                    display: 'flex', alignItems: 'center', gap: '12px',
-                    padding: '8px 14px', borderBottom: '1px solid var(--border)',
-                    flexShrink: 0,
-                }}
-            >
-                <span style={{ fontWeight: 600, fontSize: '13px' }}>{archiveName}</span>
-                <span className="dl-badge" style={{ textTransform: 'uppercase', fontSize: '10px' }}>{layout.kind}</span>
-                <div style={{ flex: 1 }} />
-                <button className="dl-btn dl-btn--primary dl-btn--sm" onClick={handleSave} disabled={busy}>
+            {/* Toolbar. Doubles as a window drag handle — it is the full-width
+                strip under the tab bar, so without it the window is only
+                draggable by the tabs themselves. */}
+            <div className="archive-toolbar" data-tauri-drag-region>
+                <span className="archive-toolbar__name" data-tauri-drag-region>{archiveName}</span>
+                <span className="archive-toolbar__kind">{layout.kind}</span>
+                <div style={{ flex: 1 }} data-tauri-drag-region />
+                <button
+                    className="dl-btn dl-btn--primary dl-btn--sm"
+                    onClick={handleSave}
+                    disabled={busy}
+                    data-tauri-drag-region="false"
+                >
                     {busy ? 'Saving…' : 'Save Archive'}
                 </button>
             </div>
 
             <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
                 {/* Left: container tree */}
-                <div
-                    style={{
-                        width: '240px', flexShrink: 0, borderRight: '1px solid var(--border)',
-                        overflowY: 'auto', padding: '8px', fontSize: '13px',
-                    }}
-                >
-                    <div style={{ color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase', padding: '4px 6px' }}>META</div>
+                <div className="archive-side">
+                    <div className="archive-side__group">Meta</div>
                     <TreeItem
                         label="info.json"
                         icon="bin"
@@ -274,7 +281,7 @@ export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
                     />
                     {layout.kind === 'fantome' && layout.wads.length > 0 && (
                         <>
-                            <div style={{ color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase', padding: '8px 6px 4px' }}>WAD</div>
+                            <div className="archive-side__group">WAD</div>
                             {layout.wads.map((w) => (
                                 <TreeItem
                                     key={w.name}
@@ -288,9 +295,9 @@ export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
                     )}
                     {layout.kind === 'modpkg' && (
                         <>
-                            <div style={{ color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase', padding: '8px 6px 4px' }}>CONTENT</div>
+                            <div className="archive-side__group">Content</div>
                             <TreeItem
-                                label={`${modpkgChunkCount} file${modpkgChunkCount === 1 ? '' : 's'}`}
+                                label={modpkgChunkCount > 0 ? `${modpkgChunkCount.toLocaleString()} file${modpkgChunkCount === 1 ? '' : 's'}` : 'Files'}
                                 icon="package"
                                 active={selected === 'modpkg'}
                                 onClick={handleOpenModpkg}
@@ -303,18 +310,18 @@ export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
                 <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
                     {selected === 'modpkg' ? (
                         <>
-                            <div style={{ padding: '4px 12px', fontSize: '11px', color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
+                            <div className="archive-note">
+                                <span className="archive-note__icon" dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
                                 Package contents — edits persist into the package only on “Save Archive”.
                             </div>
                             <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
-                                <WadBrowserPanel style={{ flex: 1, height: '100%', minWidth: 0, maxWidth: 'none', borderRight: '1px solid var(--border)' }} />
-                                <WadPreviewPanel style={{ width: '420px', height: '100%', minWidth: '380px' }} />
+                                <WadBrowserPanel sessionId={paneSessionId ?? undefined} style={{ flex: 1, height: '100%', minWidth: 0, maxWidth: 'none', borderRight: '1px solid var(--border)' }} />
+                                <WadPreviewPanel sessionId={paneSessionId ?? undefined} style={{ width: '420px', height: '100%', minWidth: '380px' }} />
                             </div>
                         </>
                     ) : selected === 'meta' || !openWadName ? (
                         <>
-                            <div style={{ padding: '4px 12px', fontSize: '11px', color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' }}>
+                            <div className="archive-note">
                                 Editing META/info.json — saved into the archive on “Save Archive”.
                             </div>
                             <div style={{ flex: 1, minHeight: 0 }}>
@@ -323,13 +330,13 @@ export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
                         </>
                     ) : (
                         <>
-                            <div style={{ padding: '4px 12px', fontSize: '11px', color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
+                            <div className="archive-note">
+                                <span className="archive-note__icon" dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
                                 {openWadName} — edits persist into the archive only on “Save Archive”.
                             </div>
                             <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
-                                <WadBrowserPanel style={{ flex: 1, height: '100%', minWidth: 0, maxWidth: 'none', borderRight: '1px solid var(--border)' }} />
-                                <WadPreviewPanel style={{ width: '420px', height: '100%', minWidth: '380px' }} />
+                                <WadBrowserPanel sessionId={paneSessionId ?? undefined} style={{ flex: 1, height: '100%', minWidth: 0, maxWidth: 'none', borderRight: '1px solid var(--border)' }} />
+                                <WadPreviewPanel sessionId={paneSessionId ?? undefined} style={{ width: '420px', height: '100%', minWidth: '380px' }} />
                             </div>
                         </>
                     )}
@@ -341,15 +348,11 @@ export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
 
 const TreeItem: React.FC<{ label: string; icon: string; active: boolean; onClick: () => void }> = ({ label, icon, active, onClick }) => (
     <div
+        className={`archive-item${active ? ' archive-item--active' : ''}`}
         onClick={onClick}
-        style={{
-            display: 'flex', alignItems: 'center', gap: '8px',
-            padding: '5px 8px', borderRadius: '4px', cursor: 'pointer',
-            background: active ? 'var(--accent-primary)' : 'transparent',
-            color: active ? '#fff' : 'var(--text-primary)',
-        }}
+        title={label}
     >
-        <span style={{ display: 'flex', width: '16px', height: '16px' }} dangerouslySetInnerHTML={{ __html: getIcon(icon as never) }} />
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+        <span className="archive-item__icon" dangerouslySetInnerHTML={{ __html: getIcon(icon as never) }} />
+        <span className="archive-item__label">{label}</span>
     </div>
 );

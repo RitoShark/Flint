@@ -337,7 +337,13 @@ const MonacoTextViewer: React.FC<{ text: string; language: string }> = ({ text, 
 // Main component
 // =============================================================================
 
-export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
+/**
+ * `sessionId` pins the panel to one session. The archive editor embeds this
+ * alongside its own session and must NOT follow the globally active one — that
+ * is shared with the user's WAD viewer tabs, so without pinning, opening a WAD
+ * elsewhere would swap this panel's contents out from under it.
+ */
+export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties; sessionId?: string }> = ({ style, sessionId }) => {
     const extractSessions = useWadExtractStore((s) => s.extractSessions);
     const activeExtractId = useWadExtractStore((s) => s.activeExtractId);
     const showToast = useNotificationStore((s) => s.showToast);
@@ -361,7 +367,8 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
     // generic "Extract File" empty state instead of erroring repeatedly.
     const [modelPrepFailed, setModelPrepFailed] = useState(false);
 
-    const session = extractSessions.find(s => s.id === activeExtractId);
+    const targetId = sessionId ?? activeExtractId;
+    const session = extractSessions.find(s => s.id === targetId);
     const chunk = session?.chunks.find(c => c.hash === session.previewHash) ?? null;
     // Editable through either route: a WAD edit session, or a writable mount for
     // an archive that is not a WAD (a modpkg).

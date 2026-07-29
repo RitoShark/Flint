@@ -91,12 +91,19 @@ function formatSize(bytes: number): string {
 // WadBrowserPanel — main export
 // =============================================================================
 
-export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
+/**
+ * `sessionId` pins the panel to one session. The archive editor embeds this
+ * alongside its own session and must NOT follow the globally active one — that
+ * is shared with the user's WAD viewer tabs, so without pinning, opening a WAD
+ * elsewhere would swap this panel's contents out from under it.
+ */
+export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties; sessionId?: string }> = ({ style, sessionId }) => {
     const extractSessions = useWadExtractStore((s) => s.extractSessions);
     const activeExtractId = useWadExtractStore((s) => s.activeExtractId);
     const showToast = useNotificationStore((s) => s.showToast);
     const setStatus = useAppMetadataStore((s) => s.setStatus);
-    const session = extractSessions.find(s => s.id === activeExtractId);
+    const targetId = sessionId ?? activeExtractId;
+    const session = extractSessions.find(s => s.id === targetId);
 
     const isSearching = !!session?.searchQuery?.trim();
 
@@ -475,70 +482,41 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
 
     return (
         <div className="left-panel" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', ...style }}>
-            <div className="left-panel__header" style={{ padding: '10px 12px', flexShrink: 0 }}>
-                <div className="file-tree__search" style={{ position: 'relative' }}>
-                    <span
-                        style={{ position: 'absolute', left: '6px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', opacity: 0.5 }}
-                        dangerouslySetInnerHTML={{ __html: getIcon('search') }}
-                    />
+            {/* One compact header: filter, then the archive's own affordances.
+                These used to be two stacked bands, which spent a whole row on a
+                filename the tab already shows. */}
+            <div className="wadb-header">
+                <div className="wadb-search">
+                    <span className="wadb-search__icon" dangerouslySetInnerHTML={{ __html: getIcon('search') }} />
                     <input
                         type="text"
-                        className="file-tree__search-input"
-                        placeholder="Filter files..."
+                        className="wadb-search__input"
+                        placeholder="Filter files…"
                         value={session.searchQuery}
                         onChange={onSearchChange}
-                        style={{ paddingLeft: '26px', width: '100%' }}
                     />
                 </div>
-            </div>
-
-            {(unknownChunksCount > 0 || session.readOnly) && (
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '6px 12px',
-                    background: 'var(--bg-secondary)',
-                    borderBottom: '1px solid color-mix(in oklab, var(--border) 60%, transparent)',
-                    flexShrink: 0
-                }}>
-                    <span style={{ flex: 1, fontSize: '11px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {session.wadName}
+                {unknownChunksCount > 0 && (
+                    <button
+                        className="wadb-chip"
+                        onClick={handleUnhashWad}
+                        disabled={isUnhashing}
+                        title={`Scan this archive's BIN/SKN files for asset paths to unhash ${unknownChunksCount} unresolved file${unknownChunksCount === 1 ? '' : 's'}`}
+                    >
+                        <span dangerouslySetInnerHTML={{ __html: getIcon('wrench') }} />
+                        <span>{isUnhashing ? 'Unhashing…' : `Unhash ${unknownChunksCount.toLocaleString()}`}</span>
+                    </button>
+                )}
+                {session.readOnly && (
+                    <span
+                        className="wadb-chip wadb-chip--readonly"
+                        title="This is a game WAD archive. It is read-only and cannot be modified."
+                    >
+                        <span dangerouslySetInnerHTML={{ __html: getIcon('warning') }} />
+                        <span>Read-only</span>
                     </span>
-                    {unknownChunksCount > 0 && (
-                        <button
-                            className="btn btn--sm"
-                            onClick={handleUnhashWad}
-                            disabled={isUnhashing}
-                            title={`Scan WAD's BIN/SKN files for asset paths to unhash ${unknownChunksCount} unresolved files`}
-                            style={{
-                                padding: '2px 6px',
-                                fontSize: '10px',
-                                height: '22px',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                                background: 'color-mix(in oklab, var(--accent-primary) 12%, transparent)',
-                                border: '1px solid color-mix(in oklab, var(--accent-primary) 35%, transparent)',
-                                color: 'var(--accent-primary)',
-                                cursor: 'pointer',
-                                borderRadius: '4px',
-                                flexShrink: 0
-                            }}
-                        >
-                            <span dangerouslySetInnerHTML={{ __html: getIcon('wrench') }} />
-                            <span>{isUnhashing ? 'Unhashing...' : 'Unhash'}</span>
-                        </button>
-                    )}
-                    {session.readOnly && (
-                        <span
-                            title="This is a game WAD archive. It is read-only and cannot be modified."
-                            style={{ display: 'inline-flex', color: 'var(--error)', cursor: 'help', width: '14px', height: '14px', flexShrink: 0 }}
-                            dangerouslySetInnerHTML={{ __html: getIcon('warning') }}
-                        />
-                    )}
-                </div>
-            )}
+                )}
+            </div>
 
             <div className="file-tree" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
                 {session.loading ? (
@@ -620,7 +598,7 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                 <span style={{ fontSize: '11px', color: 'var(--text-muted)', flex: 1 }}>
                     {totalChunks.toLocaleString()} files{selectedCount > 0 ? ` · ${selectedCount} selected` : ''}
                 </span>
-                {session.editSessionId && session.isDirty && !session.id.startsWith('archive-') && (
+                {session.editSessionId && session.isDirty && !session.embedded && (
                     <button
                         className="btn btn--primary btn--sm"
                         onClick={handleSaveWad}

@@ -8,8 +8,12 @@ interface WadExtractState {
   extractSessions: ExtractSession[];
   activeExtractId: string | null;
 
-  /** `mountBacked` marks a non-WAD archive: skip opening a WAD edit session for it. */
-  openSession: (id: string, wadPath: string, editSessionId?: string, opts?: { mountBacked?: boolean }) => void;
+  /**
+   * `mountBacked` marks a non-WAD archive: skip opening a WAD edit session for it.
+   * `embedded` marks a session owned by another surface (the archive editor):
+   * it is not a user-facing tab and must not steal the global active id.
+   */
+  openSession: (id: string, wadPath: string, editSessionId?: string, opts?: { mountBacked?: boolean; embedded?: boolean }) => void;
   closeSession: (sessionId: string) => { newActiveId: string | null; remainingSessions: ExtractSession[] };
   switchSession: (sessionId: string) => void;
   setChunks: (sessionId: string, chunks: WadChunk[]) => void;
@@ -91,10 +95,14 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
       // editor's inner WAD), seed it directly so chunk ops route to it and we
       // don't open a second redundant session below.
       editSessionId,
+      embedded: opts?.embedded,
     };
     set({
       extractSessions: [...get().extractSessions, newSession],
-      activeExtractId: id,
+      // An embedded session belongs to the surface that opened it; taking the
+      // global active id would blank that surface's sibling panels and add a
+      // phantom tab.
+      activeExtractId: opts?.embedded ? get().activeExtractId : id,
     });
 
     // `mountBacked` sessions are not WADs (a modpkg), so there is no WAD edit
@@ -120,11 +128,10 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
     let newActiveId = activeExtractId;
 
     if (activeExtractId === sessionId) {
-      if (newSessions.length > 0) {
-        newActiveId = newSessions[newSessions.length - 1].id;
-      } else {
-        newActiveId = null;
-      }
+      // Only a user-facing session can become the active tab; an embedded one
+      // lives inside another surface and has no tab to fall back to.
+      const userFacing = newSessions.filter(s => !s.embedded);
+      newActiveId = userFacing.length > 0 ? userFacing[userFacing.length - 1].id : null;
     }
 
     set({
