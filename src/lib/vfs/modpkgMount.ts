@@ -63,6 +63,7 @@ export async function mountModpkg(
         // Layers survive the rebuild, so a layered package is as editable as a
         // plain one.
         caps: { write: true, rename: true, remove: true, add: true },
+        keyedBy: 'path',
         async list(dir) {
             return index.list(normalizeDir(dir));
         },

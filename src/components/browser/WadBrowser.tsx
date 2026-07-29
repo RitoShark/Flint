@@ -206,10 +206,28 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
     const handleRenameCommit = useCallback(async (chunk: WadChunk, newPath: string) => {
         setRenamingHash(null);
         const trimmed = newPath.trim();
-        if (!session?.editSessionId || !trimmed || trimmed === chunk.path) return;
+        if (!session || !trimmed || trimmed === chunk.path) return;
+        // A mount handles archives that are not WADs; otherwise fall back to the
+        // WAD edit session.
+        const renamableMount = session.mount?.caps.rename ? session.mount : null;
+        if (!session.editSessionId && !renamableMount) return;
         try {
-            const newHash = await api.renameSessionChunk(session.editSessionId, chunk.hash, trimmed);
-            useWadExtractStore.getState().stageChunkRename(session.id, chunk.hash, newHash, trimmed);
+            if (renamableMount) {
+                const path = chunk.path ?? chunk.hash;
+                await renamableMount.rename!({
+                    path,
+                    name: path.split('/').pop() ?? path,
+                    isDirectory: false,
+                    size: chunk.size,
+                    key: renamableMount.keyedBy === 'path' ? path : chunk.hash,
+                }, trimmed);
+                // Path-keyed mounts re-key on the path itself.
+                const newKey = renamableMount.keyedBy === 'path' ? trimmed : chunk.hash;
+                useWadExtractStore.getState().stageChunkRename(session.id, chunk.hash, newKey, trimmed);
+            } else {
+                const newHash = await api.renameSessionChunk(session.editSessionId!, chunk.hash, trimmed);
+                useWadExtractStore.getState().stageChunkRename(session.id, chunk.hash, newHash, trimmed);
+            }
             showToast('success', 'Chunk renamed');
         } catch (e) {
             showToast('error', `Rename failed: ${(e as { message?: string })?.message ?? String(e)}`);
@@ -310,7 +328,7 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                     }
                 }
             },
-            ...(session.editSessionId ? [{
+            ...((session.editSessionId || session.mount?.caps.rename) ? [{
                 label: 'Rename / Move…',
                 icon: getIcon('wrench'),
                 onClick: () => setRenamingHash(chunk.hash),

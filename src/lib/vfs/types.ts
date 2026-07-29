@@ -61,6 +61,12 @@ export interface Vfs {
     /** Human label for the surface showing it. */
     readonly label: string;
     readonly caps: VfsCapabilities;
+    /**
+     * What `VfsEntry.key` holds for this mount. A WAD addresses chunks by hash,
+     * a modpkg by path — a caller building an entry by hand has to know which,
+     * because using the wrong one reads a different file instead of failing.
+     */
+    readonly keyedBy: 'hash' | 'path';
 
     /**
      * Entries directly under `dir` — one level only, NOT recursive. Pass `''`

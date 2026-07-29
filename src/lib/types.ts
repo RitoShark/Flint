@@ -191,6 +191,13 @@ export interface ExtractSession {
     historyIndex: number;
     editSessionId?: string;       // backend session ID, if opened
     isDirty?: boolean;            // true if there are unsaved memory edits in the WAD
+    /**
+     * Where this session's bytes come from. Present for archives that are not
+     * WADs — a modpkg addresses chunks by path rather than hash, so it cannot
+     * use the WAD session commands. When set, chunk reads/writes/removes go
+     * through the mount instead of `*_session_chunk`.
+     */
+    mount?: import('./vfs/types').Vfs;
 }
 
 /** A WAD file discovered while scanning a game installation */

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { ExtractSession, WadChunk } from '../types';
+import type { Vfs } from '../vfs/types';
 import { useConfigStore } from './configStore';
 import * as api from '../api';
 
@@ -7,7 +8,8 @@ interface WadExtractState {
   extractSessions: ExtractSession[];
   activeExtractId: string | null;
 
-  openSession: (id: string, wadPath: string, editSessionId?: string) => void;
+  /** `mountBacked` marks a non-WAD archive: skip opening a WAD edit session for it. */
+  openSession: (id: string, wadPath: string, editSessionId?: string, opts?: { mountBacked?: boolean }) => void;
   closeSession: (sessionId: string) => { newActiveId: string | null; remainingSessions: ExtractSession[] };
   switchSession: (sessionId: string) => void;
   setChunks: (sessionId: string, chunks: WadChunk[]) => void;
@@ -22,13 +24,15 @@ interface WadExtractState {
   stageChunkDelete: (sessionId: string, hash: string) => void;
   stageChunkRename: (sessionId: string, oldHash: string, newHash: string, newPath: string) => void;
   setSessionDirty: (sessionId: string, isDirty: boolean) => void;
+  /** Attach the VFS mount a non-WAD archive (e.g. a modpkg) reads and writes through. */
+  setSessionMount: (sessionId: string, mount: Vfs) => void;
 }
 
 export const useWadExtractStore = create<WadExtractState>((set, get) => ({
   extractSessions: [],
   activeExtractId: null,
 
-  openSession: (id, wadPath, editSessionId) => {
+  openSession: (id, wadPath, editSessionId, opts) => {
     const wadName = wadPath.split(/[\\/]/).pop() || wadPath;
 
     const config = useConfigStore.getState();
@@ -93,7 +97,9 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
       activeExtractId: id,
     });
 
-    if (!readOnly && !editSessionId) {
+    // `mountBacked` sessions are not WADs (a modpkg), so there is no WAD edit
+    // session to open — attempting one just fails and logs noise.
+    if (!readOnly && !editSessionId && !opts?.mountBacked) {
       api.openWadEditSession(wadPath).then((res) => {
         set((state) => ({
           extractSessions: state.extractSessions.map((s) =>
@@ -312,6 +318,14 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
     set((state) => ({
       extractSessions: state.extractSessions.map(s =>
         s.id === sessionId ? { ...s, isDirty } : s
+      ),
+    }));
+  },
+
+  setSessionMount: (sessionId, mount) => {
+    set((state) => ({
+      extractSessions: state.extractSessions.map(s =>
+        s.id === sessionId ? { ...s, mount } : s
       ),
     }));
   },

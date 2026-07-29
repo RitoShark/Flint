@@ -60,6 +60,7 @@ function makeMount(
         id: backing.id,
         label: backing.label,
         caps,
+        keyedBy: 'hash',
         async list(dir) {
             return index.list(normalizeDir(dir));
         },

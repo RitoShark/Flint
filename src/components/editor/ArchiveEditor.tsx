@@ -8,6 +8,7 @@ import { useNotificationStore } from '../../lib/stores';
 import { WadBrowserPanel } from '../browser/WadBrowser';
 import { WadPreviewPanel } from './WadPreviewPanel';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
+import { mountModpkg } from '../../lib/vfs/modpkgMount';
 
 function errMsg(e: unknown): string {
     return (e as { message?: string })?.message ?? String(e);
@@ -54,7 +55,7 @@ const JsonEditor: React.FC<{ value: string; onChange: (v: string) => void }> = (
     return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
 };
 
-type Selection = 'meta' | { wad: string } | null;
+type Selection = 'meta' | 'modpkg' | { wad: string } | null;
 
 export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
     const showToast = useNotificationStore((s) => s.showToast);
@@ -65,6 +66,12 @@ export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
     // Track the seeded wadExtractStore session ids we created so we can close
     // them (and their backend WAD edit sessions) on unmount.
     const seededSessionIdsRef = useRef<Set<string>>(new Set());
+    // Backend modpkg session, opened lazily when the user browses the contents.
+    const modpkgSessionIdRef = useRef<string | null>(null);
+    // The package's own metadata, kept so a chunk-only save can round-trip it
+    // unchanged rather than re-reading the file.
+    const modpkgMetaRef = useRef<api.ModpkgMetadataInput | null>(null);
+    const [modpkgChunkCount, setModpkgChunkCount] = useState(0);
 
     // Open the archive session on mount; close + clean up on unmount.
     useEffect(() => {
@@ -88,6 +95,11 @@ export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
                 try { store.closeSession(id); } catch { /* ignore */ }
             });
             seededSessionIdsRef.current.clear();
+            const modpkgSid = modpkgSessionIdRef.current;
+            if (modpkgSid) {
+                api.closeModpkgSession(modpkgSid).catch(() => {});
+                modpkgSessionIdRef.current = null;
+            }
             if (sid) api.closeArchiveSession(sid).catch(() => {});
             reset();
         };
@@ -140,11 +152,70 @@ export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
         closeWad();
     }, [closeWad]);
 
+    /**
+     * Browse a modpkg's chunks in the same tree a WAD uses.
+     *
+     * A modpkg has no inner WADs to open, so instead of an edit session it gets
+     * a VFS mount, and the session carries that mount for the browser and
+     * preview panel to read and write through.
+     */
+    const handleOpenModpkg = useCallback(async () => {
+        if (!layout) return;
+        setBusy(true);
+        try {
+            const session = await api.openModpkgSession(layout.source_path);
+            modpkgSessionIdRef.current = session.session_id;
+            modpkgMetaRef.current = {
+                name: session.name,
+                display_name: session.display_name,
+                description: session.description,
+                version: session.version,
+                authors: session.authors,
+            };
+
+            const mount = await mountModpkg(session.session_id, layout.source_path.split(/[\\/]/).pop() ?? 'modpkg');
+            const exId = `archive-modpkg-${session.session_id}`;
+
+            const store = useWadExtractStore.getState();
+            store.openSession(exId, layout.source_path, undefined, { mountBacked: true });
+            seededSessionIdsRef.current.add(exId);
+            store.setSessionMount(exId, mount);
+
+            // The browser works in WadChunk shape; a modpkg is keyed by path, so
+            // the hash column carries the path and stays a stable row identity.
+            const chunks = await api.listModpkgChunks(session.session_id);
+            store.setChunks(exId, chunks.map((c) => ({
+                hash: c.path,
+                path: c.path,
+                size: c.size,
+            })));
+            setModpkgChunkCount(chunks.length);
+
+            setSelected('modpkg');
+            closeWad();
+        } catch (e) {
+            showToast('error', `Failed to open package contents: ${errMsg(e)}`);
+        } finally {
+            setBusy(false);
+        }
+    }, [layout, closeWad, showToast]);
+
     const handleSave = useCallback(async () => {
         if (!layout) return;
         setBusy(true);
         try {
             await api.writeArchiveMeta(layout.session_id, metaJson);
+            // Staged chunk edits live in the modpkg session, and the archive save
+            // path only rewrites metadata — so flush the chunks first, then let
+            // the archive save apply the metadata on top.
+            const modpkgSessionId = modpkgSessionIdRef.current;
+            const modpkgMeta = modpkgMetaRef.current;
+            if (modpkgSessionId && modpkgMeta) {
+                const dirty = await api.modpkgDirtyChunks(modpkgSessionId);
+                if (dirty.length > 0) {
+                    await api.saveModpkgSession(modpkgSessionId, modpkgMeta, layout.source_path);
+                }
+            }
             await api.saveArchiveSession(layout.session_id, layout.source_path);
             showToast('success', 'Archive saved');
         } catch (e) {
@@ -216,16 +287,32 @@ export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
                         </>
                     )}
                     {layout.kind === 'modpkg' && (
-                        <div style={{ color: 'var(--text-muted)', fontSize: '11px', padding: '8px 6px' }}>
-                            {layout.wads[0]?.chunk_count ?? 0} content chunk(s).
-                            <br />Inner-WAD editing is fantome-only; modpkg metadata is editable here.
-                        </div>
+                        <>
+                            <div style={{ color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase', padding: '8px 6px 4px' }}>CONTENT</div>
+                            <TreeItem
+                                label={`${modpkgChunkCount} file${modpkgChunkCount === 1 ? '' : 's'}`}
+                                icon="package"
+                                active={selected === 'modpkg'}
+                                onClick={handleOpenModpkg}
+                            />
+                        </>
                     )}
                 </div>
 
                 {/* Right: editor / WAD panes */}
                 <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                    {selected === 'meta' || !openWadName ? (
+                    {selected === 'modpkg' ? (
+                        <>
+                            <div style={{ padding: '4px 12px', fontSize: '11px', color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
+                                Package contents — edits persist into the package only on “Save Archive”.
+                            </div>
+                            <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+                                <WadBrowserPanel style={{ flex: 1, height: '100%', minWidth: 0, maxWidth: 'none', borderRight: '1px solid var(--border)' }} />
+                                <WadPreviewPanel style={{ width: '420px', height: '100%', minWidth: '380px' }} />
+                            </div>
+                        </>
+                    ) : selected === 'meta' || !openWadName ? (
                         <>
                             <div style={{ padding: '4px 12px', fontSize: '11px', color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' }}>
                                 Editing META/info.json — saved into the archive on “Save Archive”.

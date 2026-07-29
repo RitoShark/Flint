@@ -7,6 +7,8 @@ import * as monaco from 'monaco-editor';
 import { RITOBIN_LANGUAGE_ID, RITOBIN_THEME_ID, registerRitobinLanguage, registerRitobinTheme } from '../../lib/editor/ritobinLanguage';
 import { Dropdown } from '../ui/Dropdown';
 import LazyModelPreview from '../preview/LazyModelPreview';
+import type { WadChunk } from '../../lib/types';
+import type { Vfs, VfsEntry } from '../../lib/vfs/types';
 
 // =============================================================================
 // File-type detection from magic bytes + path hint
@@ -78,6 +80,25 @@ function detectChunkType(bytes: Uint8Array, pathHint: string | null): ChunkTypeI
 // =============================================================================
 // Hex dump renderer
 // =============================================================================
+
+/**
+ * Adapt a chunk to the VFS entry a mount expects.
+ *
+ * Mounts differ in what they key on — a WAD addresses chunks by hash, a modpkg
+ * by path — so the caller passes the mount and we take its convention. Getting
+ * this wrong reads the wrong chunk rather than failing loudly, hence the
+ * explicit branch.
+ */
+function vfsEntryFor(chunk: WadChunk, mount: Vfs): VfsEntry {
+    const path = chunk.path ?? chunk.hash;
+    return {
+        path,
+        name: path.split('/').pop() ?? path,
+        isDirectory: false,
+        size: chunk.size,
+        key: mount.keyedBy === 'path' ? path : chunk.hash,
+    };
+}
 
 const MAX_HEX_BYTES = 16 * 512; // 8 KB max for hex display
 
@@ -342,6 +363,9 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
 
     const session = extractSessions.find(s => s.id === activeExtractId);
     const chunk = session?.chunks.find(c => c.hash === session.previewHash) ?? null;
+    // Editable through either route: a WAD edit session, or a writable mount for
+    // an archive that is not a WAD (a modpkg).
+    const canEditChunks = !!session?.editSessionId || !!session?.mount?.caps.write;
 
     useEffect(() => {
         if (preview && preview.textContent !== null) {
@@ -418,9 +442,14 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
             setImageZoom('fit');
 
             try {
-                const bytes = session.editSessionId
-                    ? await api.readSessionChunk(session.editSessionId, chunk.hash)
-                    : await api.readWadChunkData(session.wadPath, chunk.hash);
+                // A mount is present for archives that are not WADs (a modpkg
+                // keys chunks by path, not hash), so it takes precedence over
+                // the WAD session commands.
+                const bytes = session.mount
+                    ? await session.mount.read(vfsEntryFor(chunk, session.mount))
+                    : session.editSessionId
+                        ? await api.readSessionChunk(session.editSessionId, chunk.hash)
+                        : await api.readWadChunkData(session.wadPath, chunk.hash);
 
                 if (cancelled) return;
 
@@ -502,20 +531,33 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
     };
 
     const handleSaveChunk = async () => {
-        if (!session || !chunk || !session.editSessionId || editedContent === null) return;
+        // Writable via either route: a WAD edit session, or a mount for an
+        // archive that is not a WAD.
+        const writableMount = session?.mount?.caps.write ? session.mount : null;
+        if (!session || !chunk || editedContent === null) return;
+        if (!session.editSessionId && !writableMount) return;
 
         setIsSavingChunk(true);
         try {
             const binBytes = await api.compileRitobinTextToBytes(editedContent);
 
-            await api.writeSessionChunk(session.editSessionId, chunk.hash, binBytes);
+            if (writableMount) {
+                await writableMount.write!(vfsEntryFor(chunk, writableMount), binBytes);
+            } else {
+                await api.writeSessionChunk(session.editSessionId!, chunk.hash, binBytes);
+            }
 
             useWadExtractStore.getState().stageChunkEdit(session.id, chunk.hash, binBytes.length);
 
             setPreview(p => p ? { ...p, bytes: binBytes, textContent: editedContent } : null);
             setIsContentDirty(false);
 
-            showToast('success', 'File edited in memory. Save the WAD to persist changes on disk.');
+            showToast(
+                'success',
+                writableMount
+                    ? 'File edited in memory. Save the archive to persist changes on disk.'
+                    : 'File edited in memory. Save the WAD to persist changes on disk.',
+            );
         } catch (err) {
             console.error('[WadPreviewPanel] Save chunk failed:', err);
             const msg = err instanceof api.FlintError ? err.getUserMessage() : String(err);
@@ -526,22 +568,30 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
     };
 
     const handleDeleteFromWad = () => {
-        if (!session || !chunk || !session.editSessionId) return;
+        const removableMount = session?.mount?.caps.remove ? session.mount : null;
+        if (!session || !chunk) return;
+        if (!session.editSessionId && !removableMount) return;
         const editSessionId = session.editSessionId;
         const sessionId = session.id;
         const hash = chunk.hash;
+        const entry = removableMount ? vfsEntryFor(chunk, removableMount) : null;
+        const container = removableMount ? 'archive' : 'WAD';
         const label = chunk.path ? (chunk.path.split(/[\\/]/).pop() ?? chunk.path) : chunk.hash;
         useModalStore.getState().openConfirmDialog({
-            title: 'Delete from WAD?',
-            message: `Remove "${label}" from this WAD? The deletion is staged in memory and applied when you save the WAD.`,
+            title: `Delete from ${container}?`,
+            message: `Remove "${label}" from this ${container}? The deletion is staged in memory and applied when you save.`,
             confirmLabel: 'Delete',
             danger: true,
             onConfirm: async () => {
                 try {
-                    await api.removeSessionChunk(editSessionId, hash);
+                    if (removableMount && entry) {
+                        await removableMount.remove!(entry);
+                    } else {
+                        await api.removeSessionChunk(editSessionId!, hash);
+                    }
                     useWadExtractStore.getState().stageChunkDelete(sessionId, hash);
                     useWadExtractStore.getState().setPreview(sessionId, null);
-                    showToast('success', 'File removed. Save the WAD to persist the deletion.');
+                    showToast('success', `File removed. Save the ${container} to persist the deletion.`);
                 } catch (err) {
                     const msg = err instanceof api.FlintError ? err.getUserMessage() : String(err);
                     showToast('error', `Failed to delete: ${msg}`);
@@ -552,7 +602,8 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
 
     const saveChunkRef = useRef<() => void>(() => {});
     saveChunkRef.current = () => {
-        if (session?.editSessionId && isContentDirty && editedContent !== null && !isSavingChunk) {
+        const canWrite = !!session?.editSessionId || !!session?.mount?.caps.write;
+        if (canWrite && isContentDirty && editedContent !== null && !isSavingChunk) {
             void handleSaveChunk();
         }
     };
@@ -622,7 +673,7 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                 return (
                     <MonacoBinViewer
                         text={textContent}
-                        readOnly={!session.editSessionId}
+                        readOnly={!canEditChunks}
                         onChange={(val) => {
                             setEditedContent(val);
                             setIsContentDirty(val !== textContent);
@@ -777,7 +828,7 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                             }
                         ]}
                     />
-                    {session.editSessionId && isContentDirty && (
+                    {canEditChunks && isContentDirty && (
                         <button
                             className="btn btn--sm btn--primary"
                             onClick={handleSaveChunk}
@@ -798,7 +849,7 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                         <span dangerouslySetInnerHTML={{ __html: getIcon('export') }} />
                         <span>{isExtracting ? 'Extracting…' : 'Extract File'}</span>
                     </button>
-                    {session.editSessionId && (
+                    {canEditChunks && (
                         <button
                             className="btn btn--sm btn--danger"
                             onClick={handleDeleteFromWad}
