@@ -10,6 +10,10 @@
 
 import { UNKNOWN_DIR, type VfsEntry, type VfsFileRecord } from './types';
 
+// A module-level collator is ~10× faster than per-call localeCompare when
+// ordering tens of thousands of rows, which the game-wide explorer does.
+const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
+
 /** Normalise separators and strip leading/trailing slashes. */
 export function normalizeDir(path: string): string {
     return path.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
@@ -83,7 +87,7 @@ export class PathIndex {
         for (const list of this.children.values()) {
             list.sort((a, b) => {
                 if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
-                return a.name.localeCompare(b.name);
+                return collator.compare(a.name, b.name);
             });
         }
         this.sorted = true;
