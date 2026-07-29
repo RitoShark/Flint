@@ -483,6 +483,9 @@ fn main() {
             commands::texture_convert::convert_tex_to_dds,
             commands::texture_convert::convert_dds_to_tex,
             commands::texture_convert::convert_texture_to_png,
+            commands::texture_convert::convert_png_to_tex,
+            commands::texture_convert::convert_png_to_dds,
+            commands::texture_convert::convert_png_bytes_to_tex,
             commands::texture_convert::convert_tex_bytes_to_dds,
             commands::texture_convert::convert_dds_bytes_to_tex,
             // In-memory WAD edit sessions

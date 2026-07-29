@@ -456,7 +456,9 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
         },
     });
 
-    if (ext === 'dds' || ext === 'tex') {
+    // PNG joins the texture block for the converters only — Recolor and the mask
+    // editor below still operate on real textures.
+    if (ext === 'dds' || ext === 'tex' || ext === 'png') {
         if (projectPath && fileName.toLowerCase().endsWith('-mask.tex')) {
             options.push({
                 label: 'Edit Loadscreen Banner Mask',
@@ -466,12 +468,14 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             });
         }
 
-        options.push({
-            label: 'Recolor',
-            icon: getIcon('texture'),
-            separator: true,
-            onClick: () => openModal('recolor', { filePath: node.path, isFolder: false }),
-        });
+        if (ext !== 'png') {
+            options.push({
+                label: 'Recolor',
+                icon: getIcon('texture'),
+                separator: true,
+                onClick: () => openModal('recolor', { filePath: node.path, isFolder: false }),
+            });
+        }
 
         const transformItems: ContextMenuOption[] = [];
 
@@ -508,7 +512,32 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             });
         }
 
-        transformItems.push({
+        // The reverse direction: a PNG edited outside Flint goes straight back
+        // into a game-ready texture without a round-trip through another tool.
+        if (ext === 'png') {
+            const convertPng = (
+                label: string,
+                run: (p: string) => Promise<api.TextureConversionResult>,
+            ): ContextMenuOption => ({
+                label,
+                icon: getIcon('texture'),
+                onClick: async () => {
+                    try {
+                        const result = await run(fullPath.replace(/\//g, '\\'));
+                        showToast('success', `Wrote ${result.format} — ${result.width}×${result.height}`);
+                        await refreshFileTree();
+                    } catch (err) {
+                        const flintError = err as api.FlintError;
+                        showToast('error', flintError.getUserMessage?.() || 'Conversion failed');
+                    }
+                },
+            });
+            // No format argument: BC3 when the image has alpha, BC1 when it does not.
+            transformItems.push(convertPng('Convert to .tex', (p) => api.convertPngToTex(p)));
+            transformItems.push(convertPng('Convert to .dds', (p) => api.convertPngToDds(p)));
+        }
+
+        if (ext !== 'png') transformItems.push({
             label: 'Export as .png',
             icon: getIcon('picture'),
             onClick: async () => {

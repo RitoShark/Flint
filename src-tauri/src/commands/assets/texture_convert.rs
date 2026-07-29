@@ -200,6 +200,170 @@ pub async fn convert_dds_to_tex(path: String) -> Result<ConversionResult, String
     })
 }
 
+/// Decode a PNG (or any format `image` reads) into RGBA clamped to multiples of
+/// 4, ready for a block-compressed encoder.
+fn png_to_clamped_rgba(data: &[u8]) -> Result<image::RgbaImage, String> {
+    let img = image::load_from_memory(data)
+        .map_err(|e| format!("Failed to decode image: {}", e))?;
+    let mut rgba = img.to_rgba8();
+
+    let (w, h) = rgba.dimensions();
+    if w < 4 || h < 4 {
+        return Err(format!(
+            "Image is {w}×{h}; block-compressed textures need at least 4×4"
+        ));
+    }
+    // BC1/BC3 encode in 4×4 blocks — anything else makes the encoder panic or
+    // silently truncate, so crop down to the block boundary like the TEX/DDS
+    // decode path does.
+    let cw = (w / 4) * 4;
+    let ch = (h / 4) * 4;
+    if cw != w || ch != h {
+        rgba = image::imageops::crop_imm(&rgba, 0, 0, cw, ch).to_image();
+    }
+    Ok(rgba)
+}
+
+/// True when any pixel is not fully opaque. BC1 carries at most 1-bit alpha, so
+/// a texture with real transparency has to go to BC3.
+fn has_alpha(rgba: &image::RgbaImage) -> bool {
+    rgba.pixels().any(|p| p.0[3] != 255)
+}
+
+/// Which TEX format a PNG should encode to, by name, defaulting on alpha.
+fn tex_format_from_name(name: Option<&str>, rgba: &image::RgbaImage) -> (TexFormat, &'static str) {
+    match name.map(|s| s.to_ascii_lowercase()).as_deref() {
+        Some("bc1") | Some("dxt1") => (TexFormat::Bc1, "BC1 (DXT1)"),
+        Some("bc3") | Some("dxt5") => (TexFormat::Bc3, "BC3 (DXT5)"),
+        Some("rgba8") | Some("bgra8") => (TexFormat::Bgra8, "RGBA8"),
+        // Unspecified: BC3 keeps transparency, BC1 is half the size without it.
+        _ if has_alpha(rgba) => (TexFormat::Bc3, "BC3 (DXT5, alpha detected)"),
+        _ => (TexFormat::Bc1, "BC1 (DXT1, no alpha)"),
+    }
+}
+
+/// Convert a PNG to a sibling `.tex`.
+///
+/// `format` picks the encoding (`bc1`/`dxt1`, `bc3`/`dxt5`, `rgba8`); omit it to
+/// choose by whether the image actually has transparency.
+#[tauri::command]
+pub async fn convert_png_to_tex(
+    path: String,
+    format: Option<String>,
+) -> Result<ConversionResult, String> {
+    let _t = ipc_trace::enter("convert_png_to_tex");
+    let src = PathBuf::from(&path);
+    if !src.exists() {
+        return Err(format!("File not found: {}", path));
+    }
+
+    let data = fs::read(&src).map_err(|e| format!("Failed to read file: {}", e))?;
+    let rgba = png_to_clamped_rgba(&data)?;
+    let (tex_format, label) = tex_format_from_name(format.as_deref(), &rgba);
+
+    let new_tex = match tex_format {
+        // Texture::encode handles only block-compressed formats.
+        TexFormat::Bgra8 => Texture::from_rgba_bgra8(&rgba),
+        _ => Texture::encode(&rgba, tex_format, false)
+            .map_err(|e| format!("Failed to encode TEX: {:?}", e))?,
+    };
+
+    let mut tex_bytes: Vec<u8> = new_tex
+        .to_bytes()
+        .map_err(|e| format!("Failed to encode TEX to buffer: {:?}", e))?;
+    // Header byte 8: 0x01 for BC1/BC3 (Riot's pattern), 0x00 for RGBA8.
+    if tex_bytes.len() >= 9 {
+        tex_bytes[8] = match tex_format {
+            TexFormat::Bc1 | TexFormat::Bc3 => 0x01,
+            _ => 0x00,
+        };
+    }
+
+    let out_path = src.with_extension("tex");
+    fs::write(&out_path, &tex_bytes).map_err(|e| format!("Failed to write TEX: {}", e))?;
+
+    Ok(ConversionResult {
+        output_path: out_path.to_string_lossy().into_owned(),
+        width: rgba.width(),
+        height: rgba.height(),
+        format: label.to_string(),
+    })
+}
+
+/// Convert a PNG to a sibling `.dds`. Same format selection as `convert_png_to_tex`.
+#[tauri::command]
+pub async fn convert_png_to_dds(
+    path: String,
+    format: Option<String>,
+) -> Result<ConversionResult, String> {
+    let _t = ipc_trace::enter("convert_png_to_dds");
+    let src = PathBuf::from(&path);
+    if !src.exists() {
+        return Err(format!("File not found: {}", path));
+    }
+
+    let data = fs::read(&src).map_err(|e| format!("Failed to read file: {}", e))?;
+    let rgba = png_to_clamped_rgba(&data)?;
+    let (tex_format, label) = tex_format_from_name(format.as_deref(), &rgba);
+
+    let texture = match tex_format {
+        TexFormat::Bgra8 => Texture::from_rgba_bgra8(&rgba),
+        _ => Texture::encode(&rgba, tex_format, false)
+            .map_err(|e| format!("Failed to encode texture: {:?}", e))?,
+    };
+
+    let dds_bytes = texture
+        .to_dds_bytes()
+        .map_err(|e| format!("Failed to encode DDS: {:?}", e))?;
+
+    let out_path = src.with_extension("dds");
+    fs::write(&out_path, &dds_bytes).map_err(|e| format!("Failed to write DDS: {}", e))?;
+
+    Ok(ConversionResult {
+        output_path: out_path.to_string_lossy().into_owned(),
+        width: rgba.width(),
+        height: rgba.height(),
+        format: label.to_string(),
+    })
+}
+
+/// In-memory PNG → TEX, for converting bytes that never touch disk (a chunk
+/// pulled from a WAD, a paste). Body must be raw (use `invokeRaw`).
+#[tauri::command]
+pub async fn convert_png_bytes_to_tex(
+    request: tauri::ipc::Request<'_>,
+) -> Result<tauri::ipc::Response, String> {
+    let _t = ipc_trace::enter("convert_png_bytes_to_tex");
+    let data = match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => bytes.clone(),
+        _ => return Err("convert_png_bytes_to_tex expects a raw body".into()),
+    };
+    let format = request
+        .headers()
+        .get("tex-format")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let rgba = png_to_clamped_rgba(&data)?;
+    let (tex_format, _) = tex_format_from_name(format.as_deref(), &rgba);
+
+    let texture = match tex_format {
+        TexFormat::Bgra8 => Texture::from_rgba_bgra8(&rgba),
+        _ => Texture::encode(&rgba, tex_format, false)
+            .map_err(|e| format!("Failed to encode TEX: {:?}", e))?,
+    };
+    let mut tex_bytes: Vec<u8> = texture
+        .to_bytes()
+        .map_err(|e| format!("Failed to encode TEX to buffer: {:?}", e))?;
+    if tex_bytes.len() >= 9 {
+        tex_bytes[8] = match tex_format {
+            TexFormat::Bc1 | TexFormat::Bc3 => 0x01,
+            _ => 0x00,
+        };
+    }
+    Ok(tauri::ipc::Response::new(tex_bytes))
+}
+
 /// Convert a TEX or DDS file to PNG (alongside the source). Useful for
 /// quickly grabbing a viewable copy without rounding through the preview
 /// pane. Returns the new file path so the caller can show it in Explorer.
