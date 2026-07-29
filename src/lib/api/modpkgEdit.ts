@@ -23,6 +23,8 @@ export interface ModpkgSession {
 /** One content chunk inside a package. */
 export interface ModpkgChunkInfo {
     path: string;
+    /** The layer this chunk lives on. The same path may exist on several. */
+    layer: string;
     /** Decompressed size in bytes. */
     size: number;
     /** True when an unsaved edit is staged against this path. */
@@ -62,9 +64,18 @@ export async function listModpkgChunks(sessionId: string): Promise<ModpkgChunkIn
     return invokeCommand('list_modpkg_chunks', { sessionId });
 }
 
-/** Decompressed bytes for one chunk, honouring a staged edit. */
-export async function readModpkgChunk(sessionId: string, path: string): Promise<Uint8Array> {
-    const buf = await invokeCommand<ArrayBuffer>('read_modpkg_chunk', { sessionId, path });
+/**
+ * Decompressed bytes for one chunk, honouring a staged edit. `layer` picks among
+ * same-path chunks in a layered package; omit it to take whichever layer holds it.
+ */
+export async function readModpkgChunk(
+    sessionId: string,
+    path: string,
+    layer?: string,
+): Promise<Uint8Array> {
+    const buf = await invokeCommand<ArrayBuffer>('read_modpkg_chunk', {
+        sessionId, path, layer: layer ?? null,
+    });
     return new Uint8Array(buf);
 }
 
@@ -73,22 +84,32 @@ export async function writeModpkgChunk(
     sessionId: string,
     path: string,
     data: Uint8Array,
+    layer?: string,
 ): Promise<void> {
-    return invokeRaw('write_modpkg_chunk', data, { 'session-id': sessionId, 'chunk-path': path });
+    const headers: Record<string, string> = { 'session-id': sessionId, 'chunk-path': path };
+    if (layer) headers['chunk-layer'] = layer;
+    return invokeRaw('write_modpkg_chunk', data, headers);
 }
 
 /** Stage removal of a chunk. */
-export async function removeModpkgChunk(sessionId: string, path: string): Promise<void> {
-    return invokeCommand('remove_modpkg_chunk', { sessionId, path });
+export async function removeModpkgChunk(
+    sessionId: string,
+    path: string,
+    layer?: string,
+): Promise<void> {
+    return invokeCommand('remove_modpkg_chunk', { sessionId, path, layer: layer ?? null });
 }
 
-/** Stage a move of a chunk to a new path inside the package. */
+/** Stage a move of a chunk to a new path inside the package, keeping its layer. */
 export async function renameModpkgChunk(
     sessionId: string,
     oldPath: string,
     newPath: string,
+    layer?: string,
 ): Promise<void> {
-    return invokeCommand('rename_modpkg_chunk', { sessionId, oldPath, newPath });
+    return invokeCommand('rename_modpkg_chunk', {
+        sessionId, oldPath, newPath, layer: layer ?? null,
+    });
 }
 
 /** Paths with unsaved edits staged against them. */

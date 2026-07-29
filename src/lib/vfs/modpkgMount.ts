@@ -9,7 +9,7 @@
 import * as api from '../api';
 import { compileSearch } from '../../components/browser/wad-explorer/helpers';
 import { PathIndex, normalizeDir } from './pathIndex';
-import { READ_ONLY, type Vfs, type VfsEntry } from './types';
+import { type Vfs, type VfsEntry } from './types';
 
 function makeMatcher(query: string): (entry: VfsEntry) => boolean {
     const trimmed = query.trim();
@@ -36,24 +36,33 @@ export interface ModpkgMount extends Vfs {
 export async function mountModpkg(
     sessionId: string,
     label: string,
-    multiLayer = false,
 ): Promise<ModpkgMount> {
     let index = new PathIndex([]);
+    // Chunk path → its layer. A layered package can hold the same path on more
+    // than one layer; the first listed wins for display, and edits carry the
+    // layer through so a write never migrates a chunk off its own layer.
+    let layerOf = new Map<string, string>();
 
     const reload = async () => {
         const chunks = await api.listModpkgChunks(sessionId);
+        layerOf = new Map();
+        for (const c of chunks) {
+            if (!layerOf.has(c.path)) layerOf.set(c.path, c.layer);
+        }
         index = new PathIndex(
             chunks.map((c) => ({ path: c.path, key: c.path, size: c.size })),
         );
     };
     await reload();
 
+    const layerFor = (path: string) => layerOf.get(path);
+
     const mount: ModpkgMount = {
         id: `modpkg:${sessionId}`,
         label,
-        caps: multiLayer
-            ? READ_ONLY
-            : { write: true, rename: true, remove: true, add: true },
+        // Layers survive the rebuild, so a layered package is as editable as a
+        // plain one.
+        caps: { write: true, rename: true, remove: true, add: true },
         async list(dir) {
             return index.list(normalizeDir(dir));
         },
@@ -61,30 +70,28 @@ export async function mountModpkg(
             return index.filter(makeMatcher(query));
         },
         // The chunk path is the key, so reads go straight through it.
-        read: (entry) => api.readModpkgChunk(sessionId, entry.key),
+        read: (entry) => api.readModpkgChunk(sessionId, entry.key, layerFor(entry.key)),
         refresh: reload,
         dirtyPaths: () => api.modpkgDirtyChunks(sessionId),
-    };
 
-    if (!multiLayer) {
-        mount.write = async (entry, bytes) => {
-            await api.writeModpkgChunk(sessionId, entry.key, bytes);
+        write: async (entry, bytes) => {
+            await api.writeModpkgChunk(sessionId, entry.key, bytes, layerFor(entry.key));
             await reload();
-        };
-        mount.rename = async (entry, to) => {
-            await api.renameModpkgChunk(sessionId, entry.key, to);
+        },
+        rename: async (entry, to) => {
+            await api.renameModpkgChunk(sessionId, entry.key, to, layerFor(entry.key));
             await reload();
-        };
-        mount.remove = async (entry) => {
-            await api.removeModpkgChunk(sessionId, entry.key);
+        },
+        remove: async (entry) => {
+            await api.removeModpkgChunk(sessionId, entry.key, layerFor(entry.key));
             await reload();
-        };
-        mount.add = async (path, bytes) => {
-            // A write against an unknown path adds it — no separate command needed.
+        },
+        // A write against an unknown path adds it — no separate command needed.
+        add: async (path, bytes) => {
             await api.writeModpkgChunk(sessionId, path, bytes);
             await reload();
-        };
-    }
+        },
+    };
 
     return mount;
 }
