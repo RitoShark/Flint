@@ -40,11 +40,14 @@ rustc-hash = "2"
 # Pinned to main HEAD; bump as the owner pushes (WadBuilder, etc.). Default features = all formats.
 ritoshark.workspace = true
 
-# league-mod crates (still on crates.io — removed from league-toolkit monorepo)
+# Mod-package formats only (.fantome / .modpkg and their project model). These
+# stay because the formats are defined by these crates — there is no in-house
+# equivalent to migrate to. Everything else Flint does is its own or ritoshark's;
+# League detection was moved into `league/detector.rs`.
 ltk_mod_project = "0.2"
-ltk_mod_core = "0.1"
 ltk_fantome = "0.2"
 ltk_modpkg = { version = "0.2", features = ["project"] }
+# Not a league-toolkit crate — vendored in-house at ../ltk_inibin.
 ltk_inibin = { path = "../ltk_inibin", features = ["serde"] }
 flint-formats = { path = "../flint-formats" }
 flint-hash = { path = "../flint-hash" }
