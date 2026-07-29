@@ -12,7 +12,7 @@ vi.mock('../api', () => ({
 }));
 
 const api = await import('../api');
-const { mountWad, mountWadSession, mountCdnWad } = await import('./wadMount');
+const { mountWad, mountCdnWad } = await import('./wadMount');
 
 const CHUNKS = [
     { hash: 'h1', path: 'data/characters/jhin/skin0.bin', size: 10 },
@@ -81,10 +81,27 @@ describe('mount search', () => {
     });
 });
 
-describe('mountWadSession', () => {
-    const mount = mountWadSession('sess-1', 'Jhin (editing)', CHUNKS);
+/**
+ * A WAD is mounted read-only and gains write access when its edit session
+ * finishes opening, which happens shortly AFTER the chunks arrive. The upgrade
+ * is in place because the browser caches directory listings against mount
+ * identity — a replacement object would collapse the user's open folders.
+ */
+describe('attachEditSession', () => {
+    function editable() {
+        const mount = mountWad('C:/wads/jhin.wad.client', CHUNKS);
+        mount.attachEditSession('sess-1');
+        return mount;
+    }
 
-    it('permits writes, renames and removes', () => {
+    it('starts read-only before a session is attached', () => {
+        const mount = mountWad('C:/wads/jhin.wad.client', CHUNKS);
+        expect(mount.caps.write).toBe(false);
+        expect(mount.write).toBeUndefined();
+    });
+
+    it('permits writes, renames and removes once attached', () => {
+        const mount = editable();
         expect(mount.caps.write).toBe(true);
         expect(mount.caps.rename).toBe(true);
         expect(mount.caps.remove).toBe(true);
@@ -94,11 +111,13 @@ describe('mountWadSession', () => {
     });
 
     it('does not claim `add` while no command can hash a new path', () => {
+        const mount = editable();
         expect(mount.caps.add).toBe(false);
         expect(mount.add).toBeUndefined();
     });
 
     it('routes each mutation to its session command', async () => {
+        const mount = editable();
         const [entry] = await mount.list('assets');
         const bytes = new Uint8Array([9]);
 
@@ -112,9 +131,24 @@ describe('mountWadSession', () => {
         expect(api.removeSessionChunk).toHaveBeenCalledWith('sess-1', 'h3');
     });
 
+    it('reads through the session so staged edits are visible', async () => {
+        const mount = editable();
+        const [entry] = await mount.list('assets');
+        await mount.read(entry);
+        expect(api.readSessionChunk).toHaveBeenCalledWith('sess-1', 'h3');
+    });
+
     it('resolves rename to void rather than leaking the new hash', async () => {
+        const mount = editable();
         const [entry] = await mount.list('assets');
         await expect(mount.rename!(entry, 'assets/x.tex')).resolves.toBeUndefined();
+    });
+
+    it('does not make other read-only mounts writable', () => {
+        editable();
+        const other = mountWad('C:/wads/other.wad.client', CHUNKS);
+        // A shared frozen caps constant mutated in place would leak here.
+        expect(other.caps.write).toBe(false);
     });
 });
 

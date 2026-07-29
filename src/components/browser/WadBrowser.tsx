@@ -133,59 +133,59 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties; sessionId?
         [session?.chunks, mount],
     );
 
-    // A changed chunk set (staged edit, unhash re-resolve, different session)
-    // invalidates every cached listing.
+    // Drop cached listings when the CONTENT changes, keyed by the chunk array
+    // identity rather than the mount object. A WAD swaps its mount mid-session
+    // (the read-only on-disk mount becomes a writable one once the edit session
+    // opens, which happens moments after the chunks land); keying on the mount
+    // would collapse every folder the user had opened at that moment.
+    const chunks = session?.chunks;
     useEffect(() => {
         setDirs(new Map());
-        setExpandedFolders(new Set());
-    }, [mount, session?.chunks]);
+    }, [chunks]);
 
-    // Identifies the chunk set a listing was requested against. Several folders
-    // can be loading at once, so a stale result is one whose mount/chunks have
-    // since been replaced — not merely one that started earlier.
+    // Identifies the chunk set a listing was requested against, so a listing
+    // that resolves after the content changed can be discarded. Several folders
+    // load concurrently, so "stale" means superseded content, not merely older.
     const loadTokenRef = useRef<object>({});
     useEffect(() => {
         loadTokenRef.current = {};
-    }, [mount, session?.chunks]);
+    }, [chunks]);
 
-    const loadDir = useCallback((dir: string) => {
+    // Expanding a folder records it here; an effect below does the fetching, so
+    // no listing is kicked off from inside a state updater.
+    const wantedDirs = useMemo(() => {
+        const out = [''];
+        for (const dir of expandedFolders) out.push(dir);
+        return out;
+    }, [expandedFolders]);
+
+    useEffect(() => {
         if (!mount) return;
         const token = loadTokenRef.current;
-        listLevel(mount, dir, byKey)
-            .then((nodes) => {
-                // The chunk set changed while this was in flight; its listing
-                // describes a tree that no longer exists.
-                if (token !== loadTokenRef.current) return;
-                setDirs((prev) => {
-                    const next = new Map(prev);
-                    next.set(dir, nodes);
-                    return next;
-                });
-            })
-            .catch((e) => {
-                console.error('[WadBrowser] Failed to list directory', dir, e);
-            });
-    }, [mount, byKey]);
-
-    // Root level, whenever the mount or its chunk set changes.
-    useEffect(() => {
-        if (mount) loadDir('');
-    }, [mount, loadDir]);
+        for (const dir of wantedDirs) {
+            if (dirs.has(dir)) continue;
+            listLevel(mount, dir, byKey)
+                .then((nodes) => {
+                    if (token !== loadTokenRef.current) return;
+                    setDirs((prev) => {
+                        if (prev.has(dir)) return prev;
+                        const next = new Map(prev);
+                        next.set(dir, nodes);
+                        return next;
+                    });
+                })
+                .catch((e) => console.error('[WadBrowser] Failed to list directory', dir, e));
+        }
+    }, [mount, byKey, wantedDirs, dirs]);
 
     const toggleFolder = useCallback((fullPath: string) => {
         setExpandedFolders((prev) => {
             const next = new Set(prev);
-            if (next.has(fullPath)) {
-                next.delete(fullPath);
-            } else {
-                next.add(fullPath);
-                // Fetch the level the first time it is opened; afterwards the
-                // cached listing is reused until the chunk set changes.
-                if (!dirs.has(fullPath)) loadDir(fullPath);
-            }
+            if (next.has(fullPath)) next.delete(fullPath);
+            else next.add(fullPath);
             return next;
         });
-    }, [dirs, loadDir]);
+    }, []);
 
     const unknownChunksCount = useMemo(() => {
         if (!session) return 0;

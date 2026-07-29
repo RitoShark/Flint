@@ -5,6 +5,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 vi.mock('../api', () => ({
     openWadEditSession: vi.fn(() => new Promise(() => {})),
     closeWadEditSession: vi.fn(() => Promise.resolve()),
+    readWadChunkData: vi.fn(() => Promise.resolve(new Uint8Array())),
+    readSessionChunk: vi.fn(() => Promise.resolve(new Uint8Array())),
+    writeSessionChunk: vi.fn(() => Promise.resolve()),
+    renameSessionChunk: vi.fn(() => Promise.resolve('newhash')),
+    removeSessionChunk: vi.fn(() => Promise.resolve()),
 }));
 
 import { useWadExtractStore } from './wadExtractStore';
@@ -131,6 +136,32 @@ describe('wadExtractStore WAD mounts', () => {
         expect(second).toBe(first);
         const root = await second.list('');
         expect(root.map(e => e.name)).not.toContain('assets');
+    });
+
+    it('keeps the same mount object when the edit session opens', async () => {
+        const api = await import('../api');
+        // The edit session resolves AFTER the chunks land, which is what made
+        // this ordering worth pinning down.
+        type OpenResult = Awaited<ReturnType<typeof api.openWadEditSession>>;
+        let resolveOpen: (v: OpenResult) => void = () => {};
+        vi.mocked(api.openWadEditSession).mockReturnValueOnce(
+            new Promise<OpenResult>((res) => { resolveOpen = res; }),
+        );
+
+        const store = useWadExtractStore.getState();
+        store.openSession('user-1', 'C:/wads/kayn.wad.client');
+        store.setChunks('user-1', chunks);
+        const before = useWadExtractStore.getState().extractSessions[0].mount!;
+        expect(before.caps.write).toBe(false);
+
+        resolveOpen({ session_id: 'edit-1', source_path: 'C:/wads/kayn.wad.client', initial_chunk_count: chunks.length });
+        await new Promise((r) => setTimeout(r, 0));
+
+        const after = useWadExtractStore.getState().extractSessions[0].mount!;
+        // Identity must hold: the browser caches directory listings against it,
+        // so a swap here collapses every folder the user had opened.
+        expect(after).toBe(before);
+        expect(after.caps.write).toBe(true);
     });
 
     it('leaves a modpkg mount alone instead of replacing it with a WAD mount', () => {

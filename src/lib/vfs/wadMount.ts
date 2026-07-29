@@ -56,6 +56,16 @@ interface WadMountBacking {
  */
 export interface WadMount extends Vfs {
     reindex(next: readonly ChunkLike[]): void;
+    /**
+     * Grant write access once an edit session exists for this WAD.
+     *
+     * The edit session opens moments AFTER the chunks arrive, so the mount is
+     * created read-only and upgraded here. It mutates in place rather than
+     * returning a new mount because consumers key cached directory listings on
+     * mount identity — swapping the object would collapse the user's open
+     * folders the instant the session finished opening.
+     */
+    attachEditSession(sessionId: string): void;
 }
 
 function makeMount(
@@ -64,11 +74,14 @@ function makeMount(
     caps = READ_ONLY,
 ): WadMount {
     let index = new PathIndex(toRecords(chunks));
+    // Held separately so `attachEditSession` can widen it without assigning to
+    // the interface's readonly `caps` — callers still see an immutable view.
+    let currentCaps = caps;
 
     const mount: WadMount = {
         id: backing.id,
         label: backing.label,
-        caps,
+        get caps() { return currentCaps; },
         keyedBy: 'hash',
         async list(dir) {
             return index.list(normalizeDir(dir));
@@ -79,6 +92,21 @@ function makeMount(
         read: (entry) => backing.readBytes(entry),
         reindex(next) {
             index = new PathIndex(toRecords(next));
+        },
+        attachEditSession(sessionId) {
+            // Replaced, never mutated: `caps` may be the shared READ_ONLY
+            // constant, and mutating it would make every read-only mount in the
+            // app writable.
+            // No `add`: staging a NEW chunk needs the path hashed to
+            // xxhash64(lowercased) first and no command exposes that, so
+            // claiming the capability would make `caps` lie.
+            currentCaps = { write: true, rename: true, remove: true, add: false };
+            mount.write = (entry, bytes) => api.writeSessionChunk(sessionId, entry.key, bytes);
+            mount.rename = async (entry, to) => { await api.renameSessionChunk(sessionId, entry.key, to); };
+            mount.remove = (entry) => api.removeSessionChunk(sessionId, entry.key);
+            // Reads move to the session so staged edits are visible, not the
+            // bytes still sitting on disk.
+            mount.read = (entry) => api.readSessionChunk(sessionId, entry.key);
         },
     };
 
@@ -99,31 +127,6 @@ export function mountWad(wadPath: string, chunks: readonly ChunkLike[]): WadMoun
         label: wadPath.split(/[\\/]/).pop() ?? wadPath,
         readBytes: (entry) => api.readWadChunkData(wadPath, entry.key),
     });
-}
-
-/**
- * An open WAD edit session. Writes are staged in the session and only reach disk
- * on save, which is why every mutation here is a session command rather than a
- * file write.
- */
-export function mountWadSession(sessionId: string, label: string, chunks: readonly ChunkLike[]): WadMount {
-    return makeMount(
-        chunks,
-        {
-            id: `wad-session:${sessionId}`,
-            label,
-            readBytes: (entry) => api.readSessionChunk(sessionId, entry.key),
-            write: (entry, bytes) => api.writeSessionChunk(sessionId, entry.key, bytes),
-            // A rename re-keys the chunk under xxhash64 of the lowercased path,
-            // so it is a real re-key in the session, not a label change.
-            rename: async (entry, to) => { await api.renameSessionChunk(sessionId, entry.key, to); },
-            remove: (entry) => api.removeSessionChunk(sessionId, entry.key),
-        },
-        // No `add`: staging a brand-new chunk needs the path hashed to
-        // xxhash64(lowercased path) first, and there is no command for that yet.
-        // Declaring the capability without backing it would make `caps` lie.
-        { write: true, rename: true, remove: true, add: false },
-    );
 }
 
 /** A remote WAD read through a CDN manifest session. Range-fetched, read-only. */
