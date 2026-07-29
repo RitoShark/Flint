@@ -2,6 +2,7 @@
   "name": "flint",
   "version": "2.5.0",
   "description": "League of Legends Modding IDE",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
     "dev": "vite",
