@@ -4,6 +4,7 @@ import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getIcon, getFileIcon } from '../../lib/ui-helpers/fileIcons';
 import { checkboxSvg } from './wad-explorer/helpers';
+import { PathIndex } from '../../lib/vfs/pathIndex';
 import type { WadChunk } from '../../lib/types';
 
 // =============================================================================
@@ -41,75 +42,38 @@ function getAllChunkHashes(nodes: WadTreeNode[]): string[] {
     return hashes;
 }
 
-function buildWadTree(chunks: WadChunk[], searchQuery: string): WadTreeNode[] {
-    const query = searchQuery.toLowerCase().trim();
+/**
+ * Group chunks into the folder tree this panel renders.
+ *
+ * The layout (folders first, then files, each alphabetical; pathless chunks
+ * collected under one synthetic folder) comes from `PathIndex`, so this and the
+ * other browser surfaces agree instead of each having their own arrangement.
+ */
+function buildWadTree(chunks: WadChunk[]): WadTreeNode[] {
+    const index = new PathIndex(
+        chunks.map((c) => ({ path: c.path, key: c.hash, size: c.size })),
+    );
+    // Chunk lookup by the key PathIndex carries, so file nodes keep the real
+    // WadChunk the rest of this panel acts on.
+    const byHash = new Map(chunks.map((c) => [c.hash, c]));
 
-    const filtered = query
-        ? chunks.filter(c =>
-            (c.path?.toLowerCase().includes(query)) ||
-            (!c.path && c.hash.toLowerCase().includes(query))
-          )
-        : chunks;
+    const toNodes = (dir: string): WadTreeNode[] =>
+        index.list(dir).map((entry) =>
+            entry.isDirectory
+                ? {
+                    type: 'folder' as const,
+                    name: entry.name,
+                    fullPath: entry.path,
+                    children: toNodes(entry.path),
+                }
+                : {
+                    type: 'file' as const,
+                    name: entry.name,
+                    chunk: byHash.get(entry.key)!,
+                },
+        );
 
-    const folderMap = new Map<string, WadTreeFolder>();
-    const rootNodes: WadTreeNode[] = [];
-
-    const getOrCreateFolder = (folderPath: string): WadTreeFolder => {
-        if (folderMap.has(folderPath)) return folderMap.get(folderPath)!;
-
-        const parts = folderPath.split('/');
-        const name = parts[parts.length - 1];
-        const parentPath = parts.slice(0, -1).join('/');
-
-        const folder: WadTreeFolder = { type: 'folder', name, fullPath: folderPath, children: [] };
-        folderMap.set(folderPath, folder);
-
-        if (parentPath === '') {
-            rootNodes.push(folder);
-        } else {
-            getOrCreateFolder(parentPath).children.push(folder);
-        }
-
-        return folder;
-    };
-
-    for (const chunk of filtered) {
-        if (!chunk.path) continue;
-
-        const normalizedPath = chunk.path.replace(/\\/g, '/');
-        const parts = normalizedPath.split('/');
-        const fileName = parts[parts.length - 1];
-        const dirParts = parts.slice(0, -1);
-
-        const fileNode: WadTreeFile = { type: 'file', name: fileName, chunk };
-
-        if (dirParts.length === 0) {
-            rootNodes.push(fileNode);
-        } else {
-            getOrCreateFolder(dirParts.join('/')).children.push(fileNode);
-        }
-    }
-
-    const unresolved = filtered.filter(c => !c.path);
-    if (unresolved.length > 0) {
-        rootNodes.push({
-            type: 'folder',
-            name: '[Unknown Hashes]',
-            fullPath: '[Unknown Hashes]',
-            children: unresolved.map(c => ({ type: 'file' as const, name: c.hash, chunk: c })),
-        });
-    }
-
-    const sort = (nodes: WadTreeNode[]) => {
-        nodes.sort((a, b) => {
-            if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
-            return a.name.localeCompare(b.name);
-        });
-        nodes.forEach(n => { if (n.type === 'folder') sort(n.children); });
-    };
-    sort(rootNodes);
-
-    return rootNodes;
+    return toNodes('');
 }
 
 function formatSize(bytes: number): string {
@@ -236,7 +200,7 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
 
     const nodes = useMemo(() => {
         if (!session) return [];
-        return buildWadTree(session.chunks, '');
+        return buildWadTree(session.chunks);
     }, [session?.chunks]);
 
     const filteredChunks = useMemo(() => {
