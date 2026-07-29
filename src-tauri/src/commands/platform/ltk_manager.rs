@@ -232,7 +232,7 @@ pub async fn sync_project_to_launcher(
     let project_path_buf = PathBuf::from(&project_path);
     let ltk_storage_buf = PathBuf::from(&ltk_storage_path);
 
-    let project = flint_ltk::project::open_project(&project_path_buf)
+    let project = flint_core::project::open_project(&project_path_buf)
         .map_err(|e| format!("Failed to open project: {}", e))?;
 
     tracing::info!("Loaded project: {} v{}", project.name, project.version);
@@ -262,8 +262,8 @@ pub async fn sync_project_to_launcher(
 }
 
 fn package_project(project_path: &std::path::Path, output_path: &std::path::Path) -> Result<(), String> {
-    use flint_ltk::export::build_wad_from_directory;
-    use flint_ltk::ltk_types::{ModProject, ModProjectAuthor};
+    use flint_core::export::build_wad_from_directory;
+    use flint_core::project::{ModProject, ModProjectAuthor};
     use std::io::Write;
     use zip::write::SimpleFileOptions;
     use zip::ZipWriter;

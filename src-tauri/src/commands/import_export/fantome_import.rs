@@ -3,13 +3,14 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::fs::File;
 use std::io::BufReader;
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 use zip::ZipArchive;
 
-use flint_ltk::hash::lmdb_cache::{get_or_open_env, resolve_hashes_lmdb};
-use flint_ltk::wad_jade::adapter::WadHandle as WadReader;
-use flint_ltk::project::Project;
-use crate::state::LmdbCacheState;
+use flint_core::overlay::{HashResolver, ProjectHashOverlay};
+use flint_core::wad::adapter::WadHandle as WadReader;
+use flint_core::project::Project;
+use crate::state::{HashOverlayState, LmdbCacheState};
 
 // =============================================================================
 // Types
@@ -88,16 +89,16 @@ pub(crate) fn guess_extension(data: &[u8]) -> &'static str {
         FileKind::StaticMeshText => "sco",
         FileKind::StaticMeshBinary => "scb",
         FileKind::Rst => "stringtable",
+        FileKind::LuaBin => "luabin",
+        FileKind::LuaBin64 => "luabin64",
+        FileKind::TroyBin => "troybin",
+        FileKind::Preload => "preload",
         FileKind::Wad | FileKind::Rman | FileKind::Unknown => {
-            if data.len() >= 4 {
-                let head = &data[..4];
-                if head == b"OggS" { return "ogg"; }
-                if head == b"\x89PNG" { return "png"; }
-                if head == b"RIFF" { return "wem"; }
-                if data.starts_with(b"\xff\xd8\xff") { return "jpg"; }
-                if data.starts_with(b"{") { return "json"; }
-            }
-            "dat"
+            // Shared table — the inline version here read every RIFF as `wem`,
+            // which named WEBP images imported from a `.fantome` as audio.
+            flint_core::wad::sniff::sniff(data)
+                .map(|f| f.ext)
+                .unwrap_or("dat")
         }
     }
 }
@@ -389,7 +390,7 @@ fn extract_fantome_wad(fantome_path: &str) -> Result<PathBuf, String> {
         return Err("No .wad.client file or folder found in fantome package".into());
     }
 
-    let wad_bytes = flint_ltk::export::build_wad_from_directory(&scratch)?;
+    let wad_bytes = flint_core::export::build_wad_from_directory(&scratch)?;
     let wad_path = temp_dir.join(wad_name.replace('/', "_"));
     std::fs::write(&wad_path, &wad_bytes)
         .map_err(|e| format!("Failed to write packed WAD: {}", e))?;
@@ -487,7 +488,7 @@ fn apply_refathering(
     target_skin_id: u32,
     path_mappings: &HashMap<String, String>,
 ) -> Result<(), String> {
-    use flint_ltk::repath::organizer::{organize_project, OrganizerConfig};
+    use flint_core::repath::organizer::{organize_project, OrganizerConfig};
 
     tracing::info!("Applying refathering to imported mod...");
 
@@ -521,13 +522,15 @@ fn apply_refathering(
 pub async fn analyze_fantome(
     wad_path: String,
     _lmdb_state: State<'_, LmdbCacheState>,
+    overlay_state: State<'_, HashOverlayState>,
 ) -> Result<FantomeAnalysis, String> {
-    let hash_dir = flint_ltk::hash::get_hash_dir()
+    let hash_dir = flint_core::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .map_err(|e| format!("Hash directory not found: {}", e))?;
+    let overlay = overlay_state.get();
 
     tokio::task::spawn_blocking(move || {
-        analyze_fantome_internal(&wad_path, &hash_dir)
+        analyze_fantome_internal(&wad_path, &hash_dir, overlay)
     })
     .await
     .map_err(|e| format!("Task failed: {}", e))?
@@ -536,6 +539,7 @@ pub async fn analyze_fantome(
 fn analyze_fantome_internal(
     wad_path: &str,
     hash_dir: &str,
+    overlay: Option<Arc<ProjectHashOverlay>>,
 ) -> Result<FantomeAnalysis, String> {
     let metadata = if wad_path.ends_with(".fantome") || wad_path.ends_with(".zip") {
         read_fantome_metadata(wad_path)
@@ -553,10 +557,12 @@ fn analyze_fantome_internal(
 
     let hashes: Vec<u64> = chunks.iter().map(|chunk| chunk.path_hash).collect();
 
-    let env = get_or_open_env(hash_dir)
-        .ok_or("Failed to open LMDB environment")?;
+    let resolver = HashResolver::new(hash_dir, overlay.as_ref());
+    if !resolver.has_global_wad() {
+        return Err("Hash databases not found. Run hash download first.".to_string());
+    }
 
-    let resolved_paths = resolve_hashes_lmdb(&hashes, &env);
+    let resolved_paths = resolver.resolve_wad(&hashes);
 
     let mut champion_candidates = HashSet::new();
     for path in &resolved_paths {
@@ -598,13 +604,15 @@ pub async fn import_fantome_wad(
     project_dir: String,
     options: ImportOptions,
     _lmdb_state: State<'_, LmdbCacheState>,
+    overlay_state: State<'_, HashOverlayState>,
 ) -> Result<Project, String> {
-    let hash_dir = flint_ltk::hash::get_hash_dir()
+    let hash_dir = flint_core::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .map_err(|e| format!("Hash directory not found: {}", e))?;
+    let overlay = overlay_state.get();
 
     tokio::task::spawn_blocking(move || {
-        import_fantome_internal(&app, &wad_path, &project_dir, &options, &hash_dir)
+        import_fantome_internal(&app, &wad_path, &project_dir, &options, &hash_dir, overlay)
     })
     .await
     .map_err(|e| format!("Task failed: {}", e))?
@@ -616,8 +624,9 @@ fn import_fantome_internal(
     project_dir: &str,
     options: &ImportOptions,
     hash_dir: &str,
+    overlay: Option<Arc<ProjectHashOverlay>>,
 ) -> Result<Project, String> {
-    use flint_ltk::project::save_project as core_save_project;
+    use flint_core::project::save_project as core_save_project;
 
     let _ = app.emit("fantome-import-progress", serde_json::json!({
         "status": "starting",
@@ -652,10 +661,12 @@ fn import_fantome_internal(
             "message": format!("Resolving {} file paths...", hashes.len())
         }));
 
-        let env = get_or_open_env(hash_dir)
-            .ok_or("Failed to open LMDB environment")?;
+        let resolver = HashResolver::new(hash_dir, overlay.as_ref());
+        if !resolver.has_global_wad() {
+            return Err("Hash databases not found. Run hash download first.".to_string());
+        }
 
-        let resolved_paths = resolve_hashes_lmdb(&hashes, &env);
+        let resolved_paths = resolver.resolve_wad(&hashes);
 
         (hashes, resolved_paths)
     };
@@ -776,64 +787,63 @@ fn import_fantome_internal(
         tracing::warn!("Failed to auto-unhash WAD file during import: {}", e);
     }
 
-    flint_ltk::hash::lmdb_cache::drop_lmdb_cache();
+    flint_core::hash::lmdb_cache::drop_lmdb_cache();
 
     // Re-resolve unresolved paths and rename files on disk
     if !unresolved_files.is_empty() {
-        if let Some(env) = get_or_open_env(hash_dir) {
-            let hashes_to_resolve: Vec<u64> = unresolved_files.iter().map(|(h, _, _, _)| *h).collect();
-            let newly_resolved = resolve_hashes_lmdb(&hashes_to_resolve, &env);
+        let hashes_to_resolve: Vec<u64> = unresolved_files.iter().map(|(h, _, _, _)| *h).collect();
+        let resolver = HashResolver::new(hash_dir, overlay.as_ref());
+        let newly_resolved = resolver.resolve_wad(&hashes_to_resolve);
 
-            let mut resolved_count = 0;
-            for ((hash, guessed_ext, old_path_on_disk, original_path_key), resolved_path) in unresolved_files.iter().zip(newly_resolved.iter()) {
-                if !is_unresolved_hash(resolved_path) {
-                    // It is now resolved!
-                    let final_path = PathBuf::from(resolved_path.clone());
-                    let filename_len = final_path.to_string_lossy().len();
+        let mut resolved_count = 0;
+        for ((hash, guessed_ext, old_path_on_disk, original_path_key), resolved_path) in unresolved_files.iter().zip(newly_resolved.iter()) {
+            if !is_unresolved_hash(resolved_path) {
+                // It is now resolved!
+                let final_path = PathBuf::from(resolved_path.clone());
+                let filename_len = final_path.to_string_lossy().len();
 
-                    if filename_len > 200 {
-                        let parent = final_path.parent().unwrap_or_else(|| Path::new("data"));
-                        let ext = final_path.extension().and_then(|e| e.to_str()).unwrap_or(guessed_ext.as_str());
-                        let hash_name = format!("{:016x}.{}", hash, ext);
-                        let hash_path = parent.join(&hash_name);
+                if filename_len > 200 {
+                    let parent = final_path.parent().unwrap_or_else(|| Path::new("data"));
+                    let ext = final_path.extension().and_then(|e| e.to_str()).unwrap_or(guessed_ext.as_str());
+                    let hash_name = format!("{:016x}.{}", hash, ext);
+                    let hash_path = parent.join(&hash_name);
 
-                        let orig = final_path.to_string_lossy().to_lowercase().replace('\\', "/");
-                        let act  = hash_path.to_string_lossy().to_lowercase().replace('\\', "/");
-                        path_mappings.insert(orig, act);
+                    let orig = final_path.to_string_lossy().to_lowercase().replace('\\', "/");
+                    let act  = hash_path.to_string_lossy().to_lowercase().replace('\\', "/");
+                    path_mappings.insert(orig, act);
 
-                        let new_out_path = wad_base.join(hash_path);
-                        if old_path_on_disk.exists() {
-                            if let Some(p) = new_out_path.parent() {
-                                std::fs::create_dir_all(p).unwrap_or_default();
-                            }
-                            if let Err(e) = std::fs::rename(old_path_on_disk, &new_out_path) {
-                                tracing::warn!("Failed to rename resolved long path file: {}", e);
-                            }
+                    let new_out_path = wad_base.join(hash_path);
+                    if old_path_on_disk.exists() {
+                        if let Some(p) = new_out_path.parent() {
+                            std::fs::create_dir_all(p).unwrap_or_default();
                         }
-                    } else {
-                        let new_out_path = wad_base.join(&final_path);
-                        if old_path_on_disk.exists() {
-                            if let Some(p) = new_out_path.parent() {
-                                std::fs::create_dir_all(p).unwrap_or_default();
-                            }
-                            if let Err(e) = std::fs::rename(old_path_on_disk, &new_out_path) {
-                                tracing::warn!("Failed to rename resolved file to {}: {}", new_out_path.display(), e);
-                            } else {
-                                resolved_count += 1;
-                            }
+                        if let Err(e) = std::fs::rename(old_path_on_disk, &new_out_path) {
+                            tracing::warn!("Failed to rename resolved long path file: {}", e);
                         }
                     }
                 } else {
-                    // Still unresolved. Add to path_mappings to map the extensionless path to the file with extension
-                    let orig = original_path_key.to_lowercase().replace('\\', "/");
-                    if let Ok(rel_path) = old_path_on_disk.strip_prefix(&wad_base) {
-                        let act = rel_path.to_string_lossy().to_lowercase().replace('\\', "/");
-                        path_mappings.insert(orig, act);
+                    let new_out_path = wad_base.join(&final_path);
+                    if old_path_on_disk.exists() {
+                        if let Some(p) = new_out_path.parent() {
+                            std::fs::create_dir_all(p).unwrap_or_default();
+                        }
+                        if let Err(e) = std::fs::rename(old_path_on_disk, &new_out_path) {
+                            tracing::warn!("Failed to rename resolved file to {}: {}", new_out_path.display(), e);
+                        } else {
+                            resolved_count += 1;
+                        }
                     }
                 }
+            } else {
+                // Still unresolved. Add to path_mappings to map the extensionless path to the file with extension
+                let orig = original_path_key.to_lowercase().replace('\\', "/");
+                if let Ok(rel_path) = old_path_on_disk.strip_prefix(&wad_base) {
+                    let act = rel_path.to_string_lossy().to_lowercase().replace('\\', "/");
+                    path_mappings.insert(orig, act);
+                }
             }
-            tracing::info!("Re-resolved and renamed {}/{} unresolved files after hash extraction", resolved_count, unresolved_files.len());
         }
+        tracing::info!("Re-resolved and renamed {}/{} unresolved files after hash extraction", resolved_count, unresolved_files.len());
     }
 
     let existing_hashes: HashSet<u64> = chunk_hashes.iter().copied().collect();
@@ -851,6 +861,7 @@ fn import_fantome_internal(
                 &wad_base,
                 league_path,
                 hash_dir,
+                overlay.clone(),
                 &champion,
                 &existing_hashes,
             ).map_err(|e| format!("Failed to recover missing files: {}", e))?;
@@ -1032,6 +1043,17 @@ fn extract_and_save_fantome_thumbnail(fantome_path: &str, project_path: &Path) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn guess_extension_discriminates_riff_family() {
+        // RIFF fronts WEBP, WAV, and Wwise's own WEM. The old blanket
+        // `RIFF -> wem` silently mis-named WEBP images imported from a
+        // `.fantome` (routing them into the audio player); only the WEM
+        // case is correct against the pre-fix behaviour.
+        assert_eq!(guess_extension(b"RIFF\x24\x00\x00\x00WEBPVP8 "), "webp");
+        assert_eq!(guess_extension(b"RIFF\x24\x00\x00\x00WAVEfmt "), "wav");
+        assert_eq!(guess_extension(b"RIFFxxxxWSMPfmt "), "wem");
+    }
 
     #[test]
     fn test_extract_champion_from_path() {

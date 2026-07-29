@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 // ---------------------------------------------------------------------------
 // FNV-1a 32-bit hash — Riot's BIN object-path hash function.
-// Computed on the lowercase path string, same as ltk_meta.
+// Computed on the lowercase path string, same as ritobin.
 // ---------------------------------------------------------------------------
 fn fnv1a32(s: &str) -> u32 {
     let mut hash: u32 = 0x811c9dc5;

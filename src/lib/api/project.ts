@@ -1,4 +1,5 @@
 import { invokeCommand, invokeRaw } from './core';
+import { buildProjectHashOverlay } from './hashOverlay';
 import type { Project, ProjectKind, FileTreeNode } from '../types';
 
 interface CreateProjectParams {
@@ -181,8 +182,14 @@ export async function hardRenameProject(
     return invokeCommand('hard_rename_project', { project, projectPath, newName });
 }
 
-export async function deleteProject(projectPath: string): Promise<void> {
-    return invokeCommand('delete_project', { projectPath });
+/**
+ * Delete the project folder AND drop it from `projects.json`. Passing
+ * `projectsRoot` lets the backend purge a project that lives outside the
+ * configured root; without the purge, `discoverProjects` resurrects the row on
+ * the next scan.
+ */
+export async function deleteProject(projectPath: string, projectsRoot?: string | null): Promise<void> {
+    return invokeCommand('delete_project', { projectPath, projectsRoot: projectsRoot ?? null });
 }
 
 /** Walk the projects root one level deep and return every Flint project
@@ -297,6 +304,13 @@ export async function openProjectWithTree(projectPath: string): Promise<OpenProj
         project: Project;
         file_tree: Record<string, BackendFileEntry>;
     }>('open_project_with_tree', { path: projectPath });
+
+    // Fire-and-forget: the overlay only improves hash display, so a failure must
+    // never block opening the project.
+    void buildProjectHashOverlay(projectPath).catch((e) => {
+        console.warn('hash overlay build failed', e);
+    });
+
     return {
         project: raw.project,
         fileTree: transformFileTree(raw.file_tree, 'Project'),

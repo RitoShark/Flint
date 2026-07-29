@@ -32,11 +32,25 @@ const DEFAULTS: UxPrefs = {
     unknownPreviewByExt: {},
 };
 
+/** Superseded default reds → the current one. A stored accent overrides the theme
+ *  file, so without this an existing install keeps whichever default it first saved
+ *  and never picks up a change. Only these exact values are migrated — a color the
+ *  user actually chose is left alone, even if it happens to be red. */
+const SUPERSEDED_DEFAULT_ACCENTS: Record<string, string> = {
+    '#ef4444': '#EF5244', // original pure red (hue 0)
+    '#ef5b44': '#EF5244', // brief hue-8 default, read as too orange
+};
+
 function readStorage(): Partial<UxPrefs> {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (!raw) return {};
-        return JSON.parse(raw) as Partial<UxPrefs>;
+        const prefs = JSON.parse(raw) as Partial<UxPrefs>;
+        if (typeof prefs.accentPrimary === 'string') {
+            const migrated = SUPERSEDED_DEFAULT_ACCENTS[prefs.accentPrimary.toLowerCase()];
+            if (migrated) prefs.accentPrimary = migrated;
+        }
+        return prefs;
     } catch {
         return {};
     }

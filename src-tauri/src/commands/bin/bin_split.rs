@@ -1,5 +1,5 @@
-use flint_ltk::bin::split::{collect_folder_bins, find_wad_root, pick_owner_bin};
-use flint_ltk::bin::{
+use flint_core::bin::split::{collect_folder_bins, find_wad_root, pick_owner_bin};
+use flint_core::bin::{
     analyze_multi, classify_vfx_objects, group_by_class, organize_vfx_in_folder, read_bin,
     split_bin, split_bin_multi,
 };
@@ -31,7 +31,7 @@ pub async fn analyze_bin_for_split(bin_path: String) -> Result<BinSplitAnalysis,
     let total = bin.entries.len();
     let vfx_set: HashSet<u32> = classify_vfx_objects(&bin).into_iter().collect();
 
-    let class_cache = flint_ltk::bin::get_cached_bin_hashes();
+    let class_cache = flint_core::bin::get_cached_bin_hashes();
     let cache = class_cache.read();
 
     let groups: Vec<BinSplitClassGroup> = group_by_class(&bin)
@@ -55,7 +55,7 @@ pub async fn analyze_bin_for_split(bin_path: String) -> Result<BinSplitAnalysis,
 }
 
 fn lookup_bin_hash_name(
-    provider: &flint_ltk::ltk_types::HashMapper,
+    provider: &flint_core::hash::HashMapper,
     hash: u32,
 ) -> Option<String> {
     provider.get(hash as u64).map(|s| s.to_string())
@@ -101,7 +101,7 @@ pub async fn analyze_folder_for_split(
         .await
         .map_err(|e| format!("Task panicked: {}", e))?;
 
-    let class_cache = flint_ltk::bin::get_cached_bin_hashes();
+    let class_cache = flint_core::bin::get_cached_bin_hashes();
     let cache = class_cache.read();
 
     let groups: Vec<BinSplitClassGroup> = multi
@@ -316,7 +316,7 @@ fn get_vfx_filename(folder: &Path) -> String {
     let mut current = folder.to_path_buf();
     while let Some(parent) = current.parent() {
         if parent.join("mod.config.json").exists() {
-            if let Ok(project) = flint_ltk::project::project::open_project(parent) {
+            if let Ok(project) = flint_core::project::project::open_project(parent) {
                 let creator = project.authors.first().map(|a| a.to_string()).unwrap_or_else(|| "Unknown".to_string());
                 let proj = project.name;
                 let creator_sanitized = creator.replace(' ', "-");

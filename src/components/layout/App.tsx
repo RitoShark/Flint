@@ -1,10 +1,14 @@
 import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { useAppMetadataStore, useConfigStore, useProjectTabStore, useNavigationStore, useWadExtractStore, useWadExplorerStore, useModalStore, useNotificationStore } from '../../lib/stores';
 import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
-import { initShortcuts, registerShortcut } from '../../lib/util/utils';
+import { useShortcutEngine, useAction } from '../../lib/shortcuts/hooks';
+import { useTabShortcuts } from '../../lib/shortcuts/useTabShortcuts';
 import * as api from '../../lib/api';
+import type { PendingFileOpen } from '../../lib/api/shell';
 import { openWadInExtract, isWadPath } from '../../lib/openWad';
+import { openOrImportFolder } from '../../lib/projectOpen';
 import { listen } from '@tauri-apps/api/event';
+import { open } from '@tauri-apps/plugin-dialog';
 import { invalidateCachedImage } from '../../lib/ui-helpers/imageCache';
 import { isSidecarFile } from '../../lib/editor/sidecarFiles';
 
@@ -44,6 +48,7 @@ import { ManifestBrowser } from '../browser/ManifestBrowser';
 import { ToastContainer } from '../overlays/Toast';
 import { TutorialOverlay, isOnboardingDone, TUTORIAL_REPLAY_EVENT } from '../overlays/TutorialOverlay';
 import { TooltipProvider } from '../overlays/TooltipProvider';
+import { ShortcutCheatSheet } from '../overlays/ShortcutCheatSheet';
 import { UpdateShowcase } from '../update/UpdateShowcase';
 
 function getActiveTab(state: { activeTabId: string | null; openTabs: Array<{ id: string; project: any; projectPath: string; selectedFile: string | null }> }) {
@@ -103,6 +108,7 @@ export const App: React.FC = () => {
 
     const [leftPanelWidth, setLeftPanelWidth] = useState(280);
     const [showTutorial, setShowTutorial] = useState(false);
+    const [showCheatSheet, setShowCheatSheet] = useState(false);
     const resizerRef = useRef<HTMLDivElement>(null);
     const isResizingRef = useRef(false);
 
@@ -131,46 +137,46 @@ export const App: React.FC = () => {
         };
     });
 
+    useShortcutEngine();
+    useTabShortcuts();
+
+    useAction('app.newProject', () => openModal('newProject'));
+    useAction('app.save', async () => {
+        const activeTab = getActiveTab(stateRef.current);
+        if (activeTab) {
+            try {
+                setWorking('Saving...');
+                await api.saveProject(activeTab.project);
+                setReady('Saved');
+            } catch (error) {
+                console.error('Failed to save:', error);
+                showToast('error', 'Save failed');
+            }
+        }
+    });
+    useAction('app.settings', () => openModal('settings'));
+    useAction('app.export', () => {
+        const activeTab = getActiveTab(stateRef.current);
+        if (activeTab) {
+            openModal('export');
+        }
+    });
+    useAction('app.closeCurrent', () => {
+        const s = stateRef.current;
+        if (s.currentView === 'wad-explorer') {
+            navigationCoordinator.closeWadExplorerWithFallback();
+        } else if (s.currentView === 'extract' && s.activeExtractId) {
+            navigationCoordinator.closeExtractSessionWithFallback(s.activeExtractId);
+        } else if (s.currentView === 'preview' && s.activeTabId) {
+            navigationCoordinator.removeTabWithFallback(s.activeTabId);
+        }
+    });
+    // No `if (activeModal)` guard needed — 'modal.close' is declared in the `modal`
+    // scope, so it can only resolve while a modal is actually open.
+    useAction('modal.close', () => closeModal());
+    useAction('help.cheatSheet', () => setShowCheatSheet((open) => !open));
+
     useEffect(() => {
-        initShortcuts();
-
-        registerShortcut('ctrl+n', () => openModal('newProject'));
-        registerShortcut('ctrl+s', async () => {
-            const activeTab = getActiveTab(stateRef.current);
-            if (activeTab) {
-                try {
-                    setWorking('Saving...');
-                    await api.saveProject(activeTab.project);
-                    setReady('Saved');
-                } catch (error) {
-                    console.error('Failed to save:', error);
-                    showToast('error', 'Save failed');
-                }
-            }
-        });
-        registerShortcut('ctrl+,', () => openModal('settings'));
-        registerShortcut('ctrl+e', () => {
-            const activeTab = getActiveTab(stateRef.current);
-            if (activeTab) {
-                openModal('export');
-            }
-        });
-        registerShortcut('ctrl+w', () => {
-            const s = stateRef.current;
-            if (s.currentView === 'wad-explorer') {
-                navigationCoordinator.closeWadExplorerWithFallback();
-            } else if (s.currentView === 'extract' && s.activeExtractId) {
-                navigationCoordinator.closeExtractSessionWithFallback(s.activeExtractId);
-            } else if (s.currentView === 'preview' && s.activeTabId) {
-                navigationCoordinator.removeTabWithFallback(s.activeTabId);
-            }
-        });
-        registerShortcut('escape', () => {
-            if (stateRef.current.activeModal) {
-                closeModal();
-            }
-        });
-
         if (!startupRan) {
             startupRan = true;
             useConfigStore.getState().hydrate().then(() => {
@@ -184,6 +190,20 @@ export const App: React.FC = () => {
         const activeTab = getActiveTab({ activeTabId, openTabs });
         return activeTab?.projectPath || null;
     }, [activeTabId, openTabs]);
+
+    // The hash overlay is a single backend slot for "the active project," not
+    // one per tab (see HashOverlayState in state.rs). `currentProjectPath`
+    // transitioning to null means the last open project tab just closed —
+    // the only point at which "no project is active" is unambiguous in a
+    // multi-tab UI. Clearing there, rather than on every tab close, avoids
+    // wiping a still-open tab's overlay when a *different* tab closes.
+    const lastProjectPathRef = React.useRef<string | null>(null);
+    useEffect(() => {
+        if (lastProjectPathRef.current && !currentProjectPath) {
+            api.clearProjectHashOverlay().catch(() => { });
+        }
+        lastProjectPathRef.current = currentProjectPath;
+    }, [currentProjectPath]);
 
     useEffect(() => {
         const onContextMenu = (e: MouseEvent) => {
@@ -274,7 +294,10 @@ export const App: React.FC = () => {
         };
     }, []);
 
-    const handleFileOpenRequest = useCallback(async (filePath: string) => {
+    // Renamed from `handleFileOpenRequest` — this is the existing double-click
+    // "open a file in the right editor" routing, byte-for-byte unchanged. It is
+    // now one branch of `handleShellRequest` below, reached by the `open` action.
+    const openPathInEditor = useCallback(async (filePath: string) => {
         if (!filePath) return;
         const lower = filePath.toLowerCase();
 
@@ -311,20 +334,88 @@ export const App: React.FC = () => {
         useNavigationStore.getState().navigateToFileEditor({ filePath, kind });
     }, [setWorking, setReady, showToast]);
 
+    // Dispatches every way Explorer can launch Flint with a target: a plain
+    // double-click open, or one of the four context-menu verbs. Each non-`open`
+    // branch reuses the flow that already exists for that action rather than
+    // duplicating it — see docs/superpowers/plans/2026-07-27-explorer-shell-verbs.md.
+    const handleShellRequest = useCallback(async (pending: PendingFileOpen) => {
+        switch (pending.action) {
+            case 'open':
+                return openPathInEditor(pending.path);
+
+            case 'extractWad': {
+                // Same prompt-then-extract-everything flow as the WAD Explorer's
+                // own extract actions (e.g. ChunkPreview.tsx), but with no chunk
+                // filter so the whole archive comes out.
+                try {
+                    const dest = await open({ title: 'Choose Extraction Folder', directory: true });
+                    if (!dest) return;
+                    setWorking('Extracting WAD...');
+                    const res = await api.extractWad(pending.path, dest as string, null);
+                    showToast('success', `Extracted ${res.extracted} files`);
+                    setReady('Extracted');
+                } catch (err) {
+                    console.error('Failed to extract WAD:', err);
+                    showToast('error', 'Failed to extract WAD');
+                    setReady('Error');
+                }
+                return;
+            }
+
+            case 'packWad': {
+                try {
+                    setWorking('Packing WAD...');
+                    const outPath = await api.packFolderToWad(pending.path);
+                    showToast('success', `Packed to ${outPath}`);
+                    setReady('Packed');
+                } catch (err) {
+                    console.error('Failed to pack folder to WAD:', err);
+                    showToast('error', 'Failed to pack folder to WAD');
+                    setReady('Error');
+                }
+                return;
+            }
+
+            case 'importMod':
+                // Seeds the same import wizard modal the file-association-driven
+                // import flow was built for; it runs api.analyzeFantome/analyzeModpkg
+                // itself once given a filePath (see ImportModModal.tsx).
+                openModal('importMod', { filePath: pending.path });
+                return;
+
+            case 'openProject': {
+                // Identical to the folder drag-and-drop handler in WelcomeScreen.tsx
+                // and ProjectListModal.tsx.
+                try {
+                    const outcome = await openOrImportFolder(pending.path);
+                    if (outcome.kind === 'rejected') {
+                        showToast('error', outcome.reason);
+                    } else if (outcome.kind === 'imported') {
+                        showToast('success', `Imported ${outcome.project.display_name || outcome.project.name}`);
+                    }
+                } catch (err) {
+                    console.error('Failed to open project folder:', err);
+                    showToast('error', 'Failed to open folder as a Flint project');
+                }
+                return;
+            }
+        }
+    }, [openPathInEditor, setWorking, setReady, showToast, openModal]);
+
     useEffect(() => {
-        const unlistenFileOpen = listen<string>('file-open-request', (event) => {
-            void handleFileOpenRequest(event.payload);
+        const unlistenFileOpen = listen<PendingFileOpen>('file-open-request', (event) => {
+            void handleShellRequest(event.payload);
         });
         // On a cold start the webview boots long after the backend emits its
         // fixed-delay `file-open-request`, so that event is lost. Now that the
-        // listener is mounted, PULL any pending "Open with" path from the
+        // listener is mounted, PULL any pending Explorer action from the
         // backend — race-free regardless of boot time. (This is why double-
         // clicking a file used to just open Flint; you had to double-click again.)
         api.takePendingFileOpen()
-            .then((pending) => { if (pending) void handleFileOpenRequest(pending); })
+            .then((pending) => { if (pending) void handleShellRequest(pending); })
             .catch((err) => console.error('takePendingFileOpen failed:', err));
         return () => { unlistenFileOpen.then((unlisten) => unlisten()); };
-    }, [handleFileOpenRequest]);
+    }, [handleShellRequest]);
 
     const previewWatcherRunningRef = React.useRef(false);
     useEffect(() => {
@@ -565,6 +656,8 @@ export const App: React.FC = () => {
             <TransferModal />
 
             {showTutorial && <TutorialOverlay onDone={() => setShowTutorial(false)} />}
+
+            {showCheatSheet && <ShortcutCheatSheet onClose={() => setShowCheatSheet(false)} />}
 
             <TooltipProvider />
 

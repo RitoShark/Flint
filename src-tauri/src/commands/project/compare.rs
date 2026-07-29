@@ -8,9 +8,10 @@
 //!   2. same directory + same extension + same leading stem token,
 //!      ranked by how many leading dot-separated tokens both filenames share.
 
-use flint_ltk::hash::{resolve_hashes_lmdb_bulk, ResolvedHashes};
-use flint_ltk::wad_jade::adapter::WadHandle as WadReader;
-use crate::state::{LmdbCacheState, WadCacheState};
+use flint_core::overlay::HashResolver;
+use flint_core::hash::ResolvedHashes;
+use flint_core::wad::adapter::WadHandle as WadReader;
+use crate::state::{HashOverlayState, WadCacheState};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -179,7 +180,7 @@ pub async fn find_original_file(
     league_path: String,
     project_path: String,
     file_rel_path: String,
-    lmdb: State<'_, LmdbCacheState>,
+    hash_overlay_state: State<'_, HashOverlayState>,
     wad_cache_state: State<'_, WadCacheState>,
 ) -> Result<OriginalFileMeta, String> {
     let (wad_name, internal_path) = split_project_path(&file_rel_path)
@@ -223,17 +224,17 @@ pub async fn find_original_file(
         chunks
     };
 
-    // Bulk-resolve all paths via LMDB (one txn).
-    let hash_dir = flint_ltk::hash::get_hash_dir()
+    // Bulk-resolve all paths — project overlay first, then global LMDB.
+    // `resolve_wad_bulk` is the rayon-parallel bulk path and omits misses
+    // natively, so no hex-filter is needed to strip unresolved entries back
+    // out.
+    let hash_dir = flint_core::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let env_opt = lmdb.get_env(&hash_dir);
+    let overlay = hash_overlay_state.get();
+    let resolver = HashResolver::new(&hash_dir, overlay.as_ref());
     let hashes: Vec<u64> = chunks.iter().map(|c| c.path_hash).collect();
-    let resolved: ResolvedHashes = if let Some(ref env) = env_opt {
-        resolve_hashes_lmdb_bulk(&hashes, env)
-    } else {
-        ResolvedHashes::default()
-    };
+    let resolved: ResolvedHashes = resolver.resolve_wad_bulk(&hashes);
 
     let target_lower = internal_path.to_lowercase().replace('\\', "/");
     let target_swapped_ext = swap_texture_ext(&target_lower);

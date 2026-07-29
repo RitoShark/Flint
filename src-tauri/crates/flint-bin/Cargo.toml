@@ -1,0 +1,18 @@
+[package]
+name = "flint-bin"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+flint-hash = { path = "../flint-hash" }
+
+tracing.workspace = true
+walkdir.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+indexmap = { version = "2.1", features = ["serde"] }
+
+ritoshark.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

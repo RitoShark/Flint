@@ -13,12 +13,13 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter};
 use walkdir::WalkDir;
 
-use flint_ltk::hash::lmdb_cache::{get_or_open_env, resolve_hashes_lmdb};
-use flint_ltk::wad_jade::adapter::{find_champion_wad, WadHandle as WadReader};
+use flint_core::overlay::{HashResolver, ProjectHashOverlay};
+use flint_core::wad::adapter::{find_champion_wad, WadHandle as WadReader};
 
 /// Summary of what recovery pulled in, surfaced to the importer for logging.
 #[derive(Debug, Default, Clone)]
@@ -54,7 +55,7 @@ fn resolve_linked_hash(
         }
     }
     // 2) Try every path variant: LMDB first, then a direct xxhash64 against the WAD.
-    for variant in flint_ltk::repath::path_variants::bin_path_variants(linked_key) {
+    for variant in flint_core::repath::path_variants::bin_path_variants(linked_key) {
         if let Some(h) = path_to_hash.get(&variant).copied() {
             return Some((h, variant));
         }
@@ -75,7 +76,7 @@ fn resolve_linked_hash(
     //    that Riot moved 2 folders deeper, renamed with `_multi_`, AND grew with
     //    newer skins. Match by member-set containment against the live WAD names
     //    (the keys of `path_to_hash`), taking the tightest superset.
-    if let Some(live) = flint_ltk::repath::path_variants::best_multi_bin_superset(
+    if let Some(live) = flint_core::repath::path_variants::best_multi_bin_superset(
         linked_key,
         champion,
         path_to_hash.keys().map(|s| s.as_str()),
@@ -166,13 +167,20 @@ pub(crate) fn extract_linked_bin_paths(bin_data: &[u8]) -> Vec<String> {
 /// `output_path` is the extracted `<champion>.wad.client` folder, `existing_hashes`
 /// is the set of WAD path-hashes the mod already provided (so we never overwrite
 /// the mod's own files), and `event_name` is the importer's progress channel
-/// (`fantome-import-progress` / `modpkg-import-progress`).
+/// (`fantome-import-progress` / `modpkg-import-progress`). `overlay` is the
+/// active project's hash overlay (if any), threaded in from `HashOverlayState`
+/// by the calling command. This resolves the League WAD itself, so an overlay
+/// entry that names a chunk the global database missed still lands in
+/// `path_to_hash` below — letting recovery pull a file it otherwise could not
+/// have matched.
+#[allow(clippy::too_many_arguments)]
 pub fn recover_missing_files_from_league(
     app: &AppHandle,
     event_name: &str,
     output_path: &Path,
     league_path: &str,
     hash_dir: &str,
+    overlay: Option<Arc<ProjectHashOverlay>>,
     champion: &str,
     existing_hashes: &HashSet<u64>,
 ) -> Result<RecoveryReport, String> {
@@ -189,11 +197,14 @@ pub fn recover_missing_files_from_league(
     let mut wad_reader = WadReader::open(champion_wad.to_str().unwrap())
         .map_err(|e| format!("Failed to open champion WAD: {}", e))?;
 
-    let env = get_or_open_env(hash_dir).ok_or("Failed to open LMDB environment")?;
+    let resolver = HashResolver::new(hash_dir, overlay.as_ref());
+    if !resolver.has_global_wad() {
+        return Err("Hash databases not found. Run hash download first.".to_string());
+    }
 
     // Resolve every WAD chunk hash → path once so we can look paths up cheaply.
     let all_wad_hashes: Vec<u64> = wad_reader.chunks().iter().map(|c| c.path_hash).collect();
-    let all_wad_paths = resolve_hashes_lmdb(&all_wad_hashes, &env);
+    let all_wad_paths = resolver.resolve_wad(&all_wad_hashes);
     let mut path_to_hash: HashMap<String, u64> = HashMap::new();
     for (hash, path) in all_wad_hashes.iter().zip(all_wad_paths.iter()) {
         path_to_hash.insert(path.to_lowercase(), *hash);
@@ -221,7 +232,7 @@ pub fn recover_missing_files_from_league(
             for lp in extract_linked_bin_paths(&bin_data) {
                 linked.insert(lp);
             }
-            if let Ok(bin) = flint_ltk::bin::read_bin(&bin_data) {
+            if let Ok(bin) = flint_core::bin::read_bin(&bin_data) {
                 for lp in bin.linked {
                     linked.insert(lp);
                 }
@@ -243,7 +254,7 @@ pub fn recover_missing_files_from_league(
                     for lp in extract_linked_bin_paths(&orig_data) {
                         linked.insert(lp);
                     }
-                    if let Ok(bin) = flint_ltk::bin::read_bin(&orig_data) {
+                    if let Ok(bin) = flint_core::bin::read_bin(&orig_data) {
                         for lp in bin.linked {
                             linked.insert(lp);
                         }
@@ -326,7 +337,7 @@ pub fn recover_missing_files_from_league(
                         queue.push(lp);
                     }
                 }
-                if let Ok(bin) = flint_ltk::bin::read_bin(&data) {
+                if let Ok(bin) = flint_core::bin::read_bin(&data) {
                     for lp in bin.linked {
                         if !seen.contains(&lp.to_lowercase()) {
                             queue.push(lp);
@@ -363,7 +374,7 @@ pub fn recover_missing_files_from_league(
         {
             let bin_path = entry.path();
             let Ok(data) = std::fs::read(bin_path) else { continue };
-            let Ok(mut bin) = flint_ltk::bin::read_bin(&data) else { continue };
+            let Ok(mut bin) = flint_core::bin::read_bin(&data) else { continue };
             let mut changed = false;
             for link in bin.linked.iter_mut() {
                 let norm = link.replace('\\', "/").trim_start_matches('/').to_lowercase();
@@ -373,7 +384,7 @@ pub fn recover_missing_files_from_league(
                 }
             }
             if changed {
-                if let Ok(bytes) = flint_ltk::bin::write_bin(&bin) {
+                if let Ok(bytes) = flint_core::bin::write_bin(&bin) {
                     if std::fs::write(bin_path, &bytes).is_ok() {
                         rewritten_bins += 1;
                     }

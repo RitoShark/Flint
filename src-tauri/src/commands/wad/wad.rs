@@ -1,6 +1,7 @@
-use flint_ltk::hash::{resolve_hashes_lmdb, resolve_hashes_lmdb_bulk, ResolvedHashes};
-use flint_ltk::wad_jade::adapter::WadHandle as WadReader;
-use crate::state::{LmdbCacheState, WadCacheState};
+use flint_core::overlay::HashResolver;
+use flint_core::hash::ResolvedHashes;
+use flint_core::wad::adapter::WadHandle as WadReader;
+use crate::state::{HashOverlayState, LmdbCacheState, WadCacheState};
 use crate::core::ipc_trace;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -42,8 +43,9 @@ pub async fn read_wad(path: String) -> Result<WadInfo, String> {
 #[tauri::command]
 pub async fn get_wad_chunks(
     path: String,
-    lmdb: State<'_, LmdbCacheState>,
+    _lmdb: State<'_, LmdbCacheState>,
     wad_cache_state: State<'_, WadCacheState>,
+    overlay_state: State<'_, HashOverlayState>,
 ) -> Result<Vec<ChunkInfo>, String> {
     let _t = ipc_trace::enter("get_wad_chunks");
     let total_start = Instant::now();
@@ -69,15 +71,12 @@ pub async fn get_wad_chunks(
     let d_hash_collect = t_hashes.elapsed();
 
     let t_resolve = Instant::now();
-    let resolved: Vec<String> = if let Some(env) = lmdb.get_env(
-        &flint_ltk::hash::get_hash_dir()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_default()
-    ) {
-        resolve_hashes_lmdb(&hash_u64s, &env)
-    } else {
-        hash_u64s.iter().map(|h| format!("{:016x}", h)).collect()
-    };
+    let hash_dir = flint_core::hash::get_hash_dir()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let overlay = overlay_state.get();
+    let resolver = HashResolver::new(&hash_dir, overlay.as_ref());
+    let resolved: Vec<String> = resolver.resolve_wad(&hash_u64s);
     let d_resolve = t_resolve.elapsed();
 
     let t_build = Instant::now();
@@ -141,17 +140,19 @@ pub async fn get_wad_chunks(
 #[tauri::command]
 pub async fn load_all_wad_chunks(
     paths: Vec<String>,
-    lmdb: State<'_, LmdbCacheState>,
+    _lmdb: State<'_, LmdbCacheState>,
     wad_cache_state: State<'_, WadCacheState>,
+    overlay_state: State<'_, HashOverlayState>,
 ) -> Result<tauri::ipc::Response, String> {
     let _t = ipc_trace::enter("load_all_wad_chunks");
     let total_start = Instant::now();
     let cache = wad_cache_state.get();
 
-    let hash_dir = flint_ltk::hash::get_hash_dir()
+    let hash_dir = flint_core::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let env_opt = lmdb.get_env(&hash_dir);
+    let overlay = overlay_state.get();
+    let resolver = HashResolver::new(&hash_dir, overlay.as_ref());
 
     // Phase 1: parallel WAD header reads (rayon).
     let t_phase1 = Instant::now();
@@ -195,11 +196,7 @@ pub async fn load_all_wad_chunks(
     let t_phase3 = Instant::now();
     let unique_vec: Vec<u64> = unique_hashes.into_iter().collect();
     let unique_count = unique_vec.len();
-    let resolved_map: ResolvedHashes = if let Some(ref env) = env_opt {
-        resolve_hashes_lmdb_bulk(&unique_vec, env)
-    } else {
-        ResolvedHashes::default()
-    };
+    let resolved_map: ResolvedHashes = resolver.resolve_wad_bulk(&unique_vec);
     let d_phase3 = t_phase3.elapsed();
 
     // Phase 4: encode binary payload in parallel (each WAD's bytes are independent).
@@ -244,7 +241,7 @@ trait WadChunkMeta {
     fn uncompressed_size_u32(&self) -> u32;
 }
 
-impl WadChunkMeta for flint_ltk::wad_jade::format::WadChunk {
+impl WadChunkMeta for flint_core::wad::format::WadChunk {
     fn path_hash_le(&self) -> u64 { self.path_hash }
     fn uncompressed_size_u32(&self) -> u32 { self.uncompressed_size as u32 }
 }
@@ -331,16 +328,18 @@ pub async fn extract_wad(
     wad_path: String,
     output_dir: String,
     chunk_hashes: Option<Vec<String>>,
-    lmdb: State<'_, LmdbCacheState>,
+    _lmdb: State<'_, LmdbCacheState>,
+    overlay_state: State<'_, HashOverlayState>,
 ) -> Result<ExtractionResult, String> {
     let _t = ipc_trace::enter("extract_wad");
 
-    // Snapshot the LMDB env so the move into spawn_blocking doesn't borrow
-    // the Tauri State guard across an await.
-    let hash_dir = flint_ltk::hash::get_hash_dir()
+    // Build the resolver before spawn_blocking so the move doesn't borrow the
+    // Tauri State guard across an await.
+    let hash_dir = flint_core::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let env_opt = lmdb.get_env(&hash_dir);
+    let overlay = overlay_state.get();
+    let hash_resolver = HashResolver::new(&hash_dir, overlay.as_ref());
 
     let want_hashes: Option<HashSet<u64>> = match chunk_hashes {
         None => None,
@@ -357,14 +356,8 @@ pub async fn extract_wad(
 
     let output_dir_clone = output_dir.clone();
     let result: Result<(usize, usize, std::collections::HashMap<String, String>), String> = tokio::task::spawn_blocking(move || {
-        let resolver = |hashes: &[u64]| -> ResolvedHashes {
-            if let Some(ref env) = env_opt {
-                resolve_hashes_lmdb_bulk(hashes, env)
-            } else {
-                hashes.iter().map(|h| (*h, format!("{:016x}", h))).collect()
-            }
-        };
-        flint_ltk::wad_jade::adapter::extract_chunks_parallel(
+        let resolver = |hashes: &[u64]| -> ResolvedHashes { hash_resolver.resolve_wad_bulk(hashes) };
+        flint_core::wad::adapter::extract_chunks_parallel(
             &wad_path,
             &output_dir,
             want_hashes.as_ref(),
@@ -412,8 +405,9 @@ pub struct WadModelPreviewResult {
 pub async fn extract_wad_model_preview(
     wad_path: String,
     skn_hash: String,
-    lmdb: State<'_, LmdbCacheState>,
+    _lmdb: State<'_, LmdbCacheState>,
     wad_cache_state: State<'_, WadCacheState>,
+    overlay_state: State<'_, HashOverlayState>,
 ) -> Result<WadModelPreviewResult, String> {
     let target_hash = u64::from_str_radix(&skn_hash, 16)
         .map_err(|e| format!("Invalid hash '{}': {}", skn_hash, e))?;
@@ -431,14 +425,25 @@ pub async fn extract_wad_model_preview(
     };
 
     let hash_u64s: Vec<u64> = chunks.iter().map(|c| c.path_hash).collect();
-    let hash_dir = flint_ltk::hash::get_hash_dir()
+    let hash_dir = flint_core::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let resolved_map: ResolvedHashes = if let Some(ref env) = lmdb.get_env(&hash_dir) {
-        resolve_hashes_lmdb_bulk(&hash_u64s, env)
-    } else {
-        hash_u64s.iter().map(|h| (*h, format!("{:016x}", h))).collect()
-    };
+    let overlay = overlay_state.get();
+    let resolver = HashResolver::new(&hash_dir, overlay.as_ref());
+    let mut resolved_map: ResolvedHashes = resolver.resolve_wad_bulk(&hash_u64s);
+    if !resolver.has_global_wad() {
+        // No downloaded global hash DB: `resolve_wad_bulk` omits misses (the
+        // bulk contract other call sites rely on), but this site's original
+        // fallback hex-filled every hash so `target_hash` below always
+        // resolved to *something*. Preserve that — overlay hits (already in
+        // `resolved_map`) still win over the hex filler.
+        for h in &hash_u64s {
+            if !resolved_map.contains_key(h) {
+                let hex = format!("{:016x}", h);
+                resolved_map.insert(*h, &hex);
+            }
+        }
+    }
 
     let skn_resolved = resolved_map.get(&target_hash)
         .ok_or_else(|| format!("Mesh chunk {:016x} not found in WAD", target_hash))?;
@@ -485,7 +490,7 @@ pub async fn extract_wad_model_preview(
                 let _ = std::fs::create_dir_all(parent);
             }
             let chunk_copy = *chunk;
-            if let Err(e) = flint_ltk::wad_jade::adapter::extract_chunk(
+            if let Err(e) = flint_core::wad::adapter::extract_chunk(
                 &mut reader.wad_mut(), &chunk_copy, &output_path, None,
             ) {
                 tracing::warn!("Failed to extract {}: {}", rel_path, e);
@@ -507,7 +512,7 @@ pub async fn extract_wad_model_preview(
         if rel_path.to_lowercase().ends_with(".bin") {
             let bin_path = temp_dir.join(rel_path);
             let ritobin_path = std::path::PathBuf::from(format!("{}.ritobin", bin_path.display()));
-            if let Err(e) = crate::commands::mesh::create_ritobin_cache(&bin_path, &ritobin_path) {
+            if let Err(e) = flint_core::mesh::ritobin::create_ritobin_cache(&bin_path, &ritobin_path) {
                 tracing::warn!("Failed to create ritobin cache for {}: {}", rel_path, e);
             }
         }
@@ -628,12 +633,12 @@ pub async fn concat_wad_skin_bin(
             .wad_mut()
             .load_chunk_decompressed(&skin_chunk)
             .map_err(|e| format!("Failed to read skin bin: {}", e))?;
-        let mut main_bin = flint_ltk::bin::read_bin(&skin_bytes)
+        let mut main_bin = flint_core::bin::read_bin(&skin_bytes)
             .map_err(|e| format!("Failed to parse skin bin: {}", e))?;
 
         // Read each linked bin from the WAD by its xxh64(lowercased path) hash.
         let (concat_bin, source_count) =
-            flint_ltk::bin::concat_linked_bins_with(&main_bin, |linked_path| {
+            flint_core::bin::concat_linked_bins_with(&main_bin, |linked_path| {
                 let h = xxh64(linked_path.to_lowercase().as_bytes(), 0);
                 let chunk = *reader.get_chunk(h)?;
                 reader.wad_mut().load_chunk_decompressed(&chunk).ok()
@@ -675,13 +680,13 @@ pub async fn concat_wad_skin_bin(
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create {}: {}", parent.display(), e))?;
         }
-        let concat_data = flint_ltk::bin::write_bin(&concat_bin)
+        let concat_data = flint_core::bin::write_bin(&concat_bin)
             .map_err(|e| format!("Failed to write concat bin: {}", e))?;
         std::fs::write(&concat_out, &concat_data)
             .map_err(|e| format!("Failed to write {}: {}", concat_out.display(), e))?;
 
         // 2) Repoint the skin bin's links: concat first, then keep root + animation.
-        flint_ltk::bin::update_main_bin_links(&mut main_bin, concat_linked_path)
+        flint_core::bin::update_main_bin_links(&mut main_bin, concat_linked_path)
             .map_err(|e| e.to_string())?;
 
         // 3) Write the skin bin at its real resolved path (create the structure).
@@ -695,7 +700,7 @@ pub async fn concat_wad_skin_bin(
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create {}: {}", parent.display(), e))?;
         }
-        let skin_data = flint_ltk::bin::write_bin(&main_bin)
+        let skin_data = flint_core::bin::write_bin(&main_bin)
             .map_err(|e| format!("Failed to write skin bin: {}", e))?;
         std::fs::write(&skin_out, &skin_data)
             .map_err(|e| format!("Failed to write {}: {}", skin_out.display(), e))?;
@@ -724,7 +729,7 @@ fn warm_wad_lmdb_once() {
     static WARMED: std::sync::Once = std::sync::Once::new();
     WARMED.call_once(|| {
         std::thread::spawn(|| {
-            let Ok(dir) = flint_ltk::hash::get_hash_dir() else { return };
+            let Ok(dir) = flint_core::hash::get_hash_dir() else { return };
             let Ok(mut f) = std::fs::File::open(dir.join("hashes-wad.lmdb").join("data.mdb")) else { return };
             let t = Instant::now();
             let mut buf = vec![0u8; 4 << 20];

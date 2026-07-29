@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { useConfigStore, useProjectTabStore, useNavigationStore, useModalStore, useAppMetadataStore } from '../../lib/stores';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useConfigStore, useModalStore, useAppMetadataStore, useNotificationStore } from '../../lib/stores';
 import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
 import { formatRelativeTime } from '../../lib/util/utils';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
+import { useFolderDrop } from '../../lib/folderDrop';
+import { openOrImportFolder, openProjectAt, isSameProjectPath } from '../../lib/projectOpen';
 import type { RecentProject } from '../../lib/types';
 
 const ClockIcon: React.FC = () => (
@@ -25,11 +27,57 @@ export const WelcomeScreen: React.FC = () => {
     const recentProjects = useConfigStore((s) => s.recentProjects);
     const creatorName = useConfigStore((s) => s.creatorName) || 'Creator';
     const openModal = useModalStore((s) => s.openModal);
+    const activeModal = useModalStore((s) => s.activeModal);
     const setWorking = useAppMetadataStore((s) => s.setWorking);
     const setReady = useAppMetadataStore((s) => s.setReady);
     const setError = useAppMetadataStore((s) => s.setError);
+    const showToast = useNotificationStore((s) => s.showToast);
     const [greeting, setGreeting] = useState('');
     const [showAllRecent, setShowAllRecent] = useState(false);
+    const dropZoneRef = useRef<HTMLDivElement>(null);
+
+    // Drop recents whose folder is gone. App.tsx also sweeps once ~3s after
+    // launch, but a project deleted while Flint is running would otherwise sit
+    // in the list until the next restart — so re-check whenever the list is
+    // actually shown. Reads the store directly instead of depending on
+    // `recentProjects`, which would re-run the effect on every prune.
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            const recent = useConfigStore.getState().recentProjects;
+            if (recent.length === 0) return;
+            try {
+                const validity = await api.projectsPathValid(recent.map((p) => p.path));
+                if (cancelled) return;
+                const valid = recent.filter((_, i) => validity[i]);
+                if (valid.length !== recent.length) {
+                    useConfigStore.getState().setRecentProjects(valid);
+                }
+            } catch (error) {
+                // Non-fatal: a failed check just leaves the list as-is.
+                console.debug('[Welcome] recent-project validity check failed:', error);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, []);
+
+    // Drop a Flint project folder to open it, or an extracted WAD folder to
+    // import it. The whole welcome surface is the target.
+    const handleDroppedFolder = useCallback(async (path: string) => {
+        const outcome = await openOrImportFolder(path);
+        if (outcome.kind === 'rejected') {
+            showToast('error', outcome.reason);
+        } else if (outcome.kind === 'imported') {
+            showToast('success', `Imported ${outcome.project.display_name || outcome.project.name}`);
+        }
+    }, [showToast]);
+
+    // Stand down while any modal is open — the project list renders its own
+    // drop zone on top, and both listeners would otherwise fire for one drop.
+    const dragOver = useFolderDrop(handleDroppedFolder, {
+        zoneRef: dropZoneRef,
+        enabled: activeModal === null,
+    });
 
     useEffect(() => {
         const getGreeting = () => {
@@ -48,40 +96,8 @@ export const WelcomeScreen: React.FC = () => {
     const openRecentProject = async (projectPath: string) => {
         try {
             setWorking('Opening project...');
-
-            let projectDir = projectPath;
-            if (projectDir.endsWith('project.json')) {
-                projectDir = projectDir.replace(/[\\/]project\.json$/, '');
-            }
-
-            const { project, fileTree: files } = await api.openProjectWithTree(projectDir);
-
-            useProjectTabStore.getState().addTab(project, projectDir);
-            useNavigationStore.getState().setView('preview');
-            useConfigStore.getState().addSavedProject({
-                id: `proj-${Date.now()}`,
-                name: project.display_name || project.name,
-                kind: project.kind ?? 'skin',
-                champion: project.champion,
-                mapId: project.map_id ?? null,
-                path: projectDir,
-                lastOpened: new Date().toISOString(),
-            });
-            const tabId = useProjectTabStore.getState().activeTabId;
-            if (tabId) useProjectTabStore.getState().setFileTree(tabId, files);
-
+            await openProjectAt(projectPath);
             setReady();
-
-            const recent = recentProjects.filter(p => p.path !== projectPath);
-            recent.unshift({
-                name: project.display_name || project.name,
-                champion: project.champion,
-                skin: project.skin_id,
-                path: projectPath,
-                lastOpened: new Date().toISOString(),
-            });
-            useConfigStore.getState().setRecentProjects(recent.slice(0, 10));
-
         } catch (error) {
             console.error('Failed to open project:', error);
             const flintError = error as api.FlintError;
@@ -96,7 +112,7 @@ export const WelcomeScreen: React.FC = () => {
     const handleRemoveRecent = (e: React.MouseEvent, projectPath: string) => {
         e.stopPropagation();
         useConfigStore.getState().setRecentProjects(
-            recentProjects.filter(p => p.path !== projectPath),
+            recentProjects.filter(p => !isSameProjectPath(p.path, projectPath)),
         );
     };
 
@@ -105,7 +121,14 @@ export const WelcomeScreen: React.FC = () => {
     };
 
     return (
-        <div className="welcome">
+        <div className={`welcome ${dragOver ? 'welcome--drag-over' : ''}`} ref={dropZoneRef}>
+            {dragOver && (
+                <div className="welcome__drop-overlay">
+                    <span className="welcome__drop-icon" dangerouslySetInnerHTML={{ __html: getIcon('folderOpen2') }} />
+                    <span className="welcome__drop-title">Drop to open or import</span>
+                    <span className="welcome__drop-hint">A Flint project opens; an extracted WAD folder is imported</span>
+                </div>
+            )}
             <div className="welcome__header">
                 <h1 className="welcome__greeting">
                     {greeting}, <span className="welcome__creator-name">{creatorName}</span>

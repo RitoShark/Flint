@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useModalStore, useNotificationStore } from '../../lib/stores';
+import { useModalStore, useNotificationStore, useProjectTabStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { falloff, strokeDabs, compositeMaskBlue, compositeEraseBlue, maskToDisplayRgba } from '../../lib/maskPaint';
 
@@ -8,6 +8,12 @@ interface ModalOpts {
     projectPath?: string;
     /** When opened from a *-mask.tex, the disk path of that mask. */
     maskPath?: string;
+    /** True when the caller applied the banner just to open this editor, so
+     *  Cancel has to undo that write rather than simply close. */
+    appliedForThisSession?: boolean;
+    /** True when a mask file already existed before that apply — cancelling
+     *  must then keep it, since it holds artwork painted earlier. */
+    maskExistedBefore?: boolean;
 }
 
 type Tool = 'brush' | 'eraser';
@@ -40,10 +46,13 @@ export const LoadscreenBannerModal: React.FC = () => {
     const modalOptions = useModalStore((s) => s.modalOptions) as ModalOpts | null;
     const showToast = useNotificationStore((s) => s.showToast);
     const projectPath = modalOptions?.projectPath ?? '';
+    const appliedForThisSession = modalOptions?.appliedForThisSession ?? false;
+    const maskExistedBefore = modalOptions?.maskExistedBefore ?? false;
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
+    const [reverting, setReverting] = useState(false);
     const [dirty, setDirty] = useState(false);
 
     const [dims, setDims] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
@@ -134,14 +143,17 @@ export const LoadscreenBannerModal: React.FC = () => {
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && !saving) closeModal();
+            // Escape is a cancel like any other — it must revert, not just close.
+            if (e.key === 'Escape' && !saving && !reverting) requestClose();
             else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
             else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
         };
         document.addEventListener('keydown', onKey);
         return () => document.removeEventListener('keydown', onKey);
+        // `dirty`/`appliedForThisSession` matter too: the handler decides via
+        // requestClose whether Escape needs to confirm and revert.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [saving]);
+    }, [saving, reverting, dirty, appliedForThisSession, maskExistedBefore]);
 
     function emptyMask(w: number, h: number): Uint8Array {
         // Fresh mask = VFX everywhere (blue 255); the user paints the champion to
@@ -379,15 +391,52 @@ export const LoadscreenBannerModal: React.FC = () => {
         }
     };
 
+    /** Put the project back the way it was, then close.
+     *
+     *  Opening this editor for a project that had no banner writes the material
+     *  into the BIN and generates the mask up front, so "Cancel" has to actively
+     *  undo those writes — closing alone would leave the banner applied. */
+    const cancelAndRevert = useCallback(async () => {
+        if (!appliedForThisSession) { closeModal(); return; }
+        setReverting(true);
+        try {
+            await api.revertLoadscreenBanner(projectPath, !maskExistedBefore);
+            // The mask file is gone from disk; re-read the tree so it stops
+            // showing an entry that no longer exists.
+            const tabs = useProjectTabStore.getState();
+            const tab = tabs.openTabs.find((t) => t.projectPath === projectPath);
+            if (tab) {
+                try {
+                    tabs.setFileTree(tab.id, await api.listProjectFiles(projectPath));
+                } catch { /* the revert already succeeded; a stale tree is cosmetic */ }
+            }
+            showToast('info', 'Loadscreen banner cancelled');
+        } catch (e) {
+            const fe = e as api.FlintError;
+            showToast('error', fe.getUserMessage?.() || (e instanceof Error ? e.message : 'Failed to cancel the banner'));
+        } finally {
+            setReverting(false);
+            closeModal();
+        }
+    }, [appliedForThisSession, maskExistedBefore, projectPath, closeModal, showToast]);
+
     const requestClose = () => {
-        if (saving) return;
-        if (dirty) {
+        if (saving || reverting) return;
+        // Confirm when there is something to lose: painted edits, or an apply
+        // this session that cancelling is about to roll back.
+        if (dirty || appliedForThisSession) {
             useModalStore.getState().openConfirmDialog({
-                title: 'Discard mask changes?',
-                message: 'You have unsaved mask edits. Close without saving?',
-                confirmLabel: 'Discard',
+                title: appliedForThisSession ? 'Cancel loadscreen banner?' : 'Discard mask changes?',
+                message: appliedForThisSession
+                    ? `The banner was added to this project when the editor opened. Cancelling removes it from the skin BIN${maskExistedBefore ? '' : ' and deletes the generated mask'}.`
+                    : 'You have unsaved mask edits. Close without saving?',
+                confirmLabel: appliedForThisSession ? 'Cancel banner' : 'Discard',
+                cancelLabel: appliedForThisSession ? 'Keep editing' : undefined,
                 danger: true,
-                onConfirm: () => { useModalStore.getState().closeConfirmDialog(); closeModal(); },
+                onConfirm: () => {
+                    useModalStore.getState().closeConfirmDialog();
+                    void cancelAndRevert();
+                },
             });
         } else closeModal();
     };
@@ -507,8 +556,10 @@ export const LoadscreenBannerModal: React.FC = () => {
                 </div>
 
                 <div className="dl-modal__foot" style={{ justifyContent: 'space-between' }}>
-                    <button className="dl-btn dl-btn--ghost" onClick={requestClose} disabled={saving}>Cancel</button>
-                    <button className={`dl-btn dl-btn--primary${saving ? ' dl-btn--loading' : ''}`} onClick={handleSave} disabled={saving || loading || !!error}>
+                    <button className={`dl-btn dl-btn--ghost${reverting ? ' dl-btn--loading' : ''}`} onClick={requestClose} disabled={saving || reverting}>
+                        {reverting ? 'Cancelling…' : 'Cancel'}
+                    </button>
+                    <button className={`dl-btn dl-btn--primary${saving ? ' dl-btn--loading' : ''}`} onClick={handleSave} disabled={saving || reverting || loading || !!error}>
                         {saving ? 'Saving…' : 'Save Mask'}
                     </button>
                 </div>

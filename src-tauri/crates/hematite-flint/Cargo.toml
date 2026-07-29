@@ -5,18 +5,20 @@ edition = "2021"
 
 [dependencies]
 # Hematite skin-fixer engine. Pinned at Hematite main rev 96ce760 (PR #2 merge).
-# Their rs_* crates are pinned at daff556 — IDENTICAL to Flint's ritoshark rev —
-# so exactly ONE copy of rs_* compiles across the whole Flint workspace.
+# Their rs_* pin and Flint's ritoshark rev no longer have to match: Cargo
+# unifies them into ONE copy of rs_* — Cargo.lock holds a single rs_file entry.
+# Check that still holds after bumping either side; two copies would make
+# `FileKind` two mutually incompatible types.
 hematite-orchestrate = { git = "https://github.com/RitoShark/Hematite", rev = "c1ded2c" }
 hematite-core = { git = "https://github.com/RitoShark/Hematite", rev = "c1ded2c" }
 hematite-file = { git = "https://github.com/RitoShark/Hematite", rev = "c1ded2c" }
 hematite-live = { git = "https://github.com/RitoShark/Hematite", rev = "c1ded2c" }
 hematite-types = { git = "https://github.com/RitoShark/Hematite", rev = "c1ded2c" }
 
-anyhow = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tracing = "0.1"
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
 # Flint's shared HTTP stack (same pin as the binary crate — one rustls/ring copy).
 # `blocking` because config loading runs inside the command's spawn_blocking —
 # same TLS stack (rustls-no-provider + ring) as the binary crate, just the

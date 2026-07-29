@@ -69,8 +69,8 @@
     left: -2px;
     top: 50%;
     transform: translateY(-50%);
-    width: 26px;
-    height: 26px;
+    width: 30px;
+    height: 30px;
     border-radius: 50%;
     background: radial-gradient(circle,
         color-mix(in oklab, var(--accent-primary) 22%, transparent) 0%,
@@ -299,7 +299,8 @@
         transform 200ms cubic-bezier(.34, 1.56, .64, 1);
 }
 
-.titlebar__button svg {
+.titlebar__button svg,
+.titlebar__button img {
     display: block;
     transition:
         transform 220ms cubic-bezier(.34, 1.56, .64, 1),
@@ -311,7 +312,8 @@
     color: var(--text-primary);
 }
 
-.titlebar__button:hover svg {
+.titlebar__button:hover svg,
+.titlebar__button:hover img {
     transform: scale(1.1);
     filter: drop-shadow(0 0 4px color-mix(in oklab, var(--accent-primary) 35%, transparent));
 }
@@ -324,7 +326,17 @@
     transform: rotate(60deg) scale(1.08);
 }
 
-.titlebar__button--sync:hover svg {
+/* The target launcher's brand mark. Sized here because an <img> carries no intrinsic
+   icon size — the source art is 512x512, so a missing rule renders it enormous. */
+.titlebar__sync-logo {
+    width: 16px;
+    height: 16px;
+    object-fit: contain;
+}
+
+/* Spin marks an in-flight sync rather than plain hover: a brand logo rotating forever
+   under the cursor reads as broken, and a sync previously gave no feedback at all. */
+.titlebar__button--syncing .titlebar__sync-logo {
     animation: tbSyncSpin 1.4s linear infinite;
 }
 

@@ -9,9 +9,9 @@ use tauri::{AppHandle, Emitter};
 use walkdir::WalkDir;
 
 use crate::state::LmdbCacheState;
-use flint_ltk::hash::{get_hash_dir, resolve_hashes_lmdb_bulk, ResolvedHashes};
-use flint_ltk::troybin::parse_troybin;
-use flint_ltk::wad_jade::adapter::WadHandle as WadReader;
+use flint_core::hash::{get_hash_dir, resolve_hashes_lmdb_bulk, ResolvedHashes};
+use flint_core::troybin::parse_troybin;
+use flint_core::wad::adapter::WadHandle as WadReader;
 
 // =============================================================================
 // Progress / public stats

@@ -45,6 +45,20 @@ export async function applyLoadscreenBanner(
     return invokeCommand('apply_loadscreen_banner', { projectPath, params: params ?? null, rebuildMask });
 }
 
+/**
+ * Undo an `applyLoadscreenBanner` the user backed out of: strips the material
+ * link + entry from the BIN and removes the generated mask.
+ *
+ * Pass `deleteMask: false` when the mask already existed before the apply, so a
+ * cancel never deletes artwork that was painted earlier.
+ */
+export async function revertLoadscreenBanner(
+    projectPath: string,
+    deleteMask = true,
+): Promise<void> {
+    return invokeCommand('revert_loadscreen_banner', { projectPath, deleteMask });
+}
+
 export async function saveBannerMask(
     maskPath: string,
     rgba: Uint8Array,

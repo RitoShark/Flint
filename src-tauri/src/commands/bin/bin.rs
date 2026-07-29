@@ -1,5 +1,5 @@
-use flint_ltk::bin::{bin_to_json, json_to_bin, read_bin, text_to_bin, write_bin};
-use flint_ltk::bin::tree_to_text_cached;
+use flint_core::bin::{bin_to_json, json_to_bin, read_bin, text_to_bin, write_bin};
+use flint_core::bin::tree_to_text_cached;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -53,7 +53,7 @@ pub async fn convert_bin_to_text(
 
     tracing::debug!("Read {} bytes from {}", data.len(), input_path);
 
-    let bin = flint_ltk::bin::read_bin_ltk(&data)
+    let bin = flint_core::bin::read_bin(&data)
         .map_err(|e| {
             tracing::error!("Failed to parse bin file '{}': {}", input_path, e);
             format!("Failed to parse bin file '{}': {}", input_path, e)
@@ -237,7 +237,7 @@ pub async fn convert_bin_bytes_to_text(
     };
     tracing::debug!("Converting {} bytes of BIN data to text", bin_data.len());
 
-    let bin = flint_ltk::bin::read_bin_ltk(bin_data)
+    let bin = flint_core::bin::read_bin(bin_data)
         .map_err(|e| {
             tracing::error!("Failed to parse bin data: {}", e);
             format!("Failed to parse bin data: {}", e)
@@ -265,7 +265,7 @@ pub async fn convert_bin_bytes_to_text(
 #[tauri::command]
 pub async fn unhash_bin_text(text: String) -> Result<UnhashResult, String> {
     let _t = ipc_trace::enter("unhash_bin_text");
-    let (unhashed, replaced) = flint_ltk::bin::unhash_text_cached(&text);
+    let (unhashed, replaced) = flint_core::bin::unhash_text_cached(&text);
     tracing::debug!("unhash_bin_text: resolved {} hash token(s)", replaced);
     Ok(UnhashResult { text: unhashed, replaced })
 }
@@ -329,12 +329,12 @@ pub async fn parse_bin_file_to_text(
 
     tracing::debug!("Read {} bytes from {}", data.len(), path);
 
-    let bin = flint_ltk::bin::read_bin_ltk(&data)
+    let bin = flint_core::bin::read_bin(&data)
         .map_err(|e| format!("Failed to parse bin file: {}", e))?;
 
     tracing::debug!("Parsed bin file with {} objects", bin.entries.len());
 
-    let text = flint_ltk::bin::tree_to_text_cached(&bin)
+    let text = flint_core::bin::tree_to_text_cached(&bin)
         .map_err(|e| format!("Failed to convert to text: {}", e))?;
 
     tracing::info!("Successfully parsed BIN file to text ({} chars)", text.len());
@@ -403,9 +403,9 @@ async fn read_or_convert_bin_inner(
         .map_err(|e| format!("Failed to read file: {}", e))?;
 
     let text = {
-        let bin = flint_ltk::bin::read_bin_ltk(&data)
+        let bin = flint_core::bin::read_bin(&data)
             .map_err(|e| format!("Failed to parse bin file: {}", e))?;
-        flint_ltk::bin::tree_to_text_cached(&bin)
+        flint_core::bin::tree_to_text_cached(&bin)
             .map_err(|e| format!("Failed to convert to text: {}", e))?
     };
 
@@ -432,9 +432,9 @@ pub async fn save_ritobin_to_bin(
     // blocking pool so a large BIN save doesn't stall the async runtime / UI.
     let content_for_encode = content.clone();
     let binary_data = tokio::task::spawn_blocking(move || {
-        let bin = flint_ltk::bin::text_to_tree(&content_for_encode)
+        let bin = flint_core::bin::text_to_tree(&content_for_encode)
             .map_err(|e| format!("Failed to parse text content: {}", e))?;
-        flint_ltk::bin::write_bin_ltk(&bin)
+        flint_core::bin::write_bin(&bin)
             .map_err(|e| format!("Failed to convert to binary: {}", e))
     })
     .await
@@ -463,9 +463,9 @@ pub async fn compile_ritobin_text_to_bytes(
     let _t = ipc_trace::enter("compile_ritobin_text_to_bytes");
     // CPU-bound parse + encode — off the async runtime (see save_ritobin_to_bin).
     let binary_data = tokio::task::spawn_blocking(move || {
-        let bin = flint_ltk::bin::text_to_tree(&content)
+        let bin = flint_core::bin::text_to_tree(&content)
             .map_err(|e| format!("Failed to parse text content: {}", e))?;
-        flint_ltk::bin::write_bin_ltk(&bin)
+        flint_core::bin::write_bin(&bin)
             .map_err(|e| format!("Failed to convert to binary: {}", e))
     })
     .await

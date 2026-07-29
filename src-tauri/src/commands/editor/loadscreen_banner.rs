@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use flint_ltk::loadscreen_banner as banner;
-use flint_ltk::project::open_project;
+use flint_core::loadscreen_banner as banner;
+use flint_core::project::open_project;
 
 use ritoshark::tex::{TexFormat, Texture};
 use ritoshark::prelude::{Parse as _, Serialize as _};
@@ -124,7 +124,7 @@ fn resolve(project_path: &str) -> Result<Resolved, String> {
         .ok_or_else(|| "Could not locate the .wad.client folder for the main BIN.".to_string())?;
 
     let data = std::fs::read(&main_bin).map_err(|e| format!("Failed to read main BIN: {e}"))?;
-    let bin = flint_ltk::bin::read_bin_ltk(&data)
+    let bin = flint_core::bin::read_bin(&data)
         .map_err(|e| format!("Failed to parse main BIN: {e}"))?;
 
     let loadscreen_asset = banner::read_loadscreen_image(&bin)
@@ -180,7 +180,7 @@ pub async fn apply_loadscreen_banner(
     banner::apply_banner_to_bin(&mut r.bin, &r.material_name, &r.mask_asset, &params)?;
 
     let bytes =
-        flint_ltk::bin::write_bin_ltk(&r.bin).map_err(|e| format!("Failed to write BIN: {e}"))?;
+        flint_core::bin::write_bin(&r.bin).map_err(|e| format!("Failed to write BIN: {e}"))?;
     write_atomic(&r.main_bin, &bytes)?;
 
     let ritobin_cache = {
@@ -202,6 +202,44 @@ pub async fn apply_loadscreen_banner(
         width,
         height,
     })
+}
+
+/// Undo an `apply_loadscreen_banner` that the user backed out of.
+///
+/// Applying writes to disk immediately (BIN + mask) so the editor has something
+/// to paint on, which means cancelling has to actively put the project back —
+/// there is nothing to simply "not do". Strips the material link and entry from
+/// the BIN, invalidates the `.ritobin` cache so the editor re-reads the reverted
+/// file, and deletes the generated mask.
+///
+/// `delete_mask` should be false when the mask already existed before this apply,
+/// so a cancel never destroys artwork the user painted earlier.
+#[tauri::command]
+pub async fn revert_loadscreen_banner(
+    project_path: String,
+    delete_mask: Option<bool>,
+) -> Result<(), String> {
+    let mut r = resolve(&project_path)?;
+
+    if banner::remove_banner_from_bin(&mut r.bin) {
+        let bytes =
+            flint_core::bin::write_bin(&r.bin).map_err(|e| format!("Failed to write BIN: {e}"))?;
+        write_atomic(&r.main_bin, &bytes)?;
+
+        let ritobin_cache = {
+            let mut p = r.main_bin.clone().into_os_string();
+            p.push(".ritobin");
+            std::path::PathBuf::from(p)
+        };
+        let _ = std::fs::remove_file(&ritobin_cache);
+    }
+
+    if delete_mask.unwrap_or(true) && r.mask_disk.exists() {
+        std::fs::remove_file(&r.mask_disk)
+            .map_err(|e| format!("Failed to remove generated mask: {e}"))?;
+    }
+
+    Ok(())
 }
 
 #[tauri::command]

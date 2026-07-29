@@ -12,7 +12,7 @@ use serde::Serialize;
 use uuid::Uuid;
 use zip::ZipArchive;
 
-use flint_ltk::ltk_types::{
+use flint_core::export::{
     Modpkg, ModpkgAuthor, ModpkgBuilder, ModpkgChunkBuilder, ModpkgLayerBuilder, ModpkgMetadata,
 };
 

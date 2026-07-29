@@ -9,13 +9,13 @@
 
 <p align="center">
   <a href="https://github.com/RitoShark/Flint/releases/latest">
-    <img src="https://img.shields.io/github/v/release/RitoShark/Flint?style=for-the-badge&color=EF4444&labelColor=0d1117&logo=github" alt="Release"/>
+    <img src="https://img.shields.io/github/v/release/RitoShark/Flint?style=for-the-badge&color=f5a422&labelColor=0d1117&logo=github" alt="Release"/>
   </a>
-  <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-0d1117?style=for-the-badge&labelColor=0d1117&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iI0VGNDQ0NCIgZD0iTTAgMy40NDlMOS43NSAyLjF2OS40NTFIMG0xMC45NDktOS42MDJMMjQgMHYxMS40SDEwLjk0OU0wIDEyLjZoOS43NXY5LjQ1MUwwIDIwLjY5OU0xMC45NDkgMTIuNkgyNFYyNGwtMTIuOS0xLjgwMSIvPjwvc3ZnPg==" alt="Windows"/>
+  <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-0d1117?style=for-the-badge&labelColor=0d1117&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iI2ZmZmZmZiIgZD0iTTAgMy40NDlMOS43NSAyLjF2OS40NTFIMG0xMC45NDktOS42MDJMMjQgMHYxMS40SDEwLjk0OU0wIDEyLjZoOS43NXY5LjQ1MUwwIDIwLjY5OU0xMC45NDkgMTIuNkgyNFYyNGwtMTIuOS0xLjgwMSIvPjwvc3ZnPg==" alt="Windows"/>
   <img src="https://img.shields.io/badge/Rust-DEA584?style=for-the-badge&logo=rust&logoColor=white&labelColor=0d1117" alt="Rust"/>
   <img src="https://img.shields.io/badge/Tauri%202-24C8D8?style=for-the-badge&logo=tauri&logoColor=white&labelColor=0d1117" alt="Tauri"/>
   <img src="https://img.shields.io/badge/React%2018-61DAFB?style=for-the-badge&logo=react&logoColor=white&labelColor=0d1117" alt="React"/>
-  <img src="https://img.shields.io/badge/License-MIT-22c55e?style=for-the-badge&labelColor=0d1117" alt="MIT"/>
+  <img src="https://img.shields.io/badge/License-AGPL--3.0-22c55e?style=for-the-badge&labelColor=0d1117" alt="AGPL-3.0"/>
 </p>
 
 <p align="center">
@@ -127,8 +127,16 @@ git commit -m "feat(scope): short imperative message"
 
 ---
 
+## Credits
+
+- **[LtMAO](https://github.com/tarngaina/LtMAO)** by [tarngaina](https://github.com/tarngaina) — the long-running toolpack most League modders learned on. Its `animask_viewer` and `sborf` were the reference for Flint's animation mask editor, and confirmed that `mWeightList` is indexed by SKL joint order.
+
+---
+
 ## License
 
-[MIT](LICENSE) — do whatever, just don't sue.
+[AGPL-3.0](LICENSE). You may use, study, modify and share Flint freely. If you
+distribute a modified version — or run one where others interact with it over a
+network — you must release your source under the same license.
 
 > League of Legends, all champion art, and all referenced game assets are property of **Riot Games, Inc.** Flint is an unofficial community tool and is not endorsed by or affiliated with Riot Games.

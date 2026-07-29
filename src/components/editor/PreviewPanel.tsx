@@ -265,7 +265,7 @@ export const PreviewPanel: React.FC = () => {
     }
 
     const filePath = `${projectPath}/${selectedFile}`;
-    const fileName = filePath.split('\\').pop() || filePath.split('/').pop() || filePath;
+    const fileName = filePath.split(/[/\\]/).pop() || filePath;
     const isImage = fileInfo?.file_type?.startsWith('image/');
 
     // Only render the folder view when the folder decision matches the CURRENT

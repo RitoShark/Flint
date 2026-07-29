@@ -8,14 +8,21 @@
     <style>
       :root {
         color-scheme: dark; font-family: "Segoe UI", system-ui, sans-serif; background: #0b0d10; color: #f4f4f6;
-        --flint-accent: #ef3340;
+        /* Fallback only — the inline bootstrap below overwrites this with the user's
+           saved accent. Keep in sync with --accent-primary in themes/default.css. */
+        --flint-accent: #EF5244;
+        /* Flame shades, same derivation as index.css so the mark matches the app. */
+        --flame-1: color-mix(in oklab, var(--flint-accent) 68%, #000);
+        --flame-2: color-mix(in oklab, var(--flint-accent) 84%, #000);
+        --flame-3: var(--flint-accent);
+        --flame-4: color-mix(in oklab, var(--flint-accent) 82%, #fff);
       }
       * { box-sizing: border-box; }
       html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #0b0d10; user-select: none; }
       button { font: inherit; }
       .startup {
         position: relative; width: 100%; height: 100%; overflow: hidden; border: 1px solid #2d2527;
-        background: radial-gradient(circle at 50% 30%, rgba(239, 51, 64, .17), transparent 34%), linear-gradient(180deg, #101014 0%, #0a0b0e 100%);
+        background: radial-gradient(circle at 50% 30%, color-mix(in oklab, var(--flint-accent) 17%, transparent), transparent 34%), linear-gradient(180deg, #101014 0%, #0a0b0e 100%);
       }
       .startup::before {
         content: ""; position: absolute; inset: 0; opacity: .22; pointer-events: none;
@@ -25,23 +32,23 @@
       .visual { position: absolute; inset: 0 0 142px; display: grid; place-items: end center; padding-bottom: 44px; transform: translateY(52px); }
       .visual__aura {
         position: absolute; width: 320px; height: 260px; border-radius: 50%;
-        background: radial-gradient(circle, rgba(239,51,64,.27), rgba(239,51,64,.05) 46%, transparent 72%);
+        background: radial-gradient(circle, color-mix(in oklab, var(--flint-accent) 27%, transparent), color-mix(in oklab, var(--flint-accent) 5%, transparent) 46%, transparent 72%);
         filter: blur(10px); animation: aura 3.6s ease-in-out infinite;
       }
       .brand { position: relative; display: flex; flex-direction: column; align-items: center; gap: 13px; width: 100%; }
       .brand__logo {
-        width: 166px; height: 166px; display: block; margin-inline: auto; color: var(--flint-accent);
-        filter: drop-shadow(0 12px 24px rgba(0,0,0,.42)) drop-shadow(0 0 18px rgba(239,51,64,.15));
+        width: 166px; height: 166px; display: block; margin-inline: auto;
+        filter: drop-shadow(0 12px 24px rgba(0,0,0,.42)) drop-shadow(0 0 18px color-mix(in oklab, var(--flint-accent) 15%, transparent));
         transform-origin: center; animation: logo-pop .6s cubic-bezier(.34,1.56,.64,1) both;
       }
       .brand__name { display: flex; align-items: baseline; justify-content: center; width: 100%; color: #f1f3f6; font-size: 30px; font-weight: 650; letter-spacing: .035em; }
       .brand__word { display: inline-block; max-width: 0; overflow: hidden; white-space: nowrap; animation: type-word .55s cubic-bezier(.65,0,.35,1) .55s both; }
-      .brand__dot { color: #ef3340; opacity: 0; animation: dot-pulse 1.05s ease-in-out 1.1s infinite; }
+      .brand__dot { color: var(--flint-accent); opacity: 0; animation: dot-pulse 1.05s ease-in-out 1.1s infinite; }
       .bottom { position: absolute; inset: auto 0 0; height: 142px; padding: 22px 40px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
       .loading, .error-prompt { width: 100%; }
       .loading[hidden], .error-prompt[hidden] { display: none; }
       .progress { width: 100%; height: 5px; overflow: hidden; border: 1px solid rgba(112,91,95,.4); border-radius: 999px; background: rgba(255,255,255,.025); }
-      .progress__bar { width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #c72330, #ff5964); box-shadow: 0 0 12px rgba(239,51,64,.5); transition: width .2s ease; }
+      .progress__bar { width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, color-mix(in oklab, var(--flint-accent) 82%, #000), color-mix(in oklab, var(--flint-accent) 78%, #fff)); box-shadow: 0 0 12px color-mix(in oklab, var(--flint-accent) 50%, transparent); transition: width .2s ease; }
       .progress__bar.is-indeterminate { width: 38%; animation: slide 1.35s ease-in-out infinite; }
       .status { margin-top: 12px; color: #939198; font-size: 12px; font-weight: 500; text-align: center; }
       .version { margin-top: 7px; color: #5e5960; font-size: 10px; text-align: center; }
@@ -51,24 +58,53 @@
       .prompt__actions { display: flex; gap: 8px; margin-top: 12px; }
       .action { min-width: 104px; height: 31px; padding: 0 15px; border: 1px solid #343036; border-radius: 6px; background: #171519; color: #b7b2b8; font-size: 11px; font-weight: 600; cursor: pointer; }
       .action:hover:not(:disabled) { border-color: #51474b; background: #211d20; color: #fff; }
-      .action--primary { border-color: rgba(239,51,64,.7); background: linear-gradient(180deg, #e33a46, #b91f2b); color: #fff; box-shadow: 0 4px 14px rgba(185,31,43,.22); }
+      .action--primary { border-color: color-mix(in oklab, var(--flint-accent) 70%, transparent); background: linear-gradient(180deg, var(--flint-accent), color-mix(in oklab, var(--flint-accent) 70%, #000)); color: #fff; box-shadow: 0 4px 14px color-mix(in oklab, var(--flint-accent) 30%, transparent); }
       .action:disabled { opacity: .55; cursor: default; }
       @keyframes type-word { to { max-width: 120px; } }
-      @keyframes dot-pulse { 0%,100% { opacity: .22; text-shadow: 0 0 0 rgba(239,51,64,0); } 50% { opacity: 1; text-shadow: 0 0 12px rgba(239,51,64,.9); } }
+      @keyframes dot-pulse { 0%,100% { opacity: .22; text-shadow: 0 0 0 transparent; } 50% { opacity: 1; text-shadow: 0 0 12px color-mix(in oklab, var(--flint-accent) 90%, transparent); } }
       @keyframes logo-pop { from { opacity: 0; transform: translateY(7px) scale(.84); } to { opacity: 1; transform: translateY(0) scale(1); } }
       @keyframes aura { 0%,100% { opacity: .62; transform: scale(.96); } 50% { opacity: 1; transform: scale(1.04); } }
       @keyframes slide { 0% { margin-left: -38%; } 55% { margin-left: 100%; } 100% { margin-left: 100%; } }
       @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; } .brand__word { max-width: 120px; } .brand__dot { opacity: 1; } }
     </style>
+    <script>
+      // Apply the user's saved accent before first paint. This window is served from
+      // the same origin as the app, so it can read the ux prefs the app persists —
+      // the accent hex is written for BOTH preset and custom themes, so one key
+      // covers every case. Runs inline (not in updater.js) so there's no flash of
+      // the fallback color. Any failure just leaves the CSS fallback in place.
+      (function () {
+        try {
+          var raw = localStorage.getItem('flint_ux_prefs_v1');
+          if (!raw) return;
+          var accent = JSON.parse(raw).accentPrimary;
+          if (typeof accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(accent)) {
+            // Mirror SUPERSEDED_DEFAULT_ACCENTS in uxStore.ts — this runs before the
+            // app boots, so it can't reuse that map and must stay in sync with it.
+            var superseded = { '#ef4444': '#EF5244', '#ef5b44': '#EF5244' };
+            accent = superseded[accent.toLowerCase()] || accent;
+            document.documentElement.style.setProperty('--flint-accent', accent);
+          }
+        } catch (e) { /* non-fatal — keep the fallback */ }
+      })();
+    </script>
   </head>
   <body>
     <main class="startup">
       <section class="visual">
         <div class="visual__aura"></div>
         <div class="brand">
-          <svg class="brand__logo" viewBox="0 0 24 24" role="img" aria-label="Flint" fill="currentColor">
-            <path fill-rule="evenodd" d="M12 2C8.5 6 8 10 8 12c0 3.5 1.5 6 4 8 2.5-2 4-4.5 4-8 0-2-.5-6-4-10zM12 5c-2 3-2.5 5.5-2.5 7 0 2 .8 3.5 2.5 5 1.7-1.5 2.5-3 2.5-5 0-1.5-.5-4-2.5-7z"/>
-            <path d="M12 8c-1 1.5-1.5 3-1.5 4 0 1.2.5 2.2 1.5 3 1-.8 1.5-1.8 1.5-3 0-1-.5-2.5-1.5-4z"/>
+          <!-- The flame follows the saved accent via --flame-1..4 (set from the bootstrap
+               above); the grey stone layers stay neutral, same as the in-app mark. -->
+          <svg class="brand__logo" viewBox="0 0 1024 1024" role="img" aria-label="Flint">
+            <path fill="#212427" fill-rule="evenodd" d="M712.69,355.09 815.19,295.85 771.16,574.89 850.86,537.98 820.02,698.98 773.12,746.38 836.7,744.77 745.76,904.65 626.29,1014.15 390.47,1012.85 198.99,866.46 97.97,706.49 185.56,715.21 167.95,509.52 363.38,214.59 665.76,7.66Z"/>
+            <path fill="#434a4e" fill-rule="evenodd" d="M516.62,902.72 538.54,864.93 531.85,695.45 438,889 387,831 356.08,797.55 409,971 222,848 153.64,740.5 300.04,766.77 295.41,721.47 306,699 315,685 336,645 342,631 361,598 375,569 380,559 380.09,557.45 414,653 430.94,700.55 444.84,625.29 456,614 463,607 467,603 519.08,549.76 527,526 557.14,402.07 643,580 608,745 612,744 614,741 616,738 682,651 713,635 812.64,584.7 791.19,687.15 699.34,779.64 792.45,775.44 722,886 556.69,977.26 631.68,819.99 535.2,889.36 516.62,902.72ZM191.23,520.53 382.76,230.48 645.15,50.5 523,333 459.58,569.72 427.94,602.74 384.83,495.34 256.79,730.11 213.06,722.34ZM770,353 790.24,341.82 660.87,522.85 705.11,388.96Z"/>
+            <path fill="var(--flame-2)" fill-rule="evenodd" d="M516.62,902.72 538.54,864.93 531.85,695.45 438,889 387,831 356.08,797.55 409,971 222,848 153.64,740.5 300.04,766.77 295.41,721.47 306,699 315,685 336,645 342,631 361,598 375,569 380,559 380.09,557.45 414,653 430.94,700.55 444.84,625.29 456,614 463,607 467,603 519.08,549.76 527,526 557.14,402.07 643,580 608,745 612,744 614,741 616,738 682,651 713,635 812.64,584.7 791.19,687.15 699.34,779.64 792.45,775.44 722,886 556.69,977.26 631.68,819.99 535.2,889.36 516.62,902.72ZM224,538 247.59,554.32 282,678 256,549ZM520,333 514.98,331.64 622.72,79.73 395.39,235.09 483.98,320.72 387.31,242.58 206.16,516.62 253.74,541.42 310.29,497.64 290,522ZM191.23,520.53 382.76,230.48 645.15,50.5 523,333 459.58,569.72 427.94,602.74 384.83,495.34 256.79,730.11 213.06,722.34Z"/>
+            <path fill="#313438" fill-rule="evenodd" d="M169,750 156.92,743.23 153.64,740.5 300.04,766.77 295.41,721.47 306,699 315,685 336,645 342,631 361,598 375,569 380,559 380.09,557.45 365,703 414,653 430.94,700.55 444.84,625.29 456,614 463,607 467,603 519.08,549.76 527,526 557.14,402.07 572.84,536.5 552,642 643,580 608,745 612,744 614,741 616,738 682,651 713,635 812.64,584.7 791.19,687.15 699.34,779.64 792.45,775.44 684.66,840.92 722,886 556.69,977.26 681.23,842.19 686.08,749.54 663.02,780.9 539.4,864.83 603.13,753.27 551,643 425.28,787.98 438,889 387,831 364,706 342,735 297.83,828.23ZM409,971 222,848 294.09,825.93ZM224,538 247.59,554.32 282,678 256,549ZM520,333 514.98,331.64 622.72,79.73 395.39,235.09 483.98,320.72 387.31,242.58 206.16,516.62 253.74,541.42 310.29,497.64 290,522ZM191.23,520.53 382.76,230.48 645.15,50.5 523,333 459.58,569.72 427.94,602.74 384.83,495.34 256.79,730.11 213.06,722.34Z"/>
+            <path fill="var(--flame-4)" fill-rule="evenodd" d="M169,750 156.92,743.23 153.64,740.5 300.04,766.77 295.41,721.47 306,699 315,685 336,645 342,631 361,598 375,569 380,559 380.09,557.45 365,703 414,653 430.94,700.55 444.84,625.29 456,614 463,607 467,603 519.08,549.76 527,526 557.14,402.07 572.84,536.5 552,642 643,580 608,745 612,744 614,741 616,738 682,651 713,635 812.64,584.7 791.19,687.15 699.34,779.64 792.45,775.44 684.66,840.92 722,886 556.69,977.26 681.23,842.19 686.08,749.54 663.02,780.9 539.4,864.83 603.13,753.27 551,643 425.28,787.98 438,889 387,831 364,706 342,735 297.83,828.23ZM409,971 222,848 294.09,825.93ZM256,549 224,538 191.23,520.53 382.76,230.48 645.15,50.5 523,333 520,333 514.98,331.64 622.72,79.73 395.39,235.09 483.98,320.72 387.31,242.58 206.16,516.62 253.74,541.42 310.29,497.64 290,522Z"/>
+            <path fill="var(--flame-1)" fill-rule="evenodd" d="M169,750 156.92,743.23 153.64,740.5 300.04,766.77 295.41,721.47 342,735 297.83,828.23 303.35,770.63ZM409,971 222,848 294.09,825.93ZM713,635 689.98,743.44 812.64,584.7 791.19,687.15 699.34,779.64 792.45,775.44 684.66,840.92 722,886 556.69,977.26 681.23,842.19 686.08,749.54 687,748 681.12,654.74 616,738 682,651ZM686.08,749.54 663.02,780.9 539.4,864.83 603.13,753.27ZM256,549 224,538 191.23,520.53 382.76,230.48 645.15,50.5 523,333 520,333 514.98,331.64 622.72,79.73 395.39,235.09 483.98,320.72 387.31,242.58 206.16,516.62 253.74,541.42 310.29,497.64 290,522ZM551,643 552,642 643,580 608,745 612,744 608,747 603.13,753.27ZM365,703 414,653 430.94,700.55 425.28,787.98 438,889 387,831 364,706Z"/>
+            <path fill="var(--flame-3)" fill-rule="evenodd" d="M169,750 156.92,743.23 153.64,740.5 300.04,766.77 295.41,721.47 342,735 297.83,828.23 303.35,770.63ZM713,635 689.98,743.44 687,748 681.12,654.74 616,738 682,651ZM686.08,749.54 663.02,780.9 539.4,864.83 603.13,753.27ZM256,549 224,538 191.23,520.53 382.76,230.48 645.15,50.5 523,333 520,333 514.98,331.64 622.72,79.73 395.39,235.09 483.98,320.72 387.31,242.58 206.16,516.62 253.74,541.42 310.29,497.64 290,522ZM387,831 364,706 425.28,787.98 438,889Z"/>
+            <path fill="#54595d" fill-rule="evenodd" d="M256,549 224,538 191.23,520.53 382.76,230.48 645.15,50.5 523,333 520,333 514.98,331.64 622.72,79.73 395.39,235.09 483.98,320.72 387.31,242.58 206.16,516.62 253.74,541.42 310.29,497.64 290,522Z"/>
           </svg>
           <div class="brand__name"><span class="brand__word">Flint</span><span class="brand__dot">.</span></div>
         </div>

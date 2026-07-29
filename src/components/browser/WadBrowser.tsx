@@ -1,9 +1,10 @@
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import { useAppMetadataStore, useModalStore, useNotificationStore, useWadExtractStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getIcon, getFileIcon } from '../../lib/ui-helpers/fileIcons';
 import { checkboxSvg } from './wad-explorer/helpers';
+import { UNKNOWN_DIR, type Vfs } from '../../lib/vfs/types';
 import type { WadChunk } from '../../lib/types';
 
 // =============================================================================
@@ -14,7 +15,6 @@ interface WadTreeFolder {
     type: 'folder';
     name: string;
     fullPath: string;
-    children: WadTreeNode[];
 }
 
 interface WadTreeFile {
@@ -29,87 +29,62 @@ type WadTreeNode = WadTreeFolder | WadTreeFile;
 // Tree Construction and Navigation Helpers
 // =============================================================================
 
-function getAllChunkHashes(nodes: WadTreeNode[]): string[] {
-    const hashes: string[] = [];
-    for (const node of nodes) {
-        if (node.type === 'file') {
-            hashes.push(node.chunk.hash);
-        } else {
-            hashes.push(...getAllChunkHashes(node.children));
-        }
+/**
+ * Every chunk at or below a folder.
+ *
+ * Derived from the flat chunk list by path prefix rather than by walking tree
+ * nodes: folders load lazily now, so an unexpanded folder has no children to
+ * walk, and "select this folder" must still cover what it contains.
+ */
+function chunkHashesUnder(chunks: WadChunk[], folderPath: string): string[] {
+    if (folderPath === UNKNOWN_DIR) {
+        return chunks.filter(c => !c.path).map(c => c.hash);
     }
-    return hashes;
+    const prefix = `${folderPath}/`;
+    return chunks.filter(c => c.path?.startsWith(prefix)).map(c => c.hash);
 }
 
-function buildWadTree(chunks: WadChunk[], searchQuery: string): WadTreeNode[] {
-    const query = searchQuery.toLowerCase().trim();
-
-    const filtered = query
-        ? chunks.filter(c =>
-            (c.path?.toLowerCase().includes(query)) ||
-            (!c.path && c.hash.toLowerCase().includes(query))
-          )
-        : chunks;
-
-    const folderMap = new Map<string, WadTreeFolder>();
-    const rootNodes: WadTreeNode[] = [];
-
-    const getOrCreateFolder = (folderPath: string): WadTreeFolder => {
-        if (folderMap.has(folderPath)) return folderMap.get(folderPath)!;
-
-        const parts = folderPath.split('/');
-        const name = parts[parts.length - 1];
-        const parentPath = parts.slice(0, -1).join('/');
-
-        const folder: WadTreeFolder = { type: 'folder', name, fullPath: folderPath, children: [] };
-        folderMap.set(folderPath, folder);
-
-        if (parentPath === '') {
-            rootNodes.push(folder);
-        } else {
-            getOrCreateFolder(parentPath).children.push(folder);
-        }
-
-        return folder;
-    };
-
-    for (const chunk of filtered) {
-        if (!chunk.path) continue;
-
-        const normalizedPath = chunk.path.replace(/\\/g, '/');
-        const parts = normalizedPath.split('/');
-        const fileName = parts[parts.length - 1];
-        const dirParts = parts.slice(0, -1);
-
-        const fileNode: WadTreeFile = { type: 'file', name: fileName, chunk };
-
-        if (dirParts.length === 0) {
-            rootNodes.push(fileNode);
-        } else {
-            getOrCreateFolder(dirParts.join('/')).children.push(fileNode);
-        }
+/**
+ * Look chunks up by whatever key the mount addresses them with.
+ *
+ * A WAD keys by chunk hash and a package by path, so the lookup has to follow
+ * `keyedBy` — using the wrong one silently finds a different file rather than
+ * failing (see the note on `Vfs.keyedBy`).
+ */
+function chunkLookup(chunks: WadChunk[], keyedBy: 'hash' | 'path'): Map<string, WadChunk> {
+    const out = new Map<string, WadChunk>();
+    for (const c of chunks) {
+        const key = keyedBy === 'path' ? (c.path ?? c.hash) : c.hash;
+        if (!out.has(key)) out.set(key, c);
     }
+    return out;
+}
 
-    const unresolved = filtered.filter(c => !c.path);
-    if (unresolved.length > 0) {
-        rootNodes.push({
-            type: 'folder',
-            name: '[Unknown Hashes]',
-            fullPath: '[Unknown Hashes]',
-            children: unresolved.map(c => ({ type: 'file' as const, name: c.hash, chunk: c })),
-        });
+/**
+ * One level of the mount, as rows this panel can render.
+ *
+ * Deliberately NOT recursive: `Vfs.list` answers a single directory, and folders
+ * fill in only once expanded. Building the whole tree up front is what made a
+ * 40k-chunk WAD slow to open.
+ */
+async function listLevel(
+    mount: Vfs,
+    dir: string,
+    byKey: Map<string, WadChunk>,
+): Promise<WadTreeNode[]> {
+    const out: WadTreeNode[] = [];
+    for (const entry of await mount.list(dir)) {
+        if (entry.isDirectory) {
+            out.push({ type: 'folder', name: entry.name, fullPath: entry.path });
+            continue;
+        }
+        // Every key came from a chunk, so a miss means two chunks collapsed onto
+        // one key. Skip rather than render a row with no chunk behind it, which
+        // would crash on click.
+        const chunk = byKey.get(entry.key);
+        if (chunk) out.push({ type: 'file', name: entry.name, chunk });
     }
-
-    const sort = (nodes: WadTreeNode[]) => {
-        nodes.sort((a, b) => {
-            if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
-            return a.name.localeCompare(b.name);
-        });
-        nodes.forEach(n => { if (n.type === 'folder') sort(n.children); });
-    };
-    sort(rootNodes);
-
-    return rootNodes;
+    return out;
 }
 
 function formatSize(bytes: number): string {
@@ -122,12 +97,28 @@ function formatSize(bytes: number): string {
 // WadBrowserPanel — main export
 // =============================================================================
 
-export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
+/**
+ * `sessionId` pins the panel to one session. The archive editor embeds this
+ * alongside its own session and must NOT follow the globally active one — that
+ * is shared with the user's WAD viewer tabs, so without pinning, opening a WAD
+ * elsewhere would swap this panel's contents out from under it.
+ */
+export const WadBrowserPanel: React.FC<{
+    style?: React.CSSProperties;
+    sessionId?: string;
+    /**
+     * A folder grid sits beside this tree (the standalone WAD viewer), so
+     * clicking a folder navigates that grid. The archive editor has a preview
+     * panel there instead and leaves this off.
+     */
+    withGrid?: boolean;
+}> = ({ style, sessionId, withGrid = false }) => {
     const extractSessions = useWadExtractStore((s) => s.extractSessions);
     const activeExtractId = useWadExtractStore((s) => s.activeExtractId);
     const showToast = useNotificationStore((s) => s.showToast);
     const setStatus = useAppMetadataStore((s) => s.setStatus);
-    const session = extractSessions.find(s => s.id === activeExtractId);
+    const targetId = sessionId ?? activeExtractId;
+    const session = extractSessions.find(s => s.id === targetId);
 
     const isSearching = !!session?.searchQuery?.trim();
 
@@ -139,14 +130,79 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
     // Inline expand/collapse tree state (mirrors WadExplorer's look): the set of
     // expanded folder paths. Local — search mode bypasses it entirely.
     const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+    // Directory listings fetched from the mount, keyed by directory path ('' is
+    // the root). Populated on expand, so an unopened folder costs nothing.
+    const [dirs, setDirs] = useState<Map<string, WadTreeNode[]>>(new Map());
+
+    const mount = session?.mount;
+    // Chunk rows come back from the mount keyed the way that mount addresses
+    // them; a WAD by hash, a package by path.
+    const byKey = useMemo(
+        () => (session && mount ? chunkLookup(session.chunks, mount.keyedBy) : new Map<string, WadChunk>()),
+        [session?.chunks, mount],
+    );
+
+    // Drop cached listings when the CONTENT changes, keyed by the chunk array
+    // identity rather than the mount object. A WAD swaps its mount mid-session
+    // (the read-only on-disk mount becomes a writable one once the edit session
+    // opens, which happens moments after the chunks land); keying on the mount
+    // would collapse every folder the user had opened at that moment.
+    const chunks = session?.chunks;
+    useEffect(() => {
+        setDirs(new Map());
+    }, [chunks]);
+
+    // Identifies the chunk set a listing was requested against, so a listing
+    // that resolves after the content changed can be discarded. Several folders
+    // load concurrently, so "stale" means superseded content, not merely older.
+    const loadTokenRef = useRef<object>({});
+    useEffect(() => {
+        loadTokenRef.current = {};
+    }, [chunks]);
+
+    // Expanding a folder records it here; an effect below does the fetching, so
+    // no listing is kicked off from inside a state updater.
+    const wantedDirs = useMemo(() => {
+        const out = [''];
+        for (const dir of expandedFolders) out.push(dir);
+        return out;
+    }, [expandedFolders]);
+
+    useEffect(() => {
+        if (!mount) return;
+        const token = loadTokenRef.current;
+        for (const dir of wantedDirs) {
+            if (dirs.has(dir)) continue;
+            listLevel(mount, dir, byKey)
+                .then((nodes) => {
+                    if (token !== loadTokenRef.current) return;
+                    setDirs((prev) => {
+                        if (prev.has(dir)) return prev;
+                        const next = new Map(prev);
+                        next.set(dir, nodes);
+                        return next;
+                    });
+                })
+                .catch((e) => console.error('[WadBrowser] Failed to list directory', dir, e));
+        }
+    }, [mount, byKey, wantedDirs, dirs]);
 
     const toggleFolder = useCallback((fullPath: string) => {
         setExpandedFolders((prev) => {
             const next = new Set(prev);
-            if (next.has(fullPath)) next.delete(fullPath); else next.add(fullPath);
+            if (next.has(fullPath)) next.delete(fullPath);
+            else next.add(fullPath);
             return next;
         });
-    }, []);
+        // Where a folder grid sits beside the tree, the clicked folder becomes
+        // what the grid shows and any file preview is dropped so the grid is on
+        // screen — selecting a folder in the project tree behaves the same way.
+        // The archive editor has a preview panel there instead, so it opts out.
+        if (session && withGrid) {
+            useWadExtractStore.getState().setCurrentDir(session.id, fullPath);
+            useWadExtractStore.getState().setPreview(session.id, null);
+        }
+    }, [session?.id, withGrid]);
 
     const unknownChunksCount = useMemo(() => {
         if (!session) return 0;
@@ -206,33 +262,62 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
     const handleRenameCommit = useCallback(async (chunk: WadChunk, newPath: string) => {
         setRenamingHash(null);
         const trimmed = newPath.trim();
-        if (!session?.editSessionId || !trimmed || trimmed === chunk.path) return;
+        if (!session || !trimmed || trimmed === chunk.path) return;
+        // A mount handles archives that are not WADs; otherwise fall back to the
+        // WAD edit session.
+        const renamableMount = session.mount?.caps.rename ? session.mount : null;
+        if (!session.editSessionId && !renamableMount) return;
         try {
-            const newHash = await api.renameSessionChunk(session.editSessionId, chunk.hash, trimmed);
-            useWadExtractStore.getState().stageChunkRename(session.id, chunk.hash, newHash, trimmed);
+            if (renamableMount) {
+                const path = chunk.path ?? chunk.hash;
+                await renamableMount.rename!({
+                    path,
+                    name: path.split('/').pop() ?? path,
+                    isDirectory: false,
+                    size: chunk.size,
+                    key: renamableMount.keyedBy === 'path' ? path : chunk.hash,
+                }, trimmed);
+                // Path-keyed mounts re-key on the path itself.
+                const newKey = renamableMount.keyedBy === 'path' ? trimmed : chunk.hash;
+                useWadExtractStore.getState().stageChunkRename(session.id, chunk.hash, newKey, trimmed);
+            } else {
+                const newHash = await api.renameSessionChunk(session.editSessionId!, chunk.hash, trimmed);
+                useWadExtractStore.getState().stageChunkRename(session.id, chunk.hash, newHash, trimmed);
+            }
             showToast('success', 'Chunk renamed');
         } catch (e) {
             showToast('error', `Rename failed: ${(e as { message?: string })?.message ?? String(e)}`);
         }
     }, [session, showToast]);
 
-    const nodes = useMemo(() => {
-        if (!session) return [];
-        return buildWadTree(session.chunks, '');
-    }, [session?.chunks]);
+    const nodes = dirs.get('') ?? [];
 
-    const filteredChunks = useMemo(() => {
-        if (!session) return [];
-        const q = session.searchQuery.toLowerCase().trim();
-        const results = [];
-        for (const c of session.chunks) {
-            if ((c.path?.toLowerCase().includes(q)) || (!c.path && c.hash.toLowerCase().includes(q))) {
-                results.push(c);
-                if (results.length >= 500) break;
-            }
+    // Search runs through the mount so its matching rules (a bare '.' stays
+    // literal, a real metacharacter engages regex) are the same ones every
+    // other browser surface uses, instead of a second substring test here.
+    const [filteredChunks, setFilteredChunks] = useState<WadChunk[]>([]);
+    const query = session?.searchQuery ?? '';
+    useEffect(() => {
+        if (!mount || !query.trim()) {
+            setFilteredChunks([]);
+            return;
         }
-        return results;
-    }, [session?.chunks, session?.searchQuery]);
+        const token = loadTokenRef.current;
+        let cancelled = false;
+        mount.search(query)
+            .then((entries) => {
+                if (cancelled || token !== loadTokenRef.current) return;
+                const out: WadChunk[] = [];
+                for (const e of entries) {
+                    const chunk = byKey.get(e.key);
+                    if (chunk) out.push(chunk);
+                    if (out.length >= 500) break;
+                }
+                setFilteredChunks(out);
+            })
+            .catch((e) => console.error('[WadBrowser] Search failed:', e));
+        return () => { cancelled = true; };
+    }, [mount, query, byKey]);
 
     const onPreview = useCallback((hash: string) => {
         if (!session) return;
@@ -246,8 +331,8 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
 
     const handleToggleFolderSelection = useCallback((node: WadTreeFolder) => {
         if (!session) return;
-        const hashes = getAllChunkHashes([node]);
-        const allSelected = hashes.every(h => session.selectedHashes.has(h));
+        const hashes = chunkHashesUnder(session.chunks, node.fullPath);
+        const allSelected = hashes.length > 0 && hashes.every(h => session.selectedHashes.has(h));
         
         for (const hash of hashes) {
             const isCurrentlySelected = session.selectedHashes.has(hash);
@@ -310,7 +395,7 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                     }
                 }
             },
-            ...(session.editSessionId ? [{
+            ...((session.editSessionId || session.mount?.caps.rename) ? [{
                 label: 'Rename / Move…',
                 icon: getIcon('wrench'),
                 onClick: () => setRenamingHash(chunk.hash),
@@ -371,7 +456,7 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                         const dest = await open({ title: 'Choose Extraction Folder', directory: true });
                         if (!dest) return;
                         setStatus('working', 'Extracting...');
-                        const hashes = getAllChunkHashes([node]);
+                        const hashes = chunkHashesUnder(session.chunks, node.fullPath);
                         const res = await api.extractWad(session.wadPath, dest as string, hashes);
                         showToast('success', `Extracted ${res.extracted} files`);
                     } catch {
@@ -419,10 +504,13 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
         const indent = 8 + depth * 14;
         if (node.type === 'folder') {
             const isExpanded = expandedFolders.has(node.fullPath);
-            const childHashes = getAllChunkHashes(node.children);
+            // From the chunk list, not the rendered children — a collapsed
+            // folder has not been listed yet but still has contents to reflect.
+            const childHashes = chunkHashesUnder(session.chunks, node.fullPath);
             const allSelected = childHashes.length > 0 && childHashes.every(h => session.selectedHashes.has(h));
             const someSelected = !allSelected && childHashes.some(h => session.selectedHashes.has(h));
             const folderState = allSelected ? 'all' : someSelected ? 'some' : 'none';
+            const children = dirs.get(node.fullPath);
             return (
                 <div key={node.fullPath}>
                     <div
@@ -441,7 +529,13 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                         <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getIcon(isExpanded ? 'folderOpen' : 'folder') }} />
                         <span className="file-tree__name">{node.name}</span>
                     </div>
-                    {isExpanded && node.children.map(c => renderNode(c, depth + 1))}
+                    {isExpanded && (
+                        children === undefined
+                            // Listed on expand, so a deep folder shows feedback
+                            // instead of looking like it opened onto nothing.
+                            ? <div className="file-tree__item" style={{ paddingLeft: `${indent + 16}px`, color: 'var(--text-muted)', fontSize: '11px' }}>Loading…</div>
+                            : children.map(c => renderNode(c, depth + 1))
+                    )}
                 </div>
             );
         }
@@ -488,70 +582,41 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
 
     return (
         <div className="left-panel" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', ...style }}>
-            <div className="left-panel__header" style={{ padding: '10px 12px', flexShrink: 0 }}>
-                <div className="file-tree__search" style={{ position: 'relative' }}>
-                    <span
-                        style={{ position: 'absolute', left: '6px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', opacity: 0.5 }}
-                        dangerouslySetInnerHTML={{ __html: getIcon('search') }}
-                    />
+            {/* One compact header: filter, then the archive's own affordances.
+                These used to be two stacked bands, which spent a whole row on a
+                filename the tab already shows. */}
+            <div className="wadb-header">
+                <div className="wadb-search">
+                    <span className="wadb-search__icon" dangerouslySetInnerHTML={{ __html: getIcon('search') }} />
                     <input
                         type="text"
-                        className="file-tree__search-input"
-                        placeholder="Filter files..."
+                        className="wadb-search__input"
+                        placeholder="Filter files…"
                         value={session.searchQuery}
                         onChange={onSearchChange}
-                        style={{ paddingLeft: '26px', width: '100%' }}
                     />
                 </div>
-            </div>
-
-            {(unknownChunksCount > 0 || session.readOnly) && (
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '6px 12px',
-                    background: 'var(--bg-secondary)',
-                    borderBottom: '1px solid color-mix(in oklab, var(--border) 60%, transparent)',
-                    flexShrink: 0
-                }}>
-                    <span style={{ flex: 1, fontSize: '11px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {session.wadName}
+                {unknownChunksCount > 0 && (
+                    <button
+                        className="wadb-chip"
+                        onClick={handleUnhashWad}
+                        disabled={isUnhashing}
+                        title={`Scan this archive's BIN/SKN files for asset paths to unhash ${unknownChunksCount} unresolved file${unknownChunksCount === 1 ? '' : 's'}`}
+                    >
+                        <span dangerouslySetInnerHTML={{ __html: getIcon('wrench') }} />
+                        <span>{isUnhashing ? 'Unhashing…' : `Unhash ${unknownChunksCount.toLocaleString()}`}</span>
+                    </button>
+                )}
+                {session.readOnly && (
+                    <span
+                        className="wadb-chip wadb-chip--readonly"
+                        title="This is a game WAD archive. It is read-only and cannot be modified."
+                    >
+                        <span dangerouslySetInnerHTML={{ __html: getIcon('warning') }} />
+                        <span>Read-only</span>
                     </span>
-                    {unknownChunksCount > 0 && (
-                        <button
-                            className="btn btn--sm"
-                            onClick={handleUnhashWad}
-                            disabled={isUnhashing}
-                            title={`Scan WAD's BIN/SKN files for asset paths to unhash ${unknownChunksCount} unresolved files`}
-                            style={{
-                                padding: '2px 6px',
-                                fontSize: '10px',
-                                height: '22px',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                                background: 'color-mix(in oklab, var(--accent-primary) 12%, transparent)',
-                                border: '1px solid color-mix(in oklab, var(--accent-primary) 35%, transparent)',
-                                color: 'var(--accent-primary)',
-                                cursor: 'pointer',
-                                borderRadius: '4px',
-                                flexShrink: 0
-                            }}
-                        >
-                            <span dangerouslySetInnerHTML={{ __html: getIcon('wrench') }} />
-                            <span>{isUnhashing ? 'Unhashing...' : 'Unhash'}</span>
-                        </button>
-                    )}
-                    {session.readOnly && (
-                        <span
-                            title="This is a game WAD archive. It is read-only and cannot be modified."
-                            style={{ display: 'inline-flex', color: 'var(--error)', cursor: 'help', width: '14px', height: '14px', flexShrink: 0 }}
-                            dangerouslySetInnerHTML={{ __html: getIcon('warning') }}
-                        />
-                    )}
-                </div>
-            )}
+                )}
+            </div>
 
             <div className="file-tree" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
                 {session.loading ? (
@@ -609,9 +674,16 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                             );
                         })
                     )
+                ) : !dirs.has('') ? (
+                    // The root listing is still in flight — distinct from a root
+                    // that came back empty, which would otherwise flash "empty"
+                    // every time an archive opens.
+                    <div style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '12px' }}>
+                        Reading contents…
+                    </div>
                 ) : nodes.length === 0 ? (
                     <div style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '12px' }}>
-                        WAD folder is empty.
+                        This archive is empty.
                     </div>
                 ) : (
                     nodes.map(node => renderNode(node, 0))
@@ -633,7 +705,7 @@ export const WadBrowserPanel: React.FC<{ style?: React.CSSProperties }> = ({ sty
                 <span style={{ fontSize: '11px', color: 'var(--text-muted)', flex: 1 }}>
                     {totalChunks.toLocaleString()} files{selectedCount > 0 ? ` · ${selectedCount} selected` : ''}
                 </span>
-                {session.editSessionId && session.isDirty && !session.id.startsWith('archive-') && (
+                {session.editSessionId && session.isDirty && !session.embedded && (
                     <button
                         className="btn btn--primary btn--sm"
                         onClick={handleSaveWad}

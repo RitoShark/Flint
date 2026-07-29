@@ -3,14 +3,16 @@
 
 mod commands;
 mod core;
+mod shell_args;
 mod startup;
 mod state;
 
 use commands::project_watcher::WatcherState;
 use commands::settings::{initialize_app_home, get_flint_home};
-use flint_ltk::hash::get_hash_dir;
+use flint_core::hash::get_hash_dir;
 use core::frontend_log::{FrontendLogLayer, set_app_handle};
-use state::{CdnSessionState, LmdbCacheState, PendingFileOpenState, WadCacheState, WadEditState};
+use shell_args::PendingFileOpen;
+use state::{CdnSessionState, HashOverlayState, LmdbCacheState, PendingFileOpenState, WadCacheState, WadEditState};
 use tauri::{Emitter, Manager};
 use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter};
 
@@ -18,7 +20,7 @@ fn main() {
     // reqwest uses `rustls-no-provider`; install the ring crypto provider as the
     // process default before any HTTPS request, or the first fetch panics with
     // "No provider set" (CDN manifest browse, updater, …).
-    flint_ltk::install_tls_provider();
+    flint_core::net::install_tls_provider();
 
     let log_dir = get_flint_home()
         .map(|h| h.join("logs"))
@@ -93,19 +95,25 @@ fn main() {
                 let _ = window.set_focus();
                 let _ = window.request_user_attention(Some(tauri::UserAttentionType::Informational));
             }
-            let file_arg = args.iter().skip(1).find(|a| {
-                !a.starts_with("--") && std::path::Path::new(a.as_str()).is_file()
-            });
-            if let Some(path) = file_arg {
-                let clean_path = std::fs::canonicalize(path)
-                    .map(|p| {
-                        let s = p.to_string_lossy().into_owned();
-                        s.strip_prefix(r"\\?\").map(str::to_owned).unwrap_or(s)
-                    })
-                    .unwrap_or_else(|_| path.clone());
-                // Stash for pull-on-mount AND emit for an already-running frontend.
-                app.state::<PendingFileOpenState>().set(clean_path.clone());
-                let _ = app.emit("file-open-request", clean_path);
+            if let Some(pending) = crate::shell_args::parse_shell_args(&args) {
+                let target = std::path::Path::new(&pending.path);
+                let valid = if pending.action.targets_directory() {
+                    target.is_dir()
+                } else {
+                    target.is_file()
+                };
+                if valid {
+                    let clean = std::fs::canonicalize(target)
+                        .map(|p| {
+                            let s = p.to_string_lossy().into_owned();
+                            s.strip_prefix(r"\\?\").map(str::to_owned).unwrap_or(s)
+                        })
+                        .unwrap_or_else(|_| pending.path.clone());
+                    let pending = PendingFileOpen { path: clean, ..pending };
+                    // Stash for pull-on-mount AND emit for an already-running frontend.
+                    app.state::<PendingFileOpenState>().set(pending.clone());
+                    let _ = app.emit("file-open-request", pending);
+                }
             }
         }))
         .manage(startup::StartupGate::default())
@@ -115,6 +123,7 @@ fn main() {
         .manage(WadEditState::new())
         .manage(CdnSessionState::new())
         .manage(PendingFileOpenState::new())
+        .manage(HashOverlayState::new())
         .on_page_load(move |_webview, payload| {
             tracing::info!(
                 "[startup] webview page_load (event={:?}, url={}) +{}ms",
@@ -161,7 +170,7 @@ fn main() {
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 tracing::info!("Checking for hash updates...");
-                match flint_ltk::hash::download_hashes(&hash_dir, false).await {
+                match flint_core::hash::download_hashes(&hash_dir, false).await {
                     Ok(stats) => {
                         tracing::info!(
                             "Hash sync: {} downloaded, {} up-to-date, {} errors",
@@ -187,30 +196,39 @@ fn main() {
             });
 
             // CLI arg passthrough: when Windows hands us a file via "Open with"
-            // the path arrives as `argv[1]`. Emit a `file-open-request` event
-            // (on a short delay so the webview is mounted) for the frontend to
-            // act on.
-            let pending_file_arg: Option<String> = std::env::args()
-                .nth(1)
-                .filter(|a| !a.starts_with("--") && std::path::Path::new(a).is_file())
-                .map(|a| {
-                    std::fs::canonicalize(&a)
+            // or a context-menu verb, the action arrives as argv. Emit a
+            // `file-open-request` event (on a short delay so the webview is
+            // mounted) for the frontend to act on.
+            let cli_args: Vec<String> = std::env::args().collect();
+            let pending_shell_open: Option<PendingFileOpen> =
+                crate::shell_args::parse_shell_args(&cli_args).and_then(|pending| {
+                    let target = std::path::Path::new(&pending.path);
+                    let valid = if pending.action.targets_directory() {
+                        target.is_dir()
+                    } else {
+                        target.is_file()
+                    };
+                    if !valid {
+                        return None;
+                    }
+                    let clean = std::fs::canonicalize(target)
                         .map(|p| {
                             let s = p.to_string_lossy().into_owned();
                             s.strip_prefix(r"\\?\").map(str::to_owned).unwrap_or(s)
                         })
-                        .unwrap_or(a)
+                        .unwrap_or_else(|_| pending.path.clone());
+                    Some(PendingFileOpen { path: clean, ..pending })
                 });
-            if let Some(path) = pending_file_arg {
-                tracing::info!("CLI arg file: {}", path);
+            if let Some(pending) = pending_shell_open {
+                tracing::info!("CLI arg: {:?} {}", pending.action, pending.path);
                 // Stash so the frontend can pull it once its listener mounts —
                 // on a cold start the webview boot far outlasts any fixed delay,
                 // so the event alone races the listener and is lost.
-                app.state::<PendingFileOpenState>().set(path.clone());
+                app.state::<PendingFileOpenState>().set(pending.clone());
                 let h = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-                    let _ = h.emit("file-open-request", &path);
+                    let _ = h.emit("file-open-request", &pending);
                 });
             }
 
@@ -268,6 +286,8 @@ fn main() {
             commands::project::preconvert_project_bins,
             commands::project::create_project_layer,
             commands::project::list_project_layers,
+            commands::hash_overlay::build_project_hash_overlay,
+            commands::hash_overlay::clear_project_hash_overlay,
             // Map project commands
             commands::map_project::list_available_maps,
             commands::map_project::list_map_variants,
@@ -346,6 +366,9 @@ fn main() {
             commands::mesh::read_animation,
             commands::mesh::resolve_asset_path,
             commands::mesh::resolve_anm_skin,
+            commands::animask::read_animation_masks,
+            commands::animask::save_animation_masks,
+            commands::animask::bin_has_animation_masks,
             // CDN manifest browser commands
             commands::cdn::cdn_list_manifests,
             commands::cdn::cdn_list_versions,
@@ -408,10 +431,20 @@ fn main() {
             // ModPkg import commands
             commands::modpkg_import::analyze_modpkg,
             commands::modpkg_import::import_modpkg,
+            // Extracted-folder import commands
+            commands::folder_import::analyze_extracted_folder,
+            commands::folder_import::import_extracted_folder,
             // ModPkg edit (minimal metadata editor) commands
             commands::modpkg_edit::open_modpkg_session,
             commands::modpkg_edit::save_modpkg_session,
             commands::modpkg_edit::close_modpkg_session,
+            commands::modpkg_edit::list_modpkg_chunks,
+            commands::modpkg_edit::read_modpkg_chunk,
+            commands::modpkg_edit::write_modpkg_chunk,
+            commands::modpkg_edit::remove_modpkg_chunk,
+            commands::modpkg_edit::rename_modpkg_chunk,
+            commands::modpkg_edit::modpkg_dirty_chunks,
+            commands::modpkg_edit::discard_modpkg_changes,
             // Fantome/ModPkg archive editor commands
             commands::archive_edit::open_archive_session,
             commands::archive_edit::write_archive_meta,
@@ -426,6 +459,7 @@ fn main() {
             // Animated loadscreen banner
             commands::loadscreen_banner::get_loadscreen_banner_info,
             commands::loadscreen_banner::apply_loadscreen_banner,
+            commands::loadscreen_banner::revert_loadscreen_banner,
             commands::loadscreen_banner::save_banner_mask,
             // Skin fixer (Hematite integration)
             commands::skin_fixer::hematite_list_fixes,
@@ -449,6 +483,9 @@ fn main() {
             commands::texture_convert::convert_tex_to_dds,
             commands::texture_convert::convert_dds_to_tex,
             commands::texture_convert::convert_texture_to_png,
+            commands::texture_convert::convert_png_to_tex,
+            commands::texture_convert::convert_png_to_dds,
+            commands::texture_convert::convert_png_bytes_to_tex,
             commands::texture_convert::convert_tex_bytes_to_dds,
             commands::texture_convert::convert_dds_bytes_to_tex,
             // In-memory WAD edit sessions
@@ -463,6 +500,8 @@ fn main() {
             commands::wad_edit::discard_session_changes,
             commands::wad_edit::save_session_to_path,
             commands::wad_edit::folder_wad_chunks,
+            // Pack an extracted WAD folder back into a .wad.client
+            commands::wad_pack::pack_folder_to_wad,
             // Windows file association (per-user, OpenWithProgids — non-default)
             commands::file_assoc::register_file_associations,
             commands::file_assoc::unregister_file_associations,

@@ -1533,7 +1533,7 @@ dependencies = [
  "dashmap",
  "ddsfile",
  "flate2",
- "flint-ltk",
+ "flint-core",
  "futures",
  "hematite-flint",
  "image",
@@ -1541,7 +1541,6 @@ dependencies = [
  "indexmap 2.13.0",
  "intel_tex_2",
  "libloading 0.8.9",
- "ltk_inibin",
  "notify",
  "notify-debouncer-full",
  "opener",
@@ -1563,6 +1562,7 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
@@ -1577,7 +1577,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "flint-ltk"
+name = "flint-bin"
+version = "0.1.0"
+dependencies = [
+ "flint-hash",
+ "indexmap 2.13.0",
+ "ritoshark",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+ "walkdir",
+]
+
+[[package]]
+name = "flint-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -1589,14 +1603,18 @@ dependencies = [
  "ddsfile",
  "directories",
  "flate2",
+ "flint-bin",
+ "flint-formats",
+ "flint-hash",
+ "flint-net",
+ "flint-wad",
  "futures",
  "heed",
  "image",
  "image_dds",
  "indexmap 2.13.0",
+ "intel_tex_2",
  "ltk_fantome",
- "ltk_inibin",
- "ltk_mod_core",
  "ltk_mod_project",
  "ltk_modpkg",
  "memmap2",
@@ -1610,7 +1628,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "tauri",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
@@ -1620,6 +1637,81 @@ dependencies = [
  "winreg 0.52.0",
  "xxhash-rust",
  "zip 2.4.2",
+ "zstd 0.12.4",
+]
+
+[[package]]
+name = "flint-formats"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "byteorder",
+ "ritoshark",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
+name = "flint-hash"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "directories",
+ "futures",
+ "heed",
+ "parking_lot",
+ "rayon",
+ "reqwest",
+ "ritoshark",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "xxhash-rust",
+ "zstd 0.12.4",
+]
+
+[[package]]
+name = "flint-net"
+version = "0.1.0"
+dependencies = [
+ "flint-hash",
+ "reqwest",
+ "ritoshark",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "zstd 0.12.4",
+]
+
+[[package]]
+name = "flint-wad"
+version = "0.1.0"
+dependencies = [
+ "byteorder",
+ "chrono",
+ "dashmap",
+ "flate2",
+ "flint-bin",
+ "flint-hash",
+ "heed",
+ "memmap2",
+ "parking_lot",
+ "rayon",
+ "reqwest",
+ "ritoshark",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+ "walkdir",
+ "xxhash-rust",
  "zstd 0.12.4",
 ]
 
@@ -2250,11 +2342,11 @@ dependencies = [
  "image",
  "indexmap 2.13.0",
  "page_size",
- "rs_bin",
- "rs_io",
- "rs_mesh",
- "rs_tex",
- "rs_wad",
+ "rs_bin 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556)",
+ "rs_io 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556)",
+ "rs_mesh 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556)",
+ "rs_tex 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556)",
+ "rs_wad 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556)",
  "tracing",
  "xxhash-rust",
 ]
@@ -2282,7 +2374,7 @@ source = "git+https://github.com/RitoShark/Hematite?rev=c1ded2c#c1ded2ce0e255562
 dependencies = [
  "flate2",
  "serde_json",
- "sysinfo 0.30.13",
+ "sysinfo",
  "thiserror 1.0.69",
  "tracing",
  "walkdir",
@@ -3157,17 +3249,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ltk_inibin"
-version = "0.1.0"
-dependencies = [
- "byteorder",
- "indexmap 2.13.0",
- "num_enum",
- "serde",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "ltk_io_ext"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3189,19 +3270,6 @@ dependencies = [
  "glam 0.27.0",
  "ltk_primitives 0.3.2",
  "thiserror 1.0.69",
-]
-
-[[package]]
-name = "ltk_mod_core"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fca87da6f7276ac637c04eb7f4182c05effe1e866d08fd05b1e4029c352e6c3e"
-dependencies = [
- "camino",
- "serde",
- "serde_json",
- "sysinfo 0.32.1",
- "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -4892,23 +4960,23 @@ dependencies = [
 [[package]]
 name = "ritoshark"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556#daff55623c01de8fcb7abcef3193a493281b26ae"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a#49d637a7487764009ef3db81293ee96fca48dc42"
 dependencies = [
  "rs_anim",
  "rs_audio",
- "rs_bin",
+ "rs_bin 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
  "rs_file",
- "rs_hash",
- "rs_io",
+ "rs_hash 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
+ "rs_io 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
  "rs_luabin",
  "rs_mapgeo",
- "rs_math",
- "rs_mesh",
+ "rs_math 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
+ "rs_mesh 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
  "rs_rman",
  "rs_rst",
- "rs_tex",
+ "rs_tex 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
  "rs_troybin",
- "rs_wad",
+ "rs_wad 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
 ]
 
 [[package]]
@@ -4933,20 +5001,32 @@ dependencies = [
 [[package]]
 name = "rs_anim"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556#daff55623c01de8fcb7abcef3193a493281b26ae"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a#49d637a7487764009ef3db81293ee96fca48dc42"
 dependencies = [
- "rs_hash",
- "rs_io",
- "rs_math",
+ "rs_hash 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
+ "rs_io 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
+ "rs_math 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "rs_audio"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556#daff55623c01de8fcb7abcef3193a493281b26ae"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a#49d637a7487764009ef3db81293ee96fca48dc42"
 dependencies = [
- "rs_io",
+ "rs_io 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rs_bin"
+version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a#49d637a7487764009ef3db81293ee96fca48dc42"
+dependencies = [
+ "indexmap 2.13.0",
+ "rs_hash 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
+ "rs_io 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
+ "rs_math 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
  "thiserror 2.0.18",
 ]
 
@@ -4956,16 +5036,25 @@ version = "0.1.0"
 source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556#daff55623c01de8fcb7abcef3193a493281b26ae"
 dependencies = [
  "indexmap 2.13.0",
- "rs_hash",
- "rs_io",
- "rs_math",
+ "rs_hash 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556)",
+ "rs_io 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556)",
+ "rs_math 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556)",
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "rs_file"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556#daff55623c01de8fcb7abcef3193a493281b26ae"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a#49d637a7487764009ef3db81293ee96fca48dc42"
+
+[[package]]
+name = "rs_hash"
+version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a#49d637a7487764009ef3db81293ee96fca48dc42"
+dependencies = [
+ "thiserror 2.0.18",
+ "xxhash-rust",
+]
 
 [[package]]
 name = "rs_hash"
@@ -4979,30 +5068,49 @@ dependencies = [
 [[package]]
 name = "rs_io"
 version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a#49d637a7487764009ef3db81293ee96fca48dc42"
+dependencies = [
+ "memmap2",
+ "rs_math 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rs_io"
+version = "0.1.0"
 source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556#daff55623c01de8fcb7abcef3193a493281b26ae"
 dependencies = [
  "memmap2",
- "rs_math",
+ "rs_math 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556)",
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "rs_luabin"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556#daff55623c01de8fcb7abcef3193a493281b26ae"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a#49d637a7487764009ef3db81293ee96fca48dc42"
 dependencies = [
- "rs_io",
+ "rs_io 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "rs_mapgeo"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556#daff55623c01de8fcb7abcef3193a493281b26ae"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a#49d637a7487764009ef3db81293ee96fca48dc42"
 dependencies = [
- "rs_io",
- "rs_math",
+ "rs_hash 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
+ "rs_io 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
+ "rs_math 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rs_math"
+version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a#49d637a7487764009ef3db81293ee96fca48dc42"
+dependencies = [
+ "glam 0.29.3",
 ]
 
 [[package]]
@@ -5016,20 +5124,30 @@ dependencies = [
 [[package]]
 name = "rs_mesh"
 version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a#49d637a7487764009ef3db81293ee96fca48dc42"
+dependencies = [
+ "rs_io 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
+ "rs_math 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rs_mesh"
+version = "0.1.0"
 source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556#daff55623c01de8fcb7abcef3193a493281b26ae"
 dependencies = [
- "rs_io",
- "rs_math",
+ "rs_io 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556)",
+ "rs_math 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556)",
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "rs_rman"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556#daff55623c01de8fcb7abcef3193a493281b26ae"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a#49d637a7487764009ef3db81293ee96fca48dc42"
 dependencies = [
  "blake3",
- "rs_io",
+ "rs_io 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
  "sha2",
  "thiserror 2.0.18",
  "zstd 0.13.3",
@@ -5038,11 +5156,26 @@ dependencies = [
 [[package]]
 name = "rs_rst"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556#daff55623c01de8fcb7abcef3193a493281b26ae"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a#49d637a7487764009ef3db81293ee96fca48dc42"
 dependencies = [
  "indexmap 2.13.0",
- "rs_hash",
- "rs_io",
+ "rs_hash 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
+ "rs_io 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rs_tex"
+version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a#49d637a7487764009ef3db81293ee96fca48dc42"
+dependencies = [
+ "ddsfile",
+ "image",
+ "intel_tex_2",
+ "rs_io 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
+ "rs_math 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
+ "texpresso",
+ "texture2ddecoder",
  "thiserror 2.0.18",
 ]
 
@@ -5054,8 +5187,8 @@ dependencies = [
  "ddsfile",
  "image",
  "intel_tex_2",
- "rs_io",
- "rs_math",
+ "rs_io 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556)",
+ "rs_math 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556)",
  "texpresso",
  "texture2ddecoder",
  "thiserror 2.0.18",
@@ -5064,11 +5197,23 @@ dependencies = [
 [[package]]
 name = "rs_troybin"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556#daff55623c01de8fcb7abcef3193a493281b26ae"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a#49d637a7487764009ef3db81293ee96fca48dc42"
 dependencies = [
- "rs_hash",
- "rs_io",
+ "rs_hash 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
+ "rs_io 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rs_wad"
+version = "0.1.0"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a#49d637a7487764009ef3db81293ee96fca48dc42"
+dependencies = [
+ "flate2",
+ "rs_hash 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
+ "rs_io 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=49d637a)",
+ "thiserror 2.0.18",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -5077,8 +5222,8 @@ version = "0.1.0"
 source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556#daff55623c01de8fcb7abcef3193a493281b26ae"
 dependencies = [
  "flate2",
- "rs_hash",
- "rs_io",
+ "rs_hash 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556)",
+ "rs_io 0.1.0 (git+https://github.com/RitoShark/RitoShark-Crates?rev=daff556)",
  "thiserror 2.0.18",
  "zstd 0.13.3",
 ]
@@ -5853,20 +5998,6 @@ dependencies = [
  "once_cell",
  "rayon",
  "windows 0.52.0",
-]
-
-[[package]]
-name = "sysinfo"
-version = "0.32.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c33cd241af0f2e9e3b5c32163b873b29956890b5342e6745b917ce9d490f4af"
-dependencies = [
- "core-foundation-sys",
- "libc",
- "memchr",
- "ntapi",
- "rayon",
- "windows 0.57.0",
 ]
 
 [[package]]
@@ -7261,8 +7392,8 @@ dependencies = [
  "webview2-com-sys",
  "windows 0.61.3",
  "windows-core 0.61.2",
- "windows-implement 0.60.2",
- "windows-interface 0.59.3",
+ "windows-implement",
+ "windows-interface",
 ]
 
 [[package]]
@@ -7351,16 +7482,6 @@ dependencies = [
 
 [[package]]
 name = "windows"
-version = "0.57.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12342cb4d8e3b046f3d80effd474a7a02447231330ef77d71daa6fbc40681143"
-dependencies = [
- "windows-core 0.57.0",
- "windows-targets 0.52.6",
-]
-
-[[package]]
-name = "windows"
 version = "0.61.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9babd3a767a4c1aef6900409f85f5d53ce2544ccdfaa86dad48c91782c6d6893"
@@ -7392,26 +7513,14 @@ dependencies = [
 
 [[package]]
 name = "windows-core"
-version = "0.57.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2ed2439a290666cd67ecce2b0ffaad89c2a56b976b736e6ece670297897832d"
-dependencies = [
- "windows-implement 0.57.0",
- "windows-interface 0.57.0",
- "windows-result 0.1.2",
- "windows-targets 0.52.6",
-]
-
-[[package]]
-name = "windows-core"
 version = "0.61.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0fdd3ddb90610c7638aa2b3a3ab2904fb9e5cdbecc643ddb3647212781c4ae3"
 dependencies = [
- "windows-implement 0.60.2",
- "windows-interface 0.59.3",
+ "windows-implement",
+ "windows-interface",
  "windows-link 0.1.3",
- "windows-result 0.3.4",
+ "windows-result",
  "windows-strings",
 ]
 
@@ -7428,31 +7537,9 @@ dependencies = [
 
 [[package]]
 name = "windows-implement"
-version = "0.57.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9107ddc059d5b6fbfbffdfa7a7fe3e22a226def0b2608f72e9d552763d3e1ad7"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "windows-implement"
 version = "0.60.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "053e2e040ab57b9dc951b72c264860db7eb3b0200ba345b4e4c3b14f67855ddf"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "windows-interface"
-version = "0.57.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29bee4b38ea3cde66011baa44dba677c432a78593e202392d1e9070cf2a7fca7"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7490,15 +7577,6 @@ checksum = "9150af68066c4c5c07ddc0ce30421554771e528bde427614c61038bc2c92c2b1"
 dependencies = [
  "windows-core 0.61.2",
  "windows-link 0.1.3",
-]
-
-[[package]]
-name = "windows-result"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e383302e8ec8515204254685643de10811af0ed97ea37210dc26fb0032647f8"
-dependencies = [
- "windows-targets 0.52.6",
 ]
 
 [[package]]

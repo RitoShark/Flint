@@ -3,7 +3,17 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useAppMetadataStore, useProjectTabStore, useModalStore, useNotificationStore, useConfigStore, useNavigationStore } from '../../lib/stores';
 import { openWadInExtract, isWadPath } from '../../lib/openWad';
 import { getFileIcon, getExpanderIcon, getIcon } from '../../lib/ui-helpers/fileIcons';
-import { VirtualizedList } from './wad-explorer/VirtualizedList';
+import { VirtualizedList, type VirtualizedListHandle } from './wad-explorer/VirtualizedList';
+import { useAction, useScope } from '../../lib/shortcuts/hooks';
+import {
+    stepFocus,
+    edgeFocus,
+    rangeBetween,
+    arrowRight,
+    arrowLeft,
+    typeToFind,
+    type NavRow,
+} from '../../lib/shortcuts/treeNav';
 import * as api from '../../lib/api';
 import { buildFileContextMenuOptions } from '../../lib/editor/fileContextMenuOptions';
 import { beginPointerDrag } from '../../lib/pointerDrag';
@@ -322,7 +332,17 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
     rowsRef.current = rows;
     const selectedPathsRef = useRef(selectedPaths);
     selectedPathsRef.current = selectedPaths;
-    useEffect(() => { setSelectedPaths(new Set()); anchorRef.current = null; }, [activeTabId]);
+
+    /** Keyboard cursor, and whether the tree owns focus (gates the shortcut scope). */
+    const [focusedPathState, setFocusedPathState] = useState<string | null>(null);
+    const [treeFocused, setTreeFocused] = useState(false);
+    const listRef = useRef<VirtualizedListHandle>(null);
+
+    useEffect(() => {
+        setSelectedPaths(new Set());
+        anchorRef.current = null;
+        setFocusedPathState(null);
+    }, [activeTabId]);
 
     const refreshFileTree = useCallback(async () => {
         if (!activeTab) return;
@@ -330,50 +350,160 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         setFileTree(activeTab.id, files);
     }, [activeTab, setFileTree]);
 
-    useEffect(() => {
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key !== 'F2' && e.key !== 'Delete') return;
-            if (useNavigationStore.getState().currentView !== 'preview') return;
-            if (renamingPath) return;
-            const ae = document.activeElement as HTMLElement | null;
-            if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable || ae.closest('.monaco-editor'))) return;
-            const tab = activeTabRef.current;
-            const sel = tab?.selectedFile;
-            if (!tab || !sel || sel === '.') return;
+    // ── Keyboard navigation ──────────────────────────────────────────────────
+    // The 'file-tree' scope is pushed only while the tree actually holds focus,
+    // which is what makes bare ArrowDown/Delete safe: with a view-wide scope they
+    // would also fire over the 3D preview and the editors.
+    useScope('file-tree', treeFocused);
 
-            if (e.key === 'F2') {
-                e.preventDefault();
-                setRenamingPath(sel);
-            } else {
-                e.preventDefault();
-                const selPaths = selectedPathsRef.current;
-                const targets = (selPaths.size > 0 ? [...selPaths] : [sel]).filter((p) => p && p !== '.');
-                if (!targets.length) return;
-                const label = targets.length === 1
-                    ? `"${targets[0].split('/').pop()}"`
-                    : `${targets.length} items`;
-                openConfirmDialog({
-                    title: 'Delete',
-                    message: `Are you sure you want to delete ${label}? This cannot be undone.`,
-                    confirmLabel: 'Delete',
-                    danger: true,
-                    onConfirm: async () => {
-                        try {
-                            for (const p of targets) await api.deleteFile(tab.projectPath, p);
-                            await refreshFileTree();
-                            setSelectedPaths(new Set());
-                            showToastRef.current('success', targets.length === 1 ? 'Deleted' : `Deleted ${targets.length} items`);
-                        } catch (err) {
-                            const fe = err as api.FlintError;
-                            showToastRef.current('error', fe.getUserMessage?.() || 'Failed to delete');
-                        }
-                    },
-                });
-            }
-        };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
+    /** Flattened rows in the shape treeNav works on. */
+    const navRows = useMemo<NavRow[]>(() => rows.map((r) => ({
+        path: r.node.path,
+        name: r.node.name,
+        isDirectory: r.node.isDirectory,
+        isExpanded: r.isExpanded,
+        depth: r.depth,
+    })), [rows]);
+    const navRowsRef = useRef(navRows);
+    navRowsRef.current = navRows;
+
+    /** Keyboard cursor. Falls back to the mouse selection so the two stay in step. */
+    const focusedPath = focusedPathState ?? selectedFile;
+    const focusedPathRef = useRef(focusedPath);
+    focusedPathRef.current = focusedPath;
+
+    const scrollPathIntoView = useCallback((path: string) => {
+        const index = navRowsRef.current.findIndex((r) => r.path === path);
+        if (index >= 0) listRef.current?.scrollToIndex(index);
+    }, []);
+
+    /** Move the cursor, collapsing the selection onto the new row. */
+    const focusRow = useCallback((path: string | null) => {
+        if (!path || !activeTabRef.current) return;
+        setFocusedPathState(path);
+        setSelectedPaths(new Set([path]));
+        anchorRef.current = path;
+        setSelectedFile(activeTabRef.current.id, path);
+        scrollPathIntoView(path);
+    }, [setSelectedFile, scrollPathIntoView]);
+
+    /** Move the cursor while growing the range from the existing anchor. */
+    const extendTo = useCallback((path: string | null) => {
+        if (!path || !activeTabRef.current) return;
+        const anchor = anchorRef.current ?? focusedPathRef.current;
+        setFocusedPathState(path);
+        if (anchor) setSelectedPaths(new Set(rangeBetween(navRowsRef.current, anchor, path)));
+        setSelectedFile(activeTabRef.current.id, path);
+        scrollPathIntoView(path);
+    }, [setSelectedFile, scrollPathIntoView]);
+
+    const beginRename = useCallback(() => {
+        const sel = focusedPathRef.current;
+        if (renamingPath || !sel || sel === '.') return;
+        setRenamingPath(sel);
+    }, [renamingPath]);
+
+    const deleteSelection = useCallback(() => {
+        const tab = activeTabRef.current;
+        const sel = focusedPathRef.current;
+        if (renamingPath || !tab || !sel) return;
+
+        const selPaths = selectedPathsRef.current;
+        const targets = (selPaths.size > 0 ? [...selPaths] : [sel]).filter((p) => p && p !== '.');
+        if (!targets.length) return;
+
+        const label = targets.length === 1
+            ? `"${targets[0].split('/').pop()}"`
+            : `${targets.length} items`;
+        openConfirmDialog({
+            title: 'Delete',
+            message: `Are you sure you want to delete ${label}? This cannot be undone.`,
+            confirmLabel: 'Delete',
+            danger: true,
+            onConfirm: async () => {
+                try {
+                    for (const p of targets) await api.deleteFile(tab.projectPath, p);
+                    await refreshFileTree();
+                    setSelectedPaths(new Set());
+                    showToastRef.current('success', targets.length === 1 ? 'Deleted' : `Deleted ${targets.length} items`);
+                } catch (err) {
+                    const fe = err as api.FlintError;
+                    showToastRef.current('error', fe.getUserMessage?.() || 'Failed to delete');
+                }
+            },
+        });
     }, [renamingPath, openConfirmDialog, refreshFileTree]);
+
+    useAction('tree.moveDown', () => focusRow(stepFocus(navRowsRef.current, focusedPathRef.current, 1)));
+    useAction('tree.moveUp', () => focusRow(stepFocus(navRowsRef.current, focusedPathRef.current, -1)));
+    useAction('tree.extendDown', () => extendTo(stepFocus(navRowsRef.current, focusedPathRef.current, 1)));
+    useAction('tree.extendUp', () => extendTo(stepFocus(navRowsRef.current, focusedPathRef.current, -1)));
+    useAction('tree.first', () => focusRow(edgeFocus(navRowsRef.current, 'first')));
+    useAction('tree.last', () => focusRow(edgeFocus(navRowsRef.current, 'last')));
+
+    useAction('tree.expand', () => {
+        const outcome = arrowRight(navRowsRef.current, focusedPathRef.current);
+        if (!outcome) return;
+        if (outcome.kind === 'expand') handleExpanderClick(outcome.path);
+        else focusRow(outcome.path);
+    });
+
+    useAction('tree.collapse', () => {
+        const outcome = arrowLeft(navRowsRef.current, focusedPathRef.current);
+        if (!outcome) return;
+        if (outcome.kind === 'collapse') handleExpanderClick(outcome.path);
+        else focusRow(outcome.path);
+    });
+
+    useAction('tree.selectAll', () => {
+        // The project root is excluded: it is never a valid delete or drag target.
+        setSelectedPaths(new Set(navRowsRef.current.map((r) => r.path).filter((p) => p !== '.')));
+    });
+
+    useAction('tree.open', () => {
+        const path = focusedPathRef.current;
+        if (!path) return;
+        const target = rowsRef.current.find((r) => r.node.path === path);
+        if (!target) return;
+        if (target.node.isDirectory) handleExpanderClick(path);
+        else handleDoubleClick(target.node);
+    });
+
+    useAction('tree.copyPath', () => {
+        const selPaths = selectedPathsRef.current;
+        const paths = selPaths.size > 0 ? [...selPaths] : [focusedPathRef.current].filter(Boolean);
+        if (!paths.length) return;
+        // Matches the 'Copy relative path' context-menu item in fileContextMenuOptions.
+        void navigator.clipboard.writeText(paths.join('\n'));
+        showToastRef.current('success', paths.length === 1 ? 'Path copied' : `${paths.length} paths copied`);
+    });
+
+    useAction('tree.rename', beginRename);
+    useAction('tree.delete', deleteSelection);
+
+    // Type-to-find runs only when no declared binding matched, so a real shortcut
+    // always beats the search buffer.
+    const typeBufferRef = useRef('');
+    const typeTimerRef = useRef<number | null>(null);
+    const handleTypeAhead = useCallback((e: React.KeyboardEvent) => {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        if (e.key.length !== 1 || e.key === ' ') return;
+        if (renamingPath) return;
+
+        typeBufferRef.current += e.key;
+        if (typeTimerRef.current !== null) window.clearTimeout(typeTimerRef.current);
+        typeTimerRef.current = window.setTimeout(() => { typeBufferRef.current = ''; }, 600);
+
+        const match = typeToFind(navRowsRef.current, typeBufferRef.current, focusedPathRef.current);
+        if (match) {
+            e.preventDefault();
+            focusRow(match);
+        }
+    }, [renamingPath, focusRow]);
+
+    useEffect(() => () => {
+        if (typeTimerRef.current !== null) window.clearTimeout(typeTimerRef.current);
+    }, []);
 
     const handleItemClick = useCallback((path: string, mods?: { ctrl: boolean; shift: boolean }) => {
         if (!activeTab) return;
@@ -397,6 +527,9 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
             anchorRef.current = path;
         }
         setSelectedFile(activeTab.id, path);
+        // Keep the keyboard cursor on whatever the mouse just touched, so a click
+        // followed by ArrowDown continues from there rather than from a stale row.
+        setFocusedPathState(path);
         useNavigationStore.getState().setView('preview');
     }, [activeTab, setSelectedFile]);
 
@@ -511,11 +644,28 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         );
     }
 
-    const renderEpoch = rows.length + (selectedFile?.length ?? 0) + (dropTargetPath?.length ?? 0) + selectedPaths.size;
+    // focusedPath is part of the epoch so the focus ring repaints as it moves.
+    const renderEpoch = rows.length + (selectedFile?.length ?? 0) + (dropTargetPath?.length ?? 0)
+        + selectedPaths.size + (focusedPath?.length ?? 0) + (treeFocused ? 1 : 0);
 
     return (
-        <div className="file-tree">
+        <div
+            className="file-tree"
+            // Focusable so the tree can own the 'file-tree' shortcut scope; clicking
+            // a row focuses this container, which is how F2/Delete stay reachable.
+            tabIndex={0}
+            onFocus={() => setTreeFocused(true)}
+            onBlur={(e) => {
+                // focusout bubbles from children too, so ignore focus moving *within*
+                // the tree (e.g. into the rename input) — otherwise the scope flickers.
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                    setTreeFocused(false);
+                }
+            }}
+            onKeyDown={handleTypeAhead}
+        >
             <VirtualizedList
+                ref={listRef}
                 totalRows={rows.length}
                 rowHeight={ROW_HEIGHT}
                 overscan={ROW_OVERSCAN}
@@ -528,6 +678,7 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
                             row={row}
                             projectPath={activeTab?.projectPath || ''}
                             isSelected={selectedPaths.has(row.node.path) || selectedFile === row.node.path}
+                            isFocused={treeFocused && focusedPath === row.node.path}
                             isDropTarget={dropTargetPath === row.node.path}
                             onItemClick={handleItemClick}
                             onRowPointerDown={handleRowPointerDown}
@@ -549,6 +700,8 @@ interface TreeRowProps {
     row: TreeRowData;
     projectPath: string;
     isSelected: boolean;
+    /** Keyboard cursor position — drawn as a ring, distinct from selection fill. */
+    isFocused: boolean;
     isDropTarget: boolean;
     onItemClick: (path: string, mods?: { ctrl: boolean; shift: boolean }) => void;
     onRowPointerDown: (node: FileTreeNode, e: React.PointerEvent) => void;
@@ -683,6 +836,7 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
     row,
     projectPath,
     isSelected,
+    isFocused,
     isDropTarget,
     onItemClick,
     onRowPointerDown,
@@ -745,7 +899,7 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
             data-drop-path={node.isDirectory ? node.path : undefined}
         >
             <div
-                className={`file-tree__item ${isSelected ? 'file-tree__item--selected' : ''} ${statusClass}${isDropTarget ? ' file-tree__item--drop-target' : ''}`}
+                className={`file-tree__item ${isSelected ? 'file-tree__item--selected' : ''} ${statusClass}${isDropTarget ? ' file-tree__item--drop-target' : ''}${isFocused ? ' file-tree__item--focused' : ''}`}
                 style={{ paddingLeft: 4 + depth * 12 }}
                 onPointerDown={handlePointerDown}
                 onClick={handleClick}

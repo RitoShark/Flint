@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import type { ExtractSession, WadChunk } from '../types';
+import type { Vfs } from '../vfs/types';
+import { mountWad, type WadMount } from '../vfs/wadMount';
 import { useConfigStore } from './configStore';
 import * as api from '../api';
 
@@ -7,7 +9,12 @@ interface WadExtractState {
   extractSessions: ExtractSession[];
   activeExtractId: string | null;
 
-  openSession: (id: string, wadPath: string, editSessionId?: string) => void;
+  /**
+   * `mountBacked` marks a non-WAD archive: skip opening a WAD edit session for it.
+   * `embedded` marks a session owned by another surface (the archive editor):
+   * it is not a user-facing tab and must not steal the global active id.
+   */
+  openSession: (id: string, wadPath: string, editSessionId?: string, opts?: { mountBacked?: boolean; embedded?: boolean }) => void;
   closeSession: (sessionId: string) => { newActiveId: string | null; remainingSessions: ExtractSession[] };
   switchSession: (sessionId: string) => void;
   setChunks: (sessionId: string, chunks: WadChunk[]) => void;
@@ -22,13 +29,25 @@ interface WadExtractState {
   stageChunkDelete: (sessionId: string, hash: string) => void;
   stageChunkRename: (sessionId: string, oldHash: string, newHash: string, newPath: string) => void;
   setSessionDirty: (sessionId: string, isDirty: boolean) => void;
+  /** Attach the VFS mount a non-WAD archive (e.g. a modpkg) reads and writes through. */
+  setSessionMount: (sessionId: string, mount: Vfs) => void;
+}
+
+/**
+ * Point a mount at a new chunk set. WAD mounts index their chunks up front and
+ * expose `reindex`; a modpkg mount reloads from its own session instead, so it
+ * has none and is left alone.
+ */
+function reindexMount(mount: Vfs, chunks: readonly { hash: string; path: string | null; size?: number }[]): void {
+  const reindex = (mount as Partial<WadMount>).reindex;
+  if (typeof reindex === 'function') reindex.call(mount, chunks);
 }
 
 export const useWadExtractStore = create<WadExtractState>((set, get) => ({
   extractSessions: [],
   activeExtractId: null,
 
-  openSession: (id, wadPath, editSessionId) => {
+  openSession: (id, wadPath, editSessionId, opts) => {
     const wadName = wadPath.split(/[\\/]/).pop() || wadPath;
 
     const config = useConfigStore.getState();
@@ -87,18 +106,34 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
       // editor's inner WAD), seed it directly so chunk ops route to it and we
       // don't open a second redundant session below.
       editSessionId,
+      embedded: opts?.embedded,
     };
     set({
       extractSessions: [...get().extractSessions, newSession],
-      activeExtractId: id,
+      // An embedded session belongs to the surface that opened it; taking the
+      // global active id would blank that surface's sibling panels and add a
+      // phantom tab.
+      activeExtractId: opts?.embedded ? get().activeExtractId : id,
     });
 
-    if (!readOnly && !editSessionId) {
+    // `mountBacked` sessions are not WADs (a modpkg), so there is no WAD edit
+    // session to open — attempting one just fails and logs noise.
+    if (!readOnly && !editSessionId && !opts?.mountBacked) {
       api.openWadEditSession(wadPath).then((res) => {
         set((state) => ({
-          extractSessions: state.extractSessions.map((s) =>
-            s.id === id ? { ...s, editSessionId: res.session_id } : s
-          ),
+          extractSessions: state.extractSessions.map((s) => {
+            if (s.id !== id) return s;
+            // The edit session arrives after the chunks usually have, so the
+            // mount built in the meantime is the read-only on-disk one. Widen it
+            // IN PLACE rather than swapping in a new mount: the browser caches
+            // directory listings against mount identity, so replacing the object
+            // here would collapse every folder the user had already opened.
+            const mount = s.mount as Partial<WadMount> | undefined;
+            if (typeof mount?.attachEditSession === 'function') {
+              mount.attachEditSession(res.session_id);
+            }
+            return { ...s, editSessionId: res.session_id };
+          }),
         }));
         console.log(`[WAD Edit] Opened edit session ${res.session_id} for WAD:`, wadPath);
       }).catch((err) => {
@@ -114,11 +149,10 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
     let newActiveId = activeExtractId;
 
     if (activeExtractId === sessionId) {
-      if (newSessions.length > 0) {
-        newActiveId = newSessions[newSessions.length - 1].id;
-      } else {
-        newActiveId = null;
-      }
+      // Only a user-facing session can become the active tab; an embedded one
+      // lives inside another surface and has no tab to fall back to.
+      const userFacing = newSessions.filter(s => !s.embedded);
+      newActiveId = userFacing.length > 0 ? userFacing[userFacing.length - 1].id : null;
     }
 
     set({
@@ -146,9 +180,26 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
 
   setChunks: (sessionId, chunks) => {
     set((state) => ({
-      extractSessions: state.extractSessions.map(s =>
-        s.id === sessionId ? { ...s, chunks, loading: false } : s
-      ),
+      extractSessions: state.extractSessions.map(s => {
+        if (s.id !== sessionId) return s;
+        // Every WAD session reads and writes through a mount, so the browser and
+        // preview panels go through one interface for WADs, packages and CDN
+        // archives alike. A session that already carries a mount (a modpkg, or
+        // this WAD on a later chunk update) keeps it, so the object identity the
+        // browser caches listings against stays stable.
+        let mount = s.mount;
+        if (!mount) {
+          const fresh = mountWad(s.wadPath, chunks);
+          // Chunks can land after the edit session opened (an unhash re-resolve
+          // republishes them), so honour an existing session id here too.
+          if (s.editSessionId) fresh.attachEditSession(s.editSessionId);
+          mount = fresh;
+        }
+        // A mount indexes the chunk list at construction, so re-index in place
+        // rather than rebuilding it on every staged edit.
+        reindexMount(mount, chunks);
+        return { ...s, chunks, loading: false, mount };
+      }),
     }));
   },
 
@@ -312,6 +363,14 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
     set((state) => ({
       extractSessions: state.extractSessions.map(s =>
         s.id === sessionId ? { ...s, isDirty } : s
+      ),
+    }));
+  },
+
+  setSessionMount: (sessionId, mount) => {
+    set((state) => ({
+      extractSessions: state.extractSessions.map(s =>
+        s.id === sessionId ? { ...s, mount } : s
       ),
     }));
   },

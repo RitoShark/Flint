@@ -9,7 +9,15 @@ import type { ArchiveTab as ArchiveTabModel } from '../../lib/stores/archiveTabS
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import * as api from '../../lib/api';
 import { sanitizeChampionName } from '../../lib/util/utils';
+import { FlintFlameMark } from '../ui/FlintFlameMark';
 import type { ProjectTab, ExtractSession } from '../../lib/types';
+
+// Brand mark for whichever launcher the sync button currently targets. Paths live in public/, so
+// they are served verbatim and need no import.
+const SYNC_LOGOS: Record<'ltk' | 'celestial', string> = {
+    ltk: '/ltk-manager-logo.svg',
+    celestial: '/celestial-logo.svg',
+};
 
 const MinimizeIcon: React.FC = () => (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -36,20 +44,7 @@ const SettingsIcon: React.FC = () => (
     </svg>
 );
 
-const FlintLogo: React.FC = () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-        <path
-            d="M12 2C8.5 6 8 10 8 12c0 3.5 1.5 6 4 8 2.5-2 4-4.5 4-8 0-2-.5-6-4-10z"
-        />
-        <path
-            d="M12 5c-2 3-2.5 5.5-2.5 7 0 2 .8 3.5 2.5 5 1.7-1.5 2.5-3 2.5-5 0-1.5-.5-4-2.5-7z"
-            fill="var(--bg-primary)"
-        />
-        <path
-            d="M12 8c-1 1.5-1.5 3-1.5 4 0 1.2.5 2.2 1.5 3 1-.8 1.5-1.8 1.5-3 0-1-.5-2.5-1.5-4z"
-        />
-    </svg>
-);
+const FlintLogo: React.FC = () => <FlintFlameMark size={20} />;
 
 interface TabProps {
     tab: ProjectTab;
@@ -547,7 +542,10 @@ export const TitleBar: React.FC = () => {
         }
     }, [openConfirmDialog]);
 
-    const hasTabs = openTabs.length > 0 || extractSessions.length > 0 || manifestList.length > 0 || openArchiveTabs.length > 0 || isWadExplorerOpen || fileEditorTabs.length > 0;
+    // Sessions the archive editor opened for its own panes are not tabs.
+    const userExtractSessions = useMemo(() => extractSessions.filter(s => !s.embedded), [extractSessions]);
+
+    const hasTabs = openTabs.length > 0 || userExtractSessions.length > 0 || manifestList.length > 0 || openArchiveTabs.length > 0 || isWadExplorerOpen || fileEditorTabs.length > 0;
 
     return (
         <div className="titlebar" data-tauri-drag-region>
@@ -634,7 +632,7 @@ export const TitleBar: React.FC = () => {
                                 onClose={(e) => handleCloseTab(e, tab.id)}
                             />
                         ))}
-                        {extractSessions.map(session => (
+                        {userExtractSessions.map(session => (
                             <ExtractTab
                                 key={session.id}
                                 session={session}
@@ -687,15 +685,22 @@ export const TitleBar: React.FC = () => {
 
                 {currentView === 'preview' && currentProject && launcherTarget && (
                     <button
-                        className="titlebar__button titlebar__button--sync"
+                        className={`titlebar__button titlebar__button--sync${isSyncing ? ' titlebar__button--syncing' : ''}`}
                         onClick={handleSyncToLauncher}
                         disabled={isSyncing}
                         title={`Sync to ${launcherTarget.name}`}
+                        aria-label={`Sync to ${launcherTarget.name}`}
                         data-tauri-drag-region="false"
                     >
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                            <path d="M13.65 2.35A7 7 0 1014.25 8h-1.5a5.5 5.5 0 11-1.1-3.4l1.1 1.1.9-2.35z" fill="currentColor"/>
-                        </svg>
+                        <img
+                            className="titlebar__sync-logo"
+                            src={SYNC_LOGOS[launcherTarget.kind]}
+                            alt=""
+                            width={16}
+                            height={16}
+                            draggable={false}
+                            data-tauri-drag-region="false"
+                        />
                     </button>
                 )}
 

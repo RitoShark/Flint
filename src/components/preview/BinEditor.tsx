@@ -14,6 +14,7 @@ import {
     registerRitobinTheme
 } from '../../lib/editor/ritobinLanguage';
 import { AssetPreviewTooltip } from './AssetPreviewTooltip';
+import { MaskEditor } from './MaskEditor';
 import { EmitterPalette, EMITTER_DROP_EVENT, type EmitterDropDetail } from './EmitterPalette';
 import { useEmitterPaletteStore, type CopiedBlock } from '../../lib/stores/emitterPaletteStore';
 import {
@@ -828,6 +829,8 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const [lineCount, setLineCount] = useState(0);
     const [sidePanelOpen, setSidePanelOpen] = useState(false);
     const [paletteOpen, setPaletteOpen] = useState(false);
+    const [hasMaskMap, setHasMaskMap] = useState(false);
+    const [maskEditorOpen, setMaskEditorOpen] = useState(false);
 
     const [bracketStatus, setBracketStatus] = useState<BracketValidation>({ valid: true, errors: [] });
     const [bracketErrorIndex, setBracketErrorIndex] = useState(0);
@@ -951,6 +954,24 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         loadBin();
         return () => { cancelled = true; };
     }, [filePath, fileVersion, variant]);
+
+    // Detect whether this BIN is an animation graph with a mask map, so the
+    // Masks toggle only appears where there's actually something to edit.
+    // `binHasAnimationMasks` is a dedicated cheap probe (read_bin only, no
+    // skeleton resolution) rather than reusing `readAnimationMasks` here —
+    // that keeps this check safe to run for every BIN opened in the editor
+    // (VFX/material/mesh BINs included) and keeps a real animation-graph BIN
+    // from being hidden just because its skeleton fails to resolve; that
+    // failure is instead surfaced inside MaskEditor once the panel is opened.
+    useEffect(() => {
+        let cancelled = false;
+        setHasMaskMap(false);
+        setMaskEditorOpen(false);
+        api.binHasAnimationMasks(filePath)
+            .then((has) => { if (!cancelled) setHasMaskMap(has); })
+            .catch(() => { if (!cancelled) setHasMaskMap(false); });
+        return () => { cancelled = true; };
+    }, [filePath]);
 
     useEffect(() => {
         if (loading || error || !editorContainerRef.current) return;
@@ -1302,7 +1323,11 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         }
     }, [content, setWorking, setReady, showToast]);
 
-    const fileName = filePath.split('\\').pop() || filePath.split('/').pop() || 'file.bin';
+    // Split on BOTH separators in one pass. Chaining `split('\\') || split('/')`
+    // never reaches the second branch: on a forward-slash path the first split
+    // returns [wholePath], whose `pop()` is truthy, so the whole path leaked
+    // through as the "basename" and blew the toolbar past its buttons.
+    const fileName = filePath.split(/[/\\]/).pop() || 'file.bin';
 
     const bracketLabel = useMemo(() => {
         if (bracketStatus.valid) return null;
@@ -1338,9 +1363,9 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             <div className="bin-editor__toolbar">
                 <span className="bin-editor__filename">
                     {!hideFilename && (
-                        <>
+                        <span className="bin-editor__filename-text" title={filePath}>
                             {fileName}{isDirty ? ' \u2022' : ''}
-                        </>
+                        </span>
                     )}
                     <span className="bin-editor__stats" style={hideFilename ? { marginLeft: 0 } : undefined}>
                         {lineCount.toLocaleString()} lines
@@ -1408,6 +1433,16 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                     >
                         ⚙
                     </button>
+                    {hasMaskMap && (
+                        <button
+                            className={`btn btn--sm${maskEditorOpen ? ' btn--primary' : ''}`}
+                            style={!maskEditorOpen ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
+                            onClick={() => setMaskEditorOpen(!maskEditorOpen)}
+                            title="Toggle animation mask weight editor"
+                        >
+                            Masks
+                        </button>
+                    )}
                     <button
                         className="btn btn--primary btn--sm"
                         onClick={handleSave}
@@ -1442,6 +1477,19 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                         editorRef={editorRef}
                         onClose={() => setSidePanelOpen(false)}
                     />
+                )}
+
+                {maskEditorOpen && hasMaskMap && (
+                    <div
+                        style={{
+                            position: 'absolute',
+                            inset: 0,
+                            zIndex: 40,
+                            background: 'var(--bg-secondary)',
+                        }}
+                    >
+                        <MaskEditor binPath={filePath} />
+                    </div>
                 )}
             </div>
 

@@ -1,84 +1,103 @@
 /* ============================================================================
-   Flint — Project List ("My Projects") modal polish
+   Flint — Project List ("My Folders") modal
+
+   Glass shell matching the settings redesign: a translucent, blurred surface
+   with a faint accent wash, and FLAT rows instead of per-project card boxes.
+   Rows sit directly on that glass, separated by hairlines — the hover state
+   fades in its own translucent panel rather than a solid fill.
    ============================================================================ */
 
 /* --------------------------------------------------------------------------
-   Modal shell
+   Modal shell — glass
    -------------------------------------------------------------------------- */
 .modal--project-list {
-    border-radius: 16px;
+    border-radius: 18px;
     overflow: hidden;
-    background:
-        radial-gradient(circle at top left,
-            color-mix(in oklab, var(--accent-primary) 6%, transparent) 0%,
-            transparent 35%),
-        var(--bg-secondary);
-    box-shadow:
-        0 24px 48px -16px rgba(0,0,0,.55),
-        0 4px 12px rgba(0,0,0,.25),
-        0 0 0 1px var(--border);
     max-width: 880px !important;
     width: 92vw;
+    background:
+        /* Accent bloom from the top-left, the same cue the settings modal uses. */
+        radial-gradient(120% 90% at 0% 0%,
+            color-mix(in oklab, var(--accent-primary) 13%, transparent) 0%,
+            transparent 55%),
+        linear-gradient(180deg,
+            color-mix(in oklab, white 4%, transparent) 0%,
+            transparent 22%),
+        color-mix(in oklab, var(--bg-secondary) 88%, transparent);
+    backdrop-filter: blur(22px) saturate(150%);
+    -webkit-backdrop-filter: blur(22px) saturate(150%);
+    border: 1px solid color-mix(in oklab, white 9%, var(--border));
+    box-shadow:
+        0 32px 64px -20px rgba(0,0,0,.62),
+        0 6px 16px rgba(0,0,0,.28),
+        inset 0 1px 0 color-mix(in oklab, white 7%, transparent);
+}
+
+/* Header/footer ride ON the glass — no opaque bands cutting the surface up. */
+.modal--project-list .modal__header,
+.modal--project-list .modal__footer {
+    background: transparent;
+    border-color: color-mix(in oklab, var(--border) 55%, transparent);
 }
 
 /* Title block (header) */
-.pl-title { display: inline-flex; align-items: center; gap: 12px; }
+.pl-title { display: inline-flex; align-items: center; gap: 10px; }
+/* Bare glyph — no tile, no border, no fill behind it. */
 .pl-title__icon {
-    width: 36px;
-    height: 36px;
-    display: grid;
-    place-items: center;
-    background:
-        linear-gradient(135deg,
-            color-mix(in oklab, var(--accent-primary) 22%, var(--bg-tertiary)),
-            var(--bg-tertiary));
-    border: 1px solid color-mix(in oklab, var(--accent-primary) 35%, var(--border));
-    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     color: var(--accent-primary);
-    box-shadow: 0 0 12px color-mix(in oklab, var(--accent-primary) 25%, transparent);
 }
-.pl-title__icon svg { width: 18px; height: 18px; display: block; }
+.pl-title__icon svg { width: 20px; height: 20px; display: block; }
 .pl-title__name { display: block; font-weight: 600; font-size: 14px; color: var(--text-primary); line-height: 1.2; }
 .pl-title__sub  { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; font-weight: 400; }
 
 /* --------------------------------------------------------------------------
-   Toolbar (search + sort) — sits above the scrolling body. The bottom
-   border + drop-shadow make it visually separate from the cards so scrolled
-   content doesn't crash into the search field.
+   Toolbar (search + sort)
+
+   Translucent so the glass reads through, with a hairline rule instead of the
+   old shadow band — the rows below are flat now, so a heavy separator would be
+   the loudest thing on the panel.
    -------------------------------------------------------------------------- */
 .pl-toolbar {
     display: flex;
     gap: 12px;
     align-items: center;
-    padding: 14px 22px 14px;
-    border-bottom: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
-    background: color-mix(in oklab, var(--bg-secondary) 92%, transparent);
+    padding: 14px 22px;
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 50%, transparent);
+    background: transparent;
     position: relative;
     z-index: 2;
-}
-/* Soft drop-shadow under the toolbar so cards scrolling beneath it read as
-   "underneath the bar" instead of "touching the bar". */
-.pl-toolbar::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 100%;
-    height: 10px;
-    background: linear-gradient(180deg, rgba(0,0,0,0.18), transparent);
-    pointer-events: none;
 }
 .pl-search {
     position: relative;
     flex: 1;
 }
+/* Translucent field that sits ON the glass instead of a solid black box —
+   mirrors the settings `.creator-field` inputs. */
 .pl-search > .form-input,
-.pl-search > input { padding-left: 36px; }
+.pl-search > input {
+    padding-left: 36px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+    background: color-mix(in oklab, var(--bg-primary) 30%, transparent);
+    transition: border-color var(--motion-fast), background var(--motion-fast), box-shadow var(--motion-fast);
+}
+.pl-search > .form-input:focus,
+.pl-search > input:focus {
+    border-color: color-mix(in oklab, var(--accent-primary) 55%, var(--border));
+    background: color-mix(in oklab, var(--bg-primary) 40%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-primary) 16%, transparent);
+}
 .pl-search > span:first-child {
     position: absolute;
     left: 12px;
     top: 50%;
     transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
     color: var(--text-muted);
     pointer-events: none;
     z-index: 1;
@@ -86,17 +105,69 @@
 .pl-search > span:first-child svg { width: 14px; height: 14px; display: block; }
 
 /* --------------------------------------------------------------------------
-   Body / grid
+   Body / list
    -------------------------------------------------------------------------- */
 .pl-body {
-    padding: 18px 22px 20px;
+    padding: 8px 14px 14px;
     min-height: 320px;
+    /* Anchors the drop overlay below. */
+    position: relative;
 }
 
-.pl-grid {
-    display: grid;
-    grid-template-columns: 1fr;
+/* --------------------------------------------------------------------------
+   Folder drop overlay
+
+   Covers the body while an OS drag is over the modal. `pointer-events: none`
+   matters: the native drag is tracked by position, and an interactive overlay
+   would only get in the way of the rows underneath.
+   -------------------------------------------------------------------------- */
+.pl-drop-overlay {
+    position: absolute;
+    inset: 10px;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     gap: 8px;
+    text-align: center;
+    pointer-events: none;
+    border: 2px dashed color-mix(in oklab, var(--accent-primary) 60%, transparent);
+    border-radius: 14px;
+    background: color-mix(in oklab, var(--bg-primary) 70%, transparent);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    animation: plDropIn 160ms ease-out both;
+}
+.pl-drop-overlay svg {
+    width: 34px;
+    height: 34px;
+    color: var(--accent-primary);
+    opacity: 0.9;
+    display: block;
+}
+.pl-drop-overlay__title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.pl-drop-overlay__hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    max-width: 340px;
+}
+@keyframes plDropIn {
+    from { opacity: 0; transform: scale(0.98); }
+    to   { opacity: 1; transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .pl-drop-overlay { animation: none; }
+}
+
+/* Flat list — rows are separated by hairlines, not by gaps between boxes. */
+.pl-list {
+    display: flex;
+    flex-direction: column;
 }
 
 .pl-no-match {
@@ -109,120 +180,119 @@
     font-size: 13px;
     font-style: italic;
 }
-.pl-no-match svg { width: 16px; height: 16px; }
+.pl-no-match svg { width: 16px; height: 16px; display: block; }
 
 /* --------------------------------------------------------------------------
-   Project card
+   Project row
+
+   No card box: the row is transparent and divided from its neighbour by a
+   hairline. Hover fades in a translucent glass panel (::before) tinted by the
+   artwork's extracted colour.
    -------------------------------------------------------------------------- */
-.pl-card {
-    --pl-hue: 220;
-    /* Default tint colour — overridden by JS once image color is extracted */
+.pl-row {
+    /* Default tint — overridden by JS once the image colour is extracted. */
     --pl-r: 100;
     --pl-g: 110;
     --pl-b: 130;
+    --pl-hue: 220;
     position: relative;
     isolation: isolate;
     display: grid;
-    grid-template-columns: 56px 1fr auto;
+    grid-template-columns: 48px 1fr auto;
     gap: 14px;
     align-items: center;
-    padding: 12px 14px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    border-radius: 14px;
+    width: 100%;
+    padding: 12px 12px;
+    background: transparent;
+    border: 0;
+    border-radius: 12px;
     cursor: pointer;
     text-align: left;
-    overflow: hidden;
     color: var(--text-primary);
     opacity: 0;
-    transform: translateY(8px);
-    animation: plCardIn 360ms cubic-bezier(.22,1,.36,1) forwards;
-    transition:
-        background var(--motion-fast),
-        border-color var(--motion-fast),
-        transform var(--motion-fast),
-        box-shadow var(--motion-fast);
+    transform: translateY(6px);
+    animation: plRowIn 340ms cubic-bezier(.22,1,.36,1) forwards;
+    transition: transform var(--motion-fast);
 }
-.pl-card::before {
+/* Hairline divider — drawn as a box-shadow inset so it never adds layout
+   height and disappears cleanly under the hovered row's rounded panel. */
+.pl-row + .pl-row {
+    box-shadow: inset 0 1px 0 color-mix(in oklab, var(--border) 45%, transparent);
+}
+.pl-row:hover + .pl-row,
+.pl-row:focus-visible + .pl-row { box-shadow: none; }
+
+/* The hover glass. Sits behind the content, fades in from nothing so an
+   un-hovered row shows no container at all. */
+.pl-row::before {
     content: '';
     position: absolute;
     inset: 0;
-    background: linear-gradient(135deg,
-        rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.10) 0%,
-        rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.02) 60%,
-        transparent 100%);
+    border-radius: inherit;
+    background:
+        linear-gradient(135deg,
+            rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.20) 0%,
+            rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.05) 55%,
+            transparent 100%),
+        color-mix(in oklab, white 5%, transparent);
+    border: 1px solid rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.30);
+    box-shadow: inset 0 1px 0 color-mix(in oklab, white 8%, transparent);
+    opacity: 0;
     pointer-events: none;
     z-index: 0;
     transition: opacity var(--motion-base);
-    opacity: 0.85;
-    border-radius: inherit;
 }
-.pl-card > * { position: relative; z-index: 1; }
-.pl-card:hover::before { opacity: 1; }
-@keyframes plCardIn {
+.pl-row > * { position: relative; z-index: 1; }
+
+.pl-row:hover::before,
+.pl-row:focus-visible::before { opacity: 1; }
+.pl-row:hover { transform: translateX(2px); }
+.pl-row:active { transform: translateX(2px) scale(0.995); }
+.pl-row:focus-visible { outline: none; }
+.pl-row:focus-visible::before {
+    border-color: rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.75);
+}
+
+@keyframes plRowIn {
     to { opacity: 1; transform: translateY(0); }
 }
-.pl-card:hover {
-    background: var(--bg-hover);
-    border-color: rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.55);
-    transform: translateY(-1px);
-    box-shadow:
-        0 8px 18px -8px rgba(0,0,0,.4),
-        0 0 0 1px rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.35);
+@media (prefers-reduced-motion: reduce) {
+    .pl-row { animation: none; opacity: 1; transform: none; }
+    .pl-row:hover, .pl-row:active { transform: none; }
 }
-.pl-card:active { transform: translateY(0) scale(0.99); }
-.pl-card:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 2px rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.7);
-}
-.pl-card__champ { color: rgb(var(--pl-r), var(--pl-g), var(--pl-b)) !important; }
-.pl-card__tile--art { border-color: rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.5) !important; }
-.pl-card::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(135deg,
-        hsl(var(--pl-hue) 70% 50% / 0.06),
-        transparent 60%);
-    pointer-events: none;
-    transition: opacity var(--motion-fast);
-    opacity: 0.5;
-    z-index: 0;
-}
-.pl-card > * { position: relative; z-index: 1; }
-/* Legacy hue-based hover/focus rules superseded by the extracted-color rules above */
 
-.pl-card--removing {
+.pl-row--removing {
     opacity: 0;
     transform: translateX(20px);
     pointer-events: none;
     transition: opacity 200ms ease, transform 200ms ease;
 }
 
-/* Champion monogram tile (fallback when no image) */
-.pl-card__tile {
-    width: 56px;
-    height: 56px;
-    border-radius: 12px;
-    display: grid;
-    place-items: center;
+/* Champion monogram tile (fallback when there is no image) */
+.pl-row__tile {
+    width: 48px;
+    height: 48px;
+    border-radius: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background:
         linear-gradient(135deg,
             rgb(var(--pl-r), var(--pl-g), var(--pl-b)),
             rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.5));
     border: 1px solid rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.5);
     box-shadow:
-        inset 0 1px 0 rgba(255,255,255,0.1),
-        0 4px 12px rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.4);
-    color: white;
+        inset 0 1px 0 rgba(255,255,255,0.12),
+        0 4px 12px -4px rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.45);
+    color: #fff;
     font-weight: 700;
-    font-size: 18px;
+    font-size: 16px;
     letter-spacing: 0.02em;
     flex: none;
     overflow: hidden;
     position: relative;
 }
-.pl-card__tile::after {
+.pl-row__tile::after {
     content: '';
     position: absolute;
     inset: 0;
@@ -231,19 +301,20 @@
         transparent 50%);
     pointer-events: none;
 }
-.pl-card__monogram {
+.pl-row__monogram {
     position: relative;
     z-index: 1;
+    line-height: 1;
     text-shadow: 0 1px 2px rgba(0,0,0,0.4);
 }
 
-/* Image tile — thumbnail.webp or champion centered splash */
-.pl-card__tile--art {
+/* Image tile — thumbnail.webp or the champion's centred splash */
+.pl-row__tile--art {
     background: var(--bg-primary);
     padding: 0;
-    /* border-color set dynamically from the extracted-color rule above */
+    border-color: rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.5);
 }
-.pl-card__tile--art::after {
+.pl-row__tile--art::after {
     content: '';
     position: absolute;
     inset: 0;
@@ -251,17 +322,22 @@
     pointer-events: none;
     z-index: 1;
 }
-.pl-card__art {
+/* DDragon loading splashes are tall portraits (308×560). Cropping one to a
+   square from the centre lands on the torso and cuts the head off, so bias the
+   crop toward the top where the face actually is. Project thumbnails are
+   already square and are unaffected by the bias. */
+.pl-row__art {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    object-position: 50% 12%;
     display: block;
     transition: transform var(--motion-base);
 }
-.pl-card:hover .pl-card__art { transform: scale(1.06); }
+.pl-row:hover .pl-row__art { transform: scale(1.06); }
 
-/* Loading placeholder while we read thumbnail.webp from disk */
-.pl-card__tile--loading {
+/* Loading placeholder while thumbnail.webp is read from disk */
+.pl-row__tile--loading {
     background:
         linear-gradient(90deg,
             rgba(255,255,255,0.04) 0%,
@@ -271,6 +347,7 @@
     background-size: 200% 100%;
     animation: plThumbShimmer 1.4s ease-in-out infinite;
     border-color: var(--border);
+    box-shadow: none;
 }
 @keyframes plThumbShimmer {
     0%   { background-position: 200% 0; }
@@ -278,13 +355,13 @@
 }
 
 /* Body */
-.pl-card__body {
+.pl-row__body {
     display: flex;
     flex-direction: column;
     gap: 2px;
     min-width: 0;
 }
-.pl-card__name {
+.pl-row__name {
     font-size: 14px;
     font-weight: 600;
     color: var(--text-primary);
@@ -292,15 +369,15 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.pl-card__champ {
-    font-size: 12px;
+.pl-row__champ {
+    font-size: 11.5px;
     font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     line-height: 1.2;
-    /* Color comes from the extracted-color rule above */
+    color: rgb(var(--pl-r), var(--pl-g), var(--pl-b));
 }
-.pl-card__path {
+.pl-row__path {
     font-size: 11px;
     color: var(--text-muted);
     font-family: var(--font-mono);
@@ -311,38 +388,53 @@
 }
 
 /* Meta column */
-.pl-card__meta {
+.pl-row__meta {
     display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 6px;
+    align-items: center;
+    gap: 10px;
 }
-.pl-card__time {
+.pl-row__time {
     font-size: 11px;
     color: var(--text-muted);
     font-family: var(--font-mono);
     white-space: nowrap;
 }
-.pl-card__remove {
-    display: grid;
-    place-items: center;
-    width: 28px;
-    height: 28px;
-    border-radius: 8px;
+.pl-row__remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
     color: var(--text-muted);
     background: transparent;
     border: 1px solid transparent;
     cursor: pointer;
-    transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast), transform var(--motion-fast);
+    /* Revealed on row hover — keeps un-hovered rows clean. */
+    opacity: 0;
+    transition:
+        background var(--motion-fast),
+        color var(--motion-fast),
+        border-color var(--motion-fast),
+        opacity var(--motion-fast),
+        transform var(--motion-fast);
 }
-.pl-card__remove:hover {
+.pl-row:hover .pl-row__remove,
+.pl-row:focus-visible .pl-row__remove,
+.pl-row__remove:focus-visible { opacity: 1; }
+.pl-row__remove:hover {
     color: #fff;
     background: var(--color-danger);
     border-color: var(--color-danger);
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-danger) 25%, transparent);
 }
-.pl-card__remove:active { transform: scale(0.9); }
-.pl-card__remove svg { width: 14px; height: 14px; display: block; }
+.pl-row__remove:active { transform: scale(0.9); }
+.pl-row__remove svg { width: 14px; height: 14px; display: block; }
+
+/* Touch/coarse pointers never hover — keep the control permanently visible. */
+@media (hover: none) {
+    .pl-row__remove { opacity: 1; }
+}
 
 /* --------------------------------------------------------------------------
    Empty state
@@ -381,11 +473,12 @@
 .pl-empty__icon {
     position: absolute;
     inset: 0;
-    display: grid;
-    place-items: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     color: var(--accent-primary);
 }
-.pl-empty__icon svg { width: 32px; height: 32px; opacity: 0.85; }
+.pl-empty__icon svg { width: 32px; height: 32px; opacity: 0.85; display: block; }
 
 .pl-empty__title {
     margin: 0;
@@ -408,9 +501,4 @@
     margin: 0 2px;
     font-size: 11px;
     color: var(--text-secondary);
-}
-.pl-empty__actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 8px;
 }

@@ -1,8 +1,8 @@
-use flint_ltk::audio::bnk::{self, AudioEntry, AudioEntryInfo, BnkInfo};
-use flint_ltk::audio::event_mapper::{self, BinEventString, EventMapping};
-use flint_ltk::audio::hirc::{self, HircData};
-use flint_ltk::audio::wem::{self, DecodedAudio};
-use flint_ltk::audio::wpk::{self, WpkInfo};
+use flint_core::audio::bnk::{self, AudioEntry, AudioEntryInfo, BnkInfo};
+use flint_core::audio::event_mapper::{self, BinEventString, EventMapping};
+use flint_core::audio::hirc::{self, HircData};
+use flint_core::audio::wem::{self, DecodedAudio};
+use flint_core::audio::wpk::{self, WpkInfo};
 use serde::{Deserialize, Serialize};
 
 /// Unified audio bank info returned to the frontend

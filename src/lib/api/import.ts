@@ -1,5 +1,16 @@
 import { invokeCommand } from './core';
+import { fireOverlayRebuild } from './hashOverlay';
 import type { Project } from '../types';
+
+/**
+ * Trigger a debounced overlay rebuild after an import that refathered —
+ * refathering rewrites every asset path, so any previous overlay is entirely
+ * stale.
+ */
+function rebuildOverlayAfterRefather(projectDir: string, options: ImportOptions): void {
+    if (!options.refather) return;
+    fireOverlayRebuild(projectDir);
+}
 
 export interface FantomeMetadata {
     author: string | null;
@@ -37,7 +48,9 @@ export async function importFantomeWad(
     projectDir: string,
     options: ImportOptions
 ): Promise<Project> {
-    return invokeCommand('import_fantome_wad', { wadPath, projectDir, options });
+    const project = await invokeCommand<Project>('import_fantome_wad', { wadPath, projectDir, options });
+    rebuildOverlayAfterRefather(projectDir, options);
+    return project;
 }
 
 // =============================================================================
@@ -67,5 +80,40 @@ export async function importModpkg(
     projectDir: string,
     options: ImportOptions
 ): Promise<Project> {
-    return invokeCommand('import_modpkg', { modpkgPath, projectDir, options });
+    const project = await invokeCommand<Project>('import_modpkg', { modpkgPath, projectDir, options });
+    rebuildOverlayAfterRefather(projectDir, options);
+    return project;
+}
+
+// =============================================================================
+// Extracted folder (raw `assets/` + `data/` WAD extract)
+// =============================================================================
+
+export interface ExtractedFolderAnalysis {
+    /** Already a Flint project — open it instead of importing. */
+    is_flint_project: boolean;
+    /** Has `assets/` and/or `data/`, so it can be imported. */
+    is_valid: boolean;
+    champion: string | null;
+    skin_id: number;
+    suggested_name: string;
+    file_count: number;
+}
+
+/** Classify a folder as a Flint project, an importable WAD extract, or neither. */
+export async function analyzeExtractedFolder(folderPath: string): Promise<ExtractedFolderAnalysis> {
+    return invokeCommand('analyze_extracted_folder', { folderPath });
+}
+
+/**
+ * Copy an extracted WAD folder into a new project at `projectDir`. If that
+ * directory is taken, the backend appends a numeric suffix — read the real
+ * location off the returned project's `project_path`.
+ */
+export async function importExtractedFolder(
+    folderPath: string,
+    projectDir: string,
+    options: ImportOptions
+): Promise<Project> {
+    return invokeCommand('import_extracted_folder', { folderPath, projectDir, options });
 }

@@ -24,12 +24,15 @@
  *   - file           — file IO + management + folder grid
  *   - texture        — DDS/TEX/PNG conversions + preview decoding
  *   - mesh           — SKN/SCB/SKL/animation
+ *   - animask        — animation mask blend weights
  *   - audio          — BNK/WPK editor
  *   - checkpoint     — project history
  *   - export         — fantome / modpkg export
  *   - import         — fantome / modpkg import
+ *   - hashOverlay    — project-local hash overlay build/clear
  *   - hud            — HUD editor
  *   - externalApps   — Jade/Quartz launch + Windows file associations
+ *   - shell          — pending Explorer-verb action (ShellAction/PendingFileOpen)
  *   - dev            — schema aggregation (dev-only)
  *   - settings       — disk-backed settings + themes
  *   - updater        — self-update
@@ -56,12 +59,15 @@ export * from './binSplit';
 export * from './file';
 export * from './texture';
 export * from './mesh';
+export * from './animask';
 export * from './audio';
 export * from './checkpoint';
 export * from './export';
 export * from './import';
+export * from './hashOverlay';
 export * from './hud';
 export * from './externalApps';
+export * from './shell';
 export * from './dev';
 export * from './legacyFormats';
 export * from './settings';

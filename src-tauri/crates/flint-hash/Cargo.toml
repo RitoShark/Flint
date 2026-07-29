@@ -1,0 +1,26 @@
+[package]
+name = "flint-hash"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
+parking_lot = "0.12"
+rayon.workspace = true
+rustc-hash = "2"
+xxhash-rust = { version = "0.8", features = ["xxh64"] }
+chrono = { version = "0.4", features = ["serde"] }
+serde.workspace = true
+serde_json.workspace = true
+
+# Memory-mapped B-tree store backing the hash dictionaries.
+heed = "0.20"
+
+tokio.workspace = true
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls-no-provider"] }
+futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
+directories = "5.0"
+zstd = "0.12"
+
+ritoshark.workspace = true

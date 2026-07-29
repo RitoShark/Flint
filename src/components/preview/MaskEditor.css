@@ -1,0 +1,368 @@
+/**
+ * Flint - Mask Editor Styles
+ *
+ * Dense data-grid layout for animation mask joint weights. Real skeletons
+ * run to 160+ joints, so row height and the per-depth hierarchy indent are
+ * kept as tight as legibility allows (see the row-budget note below).
+ */
+
+.mask-editor {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text, var(--text-primary));
+}
+
+/* Header — the Save button must never be clipped; only the descriptive
+   text truncates when the panel narrows. */
+.mask-editor__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+.mask-editor__header-info {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-muted);
+}
+
+.mask-editor__header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+}
+
+.mask-editor__header-status {
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+/* Body: mask list (left) + selected mask's joints (right) */
+.mask-editor__body {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+}
+
+/* Mask list sidebar */
+.mask-editor__sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    background: var(--bg-2, var(--bg-secondary));
+}
+
+.mask-editor__mask-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    border-bottom: 1px solid var(--border);
+    background: transparent;
+}
+
+.mask-editor__mask-row:hover {
+    background: var(--bg-hover);
+}
+
+.mask-editor__mask-row.is-selected {
+    background: var(--accent-bg, rgba(239, 68, 68, 0.14));
+    box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.mask-editor__mask-warning {
+    flex-shrink: 0;
+    color: var(--warning);
+}
+
+.mask-editor__mask-key {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mask-editor__mask-dirty-dot {
+    flex-shrink: 0;
+    font-size: 8px;
+    color: var(--accent);
+}
+
+.mask-editor__mask-count {
+    flex-shrink: 0;
+    color: var(--text-muted);
+}
+
+/* Selected mask's joint list */
+.mask-editor__content {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.mask-editor__empty-note {
+    padding: 10px;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.mask-editor__bulk-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+
+.mask-editor__bulk-label {
+    color: var(--text-muted);
+}
+
+.mask-editor__warning-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 10px;
+    padding: 8px 10px;
+    background: color-mix(in oklab, var(--warning) 12%, transparent);
+    border: 1px solid color-mix(in oklab, var(--warning) 30%, transparent);
+    border-radius: 4px;
+    color: var(--warning);
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+/* One joint row. Height budget: ~29px (22px control + 6px vertical padding
+   + 1px border) instead of ~70px — 163 rows now scroll ~4,700px, not
+   ~11,000px. `--indent` is set inline per row (depth-based, capped — see
+   MaskEditor.tsx) since it's the one genuinely dynamic piece of the padding. */
+.mask-editor__row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 10px 3px var(--indent, 10px);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+}
+
+.mask-editor__row:nth-child(even) {
+    background: var(--bg-2, var(--bg-secondary));
+}
+
+.mask-editor__row:hover {
+    background: var(--bg-hover);
+}
+
+.mask-editor__joint-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mask-editor__joint-name.is-unnamed {
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+}
+
+/* Slider — 4px track, 12px round accent thumb. `--fill` is set inline per row
+   from the live weight so the track itself is scannable, not just the thumb.
+
+   `appearance: none` on the INPUT is load-bearing and easy to miss: with it
+   absent, Chromium draws its own native slider on top of the background
+   gradient below, so the control renders in the browser's blue instead of
+   Flint's accent and `--fill` never shows. Setting it only on
+   `::-webkit-slider-thumb` (as HUDCanvas.css does) is not enough.
+
+   The element is 14px tall to give a comfortable grab target across a 160-row
+   grid, while the gradient is drawn as a 4px band centred in it — so the track
+   stays visually thin without making the thumb hard to hit. */
+.mask-editor__slider {
+    --fill: 0%;
+    -webkit-appearance: none;
+    appearance: none;
+    flex: 1 1 120px;
+    min-width: 60px;
+    max-width: 260px;
+    height: 14px;
+    border: none;
+    outline: none;
+    cursor: pointer;
+    background:
+        linear-gradient(
+            to right,
+            var(--accent) var(--fill),
+            var(--border) var(--fill)
+        )
+        center / 100% 4px no-repeat;
+    border-radius: 2px;
+}
+
+/* Track kept transparent so the gradient above is what shows through, in both
+   engines rather than only one. */
+.mask-editor__slider::-webkit-slider-runnable-track {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    border: none;
+    height: 14px;
+}
+
+.mask-editor__slider::-moz-range-track {
+    background: transparent;
+    border: none;
+    height: 14px;
+}
+
+.mask-editor__slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    margin-top: 1px;
+    background: var(--accent);
+    /* Ring in the row background so the thumb stays legible where it sits on
+       top of the filled portion of its own track. */
+    border: 2px solid var(--bg);
+    box-shadow: 0 0 0 1px var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: transform 80ms ease;
+}
+
+.mask-editor__slider::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    background: var(--accent);
+    border: 2px solid var(--bg);
+    box-shadow: 0 0 0 1px var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: transform 80ms ease;
+}
+
+.mask-editor__slider:hover::-webkit-slider-thumb,
+.mask-editor__slider:active::-webkit-slider-thumb {
+    transform: scale(1.15);
+}
+
+.mask-editor__slider:hover::-moz-range-thumb,
+.mask-editor__slider:active::-moz-range-thumb {
+    transform: scale(1.15);
+}
+
+/* Keyboard focus needs a visible ring — `outline: none` above removes the
+   default one, and the thumb alone doesn't indicate focus. */
+.mask-editor__slider:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+/* Numeric weight input — shared by the per-joint row and the bulk-set
+   field. The ancestor class in each selector bumps specificity above the
+   global `input:not([type="range"])` rule in styles/index.css (which sets
+   its own padding at (0,1,1) specificity) so the compact sizing here
+   actually wins instead of being silently overridden. */
+.mask-editor__row input.mask-editor__weight-input,
+.mask-editor__bulk-bar input.mask-editor__weight-input {
+    flex-shrink: 0;
+    /* Sized for the longest exact-f32 rendering — `0.6399999856948853` is 18
+       mono characters. A narrower box would clip the very digits this field
+       exists to show. */
+    width: 152px;
+    height: 22px;
+    padding: 2px 7px;
+    text-align: right;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+    background: var(--bg-2, var(--bg-secondary));
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text, var(--text-primary));
+    transition: border-color 100ms ease, box-shadow 100ms ease;
+}
+
+/* Spinners cost ~14px of a 86px field and are useless at `step="any"` —
+   drag the slider or type instead. */
+.mask-editor__row input.mask-editor__weight-input::-webkit-outer-spin-button,
+.mask-editor__row input.mask-editor__weight-input::-webkit-inner-spin-button,
+.mask-editor__bulk-bar input.mask-editor__weight-input::-webkit-outer-spin-button,
+.mask-editor__bulk-bar input.mask-editor__weight-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    appearance: none;
+    margin: 0;
+}
+
+.mask-editor__row input.mask-editor__weight-input {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.mask-editor__row input.mask-editor__weight-input:hover,
+.mask-editor__bulk-bar input.mask-editor__weight-input:hover {
+    border-color: var(--text-muted);
+}
+
+.mask-editor__row input.mask-editor__weight-input:focus,
+.mask-editor__bulk-bar input.mask-editor__weight-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 25%, transparent);
+}
+
+/* Compact button variant for Subtree / Set all / Invert, sized to fit a
+   28-32px row without shrinking the row's other controls. */
+.mask-editor__row .btn.mask-editor__mini-btn,
+.mask-editor__bulk-bar .btn.mask-editor__mini-btn {
+    flex-shrink: 0;
+    height: 22px;
+    padding: 0 8px;
+    font-size: 11px;
+}
+
+/* Responsive: the mask list gives up width first as the panel narrows,
+   since the joint row's slider and number box need it more. Nothing here
+   ever causes the header's Save button to wrap or clip. */
+@media (max-width: 900px) {
+    .mask-editor__sidebar {
+        width: 170px;
+    }
+
+    .mask-editor__slider {
+        flex-basis: 80px;
+    }
+}
+
+@media (max-width: 700px) {
+    .mask-editor__sidebar {
+        width: 140px;
+    }
+
+    .mask-editor__mask-count {
+        display: none;
+    }
+}

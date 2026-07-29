@@ -151,34 +151,5 @@ export function getFileIcon(name: string, isFolder: boolean, isExpanded = false)
     return FILE_ICON_MAP[ext || ''] || '📄';
 }
 
-// =============================================================================
-// Keyboard Shortcuts
-// =============================================================================
-
-type ShortcutHandler = (e: KeyboardEvent) => void;
-const shortcuts = new Map<string, ShortcutHandler>();
-
-export function registerShortcut(key: string, handler: ShortcutHandler): () => void {
-    shortcuts.set(key.toLowerCase(), handler);
-    return () => shortcuts.delete(key.toLowerCase());
-}
-
-export function initShortcuts(): void {
-    document.addEventListener('keydown', (e) => {
-        if (!e.key) return;
-
-        const parts: string[] = [];
-        if (e.ctrlKey || e.metaKey) parts.push('ctrl');
-        if (e.shiftKey) parts.push('shift');
-        if (e.altKey) parts.push('alt');
-        parts.push(e.key.toLowerCase());
-
-        const combo = parts.join('+');
-        const handler = shortcuts.get(combo);
-
-        if (handler) {
-            e.preventDefault();
-            handler(e);
-        }
-    });
-}
+// Keyboard shortcuts moved to src/lib/shortcuts/ — see that module's manifest.ts
+// for the declarative bindings and resolve.ts for scope precedence.

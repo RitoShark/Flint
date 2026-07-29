@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useProjectTabStore, useAppMetadataStore, useModalStore, useNotificationStore, useConfigStore, useNavigationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { getFileIcon } from '../../lib/ui-helpers/fileIcons';
+import { Icon } from '../ui';
 import { getCachedImage, cacheImage } from '../../lib/ui-helpers/imageCache';
 import { buildFileContextMenuOptions } from '../../lib/editor/fileContextMenuOptions';
 
@@ -105,12 +106,23 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
         setSelectedFile(activeTabId, relPath);
     };
 
+    /** Destination of the up button; `''` is the project root, `null` means we
+     *  are already there. A top-level folder must still be able to go up, so
+     *  a missing separator yields the root rather than disabling the button. */
     const parentRel = useMemo(() => {
         if (!folderRelPath) return null;
-        const idx = folderRelPath.replace(/\\/g, '/').lastIndexOf('/');
-        if (idx <= 0) return null;
-        return folderRelPath.slice(0, idx);
+        const norm = folderRelPath.replace(/\\/g, '/').replace(/\/+$/, '');
+        if (!norm) return null;
+        const idx = norm.lastIndexOf('/');
+        return idx === -1 ? '' : norm.slice(0, idx);
     }, [folderRelPath]);
+
+    /** Name of that destination, so the button says where it goes. */
+    const parentLabel = useMemo(() => {
+        if (parentRel === null) return null;
+        if (parentRel === '') return 'Project root';
+        return parentRel.slice(parentRel.lastIndexOf('/') + 1) || 'Project root';
+    }, [parentRel]);
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -128,15 +140,24 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
                 {parentRel !== null ? (
                     <button
                         type="button"
-                        className="btn btn--ghost btn--small"
-                        style={{ padding: '4px 10px' }}
+                        className="btn btn--secondary btn--sm"
+                        style={{ flexShrink: 0, maxWidth: '220px' }}
                         onClick={() => goTo(parentRel)}
-                        title="Go to parent folder"
+                        title={`Go up to ${parentLabel}`}
                     >
-                        ↑ Up
+                        <Icon name="chevronUp" />
+                        <span
+                            style={{
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                            }}
+                        >
+                            {parentLabel}
+                        </span>
                     </button>
                 ) : (
-                    <span style={{ color: 'var(--text-muted)', padding: '4px 0' }}>📁 Project root</span>
+                    <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>📁 Project root</span>
                 )}
                 <span
                     style={{

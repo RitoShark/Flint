@@ -57,6 +57,14 @@
   /* Dark blue */
   --accent-gold: #dcb67a;
   /* Folder icon yellow */
+
+  /* Flint flame shades — the logo's four fire layers, derived from the accent so
+     the mark follows the theme. Ordered darkest → lightest, mirroring the source
+     artwork's #ac1b0d / #c04711 / #dd8515 / #f5a422 ramp. */
+  --flame-1: color-mix(in oklab, var(--accent-primary) 68%, #000);
+  --flame-2: color-mix(in oklab, var(--accent-primary) 84%, #000);
+  --flame-3: var(--accent-primary);
+  --flame-4: color-mix(in oklab, var(--accent-primary) 82%, #fff);
   --success: #3FB950;
   --warning: #D29922;
   --error: #F85149;
@@ -1268,6 +1276,65 @@ input.search-box__input {
   align-items: center;
   padding: 96px 32px 48px;
   overflow-y: auto;
+  /* Anchors the folder drop overlay. */
+  position: relative;
+}
+
+/* Folder drop target — drop a Flint project to open it, or an extracted WAD
+   folder to import it. The overlay never takes pointer events: Tauri tracks the
+   native drag by position, so an interactive layer would only obstruct. */
+.welcome--drag-over {
+  outline: 2px dashed color-mix(in oklab, var(--accent-primary) 60%, transparent);
+  outline-offset: -12px;
+}
+
+.welcome__drop-overlay {
+  position: absolute;
+  inset: 12px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  pointer-events: none;
+  border-radius: 14px;
+  background: color-mix(in oklab, var(--bg-primary) 88%, transparent);
+  backdrop-filter: blur(2px);
+  animation: welcomeDropIn 160ms ease-out both;
+}
+
+.welcome__drop-icon {
+  display: grid;
+  place-items: center;
+  color: var(--accent-primary);
+}
+
+.welcome__drop-icon svg {
+  width: 40px;
+  height: 40px;
+}
+
+.welcome__drop-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.welcome__drop-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  max-width: 380px;
+}
+
+@keyframes welcomeDropIn {
+  from { opacity: 0; transform: scale(0.98); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .welcome__drop-overlay { animation: none; }
 }
 
 .welcome__header {
@@ -5134,6 +5201,9 @@ input.np-search:focus {
 .bin-editor__toolbar-actions {
   display: flex;
   gap: var(--space-sm);
+  /* Never squeezed or clipped — Save must stay reachable at any width, and
+     the group can grow to fit the conditional Fix/Masks buttons. */
+  flex-shrink: 0;
 }
 
 .bin-editor__tree {
@@ -5292,18 +5362,35 @@ input.np-search:focus {
 }
 
 /* BIN Editor - Text Editor Styles */
+/* `min-width: 0` is load-bearing: a flex item defaults to `min-width: auto`,
+   which refuses to shrink below its content's min-content width. An unbreakable
+   path/filename therefore pushed the actions group out of the toolbar instead
+   of truncating itself. */
 .bin-editor__filename {
   font-weight: 500;
   color: var(--text-secondary);
   display: flex;
   align-items: center;
   gap: var(--space-md);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 
+.bin-editor__filename-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The line count and bracket badges are short and always worth reading —
+   only the filename absorbs the shrink. */
 .bin-editor__stats {
   font-size: var(--text-xs);
   color: var(--text-muted);
   font-weight: normal;
+  flex-shrink: 0;
 }
 
 .bin-editor__bracket-error {
@@ -5314,6 +5401,7 @@ input.np-search:focus {
   padding: 1px 6px;
   border-radius: 3px;
   background: rgba(255, 68, 68, 0.12);
+  flex-shrink: 0;
 }
 
 .bin-editor__bracket-error:hover {
@@ -5327,6 +5415,7 @@ input.np-search:focus {
   padding: 1px 6px;
   border-radius: 3px;
   background: rgba(105, 219, 124, 0.08);
+  flex-shrink: 0;
 }
 
 /* Monaco decoration for bracket error lines */

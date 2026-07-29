@@ -1,5 +1,5 @@
 //! Tauri commands for the online CDN manifest browser. These wrap
-//! `flint_ltk::cdn` (sieve discovery, RMAN tree, remote-WAD TOC browse, extract)
+//! `flint_core::cdn` (sieve discovery, RMAN tree, remote-WAD TOC browse, extract)
 //! and hold parsed manifests in `CdnSessionState`, one per open manifest tab.
 
 use std::collections::HashMap;
@@ -9,8 +9,8 @@ use std::sync::Arc;
 use serde::Serialize;
 use tauri::{Emitter, State};
 
-use flint_ltk::cdn::{catalog, downloader, manifest::TreeNode, sieve, wad_browse};
-use flint_ltk::hash::resolve_hashes_lmdb_bulk;
+use flint_core::cdn::{catalog, downloader, manifest::TreeNode, sieve, wad_browse};
+use flint_core::hash::resolve_hashes_lmdb_bulk;
 
 use crate::state::{CdnSessionState, LmdbCacheState};
 
@@ -175,7 +175,7 @@ async fn load_manifest_from_url(url: &str, state: &State<'_, CdnSessionState>) -
         b.to_vec()
     };
     let manifest =
-        flint_ltk::cdn::manifest::Manifest::from_bytes(&bytes).map_err(|e| e.to_string())?;
+        flint_core::cdn::manifest::Manifest::from_bytes(&bytes).map_err(|e| e.to_string())?;
     let tree = tree_to_dto(&manifest.tree, "");
     let file_count = manifest.file_count();
     let session_id = state.insert(manifest);
@@ -213,7 +213,7 @@ pub async fn cdn_load_manifest_by_path(
 /// the same source the local WAD explorer uses (`get_hash_dir` + `get_env` +
 /// `resolve_hashes_lmdb_bulk`). Unresolved hashes are simply absent from the map.
 fn resolve_inner_names(hashes: &[u64], lmdb: &State<'_, LmdbCacheState>) -> HashMap<u64, String> {
-    let hash_dir = flint_ltk::hash::get_hash_dir()
+    let hash_dir = flint_core::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
     let Some(env) = lmdb.get_env(&hash_dir) else {

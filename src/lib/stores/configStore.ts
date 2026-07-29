@@ -72,12 +72,81 @@ function writeCache(settings: FlintSettings) {
   }
 }
 
+function normalizeLauncher(value: unknown): 'ltk' | 'celestial' | null {
+  return value === 'celestial' ? 'celestial' : value === 'ltk' ? 'ltk' : null;
+}
+
+/**
+ * Repair recent-project paths written by older builds.
+ *
+ * Those joined a forward-slashed projects root to a `\`-separated folder name,
+ * saving mixed paths like `C:/Users/…/projects\my-mod`. The backend rejects
+ * that spelling ("Project file not found"), and it never string-matched the
+ * all-backslash paths from `discover_projects`, so deletes left the entry
+ * behind. Settling on one separator makes old entries open again and lets
+ * de-duplication work; also drops entries that collapse to the same project.
+ */
+function normalizeRecentPaths(recents: RecentProject[]): RecentProject[] {
+  const seen = new Set<string>();
+  const out: RecentProject[] = [];
+  for (const entry of recents) {
+    if (typeof entry?.path !== 'string') continue;
+    const path = entry.path.replace(/\\/g, '/').replace(/\/+$/, '');
+    const key = path.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(path === entry.path ? entry : { ...entry, path });
+  }
+  return out;
+}
+
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 const PERSIST_DEBOUNCE_MS = 50;
+
+/** Settings keys this store owns and can mark dirty. */
+type PersistedKey = Exclude<keyof FlintSettings, 'schemaVersion' | 'binConverterEngine'>;
+
+/**
+ * Keys the user has explicitly changed since boot.
+ *
+ * `hydrate()` reads disk asynchronously and then writes the result into the
+ * store. Without this set, a setting changed while that read is in flight gets
+ * silently reverted to the stale on-disk value.
+ */
+const dirtyKeys = new Set<PersistedKey>();
+
+/** Snapshot captured when a write was requested, flushed when the timer fires. */
+let pendingSnapshot: FlintSettings | null = null;
+
+/** True when an edit arrived before `hydrate()` finished reading disk. */
+let deferredUntilHydrated = false;
+
+/**
+ * Fields Flint persists but doesn't model in the store. Captured on hydrate so a
+ * save round-trips them instead of resetting them to their serde defaults.
+ */
+let passthroughFields: Pick<FlintSettings, 'binConverterEngine'> = {};
+
+/**
+ * Disk values to apply during hydrate, minus any key the user already changed.
+ *
+ * Pure and exported so the precedence rule is testable without a live store.
+ */
+export function hydrationPatch<T extends object>(
+  disk: T,
+  dirty: ReadonlySet<string>,
+): Partial<T> {
+  const patch: Partial<T> = {};
+  for (const key of Object.keys(disk) as (keyof T & string)[]) {
+    if (!dirty.has(key)) patch[key] = disk[key];
+  }
+  return patch;
+}
 
 function snapshotSettings(): FlintSettings {
   const s = useConfigStore.getState();
   return {
+    ...passthroughFields,
     schemaVersion: 1,
     leaguePath: s.leaguePath,
     leaguePathPbe: s.leaguePathPbe,
@@ -100,19 +169,36 @@ function snapshotSettings(): FlintSettings {
   };
 }
 
-/** Persist current state to disk (debounced, fire-and-forget) */
-function persistToDisk() {
-  if (!useConfigStore.getState()._hydrated) return;
+function flushPendingWrite() {
+  persistTimer = null;
+  const snapshot = pendingSnapshot;
+  pendingSnapshot = null;
+  if (!snapshot) return;
+  saveSettings(snapshot).catch((err) => {
+    console.error('[Config] Failed to persist settings:', err);
+  });
+}
 
-  writeCache(snapshotSettings());
+/** Persist current state to disk (debounced, fire-and-forget) */
+function persistToDisk(key?: PersistedKey) {
+  if (key) dirtyKeys.add(key);
+
+  // Snapshot now, not when the timer fires — otherwise any store write landing
+  // inside the debounce window (notably hydrate's) is what actually gets saved.
+  const snapshot = snapshotSettings();
+  writeCache(snapshot);
+  pendingSnapshot = snapshot;
+
+  // Before hydrate() has merged disk in, the store still holds cached/default
+  // values for every field the user hasn't touched; flushing that whole snapshot
+  // would clobber disk. Hold the write until hydrate() lands rather than drop it.
+  if (!useConfigStore.getState()._hydrated) {
+    deferredUntilHydrated = true;
+    return;
+  }
 
   if (persistTimer !== null) clearTimeout(persistTimer);
-  persistTimer = setTimeout(() => {
-    persistTimer = null;
-    saveSettings(snapshotSettings()).catch((err) => {
-      console.error('[Config] Failed to persist settings:', err);
-    });
-  }, PERSIST_DEBOUNCE_MS);
+  persistTimer = setTimeout(flushPendingWrite, PERSIST_DEBOUNCE_MS);
 }
 
 /** Apply a theme's CSS variables to :root */
@@ -157,6 +243,9 @@ export async function applyThemeById(themeId: string | null): Promise<boolean> {
 }
 
 const __cached = readCache();
+if (__cached?.binConverterEngine) {
+  passthroughFields = { binConverterEngine: __cached.binConverterEngine };
+}
 
 export const useConfigStore = create<ConfigState>()((set) => ({
   leaguePath: __cached?.leaguePath ?? null,
@@ -172,46 +261,46 @@ export const useConfigStore = create<ConfigState>()((set) => ({
   ltkManagerModPath: __cached?.ltkManagerModPath ?? null,
   autoSyncToLauncher: __cached?.autoSyncToLauncher ?? false,
   celestialModPath: __cached?.celestialModPath ?? null,
-  preferredLauncher: (__cached?.preferredLauncher === 'celestial' ? 'celestial' : __cached?.preferredLauncher === 'ltk' ? 'ltk' : null) as 'ltk' | 'celestial' | null,
+  preferredLauncher: normalizeLauncher(__cached?.preferredLauncher),
   savedProjects: (__cached?.savedProjects as SavedProject[] | undefined) ?? [],
   jadePath: __cached?.jadePath ?? null,
   quartzPath: __cached?.quartzPath ?? null,
   selectedTheme: __cached?.selectedTheme ?? null,
   _hydrated: __cached !== null,
 
-  setLeaguePath: (path) => { set({ leaguePath: path }); persistToDisk(); },
-  setLeaguePathPbe: (path) => { set({ leaguePathPbe: path }); persistToDisk(); },
-  setDefaultProjectPath: (path) => { set({ defaultProjectPath: path }); persistToDisk(); },
-  setCreatorName: (name) => { set({ creatorName: name }); persistToDisk(); },
-  setCreatorDescription: (description) => { set({ creatorDescription: description }); persistToDisk(); },
-  setCreatorHome: (url) => { set({ creatorHome: url }); persistToDisk(); },
-  setCreatorTip: (url) => { set({ creatorTip: url }); persistToDisk(); },
-  setAutoUpdateEnabled: (enabled) => { set({ autoUpdateEnabled: enabled }); persistToDisk(); },
-  setSkippedUpdateVersion: (version) => { set({ skippedUpdateVersion: version }); persistToDisk(); },
-  setRecentProjects: (projects) => { set({ recentProjects: projects }); persistToDisk(); },
-  setLtkManagerModPath: (path) => { set({ ltkManagerModPath: path }); persistToDisk(); },
-  setAutoSyncToLauncher: (enabled) => { set({ autoSyncToLauncher: enabled }); persistToDisk(); },
-  setCelestialModPath: (path) => { set({ celestialModPath: path }); persistToDisk(); },
-  setPreferredLauncher: (l) => { set({ preferredLauncher: l }); persistToDisk(); },
-  setJadePath: (path) => { set({ jadePath: path }); persistToDisk(); },
-  setQuartzPath: (path) => { set({ quartzPath: path }); persistToDisk(); },
-  setSavedProjects: (projects) => { set({ savedProjects: projects }); persistToDisk(); },
+  setLeaguePath: (path) => { set({ leaguePath: path }); persistToDisk('leaguePath'); },
+  setLeaguePathPbe: (path) => { set({ leaguePathPbe: path }); persistToDisk('leaguePathPbe'); },
+  setDefaultProjectPath: (path) => { set({ defaultProjectPath: path }); persistToDisk('defaultProjectPath'); },
+  setCreatorName: (name) => { set({ creatorName: name }); persistToDisk('creatorName'); },
+  setCreatorDescription: (description) => { set({ creatorDescription: description }); persistToDisk('creatorDescription'); },
+  setCreatorHome: (url) => { set({ creatorHome: url }); persistToDisk('creatorHome'); },
+  setCreatorTip: (url) => { set({ creatorTip: url }); persistToDisk('creatorTip'); },
+  setAutoUpdateEnabled: (enabled) => { set({ autoUpdateEnabled: enabled }); persistToDisk('autoUpdateEnabled'); },
+  setSkippedUpdateVersion: (version) => { set({ skippedUpdateVersion: version }); persistToDisk('skippedUpdateVersion'); },
+  setRecentProjects: (projects) => { set({ recentProjects: projects }); persistToDisk('recentProjects'); },
+  setLtkManagerModPath: (path) => { set({ ltkManagerModPath: path }); persistToDisk('ltkManagerModPath'); },
+  setAutoSyncToLauncher: (enabled) => { set({ autoSyncToLauncher: enabled }); persistToDisk('autoSyncToLauncher'); },
+  setCelestialModPath: (path) => { set({ celestialModPath: path }); persistToDisk('celestialModPath'); },
+  setPreferredLauncher: (l) => { set({ preferredLauncher: l }); persistToDisk('preferredLauncher'); },
+  setJadePath: (path) => { set({ jadePath: path }); persistToDisk('jadePath'); },
+  setQuartzPath: (path) => { set({ quartzPath: path }); persistToDisk('quartzPath'); },
+  setSavedProjects: (projects) => { set({ savedProjects: projects }); persistToDisk('savedProjects'); },
   addSavedProject: (project) => {
     set((state) => {
       const filtered = state.savedProjects.filter(p => p.path !== project.path);
       return { savedProjects: [project, ...filtered] };
     });
-    persistToDisk();
+    persistToDisk('savedProjects');
   },
   removeSavedProject: (projectId) => {
     set((state) => ({
       savedProjects: state.savedProjects.filter(p => p.id !== projectId),
     }));
-    persistToDisk();
+    persistToDisk('savedProjects');
   },
   setSelectedTheme: (themeId) => {
     set({ selectedTheme: themeId });
-    persistToDisk();
+    persistToDisk('selectedTheme');
     applyThemeById(themeId);
   },
 
@@ -243,7 +332,12 @@ export const useConfigStore = create<ConfigState>()((set) => ({
 
     try {
       const s = await getSettings();
-      set({
+
+      passthroughFields = s.binConverterEngine
+        ? { binConverterEngine: s.binConverterEngine }
+        : {};
+
+      const diskState = {
         leaguePath: s.leaguePath,
         leaguePathPbe: s.leaguePathPbe,
         defaultProjectPath: s.defaultProjectPath,
@@ -253,47 +347,36 @@ export const useConfigStore = create<ConfigState>()((set) => ({
         creatorTip: s.creatorTip,
         autoUpdateEnabled: s.autoUpdateEnabled,
         skippedUpdateVersion: s.skippedUpdateVersion,
-        recentProjects: (s.recentProjects ?? []) as RecentProject[],
+        recentProjects: normalizeRecentPaths((s.recentProjects ?? []) as RecentProject[]),
         savedProjects: (s.savedProjects ?? []) as SavedProject[],
         ltkManagerModPath: s.ltkManagerModPath,
         autoSyncToLauncher: s.autoSyncToLauncher,
         celestialModPath: s.celestialModPath ?? null,
-        preferredLauncher: (s.preferredLauncher === 'celestial' ? 'celestial' : s.preferredLauncher === 'ltk' ? 'ltk' : null) as 'ltk' | 'celestial' | null,
+        preferredLauncher: normalizeLauncher(s.preferredLauncher),
         jadePath: s.jadePath,
         quartzPath: s.quartzPath,
         selectedTheme: s.selectedTheme ?? null,
-        _hydrated: true,
-      });
+      };
 
-      writeCache({
-        schemaVersion: 1,
-        leaguePath: s.leaguePath,
-        leaguePathPbe: s.leaguePathPbe,
-        defaultProjectPath: s.defaultProjectPath,
-        creatorName: s.creatorName,
-        creatorDescription: s.creatorDescription,
-        creatorHome: s.creatorHome,
-        creatorTip: s.creatorTip,
-        autoUpdateEnabled: s.autoUpdateEnabled,
-        skippedUpdateVersion: s.skippedUpdateVersion,
-        recentProjects: s.recentProjects ?? [],
-        savedProjects: s.savedProjects ?? [],
-        ltkManagerModPath: s.ltkManagerModPath,
-        autoSyncToLauncher: s.autoSyncToLauncher,
-        celestialModPath: s.celestialModPath ?? null,
-        preferredLauncher: (s.preferredLauncher === 'celestial' ? 'celestial' : s.preferredLauncher === 'ltk' ? 'ltk' : null) as 'ltk' | 'celestial' | null,
-        jadePath: s.jadePath,
-        quartzPath: s.quartzPath,
-        selectedTheme: s.selectedTheme ?? null,
-      });
+      // Anything the user changed while this read was in flight outranks disk.
+      set({ ...hydrationPatch(diskState, dirtyKeys), _hydrated: true });
+      writeCache(snapshotSettings());
+
+      // Edits made before hydrate landed were held back rather than dropped —
+      // flush them now that the store reflects disk for every untouched field.
+      if (deferredUntilHydrated) {
+        deferredUntilHydrated = false;
+        persistToDisk();
+      }
 
       try {
         await seedBuiltinThemes();
       } catch (err) {
         console.warn('[Config] Failed to seed built-in themes:', err);
       }
-      if (s.selectedTheme) {
-        applyThemeById(s.selectedTheme);
+      const theme = useConfigStore.getState().selectedTheme;
+      if (theme) {
+        applyThemeById(theme);
       }
     } catch (err) {
       console.error('[Config] Failed to load settings from disk:', err);

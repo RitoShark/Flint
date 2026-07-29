@@ -5,13 +5,14 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 use walkdir::WalkDir;
 
-use flint_ltk::bin::ltk_bridge::{get_cached_bin_hashes, read_bin, MAX_BIN_SIZE};
-use flint_ltk::hash::{get_hash_dir, resolve_hashes_lmdb_bulk, ResolvedHashes};
-use flint_ltk::wad_jade::adapter::WadHandle as WadReader;
+use flint_core::bin::codec::{read_bin, MAX_BIN_SIZE};
+use flint_core::bin::get_cached_bin_hashes;
+use flint_core::hash::{get_hash_dir, resolve_hashes_lmdb_bulk, ResolvedHashes};
+use flint_core::wad::adapter::WadHandle as WadReader;
 use crate::state::LmdbCacheState;
 
-use flint_ltk::ltk_types::{BinType, BinValue};
-use flint_ltk::ltk_types::HashMapper;
+use flint_core::bin::{BinType, BinValue};
+use flint_core::hash::HashMapper;
 
 // =============================================================================
 // Schema data structures

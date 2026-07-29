@@ -131,6 +131,11 @@ export async function extractWad(
     return { extracted: res.extracted_count ?? 0, failed: res.failed_count ?? 0 };
 }
 
+/** Pack an extracted WAD folder into a `.wad.client` beside it. Returns the written path. */
+export async function packFolderToWad(folderPath: string): Promise<string> {
+    return invokeCommand<string>('pack_folder_to_wad', { folderPath });
+}
+
 /** Read a single WAD chunk into memory as decompressed raw bytes. */
 export async function readWadChunkData(wadPath: string, hash: string): Promise<Uint8Array> {
     const buf = await invokeCommand<ArrayBuffer>('read_wad_chunk_data', { wadPath, hash });

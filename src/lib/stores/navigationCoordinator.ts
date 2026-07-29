@@ -15,7 +15,7 @@ export function removeTabWithFallback(tabId: string) {
 
   // "archive-" sessions are ArchiveEditor-internal (see closeArchiveTabWithFallback)
   // — never a user-facing fallback target.
-  const userExtractSessions = wadExtract.extractSessions.filter(s => !s.id.startsWith('archive-'));
+  const userExtractSessions = wadExtract.extractSessions.filter(s => !s.embedded);
   const fileEditor = useFileEditorStore.getState();
 
   if (projectTab.activeTabId === tabId || remainingTabs.length === 0) {
@@ -48,7 +48,7 @@ function performCloseExtractSession(sessionId: string) {
   const { newActiveId, remainingSessions } = wadExtract.closeSession(sessionId);
 
   // Don't count ArchiveEditor-internal ("archive-") sessions as remaining tabs.
-  const userRemaining = remainingSessions.filter(s => !s.id.startsWith('archive-'));
+  const userRemaining = remainingSessions.filter(s => !s.embedded);
 
   if (wadExtract.activeExtractId === sessionId || remainingSessions.length === 0) {
     if (userRemaining.length > 0 && newActiveId && userRemaining.some(s => s.id === newActiveId)) {
@@ -103,7 +103,7 @@ export function closeWadExplorerWithFallback() {
   wadExplorer.close();
 
   // "archive-" sessions are ArchiveEditor-internal — never a fallback target.
-  const userExtractSessions = wadExtract.extractSessions.filter(s => !s.id.startsWith('archive-'));
+  const userExtractSessions = wadExtract.extractSessions.filter(s => !s.embedded);
   const activeUserExtract = wadExtract.activeExtractId
     && userExtractSessions.some(s => s.id === wadExtract.activeExtractId);
 
@@ -142,7 +142,7 @@ export function closeFileEditorTabWithFallback(tabId: string) {
   }
 
   // "archive-" sessions are ArchiveEditor-internal — never a fallback target.
-  const userExtractSessions = wadExtract.extractSessions.filter(s => !s.id.startsWith('archive-'));
+  const userExtractSessions = wadExtract.extractSessions.filter(s => !s.embedded);
   const activeUserExtract = wadExtract.activeExtractId
     && userExtractSessions.some(s => s.id === wadExtract.activeExtractId);
 
@@ -189,7 +189,7 @@ export function closeArchiveTabWithFallback(tabId: string) {
     // inner WAD/file lands you on a stale/blank extract view instead of going
     // back. Only real WAD-viewer sessions are fallback candidates.
     const userExtractSessions = wadExtract.extractSessions.filter(
-      s => !s.id.startsWith('archive-'),
+      s => !s.embedded,
     );
     const activeUserExtract =
       wadExtract.activeExtractId &&

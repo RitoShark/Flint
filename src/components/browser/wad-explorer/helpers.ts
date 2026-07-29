@@ -1,4 +1,6 @@
 import { getIcon } from '../../../lib/ui-helpers/fileIcons';
+import { PathIndex } from '../../../lib/vfs/pathIndex';
+import { UNKNOWN_DIR } from '../../../lib/vfs/types';
 import type { WadChunk, WadExplorerWad } from '../../../lib/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -42,70 +44,53 @@ export type VFSNode = VFSFolder | VFSFile;
 // VFS tree builder
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ~10× faster than String.localeCompare when sorting tens of thousands of rows.
-const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
-
+/**
+ * Build one WAD's subtree.
+ *
+ * Arrangement (folders before files, each alphabetical, pathless chunks under a
+ * synthetic folder) comes from the shared `PathIndex`, so this agrees with the
+ * WAD browser instead of ordering things its own way.
+ *
+ * Unlike the browser, this materialises the WHOLE subtree rather than listing a
+ * directory at a time: the explorer feeds a virtualised list that needs every
+ * row up front to size and window the viewport across tens of thousands of
+ * chunks.
+ */
 export function buildVFSSubtree(chunks: WadChunk[], wadPath: string): VFSNode[] {
-    const folderMap = new Map<string, VFSFolder>();
-    const roots: VFSNode[] = [];
-
-    const getOrCreate = (folderPath: string): VFSFolder => {
-        const key = `${wadPath}::${folderPath}`;
-        if (folderMap.has(key)) return folderMap.get(key)!;
-        const parts = folderPath.split('/');
-        const name = parts[parts.length - 1];
-        const parentPath = parts.slice(0, -1).join('/');
-        const folder: VFSFolder = { type: 'folder', name, key, children: [] };
-        folderMap.set(key, folder);
-        if (parentPath === '') {
-            roots.push(folder);
-        } else {
-            getOrCreate(parentPath).children.push(folder);
-        }
-        return folder;
-    };
-
-    for (const chunk of chunks) {
-        if (!chunk.path) continue;
-        const normalized = chunk.path.replace(/\\/g, '/');
-        const parts = normalized.split('/');
-        const fileName = parts[parts.length - 1];
-        const dirParts = parts.slice(0, -1);
-        const fileNode: VFSFile = { type: 'file', name: fileName, chunk, wadPath };
-        if (dirParts.length === 0) {
-            roots.push(fileNode);
-        } else {
-            getOrCreate(dirParts.join('/')).children.push(fileNode);
-        }
+    const index = new PathIndex(
+        chunks.map(c => ({ path: c.path, key: c.hash, size: c.size })),
+    );
+    // Chunks addressed the way a WAD addresses them — by hash.
+    const byHash = new Map<string, WadChunk>();
+    for (const c of chunks) {
+        if (!byHash.has(c.hash)) byHash.set(c.hash, c);
     }
 
-    const unknown = chunks.filter(c => !c.path);
-    if (unknown.length > 0) {
-        const key = `${wadPath}::__unknown__`;
-        roots.push({
-            type: 'folder',
-            name: `[Unknown Hashes] (${unknown.length})`,
-            key,
-            children: unknown.map(c => ({
-                type: 'file' as const,
-                name: c.hash,
-                chunk: c,
-                wadPath,
-            })),
-        });
-    }
-
-    const sort = (nodes: VFSNode[]) => {
-        nodes.sort((a, b) => {
-            if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
-            return collator.compare(a.name ?? '', b.name ?? '');
-        });
-        for (const n of nodes) {
-            if (n.type === 'folder') sort(n.children);
+    const toNodes = (dir: string): VFSNode[] => {
+        const out: VFSNode[] = [];
+        for (const entry of index.list(dir)) {
+            if (entry.isDirectory) {
+                const unknownCount = entry.path === UNKNOWN_DIR
+                    ? index.list(entry.path).length
+                    : 0;
+                out.push({
+                    type: 'folder',
+                    // The explorer keys rows per WAD, since one tree holds many.
+                    key: `${wadPath}::${entry.path === UNKNOWN_DIR ? '__unknown__' : entry.path}`,
+                    name: unknownCount > 0 ? `${UNKNOWN_DIR} (${unknownCount})` : entry.name,
+                    children: toNodes(entry.path),
+                });
+                continue;
+            }
+            // A miss means two chunks collapsed onto one hash; skip rather than
+            // emit a row with no chunk behind it.
+            const chunk = byHash.get(entry.key);
+            if (chunk) out.push({ type: 'file', name: entry.name, chunk, wadPath });
         }
+        return out;
     };
-    sort(roots);
-    return roots;
+
+    return toNodes('');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

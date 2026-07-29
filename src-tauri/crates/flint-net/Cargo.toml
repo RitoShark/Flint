@@ -1,0 +1,19 @@
+[package]
+name = "flint-net"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+flint-hash = { path = "../flint-hash" }
+
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+zstd = "0.12"
+
+tokio.workspace = true
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls-no-provider"] }
+# The provider is not installed by default; `net::install_tls_provider` does it.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+
+ritoshark.workspace = true

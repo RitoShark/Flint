@@ -68,6 +68,43 @@ export async function convertTextureToPng(path: string): Promise<TextureConversi
     return invokeCommand('convert_texture_to_png', { path });
 }
 
+/** Encode format for a PNG going back into a texture. */
+export type TextureEncodeFormat = 'bc1' | 'bc3' | 'rgba8';
+
+/**
+ * Convert a .png to a sibling .tex. The source file is left intact.
+ *
+ * Omit `format` to pick automatically: BC3 when the image has transparency,
+ * BC1 (half the size) when it does not.
+ */
+export async function convertPngToTex(
+    path: string,
+    format?: TextureEncodeFormat,
+): Promise<TextureConversionResult> {
+    return invokeCommand('convert_png_to_tex', { path, format: format ?? null });
+}
+
+/** Convert a .png to a sibling .dds. Same format selection as `convertPngToTex`. */
+export async function convertPngToDds(
+    path: string,
+    format?: TextureEncodeFormat,
+): Promise<TextureConversionResult> {
+    return invokeCommand('convert_png_to_dds', { path, format: format ?? null });
+}
+
+/** In-memory PNG → TEX, for bytes that never touch disk. */
+export async function convertPngBytesToTex(
+    data: Uint8Array,
+    format?: TextureEncodeFormat,
+): Promise<Uint8Array> {
+    const buf = await invokeRaw<ArrayBuffer>(
+        'convert_png_bytes_to_tex',
+        data,
+        format ? { 'tex-format': format } : undefined,
+    );
+    return new Uint8Array(buf);
+}
+
 export async function convertTexBytesToDds(data: Uint8Array): Promise<Uint8Array> {
     const buf = await invokeRaw<ArrayBuffer>('convert_tex_bytes_to_dds', data);
     return new Uint8Array(buf);
