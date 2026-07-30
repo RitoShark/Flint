@@ -180,6 +180,18 @@ pub async fn download_hashes(output_dir: impl AsRef<Path>, force: bool) -> Resul
         stats.downloaded, stats.skipped, stats.errors
     );
 
+    // A failed asset must NOT read as success. Previously every error was only
+    // counted + logged and `Ok(stats)` returned regardless, so "Reload hashes"
+    // reported success while the old DB was still on disk — which looks exactly
+    // like "the update did nothing" (paths keep rendering as raw hashes).
+    if stats.errors > 0 {
+        return Err(Error::Hash(format!(
+            "{} of {} hash databases failed to update (see log for details)",
+            stats.errors,
+            ASSETS.len(),
+        )));
+    }
+
     Ok(stats)
 }
 
@@ -244,19 +256,58 @@ async fn download_and_extract(
 
     let _ = fs::remove_file(lmdb_dir.join("lock.mdb")).await;
 
-    if data_mdb.exists() {
-        if let Err(e) = fs::remove_file(&data_mdb).await {
-            tracing::warn!("Could not remove old data.mdb (will attempt rename anyway): {}", e);
-        }
+    // Windows refuses to delete/replace a file that is still memory-mapped. The
+    // cache drop above releases OUR handles, but an in-flight resolve or the
+    // background page-cache warmer can still hold the mmap for a moment, so
+    // retry briefly instead of giving up on the first refusal.
+    if let Err(e) = replace_data_mdb(&tmp_path, &data_mdb).await {
+        let _ = fs::remove_file(&tmp_path).await;
+        return Err(e);
     }
-
-    fs::rename(&tmp_path, &data_mdb).await
-        .map_err(|e| Error::Hash(format!("Failed to rename data.mdb.tmp -> data.mdb: {}", e)))?;
 
     tracing::info!("Successfully installed new data.mdb at {}", data_mdb.display());
     Ok(())
 }
 
+
+/// Replace `data.mdb` with the freshly downloaded `data.mdb.tmp`.
+///
+/// Retries the delete+rename for a few hundred ms: on Windows the old file can
+/// still be memory-mapped for a moment after `drop_lmdb_cache`, and a failure
+/// here MUST surface — a swallowed error leaves the stale DB on disk while the
+/// meta file records the new tag, so every later run thinks it is up to date
+/// and paths silently keep showing as raw hashes.
+async fn replace_data_mdb(tmp_path: &Path, data_mdb: &Path) -> Result<()> {
+    const ATTEMPTS: u32 = 10;
+    let mut last_err: Option<std::io::Error> = None;
+
+    for attempt in 0..ATTEMPTS {
+        if data_mdb.exists() {
+            if let Err(e) = fs::remove_file(data_mdb).await {
+                last_err = Some(e);
+                tokio::time::sleep(Duration::from_millis(50 * (attempt as u64 + 1))).await;
+                continue;
+            }
+        }
+
+        match fs::rename(tmp_path, data_mdb).await {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                last_err = Some(e);
+                tokio::time::sleep(Duration::from_millis(50 * (attempt as u64 + 1))).await;
+            }
+        }
+    }
+
+    Err(Error::Hash(format!(
+        "Failed to install {} after {} attempts (file still locked — close anything using the hash DB): {}",
+        data_mdb.display(),
+        ATTEMPTS,
+        last_err
+            .map(|e| e.to_string())
+            .unwrap_or_else(|| "unknown error".to_string()),
+    )))
+}
 
 async fn read_meta(hash_dir: &Path) -> HashesMeta {
     let path = hash_dir.join(META_FILE_NAME);
