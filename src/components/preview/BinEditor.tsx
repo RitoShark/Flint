@@ -298,7 +298,16 @@ const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     lineNumbers: 'on',
     lineNumbersMinChars: 5,
     minimap: { enabled: false },
-    folding: false,
+    // Folding is bracket-derived: the ritobin language config declares
+    // `brackets`, so Monaco's `auto` strategy builds `{ }` ranges with no
+    // custom range provider. This also powers the Fold-all/Unfold-all emitter
+    // buttons — `setEmittersFolded` reads regions off the folding
+    // contribution, which computes nothing while folding is disabled.
+    folding: true,
+    foldingStrategy: 'auto',
+    // Default is 'mouseover', which hides the gutter arrows until hover and
+    // reads as "folding still doesn't work".
+    showFoldingControls: 'always',
     bracketPairColorization: { enabled: true },
     matchBrackets: 'always',
     maxTokenizationLineLength: 5000,
