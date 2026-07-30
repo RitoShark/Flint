@@ -1,5 +1,5 @@
 use flint_core::hash::{
-    download_hashes as core_download_hashes, get_hash_dir, DownloadStats,
+    check_hashes_now, download_hashes as core_download_hashes, get_hash_dir, DownloadStats,
 };
 use crate::state::LmdbCacheState;
 use serde::{Deserialize, Serialize};
@@ -63,7 +63,11 @@ pub async fn reload_hashes(lmdb: State<'_, LmdbCacheState>) -> Result<(), String
 
     lmdb.clear();
 
-    core_download_hashes(&hash_dir, false)
+    // An explicit "Reload hashes" click must always re-check the release rather
+    // than honour the "checked recently" skip window — with the old
+    // `download_hashes(.., false)` this button did nothing at all once the DBs
+    // existed on disk. It still skips the ~290MB download when the tag matches.
+    check_hashes_now(&hash_dir)
         .await
         .map_err(|e| format!("Failed to download hashes: {}", e))?;
 

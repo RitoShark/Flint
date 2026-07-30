@@ -22,6 +22,11 @@ const RELEASE_API_URL: &str =
 const META_FILE_NAME: &str = "hashes-meta.json";
 const USER_AGENT: &str = "flint-hash-manager";
 
+/// How long a successful release check stays valid before startup asks GitHub
+/// again. Upstream (`lmdb-hashes`) rebuilds every 6 hours, so this matches the
+/// fastest rate at which a new tag can appear.
+const CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
+
 struct Asset {
     /// Release asset filename, e.g. `lol-hashes-wad.zst`.
     release_name: &'static str,
@@ -98,7 +103,23 @@ pub fn hashes_present(hash_dir: &Path) -> bool {
 /// Re-checking for a newer tag only happens when the user explicitly clicks
 /// "Reload hashes" (`reload_hashes` / `force_rebuild_hashes` commands).
 pub async fn download_hashes(output_dir: impl AsRef<Path>, force: bool) -> Result<DownloadStats> {
-    let output_dir = output_dir.as_ref();
+    download_hashes_inner(output_dir.as_ref(), force, force).await
+}
+
+/// Check the release now, ignoring the "checked recently" window, but still
+/// honour the tag comparison — so an explicit "Reload hashes" click always asks
+/// GitHub yet only downloads when the tag actually moved.
+pub async fn check_hashes_now(output_dir: impl AsRef<Path>) -> Result<DownloadStats> {
+    download_hashes_inner(output_dir.as_ref(), false, true).await
+}
+
+/// `force_download` bypasses the per-asset tag check (re-fetch regardless).
+/// `skip_interval` bypasses only the "checked recently" early return.
+async fn download_hashes_inner(
+    output_dir: &Path,
+    force: bool,
+    skip_interval: bool,
+) -> Result<DownloadStats> {
 
     tracing::debug!("Hash dir: {}", output_dir.display());
     fs::create_dir_all(output_dir).await.map_err(|e| {
@@ -116,10 +137,24 @@ pub async fn download_hashes(output_dir: impl AsRef<Path>, force: bool) -> Resul
 
     let mut stats = DownloadStats { downloaded: 0, skipped: 0, errors: 0 };
 
-    if !force && hashes_present(output_dir) {
-        tracing::info!("Hash databases already present — skipping check");
-        stats.skipped = ASSETS.len();
-        return Ok(stats);
+    // Only skip the network check when the DBs are present AND we checked
+    // recently. This used to skip on mere file existence, which meant startup
+    // never contacted GitHub again once the files were on disk — a new release
+    // could never be picked up and paths kept resolving as raw hashes until the
+    // user deleted the hash folder by hand. The tag comparison below is what
+    // actually decides whether to download.
+    if !skip_interval && hashes_present(output_dir) {
+        let meta = read_meta(output_dir).await;
+        if let Some(age) = meta.last_checked_at.as_deref().and_then(age_since) {
+            if age < CHECK_INTERVAL {
+                tracing::info!(
+                    "Hash databases present and checked {}h ago — skipping check",
+                    age.as_secs() / 3600
+                );
+                stats.skipped = ASSETS.len();
+                return Ok(stats);
+            }
+        }
     }
 
     let client = Client::builder()
@@ -172,7 +207,12 @@ pub async fn download_hashes(output_dir: impl AsRef<Path>, force: bool) -> Resul
         crate::hash::bin_dict::reload_bin_hash_cache();
         tracing::info!("BIN hash cache reloaded after successful download");
     }
-    meta.last_checked_at = Some(now_iso());
+    // Only stamp the check time on a clean run. Stamping it after a failure
+    // would start the 6h skip window on a run that achieved nothing, so a
+    // transient network error would suppress retries for the rest of the day.
+    if stats.errors == 0 {
+        meta.last_checked_at = Some(now_iso());
+    }
     write_meta(output_dir, &meta).await;
 
     tracing::info!(
@@ -326,6 +366,16 @@ async fn write_meta(hash_dir: &Path, meta: &HashesMeta) {
     }
 }
 
+/// Elapsed time since an RFC-3339 timestamp, or `None` if it is unparseable or
+/// in the future (clock skew) — both cases fall through to a real check.
+fn age_since(ts: &str) -> Option<Duration> {
+    let then = chrono::DateTime::parse_from_rfc3339(ts).ok()?;
+    chrono::Utc::now()
+        .signed_duration_since(then.with_timezone(&chrono::Utc))
+        .to_std()
+        .ok()
+}
+
 fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
@@ -340,6 +390,30 @@ mod tests {
         assert_eq!(stats.downloaded, 5);
         assert_eq!(stats.skipped, 2);
         assert_eq!(stats.errors, 1);
+    }
+
+    /// The regression this guards: startup used to skip the release check on
+    /// mere file existence, so a stale DB was never refreshed and WAD paths
+    /// kept rendering as raw hashes until the user deleted the folder by hand.
+    #[test]
+    fn stale_check_timestamp_does_not_suppress_the_release_check() {
+        let stale = chrono::Utc::now() - chrono::Duration::hours(7);
+        let age = age_since(&stale.to_rfc3339()).expect("parseable");
+        assert!(age > CHECK_INTERVAL, "a 7h-old check must re-verify the tag");
+    }
+
+    #[test]
+    fn recent_check_timestamp_skips_the_release_check() {
+        let recent = chrono::Utc::now() - chrono::Duration::minutes(30);
+        let age = age_since(&recent.to_rfc3339()).expect("parseable");
+        assert!(age < CHECK_INTERVAL, "a 30m-old check should skip the network");
+    }
+
+    #[test]
+    fn unparseable_or_future_timestamp_forces_a_check() {
+        assert!(age_since("not a timestamp").is_none());
+        let future = chrono::Utc::now() + chrono::Duration::hours(2);
+        assert!(age_since(&future.to_rfc3339()).is_none(), "clock skew must not skip");
     }
 
     #[test]
