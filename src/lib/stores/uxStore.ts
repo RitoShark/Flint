@@ -19,6 +19,9 @@ export interface UxPrefs {
     /** Remembered viewer per lowercased extension for files with no dedicated
      *  preview (UnknownPreview), e.g. { "dat": "hex" }. */
     unknownPreviewByExt: Record<string, 'hex' | 'text'>;
+    /** Show Monaco's minimap in the BIN editor. Force-disabled above
+     *  MINIMAP_MAX_LINES regardless of this preference. */
+    binEditorMinimap: boolean;
 }
 
 const DEFAULTS: UxPrefs = {
@@ -30,6 +33,7 @@ const DEFAULTS: UxPrefs = {
     glassBlur: 14,
     glassOpacity: 0.65,
     unknownPreviewByExt: {},
+    binEditorMinimap: true,
 };
 
 /** Superseded default reds → the current one. A stored accent overrides the theme
@@ -72,6 +76,7 @@ interface UxState extends UxPrefs {
     setGlassOpacity: (v: number) => void;
     /** Remember (or forget with null) the viewer for an unknown extension. */
     setUnknownPreviewForExt: (ext: string, mode: 'hex' | 'text' | null) => void;
+    setBinEditorMinimap: (on: boolean) => void;
     reset: () => void;
 }
 
@@ -79,8 +84,8 @@ const initial: UxPrefs = { ...DEFAULTS, ...readStorage() };
 
 export const useUxStore = create<UxState>()((set, get) => {
     const persist = () => {
-        const { glassmorphism, fpsMode, buttonGlow, accentPrimary, accentSecondary, glassBlur, glassOpacity, unknownPreviewByExt } = get();
-        writeStorage({ glassmorphism, fpsMode, buttonGlow, accentPrimary, accentSecondary, glassBlur, glassOpacity, unknownPreviewByExt });
+        const { glassmorphism, fpsMode, buttonGlow, accentPrimary, accentSecondary, glassBlur, glassOpacity, unknownPreviewByExt, binEditorMinimap } = get();
+        writeStorage({ glassmorphism, fpsMode, buttonGlow, accentPrimary, accentSecondary, glassBlur, glassOpacity, unknownPreviewByExt, binEditorMinimap });
         applyUxPrefs(get());
     };
     return {
@@ -100,6 +105,7 @@ export const useUxStore = create<UxState>()((set, get) => {
             set({ unknownPreviewByExt: next });
             persist();
         },
+        setBinEditorMinimap: (on) => { set({ binEditorMinimap: on }); persist(); },
         reset: () => { set({ ...DEFAULTS }); persist(); },
     };
 });
