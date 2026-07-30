@@ -1132,8 +1132,17 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
         (async () => {
             try {
-                // Load the 6 bundled WebP faces (px,nx,py,ny,pz,nz) as blob URLs.
-                const faces = ['px', 'nx', 'py', 'ny', 'pz', 'nz'];
+                // Load the 6 bundled WebP faces as blob URLs.
+                //
+                // ORDER IS LOAD-BEARING: Babylon's CubeTexture `files` arg is
+                // consumed BY INDEX (it stores `this._files = files` verbatim and
+                // never parses the names), and blob URLs carry no filename at
+                // all — so the array position alone decides which GPU face each
+                // image becomes. The order is positives-then-negatives,
+                // [px, py, pz, nx, ny, nz], matching Babylon's own default
+                // extensions list. Interleaving it as px,nx,py,… puts the sky
+                // (py) on a side wall and a side wall overhead.
+                const faces = ['px', 'py', 'pz', 'nx', 'ny', 'nz'];
                 const urls = await Promise.all(faces.map(async (f) => {
                     const bytes = await api.getBundledSkyboxFace(f);
                     return URL.createObjectURL(new Blob([bytes.buffer as ArrayBuffer], { type: 'image/webp' }));
