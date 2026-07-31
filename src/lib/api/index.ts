@@ -79,3 +79,4 @@ export * from './taskbar';
 export * from './cdn';
 export * from './thumbnail';
 export * from './skinFixer';
+export * from './paint';

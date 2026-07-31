@@ -16,6 +16,7 @@ import {
 } from '../../lib/editor/ritobinLanguage';
 import { AssetPreviewTooltip } from './AssetPreviewTooltip';
 import { MaskEditor } from './MaskEditor';
+import { PaintPanel } from './paint/PaintPanel';
 import { SubmeshPicker, type SubmeshPickerRequest } from './SubmeshPicker';
 import { bracketStackAtLine } from '../../lib/editor/blockExtraction';
 import { checkRitobinBrackets, type BracketCheckResult } from '../../lib/editor/bracketCheck';
@@ -609,6 +610,8 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const [sidePanelOpen, setSidePanelOpen] = useState(false);
     const [hasMaskMap, setHasMaskMap] = useState(false);
     const [maskEditorOpen, setMaskEditorOpen] = useState(false);
+    const [hasVfx, setHasVfx] = useState(false);
+    const [paintOpen, setPaintOpen] = useState(false);
     /* Submesh picker for `Submesh: string = "..."` lines. `line` is the line the
        CodeLens was clicked on; `names` empty with a `note` means the SKN could
        not be read, in which case the field stays free text. */
@@ -624,6 +627,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         void state.fileVersionsRev;
         return state.getFileVersion(filePath);
     });
+    const incrementFileVersion = useAppMetadataStore((state) => state.incrementFileVersion);
 
     const variant = 'ritoshark';
 
@@ -778,6 +782,18 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         api.binHasAnimationMasks(filePath)
             .then((has) => { if (!cancelled) setHasMaskMap(has); })
             .catch(() => { if (!cancelled) setHasMaskMap(false); });
+        return () => { cancelled = true; };
+    }, [filePath]);
+
+    // Same shape as the mask probe: a cheap class-hash scan decides whether the
+    // Paint toggle appears, so a BIN with no VFX systems never shows it.
+    useEffect(() => {
+        let cancelled = false;
+        setHasVfx(false);
+        setPaintOpen(false);
+        api.binHasVfxSystems(filePath)
+            .then((has) => { if (!cancelled) setHasVfx(has); })
+            .catch(() => { if (!cancelled) setHasVfx(false); });
         return () => { cancelled = true; };
     }, [filePath]);
 
@@ -1278,6 +1294,16 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                             ◑
                         </button>
                     )}
+                    {hasVfx && (
+                        <button
+                            className={`btn btn--icon${paintOpen ? ' btn--primary' : ''}`}
+                            style={!paintOpen ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
+                            onClick={() => setPaintOpen(!paintOpen)}
+                            title="Toggle VFX paint (recolor emitters and materials)"
+                        >
+                            ◆
+                        </button>
+                    )}
                     <button
                         className="btn btn--primary btn--icon"
                         onClick={handleSave}
@@ -1323,6 +1349,26 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                         }}
                     >
                         <MaskEditor binPath={filePath} />
+                    </div>
+                )}
+
+                {paintOpen && hasVfx && (
+                    <div
+                        style={{
+                            position: 'absolute',
+                            inset: 0,
+                            zIndex: 40,
+                            background: 'var(--bg-secondary)',
+                        }}
+                    >
+                        <PaintPanel
+                            binPath={filePath}
+                            /* Paint writes the BIN directly and drops the
+                               .ritobin sidecar, so the cached editor text is
+                               now stale — bump the version to force a
+                               re-decode from disk. */
+                            onSaved={() => incrementFileVersion(filePath)}
+                        />
                     </div>
                 )}
             </div>
