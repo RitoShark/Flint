@@ -62,3 +62,65 @@ describe('checkRitobinBrackets — valid input', () => {
         expect(checkRitobinBrackets(doc).valid).toBe(true);
     });
 });
+
+describe('checkRitobinBrackets — unclosed blocks', () => {
+    /* Line 5 opens VfxAnimatedVector3fVariableData and its closer was deleted. */
+    const MISSING_CLOSER = [
+        'entries: map[hash,embed] = {',                                // 1
+        '    "Foo" = VfxSystemDefinitionData {',                       // 2
+        '        scale0: embed = ValueVector3 {',                      // 3
+        '            rate: f32 = 1',                                   // 4
+        '            dynamics: pointer = VfxAnimatedVector3fVariableData {', // 5
+        '                times: list[f32] = {',                        // 6
+        '                    0',                                       // 7
+        '                }',                                           // 8
+        '        }',                                                   // 9
+        '    }',                                                       // 10
+        '}',                                                           // 11
+    ].join('\n');
+
+    it('reports the innermost block at its own header line, not at EOF', () => {
+        const r = checkRitobinBrackets(MISSING_CLOSER);
+        expect(r.valid).toBe(false);
+        expect(r.errors[0].line).toBe(5);
+        expect(r.errors[0].message).toContain('VfxAnimatedVector3fVariableData');
+        expect(r.errors[0].message).toContain('never closed');
+    });
+
+    it('suggests inserting the closer at the end of the block, not the file', () => {
+        const r = checkRitobinBrackets(MISSING_CLOSER);
+        expect(r.errors[0].suggestLine).toBe(8);
+    });
+
+    it('names the innermost block when several are open', () => {
+        const doc = [
+            'a: embed = Outer {',   // 1
+            '    b: embed = Inner {', // 2
+            '        rate: f32 = 1',  // 3
+        ].join('\n');
+        const r = checkRitobinBrackets(doc);
+        expect(r.errors[0].line).toBe(1);
+        expect(r.errors.some(e => e.message.includes('Inner'))).toBe(true);
+        expect(r.errors.some(e => e.message.includes('Outer'))).toBe(true);
+    });
+});
+
+describe('checkRitobinBrackets — recovery', () => {
+    it('reports two separately broken blocks, not just the first', () => {
+        const doc = [
+            'entries: map[hash,embed] = {',    // 1
+            '    "A" = TestClass {',           // 2
+            '        inner: embed = Alpha {',  // 3  <- closer deleted
+            '            rate: f32 = 1',       // 4
+            '    }',                           // 5
+            '    "B" = TestClass {',           // 6
+            '        inner: embed = Beta {',   // 7  <- closer deleted
+            '            rate: f32 = 2',       // 8
+            '    }',                           // 9
+            '}',                               // 10
+        ].join('\n');
+        const r = checkRitobinBrackets(doc);
+        expect(r.errors.some(e => e.message.includes('Alpha'))).toBe(true);
+        expect(r.errors.some(e => e.message.includes('Beta'))).toBe(true);
+    });
+});

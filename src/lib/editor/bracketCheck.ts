@@ -52,6 +52,17 @@ function isBlankOrComment(line: string): boolean {
     return t === '' || t.startsWith('#') || t.startsWith('//');
 }
 
+/**
+ * True when the line's code is nothing but closing brackets. Such a line sits at the indent of
+ * the frame its own closer is about to pop legitimately (that pop is handled by the brace scan
+ * below, not by recovery) — but any frame still deeper than it on the stack is orphaned and
+ * must still be recovered.
+ */
+function isOnlyClosers(code: string): boolean {
+    const t = code.trim();
+    return t.length > 0 && /^[}\])\s]+$/.test(t);
+}
+
 export function checkRitobinBrackets(text: string): BracketCheckResult {
     const lines = text.split('\n');
     const errors: BracketIssue[] = [];
@@ -67,6 +78,29 @@ export function checkRitobinBrackets(text: string): BracketCheckResult {
         cursor = { inString: scan.inString };
 
         const code = line.slice(0, scan.codeEnd);
+
+        /*
+        Resynchronise on indentation. A non-blank line whose indent falls to or below an open
+        frame's header indent means that frame's closer is missing: report it and pop, so the
+        break stays local to its block instead of cascading through everything after it.
+        Only `{` scopes opened on an EARLIER line are eligible — `[` and `(` never span lines in
+        ritobin, so indentation says nothing about them.
+
+        A line that is only closing brackets sits at the indent of the frame it is about to pop
+        for real (via the brace scan below), so that ONE frame must not be recovered here — but
+        anything still deeper than it on the stack is still orphaned and must be.
+        */
+        if (!isBlankOrComment(line)) {
+            const ind = indentWidth(line);
+            const onlyClosers = isOnlyClosers(code);
+            while (stack.length > 0) {
+                const top = stack[stack.length - 1];
+                if (top.char !== '{' || top.line >= lineNo) break;
+                if (onlyClosers ? ind >= top.indent : ind > top.indent) break;
+                errors.push(unclosedIssue(top, lines));
+                stack.pop();
+            }
+        }
 
         for (let b = 0; b < braces.length; b++) {
             const { ch, col } = braces[b];
