@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo } from 'react';
 import { VirtualList } from '../VirtualList';
+import { Icon } from '../../ui/Icon';
 import { ColorBlock } from './ColorBlock';
 import { hexToVec4, vec4ToHex } from '../../../lib/paint/colorMath';
 import type { Vec4 } from '../../../lib/paint/colorMath';
@@ -55,6 +56,8 @@ interface SystemListProps {
     onSetMaterialParam: (selectionKey: string, value: Vec4) => void;
     /** Pull a block's colors into the working palette. */
     onPickColors: (colors: ColorKeyframe[]) => void;
+    /** Double-click a row: reveal that name in the ritobin text. */
+    onRevealInText: (needle: string) => void;
 }
 
 function keyframesOf(slot: VfxEmitter['colors']['color']): ColorKeyframe[] {
@@ -104,6 +107,7 @@ export const SystemList: React.FC<SystemListProps> = ({
     onSetBlendMode,
     onSetMaterialParam,
     onPickColors,
+    onRevealInText,
 }) => {
     const systemMap = useMemo(
         () => new Map(model.systems.map((s) => [s.key, s])),
@@ -242,6 +246,8 @@ export const SystemList: React.FC<SystemListProps> = ({
                     <div
                         className={`paint-row paint-row--system${state.locked ? ' is-locked' : ''}`}
                         onClick={() => onToggleExpand(row.key)}
+                        onDoubleClick={() => onRevealInText(row.system.particleName ?? row.system.name)}
+                        title="Double-click to find this system in the text"
                     >
                         <TriCheckbox
                             className="paint-row__check"
@@ -251,7 +257,10 @@ export const SystemList: React.FC<SystemListProps> = ({
                             onChange={() => onToggleSystem(row.key, !state.selected)}
                             label={`Select all emitters in ${row.system.name}`}
                         />
-                        <span className="paint-row__chevron">{state.expanded ? '▾' : '▸'}</span>
+                        <Icon
+                            className="paint-row__chevron"
+                            name={state.expanded ? 'chevronDown' : 'chevronRight'}
+                        />
                         <span className="paint-row__name" title={row.system.name}>
                             {row.system.name.includes('/')
                                 ? row.system.name.split('/').pop()
@@ -268,7 +277,7 @@ export const SystemList: React.FC<SystemListProps> = ({
                             title={state.locked ? 'Unlock this system' : 'Lock this system'}
                             aria-label={state.locked ? 'Unlock system' : 'Lock system'}
                         >
-                            {state.locked ? '🔒' : '🔓'}
+                            <Icon name={state.locked ? 'lockClosed' : 'lockOpen'} />
                         </button>
                     </div>
                 );
@@ -279,6 +288,8 @@ export const SystemList: React.FC<SystemListProps> = ({
                     <div
                         className="paint-row paint-row--material"
                         onClick={() => onToggleMaterialExpand(row.key)}
+                        onDoubleClick={() => onRevealInText(row.material.name)}
+                        title="Double-click to find this material in the text"
                     >
                         <TriCheckbox
                             className="paint-row__check"
@@ -294,7 +305,10 @@ export const SystemList: React.FC<SystemListProps> = ({
                             }}
                             label={`Select all params in ${row.material.name}`}
                         />
-                        <span className="paint-row__chevron">{state.expanded ? '▾' : '▸'}</span>
+                        <Icon
+                            className="paint-row__chevron"
+                            name={state.expanded ? 'chevronDown' : 'chevronRight'}
+                        />
                         <span className="paint-row__badge">MAT</span>
                         <span className="paint-row__name" title={row.material.name}>
                             {row.material.name}
@@ -312,6 +326,8 @@ export const SystemList: React.FC<SystemListProps> = ({
                     <div
                         className={`paint-row paint-row--param${state.selected ? ' is-selected' : ''}`}
                         onClick={() => onToggleEmitter(row.selectionKey)}
+                        onDoubleClick={() => onRevealInText(row.param.name)}
+                        title="Double-click to find this param in the text"
                     >
                         <TriCheckbox
                             className="paint-row__check"
@@ -358,6 +374,8 @@ export const SystemList: React.FC<SystemListProps> = ({
                     onClick={() => {
                         if (!state.locked) onToggleEmitter(row.key);
                     }}
+                    onDoubleClick={() => onRevealInText(emitter.name)}
+                    title="Double-click to find this emitter in the text"
                 >
                     <TriCheckbox
                         className="paint-row__check"
@@ -463,6 +481,7 @@ export const SystemList: React.FC<SystemListProps> = ({
             onSetBlendMode,
             onSetMaterialParam,
             onPickColors,
+            onRevealInText,
         ],
     );
 

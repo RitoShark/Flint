@@ -18,8 +18,14 @@ import { AssetPreviewTooltip } from './AssetPreviewTooltip';
 import { MaskEditor } from './MaskEditor';
 import { PaintPanel } from './paint/PaintPanel';
 import { SubmeshPicker, type SubmeshPickerRequest } from './SubmeshPicker';
+import { Icon } from '../ui/Icon';
 import { bracketStackAtLine } from '../../lib/editor/blockExtraction';
 import { checkRitobinBrackets, type BracketCheckResult } from '../../lib/editor/bracketCheck';
+import {
+    REVEAL_TEXT_EVENT,
+    UNHASH_REQUEST_EVENT,
+    type RevealTextDetail,
+} from '../../lib/editor/binEditorEvents';
 
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
@@ -1088,7 +1094,9 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         editorRef.current.focus();
     }, [bracketStatus]);
 
-    const [unhashing, setUnhashing] = useState(false);
+    /** Re-entry guard for the unhash pass. A ref, not state: the trigger lives
+     *  in a sibling component, so nothing here re-renders to disable it. */
+    const unhashingRef = useRef(false);
 
     /* Resolve the SKN this BIN drives (its `simpleSkin` asset path) and read the
        material-range names off it. Any failure returns a note instead of throwing
@@ -1144,9 +1152,13 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const handleUnhash = useCallback(async () => {
         const ed = editorRef.current;
         if (!ed) return;
+        // The trigger now lives in the preview panel's info bar, which has no
+        // disabled state tied to this component — so the guard has to be here,
+        // or a double-click would run two passes over the same text.
+        if (unhashingRef.current) return;
         const current = ed.getModel()?.getValue() ?? content;
         try {
-            setUnhashing(true);
+            unhashingRef.current = true;
             setWorking('Unhashing BIN...');
             const { text: unhashed, replaced } = await api.unhashBinText(current);
             if (replaced === 0) {
@@ -1162,9 +1174,53 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             showToast('error', `Unhash failed: ${String(err)}`);
             setReady('Ready');
         } finally {
-            setUnhashing(false);
+            unhashingRef.current = false;
         }
     }, [content, setWorking, setReady, showToast]);
+
+    /* Unhash lives in the preview panel's bottom info bar (next to Jade/Quartz),
+       which is a sibling component, so it reaches the editor through a window
+       event rather than by lifting the whole editor's state up. The listener is
+       filtered by path so a second open editor never runs someone else's edit. */
+    const unhashRef = useRef(handleUnhash);
+    unhashRef.current = handleUnhash;
+    useEffect(() => {
+        const onRequest = (e: Event) => {
+            const detail = (e as CustomEvent<{ filePath: string }>).detail;
+            if (detail?.filePath !== filePath) return;
+            void unhashRef.current();
+        };
+        window.addEventListener(UNHASH_REQUEST_EVENT, onRequest);
+        return () => window.removeEventListener(UNHASH_REQUEST_EVENT, onRequest);
+    }, [filePath]);
+
+    /* Reveal a name in the text — the Paint panel's double-click gesture. The
+       search runs over the live model (not React `content`) so it lands on the
+       right line even with unsaved edits above it. */
+    useEffect(() => {
+        const onReveal = (e: Event) => {
+            const detail = (e as CustomEvent<RevealTextDetail>).detail;
+            if (detail?.filePath !== filePath) return;
+            const ed = editorRef.current;
+            const model = ed?.getModel();
+            if (!ed || !model || !detail.needle) return;
+
+            // Quoted first: emitter/particle names are string VALUES in ritobin,
+            // so the quoted form pins the definition rather than a stray mention.
+            const match =
+                model.findMatches(`"${detail.needle}"`, true, false, true, null, false, 1)[0] ??
+                model.findMatches(detail.needle, true, false, true, null, false, 1)[0];
+            if (!match) {
+                showToast('info', `"${detail.needle}" not found in the text`);
+                return;
+            }
+            ed.revealRangeInCenter(match.range);
+            ed.setSelection(match.range);
+            ed.focus();
+        };
+        window.addEventListener(REVEAL_TEXT_EVENT, onReveal);
+        return () => window.removeEventListener(REVEAL_TEXT_EVENT, onReveal);
+    }, [filePath, showToast]);
 
     // Split on BOTH separators in one pass. Chaining `split('\\') || split('/')`
     // never reaches the second branch: on a forward-slash path the first split
@@ -1257,15 +1313,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                         </button>
                     )}
                     <button
-                        className="btn btn--icon"
-                        style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}
-                        onClick={handleUnhash}
-                        disabled={unhashing}
-                        title="Unhash: re-resolve any 0x… hash tokens against the known BIN hash dictionary"
-                    >
-                        {unhashing ? '…' : '#'}
-                    </button>
-                    <button
                         className={`btn btn--icon${minimapOn ? ' btn--primary' : ''}`}
                         style={!minimapOn ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
                         onClick={() => setMinimapPref(!minimapPref)}
@@ -1274,7 +1321,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                             ? 'Toggle minimap (document overview bar on the right)'
                             : `Minimap is disabled above ${MINIMAP_MAX_LINES.toLocaleString()} lines for performance`}
                     >
-                        ▭
+                        <Icon name="layerText" />
                     </button>
                     <button
                         className={`btn btn--icon${sidePanelOpen ? ' btn--primary' : ''}`}
@@ -1282,7 +1329,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                         onClick={() => setSidePanelOpen(!sidePanelOpen)}
                         title="Toggle BIN tools panel (skinScale, materialOverride, VFX)"
                     >
-                        ⚙
+                        <Icon name="settings" />
                     </button>
                     {hasMaskMap && (
                         <button
@@ -1291,7 +1338,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                             onClick={() => setMaskEditorOpen(!maskEditorOpen)}
                             title="Toggle animation mask weight editor"
                         >
-                            ◑
+                            <Icon name="contrast" />
                         </button>
                     )}
                     {hasVfx && (
@@ -1301,7 +1348,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                             onClick={() => setPaintOpen(!paintOpen)}
                             title="Toggle VFX paint (recolor emitters and materials)"
                         >
-                            ◆
+                            <Icon name="texture" />
                         </button>
                     )}
                     <button
@@ -1353,13 +1400,11 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 )}
 
                 {paintOpen && hasVfx && (
+                    /* No inline background here — the panel paints its own, so
+                       an opaque layer underneath would defeat its glass. */
                     <div
-                        style={{
-                            position: 'absolute',
-                            inset: 0,
-                            zIndex: 40,
-                            background: 'var(--bg-secondary)',
-                        }}
+                        className="bin-editor__paint-overlay"
+                        style={{ position: 'absolute', inset: 0, zIndex: 40 }}
                     >
                         <PaintPanel
                             binPath={filePath}
@@ -1368,6 +1413,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                                now stale — bump the version to force a
                                re-decode from disk. */
                             onSaved={() => incrementFileVersion(filePath)}
+                            onClose={() => setPaintOpen(false)}
                         />
                     </div>
                 )}

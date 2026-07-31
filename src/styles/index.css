@@ -4849,6 +4849,38 @@ input.np-search:focus {
   height: 12px;
 }
 
+/* Jade / Quartz use their real app logos rather than a generic glyph, so the
+   button reads as "that app" at a glance. `display:block` keeps the image off
+   the text baseline; the flex parent does the centring. */
+.preview-panel__app-logo {
+  display: block;
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.preview-panel__info-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* `Icon` renders a bare span; make it a centred flex box so the SVG doesn't
+   sit on the text baseline next to the label. */
+.preview-panel__btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.preview-panel__btn-icon svg {
+  display: block;
+  width: 12px;
+  height: 12px;
+}
+
 .preview-panel__info-item {
   display: flex;
   gap: var(--space-xs);

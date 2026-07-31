@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useConfigStore, useProjectTabStore, useModalStore, useNotificationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
+import { Icon } from '../ui/Icon';
+import { requestUnhash } from '../../lib/editor/binEditorEvents';
 import { openWadInExtract, isWadPath } from '../../lib/openWad';
 import { ImagePreview } from '../preview/ImagePreview';
 import { TextPreview } from '../preview/TextPreview';
@@ -16,8 +18,6 @@ import { TroybinViewer } from '../preview/TroybinViewer';
 import { InibinEditor } from '../preview/InibinEditor';
 import { StringTableEditor } from '../preview/StringTableEditor';
 import { ManifestViewer } from '../preview/ManifestViewer';
-import { JadeIcon } from '../icons/JadeIcon';
-import { QuartzIcon } from '../icons/QuartzIcon';
 
 interface FileInfo {
     path: string;
@@ -327,7 +327,9 @@ export const PreviewPanel: React.FC = () => {
         }
 
         if (fileInfo.extension === 'bin' || fileInfo.file_type === 'application/x-bin') {
-            return <BinEditor key={filePath} filePath={filePath} />;
+            /* The panel header already shows the filename right above this, so
+               the editor's own copy would render it twice, one line apart. */
+            return <BinEditor key={filePath} filePath={filePath} hideFilename />;
         }
 
         if (fileInfo.extension === 'luabin64' || fileInfo.extension === 'luabin' || fileInfo.file_type === 'application/x-luabin') {
@@ -450,8 +452,19 @@ export const PreviewPanel: React.FC = () => {
                             {formatFileSize(fileInfo.size)}
                         </span>
                     </div>
-                    {((fileInfo.extension === 'bin' || fileInfo.file_type === 'application/x-bin') && ((jadePath && jadePath.trim() !== '') || (quartzPath && quartzPath.trim() !== ''))) ? (
-                        <div style={{ display: 'flex', gap: '8px' }}>
+                    {(fileInfo.extension === 'bin' || fileInfo.file_type === 'application/x-bin') ? (
+                        <div className="preview-panel__info-actions">
+                            {/* Unhash lives here rather than in the editor's top
+                                toolbar — it's a one-shot document action, so it
+                                belongs beside the other file-level actions. */}
+                            <button
+                                className="preview-panel__open-btn"
+                                onClick={() => requestUnhash(filePath)}
+                                title="Unhash: re-resolve any 0x… hash tokens against the known BIN hash dictionary"
+                            >
+                                <Icon name="search" className="preview-panel__btn-icon" />
+                                <span>Unhash</span>
+                            </button>
                             {jadePath && jadePath.trim() !== '' && (
                                 <button
                                     className="preview-panel__open-btn"
@@ -467,7 +480,12 @@ export const PreviewPanel: React.FC = () => {
                                     }}
                                     title="Open with Jade League Bin Editor"
                                 >
-                                    <JadeIcon size={14} />
+                                    <img
+                                        className="preview-panel__app-logo"
+                                        src="/jade-logo.webp"
+                                        alt=""
+                                        draggable={false}
+                                    />
                                     <span>Jade</span>
                                 </button>
                             )}
@@ -486,7 +504,12 @@ export const PreviewPanel: React.FC = () => {
                                     }}
                                     title="Open with Quartz VFX Editor"
                                 >
-                                    <QuartzIcon size={14} />
+                                    <img
+                                        className="preview-panel__app-logo"
+                                        src="/quartz-logo.webp"
+                                        alt=""
+                                        draggable={false}
+                                    />
                                     <span>Quartz</span>
                                 </button>
                             )}

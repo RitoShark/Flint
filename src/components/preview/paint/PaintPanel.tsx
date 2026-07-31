@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as api from '../../../lib/api';
 import { useNotificationStore } from '../../../lib/stores';
+import { requestRevealText } from '../../../lib/editor/binEditorEvents';
 import { PaletteBar, modeUsesPalette } from './PaletteBar';
 import { SystemList } from './SystemList';
 import type { Vec4 } from '../../../lib/paint/colorMath';
@@ -17,6 +18,8 @@ interface PaintPanelProps {
     binPath: string;
     /** Called after a successful save so the editor can refresh its text view. */
     onSaved?: () => void;
+    /** Close the panel — double-clicking a row hands off to the text editor. */
+    onClose?: () => void;
 }
 
 const DEFAULT_PALETTE: Vec4[] = [
@@ -32,7 +35,7 @@ const SLOTS: Array<{ id: Exclude<ColorTargetId, 'all'>; label: string; title: st
     { id: 'color', label: 'Color', title: 'Base Color' },
 ];
 
-export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
+export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClose }) => {
     const showToast = useNotificationStore((s) => s.showToast);
 
     const [sessionId, setSessionId] = useState<number | null>(null);
@@ -223,6 +226,18 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
             showToast('info', `Palette set from ${colors.length} keyframe(s)`);
         },
         [showToast],
+    );
+
+    /* Double-click hands off to the text editor: close the overlay first so the
+       reveal is actually visible, then ask the editor to find the name. The
+       editor owns the search — it has the live Monaco model. */
+    const revealInText = useCallback(
+        (needle: string) => {
+            if (!needle) return;
+            onClose?.();
+            requestRevealText(binPath, needle);
+        },
+        [binPath, onClose],
     );
 
     /** Patch refreshed colors into the resident model without a full refetch. */
@@ -543,6 +558,7 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
                 onSetBlendMode={handleSetBlendMode}
                 onSetMaterialParam={handleSetMaterialParam}
                 onPickColors={pickColors}
+                onRevealInText={revealInText}
             />
 
             <div className="paint-footer">
@@ -554,8 +570,7 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
                     )}
                     {dirty && (
                         <span className="paint-footer__dirty" title="Unsaved changes">
-                            {' '}
-                            ● unsaved
+                            Unsaved
                         </span>
                     )}
                 </span>
