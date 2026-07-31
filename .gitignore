@@ -45,3 +45,6 @@ dist-ssr
 
 # Claude working guide (kept local, not tracked)
 CLAUDE.md
+
+# Private overlay (closed-source modules)
+/private/

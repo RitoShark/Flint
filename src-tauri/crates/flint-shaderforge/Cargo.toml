@@ -1,0 +1,32 @@
+[package]
+name = "flint-shaderforge"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+
+# Boundary crate for the shader-preview module. The real implementation
+# lives in a private overlay (../../../private/shaderforge) compiled in by
+# the `real` feature; without it the committed stub answers every call with
+# "shader preview unavailable". Dependency versions mirror the overlay's
+# own manifest and are intentionally independent of the workspace pins
+# (e.g. thiserror 2 here vs 1 in the workspace — both compile side by side).
+
+[features]
+real = []
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "macros"] }
+parking_lot = "0.12"
+memmap2 = "0.9"
+zstd = "0.13"
+flate2 = "1.0"
+heed = "0.20"
+twox-hash = "1.6"
+byteorder = "1.5"
+regex = "1"
+indexmap = "2"
+rayon = "1.10"
+libloading = "0.8"
