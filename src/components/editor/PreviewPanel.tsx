@@ -268,6 +268,12 @@ export const PreviewPanel: React.FC = () => {
     const fileName = filePath.split(/[/\\]/).pop() || filePath;
     const isImage = fileInfo?.file_type?.startsWith('image/');
 
+    /* The BIN editor renders its own toolbar with the filename, line count and
+       actions all on ONE row. Showing the panel's header above it would add a
+       second, near-empty bar carrying nothing but the same name. */
+    const isBinEditor =
+        fileInfo?.extension === 'bin' || fileInfo?.file_type === 'application/x-bin';
+
     // Only render the folder view when the folder decision matches the CURRENT
     // selection — during the one render where selectedFile already changed but
     // the inspect effect hasn't run yet, this mismatches and we fall through to
@@ -327,9 +333,7 @@ export const PreviewPanel: React.FC = () => {
         }
 
         if (fileInfo.extension === 'bin' || fileInfo.file_type === 'application/x-bin') {
-            /* The panel header already shows the filename right above this, so
-               the editor's own copy would render it twice, one line apart. */
-            return <BinEditor key={filePath} filePath={filePath} hideFilename />;
+            return <BinEditor key={filePath} filePath={filePath} />;
         }
 
         if (fileInfo.extension === 'luabin64' || fileInfo.extension === 'luabin' || fileInfo.file_type === 'application/x-luabin') {
@@ -394,6 +398,7 @@ export const PreviewPanel: React.FC = () => {
 
     return (
         <div className="preview-panel">
+            {!isBinEditor && (
             <div className="preview-panel__toolbar">
                 {isImage && (
                     <div className="preview-panel__zoom-controls">
@@ -427,6 +432,7 @@ export const PreviewPanel: React.FC = () => {
                 )}
                 <span className="preview-panel__filename">{fileName}</span>
             </div>
+            )}
 
             <div className="preview-panel__content">
                 <PreviewErrorBoundary fileKey={filePath}>
