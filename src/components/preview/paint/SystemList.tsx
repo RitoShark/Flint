@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { VirtualList } from '../VirtualList';
 import { Icon } from '../../ui/Icon';
 import { ColorBlock } from './ColorBlock';
@@ -13,8 +13,23 @@ import type {
     VfxSystem,
 } from '../../../lib/api/paint';
 
-/** Every row is this tall; the list is windowed, so it must be a constant. */
-const ROW_HEIGHT = 42;
+/** Fallback only — the real value is `--paint-row-h` in PaintPanel.css, read at
+ *  mount by `useRowHeight`. The windowed list needs a NUMBER (it positions rows
+ *  by index), which is the one place a CSS length has to cross into JS. */
+const ROW_HEIGHT_FALLBACK = 42;
+
+/** Resolve `--paint-row-h` off the mounted panel so the stylesheet stays the
+ *  single source of truth for row geometry. */
+function useRowHeight(ref: React.RefObject<HTMLElement | null>): number {
+    const [height, setHeight] = useState(ROW_HEIGHT_FALLBACK);
+    useEffect(() => {
+        if (!ref.current) return;
+        const raw = getComputedStyle(ref.current).getPropertyValue('--paint-row-h');
+        const parsed = parseFloat(raw);
+        if (Number.isFinite(parsed) && parsed > 0) setHeight(parsed);
+    }, [ref]);
+    return height;
+}
 
 type ListRow =
     | { type: 'system'; key: string; system: VfxSystem; matchingCount: number }
@@ -109,6 +124,9 @@ export const SystemList: React.FC<SystemListProps> = ({
     onPickColors,
     onRevealInText,
 }) => {
+    const hostRef = useRef<HTMLDivElement>(null);
+    const rowHeight = useRowHeight(hostRef);
+
     const systemMap = useMemo(
         () => new Map(model.systems.map((s) => [s.key, s])),
         [model.systems],
@@ -487,18 +505,22 @@ export const SystemList: React.FC<SystemListProps> = ({
 
     if (rows.length === 0) {
         return (
-            <div className="paint-list paint-list--empty">
+            <div ref={hostRef} className="paint-list paint-list--empty">
                 {searchQuery ? 'Nothing matches this filter.' : 'This BIN has no VFX systems.'}
             </div>
         );
     }
 
     return (
-        <VirtualList
-            className="paint-list"
-            items={rows}
-            rowHeight={ROW_HEIGHT}
-            renderRow={renderRow}
-        />
+        /* The probe div inherits the panel's custom properties, so the row
+           height is read from CSS rather than duplicated as a JS constant. */
+        <div ref={hostRef} className="paint-list-host">
+            <VirtualList
+                className="paint-list"
+                items={rows}
+                rowHeight={rowHeight}
+                renderRow={renderRow}
+            />
+        </div>
     );
 };

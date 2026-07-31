@@ -1,6 +1,8 @@
 import React from 'react';
 import type { ColorKeyframe } from '../../../lib/api/paint';
 
+/** Which slot column this block belongs to. Size comes from CSS (a
+ *  `--paint-block-*` custom property per variant), never from inline styles. */
 export type ColorBlockVariant = 'standard' | 'secondary' | 'wide';
 
 interface ColorBlockProps {
@@ -9,12 +11,6 @@ interface ColorBlockProps {
     variant?: ColorBlockVariant;
     onClick?: (e: React.MouseEvent) => void;
 }
-
-const DIMENSIONS: Record<ColorBlockVariant, { width: number; height: number }> = {
-    standard: { width: 40, height: 26 },
-    secondary: { width: 34, height: 24 },
-    wide: { width: 110, height: 26 },
-};
 
 function rgbaToCss(rgba: number[]): string {
     if (!rgba || rgba.length < 3) return 'transparent';
@@ -26,10 +22,14 @@ function rgbaToCss(rgba: number[]): string {
 const alphaOf = (c: ColorKeyframe) => (c.rgba[3] !== undefined ? c.rgba[3] : 1);
 
 /**
- * A color slot rendered as the thing it actually is: one solid block for a
- * constant, a left-to-right gradient for an animated list. Colors are drawn with
- * their REAL alpha over a checkerboard, so a translucent keyframe reads as
- * translucent instead of as a lighter opaque color.
+ * A colour slot rendered as the thing it actually is: one solid block for a
+ * constant, a left-to-right gradient for an animated list. Colours are drawn at
+ * their REAL alpha over a checkerboard that only appears when something is
+ * genuinely translucent.
+ *
+ * An absent slot still renders (as a hollow placeholder) so the blocks stay in
+ * fixed columns down the list — that vertical alignment is what makes a long
+ * emitter list scannable.
  */
 export const ColorBlock: React.FC<ColorBlockProps> = React.memo(function ColorBlock({
     colors,
@@ -37,13 +37,12 @@ export const ColorBlock: React.FC<ColorBlockProps> = React.memo(function ColorBl
     variant = 'standard',
     onClick,
 }) {
-    const dims = DIMENSIONS[variant];
+    const className = `paint-block paint-block--${variant}`;
 
     if (!colors || colors.length === 0) {
         return (
             <span
-                className="paint-block paint-block--empty"
-                style={{ width: dims.width, height: dims.height }}
+                className={`${className} paint-block--empty`}
                 title={`${title}: not present on this emitter`}
             />
         );
@@ -54,7 +53,7 @@ export const ColorBlock: React.FC<ColorBlockProps> = React.memo(function ColorBl
         background = rgbaToCss(colors[0].rgba);
     } else {
         // Clamp the gradient to the block's full width so the first and last
-        // keyframes are visible even when their times don't span 0..1.
+        // keyframes stay visible even when their times don't span 0..1.
         const sorted = [...colors].sort((a, b) => a.time - b.time);
         const stops = [
             `${rgbaToCss(sorted[0].rgba)} 0%`,
@@ -71,14 +70,10 @@ export const ColorBlock: React.FC<ColorBlockProps> = React.memo(function ColorBl
             : `${title}: ${colors.length} keyframes`;
 
     return (
-        <span
-            className="paint-block"
-            style={{ width: dims.width, height: dims.height }}
-            title={tooltip}
-            onClick={onClick}
-            role={onClick ? 'button' : undefined}
-        >
+        <span className={className} title={tooltip} onClick={onClick} role={onClick ? 'button' : undefined}>
             {hasAlpha && <span className="paint-block__checker" />}
+            {/* The only inline style in the panel: the computed gradient itself,
+                which is data and cannot live in a stylesheet. */}
             <span className="paint-block__fill" style={{ background }} />
         </span>
     );

@@ -7,13 +7,35 @@
  * change here must also change ROW_HEIGHT in SystemList.tsx.
  */
 
+/* Every dimension in this panel is a token, so a row height or block size is
+   changed HERE and nowhere else. `--paint-row-h` is the one value that is also
+   read by JS (SystemList's ROW_HEIGHT, which the windowed list needs as a
+   number) — keep the two in sync. */
 .paint-panel {
+    --paint-row-h: 42px;
+    --paint-ctl-h: 26px;
+    --paint-gap: 8px;
+    --paint-pad-x: 16px;
+
+    /* Colour-slot columns, in the order they appear right-to-left. */
+    --paint-block-secondary-w: 34px;
+    --paint-block-secondary-h: 24px;
+    --paint-block-standard-w: 40px;
+    --paint-block-standard-h: 26px;
+    --paint-block-wide-w: 110px;
+    --paint-block-wide-h: 26px;
+    --paint-block-gap: 5px;
+
+    --paint-indent-emitter: 34px;
+    --paint-indent-param: 52px;
+    --paint-name-max: 340px;
+
     display: flex;
     flex-direction: column;
     height: 100%;
     background: var(--bg-primary);
     color: var(--text-primary);
-    font-size: 12px;
+    font-size: var(--text-xs, 12px);
     overflow: hidden;
 }
 
@@ -40,6 +62,17 @@ html[data-glass='on'] .paint-footer {
     -webkit-backdrop-filter: blur(var(--ux-glass-blur)) saturate(160%);
 }
 
+/* One rule for every checkbox in the panel — rows, toolbar and search all use
+   the native control, so the accent belongs here rather than per call site. */
+.paint-panel input[type='checkbox'] {
+    accent-color: var(--accent-primary);
+    cursor: pointer;
+}
+
+.paint-panel input[type='range'] {
+    accent-color: var(--accent-primary);
+}
+
 .paint-panel--message {
     align-items: center;
     justify-content: center;
@@ -63,8 +96,8 @@ html[data-glass='on'] .paint-footer {
 .paint-palette__strip {
     display: flex;
     gap: 6px;
-    height: 34px;
-    padding: 8px 16px 2px;
+    height: calc(var(--paint-ctl-h) + var(--paint-gap));
+    padding: var(--paint-gap) var(--paint-pad-x) 2px;
 }
 
 /* Each stop fills its share of the strip; the real <input type=color> sits on
@@ -100,11 +133,11 @@ html[data-glass='on'] .paint-footer {
     display: flex;
     align-items: center;
     gap: 16px;
-    padding: 4px 16px 8px;
+    padding: 4px var(--paint-pad-x) var(--paint-gap);
 }
 
 .paint-palette__controls--sliders {
-    padding: 8px 16px;
+    padding: var(--paint-gap) var(--paint-pad-x);
     gap: 20px;
 }
 
@@ -130,10 +163,10 @@ html[data-glass='on'] .paint-footer {
 }
 
 .paint-palette__mode {
-    height: 26px;
+    height: var(--paint-ctl-h);
     min-width: 160px;
     margin-left: auto;
-    font-size: 12px;
+    font-size: var(--text-xs, 12px);
 }
 
 .paint-palette__slider {
@@ -167,8 +200,8 @@ html[data-glass='on'] .paint-footer {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
-    padding: 6px 16px;
+    gap: var(--paint-pad-x);
+    padding: 6px var(--paint-pad-x);
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
@@ -188,38 +221,32 @@ html[data-glass='on'] .paint-footer {
 
 .paint-toolbar__bm {
     width: 58px;
-    height: 26px;
+    height: var(--paint-ctl-h);
     font-size: 12px;
 }
 
-/* The target toggles read as chips: on = accent-tinted, off = quiet. */
+/* Plain checkbox + label, like Quartz — a pill outline per target read as four
+   competing buttons and fought the row's other controls for attention. */
 .paint-toolbar__target {
     display: flex;
     align-items: center;
     gap: 5px;
-    padding: 3px 9px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
     color: var(--text-muted);
     font-family: var(--font-mono);
     cursor: pointer;
     user-select: none;
-    transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+    transition: color 0.12s ease;
 }
 
-.paint-toolbar__target:hover {
-    border-color: color-mix(in oklab, var(--accent-primary) 45%, var(--border));
-}
-
+.paint-toolbar__target:hover,
 .paint-toolbar__target.is-on {
-    background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
-    border-color: color-mix(in oklab, var(--accent-primary) 40%, var(--border));
-    color: var(--accent-primary);
+    color: var(--text-primary);
 }
 
 .paint-toolbar__target input {
     margin: 0;
     cursor: pointer;
+    accent-color: var(--accent-primary);
 }
 
 /* ── Search row ─────────────────────────────────────────────────────────── */
@@ -227,8 +254,8 @@ html[data-glass='on'] .paint-footer {
 .paint-search {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 16px;
+    gap: var(--paint-gap);
+    padding: 6px var(--paint-pad-x);
     background: var(--bg-primary);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
@@ -237,8 +264,8 @@ html[data-glass='on'] .paint-footer {
 .paint-search__field {
     flex: 1 1 auto;
     min-width: 0;
-    height: 26px;
-    font-size: 12px;
+    height: var(--paint-ctl-h);
+    font-size: var(--text-xs, 12px);
 }
 
 .paint-search__sep {
@@ -263,6 +290,15 @@ html[data-glass='on'] .paint-footer {
 }
 
 /* ── Rows ───────────────────────────────────────────────────────────────── */
+
+/* Wrapper exists so the row height can be read off a mounted node that inherits
+   the panel's custom properties. It must not add its own box. */
+.paint-list-host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
 
 .paint-list {
     flex: 1 1 auto;
@@ -294,14 +330,14 @@ html[data-glass='on'] .paint-footer {
     background: var(--accent-primary);
 }
 
-/* Every row is exactly ROW_HEIGHT tall (42px) — the window positions rows by
-   index, so a row that grows would drift out of its slot. */
+/* Every row is exactly --paint-row-h tall — the window positions rows by index,
+   so a row that grows would drift out of its slot. */
 .paint-row {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--paint-gap);
     height: 100%;
-    padding: 0 16px;
+    padding: 0 var(--paint-pad-x);
     border-bottom: 1px solid var(--border);
     cursor: pointer;
     transition: background 0.12s ease, box-shadow 0.12s ease;
@@ -368,8 +404,10 @@ html[data-glass='on'] .paint-footer {
     background: var(--bg-hover);
 }
 
+/* Follows the user's theme accent deliberately — it is blue in Quartz because
+   that is Quartz's accent, not because the colour is hardcoded there. */
 .paint-row--system .paint-row__name {
-    font-size: 13px;
+    font-size: var(--text-sm, 13px);
     font-weight: 600;
     color: var(--accent-primary);
 }
@@ -440,12 +478,12 @@ html[data-glass='on'] .paint-footer {
 /* Emitter + material-param rows sit indented under their header. */
 .paint-row--emitter,
 .paint-row--param {
-    padding-left: 34px;
+    padding-left: var(--paint-indent-emitter);
     background: transparent;
 }
 
 .paint-row--param {
-    padding-left: 52px;
+    padding-left: var(--paint-indent-param);
 }
 
 .paint-row--emitter:hover,
@@ -475,14 +513,21 @@ html[data-glass='on'] .paint-footer {
     cursor: not-allowed;
 }
 
-/* Blocks are the row's payload, so they get a fixed strip on the right and the
-   name column absorbs the slack. Keeping the strip a constant width is what
-   makes the colors line up as scannable columns down the whole list. */
+/* Blocks are the row's payload. A GRID with fixed track widths (not a flex row)
+   is what keeps every slot in the same column down the whole list — with flex,
+   a row missing its linger colour pulls the rest leftward and the columns stop
+   lining up, which is exactly what makes a long list unreadable. */
 .paint-row__blocks {
-    display: flex;
+    display: grid;
+    grid-template-columns:
+        var(--paint-block-secondary-w)
+        var(--paint-block-secondary-w)
+        var(--paint-block-standard-w)
+        var(--paint-block-wide-w)
+        auto;
     align-items: center;
-    justify-content: flex-end;
-    gap: 5px;
+    justify-items: center;
+    gap: var(--paint-block-gap);
     flex-shrink: 0;
 }
 
@@ -492,7 +537,7 @@ html[data-glass='on'] .paint-footer {
 .paint-row--emitter .paint-row__name,
 .paint-row--param .paint-row__name {
     flex: 0 1 auto;
-    max-width: 340px;
+    max-width: var(--paint-name-max);
 }
 
 .paint-row__spacer {
@@ -524,10 +569,9 @@ html[data-glass='on'] .paint-footer {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 2px;
-    height: 24px;
-    padding: 0 5px;
-    margin-left: 4px;
+    gap: 3px;
+    height: var(--paint-block-standard-h);
+    padding: 0 6px;
     border: 1px solid transparent;
     border-radius: var(--radius-sm);
     background: color-mix(in oklab, var(--accent-primary) 10%, transparent);
@@ -542,18 +586,23 @@ html[data-glass='on'] .paint-footer {
     color: var(--accent-primary);
     font-family: var(--font-mono);
     font-size: 10px;
-    opacity: 0.5;
+    opacity: 0.6;
+    flex-shrink: 0;
 }
 
+/* Wide enough for a two-digit value plus the caret. At 14px the digit was
+   clipped to nothing and the field read as empty. `field-sizing` shrinks it
+   back where supported; the explicit width is the floor everywhere else. */
 .paint-row__bm-input {
-    width: 14px;
+    width: 2ch;
+    min-width: 2ch;
     padding: 0;
     border: none;
     outline: none;
     background: transparent;
     color: var(--accent-primary);
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--text-xs, 12px);
     text-align: center;
 }
 
@@ -569,6 +618,22 @@ html[data-glass='on'] .paint-footer {
     flex-shrink: 0;
     cursor: pointer;
     transition: transform 0.1s ease, border-color 0.1s ease;
+}
+
+/* Sizes live here, not as inline styles from JS. */
+.paint-block--secondary {
+    width: var(--paint-block-secondary-w);
+    height: var(--paint-block-secondary-h);
+}
+
+.paint-block--standard {
+    width: var(--paint-block-standard-w);
+    height: var(--paint-block-standard-h);
+}
+
+.paint-block--wide {
+    width: var(--paint-block-wide-w);
+    height: var(--paint-block-wide-h);
 }
 
 .paint-block:hover {
@@ -618,8 +683,8 @@ html[data-glass='on'] .paint-footer {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
-    padding: 8px 16px;
+    gap: var(--paint-pad-x);
+    padding: var(--paint-gap) var(--paint-pad-x);
     background: var(--bg-secondary);
     border-top: 1px solid var(--border);
     flex-shrink: 0;
