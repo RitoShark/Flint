@@ -15,22 +15,30 @@ export interface EnclosingBlock {
     blockText: string;
 }
 
-interface BraceCursor {
+export interface BraceCursor {
     inString: boolean;
 }
 
-function scanLineBraces(
+/**
+ * Scans one line for braces, honouring strings and `#` / `//` comments.
+ * `codeEnd` is the exclusive column where code stops — the comment marker, or
+ * the line length. Callers that need to know whether a brace is the last code
+ * on its line use it instead of re-scanning.
+ */
+export function scanLineBraces(
     line: string,
     cursor: BraceCursor,
     onBrace: (ch: string, col: number) => void,
-): BraceCursor {
+): { inString: boolean; codeEnd: number } {
     let { inString } = cursor;
+    let codeEnd = line.length;
+
     for (let col = 0; col < line.length; col++) {
         const ch = line[col];
 
         if (!inString) {
-            if (ch === '#') break;
-            if (ch === '/' && col + 1 < line.length && line[col + 1] === '/') break;
+            if (ch === '#') { codeEnd = col; break; }
+            if (ch === '/' && col + 1 < line.length && line[col + 1] === '/') { codeEnd = col; break; }
         }
 
         if (ch === '"' && (col === 0 || line[col - 1] !== '\\')) {
@@ -44,7 +52,8 @@ function scanLineBraces(
             onBrace(ch, col);
         }
     }
-    return { inString };
+
+    return { inString, codeEnd };
 }
 
 function matchClosingBrace(lines: string[], headerLineIdx: number): number {

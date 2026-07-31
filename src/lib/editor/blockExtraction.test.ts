@@ -5,6 +5,7 @@ import {
     renameEmitterIfCollision,
     computeInsertPosition,
     extractAssetPaths,
+    scanLineBraces,
 } from './blockExtraction';
 
 const EMITTER_DOC = [
@@ -194,5 +195,30 @@ describe('extractAssetPaths', () => {
 
     it('accepts uppercase extensions', () => {
         expect(extractAssetPaths('t: string = "ASSETS/X/Y.DDS"')).toEqual(['ASSETS/X/Y.DDS']);
+    });
+});
+
+describe('scanLineBraces', () => {
+    it('reports codeEnd at the comment marker', () => {
+        const r = scanLineBraces('    foo: u32 = 1 # trailing note', { inString: false }, () => {});
+        expect(r.codeEnd).toBe(17);
+    });
+
+    it('reports codeEnd at line length when there is no comment', () => {
+        const line = '    values: list[vec3] = {';
+        const r = scanLineBraces(line, { inString: false }, () => {});
+        expect(r.codeEnd).toBe(line.length);
+    });
+
+    it('ignores a # inside a string', () => {
+        const line = '    name: string = "a#b"';
+        const r = scanLineBraces(line, { inString: false }, () => {});
+        expect(r.codeEnd).toBe(line.length);
+    });
+
+    it('still reports braces with their columns', () => {
+        const seen: Array<[string, number]> = [];
+        scanLineBraces('{ 1, 2, 3 }', { inString: false }, (ch, col) => seen.push([ch, col]));
+        expect(seen).toEqual([['{', 0], ['}', 10]]);
     });
 });
