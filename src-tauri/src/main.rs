@@ -165,6 +165,12 @@ fn main() {
 
             tracing::info!("Hash directory: {}", hash_dir.display());
 
+            // Shader-preview module env: cache root + the shared hash dir.
+            // No-op in stub builds.
+            if let Ok(config_dir) = app.path().app_data_dir() {
+                flint_shaderforge::init_host_env(config_dir, Some(hash_dir.clone()));
+            }
+
             let hash_dir_str = hash_dir.to_string_lossy().into_owned();
             let lmdb_state = app.state::<LmdbCacheState>().inner().clone();
             let app_handle = app.handle().clone();
@@ -478,6 +484,23 @@ fn main() {
             commands::skin_fixer::hematite_list_fixes,
             commands::skin_fixer::hematite_scan_projects,
             commands::skin_fixer::hematite_run_fixes,
+            // Shader preview (flint-shaderforge boundary; stub answers when
+            // the private overlay isn't compiled in)
+            commands::shaderforge::translate_material_shader,
+            commands::shaderforge::locate_shader_cache,
+            commands::shaderforge::read_skn_generic_materials_disk,
+            commands::shaderforge::wad_read_skn_generic_materials,
+            commands::shaderforge::read_mapgeo_generic_materials_disk,
+            commands::shaderforge::wad_read_mapgeo_generic_materials,
+            commands::shaderforge::read_mapgeo_water_materials_disk,
+            commands::shaderforge::wad_read_mapgeo_water_materials,
+            commands::shaderforge::map_env_disk,
+            commands::shaderforge::wad_map_env,
+            commands::shaderforge::resolve_map_assets_disk,
+            commands::shaderforge::wad_resolve_assets,
+            commands::shaderforge::read_skn_toon_materials_disk,
+            commands::shaderforge::shaderforge_mount_wad,
+            commands::shaderforge::shaderforge_unmount_wad,
             // Format converter commands (luabin, troybin)
             commands::format_converters::convert_luabin_to_text,
             commands::format_converters::read_luabin_text,

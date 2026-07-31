@@ -19,5 +19,5 @@ pub use bin::{bin_split, paint};
 pub use league::{champion, champion_schema, tft_schema, troybin_schema, hash, luabin_extract};
 pub use import_export::{archive_edit, export, fantome_import, folder_import, modpkg_import, modpkg_edit};
 pub use platform::{external_apps, file_assoc, ltk_manager, settings, taskbar, updater};
-pub use editor::{hud, loadscreen_banner, skin_fixer};
+pub use editor::{hud, loadscreen_banner, shaderforge, skin_fixer};
 pub use system::{logging, dev};
