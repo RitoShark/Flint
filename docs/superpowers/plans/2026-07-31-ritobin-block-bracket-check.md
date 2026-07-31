@@ -507,24 +507,97 @@ describe('checkRitobinBrackets — unclosed blocks', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run tests to verify they fail**
 
 Run: `npm test -- bracketCheck`
-Expected: FAIL — the first test fails because without recovery (Task 5) the closers on lines 9/10/11 pop the wrong frames, so the reported line is not 5.
+Expected: the first two FAIL. Without recovery, the closers on lines 9/10/11 pop the wrong frames, so the reported line is not 5. The third ("names the innermost block") passes already.
 
-- [ ] **Step 3: Implement**
+- [ ] **Step 3: Implement recovery**
 
-No production change in this task — the tests are the deliverable and the first one is expected to stay red until Task 5 adds recovery. Confirm the third test ("names the innermost block") passes now; leave the first two failing.
+Recovery is what makes the first two pass, so it is implemented HERE rather than in a later task — a task must never end with committed failing tests.
 
-If that is confusing to leave red, run only the passing one to confirm the shape is right:
-Run: `npm test -- bracketCheck -t "names the innermost"`
-Expected: PASS.
+Two edits to `src/lib/editor/bracketCheck.ts`.
 
-- [ ] **Step 4: Commit the tests**
+**3a.** Add this helper next to `isBlankOrComment`:
+
+```typescript
+/**
+ * True when the line's code is nothing but closing brackets. Such a line sits at the PARENT's
+ * indent, so it would otherwise look like an indent drop and trigger recovery on the very frame
+ * its closer is about to pop — reporting an error for a perfectly valid `}`.
+ */
+function isOnlyClosers(code: string): boolean {
+    const t = code.trim();
+    return t.length > 0 && /^[}\])\s]+$/.test(t);
+}
+```
+
+**3b.** Inside `checkRitobinBrackets`, insert the recovery block AFTER `const code = ...` and BEFORE the `for (let b = 0; ...)` brace-processing loop. The line has already been scanned at that point, so `code` is available and the line is not scanned twice.
+
+```typescript
+        /*
+        Resynchronise on indentation. A non-blank line whose indent falls to or below an open
+        frame's header indent means that frame's closer is missing: report it and pop, so the
+        break stays local to its block instead of cascading through everything after it.
+        Only `{` scopes opened on an EARLIER line are eligible — `[` and `(` never span lines in
+        ritobin, so indentation says nothing about them.
+        */
+        if (!isBlankOrComment(line) && !isOnlyClosers(code)) {
+            const ind = indentWidth(line);
+            while (stack.length > 0) {
+                const top = stack[stack.length - 1];
+                if (top.char !== '{' || top.line >= lineNo || ind > top.indent) break;
+                errors.push(unclosedIssue(top, lines));
+                stack.pop();
+            }
+        }
+```
+
+Resulting order inside the per-line loop body:
+
+1. brace scan → `scan`, `cursor`, `code`
+2. recovery block (3b)
+3. brace-processing loop
+
+- [ ] **Step 4: Add the multi-break recovery test**
+
+Append to `src/lib/editor/bracketCheck.test.ts`:
+
+```typescript
+describe('checkRitobinBrackets — recovery', () => {
+    it('reports two separately broken blocks, not just the first', () => {
+        const doc = [
+            'entries: map[hash,embed] = {',    // 1
+            '    "A" = TestClass {',           // 2
+            '        inner: embed = Alpha {',  // 3  <- closer deleted
+            '            rate: f32 = 1',       // 4
+            '    }',                           // 5
+            '    "B" = TestClass {',           // 6
+            '        inner: embed = Beta {',   // 7  <- closer deleted
+            '            rate: f32 = 2',       // 8
+            '    }',                           // 9
+            '}',                               // 10
+        ].join('\n');
+        const r = checkRitobinBrackets(doc);
+        expect(r.errors.some(e => e.message.includes('Alpha'))).toBe(true);
+        expect(r.errors.some(e => e.message.includes('Beta'))).toBe(true);
+    });
+});
+```
+
+- [ ] **Step 5: Run tests and type-check**
+
+Run: `npm test -- bracketCheck`
+Expected: PASS — all tests, including the two that were red in Step 2.
+
+Run: `npx tsc --noEmit`
+Expected: no errors.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/lib/editor/bracketCheck.test.ts
-git commit -m "test(bin-editor): pin innermost-block reporting for unclosed braces"
+git add src/lib/editor/bracketCheck.ts src/lib/editor/bracketCheck.test.ts
+git commit -m "feat(bin-editor): report the innermost broken block and recover on indent drops"
 ```
 
 ---
@@ -599,111 +672,7 @@ git commit -m "test(bin-editor): cover surplus closers and odd-but-valid indenta
 
 ---
 
-### Task 5: Indentation recovery so one break doesn't mask others
-
-Makes Task 3's first two tests pass. When a line's indent falls to or below an open frame's header indent without a closer, that frame is closed by inference and reported.
-
-**Files:**
-- Modify: `src/lib/editor/bracketCheck.ts`
-- Modify: `src/lib/editor/bracketCheck.test.ts`
-
-**Interfaces:**
-- Consumes / Produces: unchanged public API.
-
-- [ ] **Step 1: Write the failing test**
-
-Append to `src/lib/editor/bracketCheck.test.ts`:
-
-```typescript
-describe('checkRitobinBrackets — recovery', () => {
-    it('reports two separately broken blocks, not just the first', () => {
-        const doc = [
-            'entries: map[hash,embed] = {',    // 1
-            '    "A" = TestClass {',           // 2
-            '        inner: embed = Alpha {',  // 3  <- closer deleted
-            '            rate: f32 = 1',       // 4
-            '    }',                           // 5
-            '    "B" = TestClass {',           // 6
-            '        inner: embed = Beta {',   // 7  <- closer deleted
-            '            rate: f32 = 2',       // 8
-            '    }',                           // 9
-            '}',                               // 10
-        ].join('\n');
-        const r = checkRitobinBrackets(doc);
-        expect(r.errors.some(e => e.message.includes('Alpha'))).toBe(true);
-        expect(r.errors.some(e => e.message.includes('Beta'))).toBe(true);
-    });
-});
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `npm test -- bracketCheck`
-Expected: FAIL — the new recovery test fails, and Task 3's first two tests are still red.
-
-- [ ] **Step 3: Implement recovery**
-
-Two edits to `src/lib/editor/bracketCheck.ts`.
-
-**3a.** Add this helper next to `isBlankOrComment`:
-
-```typescript
-/**
- * True when the line's code is nothing but closing brackets. Such a line sits at the PARENT's
- * indent, so it would otherwise look like an indent drop and trigger recovery on the very frame
- * its closer is about to pop — reporting an error for a perfectly valid `}`.
- */
-function isOnlyClosers(code: string): boolean {
-    const t = code.trim();
-    return t.length > 0 && /^[}\])\s]+$/.test(t);
-}
-```
-
-**3b.** Inside `checkRitobinBrackets`, insert the recovery block AFTER `const code = ...` and BEFORE the `for (let b = 0; ...)` brace-processing loop. The line has already been scanned at that point, so `code` is available and the line is not scanned twice.
-
-```typescript
-        /*
-        Resynchronise on indentation. A non-blank line whose indent falls to or below an open
-        frame's header indent means that frame's closer is missing: report it and pop, so the
-        break stays local to its block instead of cascading through everything after it.
-        Only `{` scopes opened on an EARLIER line are eligible — `[` and `(` never span lines in
-        ritobin, so indentation says nothing about them.
-        */
-        if (!isBlankOrComment(line) && !isOnlyClosers(code)) {
-            const ind = indentWidth(line);
-            while (stack.length > 0) {
-                const top = stack[stack.length - 1];
-                if (top.char !== '{' || top.line >= lineNo || ind > top.indent) break;
-                errors.push(unclosedIssue(top, lines));
-                stack.pop();
-            }
-        }
-```
-
-Resulting order inside the per-line loop body:
-
-1. brace scan → `scan`, `cursor`, `code`
-2. recovery block (3b)
-3. brace-processing loop
-
-- [ ] **Step 4: Run tests**
-
-Run: `npm test -- bracketCheck`
-Expected: PASS — all tests including Task 3's previously-red ones.
-
-Run: `npx tsc --noEmit`
-Expected: no errors.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/lib/editor/bracketCheck.ts src/lib/editor/bracketCheck.test.ts
-git commit -m "feat(bin-editor): recover on indent drops so one broken block doesn't mask others"
-```
-
----
-
-### Task 6: Mtx44 — the one multi-line value brace
+### Task 5: Mtx44 — the one multi-line value brace
 
 `push_value` emits mtx44 as one brace holding 16 bare floats, four per line. `read_mtx44` also tolerates a legacy per-row `{...}` form. Both must pass.
 
@@ -763,7 +732,7 @@ git commit -m "test(bin-editor): cover both mtx44 text forms"
 
 ---
 
-### Task 7: Wire BinEditor to the new checker
+### Task 6: Wire BinEditor to the new checker
 
 Replace the three local helpers. Four validation call sites plus two consumers that use `BRACKET_PAIRS` / `getBracketStackAtLine` for non-validation features.
 
@@ -854,7 +823,7 @@ git commit -m "feat(bin-editor): report the broken ritobin block instead of coun
 
 ---
 
-### Task 8: Verify in the running app
+### Task 7: Verify in the running app
 
 Automated tests cover the logic; this confirms the editor surface behaves.
 
@@ -901,15 +870,15 @@ git commit -m "fix(bin-editor): <what was wrong>"
 
 **Spec coverage:**
 - Brace classification by line shape → Task 2
-- Innermost block reported at its own header → Tasks 3, 5
-- Recovery on indent drops → Task 5
+- Innermost block reported at its own header → Task 3
+- Recovery on indent drops → Task 3
 - Surplus closers incl. leftover-after-deletion → Task 4
-- `suggestLine` preserved for `handleFixBracket` → Task 2 (`blockEndLine`), verified Task 8 Step 5
-- Mtx44 both forms → Task 6
-- Scanner consolidation (three copies → one) → Tasks 1, 7
+- `suggestLine` preserved for `handleFixBracket` → Task 2 (`blockEndLine`), verified Task 7 Step 5
+- Mtx44 both forms → Task 5
+- Scanner consolidation (three copies → one) → Tasks 1, 6
 - No-false-positive guards → Task 2 (valid docs), Task 4 (odd indentation)
-- Save gate kept as-is → Task 7 leaves `handleSave` untouched; verified Task 8 Step 5
+- Save gate kept as-is → Task 6 leaves `handleSave` untouched; verified Task 7 Step 5
 
-**Known deviation from the spec:** the spec's file table lists only `bracketCheck.ts`, its test, `blockExtraction.ts` and `BinEditor.tsx`. Task 7 additionally renames `defaultBracketStack` → `bracketStackAtLine` and exports it, because `getBracketStackAtLine` turned out to have a second consumer (the inline-completion provider at BinEditor:961) that the spec did not account for. This is a rename plus export, no behaviour change.
+**Known deviation from the spec:** the spec's file table lists only `bracketCheck.ts`, its test, `blockExtraction.ts` and `BinEditor.tsx`. Task 6 additionally renames `defaultBracketStack` → `bracketStackAtLine` and exports it, because `getBracketStackAtLine` turned out to have a second consumer (the inline-completion provider at BinEditor:961) that the spec did not account for. This is a rename plus export, no behaviour change.
 
-**Type consistency:** `BracketIssue` / `BracketCheckResult` are used consistently in Tasks 2-7. `checkRitobinBrackets` is the only entry point. `CLOSER_FOR` is defined in both `bracketCheck.ts` (module-private) and `BinEditor.tsx` (for the label and fix button) — intentional, as the editor needs it without importing internals.
+**Type consistency:** `BracketIssue` / `BracketCheckResult` are used consistently in Tasks 2-6. `checkRitobinBrackets` is the only entry point. `CLOSER_FOR` is defined in both `bracketCheck.ts` (module-private) and `BinEditor.tsx` (for the label and fix button) — intentional, as the editor needs it without importing internals.
