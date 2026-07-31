@@ -54,13 +54,24 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
     const [ignoreBlackWhite, setIgnoreBlackWhite] = useState(true);
     const [preserveAlpha, setPreserveAlpha] = useState(true);
 
-    // The session id the cleanup must close. Held in a ref so the unmount
-    // effect closes the CURRENT session rather than one captured at mount.
+    /* The live session id, mirrored into a ref so the cleanup paths can read it
+       without re-subscribing. Written ONLY where the session is opened/closed —
+       assigning it every render would clobber the value the path-change effect
+       needs to close the outgoing session. */
     const sessionRef = useRef<number | null>(null);
-    sessionRef.current = sessionId;
 
     useEffect(() => {
         let cancelled = false;
+        // Whatever session this panel held is for the PREVIOUS path; drop it
+        // here rather than in an unmount-only cleanup, or switching files while
+        // the panel stays mounted strands its tree for the life of the process.
+        const previous = sessionRef.current;
+        if (previous !== null) {
+            void api.paintClose(previous);
+            sessionRef.current = null;
+        }
+
+        setSessionId(null);
         setLoading(true);
         setError(null);
         setModel(null);
@@ -70,11 +81,12 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
         api.paintOpen(binPath)
             .then((res) => {
                 if (cancelled) {
-                    // Unmounted mid-open: close the session we just created, or
-                    // its tree would leak for the life of the process.
+                    // Unmounted (or the path changed) mid-open: close the
+                    // session we just created, nobody else holds its id.
                     void api.paintClose(res.sessionId);
                     return;
                 }
+                sessionRef.current = res.sessionId;
                 setSessionId(res.sessionId);
                 setModel(res.model);
                 // Open every system by default — a collapsed tree hides the very
@@ -93,11 +105,14 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
         };
     }, [binPath]);
 
-    // Close the session only when the panel actually goes away.
+    // Close the live session when the panel goes away for good.
     useEffect(
         () => () => {
             const id = sessionRef.current;
-            if (id !== null) void api.paintClose(id);
+            if (id !== null) {
+                void api.paintClose(id);
+                sessionRef.current = null;
+            }
         },
         [],
     );
