@@ -221,4 +221,35 @@ describe('scanLineBraces', () => {
         scanLineBraces('{ 1, 2, 3 }', { inString: false }, (ch, col) => seen.push([ch, col]));
         expect(seen).toEqual([['{', 0], ['}', 10]]);
     });
+
+    /*
+     * rs_bin's printer (crates/rs_bin/src/text/print.rs) emits a literal
+     * backslash as `\\`. A string ending in one backslash is therefore
+     * printed as `"...\\"`, where the closing quote is preceded by an EVEN
+     * run of backslashes (an escaped backslash, not an escaped quote) and
+     * really does terminate the string.
+     */
+    it('treats a string ending in an escaped backslash as terminated', () => {
+        const line = '    s: string = "a\\\\"'; // source text: s: string = "a\\"
+        const r = scanLineBraces(line, { inString: false }, () => {});
+        expect(r.inString).toBe(false);
+    });
+
+    it('treats a string ending in just a backslash-quote the same way', () => {
+        const line = '    s: string = "\\\\"'; // source text: s: string = "\\"
+        const r = scanLineBraces(line, { inString: false }, () => {});
+        expect(r.inString).toBe(false);
+    });
+
+    it('still honours an escaped quote (odd backslash run) as non-terminating', () => {
+        const line = '    s: string = "say \\"hi\\""'; // source text: s: string = "say \"hi\""
+        const r = scanLineBraces(line, { inString: false }, () => {});
+        expect(r.inString).toBe(false);
+    });
+
+    it('leaves inString true for a genuinely unterminated string', () => {
+        const line = '    s: string = "unterminated';
+        const r = scanLineBraces(line, { inString: false }, () => {});
+        expect(r.inString).toBe(true);
+    });
 });

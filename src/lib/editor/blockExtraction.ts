@@ -41,7 +41,19 @@ export function scanLineBraces(
             if (ch === '/' && col + 1 < line.length && line[col + 1] === '/') { codeEnd = col; break; }
         }
 
-        if (ch === '"' && (col === 0 || line[col - 1] !== '\\')) {
+        if (ch === '"') {
+            /*
+             * A quote is only escaped by an ODD number of backslashes directly
+             * preceding it. The ritobin printer emits a literal backslash as
+             * `\\`, so a string ending in one backslash (e.g. "ASSETS\Foo\\")
+             * has an EVEN backslash run before its closing quote — that quote
+             * really terminates the string. Naively checking only the single
+             * preceding character misreads that as an escaped quote and the
+             * scanner never leaves "in string" mode for the rest of the file.
+             */
+            let backslashes = 0;
+            for (let k = col - 1; k >= 0 && line[k] === '\\'; k--) backslashes++;
+            if (backslashes % 2 === 1) continue;
             inString = !inString;
             continue;
         }

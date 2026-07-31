@@ -93,6 +93,53 @@ describe('checkRitobinBrackets — valid input', () => {
         ].join('\n');
         expect(checkRitobinBrackets(doc).valid).toBe(true);
     });
+
+    /*
+     * rs_bin's printer emits a literal backslash as `\\`, so a string value
+     * ending in a backslash prints as `"...\\"` — an escaped backslash
+     * followed by a real, terminating quote. A checker that treats any
+     * backslash-before-quote as an escaped quote never leaves "in string"
+     * mode and misreports the enclosing block as unclosed.
+     */
+    it('accepts a string ending in an escaped backslash mid-path', () => {
+        const doc = [
+            'a: embed = C {',
+            '    s: string = "ASSETS\\Foo\\\\"',
+            '    r: f32 = 1',
+            '}',
+        ].join('\n');
+        expect(checkRitobinBrackets(doc).valid).toBe(true);
+    });
+
+    it('accepts a string containing only an escaped backslash', () => {
+        const doc = [
+            'a: embed = C {',
+            '    s: string = "\\\\"',
+            '    r: f32 = 1',
+            '}',
+        ].join('\n');
+        expect(checkRitobinBrackets(doc).valid).toBe(true);
+    });
+
+    it('still honours genuinely escaped quotes inside a string', () => {
+        const doc = [
+            'a: embed = C {',
+            '    s: string = "say \\"hi\\""',
+            '    r: f32 = 1',
+            '}',
+        ].join('\n');
+        expect(checkRitobinBrackets(doc).valid).toBe(true);
+    });
+
+    it('still accepts a plain string value', () => {
+        const doc = [
+            'a: embed = C {',
+            '    s: string = "ok"',
+            '    r: f32 = 1',
+            '}',
+        ].join('\n');
+        expect(checkRitobinBrackets(doc).valid).toBe(true);
+    });
 });
 
 describe('checkRitobinBrackets — unclosed blocks', () => {
