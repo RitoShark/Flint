@@ -669,6 +669,11 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         if (bracketCheckTimerRef.current) clearTimeout(bracketCheckTimerRef.current);
         bracketCheckTimerRef.current = setTimeout(async () => {
             const result = checkRitobinBrackets(text);
+            /* Update the ref HERE, not just on the next render: the inline-completion provider
+               reads it, and Monaco re-queries the provider the instant the edit lands — long
+               before React re-renders. Without this, deleting a `}` offered no hint until the
+               caret left the line and came back. */
+            bracketStatusRef.current = result;
             setBracketStatus(result);
             setBracketErrorIndex(0);
 
@@ -704,6 +709,19 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 decorationsRef.current = ed.deltaDecorations(decorationsRef.current, newDecorations);
 
                 emitterDecorationsRef.current = updateEmitterDecorations(ed, emitterDecorationsRef.current);
+
+                /* Monaco asked the provider back when the edit landed, while this result was
+                   still pending — so ask again now that we know a bracket is missing, provided
+                   the caret is sitting where the closer belongs. */
+                if (result.errors.length > 0 && ed.hasTextFocus()) {
+                    const pos = ed.getPosition();
+                    const text = pos ? model.getLineContent(pos.lineNumber) : null;
+                    /* Mirror the provider's own gate: an empty line, or the caret parked at the
+                       end of one (which is where you land right after backspacing a `}`). */
+                    if (text !== null && pos && (text.trim().length === 0 || pos.column > text.length)) {
+                        ed.trigger('flint', 'editor.action.inlineSuggest.trigger', {});
+                    }
+                }
             }
         }, BRACKET_CHECK_DEBOUNCE_MS);
     }, []);
