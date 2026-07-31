@@ -13,9 +13,14 @@
    number) — keep the two in sync. */
 .paint-panel {
     --paint-row-h: 42px;
-    --paint-ctl-h: 26px;
-    --paint-gap: 8px;
+    /* One height for every control in the chrome bands. 30px sits between
+       .dl-btn's 36 and --sm's 28: compact enough for a dense tool bar, tall
+       enough that the select and the button beside it read as a matched pair. */
+    --paint-ctl-h: 30px;
+    --paint-gap: 10px;
     --paint-pad-x: 16px;
+    /* Vertical breathing room in the palette / toolbar / search bands. */
+    --paint-band-pad-y: 9px;
 
     /* Colour-slot columns, in the order they appear right-to-left. */
     --paint-block-secondary-w: 34px;
@@ -98,7 +103,7 @@ html[data-glass='on'] .paint-footer {
     display: flex;
     align-items: center;
     gap: var(--paint-gap);
-    padding: var(--paint-gap) var(--paint-pad-x);
+    padding: var(--paint-band-pad-y) var(--paint-pad-x);
 }
 
 .paint-hue__label {
@@ -170,7 +175,7 @@ html[data-glass='on'] .paint-footer {
     align-items: center;
     justify-content: space-between;
     gap: var(--paint-pad-x);
-    padding: 6px var(--paint-pad-x);
+    padding: var(--paint-band-pad-y) var(--paint-pad-x);
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
@@ -179,19 +184,35 @@ html[data-glass='on'] .paint-footer {
 .paint-toolbar__group {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--paint-gap);
+}
+
+/* The four target toggles are a related set, so they sit closer to each other
+   than to the controls on the far side of the bar. */
+.paint-toolbar__group--targets {
+    gap: 14px;
 }
 
 .paint-toolbar__label {
     color: var(--text-muted);
     font-family: var(--font-mono);
     opacity: 0.7;
+    flex-shrink: 0;
 }
 
-.paint-toolbar__bm {
-    width: 58px;
+/* Every interactive control in the bands is ONE height. `.dl-btn` and
+   `.dl-select-trigger` ship different defaults (36 vs 28 for --sm), which is
+   what made the pair look mismatched. */
+.paint-toolbar .dl-btn,
+.paint-toolbar .dl-select-trigger,
+.paint-search .dl-btn,
+.paint-search .dl-input {
     height: var(--paint-ctl-h);
-    font-size: 12px;
+    font-size: var(--text-xs, 12px);
+}
+
+.paint-toolbar .dl-btn {
+    padding: 0 14px;
 }
 
 /* Plain checkbox + label, like Quartz — a pill outline per target read as four
@@ -199,7 +220,7 @@ html[data-glass='on'] .paint-footer {
 .paint-toolbar__target {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
     color: var(--text-muted);
     font-family: var(--font-mono);
     cursor: pointer;
@@ -224,7 +245,7 @@ html[data-glass='on'] .paint-footer {
     display: flex;
     align-items: center;
     gap: var(--paint-gap);
-    padding: 6px var(--paint-pad-x);
+    padding: var(--paint-band-pad-y) var(--paint-pad-x);
     background: var(--bg-primary);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
@@ -251,7 +272,7 @@ html[data-glass='on'] .paint-footer {
 .paint-search__opt {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
     color: var(--text-secondary);
     cursor: pointer;
     user-select: none;

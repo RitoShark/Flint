@@ -464,12 +464,15 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                         value={String(blendModeSelect)}
                         onChange={(v) => setBlendModeSelect(Number(v))}
                         options={[0, 1, 2, 3, 4].map((n) => ({ value: String(n), label: String(n) }))}
-                        width={64}
+                        width={76}
                         title="Blend mode to select by"
                     />
+                    {/* No `--sm`: DlSelect's trigger is 36px, so a 28px button
+                        beside it reads as a mismatched pair. Both are pinned to
+                        --paint-ctl-h in the stylesheet. */}
                     <button
                         type="button"
-                        className="dl-btn dl-btn--secondary dl-btn--sm"
+                        className="dl-btn dl-btn--secondary paint-toolbar__btn"
                         onClick={selectByBlendMode}
                     >
                         Select BM {blendModeSelect}
