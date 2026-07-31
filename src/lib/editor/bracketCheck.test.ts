@@ -196,3 +196,54 @@ describe('checkRitobinBrackets — surplus closers', () => {
         expect(checkRitobinBrackets(doc).valid).toBe(true);
     });
 });
+
+describe('checkRitobinBrackets — mtx44', () => {
+    it('accepts the flat form rs_bin writes', () => {
+        const doc = [
+            'a: embed = TestClass {',
+            '    Transform: mtx44 = {',
+            '        1, 0, 0, 0',
+            '        0, 1, 0, 0',
+            '        0, 0, 1, 0',
+            '        0, 0, 0, 1',
+            '    }',
+            '}',
+        ].join('\n');
+        expect(checkRitobinBrackets(doc).valid).toBe(true);
+    });
+
+    it('accepts the legacy per-row form rs_bin tolerates', () => {
+        const doc = [
+            'a: embed = TestClass {',
+            '    Transform: mtx44 = {',
+            '        { 1, 0, 0, 0 }',
+            '        { 0, 1, 0, 0 }',
+            '        { 0, 0, 1, 0 }',
+            '        { 0, 0, 0, 1 }',
+            '    }',
+            '}',
+        ].join('\n');
+        expect(checkRitobinBrackets(doc).valid).toBe(true);
+    });
+
+    it('accepts a real mtx44 nested inside an indented struct, as rs_bin emits it', () => {
+        const doc = [
+            'entries: map[hash,embed] = {',
+            '    "Foo" = StaticMaterialShaderData {',
+            '        samplerValues: list[embed] = {',
+            '            StaticMaterialShaderSamplerDefData {',
+            '                textureName: string = "diffuse"',
+            '                Transform: mtx44 = {',
+            '                    1, 0, 0, 0',
+            '                    0, 1, 0, 0',
+            '                    0, 0, 1, 0',
+            '                    0, 0, 0, 1',
+            '                }',
+            '            }',
+            '        }',
+            '    }',
+            '}',
+        ].join('\n');
+        expect(checkRitobinBrackets(doc).valid).toBe(true);
+    });
+});
