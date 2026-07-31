@@ -156,3 +156,43 @@ describe('checkRitobinBrackets — recovery', () => {
         expect(r.errors.some(e => e.message.includes('Beta'))).toBe(true);
     });
 });
+
+describe('checkRitobinBrackets — surplus closers', () => {
+    it('reports a leftover closer when the count goes negative', () => {
+        const doc = [
+            'entries: map[hash,embed] = {', // 1
+            '    "Foo" = TestClass {',      // 2
+            '        rate: f32 = 1',        // 3
+            '    }',                        // 4
+            '}',                            // 5
+            '}',                            // 6  <- leftover from a deleted block
+        ].join('\n');
+        const r = checkRitobinBrackets(doc);
+        expect(r.valid).toBe(false);
+        expect(r.errors[0].line).toBe(6);
+        expect(r.errors[0].char).toBe('}');
+        expect(r.errors[0].message).toContain('no open block');
+    });
+
+    it('reports mismatched closer kinds', () => {
+        const doc = [
+            'a: embed = TestClass {', // 1
+            '    rate: f32 = 1',      // 2
+            ']',                      // 3
+        ].join('\n');
+        const r = checkRitobinBrackets(doc);
+        expect(r.valid).toBe(false);
+        expect(r.errors.some(e => e.line === 3 && e.char === ']')).toBe(true);
+    });
+
+    it('does not flag odd but valid indentation', () => {
+        const doc = [
+            'entries: map[hash,embed] = {',
+            '  "Foo" = TestClass {',
+            '            rate: f32 = 1',
+            '        }',
+            '}',
+        ].join('\n');
+        expect(checkRitobinBrackets(doc).valid).toBe(true);
+    });
+});
