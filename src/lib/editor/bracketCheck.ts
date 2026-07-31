@@ -33,6 +33,7 @@ interface Frame {
     column: number; // 1-based
     indent: number; // header indent width
     label: string;  // class name, or '' when the line has none
+    sawDeeper: boolean; // true once a content line strictly deeper than `indent` was seen
 }
 
 const INDENT_RE = /^(\s*)/;
@@ -80,11 +81,20 @@ export function checkRitobinBrackets(text: string): BracketCheckResult {
         const code = line.slice(0, scan.codeEnd);
 
         /*
-        Resynchronise on indentation. A non-blank line whose indent falls to or below an open
-        frame's header indent means that frame's closer is missing: report it and pop, so the
-        break stays local to its block instead of cascading through everything after it.
-        Only `{` scopes opened on an EARLIER line are eligible — `[` and `(` never span lines in
-        ritobin, so indentation says nothing about them.
+        Resynchronise on indentation — but only where indentation is actually evidence.
+        rs_bin's text parser (crates/rs_bin/src/text/parse.rs) is indentation-INSENSITIVE:
+        whitespace is just a token separator, so a brace-balanced document with irregular
+        indentation is perfectly valid to the real parser even though it "looks" broken here.
+        An indent drop only means something for a frame that has already demonstrated it
+        indents its own body consistently, i.e. we've already seen a content line strictly
+        deeper than the frame's header. Without that evidence (`sawDeeper`), a frame falls back
+        to the pre-recovery behavior: reported unclosed at end-of-scan, never mid-file.
+
+        A non-blank line whose indent falls to or below such a frame's header indent means that
+        frame's closer is missing: report it and pop, so the break stays local to its block
+        instead of cascading through everything after it. Only `{` scopes opened on an EARLIER
+        line are eligible — `[` and `(` never span lines in ritobin, so indentation says nothing
+        about them.
 
         A line that is only closing brackets sits at the indent of the frame it is about to pop
         for real (via the brace scan below), so that ONE frame must not be recovered here — but
@@ -93,9 +103,15 @@ export function checkRitobinBrackets(text: string): BracketCheckResult {
         if (!isBlankOrComment(line)) {
             const ind = indentWidth(line);
             const onlyClosers = isOnlyClosers(code);
+
+            const current = stack[stack.length - 1];
+            if (current && current.char === '{' && current.line < lineNo && ind > current.indent) {
+                current.sawDeeper = true;
+            }
+
             while (stack.length > 0) {
                 const top = stack[stack.length - 1];
-                if (top.char !== '{' || top.line >= lineNo) break;
+                if (top.char !== '{' || top.line >= lineNo || !top.sawDeeper) break;
                 if (onlyClosers ? ind >= top.indent : ind > top.indent) break;
                 errors.push(unclosedIssue(top, lines));
                 stack.pop();
@@ -119,6 +135,7 @@ export function checkRitobinBrackets(text: string): BracketCheckResult {
                     column: col + 1,
                     indent: indentWidth(line),
                     label: ch === '{' ? classNameOf(code) : '',
+                    sawDeeper: false,
                 });
                 continue;
             }

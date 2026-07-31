@@ -61,6 +61,38 @@ describe('checkRitobinBrackets — valid input', () => {
         ].join('\n');
         expect(checkRitobinBrackets(doc).valid).toBe(true);
     });
+
+    it('accepts a pasted block whose body is under-indented (rs_bin does not care)', () => {
+        /* rs_bin's text parser is indentation-insensitive; a brace-balanced paste like this
+           (body indented less than its own header) is valid to the real parser even though the
+           indent looks "wrong". Recovery must not fire without evidence this block indents
+           consistently. */
+        const doc = [
+            'entries: map[hash,embed] = {',
+            '    "Foo" = VfxSystemDefinitionData {',
+            '        complexEmitterDefinitionData: list[embed] = {',
+            '            VfxEmitterDefinitionData {',
+            '            emitterName: string = "pasted"',
+            '            }',
+            '        }',
+            '    }',
+            '}',
+        ].join('\n');
+        expect(checkRitobinBrackets(doc).valid).toBe(true);
+    });
+
+    it('accepts a fully flush-left but balanced document', () => {
+        const doc = [
+            'entries: map[hash,embed] = {',
+            '"Foo" = VfxSystemDefinitionData {',
+            'scale0: embed = ValueVector3 {',
+            'rate: f32 = 1',
+            '}',
+            '}',
+            '}',
+        ].join('\n');
+        expect(checkRitobinBrackets(doc).valid).toBe(true);
+    });
 });
 
 describe('checkRitobinBrackets — unclosed blocks', () => {
