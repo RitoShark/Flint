@@ -6,6 +6,7 @@ pub mod bin_json;
 pub mod codec;
 pub mod concat;
 pub mod converter;
+pub mod paint;
 pub mod split;
 
 pub use codec::{
@@ -24,3 +25,4 @@ pub use split::{
     split_bin_multi, MultiAnalysis, MultiSourceInfo, OrganizeResult, SplitResult, VFX_CLASS_NAMES,
 };
 pub use animask::{read_masks, write_masks, MaskEntry};
+pub use paint::has_vfx_content;
