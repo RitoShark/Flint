@@ -9,6 +9,9 @@ interface ColorBlockProps {
     colors: ColorKeyframe[];
     title: string;
     variant?: ColorBlockVariant;
+    /** Slot switched off in the toolbar. Kept in the DOM (just invisible) so the
+     *  block columns stay aligned across rows. */
+    hidden?: boolean;
     onClick?: (e: React.MouseEvent) => void;
 }
 
@@ -35,9 +38,10 @@ export const ColorBlock: React.FC<ColorBlockProps> = React.memo(function ColorBl
     colors,
     title,
     variant = 'standard',
+    hidden = false,
     onClick,
 }) {
-    const className = `paint-block paint-block--${variant}`;
+    const className = `paint-block paint-block--${variant}${hidden ? ' paint-block--off' : ''}`;
 
     if (!colors || colors.length === 0) {
         return (

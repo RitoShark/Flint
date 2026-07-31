@@ -69,8 +69,8 @@ interface SystemListProps {
     onToggleMaterialExpand: (key: string) => void;
     onSetBlendMode: (emitterKey: string, mode: number) => void;
     onSetMaterialParam: (selectionKey: string, value: Vec4) => void;
-    /** Pull a block's colors into the working palette. */
-    onPickColors: (colors: ColorKeyframe[]) => void;
+    /** Click a colour block to adopt its hue as the recolor target. */
+    onPickHue: (rgba: number[]) => void;
     /** Double-click a row: reveal that name in the ritobin text. */
     onRevealInText: (needle: string) => void;
 }
@@ -121,7 +121,7 @@ export const SystemList: React.FC<SystemListProps> = ({
     onToggleMaterialExpand,
     onSetBlendMode,
     onSetMaterialParam,
-    onPickColors,
+    onPickHue,
     onRevealInText,
 }) => {
     const hostRef = useRef<HTMLDivElement>(null);
@@ -363,7 +363,7 @@ export const SystemList: React.FC<SystemListProps> = ({
                             variant="wide"
                             onClick={(e) => {
                                 e.stopPropagation();
-                                onPickColors([{ rgba, time: 0 }]);
+                                onPickHue(rgba);
                             }}
                         />
                         <input
@@ -410,54 +410,54 @@ export const SystemList: React.FC<SystemListProps> = ({
                     <span className="paint-row__spacer" />
 
                     <span className="paint-row__blocks">
-                        {showLingerColor && (
-                            <ColorBlock
-                                colors={keyframesOf(colors.lingerColor)}
-                                title="Linger Color"
-                                variant="secondary"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    const kf = keyframesOf(colors.lingerColor);
-                                    if (kf.length) onPickColors(kf);
-                                }}
-                            />
-                        )}
-                        {showOC && (
-                            <ColorBlock
-                                colors={keyframesOf(colors.fresnelColor)}
-                                title="OC / Fresnel"
-                                variant="secondary"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    const kf = keyframesOf(colors.fresnelColor);
-                                    if (kf.length) onPickColors(kf);
-                                }}
-                            />
-                        )}
-                        {showBirthColor && (
-                            <ColorBlock
-                                colors={keyframesOf(colors.birthColor)}
-                                title="Birth Color"
-                                variant="standard"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    const kf = keyframesOf(colors.birthColor);
-                                    if (kf.length) onPickColors(kf);
-                                }}
-                            />
-                        )}
-                        {showBaseColor && (
-                            <ColorBlock
-                                colors={keyframesOf(colors.color)}
-                                title="Base Color"
-                                variant="wide"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    const kf = keyframesOf(colors.color);
-                                    if (kf.length) onPickColors(kf);
-                                }}
-                            />
-                        )}
+                        {/* All four slots ALWAYS render — a toggled-off slot is
+                            hidden with `visibility`, not unmounted, so every row
+                            keeps the same columns and the blocks stay aligned
+                            down the list. */}
+                        <ColorBlock
+                            colors={keyframesOf(colors.lingerColor)}
+                            title="Linger Color"
+                            variant="secondary"
+                            hidden={!showLingerColor}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                const kf = keyframesOf(colors.lingerColor);
+                                if (kf.length) onPickHue(kf[0].rgba);
+                            }}
+                        />
+                        <ColorBlock
+                            colors={keyframesOf(colors.fresnelColor)}
+                            title="OC / Fresnel"
+                            variant="secondary"
+                            hidden={!showOC}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                const kf = keyframesOf(colors.fresnelColor);
+                                if (kf.length) onPickHue(kf[0].rgba);
+                            }}
+                        />
+                        <ColorBlock
+                            colors={keyframesOf(colors.birthColor)}
+                            title="Birth Color"
+                            variant="standard"
+                            hidden={!showBirthColor}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                const kf = keyframesOf(colors.birthColor);
+                                if (kf.length) onPickHue(kf[0].rgba);
+                            }}
+                        />
+                        <ColorBlock
+                            colors={keyframesOf(colors.color)}
+                            title="Base Color"
+                            variant="wide"
+                            hidden={!showBaseColor}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                const kf = keyframesOf(colors.color);
+                                if (kf.length) onPickHue(kf[0].rgba);
+                            }}
+                        />
 
                         <span className="paint-row__bm" onClick={(e) => e.stopPropagation()}>
                             <span className="paint-row__bm-label">BM:</span>
@@ -498,7 +498,7 @@ export const SystemList: React.FC<SystemListProps> = ({
             onToggleMaterialExpand,
             onSetBlendMode,
             onSetMaterialParam,
-            onPickColors,
+            onPickHue,
             onRevealInText,
         ],
     );

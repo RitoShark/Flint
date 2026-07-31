@@ -2,14 +2,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as api from '../../../lib/api';
 import { useNotificationStore } from '../../../lib/stores';
 import { requestRevealText } from '../../../lib/editor/binEditorEvents';
-import { PaletteBar, modeUsesPalette } from './PaletteBar';
+import { PaletteBar } from './PaletteBar';
+import { DlSelect } from '../../ui/design-lab/DlSelect';
 import { SystemList } from './SystemList';
 import type { Vec4 } from '../../../lib/paint/colorMath';
 import type {
-    ColorKeyframe,
     ColorTargetId,
     EmitterColors,
-    RecolorModeId,
     VfxModel,
 } from '../../../lib/api/paint';
 import './PaintPanel.css';
@@ -21,11 +20,6 @@ interface PaintPanelProps {
     /** Close the panel — double-clicking a row hands off to the text editor. */
     onClose?: () => void;
 }
-
-const DEFAULT_PALETTE: Vec4[] = [
-    [0.925, 0.725, 0.415, 1],
-    [0.42, 0.55, 0.92, 1],
-];
 
 /** Color slots, in the right-to-left order the blocks are laid out. */
 const SLOTS: Array<{ id: Exclude<ColorTargetId, 'all'>; label: string; title: string }> = [
@@ -51,9 +45,6 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
     const [expandedMaterials, setExpandedMaterials] = useState<Set<string>>(new Set());
     const [searchQuery, setSearchQuery] = useState('');
 
-    const [mode, setMode] = useState<RecolorModeId>('linear');
-    const [palette, setPalette] = useState<Vec4[]>(DEFAULT_PALETTE);
-    const [hslShift, setHslShift] = useState<[number, number, number]>([0, 0, 0]);
     const [hueTarget, setHueTarget] = useState(0);
     const [targets, setTargets] = useState<Set<ColorTargetId>>(
         new Set<ColorTargetId>(['color', 'birthColor', 'fresnelColor', 'lingerColor']),
@@ -208,6 +199,20 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
 
     const selectNone = useCallback(() => setSelection(new Set()), []);
 
+    /* Selectable = every emitter not inside a locked system. The header box is
+       tri-state against that set, so locking a system doesn't leave it stuck
+       showing "partially selected" forever. */
+    const { allSelected, someSelected } = useMemo(() => {
+        const selectable = model
+            ? model.emitters.filter((e) => !lockedSystems.has(e.systemKey))
+            : [];
+        const hit = selectable.filter((e) => selection.has(e.key)).length;
+        return {
+            allSelected: selectable.length > 0 && hit === selectable.length,
+            someSelected: hit > 0 && hit < selectable.length,
+        };
+    }, [model, selection, lockedSystems]);
+
     const selectByBlendMode = useCallback(() => {
         if (!model) return;
         const hits = model.emitters.filter(
@@ -217,13 +222,26 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
         showToast('info', `Selected ${hits.length} emitter(s) with BM ${blendModeSelect}`);
     }, [model, blendModeSelect, lockedSystems, showToast]);
 
-    /** Pull a block's colors into the working palette — Quartz's "click a swatch
-     *  to steal it" gesture, the fastest way to build a matching ramp. */
-    const pickColors = useCallback(
-        (colors: ColorKeyframe[]) => {
-            if (colors.length === 0) return;
-            setPalette(colors.map((c) => [...c.rgba] as Vec4));
-            showToast('info', `Palette set from ${colors.length} keyframe(s)`);
+    /** Click a colour block to adopt its hue as the target — the "steal that
+     *  colour" gesture, adapted to this panel's single hue-shift mode. */
+    const pickHueFrom = useCallback(
+        (rgba: number[]) => {
+            const [r, g, b] = rgba;
+            const max = Math.max(r, g, b);
+            const min = Math.min(r, g, b);
+            const d = max - min;
+            if (d === 0) {
+                // Greyscale has no hue to adopt; say so rather than snapping to 0.
+                showToast('info', 'That colour is greyscale — no hue to pick.');
+                return;
+            }
+            let h: number;
+            if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+            else if (max === g) h = ((b - r) / d + 2) / 6;
+            else h = ((r - g) / d + 4) / 6;
+            const deg = Math.round(h * 360) % 360;
+            setHueTarget(deg);
+            showToast('info', `Target hue set to ${deg}°`);
         },
         [showToast],
     );
@@ -270,19 +288,9 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                 sessionId,
                 selectedEmitterKeys,
                 targetList,
-                palette.map((c, i) => ({
-                    vec4: c,
-                    time: palette.length <= 1 ? 0 : i / (palette.length - 1),
-                })),
-                {
-                    mode,
-                    ignoreBlackWhite,
-                    preserveAlpha,
-                    hslShift,
-                    hueTarget: mode === 'shift-hue' ? hueTarget : null,
-                    // A fresh seed per click so repeated random runs differ.
-                    seed: Math.floor(Math.random() * 0xffffffff) + 1,
-                },
+                // Hue-target mode never samples the palette.
+                [],
+                { mode: 'shift-hue', ignoreBlackWhite, preserveAlpha, hueTarget },
             );
             if (res.changed === 0) {
                 showToast('info', 'Nothing changed — try disabling "Ignore B/W".');
@@ -298,11 +306,8 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
         sessionId,
         selectedEmitterKeys,
         targets,
-        palette,
-        mode,
         ignoreBlackWhite,
         preserveAlpha,
-        hslShift,
         hueTarget,
         patchColors,
         showToast,
@@ -449,33 +454,19 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
 
     return (
         <div className="paint-panel">
-            <PaletteBar
-                mode={mode}
-                onModeChange={setMode}
-                palette={palette}
-                onPaletteChange={setPalette}
-                hslShift={hslShift}
-                onHslShiftChange={setHslShift}
-                hueTarget={hueTarget}
-                onHueTargetChange={setHueTarget}
-            />
+            <PaletteBar hueTarget={hueTarget} onHueTargetChange={setHueTarget} />
 
             {/* Blend-mode selector + color-target toggles. */}
             <div className="paint-toolbar">
                 <div className="paint-toolbar__group">
                     <span className="paint-toolbar__label">BM</span>
-                    <select
-                        className="dl-select paint-toolbar__bm"
-                        value={blendModeSelect}
-                        onChange={(e) => setBlendModeSelect(Number(e.target.value))}
-                        aria-label="Blend mode to select by"
-                    >
-                        {[0, 1, 2, 3, 4].map((n) => (
-                            <option key={n} value={n}>
-                                {n}
-                            </option>
-                        ))}
-                    </select>
+                    <DlSelect
+                        value={String(blendModeSelect)}
+                        onChange={(v) => setBlendModeSelect(Number(v))}
+                        options={[0, 1, 2, 3, 4].map((n) => ({ value: String(n), label: String(n) }))}
+                        width={64}
+                        title="Blend mode to select by"
+                    />
                     <button
                         type="button"
                         className="dl-btn dl-btn--secondary dl-btn--sm"
@@ -507,6 +498,19 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
 
             {/* Search + selection + view options. */}
             <div className="paint-search">
+                {/* One tri-state box, like Quartz — All/None as two buttons was
+                    twice the chrome for the same decision. */}
+                <input
+                    type="checkbox"
+                    className="paint-search__all"
+                    checked={allSelected}
+                    ref={(el) => {
+                        if (el) el.indeterminate = someSelected && !allSelected;
+                    }}
+                    onChange={() => (allSelected || someSelected ? selectNone() : selectAll())}
+                    title={allSelected || someSelected ? 'Deselect all' : 'Select all emitters'}
+                    aria-label="Select all emitters"
+                />
                 <input
                     type="text"
                     className="dl-input paint-search__field"
@@ -514,12 +518,6 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                 />
-                <button type="button" className="dl-btn dl-btn--ghost dl-btn--sm" onClick={selectAll}>
-                    All
-                </button>
-                <button type="button" className="dl-btn dl-btn--ghost dl-btn--sm" onClick={selectNone}>
-                    None
-                </button>
                 <span className="paint-search__sep" />
                 <label className="paint-search__opt" title="Skip pure black and pure white">
                     <input
@@ -557,7 +555,7 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                 onToggleMaterialExpand={toggleMaterialExpand}
                 onSetBlendMode={handleSetBlendMode}
                 onSetMaterialParam={handleSetMaterialParam}
-                onPickColors={pickColors}
+                onPickHue={pickHueFrom}
                 onRevealInText={revealInText}
             />
 
@@ -596,10 +594,7 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                         type="button"
                         className="dl-btn dl-btn--primary paint-footer__recolor"
                         onClick={handleRecolor}
-                        disabled={
-                            selectedEmitterKeys.length === 0 ||
-                            (modeUsesPalette(mode) && palette.length === 0)
-                        }
+                        disabled={selectedEmitterKeys.length === 0}
                         title={
                             selectedEmitterKeys.length === 0
                                 ? 'Select emitters first'

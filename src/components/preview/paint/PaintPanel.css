@@ -1,10 +1,10 @@
 /**
  * Flint - VFX Paint panel
  *
- * Layout mirrors Quartz's Paint page: palette strip on top, toolbar + search,
- * a windowed system/emitter list, and a footer whose Recolor button is the
- * primary action. Rows are a FIXED 42px — the list is virtualized, so any
- * change here must also change ROW_HEIGHT in SystemList.tsx.
+ * Hue-target bar on top, then toolbar + search, a windowed system/emitter list,
+ * and a footer whose Recolor button is the primary action. Row geometry is
+ * driven entirely by the custom properties below; `--paint-row-h` is read back
+ * by SystemList (the windowed list needs it as a number).
  */
 
 /* Every dimension in this panel is a token, so a row height or block size is
@@ -25,6 +25,7 @@
     --paint-block-wide-w: 110px;
     --paint-block-wide-h: 26px;
     --paint-block-gap: 5px;
+    --paint-bm-w: 62px;
 
     --paint-indent-emitter: 34px;
     --paint-indent-param: 52px;
@@ -85,7 +86,7 @@ html[data-glass='on'] .paint-footer {
     color: var(--color-danger, var(--danger));
 }
 
-/* ── Palette strip ──────────────────────────────────────────────────────── */
+/* ── Hue target bar ────────────────────────────────────────────────────── */
 
 .paint-palette {
     flex-shrink: 0;
@@ -93,102 +94,70 @@ html[data-glass='on'] .paint-footer {
     border-bottom: 1px solid var(--border);
 }
 
-.paint-palette__strip {
-    display: flex;
-    gap: 6px;
-    height: calc(var(--paint-ctl-h) + var(--paint-gap));
-    padding: var(--paint-gap) var(--paint-pad-x) 2px;
-}
-
-/* Each stop fills its share of the strip; the real <input type=color> sits on
-   top at zero opacity so the whole block is the click target. */
-.paint-palette__stop {
-    position: relative;
-    flex: 1;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    overflow: hidden;
-    transition: transform 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
-}
-
-.paint-palette__stop:hover {
-    transform: translateY(-1px);
-    border-color: var(--accent-primary);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-}
-
-.paint-palette__stop input[type='color'] {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    padding: 0;
-    border: none;
-    opacity: 0;
-    cursor: pointer;
-}
-
-.paint-palette__controls {
+.paint-hue {
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 4px var(--paint-pad-x) var(--paint-gap);
-}
-
-.paint-palette__controls--sliders {
+    gap: var(--paint-gap);
     padding: var(--paint-gap) var(--paint-pad-x);
-    gap: 20px;
 }
 
-.paint-palette__count {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex: 1;
-    max-width: 320px;
+.paint-hue__label {
     color: var(--text-muted);
     font-family: var(--font-mono);
+    flex-shrink: 0;
 }
 
-.paint-palette__count input[type='range'] {
-    flex: 1;
+/* The track IS the spectrum, so the control explains itself. `accent-color`
+   would repaint the track flat, so the thumb is styled by hand instead. */
+.paint-hue__slider {
+    flex: 1 1 auto;
     min-width: 0;
+    height: 14px;
+    margin: 0;
+    appearance: none;
+    -webkit-appearance: none;
+    background: linear-gradient(
+        90deg,
+        hsl(0, 85%, 55%), hsl(60, 85%, 55%), hsl(120, 85%, 55%),
+        hsl(180, 85%, 55%), hsl(240, 85%, 55%), hsl(300, 85%, 55%), hsl(360, 85%, 55%)
+    );
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    cursor: pointer;
 }
 
-.paint-palette__count-value {
-    min-width: 18px;
+.paint-hue__slider::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--text-primary);
+    border: 2px solid var(--bg-primary);
+    box-shadow: 0 0 0 1px var(--border);
+    cursor: pointer;
+}
+
+.paint-hue__slider::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--text-primary);
+    border: 2px solid var(--bg-primary);
+    cursor: pointer;
+}
+
+.paint-hue__value {
+    min-width: 4ch;
     text-align: right;
     color: var(--accent-primary);
-}
-
-.paint-palette__mode {
-    height: var(--paint-ctl-h);
-    min-width: 160px;
-    margin-left: auto;
-    font-size: var(--text-xs, 12px);
-}
-
-.paint-palette__slider {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--text-muted);
-}
-
-.paint-palette__slider--hue {
-    flex: 1;
-    max-width: 380px;
-}
-
-.paint-palette__slider-label {
-    min-width: 78px;
     font-family: var(--font-mono);
+    flex-shrink: 0;
 }
 
-.paint-palette__hue-preview {
-    width: 24px;
-    height: 24px;
+.paint-hue__preview {
+    width: var(--paint-ctl-h);
+    height: var(--paint-ctl-h);
     border-radius: var(--radius-sm);
     border: 1px solid var(--border);
     flex-shrink: 0;
@@ -258,6 +227,11 @@ html[data-glass='on'] .paint-footer {
     padding: 6px var(--paint-pad-x);
     background: var(--bg-primary);
     border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.paint-search__all {
+    margin: 0;
     flex-shrink: 0;
 }
 
@@ -513,22 +487,16 @@ html[data-glass='on'] .paint-footer {
     cursor: not-allowed;
 }
 
-/* Blocks are the row's payload. A GRID with fixed track widths (not a flex row)
-   is what keeps every slot in the same column down the whole list — with flex,
-   a row missing its linger colour pulls the rest leftward and the columns stop
-   lining up, which is exactly what makes a long list unreadable. */
+/* Blocks are the row's payload. Every slot ALWAYS renders (absent ones as a
+   hollow placeholder) and every child has a fixed width, so the columns line up
+   down the whole list. The strip itself is a fixed width too — otherwise rows
+   with different slot counts end at different x and nothing lines up. */
 .paint-row__blocks {
-    display: grid;
-    grid-template-columns:
-        var(--paint-block-secondary-w)
-        var(--paint-block-secondary-w)
-        var(--paint-block-standard-w)
-        var(--paint-block-wide-w)
-        auto;
+    display: flex;
     align-items: center;
-    justify-items: center;
+    justify-content: flex-end;
     gap: var(--paint-block-gap);
-    flex-shrink: 0;
+    flex: 0 0 auto;
 }
 
 /* The emitter name should not eat the whole row on a wide panel — cap it, and
@@ -564,18 +532,20 @@ html[data-glass='on'] .paint-footer {
     border-radius: 2px;
 }
 
-/* Blend-mode stepper on the emitter row */
+/* Blend-mode stepper on the emitter row. An explicit width (not just padding)
+   so it can never be squeezed to nothing by its neighbours — the field reading
+   as empty was exactly that. */
 .paint-row__bm {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 3px;
+    gap: 4px;
+    width: var(--paint-bm-w);
     height: var(--paint-block-standard-h);
-    padding: 0 6px;
     border: 1px solid transparent;
     border-radius: var(--radius-sm);
     background: color-mix(in oklab, var(--accent-primary) 10%, transparent);
-    flex-shrink: 0;
+    flex: 0 0 var(--paint-bm-w);
 }
 
 .paint-row__bm:hover {
@@ -590,12 +560,9 @@ html[data-glass='on'] .paint-footer {
     flex-shrink: 0;
 }
 
-/* Wide enough for a two-digit value plus the caret. At 14px the digit was
-   clipped to nothing and the field read as empty. `field-sizing` shrinks it
-   back where supported; the explicit width is the floor everywhere else. */
 .paint-row__bm-input {
-    width: 2ch;
-    min-width: 2ch;
+    width: 100%;
+    min-width: 0;
     padding: 0;
     border: none;
     outline: none;
@@ -603,6 +570,7 @@ html[data-glass='on'] .paint-footer {
     color: var(--accent-primary);
     font-family: var(--font-mono);
     font-size: var(--text-xs, 12px);
+    font-weight: 600;
     text-align: center;
 }
 
@@ -745,4 +713,11 @@ html[data-glass='on'] .paint-footer {
 .paint-footer__save:disabled {
     opacity: 0.45;
     cursor: not-allowed;
+}
+
+/* A slot switched off in the toolbar. It keeps its box (so columns stay put)
+   but shows nothing and takes no clicks. */
+.paint-block--off {
+    visibility: hidden;
+    pointer-events: none;
 }
