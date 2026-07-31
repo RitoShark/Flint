@@ -370,6 +370,18 @@ fn main() {
             commands::animask::read_animation_masks,
             commands::animask::save_animation_masks,
             commands::animask::bin_has_animation_masks,
+            // VFX paint panel commands
+            commands::paint::bin_has_vfx_systems,
+            commands::paint::paint_open,
+            commands::paint::paint_close,
+            commands::paint::paint_model,
+            commands::paint::paint_recolor,
+            commands::paint::paint_set_material_param,
+            commands::paint::paint_set_blend_mode,
+            commands::paint::paint_undo,
+            commands::paint::paint_redo,
+            commands::paint::paint_is_dirty,
+            commands::paint::paint_save,
             // CDN manifest browser commands
             commands::cdn::cdn_list_manifests,
             commands::cdn::cdn_list_versions,

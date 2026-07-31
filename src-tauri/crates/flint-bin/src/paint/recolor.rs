@@ -18,7 +18,9 @@ pub enum RecolorMode {
 }
 
 impl RecolorMode {
-    pub fn from_str(s: &str) -> Option<Self> {
+    /// Parse the frontend's mode id. Not `FromStr` — these ids are one specific
+    /// wire vocabulary, not a general parse of the type.
+    pub fn parse_id(s: &str) -> Option<Self> {
         Some(match s {
             "random" => RecolorMode::Random,
             "random-keyframe" => RecolorMode::RandomKeyframe,
@@ -80,7 +82,8 @@ pub enum ColorTargetSel {
 }
 
 impl ColorTargetSel {
-    pub fn from_str(s: &str) -> Option<Self> {
+    /// Parse the frontend's color-target id (see [`RecolorMode::parse_id`]).
+    pub fn parse_id(s: &str) -> Option<Self> {
         Some(match s {
             "all" => ColorTargetSel::All,
             "color" => ColorTargetSel::Base,
@@ -479,11 +482,13 @@ mod tests {
 
     #[test]
     fn target_sel_parses_frontend_ids() {
-        assert_eq!(ColorTargetSel::from_str("all"), Some(ColorTargetSel::All));
+        assert_eq!(ColorTargetSel::parse_id("all"), Some(ColorTargetSel::All));
         assert_eq!(
-            ColorTargetSel::from_str("birthColor"),
+            ColorTargetSel::parse_id("birthColor"),
             Some(ColorTargetSel::Birth)
         );
-        assert_eq!(ColorTargetSel::from_str("nope"), None);
+        assert_eq!(ColorTargetSel::parse_id("nope"), None);
+        assert_eq!(RecolorMode::parse_id("shift-hue"), Some(RecolorMode::ShiftHue));
+        assert_eq!(RecolorMode::parse_id("nope"), None);
     }
 }

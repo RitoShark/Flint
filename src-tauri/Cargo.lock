@@ -1582,6 +1582,7 @@ version = "0.1.0"
 dependencies = [
  "flint-hash",
  "indexmap 2.13.0",
+ "parking_lot",
  "ritoshark",
  "serde",
  "serde_json",
