@@ -136,7 +136,13 @@ const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     links: false,
     colorDecorators: false,
     codeLens: false,
-    inlineSuggest: { enabled: true, mode: 'prefix' },
+    /* The closing-bracket hint REPLACES the whole line (it re-indents), so it is not a prefix
+       extension of what's typed. 'prefix' suppresses the ghost text in that case; 'subword' is
+       the permissive mode that still renders it. */
+    inlineSuggest: { enabled: true, mode: 'subword' },
+    /* Lets Tab accept the hint on a line that is empty or all whitespace, instead of inserting
+       an indent. Tab still indents normally once the line has content. */
+    tabCompletion: 'on',
     contextmenu: true,
     accessibilitySupport: 'off',
 };
@@ -628,6 +634,12 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
 
     const latestRef = useRef({ content: '', originalContent: '', fileVersion: 0, variant });
     latestRef.current = { content, originalContent, fileVersion, variant };
+
+    /* The closing-bracket hint is only offered where a bracket is genuinely MISSING, so the
+       inline-completion provider reads the latest check result. It runs inside a Monaco
+       callback that closes over the first render's state, hence the ref. */
+    const bracketStatusRef = useRef(bracketStatus);
+    bracketStatusRef.current = bracketStatus;
     const saveRef = useRef<() => void>(() => {});
 
     const [previewAsset, setPreviewAsset] = useState<string | null>(null);
@@ -814,6 +826,16 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 const lineContent = model.getLineContent(position.lineNumber);
                 const trimmed = lineContent.trim();
                 if (trimmed.length > 0 && position.column <= lineContent.length) return { items: [] };
+
+                /* Only offer a closer where one is actually MISSING. The old check was "is any
+                   block open here", which is true on every blank line inside a nested structure
+                   — so a complete file suggested a spurious `}` everywhere. The bracket checker
+                   already knows which blocks are unclosed and where their closer belongs. */
+                const unclosed = bracketStatusRef.current.errors.find(
+                    (e) => e.suggestLine === position.lineNumber - 1 || e.suggestLine === position.lineNumber,
+                );
+                if (!unclosed) return { items: [] };
+
                 const fullText = model.getValue();
                 const stack = bracketStackAtLine(fullText, position.lineNumber);
                 if (stack.length === 0) return { items: [] };
@@ -826,6 +848,21 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 };
             },
             disposeInlineCompletions() {},
+        });
+
+        /* Monaco only re-queries inline completions on a CONTENT change, so simply moving the
+           caret onto a blank line showed nothing until you typed and deleted a character. The
+           hint depends on cursor position, not on edits, so ask for it again whenever the line
+           changes and the caret sits on an empty line. */
+        let lastHintLine = -1;
+        const cursorMove = ed.onDidChangeCursorPosition((e) => {
+            const lineNo = e.position.lineNumber;
+            if (lineNo === lastHintLine) return;
+            lastHintLine = lineNo;
+            if (bracketStatusRef.current.valid) return;
+            const m = ed.getModel();
+            if (!m || m.getLineContent(lineNo).trim().length > 0) return;
+            ed.trigger('flint', 'editor.action.inlineSuggest.trigger', {});
         });
 
         const model = ed.getModel();
@@ -872,6 +909,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             if (styleEl) styleEl.textContent = '';
             deferCleanup(() => {
                 inlineProvider.dispose();
+                cursorMove.dispose();
                 submeshClick.dispose();
                 ed.dispose();
             });
