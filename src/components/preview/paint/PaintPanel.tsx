@@ -5,6 +5,7 @@ import { PaletteBar, modeUsesPalette } from './PaletteBar';
 import { SystemList } from './SystemList';
 import type { Vec4 } from '../../../lib/paint/colorMath';
 import type {
+    ColorKeyframe,
     ColorTargetId,
     EmitterColors,
     RecolorModeId,
@@ -19,15 +20,16 @@ interface PaintPanelProps {
 }
 
 const DEFAULT_PALETTE: Vec4[] = [
-    [0.85, 0.1, 0.2, 1],
-    [0.15, 0.35, 0.9, 1],
+    [0.925, 0.725, 0.415, 1],
+    [0.42, 0.55, 0.92, 1],
 ];
 
-const TARGET_TOGGLES: Array<[Exclude<ColorTargetId, 'all'>, string]> = [
-    ['color', 'Color'],
-    ['birthColor', 'BC'],
-    ['fresnelColor', 'OC'],
-    ['lingerColor', 'LC'],
+/** Color slots, in the right-to-left order the blocks are laid out. */
+const SLOTS: Array<{ id: Exclude<ColorTargetId, 'all'>; label: string; title: string }> = [
+    { id: 'lingerColor', label: 'LC', title: 'Linger Color' },
+    { id: 'fresnelColor', label: 'OC', title: 'Outline / Fresnel Color' },
+    { id: 'birthColor', label: 'BC', title: 'Birth Color' },
+    { id: 'color', label: 'Color', title: 'Base Color' },
 ];
 
 export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
@@ -40,9 +42,11 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
     const [dirty, setDirty] = useState(false);
     const [saving, setSaving] = useState(false);
 
-    const [selected, setSelected] = useState<Set<string>>(new Set());
-    const [expanded, setExpanded] = useState<Set<string>>(new Set());
-    const [filter, setFilter] = useState('');
+    const [selection, setSelection] = useState<Set<string>>(new Set());
+    const [lockedSystems, setLockedSystems] = useState<Set<string>>(new Set());
+    const [expandedSystems, setExpandedSystems] = useState<Set<string>>(new Set());
+    const [expandedMaterials, setExpandedMaterials] = useState<Set<string>>(new Set());
+    const [searchQuery, setSearchQuery] = useState('');
 
     const [mode, setMode] = useState<RecolorModeId>('linear');
     const [palette, setPalette] = useState<Vec4[]>(DEFAULT_PALETTE);
@@ -53,6 +57,7 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
     );
     const [ignoreBlackWhite, setIgnoreBlackWhite] = useState(true);
     const [preserveAlpha, setPreserveAlpha] = useState(true);
+    const [blendModeSelect, setBlendModeSelect] = useState(0);
 
     /* The live session id, mirrored into a ref so the cleanup paths can read it
        without re-subscribing. Written ONLY where the session is opened/closed —
@@ -75,7 +80,8 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
         setLoading(true);
         setError(null);
         setModel(null);
-        setSelected(new Set());
+        setSelection(new Set());
+        setLockedSystems(new Set());
         setDirty(false);
 
         api.paintOpen(binPath)
@@ -89,9 +95,8 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
                 sessionRef.current = res.sessionId;
                 setSessionId(res.sessionId);
                 setModel(res.model);
-                // Open every system by default — a collapsed tree hides the very
-                // thing the panel exists to show.
-                setExpanded(new Set([...res.model.systemOrder, ...res.model.materialOrder]));
+                setExpandedSystems(new Set(res.model.systemOrder));
+                setExpandedMaterials(new Set(res.model.materialOrder));
                 setLoading(false);
             })
             .catch((e: unknown) => {
@@ -117,37 +122,16 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
         [],
     );
 
-    const emitterKeys = useMemo(() => [...selected], [selected]);
+    /* Only emitter keys go to the recolor command; material params are edited
+       one at a time, so a mixed selection must not send them through. */
+    const selectedEmitterKeys = useMemo(() => {
+        if (!model) return [];
+        const valid = new Set(model.emitters.map((e) => e.key));
+        return [...selection].filter((k) => valid.has(k));
+    }, [selection, model]);
 
-    const toggleEmitter = useCallback((key: string, additive: boolean) => {
-        setSelected((prev) => {
-            const next = additive ? new Set(prev) : new Set<string>();
-            if (additive && prev.has(key)) next.delete(key);
-            else next.add(key);
-            return next;
-        });
-    }, []);
-
-    const toggleSystem = useCallback(
-        (systemKey: string) => {
-            if (!model) return;
-            const system = model.systems.find((s) => s.key === systemKey);
-            if (!system) return;
-            setSelected((prev) => {
-                const next = new Set(prev);
-                const allOn = system.emitterKeys.every((k) => next.has(k));
-                for (const k of system.emitterKeys) {
-                    if (allOn) next.delete(k);
-                    else next.add(k);
-                }
-                return next;
-            });
-        },
-        [model],
-    );
-
-    const toggleExpand = useCallback((key: string) => {
-        setExpanded((prev) => {
+    const toggleKey = useCallback((key: string) => {
+        setSelection((prev) => {
             const next = new Set(prev);
             if (next.has(key)) next.delete(key);
             else next.add(key);
@@ -155,29 +139,109 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
         });
     }, []);
 
-    const selectAllVisible = useCallback(() => {
-        if (!model) return;
-        setSelected(new Set(model.emitters.map((e) => e.key)));
+    const toggleSystem = useCallback(
+        (systemKey: string, selected: boolean) => {
+            if (!model) return;
+            const system = model.systems.find((s) => s.key === systemKey);
+            if (!system) return;
+            setSelection((prev) => {
+                const next = new Set(prev);
+                for (const k of system.emitterKeys) {
+                    if (selected) next.add(k);
+                    else next.delete(k);
+                }
+                return next;
+            });
+        },
+        [model],
+    );
+
+    const toggleLock = useCallback((systemKey: string) => {
+        setLockedSystems((prev) => {
+            const next = new Set(prev);
+            if (next.has(systemKey)) next.delete(systemKey);
+            else next.add(systemKey);
+            return next;
+        });
+        // A locked system's emitters must leave the selection, or a recolor
+        // would still write to the rows the lock is meant to protect.
+        setSelection((prevSel) => {
+            const system = model?.systems.find((s) => s.key === systemKey);
+            if (!system) return prevSel;
+            const next = new Set(prevSel);
+            for (const k of system.emitterKeys) next.delete(k);
+            return next;
+        });
     }, [model]);
 
-    const selectNone = useCallback(() => setSelected(new Set()), []);
+    const toggleExpand = useCallback((key: string) => {
+        setExpandedSystems((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    }, []);
+
+    const toggleMaterialExpand = useCallback((key: string) => {
+        setExpandedMaterials((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    }, []);
+
+    const selectAll = useCallback(() => {
+        if (!model) return;
+        setSelection(
+            new Set(
+                model.emitters
+                    .filter((e) => !lockedSystems.has(e.systemKey))
+                    .map((e) => e.key),
+            ),
+        );
+    }, [model, lockedSystems]);
+
+    const selectNone = useCallback(() => setSelection(new Set()), []);
+
+    const selectByBlendMode = useCallback(() => {
+        if (!model) return;
+        const hits = model.emitters.filter(
+            (e) => e.blendMode === blendModeSelect && !lockedSystems.has(e.systemKey),
+        );
+        setSelection(new Set(hits.map((e) => e.key)));
+        showToast('info', `Selected ${hits.length} emitter(s) with BM ${blendModeSelect}`);
+    }, [model, blendModeSelect, lockedSystems, showToast]);
+
+    /** Pull a block's colors into the working palette — Quartz's "click a swatch
+     *  to steal it" gesture, the fastest way to build a matching ramp. */
+    const pickColors = useCallback(
+        (colors: ColorKeyframe[]) => {
+            if (colors.length === 0) return;
+            setPalette(colors.map((c) => [...c.rgba] as Vec4));
+            showToast('info', `Palette set from ${colors.length} keyframe(s)`);
+        },
+        [showToast],
+    );
 
     /** Patch refreshed colors into the resident model without a full refetch. */
     const patchColors = useCallback((colors: Record<string, EmitterColors>) => {
-        setModel((prev) => {
-            if (!prev) return prev;
-            return {
-                ...prev,
-                emitters: prev.emitters.map((e) =>
-                    colors[e.key] ? { ...e, colors: colors[e.key] } : e,
-                ),
-            };
-        });
+        setModel((prev) =>
+            prev
+                ? {
+                      ...prev,
+                      emitters: prev.emitters.map((e) =>
+                          colors[e.key] ? { ...e, colors: colors[e.key] } : e,
+                      ),
+                  }
+                : prev,
+        );
     }, []);
 
     const handleRecolor = useCallback(async () => {
         if (sessionId === null) return;
-        if (emitterKeys.length === 0) {
+        if (selectedEmitterKeys.length === 0) {
             showToast('info', 'Select at least one emitter to recolor.');
             return;
         }
@@ -189,7 +253,7 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
         try {
             const res = await api.paintRecolor(
                 sessionId,
-                emitterKeys,
+                selectedEmitterKeys,
                 targetList,
                 palette.map((c, i) => ({
                     vec4: c,
@@ -217,7 +281,7 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
         }
     }, [
         sessionId,
-        emitterKeys,
+        selectedEmitterKeys,
         targets,
         palette,
         mode,
@@ -271,9 +335,7 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
                               materials: prev.materials.map((m) => ({
                                   ...m,
                                   colorParams: m.colorParams.map((p) =>
-                                      p.selectionKey === selectionKey
-                                          ? { ...p, values: value }
-                                          : p,
+                                      p.selectionKey === selectionKey ? { ...p, values: value } : p,
                                   ),
                               })),
                           }
@@ -287,6 +349,18 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
         [sessionId, showToast],
     );
 
+    const refreshDirty = useCallback(
+        async (id: number) => {
+            try {
+                setDirty(await api.paintIsDirty(id));
+            } catch {
+                // A failed probe must not wedge the panel; the Save button just
+                // keeps its current enabled state.
+            }
+        },
+        [],
+    );
+
     const handleUndo = useCallback(async () => {
         if (sessionId === null) return;
         try {
@@ -296,11 +370,11 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
                 return;
             }
             setModel(next);
-            setDirty(await api.paintIsDirty(sessionId));
+            await refreshDirty(sessionId);
         } catch (e) {
             showToast('error', e instanceof Error ? e.message : String(e));
         }
-    }, [sessionId, showToast]);
+    }, [sessionId, showToast, refreshDirty]);
 
     const handleRedo = useCallback(async () => {
         if (sessionId === null) return;
@@ -311,11 +385,11 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
                 return;
             }
             setModel(next);
-            setDirty(await api.paintIsDirty(sessionId));
+            await refreshDirty(sessionId);
         } catch (e) {
             showToast('error', e instanceof Error ? e.message : String(e));
         }
-    }, [sessionId, showToast]);
+    }, [sessionId, showToast, refreshDirty]);
 
     const handleSave = useCallback(async () => {
         if (sessionId === null || saving) return;
@@ -327,10 +401,7 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
                 return;
             }
             setDirty(false);
-            showToast(
-                'success',
-                res.checkpointed ? 'Saved (checkpoint created)' : 'Saved',
-            );
+            showToast('success', res.checkpointed ? 'Saved (checkpoint created)' : 'Saved');
             onSaved?.();
         } catch (e) {
             showToast('error', e instanceof Error ? e.message : String(e));
@@ -353,34 +424,16 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
         return <div className="paint-panel paint-panel--message">No VFX data.</div>;
     }
 
+    const toggleTarget = (id: ColorTargetId) =>
+        setTargets((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+
     return (
         <div className="paint-panel">
-            <div className="paint-panel__header">
-                <span className="paint-panel__stats">
-                    {model.stats.systemCount} systems · {model.stats.emitterCount} emitters
-                    {model.stats.materialCount > 0 && ` · ${model.stats.materialCount} materials`}
-                    {selected.size > 0 && ` · ${selected.size} selected`}
-                    {dirty && <span className="paint-panel__dirty" title="Unsaved changes"> ●</span>}
-                </span>
-                <div className="paint-panel__actions">
-                    <button type="button" className="dl-btn dl-btn--ghost dl-btn--sm" onClick={handleUndo}>
-                        Undo
-                    </button>
-                    <button type="button" className="dl-btn dl-btn--ghost dl-btn--sm" onClick={handleRedo}>
-                        Redo
-                    </button>
-                    <button
-                        type="button"
-                        className="dl-btn dl-btn--primary dl-btn--sm"
-                        onClick={handleSave}
-                        disabled={!dirty || saving}
-                        title={dirty ? 'Save the BIN (checkpoints the project first)' : 'No changes'}
-                    >
-                        {saving ? 'Saving…' : 'Save'}
-                    </button>
-                </div>
-            </div>
-
             <PaletteBar
                 mode={mode}
                 onModeChange={setMode}
@@ -392,81 +445,165 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved }) => {
                 onHueTargetChange={setHueTarget}
             />
 
-            <div className="paint-panel__controls">
-                <div className="paint-panel__targets">
-                    {TARGET_TOGGLES.map(([id, label]) => (
-                        <label key={id} className="paint-panel__target" title={`Recolor ${label}`}>
-                            <input
-                                type="checkbox"
-                                checked={targets.has(id)}
-                                onChange={() =>
-                                    setTargets((prev) => {
-                                        const next = new Set(prev);
-                                        if (next.has(id)) next.delete(id);
-                                        else next.add(id);
-                                        return next;
-                                    })
-                                }
-                            />
-                            {label}
-                        </label>
-                    ))}
-                    <label className="paint-panel__target" title="Skip pure black and pure white">
-                        <input
-                            type="checkbox"
-                            checked={ignoreBlackWhite}
-                            onChange={(e) => setIgnoreBlackWhite(e.target.checked)}
-                        />
-                        Ignore B/W
-                    </label>
-                    <label className="paint-panel__target" title="Keep each color's existing alpha">
-                        <input
-                            type="checkbox"
-                            checked={preserveAlpha}
-                            onChange={(e) => setPreserveAlpha(e.target.checked)}
-                        />
-                        Keep alpha
-                    </label>
+            {/* Blend-mode selector + color-target toggles. */}
+            <div className="paint-toolbar">
+                <div className="paint-toolbar__group">
+                    <span className="paint-toolbar__label">BM</span>
+                    <select
+                        className="dl-select paint-toolbar__bm"
+                        value={blendModeSelect}
+                        onChange={(e) => setBlendModeSelect(Number(e.target.value))}
+                        aria-label="Blend mode to select by"
+                    >
+                        {[0, 1, 2, 3, 4].map((n) => (
+                            <option key={n} value={n}>
+                                {n}
+                            </option>
+                        ))}
+                    </select>
+                    <button
+                        type="button"
+                        className="dl-btn dl-btn--secondary dl-btn--sm"
+                        onClick={selectByBlendMode}
+                    >
+                        Select BM {blendModeSelect}
+                    </button>
                 </div>
 
-                <button
-                    type="button"
-                    className="dl-btn dl-btn--primary dl-btn--sm"
-                    onClick={handleRecolor}
-                    disabled={selected.size === 0 || (modeUsesPalette(mode) && palette.length === 0)}
-                    title={selected.size === 0 ? 'Select emitters first' : 'Recolor the selection'}
-                >
-                    Recolor
-                </button>
+                <div className="paint-toolbar__group paint-toolbar__group--targets">
+                    {SLOTS.map((slot) => (
+                        <label
+                            key={slot.id}
+                            className={`paint-toolbar__target${
+                                targets.has(slot.id) ? ' is-on' : ''
+                            }`}
+                            title={`Recolor ${slot.title}`}
+                        >
+                            <input
+                                type="checkbox"
+                                checked={targets.has(slot.id)}
+                                onChange={() => toggleTarget(slot.id)}
+                            />
+                            {slot.label}
+                        </label>
+                    ))}
+                </div>
             </div>
 
-            <div className="paint-panel__search">
+            {/* Search + selection + view options. */}
+            <div className="paint-search">
                 <input
                     type="text"
-                    className="dl-input paint-panel__filter"
+                    className="dl-input paint-search__field"
                     placeholder="Filter systems and emitters…"
-                    value={filter}
-                    onChange={(e) => setFilter(e.target.value)}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
                 />
-                <button type="button" className="dl-btn dl-btn--ghost dl-btn--sm" onClick={selectAllVisible}>
+                <button type="button" className="dl-btn dl-btn--ghost dl-btn--sm" onClick={selectAll}>
                     All
                 </button>
                 <button type="button" className="dl-btn dl-btn--ghost dl-btn--sm" onClick={selectNone}>
                     None
                 </button>
+                <span className="paint-search__sep" />
+                <label className="paint-search__opt" title="Skip pure black and pure white">
+                    <input
+                        type="checkbox"
+                        checked={ignoreBlackWhite}
+                        onChange={(e) => setIgnoreBlackWhite(e.target.checked)}
+                    />
+                    Ignore B/W
+                </label>
+                <label className="paint-search__opt" title="Keep each color's existing alpha">
+                    <input
+                        type="checkbox"
+                        checked={preserveAlpha}
+                        onChange={(e) => setPreserveAlpha(e.target.checked)}
+                    />
+                    Keep alpha
+                </label>
             </div>
 
             <SystemList
                 model={model}
-                selected={selected}
-                onToggleEmitter={toggleEmitter}
+                selection={selection}
+                lockedSystems={lockedSystems}
+                expandedSystems={expandedSystems}
+                expandedMaterials={expandedMaterials}
+                searchQuery={searchQuery}
+                showBaseColor={targets.has('color')}
+                showBirthColor={targets.has('birthColor')}
+                showOC={targets.has('fresnelColor')}
+                showLingerColor={targets.has('lingerColor')}
+                onToggleEmitter={toggleKey}
                 onToggleSystem={toggleSystem}
-                expanded={expanded}
+                onToggleLock={toggleLock}
                 onToggleExpand={toggleExpand}
+                onToggleMaterialExpand={toggleMaterialExpand}
                 onSetBlendMode={handleSetBlendMode}
                 onSetMaterialParam={handleSetMaterialParam}
-                filter={filter.trim().toLowerCase()}
+                onPickColors={pickColors}
             />
+
+            <div className="paint-footer">
+                <span className="paint-footer__stats">
+                    {model.stats.systemCount} systems · {model.stats.emitterCount} emitters
+                    {model.stats.materialCount > 0 && ` · ${model.stats.materialCount} materials`}
+                    {selection.size > 0 && (
+                        <span className="paint-footer__selected"> · {selection.size} selected</span>
+                    )}
+                    {dirty && (
+                        <span className="paint-footer__dirty" title="Unsaved changes">
+                            {' '}
+                            ● unsaved
+                        </span>
+                    )}
+                </span>
+
+                <div className="paint-footer__actions">
+                    <button
+                        type="button"
+                        className="dl-btn dl-btn--ghost dl-btn--sm"
+                        onClick={handleUndo}
+                        title="Undo the last edit"
+                    >
+                        Undo
+                    </button>
+                    <button
+                        type="button"
+                        className="dl-btn dl-btn--ghost dl-btn--sm"
+                        onClick={handleRedo}
+                        title="Redo the last undone edit"
+                    >
+                        Redo
+                    </button>
+                    <button
+                        type="button"
+                        className="dl-btn dl-btn--primary paint-footer__recolor"
+                        onClick={handleRecolor}
+                        disabled={
+                            selectedEmitterKeys.length === 0 ||
+                            (modeUsesPalette(mode) && palette.length === 0)
+                        }
+                        title={
+                            selectedEmitterKeys.length === 0
+                                ? 'Select emitters first'
+                                : 'Recolor the selection'
+                        }
+                    >
+                        Recolor{selectedEmitterKeys.length > 0 && ` (${selectedEmitterKeys.length})`}
+                    </button>
+                    <button
+                        type="button"
+                        className="dl-btn dl-btn--sm paint-footer__save"
+                        onClick={handleSave}
+                        disabled={!dirty || saving}
+                        title={dirty ? 'Save the BIN (checkpoints the project first)' : 'No changes'}
+                    >
+                        {saving ? 'Saving…' : 'Save'}
+                    </button>
+                </div>
+            </div>
         </div>
     );
 };

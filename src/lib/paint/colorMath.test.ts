@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeVec4, hexToVec4, luminance, vec4ToCss, vec4ToHex } from './colorMath';
+import { hexToVec4, vec4ToCss, vec4ToHex } from './colorMath';
 import type { Vec4 } from './colorMath';
 
 describe('vec4ToHex', () => {
@@ -56,19 +56,3 @@ describe('vec4ToCss', () => {
     });
 });
 
-describe('luminance', () => {
-    it('orders white above black', () => {
-        expect(luminance([1, 1, 1, 1])).toBeGreaterThan(luminance([0, 0, 0, 1]));
-    });
-
-    it('weights green above blue', () => {
-        expect(luminance([0, 1, 0, 1])).toBeGreaterThan(luminance([0, 0, 1, 1]));
-    });
-});
-
-describe('describeVec4', () => {
-    it('omits alpha when opaque and shows it otherwise', () => {
-        expect(describeVec4([1, 0, 0, 1])).toBe('#ff0000');
-        expect(describeVec4([1, 0, 0, 0.5])).toBe('#ff0000 @ 50%');
-    });
-});

@@ -1,16 +1,17 @@
 /**
  * Flint - VFX Paint panel
  *
- * Dense list over systems → emitters. A real VFX bin runs to dozens of systems
- * with several emitters each, so row height stays as tight as legibility allows
- * and the swatch strip is the widest element that earns its space.
+ * Layout mirrors Quartz's Paint page: palette strip on top, toolbar + search,
+ * a windowed system/emitter list, and a footer whose Recolor button is the
+ * primary action. Rows are a FIXED 42px — the list is virtualized, so any
+ * change here must also change ROW_HEIGHT in SystemList.tsx.
  */
 
 .paint-panel {
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: var(--bg-secondary);
+    background: var(--bg-primary);
     color: var(--text-primary);
     font-size: 12px;
     overflow: hidden;
@@ -28,218 +29,221 @@
     color: var(--color-danger, var(--danger));
 }
 
-/* ── Header ─────────────────────────────────────────────────────────────── */
+/* ── Palette strip ──────────────────────────────────────────────────────── */
 
-.paint-panel__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 6px 10px;
-    border-bottom: 1px solid var(--border);
+.paint-palette {
     flex-shrink: 0;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
 }
 
-.paint-panel__stats {
-    flex: 1 1 auto;
-    min-width: 0;
+.paint-palette__strip {
+    display: flex;
+    gap: 6px;
+    height: 34px;
+    padding: 8px 16px 2px;
+}
+
+/* Each stop fills its share of the strip; the real <input type=color> sits on
+   top at zero opacity so the whole block is the click target. */
+.paint-palette__stop {
+    position: relative;
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    transition: transform 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.paint-palette__stop:hover {
+    transform: translateY(-1px);
+    border-color: var(--accent-primary);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.paint-palette__stop input[type='color'] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: none;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.paint-palette__controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 4px 16px 8px;
+}
+
+.paint-palette__controls--sliders {
+    padding: 8px 16px;
+    gap: 20px;
+}
+
+.paint-palette__count {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    max-width: 320px;
     color: var(--text-muted);
     font-family: var(--font-mono);
 }
 
-.paint-panel__dirty {
+.paint-palette__count input[type='range'] {
+    flex: 1;
+    min-width: 0;
+}
+
+.paint-palette__count-value {
+    min-width: 18px;
+    text-align: right;
     color: var(--accent-primary);
 }
 
-.paint-panel__actions {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-shrink: 0;
-}
-
-/* ── Palette / mode bar ─────────────────────────────────────────────────── */
-
-.paint-palette {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 6px 10px;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-tertiary);
-    flex-shrink: 0;
-}
-
-.paint-palette__row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-.paint-palette__label {
-    color: var(--text-muted);
-    flex-shrink: 0;
-}
-
 .paint-palette__mode {
-    min-width: 150px;
-    height: 24px;
+    height: 26px;
+    min-width: 160px;
+    margin-left: auto;
     font-size: 12px;
-}
-
-.paint-palette__stops {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex-wrap: wrap;
-}
-
-/* The remove button overlaps the swatch's top-right corner, so the stop needs
-   to be a positioned box rather than a bare inline element. */
-.paint-palette__stop {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.paint-palette__picker,
-.paint-emitter__picker {
-    width: 26px;
-    height: 22px;
-    padding: 0;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: transparent;
-    cursor: pointer;
-}
-
-/* Chrome draws its own inset swatch; strip it so the element IS the color. */
-.paint-palette__picker::-webkit-color-swatch-wrapper,
-.paint-emitter__picker::-webkit-color-swatch-wrapper {
-    padding: 0;
-}
-.paint-palette__picker::-webkit-color-swatch,
-.paint-emitter__picker::-webkit-color-swatch {
-    border: none;
-    border-radius: 2px;
-}
-
-.paint-palette__remove {
-    position: absolute;
-    top: -6px;
-    right: -6px;
-    width: 14px;
-    height: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    font-size: 11px;
-    line-height: 1;
-    border: 1px solid var(--border);
-    border-radius: 50%;
-    background: var(--bg-secondary);
-    color: var(--text-muted);
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.12s ease;
-}
-
-.paint-palette__stop:hover .paint-palette__remove {
-    opacity: 1;
-}
-
-.paint-palette__remove:hover {
-    color: var(--color-danger, var(--danger));
-    border-color: var(--color-danger, var(--danger));
-}
-
-.paint-palette__row--sliders {
-    gap: 16px;
 }
 
 .paint-palette__slider {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     color: var(--text-muted);
 }
 
-.paint-palette__slider span {
-    min-width: 74px;
+.paint-palette__slider--hue {
+    flex: 1;
+    max-width: 380px;
+}
+
+.paint-palette__slider-label {
+    min-width: 78px;
     font-family: var(--font-mono);
 }
 
 .paint-palette__hue-preview {
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
     border-radius: var(--radius-sm);
     border: 1px solid var(--border);
+    flex-shrink: 0;
 }
 
-/* ── Recolor controls ───────────────────────────────────────────────────── */
+/* ── Toolbar ────────────────────────────────────────────────────────────── */
 
-.paint-panel__controls {
+.paint-toolbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    padding: 6px 10px;
+    gap: 16px;
+    padding: 6px 16px;
+    background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
 }
 
-.paint-panel__targets {
+.paint-toolbar__group {
     display: flex;
     align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
+    gap: 8px;
 }
 
-.paint-panel__target {
+.paint-toolbar__label {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    opacity: 0.7;
+}
+
+.paint-toolbar__bm {
+    width: 58px;
+    height: 26px;
+    font-size: 12px;
+}
+
+/* The target toggles read as chips: on = accent-tinted, off = quiet. */
+.paint-toolbar__target {
     display: flex;
     align-items: center;
-    gap: 4px;
-    color: var(--text-secondary);
+    gap: 5px;
+    padding: 3px 9px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
     cursor: pointer;
     user-select: none;
+    transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
 
-.paint-panel__target input {
+.paint-toolbar__target:hover {
+    border-color: color-mix(in oklab, var(--accent-primary) 45%, var(--border));
+}
+
+.paint-toolbar__target.is-on {
+    background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+    border-color: color-mix(in oklab, var(--accent-primary) 40%, var(--border));
+    color: var(--accent-primary);
+}
+
+.paint-toolbar__target input {
     margin: 0;
     cursor: pointer;
 }
 
 /* ── Search row ─────────────────────────────────────────────────────────── */
 
-.paint-panel__search {
+.paint-search {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 10px;
+    gap: 8px;
+    padding: 6px 16px;
+    background: var(--bg-primary);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
 }
 
-.paint-panel__filter {
+.paint-search__field {
     flex: 1 1 auto;
     min-width: 0;
     height: 26px;
     font-size: 12px;
 }
 
-/* ── System / emitter list ──────────────────────────────────────────────── */
+.paint-search__sep {
+    width: 1px;
+    height: 18px;
+    background: var(--border);
+}
+
+.paint-search__opt {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.paint-search__opt input {
+    margin: 0;
+    cursor: pointer;
+}
+
+/* ── Rows ───────────────────────────────────────────────────────────────── */
 
 .paint-list {
     flex: 1 1 auto;
     min-height: 0;
-    overflow-y: auto;
-    padding: 4px 0;
 }
 
 .paint-list--empty {
@@ -251,38 +255,56 @@
     text-align: center;
 }
 
-.paint-system {
-    border-bottom: 1px solid color-mix(in oklab, var(--border) 45%, transparent);
+.paint-list::-webkit-scrollbar {
+    width: 14px;
+}
+.paint-list::-webkit-scrollbar-track {
+    background: var(--bg-secondary);
+}
+.paint-list::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--accent-primary) 60%, transparent);
+    border-radius: 7px;
+    border: 3px solid var(--bg-secondary);
+    min-height: 48px;
+}
+.paint-list::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-primary);
 }
 
-.paint-system__head {
+/* Every row is exactly ROW_HEIGHT tall (42px) — the window positions rows by
+   index, so a row that grows would drift out of its slot. */
+.paint-row {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    background: var(--bg-tertiary);
+    gap: 10px;
+    height: 100%;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.12s ease, box-shadow 0.12s ease;
 }
 
-.paint-system__chevron {
+.paint-row__check {
+    margin: 0;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+/* The glyph needs real size to read as a chevron rather than a speck; the box
+   is centred by flex so the arrow never sits off the row's midline. */
+.paint-row__chevron {
     display: flex;
     align-items: center;
     justify-content: center;
     width: 16px;
     height: 16px;
-    padding: 0;
-    border: none;
-    background: transparent;
     color: var(--text-muted);
-    cursor: pointer;
-    font-size: 10px;
+    font-size: 13px;
+    line-height: 1;
+    flex-shrink: 0;
 }
 
-.paint-system__check {
-    margin: 0;
-    cursor: pointer;
-}
-
-.paint-system__name {
+.paint-row__name {
     flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
@@ -291,16 +313,16 @@
     font-family: var(--font-mono);
 }
 
-.paint-system__count {
+.paint-row__meta {
     flex-shrink: 0;
     color: var(--text-muted);
     font-family: var(--font-mono);
     font-size: 11px;
 }
 
-.paint-system__badge {
+.paint-row__badge {
     flex-shrink: 0;
-    padding: 1px 5px;
+    padding: 1px 6px;
     border-radius: var(--radius-sm);
     background: color-mix(in oklab, var(--accent-primary) 18%, transparent);
     color: var(--accent-primary);
@@ -309,93 +331,302 @@
     letter-spacing: 0.04em;
 }
 
-.paint-system__body {
-    display: flex;
-    flex-direction: column;
+/* System header */
+.paint-row--system {
+    background: var(--bg-tertiary);
 }
 
-.paint-emitter {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 3px 10px 3px 32px;
-    cursor: pointer;
-}
-
-.paint-emitter:hover {
+.paint-row--system:hover {
     background: var(--bg-hover);
 }
 
-.paint-emitter--selected {
-    background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+.paint-row--system .paint-row__name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent-primary);
 }
 
-.paint-emitter__check {
-    margin: 0;
+.paint-row--system.is-locked {
+    background: var(--bg-primary);
+}
+
+.paint-row--system.is-locked .paint-row__name {
+    color: var(--text-muted);
+}
+
+.paint-row__lock {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
     cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+    opacity: 0.35;
+    flex-shrink: 0;
+    transition: opacity 0.12s ease, background 0.12s ease;
 }
 
-.paint-emitter__name {
-    flex: 0 1 200px;
+.paint-row__lock:hover {
+    opacity: 1;
+    background: var(--bg-hover);
+}
+
+.paint-row__lock.is-locked {
+    opacity: 1;
+}
+
+/* Material header */
+.paint-row--material {
+    background: color-mix(in oklab, var(--accent-primary) 10%, transparent);
+    border-bottom-color: color-mix(in oklab, var(--accent-primary) 20%, transparent);
+}
+
+.paint-row--material:hover {
+    background: color-mix(in oklab, var(--accent-primary) 15%, transparent);
+}
+
+.paint-row--material .paint-row__name {
+    font-weight: 700;
+    color: var(--accent-primary);
+}
+
+/* Emitter + material-param rows sit indented under their header. */
+.paint-row--emitter,
+.paint-row--param {
+    padding-left: 34px;
+    background: transparent;
+}
+
+.paint-row--param {
+    padding-left: 52px;
+}
+
+.paint-row--emitter:hover,
+.paint-row--param:hover {
+    background: var(--bg-hover);
+}
+
+/* The inset accent bar marks a selected row at a glance, even mid-scroll. */
+.paint-row--emitter.is-selected,
+.paint-row--param.is-selected {
+    background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+    box-shadow: inset 3px 0 0 0 var(--accent-primary);
+}
+
+.paint-row--emitter.is-selected:hover,
+.paint-row--param.is-selected:hover {
+    background: color-mix(in oklab, var(--accent-primary) 20%, transparent);
+}
+
+.paint-row--emitter.is-selected .paint-row__name,
+.paint-row--param.is-selected .paint-row__name {
+    color: var(--accent-primary);
+}
+
+.paint-row--emitter.is-locked {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Blocks are the row's payload, so they get a fixed strip on the right and the
+   name column absorbs the slack. Keeping the strip a constant width is what
+   makes the colors line up as scannable columns down the whole list. */
+.paint-row__blocks {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 5px;
+    flex-shrink: 0;
+}
+
+/* The emitter name should not eat the whole row on a wide panel — cap it, and
+   let the spacer after it absorb the slack so the block strip stays flush right
+   without the name pushing it around. */
+.paint-row--emitter .paint-row__name,
+.paint-row--param .paint-row__name {
+    flex: 0 1 auto;
+    max-width: 340px;
+}
+
+.paint-row__spacer {
+    flex: 1 1 auto;
+    min-width: 12px;
+}
+
+.paint-row__picker {
+    width: 30px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.paint-row__picker::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+.paint-row__picker::-webkit-color-swatch {
+    border: none;
+    border-radius: 2px;
+}
+
+/* Blend-mode stepper on the emitter row */
+.paint-row__bm {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    height: 24px;
+    padding: 0 5px;
+    margin-left: 4px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: color-mix(in oklab, var(--accent-primary) 10%, transparent);
+    flex-shrink: 0;
+}
+
+.paint-row__bm:hover {
+    border-color: color-mix(in oklab, var(--accent-primary) 35%, transparent);
+}
+
+.paint-row__bm-label {
+    color: var(--accent-primary);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    opacity: 0.5;
+}
+
+.paint-row__bm-input {
+    width: 14px;
+    padding: 0;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: var(--accent-primary);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    text-align: center;
+}
+
+/* ── Color block ────────────────────────────────────────────────────────── */
+
+.paint-block {
+    position: relative;
+    display: inline-block;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background-color: var(--bg-primary);
+    overflow: hidden;
+    flex-shrink: 0;
+    cursor: pointer;
+    transition: transform 0.1s ease, border-color 0.1s ease;
+}
+
+.paint-block:hover {
+    transform: translateY(-1px);
+    border-color: var(--accent-primary);
+}
+
+/* A slot the emitter simply doesn't have. Kept as a placeholder so the block
+   columns stay aligned down the list, but drawn as a hollow dash so it never
+   reads as "a color that happens to be dark". */
+.paint-block--empty {
+    background: transparent;
+    border-style: dashed;
+    border-color: color-mix(in oklab, var(--border) 70%, transparent);
+    opacity: 0.5;
+    cursor: default;
+}
+
+.paint-block--empty:hover {
+    transform: none;
+    border-color: color-mix(in oklab, var(--border) 70%, transparent);
+}
+
+/* Only drawn when a keyframe is actually translucent, so an opaque block has
+   no checker showing through its edges. */
+.paint-block__checker {
+    position: absolute;
+    inset: 0;
+    background-color: #888;
+    background-image:
+        linear-gradient(45deg, rgba(255, 255, 255, 0.3) 25%, transparent 25%),
+        linear-gradient(-45deg, rgba(255, 255, 255, 0.3) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.3) 75%),
+        linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.3) 75%);
+    background-size: 8px 8px;
+    background-position: 0 0, 0 4px, 4px -4px, -4px 0;
+}
+
+.paint-block__fill {
+    position: absolute;
+    inset: 0;
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────────── */
+
+.paint-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 8px 16px;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.paint-footer__stats {
+    flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-family: var(--font-mono);
-}
-
-.paint-emitter__colors {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex: 1 1 auto;
-    min-width: 0;
-    flex-wrap: wrap;
-}
-
-.paint-emitter__slot {
-    display: flex;
-    align-items: center;
-    gap: 3px;
-}
-
-.paint-emitter__slot-label {
     color: var(--text-muted);
-    font-size: 10px;
     font-family: var(--font-mono);
 }
 
-.paint-emitter__bm {
-    flex-shrink: 0;
-    width: 48px;
-    height: 22px;
-    font-size: 11px;
+.paint-footer__selected {
+    color: var(--accent-primary);
 }
 
-/* ── Swatch ─────────────────────────────────────────────────────────────── */
+.paint-footer__dirty {
+    color: var(--color-warning, var(--accent-primary));
+}
 
-/* The checkerboard sits BEHIND the color layer, so a translucent keyframe reads
-   as translucent rather than as a lighter opaque color. */
-.paint-swatch {
-    position: relative;
-    display: inline-flex;
+.paint-footer__actions {
+    display: flex;
     align-items: center;
-    justify-content: center;
-    border: 1px solid var(--border);
-    border-radius: 2px;
-    overflow: hidden;
-    background-image:
-        linear-gradient(45deg, #808080 25%, transparent 25%),
-        linear-gradient(-45deg, #808080 25%, transparent 25%),
-        linear-gradient(45deg, transparent 75%, #808080 75%),
-        linear-gradient(-45deg, transparent 75%, #808080 75%);
-    background-size: 6px 6px;
-    background-position: 0 0, 0 3px, 3px -3px, -3px 0;
-    background-color: #c0c0c0;
+    gap: 8px;
     flex-shrink: 0;
 }
 
-.paint-swatch__fill {
-    position: absolute;
-    inset: 0;
+.paint-footer__recolor {
+    min-width: 180px;
+}
+
+/* Save carries a success tone — it's the terminal, file-touching action, and
+   should read differently from the repeatable Recolor next to it. */
+.paint-footer__save {
+    background: color-mix(in oklab, var(--color-success, #3fb950) 14%, var(--bg-secondary));
+    border: 1px solid color-mix(in oklab, var(--color-success, #3fb950) 40%, var(--border));
+    color: var(--color-success, #3fb950);
+}
+
+.paint-footer__save:hover:not(:disabled) {
+    background: color-mix(in oklab, var(--color-success, #3fb950) 24%, var(--bg-secondary));
+    border-color: color-mix(in oklab, var(--color-success, #3fb950) 70%, var(--border));
+}
+
+.paint-footer__save:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
 }

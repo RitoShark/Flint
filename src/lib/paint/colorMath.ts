@@ -42,15 +42,3 @@ export function hexToVec4(hex: string, fallbackAlpha = 1): Vec4 | null {
 export function vec4ToCss(v: Vec4): string {
     return `rgba(${toByte(v[0])}, ${toByte(v[1])}, ${toByte(v[2])}, ${clamp01(v[3]).toFixed(3)})`;
 }
-
-/** Perceived luminance (Rec. 709), for picking a readable label color over a
- *  swatch. */
-export function luminance(v: Vec4): number {
-    return 0.2126 * clamp01(v[0]) + 0.7152 * clamp01(v[1]) + 0.0722 * clamp01(v[2]);
-}
-
-/** A short human label for a color, used in titles/tooltips. */
-export function describeVec4(v: Vec4): string {
-    const a = clamp01(v[3]);
-    return a >= 0.999 ? vec4ToHex(v) : `${vec4ToHex(v)} @ ${Math.round(a * 100)}%`;
-}

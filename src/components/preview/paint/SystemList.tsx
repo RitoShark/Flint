@@ -1,289 +1,485 @@
 import React, { useCallback, useMemo } from 'react';
-import { ColorSwatch } from './ColorSwatch';
+import { VirtualList } from '../VirtualList';
+import { ColorBlock } from './ColorBlock';
 import { hexToVec4, vec4ToHex } from '../../../lib/paint/colorMath';
 import type { Vec4 } from '../../../lib/paint/colorMath';
 import type {
-    ColorData,
-    EmitterColors,
+    ColorKeyframe,
+    MaterialParam,
     VfxEmitter,
     VfxMaterial,
     VfxModel,
+    VfxSystem,
 } from '../../../lib/api/paint';
 
-const SLOT_LABELS: Array<[keyof EmitterColors, string]> = [
-    ['color', 'Color'],
-    ['birthColor', 'BC'],
-    ['fresnelColor', 'OC'],
-    ['lingerColor', 'LC'],
-];
+/** Every row is this tall; the list is windowed, so it must be a constant. */
+const ROW_HEIGHT = 42;
+
+type ListRow =
+    | { type: 'system'; key: string; system: VfxSystem; matchingCount: number }
+    | { type: 'emitter'; key: string; emitter: VfxEmitter; systemKey: string }
+    | { type: 'material'; key: string; material: VfxMaterial }
+    | {
+          type: 'materialParam';
+          key: string;
+          selectionKey: string;
+          param: MaterialParam;
+          materialKey: string;
+      };
+
+/** Per-row state, derived once per render so each row takes plain booleans. */
+interface RowState {
+    selected: boolean;
+    someSelected: boolean;
+    locked: boolean;
+    expanded: boolean;
+}
 
 interface SystemListProps {
     model: VfxModel;
-    selected: Set<string>;
-    onToggleEmitter: (key: string, additive: boolean) => void;
-    onToggleSystem: (systemKey: string) => void;
-    expanded: Set<string>;
+    selection: Set<string>;
+    lockedSystems: Set<string>;
+    expandedSystems: Set<string>;
+    expandedMaterials: Set<string>;
+    searchQuery: string;
+    showBaseColor: boolean;
+    showBirthColor: boolean;
+    showOC: boolean;
+    showLingerColor: boolean;
+    onToggleEmitter: (key: string) => void;
+    onToggleSystem: (key: string, selected: boolean) => void;
+    onToggleLock: (key: string) => void;
     onToggleExpand: (key: string) => void;
+    onToggleMaterialExpand: (key: string) => void;
     onSetBlendMode: (emitterKey: string, mode: number) => void;
     onSetMaterialParam: (selectionKey: string, value: Vec4) => void;
-    /** Lowercased search text; empty shows everything. */
-    filter: string;
+    /** Pull a block's colors into the working palette. */
+    onPickColors: (colors: ColorKeyframe[]) => void;
 }
 
-/** All keyframes of one slot, or an empty list when the slot is absent. */
-function keyframesOf(data: ColorData | null): Vec4[] {
-    return data ? data.keyframes.map((k) => k.rgba as Vec4) : [];
+function keyframesOf(slot: VfxEmitter['colors']['color']): ColorKeyframe[] {
+    return slot?.keyframes ?? [];
 }
 
-const EmitterRow: React.FC<{
-    emitter: VfxEmitter;
-    isSelected: boolean;
-    onToggle: (key: string, additive: boolean) => void;
-    onSetBlendMode: (emitterKey: string, mode: number) => void;
-}> = ({ emitter, isSelected, onToggle, onSetBlendMode }) => (
-    <div
-        className={`paint-emitter${isSelected ? ' paint-emitter--selected' : ''}`}
-        onClick={(e) => onToggle(emitter.key, e.ctrlKey || e.metaKey || e.shiftKey)}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                onToggle(emitter.key, e.ctrlKey || e.metaKey);
-            }
+/** A tri-state checkbox. `indeterminate` is a DOM property, not an attribute,
+ *  so it has to be set through a ref — React will not render it. */
+const TriCheckbox: React.FC<{
+    checked: boolean;
+    indeterminate?: boolean;
+    disabled?: boolean;
+    onChange: () => void;
+    label: string;
+    className?: string;
+}> = ({ checked, indeterminate = false, disabled, onChange, label, className }) => (
+    <input
+        type="checkbox"
+        className={className}
+        checked={checked}
+        disabled={disabled}
+        ref={(el) => {
+            if (el) el.indeterminate = indeterminate && !checked;
         }}
-    >
-        <input
-            type="checkbox"
-            className="paint-emitter__check"
-            checked={isSelected}
-            onChange={() => onToggle(emitter.key, true)}
-            onClick={(e) => e.stopPropagation()}
-            aria-label={`Select emitter ${emitter.name}`}
-        />
-        <span className="paint-emitter__name" title={emitter.name}>
-            {emitter.name}
-        </span>
-
-        <span className="paint-emitter__colors">
-            {SLOT_LABELS.map(([slot, label]) => {
-                const frames = keyframesOf(emitter.colors[slot]);
-                if (frames.length === 0) return null;
-                return (
-                    <span key={slot} className="paint-emitter__slot" title={label}>
-                        <span className="paint-emitter__slot-label">{label}</span>
-                        {frames.map((rgba, i) => (
-                            <ColorSwatch
-                                key={i}
-                                rgba={rgba}
-                                label={`${emitter.name} ${label} kf ${i + 1}`}
-                            />
-                        ))}
-                    </span>
-                );
-            })}
-        </span>
-
-        <select
-            className="dl-select paint-emitter__bm"
-            value={emitter.blendMode}
-            onChange={(e) => onSetBlendMode(emitter.key, Number(e.target.value))}
-            onClick={(e) => e.stopPropagation()}
-            title="Blend mode"
-            aria-label={`Blend mode for ${emitter.name}`}
-        >
-            {[0, 1, 2, 3, 4].map((n) => (
-                <option key={n} value={n}>
-                    {n}
-                </option>
-            ))}
-        </select>
-    </div>
+        onChange={onChange}
+        onClick={(e) => e.stopPropagation()}
+        aria-label={label}
+    />
 );
 
 export const SystemList: React.FC<SystemListProps> = ({
     model,
-    selected,
+    selection,
+    lockedSystems,
+    expandedSystems,
+    expandedMaterials,
+    searchQuery,
+    showBaseColor,
+    showBirthColor,
+    showOC,
+    showLingerColor,
     onToggleEmitter,
     onToggleSystem,
-    expanded,
+    onToggleLock,
     onToggleExpand,
+    onToggleMaterialExpand,
     onSetBlendMode,
     onSetMaterialParam,
-    filter,
+    onPickColors,
 }) => {
-    const emitterByKey = useMemo(() => {
-        const map = new Map<string, VfxEmitter>();
-        for (const e of model.emitters) map.set(e.key, e);
-        return map;
-    }, [model.emitters]);
+    const systemMap = useMemo(
+        () => new Map(model.systems.map((s) => [s.key, s])),
+        [model.systems],
+    );
+    const emitterMap = useMemo(
+        () => new Map(model.emitters.map((e) => [e.key, e])),
+        [model.emitters],
+    );
+    const materialMap = useMemo(
+        () => new Map(model.materials.map((m) => [m.key, m])),
+        [model.materials],
+    );
 
-    const matches = useCallback(
-        (systemKey: string): boolean => {
-            if (!filter) return true;
-            const system = model.systems.find((s) => s.key === systemKey);
-            if (!system) return false;
-            if (system.name.toLowerCase().includes(filter)) return true;
-            // A system stays visible when any of its emitters matches, so
-            // searching an emitter name doesn't hide the row that holds it.
-            return system.emitterKeys.some((k) =>
-                emitterByKey.get(k)?.name.toLowerCase().includes(filter),
+    /* Flatten the tree into the row list the window renders. A system whose
+       emitters all filter out is dropped entirely, so the list never shows an
+       expandable header with nothing under it. */
+    const rows = useMemo<ListRow[]>(() => {
+        const out: ListRow[] = [];
+        const q = searchQuery.trim().toLowerCase();
+
+        for (const systemKey of model.systemOrder) {
+            const system = systemMap.get(systemKey);
+            if (!system) continue;
+
+            let emitters = system.emitterKeys
+                .map((k) => emitterMap.get(k))
+                .filter((e): e is VfxEmitter => Boolean(e));
+
+            if (q) {
+                const systemMatches =
+                    system.name.toLowerCase().includes(q) || systemKey.toLowerCase().includes(q);
+                if (!systemMatches) {
+                    emitters = emitters.filter((e) => e.name.toLowerCase().includes(q));
+                }
+            }
+            if (emitters.length === 0) continue;
+
+            out.push({ type: 'system', key: systemKey, system, matchingCount: emitters.length });
+            if (expandedSystems.has(systemKey)) {
+                for (const emitter of emitters) {
+                    out.push({ type: 'emitter', key: emitter.key, emitter, systemKey });
+                }
+            }
+        }
+
+        for (const materialKey of model.materialOrder) {
+            const material = materialMap.get(materialKey);
+            if (!material || material.colorParams.length === 0) continue;
+
+            if (q) {
+                const matches =
+                    material.name.toLowerCase().includes(q) ||
+                    materialKey.toLowerCase().includes(q) ||
+                    material.colorParams.some((p) => p.name.toLowerCase().includes(q));
+                if (!matches) continue;
+            }
+
+            out.push({ type: 'material', key: materialKey, material });
+            if (expandedMaterials.has(materialKey)) {
+                for (const param of material.colorParams) {
+                    out.push({
+                        type: 'materialParam',
+                        key: param.selectionKey,
+                        selectionKey: param.selectionKey,
+                        param,
+                        materialKey,
+                    });
+                }
+            }
+        }
+
+        return out;
+    }, [
+        model.systemOrder,
+        model.materialOrder,
+        systemMap,
+        emitterMap,
+        materialMap,
+        searchQuery,
+        expandedSystems,
+        expandedMaterials,
+    ]);
+
+    const rowStates = useMemo<RowState[]>(
+        () =>
+            rows.map((row): RowState => {
+                switch (row.type) {
+                    case 'emitter':
+                        return {
+                            selected: selection.has(row.key),
+                            someSelected: false,
+                            locked: lockedSystems.has(row.systemKey),
+                            expanded: false,
+                        };
+                    case 'system': {
+                        const keys = row.system.emitterKeys;
+                        const all = keys.length > 0 && keys.every((k) => selection.has(k));
+                        const some = !all && keys.some((k) => selection.has(k));
+                        return {
+                            selected: all,
+                            someSelected: some,
+                            locked: lockedSystems.has(row.key),
+                            expanded: expandedSystems.has(row.key),
+                        };
+                    }
+                    case 'material': {
+                        const keys = row.material.colorParams.map((p) => p.selectionKey);
+                        const all = keys.length > 0 && keys.every((k) => selection.has(k));
+                        const some = !all && keys.some((k) => selection.has(k));
+                        return {
+                            selected: all,
+                            someSelected: some,
+                            locked: false,
+                            expanded: expandedMaterials.has(row.key),
+                        };
+                    }
+                    case 'materialParam':
+                        return {
+                            selected: selection.has(row.selectionKey),
+                            someSelected: false,
+                            locked: false,
+                            expanded: false,
+                        };
+                }
+            }),
+        [rows, selection, lockedSystems, expandedSystems, expandedMaterials],
+    );
+
+    const renderRow = useCallback(
+        (row: ListRow, index: number) => {
+            const state = rowStates[index];
+
+            if (row.type === 'system') {
+                return (
+                    <div
+                        className={`paint-row paint-row--system${state.locked ? ' is-locked' : ''}`}
+                        onClick={() => onToggleExpand(row.key)}
+                    >
+                        <TriCheckbox
+                            className="paint-row__check"
+                            checked={state.selected}
+                            indeterminate={state.someSelected}
+                            disabled={state.locked}
+                            onChange={() => onToggleSystem(row.key, !state.selected)}
+                            label={`Select all emitters in ${row.system.name}`}
+                        />
+                        <span className="paint-row__chevron">{state.expanded ? '▾' : '▸'}</span>
+                        <span className="paint-row__name" title={row.system.name}>
+                            {row.system.name.includes('/')
+                                ? row.system.name.split('/').pop()
+                                : row.system.name}
+                        </span>
+                        <span className="paint-row__meta">{row.matchingCount} emitters</span>
+                        <button
+                            type="button"
+                            className={`paint-row__lock${state.locked ? ' is-locked' : ''}`}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onToggleLock(row.key);
+                            }}
+                            title={state.locked ? 'Unlock this system' : 'Lock this system'}
+                            aria-label={state.locked ? 'Unlock system' : 'Lock system'}
+                        >
+                            {state.locked ? '🔒' : '🔓'}
+                        </button>
+                    </div>
+                );
+            }
+
+            if (row.type === 'material') {
+                return (
+                    <div
+                        className="paint-row paint-row--material"
+                        onClick={() => onToggleMaterialExpand(row.key)}
+                    >
+                        <TriCheckbox
+                            className="paint-row__check"
+                            checked={state.selected}
+                            indeterminate={state.someSelected}
+                            onChange={() => {
+                                const next = !state.selected;
+                                for (const p of row.material.colorParams) {
+                                    if (selection.has(p.selectionKey) !== next) {
+                                        onToggleEmitter(p.selectionKey);
+                                    }
+                                }
+                            }}
+                            label={`Select all params in ${row.material.name}`}
+                        />
+                        <span className="paint-row__chevron">{state.expanded ? '▾' : '▸'}</span>
+                        <span className="paint-row__badge">MAT</span>
+                        <span className="paint-row__name" title={row.material.name}>
+                            {row.material.name}
+                        </span>
+                        <span className="paint-row__meta">
+                            {row.material.colorParams.length} colors
+                        </span>
+                    </div>
+                );
+            }
+
+            if (row.type === 'materialParam') {
+                const rgba = row.param.values as Vec4;
+                return (
+                    <div
+                        className={`paint-row paint-row--param${state.selected ? ' is-selected' : ''}`}
+                        onClick={() => onToggleEmitter(row.selectionKey)}
+                    >
+                        <TriCheckbox
+                            className="paint-row__check"
+                            checked={state.selected}
+                            onChange={() => onToggleEmitter(row.selectionKey)}
+                            label={`Select ${row.param.name}`}
+                        />
+                        <span className="paint-row__name" title={row.param.name}>
+                            {row.param.name}
+                        </span>
+                        <span className="paint-row__spacer" />
+                        <ColorBlock
+                            colors={[{ rgba, time: 0 }]}
+                            title={row.param.name}
+                            variant="wide"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onPickColors([{ rgba, time: 0 }]);
+                            }}
+                        />
+                        <input
+                            type="color"
+                            className="paint-row__picker"
+                            value={vec4ToHex(rgba)}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => {
+                                const parsed = hexToVec4(e.target.value, rgba[3]);
+                                if (parsed) onSetMaterialParam(row.selectionKey, parsed);
+                            }}
+                            aria-label={`Set color for ${row.param.name}`}
+                        />
+                    </div>
+                );
+            }
+
+            // Emitter row.
+            const { emitter } = row;
+            const colors = emitter.colors;
+            return (
+                <div
+                    className={`paint-row paint-row--emitter${state.selected ? ' is-selected' : ''}${
+                        state.locked ? ' is-locked' : ''
+                    }`}
+                    onClick={() => {
+                        if (!state.locked) onToggleEmitter(row.key);
+                    }}
+                >
+                    <TriCheckbox
+                        className="paint-row__check"
+                        checked={state.selected}
+                        disabled={state.locked}
+                        onChange={() => {
+                            if (!state.locked) onToggleEmitter(row.key);
+                        }}
+                        label={`Select emitter ${emitter.name}`}
+                    />
+                    <span className="paint-row__name" title={emitter.name}>
+                        {emitter.name}
+                    </span>
+                    <span className="paint-row__spacer" />
+
+                    <span className="paint-row__blocks">
+                        {showLingerColor && (
+                            <ColorBlock
+                                colors={keyframesOf(colors.lingerColor)}
+                                title="Linger Color"
+                                variant="secondary"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    const kf = keyframesOf(colors.lingerColor);
+                                    if (kf.length) onPickColors(kf);
+                                }}
+                            />
+                        )}
+                        {showOC && (
+                            <ColorBlock
+                                colors={keyframesOf(colors.fresnelColor)}
+                                title="OC / Fresnel"
+                                variant="secondary"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    const kf = keyframesOf(colors.fresnelColor);
+                                    if (kf.length) onPickColors(kf);
+                                }}
+                            />
+                        )}
+                        {showBirthColor && (
+                            <ColorBlock
+                                colors={keyframesOf(colors.birthColor)}
+                                title="Birth Color"
+                                variant="standard"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    const kf = keyframesOf(colors.birthColor);
+                                    if (kf.length) onPickColors(kf);
+                                }}
+                            />
+                        )}
+                        {showBaseColor && (
+                            <ColorBlock
+                                colors={keyframesOf(colors.color)}
+                                title="Base Color"
+                                variant="wide"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    const kf = keyframesOf(colors.color);
+                                    if (kf.length) onPickColors(kf);
+                                }}
+                            />
+                        )}
+
+                        <span className="paint-row__bm" onClick={(e) => e.stopPropagation()}>
+                            <span className="paint-row__bm-label">BM:</span>
+                            <input
+                                key={`${row.key}-${emitter.blendMode}`}
+                                type="text"
+                                className="paint-row__bm-input"
+                                defaultValue={emitter.blendMode}
+                                disabled={state.locked}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') e.currentTarget.blur();
+                                }}
+                                onBlur={(e) => {
+                                    if (state.locked) return;
+                                    const val = parseInt(e.target.value, 10);
+                                    if (!Number.isNaN(val) && val !== emitter.blendMode) {
+                                        onSetBlendMode(row.key, val);
+                                    }
+                                }}
+                                aria-label={`Blend mode for ${emitter.name}`}
+                            />
+                        </span>
+                    </span>
+                </div>
             );
         },
-        [filter, model.systems, emitterByKey],
+        [
+            rowStates,
+            selection,
+            showBaseColor,
+            showBirthColor,
+            showOC,
+            showLingerColor,
+            onToggleEmitter,
+            onToggleSystem,
+            onToggleLock,
+            onToggleExpand,
+            onToggleMaterialExpand,
+            onSetBlendMode,
+            onSetMaterialParam,
+            onPickColors,
+        ],
     );
 
-    const visibleSystems = useMemo(
-        () => model.systemOrder.filter(matches),
-        [model.systemOrder, matches],
-    );
-
-    const visibleMaterials = useMemo(() => {
-        if (!filter) return model.materialOrder;
-        return model.materialOrder.filter((key) => {
-            const mat = model.materials.find((m) => m.key === key);
-            if (!mat) return false;
-            return (
-                mat.name.toLowerCase().includes(filter) ||
-                mat.colorParams.some((p) => p.name.toLowerCase().includes(filter))
-            );
-        });
-    }, [filter, model.materialOrder, model.materials]);
-
-    const materialByKey = useMemo(() => {
-        const map = new Map<string, VfxMaterial>();
-        for (const m of model.materials) map.set(m.key, m);
-        return map;
-    }, [model.materials]);
-
-    if (visibleSystems.length === 0 && visibleMaterials.length === 0) {
+    if (rows.length === 0) {
         return (
             <div className="paint-list paint-list--empty">
-                {filter ? 'Nothing matches this filter.' : 'This BIN has no VFX systems.'}
+                {searchQuery ? 'Nothing matches this filter.' : 'This BIN has no VFX systems.'}
             </div>
         );
     }
 
     return (
-        <div className="paint-list">
-            {visibleSystems.map((systemKey) => {
-                const system = model.systems.find((s) => s.key === systemKey);
-                if (!system) return null;
-                const isOpen = expanded.has(systemKey);
-                const emitters = system.emitterKeys
-                    .map((k) => emitterByKey.get(k))
-                    .filter((e): e is VfxEmitter => Boolean(e));
-                const allSelected =
-                    emitters.length > 0 && emitters.every((e) => selected.has(e.key));
-
-                return (
-                    <div key={systemKey} className="paint-system">
-                        <div className="paint-system__head">
-                            <button
-                                type="button"
-                                className="paint-system__chevron"
-                                onClick={() => onToggleExpand(systemKey)}
-                                aria-label={isOpen ? 'Collapse system' : 'Expand system'}
-                                aria-expanded={isOpen}
-                            >
-                                {isOpen ? '▾' : '▸'}
-                            </button>
-                            <input
-                                type="checkbox"
-                                className="paint-system__check"
-                                checked={allSelected}
-                                onChange={() => onToggleSystem(systemKey)}
-                                aria-label={`Select all emitters in ${system.name}`}
-                            />
-                            <span className="paint-system__name" title={system.name}>
-                                {system.name}
-                            </span>
-                            <span className="paint-system__count">{emitters.length}</span>
-                        </div>
-
-                        {isOpen && (
-                            <div className="paint-system__body">
-                                {emitters.map((emitter) => (
-                                    <EmitterRow
-                                        key={emitter.key}
-                                        emitter={emitter}
-                                        isSelected={selected.has(emitter.key)}
-                                        onToggle={onToggleEmitter}
-                                        onSetBlendMode={onSetBlendMode}
-                                    />
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                );
-            })}
-
-            {visibleMaterials.map((key) => {
-                const material = materialByKey.get(key);
-                if (!material) return null;
-                const isOpen = expanded.has(key);
-                return (
-                    <div key={key} className="paint-system paint-system--material">
-                        <div className="paint-system__head">
-                            <button
-                                type="button"
-                                className="paint-system__chevron"
-                                onClick={() => onToggleExpand(key)}
-                                aria-label={isOpen ? 'Collapse material' : 'Expand material'}
-                                aria-expanded={isOpen}
-                            >
-                                {isOpen ? '▾' : '▸'}
-                            </button>
-                            <span className="paint-system__badge">MAT</span>
-                            <span className="paint-system__name" title={material.name}>
-                                {material.name}
-                            </span>
-                            <span className="paint-system__count">
-                                {material.colorParams.length}
-                            </span>
-                        </div>
-
-                        {isOpen && (
-                            <div className="paint-system__body">
-                                {material.colorParams.map((param) => (
-                                    <div key={param.selectionKey} className="paint-emitter">
-                                        <span
-                                            className="paint-emitter__name"
-                                            title={param.name}
-                                        >
-                                            {param.name}
-                                        </span>
-                                        <span className="paint-emitter__colors">
-                                            <ColorSwatch
-                                                rgba={param.values as Vec4}
-                                                label={param.name}
-                                            />
-                                        </span>
-                                        <input
-                                            type="color"
-                                            className="paint-emitter__picker"
-                                            value={vec4ToHex(param.values as Vec4)}
-                                            onChange={(e) => {
-                                                const parsed = hexToVec4(
-                                                    e.target.value,
-                                                    param.values[3],
-                                                );
-                                                if (parsed) {
-                                                    onSetMaterialParam(
-                                                        param.selectionKey,
-                                                        parsed,
-                                                    );
-                                                }
-                                            }}
-                                            aria-label={`Color for ${param.name}`}
-                                        />
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                );
-            })}
-        </div>
+        <VirtualList
+            className="paint-list"
+            items={rows}
+            rowHeight={ROW_HEIGHT}
+            renderRow={renderRow}
+        />
     );
 };
