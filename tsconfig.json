@@ -27,11 +27,16 @@
         "paths": {
             "@/*": [
                 "src/*"
+            ],
+            "@shaderforge": [
+                "private/shaderforge/ts/index.ts",
+                "src/lib/shaderforge-stub/index.ts"
             ]
         }
     },
     "include": [
-        "src"
+        "src",
+        "private/shaderforge/ts"
     ],
     "references": [
         {

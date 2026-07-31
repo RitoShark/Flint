@@ -1,6 +1,15 @@
 import { defineConfig, Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { existsSync } from 'fs';
+
+// Private shader-preview overlay: when the (gitignored) private/ clone is
+// present the @shaderforge alias resolves to the real module, otherwise to
+// the committed stub — public checkouts build identically without it.
+const shaderforgePrivate = path.resolve(__dirname, 'private/shaderforge/ts/index.ts');
+const shaderforgeEntry = existsSync(shaderforgePrivate)
+    ? shaderforgePrivate
+    : path.resolve(__dirname, 'src/lib/shaderforge-stub/index.ts');
 
 /**
  * Strip `crossorigin` from <link rel="stylesheet"> tags in the built HTML.
@@ -74,6 +83,7 @@ export default defineConfig({
     resolve: {
         alias: {
             '@': path.resolve(__dirname, './src'),
+            '@shaderforge': shaderforgeEntry,
         },
     },
 
