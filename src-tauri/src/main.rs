@@ -366,6 +366,7 @@ fn main() {
             commands::mesh::read_animation,
             commands::mesh::resolve_asset_path,
             commands::mesh::resolve_anm_skin,
+            commands::mesh::read_skn_submesh_names,
             commands::animask::read_animation_masks,
             commands::animask::save_animation_masks,
             commands::animask::bin_has_animation_masks,

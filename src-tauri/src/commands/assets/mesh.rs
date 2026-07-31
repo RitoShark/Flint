@@ -647,3 +647,23 @@ pub async fn resolve_anm_skin(anm_path: String) -> Result<AnmSkinResolution, Str
     })
 }
 
+
+/// Submesh (material-range) names of a `.skn`, for the BIN editor's
+/// `Submesh: string = "..."` picker.
+///
+/// Deliberately NOT `read_skn_mesh`: that decodes every vertex, index and
+/// texture to hand back megabytes of geometry, when all this needs is the
+/// range names.
+#[tauri::command]
+pub async fn read_skn_submesh_names(skn_path: String) -> Result<Vec<String>, String> {
+    tokio::task::spawn_blocking(move || {
+        use ritoshark::prelude::Parse;
+        let data = std::fs::read(&skn_path)
+            .map_err(|e| format!("Failed to read '{}': {}", skn_path, e))?;
+        let mesh = ritoshark::mesh::SkinnedMesh::from_bytes(&data)
+            .map_err(|e| format!("Failed to parse SKN '{}': {:?}", skn_path, e))?;
+        Ok(mesh.ranges().iter().map(|r| r.name.clone()).collect())
+    })
+    .await
+    .map_err(|e| format!("SKN submesh task failed: {}", e))?
+}

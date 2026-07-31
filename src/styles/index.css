@@ -9624,3 +9624,85 @@ input.np-search:focus {
   padding: 0 8px;
   font-size: 12px;
 }
+
+/* --------------------------------------------------------------------------
+   Component: Submesh picker (BIN editor CodeLens)
+   -------------------------------------------------------------------------- */
+.submesh-picker__scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 45%);
+}
+
+.submesh-picker {
+  display: flex;
+  flex-direction: column;
+  width: min(420px, 90%);
+  max-height: 70%;
+  overflow: hidden;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 45%);
+}
+
+.submesh-picker__head {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg,
+    color-mix(in oklab, var(--bg-tertiary) 80%, transparent) 0%,
+    transparent 100%);
+}
+
+.submesh-picker__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+.submesh-picker__item {
+  overflow: hidden;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.submesh-picker__item:hover {
+  background: var(--bg-tertiary);
+  border-color: color-mix(in oklab, var(--accent-primary) 30%, var(--border));
+}
+
+/* The name already on the line. */
+.submesh-picker__item--current {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.submesh-picker__note {
+  padding: 16px 14px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.submesh-picker__foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+}

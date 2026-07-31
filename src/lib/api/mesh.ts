@@ -248,3 +248,8 @@ export interface AnmSkinResolution {
 export async function resolveAnmSkin(anmPath: string): Promise<AnmSkinResolution> {
     return invokeCommand('resolve_anm_skin', { anmPath });
 }
+
+/** Submesh (material-range) names of a `.skn`, for the BIN editor's Submesh picker. */
+export async function readSknSubmeshNames(sknPath: string): Promise<string[]> {
+    return invokeCommand('read_skn_submesh_names', { sknPath });
+}
