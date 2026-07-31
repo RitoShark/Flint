@@ -295,7 +295,7 @@ function validateBrackets(text: string): BracketValidation {
  *  degrades on very large VFX bins — so the minimap is force-disabled above
  *  this many lines regardless of the user preference. Folding is NOT capped:
  *  bracket-range computation is cheap. */
-const MINIMAP_MAX_LINES = 30_000;
+const MINIMAP_MAX_LINES = 150_000;
 
 const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     automaticLayout: true,
@@ -518,6 +518,16 @@ function updateEmitterDecorations(
     return ed.deltaDecorations(decorationIds, decorations);
 }
 
+/* `display:block` keeps the glyph off the text baseline so the button's flex
+   centering actually centers it — an inline SVG would sit low. */
+function SaveIcon() {
+    return (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style={{ display: 'block' }} aria-hidden="true">
+            <path d="M2 2h9.5L14 4.5V14H2V2zm2 1v4h7V3H4zm5 1h1.5v2H9V4zM4 9h8v4H4V9z" />
+        </svg>
+    );
+}
+
 function setEmittersFolded(ed: editor.IStandaloneCodeEditor, collapse: boolean) {
     const model = ed.getModel();
     if (!model) return;
@@ -530,16 +540,22 @@ function setEmittersFolded(ed: editor.IStandaloneCodeEditor, collapse: boolean) 
     const ctrl = (ed as any).getContribution('editor.contrib.folding');
     if (!ctrl?.getFoldingModel) return;
     ctrl.getFoldingModel().then((fm: any) => {
-        if (!fm) return;
+        if (!fm?.regions) return;
         const regions = fm.regions;
-        if (!regions) return;
+        // `toggleCollapseState` FLIPS each region it is given, so only pass the
+        // ones currently in the wrong state. It is also the only entry point
+        // that repaints: it updates the fold decorations and fires the model's
+        // change event. Mutating `regions` via setCollapsed and calling
+        // `fm.update(regions)` does neither — `update()` expects NEW ranges
+        // from a range provider, so the editor never re-rendered and the
+        // buttons appeared to do nothing.
+        const toToggle = [];
         for (let i = 0; i < regions.length; i++) {
-            const start = regions.getStartLineNumber(i);
-            if (emitterLines.has(start) && regions.isCollapsed(i) !== collapse) {
-                regions.setCollapsed(i, collapse);
+            if (emitterLines.has(regions.getStartLineNumber(i)) && regions.isCollapsed(i) !== collapse) {
+                toToggle.push(regions.toRegion(i));
             }
         }
-        fm.update(regions);
+        if (toToggle.length > 0) fm.toggleCollapseState(toToggle);
     });
 }
 
@@ -1429,25 +1445,25 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 <div className="bin-editor__toolbar-actions">
                     {!bracketStatus.valid && (
                         <button
-                            className="btn btn--sm"
+                            className="btn btn--icon"
                             style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', color: 'var(--warning, #f0a020)' }}
                             onClick={handleFixBracket}
                             title="Insert missing closing bracket at suggested position"
                         >
-                            Fix {'}'}
+                            {'}'}
                         </button>
                     )}
                     <button
-                        className="btn btn--sm"
+                        className="btn btn--icon"
                         style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}
                         onClick={handleUnhash}
                         disabled={unhashing}
                         title="Unhash: re-resolve any 0x… hash tokens against the known BIN hash dictionary"
                     >
-                        {unhashing ? 'Unhashing…' : 'Unhash'}
+                        {unhashing ? '…' : '#'}
                     </button>
                     <button
-                        className={`btn btn--sm${paletteOpen ? ' btn--primary' : ''}`}
+                        className={`btn btn--icon${paletteOpen ? ' btn--primary' : ''}`}
                         style={!paletteOpen ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
                         onClick={() => setPaletteOpen(!paletteOpen)}
                         title="Toggle copied-block palette (drag emitter/VFX blocks into any BIN)"
@@ -1455,7 +1471,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                         ▤
                     </button>
                     <button
-                        className={`btn btn--sm${minimapOn ? ' btn--primary' : ''}`}
+                        className={`btn btn--icon${minimapOn ? ' btn--primary' : ''}`}
                         style={!minimapOn ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
                         onClick={() => setMinimapPref(!minimapPref)}
                         disabled={!minimapAllowed}
@@ -1466,7 +1482,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                         ▭
                     </button>
                     <button
-                        className={`btn btn--sm${sidePanelOpen ? ' btn--primary' : ''}`}
+                        className={`btn btn--icon${sidePanelOpen ? ' btn--primary' : ''}`}
                         style={!sidePanelOpen ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
                         onClick={() => setSidePanelOpen(!sidePanelOpen)}
                         title="Toggle BIN tools panel (skinScale, materialOverride, VFX)"
@@ -1475,21 +1491,21 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                     </button>
                     {hasMaskMap && (
                         <button
-                            className={`btn btn--sm${maskEditorOpen ? ' btn--primary' : ''}`}
+                            className={`btn btn--icon${maskEditorOpen ? ' btn--primary' : ''}`}
                             style={!maskEditorOpen ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
                             onClick={() => setMaskEditorOpen(!maskEditorOpen)}
                             title="Toggle animation mask weight editor"
                         >
-                            Masks
+                            ◑
                         </button>
                     )}
                     <button
-                        className="btn btn--primary btn--sm"
+                        className="btn btn--primary btn--icon"
                         onClick={handleSave}
                         disabled={!isDirty}
-                        title={!bracketStatus.valid ? 'Fix bracket errors before saving' : undefined}
+                        title={!bracketStatus.valid ? 'Fix bracket errors before saving' : 'Save (Ctrl+S)'}
                     >
-                        Save
+                        <SaveIcon />
                     </button>
                 </div>
             </div>
