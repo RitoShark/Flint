@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
 import { useAppMetadataStore, useFileEditorStore, useNotificationStore } from '../../lib/stores';
+import { useUxStore } from '../../lib/stores/uxStore';
 import { useProjectTabStore } from '../../lib/stores/projectTabStore';
 import { editorSessionStore } from '../../lib/stores/editorSessionStore';
 import * as api from '../../lib/api';
@@ -289,6 +290,12 @@ function validateBrackets(text: string): BracketValidation {
 // =============================================================================
 // Editor Options
 // =============================================================================
+
+/** Monaco renders the WHOLE document into the minimap canvas, which is what
+ *  degrades on very large VFX bins — so the minimap is force-disabled above
+ *  this many lines regardless of the user preference. Folding is NOT capped:
+ *  bracket-range computation is cheap. */
+const MINIMAP_MAX_LINES = 30_000;
 
 const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     automaticLayout: true,
@@ -836,6 +843,11 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [lineCount, setLineCount] = useState(0);
+    const minimapPref = useUxStore((s) => s.binEditorMinimap);
+    const setMinimapPref = useUxStore((s) => s.setBinEditorMinimap);
+    // Above the cap the preference is overridden, and the toggle is disabled.
+    const minimapAllowed = lineCount <= MINIMAP_MAX_LINES;
+    const minimapOn = minimapPref && minimapAllowed;
     const [sidePanelOpen, setSidePanelOpen] = useState(false);
     const [paletteOpen, setPaletteOpen] = useState(false);
     const [hasMaskMap, setHasMaskMap] = useState(false);
@@ -987,6 +999,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
 
         const ed = monaco.editor.create(editorContainerRef.current, {
             ...EDITOR_OPTIONS,
+            minimap: { enabled: minimapOn },
             value: content,
             language: RITOBIN_LANGUAGE_ID,
             theme: RITOBIN_THEME_ID,
@@ -1115,6 +1128,13 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [loading, error]);
+
+    // Apply minimap changes in place. The editor-creation effect must not
+    // depend on the preference — re-running it would dispose the model and
+    // the undo stack — so toggling is pushed through updateOptions instead.
+    useEffect(() => {
+        editorRef.current?.updateOptions({ minimap: { enabled: minimapOn } });
+    }, [minimapOn]);
 
     useEffect(() => {
         return () => { if (bracketCheckTimerRef.current) clearTimeout(bracketCheckTimerRef.current); };
@@ -1433,6 +1453,17 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                         title="Toggle copied-block palette (drag emitter/VFX blocks into any BIN)"
                     >
                         ▤
+                    </button>
+                    <button
+                        className={`btn btn--sm${minimapOn ? ' btn--primary' : ''}`}
+                        style={!minimapOn ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
+                        onClick={() => setMinimapPref(!minimapPref)}
+                        disabled={!minimapAllowed}
+                        title={minimapAllowed
+                            ? 'Toggle minimap (document overview bar on the right)'
+                            : `Minimap is disabled above ${MINIMAP_MAX_LINES.toLocaleString()} lines for performance`}
+                    >
+                        ▭
                     </button>
                     <button
                         className={`btn btn--sm${sidePanelOpen ? ' btn--primary' : ''}`}
