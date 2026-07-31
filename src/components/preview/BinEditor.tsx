@@ -925,32 +925,31 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             if (!m) return;
             const decos: editor.IModelDeltaDecoration[] = [];
             for (let line = 1; line <= m.getLineCount(); line++) {
-                const text = m.getLineContent(line);
-                if (!/^\s*Submesh:\s*string\s*=\s*"/.test(text)) continue;
+                if (!/^\s*Submesh:\s*string\s*=\s*"/.test(m.getLineContent(line))) continue;
+                /* Same shape as the emitter-name hints above: a whole-line
+                   decoration whose `afterContentClassName` carries a CSS
+                   `::after { content }`. The injected-text form
+                   (`after: { content }`) did not render in this editor. */
                 decos.push({
-                    range: new monaco.Range(line, text.length + 1, line, text.length + 1),
-                    options: {
-                        after: {
-                            content: ' ✎',
-                            inlineClassName: 'bin-submesh-pick',
-                        },
-                        stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
-                    },
+                    range: new monaco.Range(line, 1, line, 1),
+                    options: { isWholeLine: true, afterContentClassName: 'bin-submesh-pick' },
                 });
             }
             submeshDecorationsRef.current = ed.deltaDecorations(submeshDecorationsRef.current, decos);
         };
         refreshSubmeshDecorations();
 
+        /* The glyph is a ::after on a span carrying `bin-submesh-pick`, so the
+           click can land on that span or a descendant — match with `closest`
+           rather than a direct classList check. */
         const submeshClick = ed.onMouseDown((e) => {
             const el = e.event.target as HTMLElement | null;
-            if (!el?.classList.contains('bin-submesh-pick')) return;
+            if (!el?.closest?.('.bin-submesh-pick')) return;
             const line = e.target.position?.lineNumber;
-            if (line) {
-                e.event.preventDefault();
-                e.event.stopPropagation();
-                void openSubmeshPickerRef.current(line);
-            }
+            if (!line) return;
+            e.event.preventDefault();
+            e.event.stopPropagation();
+            void openSubmeshPickerRef.current(line);
         });
 
         const inlineProvider = monaco.languages.registerInlineCompletionsProvider(RITOBIN_LANGUAGE_ID, {

@@ -9631,14 +9631,18 @@ input.np-search:focus {
 
 /* Inline affordance after a `Submesh: string = "..."` value. An `after`
    content decoration, so it adds no line of its own. */
-.bin-submesh-pick {
-  padding-left: 2px;
-  color: var(--text-muted) !important;
+.bin-submesh-pick::after {
+  content: '  ✎ pick';
+  padding: 0 4px;
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+  color: var(--accent-primary);
+  font-size: 11px;
   cursor: pointer;
 }
 
-.bin-submesh-pick:hover {
-  color: var(--accent-primary) !important;
+.bin-submesh-pick:hover::after {
+  background: color-mix(in oklab, var(--accent-primary) 28%, transparent);
 }
 
 .submesh-picker__scrim {
