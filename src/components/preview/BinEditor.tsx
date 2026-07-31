@@ -16,15 +16,6 @@ import {
 } from '../../lib/editor/ritobinLanguage';
 import { AssetPreviewTooltip } from './AssetPreviewTooltip';
 import { MaskEditor } from './MaskEditor';
-import { EmitterPalette, EMITTER_DROP_EVENT, type EmitterDropDetail } from './EmitterPalette';
-import { useEmitterPaletteStore, type CopiedBlock } from '../../lib/stores/emitterPaletteStore';
-import {
-    findEnclosingBlock,
-    reindentBlock,
-    renameEmitterIfCollision,
-    computeInsertPosition,
-    extractAssetPaths,
-} from '../../lib/editor/blockExtraction';
 
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
@@ -66,78 +57,6 @@ function extractStringAtPosition(line: string, column: number): string | null {
         if (column >= startCol && column <= endCol) return match[1];
     }
     return null;
-}
-
-function deriveProjectPath(filePath: string): string | null {
-    const norm = filePath.replace(/\\/g, '/');
-    const tabs = useProjectTabStore.getState().openTabs;
-    let best: string | null = null;
-    for (const tab of tabs) {
-        if (!tab.projectPath) continue;
-        const proj = tab.projectPath.replace(/\\/g, '/');
-        if (norm === proj || norm.startsWith(proj + '/')) {
-            if (!best || proj.length > best.length) best = tab.projectPath;
-        }
-    }
-    if (best) return best;
-
-    const idx = norm.toLowerCase().indexOf('/content/');
-    if (idx > 0) return filePath.slice(0, idx);
-    return null;
-}
-
-interface AssetCopyResult {
-    copied: number;
-    /** Assets that could not be resolved to a real file in the source project. */
-    missing: number;
-}
-
-async function copyBlockAssets(
-    block: CopiedBlock,
-    sourceProject: string,
-    destProject: string,
-): Promise<AssetCopyResult> {
-    const assets = block.assets ?? [];
-    const srcRoot = sourceProject.replace(/\\/g, '/').replace(/\/+$/, '');
-    const baseBinPath = block.sourceBinPath ?? sourceProject;
-
-    let copied = 0;
-    let missing = 0;
-
-    for (const assetPath of assets) {
-        let absolute: string;
-        try {
-            absolute = await api.resolveAssetPath(assetPath, baseBinPath);
-        } catch {
-            missing += 1;
-            continue;
-        }
-        if (!absolute) {
-            missing += 1;
-            continue;
-        }
-
-        const absNorm = absolute.replace(/\\/g, '/');
-        const prefix = srcRoot + '/';
-        if (!absNorm.toLowerCase().startsWith(prefix.toLowerCase())) {
-            missing += 1;
-            continue;
-        }
-        const relPath = absNorm.slice(prefix.length);
-        const parentFolder = relPath.includes('/') ? relPath.slice(0, relPath.lastIndexOf('/')) : '';
-
-        try {
-            if (parentFolder) {
-                await api.createDirectory(destProject, parentFolder).catch(() => {});
-            }
-            await api.copyBetweenProjects(sourceProject, [relPath], destProject, parentFolder);
-            copied += 1;
-        } catch {
-            missing += 1;
-        }
-    }
-
-    return { copied, missing };
 }
 
 // =============================================================================
@@ -528,35 +447,34 @@ function SaveIcon() {
     );
 }
 
+/* Fold/unfold every VfxEmitterDefinitionData block.
+ *
+ * Driven through Monaco's own `editor.fold` / `editor.unfold` actions rather
+ * than by walking the folding model by hand. Those actions operate on the
+ * current selections, so putting a cursor on each emitter line and triggering
+ * once lets Monaco resolve the regions and repaint. Reaching into the folding
+ * contribution directly proved unreliable — its model is produced by a
+ * debounced scheduler, so the regions are not necessarily there when a click
+ * handler asks for them. */
 function setEmittersFolded(ed: editor.IStandaloneCodeEditor, collapse: boolean) {
     const model = ed.getModel();
     if (!model) return;
-    const lines = model.getValue().split('\n');
-    const emitterLines = new Set<number>();
-    for (let i = 0; i < lines.length; i++) {
-        if (/VfxEmitterDefinitionData\s*\{/.test(lines[i])) emitterLines.add(i + 1);
+    const emitterLines: number[] = [];
+    const total = model.getLineCount();
+    for (let line = 1; line <= total; line++) {
+        if (/VfxEmitterDefinitionData\s*\{/.test(model.getLineContent(line))) emitterLines.push(line);
     }
-    if (emitterLines.size === 0) return;
-    const ctrl = (ed as any).getContribution('editor.contrib.folding');
-    if (!ctrl?.getFoldingModel) return;
-    ctrl.getFoldingModel().then((fm: any) => {
-        if (!fm?.regions) return;
-        const regions = fm.regions;
-        // `toggleCollapseState` FLIPS each region it is given, so only pass the
-        // ones currently in the wrong state. It is also the only entry point
-        // that repaints: it updates the fold decorations and fires the model's
-        // change event. Mutating `regions` via setCollapsed and calling
-        // `fm.update(regions)` does neither — `update()` expects NEW ranges
-        // from a range provider, so the editor never re-rendered and the
-        // buttons appeared to do nothing.
-        const toToggle = [];
-        for (let i = 0; i < regions.length; i++) {
-            if (emitterLines.has(regions.getStartLineNumber(i)) && regions.isCollapsed(i) !== collapse) {
-                toToggle.push(regions.toRegion(i));
-            }
-        }
-        if (toToggle.length > 0) fm.toggleCollapseState(toToggle);
-    });
+    if (emitterLines.length === 0) return;
+
+    const restore = ed.getSelections();
+    ed.setSelections(emitterLines.map((line) => ({
+        selectionStartLineNumber: line,
+        selectionStartColumn: 1,
+        positionLineNumber: line,
+        positionColumn: 1,
+    })));
+    ed.trigger('flint.emitters', collapse ? 'editor.fold' : 'editor.unfold', {});
+    if (restore?.length) ed.setSelections(restore);
 }
 
 interface BinSidePanelProps {
@@ -865,7 +783,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const minimapAllowed = lineCount <= MINIMAP_MAX_LINES;
     const minimapOn = minimapPref && minimapAllowed;
     const [sidePanelOpen, setSidePanelOpen] = useState(false);
-    const [paletteOpen, setPaletteOpen] = useState(false);
     const [hasMaskMap, setHasMaskMap] = useState(false);
     const [maskEditorOpen, setMaskEditorOpen] = useState(false);
 
@@ -1025,50 +942,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
 
         ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => { saveRef.current(); });
 
-        // ── Right-click "copy block" context actions ────────────────────────────
-        const copyBlockToPalette = (filter: string[] | undefined, outermost: boolean) => {
-            const m = ed.getModel();
-            const pos = ed.getPosition();
-            if (!m || !pos) return;
-            const text = m.getValue();
-            let block = findEnclosingBlock(text, pos.lineNumber, filter, outermost);
-            if (!block) block = findEnclosingBlock(text, pos.lineNumber, undefined, outermost);
-            if (!block) {
-                showToast('info', 'No block found at cursor');
-                return;
-            }
-            const nameMatch = block.blockText.match(/emitterName:\s*string\s*=\s*"([^"]+)"/);
-            const label = nameMatch ? nameMatch[1] : block.className;
-            const assets = extractAssetPaths(block.blockText);
-            useEmitterPaletteStore.getState().add({
-                label,
-                className: block.className,
-                text: block.blockText,
-                sourceProject: deriveProjectPath(filePath) ?? undefined,
-                sourceBinPath: filePath,
-                assets,
-            });
-            setPaletteOpen(true);
-            const assetSuffix = assets.length ? ` (${assets.length} asset${assets.length === 1 ? '' : 's'})` : '';
-            showToast('success', `Copied ${label} to palette${assetSuffix}`);
-        };
-
-        const copyEmitterAction = ed.addAction({
-            id: 'flint.copyEmitterBlock',
-            label: 'Copy emitter block',
-            contextMenuGroupId: 'flint',
-            contextMenuOrder: 1,
-            run: () => copyBlockToPalette(['VfxEmitterDefinitionData'], false),
-        });
-
-        const copyFullVfxAction = ed.addAction({
-            id: 'flint.copyFullVfx',
-            label: 'Copy full VfxEmitter / VfxSystem',
-            contextMenuGroupId: 'flint',
-            contextMenuOrder: 2,
-            run: () => copyBlockToPalette(['VfxSystemDefinitionData', 'VfxEmitterDefinitionData'], true),
-        });
-
         const restored = editorSessionStore.get(filePath);
         if (restored?.viewState && restored.fileVersion === fileVersion) {
             ed.restoreViewState(restored.viewState);
@@ -1137,8 +1010,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             if (styleEl) styleEl.textContent = '';
             deferCleanup(() => {
                 inlineProvider.dispose();
-                copyEmitterAction.dispose();
-                copyFullVfxAction.dispose();
                 ed.dispose();
             });
         };
@@ -1262,65 +1133,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null; }
         setShowPreview(false);
     }, []);
-
-    const insertBlockAt = useCallback((id: string, clientX: number, clientY: number) => {
-        const block = useEmitterPaletteStore.getState().getById(id);
-        const ed = editorRef.current;
-        const model = ed?.getModel();
-        if (!block || !ed || !model) return;
-
-        const target = ed.getTargetAtClientPoint(clientX, clientY);
-        const dropLine = target?.position?.lineNumber ?? model.getLineCount();
-
-        const fullText = model.getValue();
-        const { line, indent } = computeInsertPosition(fullText, dropLine, getBracketStackAtLine);
-
-        let blockText = reindentBlock(block.text, indent);
-        blockText = renameEmitterIfCollision(blockText, fullText);
-
-        const insertCol = model.getLineMaxColumn(line);
-        model.pushEditOperations(
-            [],
-            [{ range: new monaco.Range(line, insertCol, line, insertCol), text: '\n' + blockText }],
-            () => null,
-        );
-        ed.revealLineInCenter(line + 1);
-        ed.focus();
-
-        const destProject = deriveProjectPath(filePath);
-        const sourceProject = block.sourceProject;
-        const assets = block.assets ?? [];
-        const crossProject =
-            !!destProject && !!sourceProject &&
-            destProject.replace(/\\/g, '/').toLowerCase() !== sourceProject.replace(/\\/g, '/').toLowerCase();
-
-        if (crossProject && assets.length > 0) {
-            void copyBlockAssets(block, sourceProject!, destProject!).then((res) => {
-                if (res.copied > 0 && res.missing === 0) {
-                    showToast('success', `Inserted ${block.label} (+${res.copied} asset${res.copied === 1 ? '' : 's'})`);
-                } else if (res.copied > 0) {
-                    showToast('warning', `Inserted ${block.label} — copied ${res.copied}/${assets.length} assets, ${res.missing} unresolved`);
-                } else {
-                    showToast('warning', `Inserted ${block.label} — could not copy ${assets.length} asset${assets.length === 1 ? '' : 's'} (unresolved)`);
-                }
-            }).catch(() => {
-                showToast('warning', `Inserted ${block.label} — asset copy failed`);
-            });
-        } else {
-            showToast('success', `Inserted ${block.label}`);
-        }
-    }, [showToast, filePath]);
-
-    useEffect(() => {
-        const el = containerRef.current;
-        if (!el) return;
-        const onEmitterDrop = (e: Event) => {
-            const { blockId, clientX, clientY } = (e as CustomEvent<EmitterDropDetail>).detail;
-            insertBlockAt(blockId, clientX, clientY);
-        };
-        el.addEventListener(EMITTER_DROP_EVENT, onEmitterDrop as EventListener);
-        return () => el.removeEventListener(EMITTER_DROP_EVENT, onEmitterDrop as EventListener);
-    }, [insertBlockAt]);
 
     const handleFixBracket = useCallback(() => {
         const err = bracketStatus.errors[0];
@@ -1463,14 +1275,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                         {unhashing ? '…' : '#'}
                     </button>
                     <button
-                        className={`btn btn--icon${paletteOpen ? ' btn--primary' : ''}`}
-                        style={!paletteOpen ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
-                        onClick={() => setPaletteOpen(!paletteOpen)}
-                        title="Toggle copied-block palette (drag emitter/VFX blocks into any BIN)"
-                    >
-                        ▤
-                    </button>
-                    <button
                         className={`btn btn--icon${minimapOn ? ' btn--primary' : ''}`}
                         style={!minimapOn ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
                         onClick={() => setMinimapPref(!minimapPref)}
@@ -1511,7 +1315,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             </div>
 
             <div style={{ flex: 1, display: 'flex', minHeight: 0, position: 'relative' }}>
-                {paletteOpen && <EmitterPalette onClose={() => setPaletteOpen(false)} />}
                 <div
                     className="bin-editor__content"
                     ref={containerRef}
