@@ -16,6 +16,7 @@ import {
 } from '../../lib/editor/ritobinLanguage';
 import { AssetPreviewTooltip } from './AssetPreviewTooltip';
 import { MaskEditor } from './MaskEditor';
+import { SubmeshPicker, type SubmeshPickerRequest } from './SubmeshPicker';
 
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
@@ -277,7 +278,7 @@ const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     hover: { enabled: false },
     links: false,
     colorDecorators: false,
-    codeLens: true,
+    codeLens: false,
     inlineSuggest: { enabled: true, mode: 'prefix' },
     contextmenu: true,
     accessibilitySupport: 'off',
@@ -748,9 +749,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     /* Submesh picker for `Submesh: string = "..."` lines. `line` is the line the
        CodeLens was clicked on; `names` empty with a `note` means the SKN could
        not be read, in which case the field stays free text. */
-    const [submeshPicker, setSubmeshPicker] = useState<
-        { line: number; current: string; names: string[]; note: string | null } | null
-    >(null);
+    const [submeshPicker, setSubmeshPicker] = useState<SubmeshPickerRequest | null>(null);
 
     const [bracketStatus, setBracketStatus] = useState<BracketValidation>({ valid: true, errors: [] });
     const [bracketErrorIndex, setBracketErrorIndex] = useState(0);
@@ -768,6 +767,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const editorContainerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
     const openSubmeshPickerRef = useRef<(line: number) => void>(() => {});
+    const submeshDecorationsRef = useRef<string[]>([]);
 
     const latestRef = useRef({ content: '', originalContent: '', fileVersion: 0, variant });
     latestRef.current = { content, originalContent, fileVersion, variant };
@@ -915,30 +915,42 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             ed.focus();
         }
 
-        /* "Pick submesh…" above every `Submesh: string = "..."` line. The names
-           come from the SKN the BIN's own `simpleSkin` points at, so the list is
-           the real mesh's material ranges rather than free text. Registered per
-           editor instance and filtered by model URI so a second open BIN does
-           not get this one's lenses. */
-        const submeshCommandId = ed.addCommand(0, (_ctx, line: number) => {
-            void openSubmeshPickerRef.current(line);
-        }) as string;
 
-        const submeshLensProvider = monaco.languages.registerCodeLensProvider(RITOBIN_LANGUAGE_ID, {
-            provideCodeLenses(model) {
-                if (model.uri.toString() !== ed.getModel()?.uri.toString()) return { lenses: [], dispose() {} };
-                const lenses: monaco.languages.CodeLens[] = [];
-                for (let line = 1; line <= model.getLineCount(); line++) {
-                    if (/^\s*Submesh:\s*string\s*=\s*"/.test(model.getLineContent(line))) {
-                        lenses.push({
-                            range: new monaco.Range(line, 1, line, 1),
-                            command: { id: submeshCommandId, title: '◻ Pick submesh…', arguments: [line] },
-                        });
-                    }
-                }
-                return { lenses, dispose() {} };
-            },
-            resolveCodeLens: (_m, lens) => lens,
+        /* A small pencil glyph at the end of every `Submesh: string = "..."`
+           line, opening the picker. Rendered as an `after` content decoration
+           rather than a CodeLens: a lens occupies its own line above the row,
+           which pushed each override block apart. */
+        const refreshSubmeshDecorations = () => {
+            const m = ed.getModel();
+            if (!m) return;
+            const decos: editor.IModelDeltaDecoration[] = [];
+            for (let line = 1; line <= m.getLineCount(); line++) {
+                const text = m.getLineContent(line);
+                if (!/^\s*Submesh:\s*string\s*=\s*"/.test(text)) continue;
+                decos.push({
+                    range: new monaco.Range(line, text.length + 1, line, text.length + 1),
+                    options: {
+                        after: {
+                            content: ' ✎',
+                            inlineClassName: 'bin-submesh-pick',
+                        },
+                        stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+                    },
+                });
+            }
+            submeshDecorationsRef.current = ed.deltaDecorations(submeshDecorationsRef.current, decos);
+        };
+        refreshSubmeshDecorations();
+
+        const submeshClick = ed.onMouseDown((e) => {
+            const el = e.event.target as HTMLElement | null;
+            if (!el?.classList.contains('bin-submesh-pick')) return;
+            const line = e.target.position?.lineNumber;
+            if (line) {
+                e.event.preventDefault();
+                e.event.stopPropagation();
+                void openSubmeshPickerRef.current(line);
+            }
         });
 
         const inlineProvider = monaco.languages.registerInlineCompletionsProvider(RITOBIN_LANGUAGE_ID, {
@@ -968,6 +980,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 setContent(value);
                 setLineCount(model.getLineCount());
                 runBracketCheck(value);
+                refreshSubmeshDecorations();
             });
 
             const initialResult = validateBrackets(content);
@@ -1003,7 +1016,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             if (styleEl) styleEl.textContent = '';
             deferCleanup(() => {
                 inlineProvider.dispose();
-                submeshLensProvider.dispose();
+                submeshClick.dispose();
                 ed.dispose();
             });
         };
@@ -1398,36 +1411,11 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             </div>
 
             {submeshPicker && (
-                <div className="submesh-picker__scrim" onClick={() => setSubmeshPicker(null)}>
-                    <div className="submesh-picker" onClick={(e) => e.stopPropagation()}>
-                        <div className="submesh-picker__head">
-                            <span className="bin-tools__title">Submesh</span>
-                        </div>
-                        {submeshPicker.names.length > 0 ? (
-                            <div className="submesh-picker__list">
-                                {submeshPicker.names.map((name) => (
-                                    <button
-                                        key={name}
-                                        className={`submesh-picker__item${name === submeshPicker.current ? ' submesh-picker__item--current' : ''}`}
-                                        onClick={() => applySubmeshName(submeshPicker.line, name)}
-                                        title={name}
-                                    >
-                                        {name}
-                                    </button>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="submesh-picker__note">
-                                {submeshPicker.note}
-                                <br />
-                                Type the name directly on the line instead.
-                            </div>
-                        )}
-                        <div className="submesh-picker__foot">
-                            <button className="dl-btn dl-btn--sm" onClick={() => setSubmeshPicker(null)}>Cancel</button>
-                        </div>
-                    </div>
-                </div>
+                <SubmeshPicker
+                    request={submeshPicker}
+                    onPick={applySubmeshName}
+                    onClose={() => setSubmeshPicker(null)}
+                />
             )}
 
             {previewAsset && (

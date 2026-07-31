@@ -9626,8 +9626,21 @@ input.np-search:focus {
 }
 
 /* --------------------------------------------------------------------------
-   Component: Submesh picker (BIN editor CodeLens)
+   Component: Submesh picker (BIN editor)
    -------------------------------------------------------------------------- */
+
+/* Inline affordance after a `Submesh: string = "..."` value. An `after`
+   content decoration, so it adds no line of its own. */
+.bin-submesh-pick {
+  padding-left: 2px;
+  color: var(--text-muted) !important;
+  cursor: pointer;
+}
+
+.bin-submesh-pick:hover {
+  color: var(--accent-primary) !important;
+}
+
 .submesh-picker__scrim {
   position: absolute;
   inset: 0;
@@ -9641,8 +9654,8 @@ input.np-search:focus {
 .submesh-picker {
   display: flex;
   flex-direction: column;
-  width: min(420px, 90%);
-  max-height: 70%;
+  width: min(380px, 90%);
+  max-height: 60%;
   overflow: hidden;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
@@ -9650,26 +9663,32 @@ input.np-search:focus {
   box-shadow: 0 12px 32px rgb(0 0 0 / 45%);
 }
 
-.submesh-picker__head {
-  padding: 10px 14px;
+.submesh-picker__search {
+  flex-shrink: 0;
+  height: 32px;
+  padding: 0 12px;
+  border: none;
   border-bottom: 1px solid var(--border);
-  background: linear-gradient(180deg,
-    color-mix(in oklab, var(--bg-tertiary) 80%, transparent) 0%,
-    transparent 100%);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
 }
+
+.submesh-picker__search::placeholder { color: var(--text-muted); }
 
 .submesh-picker__list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px;
+  padding: 4px;
   overflow-y: auto;
 }
 
 .submesh-picker__item {
   overflow: hidden;
-  padding: 7px 10px;
-  border: 1px solid transparent;
+  padding: 5px 8px;
+  border: none;
+  border-left: 2px solid transparent;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-primary);
@@ -9679,30 +9698,23 @@ input.np-search:focus {
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
 }
 
-.submesh-picker__item:hover {
+/* Keyboard/hover highlight. */
+.submesh-picker__item--active {
   background: var(--bg-tertiary);
-  border-color: color-mix(in oklab, var(--accent-primary) 30%, var(--border));
 }
 
-/* The name already on the line. */
+/* The name already on the line — a left marker, not a red outline. */
 .submesh-picker__item--current {
-  border-color: var(--accent-primary);
+  border-left-color: var(--accent-primary);
   color: var(--accent-primary);
 }
 
+.submesh-picker__empty,
 .submesh-picker__note {
-  padding: 16px 14px;
+  padding: 12px;
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.5;
-}
-
-.submesh-picker__foot {
-  display: flex;
-  justify-content: flex-end;
-  padding: 10px 14px;
-  border-top: 1px solid var(--border);
 }
