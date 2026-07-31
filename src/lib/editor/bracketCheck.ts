@@ -202,14 +202,31 @@ function describeFrame(f: Frame): string {
     return f.label ? `${f.label} (opened line ${f.line})` : `the block opened at line ${f.line}`;
 }
 
-/** Last line belonging to `frame`, by indentation — where its closer should go. */
+/**
+ * Last line belonging to `frame`, by indentation — where its closer should go.
+ *
+ * A blank line that merely separates the block from the next sibling still reads as part of
+ * the block on screen, so the suggestion is carried across it: the closer then lands directly
+ * above the sibling, level with every other closer, instead of hugging the last value line.
+ * Comments and blank lines only extend the block when they are followed by more of its own
+ * body, so a run of trailing blanks before a shallower sibling contributes one line, not all
+ * of them.
+ */
 function blockEndLine(frame: Frame, lines: string[]): number {
     let end = frame.line - 1;
+    let pendingFiller = -1;
+
     for (let j = frame.line; j < lines.length; j++) {
-        if (isBlankOrComment(lines[j])) continue;
+        if (isBlankOrComment(lines[j])) {
+            if (pendingFiller === -1) pendingFiller = j;
+            continue;
+        }
         if (indentWidth(lines[j]) <= frame.indent) break;
         end = j;
+        pendingFiller = -1;
     }
+
+    if (pendingFiller !== -1 && pendingFiller === end + 1) end = pendingFiller;
     return end + 1;
 }
 

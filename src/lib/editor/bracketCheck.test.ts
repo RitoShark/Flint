@@ -294,3 +294,62 @@ describe('checkRitobinBrackets — mtx44', () => {
         expect(checkRitobinBrackets(doc).valid).toBe(true);
     });
 });
+
+describe('checkRitobinBrackets — where the suggested closer lands', () => {
+    /* A blank line between the broken block and the next sibling reads as part of the block
+       on screen, so the closer belongs below it — level with the sibling's own closers. */
+    it('carries the suggestion past a blank line before the next sibling', () => {
+        const doc = [
+            '        loadscreen: embed = CensoredImage {',       // 1
+            '            image: string = "a.tex"',               // 2
+            '        }',                                         // 3
+            '        loadscreenVintage: embed = CensoredImage {', // 4  <- unclosed
+            '            image: string = "b.tex"',               // 5
+            '',                                                  // 6
+            '        skinAudioProperties: embed = skinAudioProperties {', // 7
+            '        }',                                         // 8
+        ].join('\n');
+        const r = checkRitobinBrackets(doc);
+        expect(r.errors[0].line).toBe(4);
+        expect(r.errors[0].suggestLine).toBe(6);
+    });
+
+    it('consumes only one line from a run of trailing blanks', () => {
+        const doc = [
+            'a: embed = A {',      // 1
+            '    x: embed = B {',  // 2
+            '        v: f32 = 1',  // 3
+            '',                    // 4
+            '',                    // 5
+            '',                    // 6
+            '    y: f32 = 2',      // 7
+            '}',                   // 8
+        ].join('\n');
+        expect(checkRitobinBrackets(doc).errors[0].suggestLine).toBe(4);
+    });
+
+    it('keeps walking when a blank line is followed by more of the block body', () => {
+        const doc = [
+            'a: embed = A {',      // 1
+            '    x: embed = B {',  // 2
+            '        v: f32 = 1',  // 3
+            '',                    // 4
+            '        w: f32 = 2',  // 5
+            '}',                   // 6
+        ].join('\n');
+        expect(checkRitobinBrackets(doc).errors[0].suggestLine).toBe(5);
+    });
+
+    it('suggests the last content line when no blank separates the sibling', () => {
+        const doc = [
+            'a: embed = A {',      // 1
+            '    x: embed = B {',  // 2
+            '        v: f32 = 1',  // 3
+            '    y: embed = C {',  // 4
+            '        v: f32 = 2',  // 5
+            '    }',               // 6
+            '}',                   // 7
+        ].join('\n');
+        expect(checkRitobinBrackets(doc).errors[0].suggestLine).toBe(3);
+    });
+});
