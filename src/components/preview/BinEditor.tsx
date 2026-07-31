@@ -17,6 +17,8 @@ import {
 import { AssetPreviewTooltip } from './AssetPreviewTooltip';
 import { MaskEditor } from './MaskEditor';
 import { SubmeshPicker, type SubmeshPickerRequest } from './SubmeshPicker';
+import { bracketStackAtLine } from '../../lib/editor/blockExtraction';
+import { checkRitobinBrackets, type BracketCheckResult } from '../../lib/editor/bracketCheck';
 
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
@@ -61,155 +63,10 @@ function extractStringAtPosition(line: string, column: number): string | null {
 }
 
 // =============================================================================
-// Bracket Validation
-// =============================================================================
-
-interface BracketError {
-    line: number;
-    column: number;
-    char: string;
-    message: string;
-    /** Where the fix should be inserted (may differ from `line` for unclosed brackets) */
-    suggestLine: number;
-}
-
-interface BracketValidation {
-    valid: boolean;
-    errors: BracketError[];
-}
-
-const BRACKET_PAIRS: Record<string, string> = { '{': '}', '[': ']', '(': ')' };
-const CLOSING_BRACKETS = new Set(['}', ']', ')']);
-const OPEN_FOR_CLOSE: Record<string, string> = { '}': '{', ']': '[', ')': '(' };
-
-function getBracketStackAtLine(text: string, upToLine: number): { char: string; line: number; indent: string }[] {
-    const stack: { char: string; line: number; indent: string }[] = [];
-    const lines = text.split('\n');
-    const limit = Math.min(upToLine, lines.length);
-
-    for (let lineIdx = 0; lineIdx < limit; lineIdx++) {
-        const line = lines[lineIdx];
-        let inString = false;
-
-        for (let col = 0; col < line.length; col++) {
-            const ch = line[col];
-
-            if (!inString) {
-                if (ch === '#') break;
-                if (ch === '/' && col + 1 < line.length && line[col + 1] === '/') break;
-            }
-
-            if (ch === '"' && (col === 0 || line[col - 1] !== '\\')) {
-                inString = !inString;
-                continue;
-            }
-
-            if (inString) continue;
-
-            if (BRACKET_PAIRS[ch]) {
-                const indent = line.match(/^(\s*)/)?.[1] || '';
-                stack.push({ char: ch, line: lineIdx + 1, indent });
-            } else if (CLOSING_BRACKETS.has(ch)) {
-                const expected = OPEN_FOR_CLOSE[ch];
-                if (stack.length > 0 && stack[stack.length - 1].char === expected) {
-                    stack.pop();
-                }
-            }
-        }
-    }
-
-    return stack;
-}
-
-function validateBrackets(text: string): BracketValidation {
-    const errors: BracketError[] = [];
-    const stack: { char: string; line: number; column: number }[] = [];
-    const lines = text.split('\n');
-
-    for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-        const line = lines[lineIdx];
-        let inString = false;
-        let isComment = false;
-
-        for (let col = 0; col < line.length; col++) {
-            const ch = line[col];
-
-            if (!inString) {
-                if (ch === '#') { isComment = true; break; }
-                if (ch === '/' && col + 1 < line.length && line[col + 1] === '/') {
-                    isComment = true;
-                    break;
-                }
-            }
-
-            if (ch === '"' && (col === 0 || line[col - 1] !== '\\')) {
-                inString = !inString;
-                continue;
-            }
-
-            if (inString || isComment) continue;
-
-            if (BRACKET_PAIRS[ch]) {
-                stack.push({ char: ch, line: lineIdx + 1, column: col + 1 });
-            }
-            else if (CLOSING_BRACKETS.has(ch)) {
-                const expected = OPEN_FOR_CLOSE[ch];
-                if (stack.length === 0) {
-                    errors.push({
-                        line: lineIdx + 1,
-                        column: col + 1,
-                        char: ch,
-                        message: `Unexpected '${ch}' — no matching '${expected}'`,
-                        suggestLine: lineIdx + 1,
-                    });
-                } else {
-                    const top = stack[stack.length - 1];
-                    if (top.char !== expected) {
-                        errors.push({
-                            line: lineIdx + 1,
-                            column: col + 1,
-                            char: ch,
-                            message: `Expected '${BRACKET_PAIRS[top.char]}' (opened at line ${top.line}) but found '${ch}'`,
-                            suggestLine: lineIdx + 1,
-                        });
-                    } else {
-                        stack.pop();
-                    }
-                }
-            }
-        }
-    }
-
-    for (let i = stack.length - 1; i >= 0; i--) {
-        const unclosed = stack[i];
-        const openerLineIdx = unclosed.line - 1;
-        const openerIndent = lines[openerLineIdx].match(/^(\s*)/)?.[1].length ?? 0;
-
-        let blockEnd = openerLineIdx;
-        for (let j = openerLineIdx + 1; j < lines.length; j++) {
-            const trimmed = lines[j].trim();
-            if (trimmed === '' || trimmed.startsWith('#') || trimmed.startsWith('//')) continue;
-            const indent = lines[j].match(/^(\s*)/)?.[1].length ?? 0;
-            if (indent <= openerIndent) break;
-            blockEnd = j;
-        }
-        const suggestLine = blockEnd + 1;
-
-        errors.push({
-            line: unclosed.line,
-            column: unclosed.column,
-            char: unclosed.char,
-            message: `Unclosed '${unclosed.char}' (opened at line ${unclosed.line}) — add '${BRACKET_PAIRS[unclosed.char]}' after line ${suggestLine}`,
-            suggestLine,
-        });
-    }
-
-    return { valid: errors.length === 0, errors };
-}
-
-// =============================================================================
 // Editor Options
 // =============================================================================
+
+const CLOSER_FOR: Record<string, string> = { '{': '}', '[': ']', '(': ')' };
 
 /** Monaco renders the WHOLE document into the minimap canvas, which is what
  *  degrades on very large VFX bins — so the minimap is force-disabled above
@@ -751,7 +608,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
        not be read, in which case the field stays free text. */
     const [submeshPicker, setSubmeshPicker] = useState<SubmeshPickerRequest | null>(null);
 
-    const [bracketStatus, setBracketStatus] = useState<BracketValidation>({ valid: true, errors: [] });
+    const [bracketStatus, setBracketStatus] = useState<BracketCheckResult>({ valid: true, errors: [] });
     const [bracketErrorIndex, setBracketErrorIndex] = useState(0);
     const bracketCheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const decorationsRef = useRef<string[]>([]);
@@ -799,7 +656,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const runBracketCheck = useCallback((text: string) => {
         if (bracketCheckTimerRef.current) clearTimeout(bracketCheckTimerRef.current);
         bracketCheckTimerRef.current = setTimeout(async () => {
-            const result = validateBrackets(text);
+            const result = checkRitobinBrackets(text);
             setBracketStatus(result);
             setBracketErrorIndex(0);
 
@@ -845,7 +702,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             setContent(cached.content);
             setOriginalContent(cached.originalContent);
             setLineCount(cached.content.split('\n').length);
-            setBracketStatus(validateBrackets(cached.content));
+            setBracketStatus(checkRitobinBrackets(cached.content));
             setError(null);
             setLoading(false);
             return;
@@ -861,7 +718,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 setContent(text);
                 setOriginalContent(text);
                 setLineCount(text.split('\n').length);
-                const result = validateBrackets(text);
+                const result = checkRitobinBrackets(text);
                 setBracketStatus(result);
                 editorSessionStore.save(filePath, { fileVersion, content: text, originalContent: text, variant });
             } catch (err) {
@@ -958,10 +815,10 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 const trimmed = lineContent.trim();
                 if (trimmed.length > 0 && position.column <= lineContent.length) return { items: [] };
                 const fullText = model.getValue();
-                const stack = getBracketStackAtLine(fullText, position.lineNumber);
+                const stack = bracketStackAtLine(fullText, position.lineNumber);
                 if (stack.length === 0) return { items: [] };
                 const last = stack[stack.length - 1];
-                const closingChar = BRACKET_PAIRS[last.char];
+                const closingChar = CLOSER_FOR[last.char];
                 const suggestion = last.indent + closingChar;
                 if (trimmed === closingChar) return { items: [] };
                 return {
@@ -982,7 +839,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 refreshSubmeshDecorations();
             });
 
-            const initialResult = validateBrackets(content);
+            const initialResult = checkRitobinBrackets(content);
             if (!initialResult.valid) {
                 const newDecorations: editor.IModelDeltaDecoration[] = initialResult.errors.map(err => ({
                     range: new monaco.Range(err.line, 1, err.line, model.getLineMaxColumn(err.line)),
@@ -1148,7 +1005,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         const targetLine = err.suggestLine;
         const lineContent = model.getLineContent(targetLine);
         const indent = lineContent.match(/^(\s*)/)?.[1] ?? '';
-        const closingChar = BRACKET_PAIRS[err.char] ?? err.char;
+        const closingChar = CLOSER_FOR[err.char] ?? err.char;
         const insertText = '\n' + indent + closingChar;
         const col = model.getLineMaxColumn(targetLine);
         model.pushEditOperations([], [{
@@ -1250,7 +1107,12 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         const err = bracketStatus.errors[idx];
         const displayLine = err.suggestLine !== err.line ? err.suggestLine : err.line;
         const suffix = err.suggestLine !== err.line ? `insert after line ${displayLine}` : `line ${displayLine}`;
-        if (count === 1) return `Missing '${BRACKET_PAIRS[err.char] ?? err.char}' — ${suffix}`;
+        if (count === 1) {
+            // A surplus closer reports AT the offending line; an unclosed block reports at its
+            // header and points forward, so suggestLine differs from line.
+            if (err.suggestLine === err.line) return `Unexpected '${err.char}' — line ${err.line}`;
+            return `Missing '${CLOSER_FOR[err.char] ?? err.char}' — ${suffix}`;
+        }
         return `Bracket error ${idx + 1}/${count} — ${suffix}`;
     }, [bracketStatus, bracketErrorIndex]);
 

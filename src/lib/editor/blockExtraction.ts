@@ -221,7 +221,7 @@ export interface InsertPosition {
 export function computeInsertPosition(
     text: string,
     dropLine: number,
-    getStack: (text: string, upToLine: number) => { char: string; line: number; indent: string }[] = defaultBracketStack,
+    getStack: (text: string, upToLine: number) => { char: string; line: number; indent: string }[] = bracketStackAtLine,
 ): InsertPosition {
     const lines = text.split('\n');
     const clampedDrop = Math.min(Math.max(dropLine, 1), lines.length);
@@ -240,7 +240,7 @@ export function computeInsertPosition(
     return { line: clampedDrop, indent: dropIndent };
 }
 
-function defaultBracketStack(
+export function bracketStackAtLine(
     text: string,
     upToLine: number,
 ): { char: string; line: number; indent: string }[] {
