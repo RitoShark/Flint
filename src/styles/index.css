@@ -9470,3 +9470,157 @@ input.np-search:focus {
 @keyframes flint-tooltip-in {
   to { opacity: 1; }
 }
+
+/* --------------------------------------------------------------------------
+   Component: BIN Tools side panel
+   Docked 280px-wide panel in the BIN editor. Design-lab's own .dl-section /
+   .dl-row spacing is authored for full-width pages (28px margins, 24px
+   padding) and does not fit here, so these are panel-scale equivalents built
+   from the same tokens.
+   -------------------------------------------------------------------------- */
+.bin-tools {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 280px;
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+  overflow-y: auto;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-bottom-left-radius: var(--radius-md);
+  box-shadow: -4px 4px 18px rgb(0 0 0 / 35%);
+}
+
+.bin-tools__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg,
+    color-mix(in oklab, var(--bg-tertiary) 80%, transparent) 0%,
+    transparent 100%);
+}
+
+.bin-tools__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+/* Accent bar, same motif as .dl-section__head h2::before. */
+.bin-tools__title::before {
+  content: '';
+  display: block;
+  width: 3px;
+  height: 12px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--accent-primary), var(--accent-secondary));
+}
+
+.bin-tools__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.bin-tools__close:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.bin-tools__section {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bin-tools__section:last-child {
+  border-bottom: none;
+}
+
+.bin-tools__section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.bin-tools__section-head:hover {
+  color: var(--text-primary);
+}
+
+.bin-tools__chevron {
+  display: block;
+  font-size: 9px;
+  opacity: 0.6;
+  transition: transform var(--transition-fast);
+}
+
+.bin-tools__chevron--collapsed {
+  transform: rotate(-90deg);
+}
+
+.bin-tools__badge {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--accent-primary) 20%, transparent);
+  color: var(--accent-primary);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.bin-tools__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bin-tools__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bin-tools__status {
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Design-lab inputs are page-scale (36px); match the 28px .dl-btn--sm used
+   beside them so panel rows line up on one baseline. */
+.bin-tools .dl-input {
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+}

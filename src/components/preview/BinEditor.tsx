@@ -447,34 +447,54 @@ function SaveIcon() {
     );
 }
 
-/* Fold/unfold every VfxEmitterDefinitionData block.
+/* Fold/unfold every VfxEmitterDefinitionData block — and ONLY those, so an
+ * emitter's parent VfxSystem and unrelated blocks keep their state.
  *
- * Driven through Monaco's own `editor.fold` / `editor.unfold` actions rather
- * than by walking the folding model by hand. Those actions operate on the
- * current selections, so putting a cursor on each emitter line and triggering
- * once lets Monaco resolve the regions and repaint. Reaching into the folding
- * contribution directly proved unreliable — its model is produced by a
- * debounced scheduler, so the regions are not necessarily there when a click
- * handler asks for them. */
+ * Monaco builds the folding model on a debounced scheduler, so right after a
+ * load or an edit `getFoldingModel()` can resolve before any region exists.
+ * That is what made the buttons look dead. `awaitFoldingRegions` retries a few
+ * animation frames until regions appear.
+ *
+ * The collapse itself goes through `toggleCollapseState`: it repaints the fold
+ * decorations and fires the model's change event. Setting `regions.setCollapsed`
+ * and calling `foldingModel.update(regions)` does neither — `update()` wants NEW
+ * ranges from a range provider, not the regions it already owns. */
+async function awaitFoldingRegions(ctrl: any, tries = 12): Promise<any | null> {
+    for (let attempt = 0; attempt < tries; attempt++) {
+        const fm = await ctrl.getFoldingModel();
+        if (fm?.regions?.length > 0) return fm;
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    return null;
+}
+
 function setEmittersFolded(ed: editor.IStandaloneCodeEditor, collapse: boolean) {
     const model = ed.getModel();
     if (!model) return;
-    const emitterLines: number[] = [];
+
+    const emitterLines = new Set<number>();
     const total = model.getLineCount();
     for (let line = 1; line <= total; line++) {
-        if (/VfxEmitterDefinitionData\s*\{/.test(model.getLineContent(line))) emitterLines.push(line);
+        if (/VfxEmitterDefinitionData\s*\{/.test(model.getLineContent(line))) emitterLines.add(line);
     }
-    if (emitterLines.length === 0) return;
+    if (emitterLines.size === 0) return;
 
-    const restore = ed.getSelections();
-    ed.setSelections(emitterLines.map((line) => ({
-        selectionStartLineNumber: line,
-        selectionStartColumn: 1,
-        positionLineNumber: line,
-        positionColumn: 1,
-    })));
-    ed.trigger('flint.emitters', collapse ? 'editor.fold' : 'editor.unfold', {});
-    if (restore?.length) ed.setSelections(restore);
+    const ctrl = (ed as any).getContribution('editor.contrib.folding');
+    if (!ctrl?.getFoldingModel) return;
+
+    void awaitFoldingRegions(ctrl).then((fm) => {
+        if (!fm?.regions) return;
+        const regions = fm.regions;
+        // toggleCollapseState FLIPS what it is given, so pass only the regions
+        // that are currently in the wrong state.
+        const toToggle: unknown[] = [];
+        for (let i = 0; i < regions.length; i++) {
+            if (emitterLines.has(regions.getStartLineNumber(i)) && regions.isCollapsed(i) !== collapse) {
+                toToggle.push(regions.toRegion(i));
+            }
+        }
+        if (toToggle.length > 0) fm.toggleCollapseState(toToggle);
+    });
 }
 
 interface BinSidePanelProps {
@@ -575,180 +595,120 @@ const BinSidePanel: React.FC<BinSidePanelProps> = ({ content, onContentChange, e
     const handleFoldEmitters = () => { const ed = editorRef.current; if (ed) setEmittersFolded(ed, true); };
     const handleUnfoldEmitters = () => { const ed = editorRef.current; if (ed) setEmittersFolded(ed, false); };
 
-    const panelStyle: React.CSSProperties = {
-        position: 'absolute',
-        top: 0,
-        right: 0,
-        width: 280,
-        zIndex: 35,
-        backgroundColor: 'var(--bg-secondary)',
-        border: '1px solid var(--border)',
-        borderTop: 'none',
-        borderBottomLeftRadius: 8,
-        borderBottomRightRadius: 0,
-        borderTopRightRadius: 0,
-        boxShadow: '-4px 4px 18px rgba(0,0,0,0.35)',
-        fontFamily: 'var(--font-sans)',
-        fontSize: 12,
-        color: 'var(--text-primary)',
-        overflow: 'hidden',
-    };
-
-    const sectionStyle: React.CSSProperties = {
-        borderTop: '1px solid var(--border)',
-        padding: '6px 14px 8px',
-    };
-
-    const sectionHeaderStyle: React.CSSProperties = {
-        display: 'flex', alignItems: 'center', gap: 4,
-        height: 22, cursor: 'pointer', userSelect: 'none',
-        marginBottom: 4,
-    };
-
-    const inputStyle: React.CSSProperties = {
-        height: 24, padding: '2px 6px',
-        background: 'var(--bg-tertiary)',
-        border: '1px solid var(--border)',
-        borderRadius: 4, color: 'var(--text-primary)',
-        fontSize: 12, fontFamily: 'var(--font-mono)',
-        outline: 'none',
-        width: '100%',
-        boxSizing: 'border-box',
-    };
-
-    const btnStyle: React.CSSProperties = {
-        height: 24, padding: '2px 10px',
-        background: 'var(--bg-tertiary)',
-        border: '1px solid var(--border)',
-        borderRadius: 4, color: 'var(--text-primary)',
-        fontSize: 11, cursor: 'pointer', whiteSpace: 'nowrap',
-    };
-
-    const btnPrimaryStyle: React.CSSProperties = {
-        ...btnStyle,
-        background: 'var(--accent-primary)',
-        border: '1px solid var(--accent-primary)',
-        color: '#fff',
-    };
-
-    const statusStyle: React.CSSProperties = {
-        fontSize: 10, color: 'var(--text-muted)',
-        marginTop: 3, overflow: 'hidden',
-        textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-    };
-
     return (
-        <div style={panelStyle}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 14px', borderBottom: '1px solid var(--border)', background: 'var(--bg-tertiary)' }}>
-                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', letterSpacing: '0.04em', textTransform: 'uppercase' }}>BIN Tools</span>
-                <button style={{ ...btnStyle, padding: '1px 6px', fontSize: 13, border: 'none', background: 'transparent' }} onClick={onClose} title="Close">✕</button>
+        <div className="bin-tools">
+            <div className="bin-tools__head">
+                <span className="bin-tools__title">BIN Tools</span>
+                <button className="bin-tools__close" onClick={onClose} title="Close">✕</button>
             </div>
 
             {/* ── Skin Scale ──────────────────────────────────────────────────── */}
-            <div style={sectionStyle}>
-                <div style={sectionHeaderStyle} onClick={() => setSkinScaleCollapsed(!skinScaleCollapsed)}>
-                    <span style={{ fontSize: 9, opacity: 0.6, transform: skinScaleCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s', display: 'inline-block' }}>▼</span>
-                    <span style={{ fontWeight: 600, fontSize: 11 }}>Skin Scale</span>
+            <div className="bin-tools__section">
+                <div className="bin-tools__section-head" onClick={() => setSkinScaleCollapsed(!skinScaleCollapsed)}>
+                    <span className={`bin-tools__chevron${skinScaleCollapsed ? ' bin-tools__chevron--collapsed' : ''}`}>▼</span>
+                    <span>Skin Scale</span>
                 </div>
                 {!skinScaleCollapsed && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                    <div className="bin-tools__body">
+                        <div className="bin-tools__row">
                             <input
-                                style={{ ...inputStyle, flex: 2, fontFamily: 'var(--font-mono)' }}
+                                className="dl-input"
+                                style={{ flex: 2, minWidth: 0, fontFamily: 'var(--font-mono)' }}
                                 value={skinScaleVal}
                                 onChange={e => handleSkinScaleChange(e.target.value)}
                                 placeholder="1.0"
                                 title="skinScale value"
                             />
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1 }}>
+                            <div className="bin-tools__row" style={{ flex: 1, gap: 3 }}>
                                 <input
-                                    style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }}
+                                    className="dl-input"
+                                    style={{ minWidth: 0, fontFamily: 'var(--font-mono)' }}
                                     value={skinScalePct}
                                     onChange={e => handlePctChange(e.target.value)}
                                     placeholder="100"
                                     title="% of original"
                                 />
-                                <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>%</span>
+                                <span style={{ flexShrink: 0, color: 'var(--text-muted)', fontSize: 11 }}>%</span>
                             </div>
                             <button
-                                style={{ ...btnStyle, padding: '2px 8px', flexShrink: 0, fontWeight: 700, fontSize: 13 }}
+                                className="dl-btn dl-btn--sm dl-btn--icon"
                                 onClick={handleApplySkinScale}
                                 title={skinScaleExists ? 'Apply value' : 'Add skinScale property'}
                             >
                                 {skinScaleExists ? '✓' : '+'}
                             </button>
                         </div>
-                        {skinScaleStatus && <div style={statusStyle}>{skinScaleStatus}</div>}
+                        {skinScaleStatus && <div className="bin-tools__status">{skinScaleStatus}</div>}
                     </div>
                 )}
             </div>
 
             {/* ── Material Override ───────────────────────────────────────────── */}
-            <div style={sectionStyle}>
-                <div style={sectionHeaderStyle} onClick={() => setMatCollapsed(!matCollapsed)}>
-                    <span style={{ fontSize: 9, opacity: 0.6, transform: matCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s', display: 'inline-block' }}>▼</span>
-                    <span style={{ fontWeight: 600, fontSize: 11 }}>Material Override</span>
-                    {matExists && <span style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--accent-primary)', background: 'color-mix(in oklab, var(--accent-primary) 15%, transparent)', borderRadius: 4, padding: '1px 5px' }}>exists</span>}
+            <div className="bin-tools__section">
+                <div className="bin-tools__section-head" onClick={() => setMatCollapsed(!matCollapsed)}>
+                    <span className={`bin-tools__chevron${matCollapsed ? ' bin-tools__chevron--collapsed' : ''}`}>▼</span>
+                    <span>Material Override</span>
+                    {matExists && <span className="bin-tools__badge">exists</span>}
                 </div>
                 {!matCollapsed && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div className="bin-tools__body">
                         {!matExists ? (
-                            <button style={{ ...btnStyle, width: '100%' }} onClick={handleAddMatOverride}>
+                            <button className="dl-btn dl-btn--sm" style={{ width: '100%' }} onClick={handleAddMatOverride}>
                                 + Add materialOverride block
                             </button>
                         ) : (
                             <>
                                 {!matFormOpen && (
-                                    <div style={{ display: 'flex', gap: 4 }}>
-                                        <button style={{ ...btnStyle, flex: 1 }} onClick={() => { setMatKind('texture'); setMatFormOpen(true); }}>◻ Texture</button>
-                                        <button style={{ ...btnStyle, flex: 1 }} onClick={() => { setMatKind('material'); setMatFormOpen(true); }}>◆ Material</button>
+                                    <div className="bin-tools__row">
+                                        <button className="dl-btn dl-btn--sm" style={{ flex: 1 }} onClick={() => { setMatKind('texture'); setMatFormOpen(true); }}>◻ Texture</button>
+                                        <button className="dl-btn dl-btn--sm" style={{ flex: 1 }} onClick={() => { setMatKind('material'); setMatFormOpen(true); }}>◆ Material</button>
                                     </div>
                                 )}
                                 {matFormOpen && (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                                        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 2 }}>
+                                    <div className="bin-tools__body">
+                                        <div style={{ color: 'var(--text-muted)', fontSize: 10 }}>
                                             Insert {matKind} override:
                                         </div>
                                         <input
-                                            style={inputStyle}
+                                            className="dl-input"
                                             placeholder={matKind === 'texture' ? 'assets/characters/.../texture.tex' : 'Material name'}
                                             value={matPath}
                                             onChange={e => setMatPath(e.target.value)}
                                         />
                                         <input
-                                            style={inputStyle}
+                                            className="dl-input"
                                             placeholder="Submesh name"
                                             value={matSubmesh}
                                             onChange={e => setMatSubmesh(e.target.value)}
                                             onKeyDown={e => { if (e.key === 'Enter') handleInsertMat(); if (e.key === 'Escape') setMatFormOpen(false); }}
                                         />
-                                        <div style={{ display: 'flex', gap: 4 }}>
-                                            <button style={{ ...btnPrimaryStyle, flex: 1 }} onClick={handleInsertMat}>Insert</button>
-                                            <button style={{ ...btnStyle, flex: 1 }} onClick={() => setMatFormOpen(false)}>Cancel</button>
+                                        <div className="bin-tools__row">
+                                            <button className="dl-btn dl-btn--sm dl-btn--primary" style={{ flex: 1 }} onClick={handleInsertMat}>Insert</button>
+                                            <button className="dl-btn dl-btn--sm" style={{ flex: 1 }} onClick={() => setMatFormOpen(false)}>Cancel</button>
                                         </div>
                                     </div>
                                 )}
                             </>
                         )}
-                        {matStatus && <div style={statusStyle}>{matStatus}</div>}
+                        {matStatus && <div className="bin-tools__status">{matStatus}</div>}
                     </div>
                 )}
             </div>
 
             {/* ── VFX Emitters ────────────────────────────────────────────────── */}
             {isVfx && (
-                <div style={sectionStyle}>
-                    <div style={sectionHeaderStyle} onClick={() => setVfxCollapsed(!vfxCollapsed)}>
-                        <span style={{ fontSize: 9, opacity: 0.6, transform: vfxCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s', display: 'inline-block' }}>▼</span>
-                        <span style={{ fontWeight: 600, fontSize: 11 }}>VFX Emitters</span>
+                <div className="bin-tools__section">
+                    <div className="bin-tools__section-head" onClick={() => setVfxCollapsed(!vfxCollapsed)}>
+                        <span className={`bin-tools__chevron${vfxCollapsed ? ' bin-tools__chevron--collapsed' : ''}`}>▼</span>
+                        <span>VFX Emitters</span>
                     </div>
                     {!vfxCollapsed && (
-                        <div style={{ display: 'flex', gap: 4 }}>
-                            <button style={{ ...btnStyle, flex: 1 }} onClick={handleFoldEmitters} title="Fold all VfxEmitterDefinitionData blocks">
-                                ▶ Fold All
+                        <div className="bin-tools__row">
+                            <button className="dl-btn dl-btn--sm" style={{ flex: 1 }} onClick={handleFoldEmitters} title="Fold all VfxEmitterDefinitionData blocks">
+                                Fold All
                             </button>
-                            <button style={{ ...btnStyle, flex: 1 }} onClick={handleUnfoldEmitters} title="Unfold all VfxEmitterDefinitionData blocks">
-                                ▼ Unfold All
+                            <button className="dl-btn dl-btn--sm" style={{ flex: 1 }} onClick={handleUnfoldEmitters} title="Unfold all VfxEmitterDefinitionData blocks">
+                                Unfold All
                             </button>
                         </div>
                     )}
