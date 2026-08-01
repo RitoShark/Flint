@@ -837,6 +837,16 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             void (async () => {
                 try {
                     const res = await api.readSknGenericMaterials(filePath);
+                    const matCount =
+                        (res as { materials?: unknown[] } | null)?.materials?.length ?? 0;
+                    console.info(`[shaderforge] materials resolved: ${matCount}`);
+                    if (matCount === 0) {
+                        console.warn(
+                            '[shaderforge] no materials resolved for', filePath,
+                            '- skin BIN not found from this path; preview keeps the PBR look',
+                        );
+                        return;
+                    }
                     // Loose view of the pass: the precise DTO types live in
                     // the private module and aren't visible to stub builds.
                     const sf = (await loadShaderForge()) as null | {
