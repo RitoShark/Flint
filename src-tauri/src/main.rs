@@ -323,6 +323,7 @@ fn main() {
             commands::file::decode_dds_to_png,
             commands::file::decode_bytes_to_png,
             commands::file::decode_bytes_to_rgba,
+            commands::file::decode_texture_disk,
             commands::file::get_bundled_floor_png,
             commands::file::get_bundled_skybox_face,
             commands::file::read_text_file,

@@ -102,6 +102,34 @@ pub async fn decode_bytes_to_png(request: tauri::ipc::Request<'_>) -> Result<Dec
     decode_texture_bytes_impl(data)
 }
 
+/// Decode a DDS/TEX file to the shader-preview raw-RGBA payload:
+/// `[u32 width][u32 height][u32 flags = 0][u32 reserved = 0]` then RGBA
+/// rows. The 16-byte header (vs `decode_bytes_to_rgba`'s 8) is the layout
+/// the translated-material texture upload consumes; flags stay 0 — the
+/// consumer reads only width/height.
+#[tauri::command]
+pub async fn decode_texture_disk(path: String) -> Result<tauri::ipc::Response, String> {
+    let _t = ipc_trace::enter("decode_texture_disk");
+    let blob = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
+        let data = fs::read(&path).map_err(|e| format!("read texture '{}': {}", path, e))?;
+        let rgba = parse_texture_any(&data)?
+            .decode_rgba()
+            .map_err(|e| format!("Failed to decode texture: {:?}", e))?;
+        let (width, height) = (rgba.width(), rgba.height());
+        let pixels = rgba.into_raw();
+        let mut buf = Vec::with_capacity(16 + pixels.len());
+        buf.extend_from_slice(&width.to_le_bytes());
+        buf.extend_from_slice(&height.to_le_bytes());
+        buf.extend_from_slice(&0u32.to_le_bytes()); // flags
+        buf.extend_from_slice(&0u32.to_le_bytes()); // reserved
+        buf.extend_from_slice(&pixels);
+        Ok(buf)
+    })
+    .await
+    .map_err(|e| format!("decode task join failed: {e}"))??;
+    Ok(tauri::ipc::Response::new(blob))
+}
+
 /// Decode raw DDS/TEX bytes to raw RGBA pixels for direct canvas rendering —
 /// skips PNG encode, base64, and the browser's PNG decode entirely.
 /// Response layout: `[u32 width][u32 height][width×height×4 RGBA bytes]`.

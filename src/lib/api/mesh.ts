@@ -153,6 +153,13 @@ export async function readSknMesh(path: string): Promise<SknMeshData> {
     return mesh;
 }
 
+/** Materials for the shader-preview translated pass. The result shape
+ *  belongs to the shader-preview module — callers hand it straight to
+ *  `applyTranslatedPass`. Stub builds reject; callers catch and skip. */
+export async function readSknGenericMaterials(sknPath: string): Promise<unknown> {
+    return await invokeCommand<unknown>('read_skn_generic_materials_disk', { sknPath });
+}
+
 export async function readScbMesh(path: string): Promise<ScbMeshData> {
     const buf = await invokeCommand<ArrayBuffer>('read_scb_mesh', { path });
     const mesh = decodeMeshPayload(buf);

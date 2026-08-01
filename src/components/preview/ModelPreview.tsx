@@ -37,6 +37,7 @@ import { AnimationPlayer } from '../../lib/babylon/animationPlayer';
 import { SubmeshVisibilityTimeline } from '../../lib/babylon/submeshVisibility';
 import type { AnimationClipInfo } from '../../lib/api/mesh';
 import { modelPreviewSessionStore, type ModelPreviewSession } from '../../lib/stores/modelPreviewSessionStore';
+import { shaderForgeAvailable, loadShaderForge } from '@shaderforge';
 
 // ============================================================================
 // Types
@@ -826,6 +827,40 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 `=> isEnabled=${m.isEnabled()} albedo=${texture ? 'tex' : 'MAGENTA(no-tex)'}`
             );
         });
+
+        // Translated-materials pass (shader preview): game-accurate shaders
+        // from the private module, applied per submesh over the PBR look
+        // above. Any failure — stub build, no ShaderCache, translation or
+        // texture miss — leaves that submesh's PBR material untouched.
+        if (isSkn && shaderForgeAvailable) {
+            const passMeshes = meshes;
+            void (async () => {
+                try {
+                    const res = await api.readSknGenericMaterials(filePath);
+                    // Loose view of the pass: the precise DTO types live in
+                    // the private module and aren't visible to stub builds.
+                    const sf = (await loadShaderForge()) as null | {
+                        translatedMaterial: {
+                            applyTranslatedPass: (
+                                scene: unknown,
+                                res: unknown,
+                                targets: unknown,
+                                opts?: unknown,
+                            ) => Promise<unknown>;
+                        };
+                    };
+                    if (!sf || scene.isDisposed) return;
+                    await sf.translatedMaterial.applyTranslatedPass(
+                        scene,
+                        res,
+                        passMeshes.map(m => ({ submeshName: m.name, mesh: m })),
+                        { cacheHint: filePath, shouldAbort: () => scene.isDisposed },
+                    );
+                } catch (e) {
+                    console.warn('[shaderforge] translated pass skipped:', e);
+                }
+            })();
+        }
 
         meshes.forEach((m, i) => {
             const bi = m.getBoundingInfo();
