@@ -299,6 +299,98 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     useAction('view.zoomOut', () => zoomByFactor(1.2));
 
     const activeMeshesRef = useRef<Mesh[]>([]);
+
+    // ── Game shaders (private shader-preview module) ─────────────────
+    // Opt-in per user preference: translation is expensive, so nothing
+    // runs until the toggle is on. Previous materials are snapshotted so
+    // toggling off restores the fast PBR look instantly.
+    const [gameShaders, setGameShaders] = useState(() => {
+        try {
+            return localStorage.getItem('flint.gameShaders') === '1';
+        } catch {
+            return false;
+        }
+    });
+    const gameShadersRef = useRef(gameShaders);
+    gameShadersRef.current = gameShaders;
+    const prevMaterialsRef = useRef<Map<Mesh, { mat: Material | null; alphaIndex: number }>>(new Map());
+    const passTokenRef = useRef(0);
+
+    const applyGameShadersPass = async () => {
+        const s = scene;
+        const passMeshes = activeMeshesRef.current;
+        if (!shaderForgeAvailable || !s || s.isDisposed || passMeshes.length === 0) return;
+        const token = ++passTokenRef.current;
+        const aborted = () =>
+            s.isDisposed || token !== passTokenRef.current || !gameShadersRef.current;
+        try {
+            const res = await api.readSknGenericMaterials(filePath);
+            const matCount =
+                (res as { materials?: unknown[] } | null)?.materials?.length ?? 0;
+            console.info(`[shaderforge] materials resolved: ${matCount}`);
+            if (matCount === 0) {
+                console.warn(
+                    '[shaderforge] no materials resolved for', filePath,
+                    '- skin BIN not found from this path; preview keeps the PBR look',
+                );
+                return;
+            }
+            // Loose view of the pass: the precise DTO types live in the
+            // private module and aren't visible to stub builds.
+            const sf = (await loadShaderForge()) as null | {
+                translatedMaterial: {
+                    applyTranslatedPass: (
+                        scene: unknown,
+                        res: unknown,
+                        targets: unknown,
+                        opts?: unknown,
+                    ) => Promise<unknown>;
+                };
+            };
+            if (!sf || aborted()) return;
+            for (const m of passMeshes) {
+                if (!prevMaterialsRef.current.has(m)) {
+                    prevMaterialsRef.current.set(m, { mat: m.material, alphaIndex: m.alphaIndex });
+                }
+            }
+            await sf.translatedMaterial.applyTranslatedPass(
+                s,
+                res,
+                passMeshes.map(m => ({ submeshName: m.name, mesh: m })),
+                { cacheHint: filePath, shouldAbort: aborted },
+            );
+        } catch (e) {
+            console.warn('[shaderforge] translated pass skipped:', e);
+        }
+    };
+
+    const removeGameShadersPass = () => {
+        passTokenRef.current++; // abort any in-flight apply
+        for (const [m, prev] of prevMaterialsRef.current) {
+            if (m.isDisposed()) continue;
+            const cur = m.material;
+            if (cur && cur !== prev.mat) {
+                m.material = prev.mat;
+                m.alphaIndex = prev.alphaIndex;
+                // Textures stay owned by the module's caches / the scene —
+                // only the ShaderMaterial wrapper goes.
+                cur.dispose();
+            }
+        }
+        prevMaterialsRef.current.clear();
+    };
+
+    useEffect(() => {
+        try {
+            localStorage.setItem('flint.gameShaders', gameShaders ? '1' : '0');
+        } catch { /* private mode etc. — session-only */ }
+        if (gameShaders) {
+            void applyGameShadersPass();
+        } else {
+            removeGameShadersPass();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [gameShaders]);
     const skeletonRef = useRef<Skeleton | null>(null);
     const skeletonViewerRef = useRef<SkeletonViewer | null>(null);
     const gridMeshRef = useRef<any>(null);
@@ -728,23 +820,15 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     // — drives the alpha-test/blend path at material build.
                     texture.hasAlpha = !!data.has_alpha;
 
+                    // Plain tiling only. The offset/flipbook transforms we
+                    // used to apply here interacted wrongly with the PNG
+                    // loader's V-flip on authored-UV materials; the base
+                    // look now matches the reference viewer (plain WRAP +
+                    // scale), and materials with real UV manipulation render
+                    // correctly through the game-shaders pass instead.
                     if (data.uv_scale) {
                         texture.uScale = data.uv_scale[0];
                         texture.vScale = data.uv_scale[1];
-                    }
-                    if (data.uv_offset) {
-                        texture.uOffset = data.uv_offset[0];
-                        texture.vOffset = data.uv_offset[1];
-                    }
-                    if (data.flipbook_size) {
-                        const [cols, rows] = data.flipbook_size;
-                        const frame = data.flipbook_frame || 0;
-                        const col = Math.floor(frame % cols);
-                        const row = Math.floor(frame / cols);
-                        texture.uScale = 1 / cols;
-                        texture.vScale = 1 / rows;
-                        texture.uOffset = col / cols;
-                        texture.vOffset = 1 - (row + 1) / rows;
                     }
                     textureCache.set(matName, texture);
                 } catch (e) {
@@ -842,48 +926,12 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             );
         });
 
-        // Translated-materials pass (shader preview): game-accurate shaders
-        // from the private module, applied per submesh over the PBR look
-        // above. Any failure — stub build, no ShaderCache, translation or
-        // texture miss — leaves that submesh's PBR material untouched.
-        if (isSkn && shaderForgeAvailable) {
-            const passMeshes = meshes;
-            void (async () => {
-                try {
-                    const res = await api.readSknGenericMaterials(filePath);
-                    const matCount =
-                        (res as { materials?: unknown[] } | null)?.materials?.length ?? 0;
-                    console.info(`[shaderforge] materials resolved: ${matCount}`);
-                    if (matCount === 0) {
-                        console.warn(
-                            '[shaderforge] no materials resolved for', filePath,
-                            '- skin BIN not found from this path; preview keeps the PBR look',
-                        );
-                        return;
-                    }
-                    // Loose view of the pass: the precise DTO types live in
-                    // the private module and aren't visible to stub builds.
-                    const sf = (await loadShaderForge()) as null | {
-                        translatedMaterial: {
-                            applyTranslatedPass: (
-                                scene: unknown,
-                                res: unknown,
-                                targets: unknown,
-                                opts?: unknown,
-                            ) => Promise<unknown>;
-                        };
-                    };
-                    if (!sf || scene.isDisposed) return;
-                    await sf.translatedMaterial.applyTranslatedPass(
-                        scene,
-                        res,
-                        passMeshes.map(m => ({ submeshName: m.name, mesh: m })),
-                        { cacheHint: filePath, shouldAbort: () => scene.isDisposed },
-                    );
-                } catch (e) {
-                    console.warn('[shaderforge] translated pass skipped:', e);
-                }
-            })();
+        // Game-shaders pass (private module): opt-in via the Display
+        // popup toggle — translation work only happens when it's on.
+        // The snapshot map from any previous model is stale now.
+        prevMaterialsRef.current.clear();
+        if (isSkn && shaderForgeAvailable && gameShadersRef.current) {
+            void applyGameShadersPass();
         }
 
         meshes.forEach((m, i) => {
@@ -1433,6 +1481,14 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             {activePopup === 'display' && (
                 <MpPopup title="Display & Skeleton" side="right" onClose={() => setActivePopup(null)}>
                     <MpToggleRow label="Wireframe" checked={wireframe} onChange={setWireframe} />
+                    {shaderForgeAvailable && meshType === 'skinned' && (
+                        <MpToggleRow
+                            label="Game shaders"
+                            desc="Game-accurate materials (slower)"
+                            checked={gameShaders}
+                            onChange={setGameShaders}
+                        />
+                    )}
                     {skeletonData && (
                         <MpToggleRow
                             label="Show skeleton"
