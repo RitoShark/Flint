@@ -13,6 +13,15 @@ pub struct DecodedImage {
     pub width: u32,
     pub height: u32,
     pub format: String,
+    /// Any pixel with alpha < 255 in the decoded RGBA.
+    #[serde(default)]
+    pub has_alpha: bool,
+}
+
+/// Any pixel below full alpha — same scan the reference viewer uses to
+/// decide alpha-test/blend vs opaque.
+pub(crate) fn scan_has_alpha(rgba: &[u8]) -> bool {
+    rgba.chunks_exact(4).any(|p| p[3] < 255)
 }
 
 pub(super) fn parse_texture_dimensions(data: &[u8]) -> Result<(u32, u32), String> {
@@ -35,12 +44,15 @@ pub(super) fn parse_texture_any(data: &[u8]) -> Result<Texture, String> {
     }
 }
 
-/// Synchronous DDS/TEX → base64 PNG, callable from rayon workers / other
-/// commands that need to decode many textures in parallel without going back
-/// through the async tauri::command path.
-pub fn decode_texture_file_sync(path: &Path) -> Result<String, String> {
+/// Synchronous DDS/TEX → (base64 PNG, has_alpha), callable from rayon
+/// workers / other commands that need to decode many textures in parallel
+/// without going back through the async tauri::command path. `has_alpha`
+/// (any pixel with alpha < 255) drives the preview's alpha-test/blend
+/// path.
+pub fn decode_texture_file_sync_with_alpha(path: &Path) -> Result<(String, bool), String> {
     let data = fs::read(path).map_err(|e| format!("Failed to read texture file: {}", e))?;
-    Ok(decode_texture_bytes_impl(&data)?.data)
+    let decoded = decode_texture_bytes_impl(&data)?;
+    Ok((decoded.data, decoded.has_alpha))
 }
 
 /// Shared decode logic: take raw DDS/TEX bytes and produce a base64-encoded PNG.
@@ -64,6 +76,7 @@ fn decode_texture_bytes_impl(data: &[u8]) -> Result<DecodedImage, String> {
     // Use dimensions from the decoded buffer, not texture metadata (they can differ).
     let actual_width = rgba_image.width();
     let actual_height = rgba_image.height();
+    let has_alpha = scan_has_alpha(rgba_image.as_raw());
 
     let mut png_data = Vec::new();
     {
@@ -79,6 +92,7 @@ fn decode_texture_bytes_impl(data: &[u8]) -> Result<DecodedImage, String> {
         width: actual_width,
         height: actual_height,
         format: format.to_string(),
+        has_alpha,
     })
 }
 
@@ -117,10 +131,12 @@ pub async fn decode_texture_disk(path: String) -> Result<tauri::ipc::Response, S
             .map_err(|e| format!("Failed to decode texture: {:?}", e))?;
         let (width, height) = (rgba.width(), rgba.height());
         let pixels = rgba.into_raw();
+        // bit 0 = has_alpha, matching the reference header convention.
+        let flags: u32 = if scan_has_alpha(&pixels) { 1 } else { 0 };
         let mut buf = Vec::with_capacity(16 + pixels.len());
         buf.extend_from_slice(&width.to_le_bytes());
         buf.extend_from_slice(&height.to_le_bytes());
-        buf.extend_from_slice(&0u32.to_le_bytes()); // flags
+        buf.extend_from_slice(&flags.to_le_bytes());
         buf.extend_from_slice(&0u32.to_le_bytes()); // reserved
         buf.extend_from_slice(&pixels);
         Ok(buf)

@@ -9,11 +9,12 @@ use flint_core::mesh::ritobin::{find_concat_ritobin_text, find_linked_bin_ritobi
 use flint_core::mesh::skn::{parse_skn_file, SknMeshData};
 use flint_core::mesh::scb::{parse_scb_file, ScbMeshData};
 use flint_core::mesh::texture::MaterialProperties;
-use crate::commands::file::decode_texture_file_sync;
+use crate::commands::file::decode_texture_file_sync_with_alpha;
 
 /// Synchronous decode wrapper for use inside rayon `par_iter` blocks.
-fn decode_texture_blocking(path: &Path) -> Result<String, String> {
-    decode_texture_file_sync(path)
+/// Returns (base64 PNG, has_alpha).
+fn decode_texture_blocking(path: &Path) -> Result<(String, bool), String> {
+    decode_texture_file_sync_with_alpha(path)
 }
 
 /// Read and parse an SCB (Static Mesh Binary) file. Returns the mesh in a
@@ -155,7 +156,7 @@ async fn read_scb_mesh_inner(path: String) -> Result<ScbMeshData, String> {
                 .await
                 .unwrap_or_default();
 
-                let mut decoded_textures: HashMap<String, String> = HashMap::new();
+                let mut decoded_textures: HashMap<String, (String, bool)> = HashMap::new();
                 for result in results.into_iter().flatten() {
                     decoded_textures.insert(result.0, result.1);
                 }
@@ -166,13 +167,14 @@ async fn read_scb_mesh_inner(path: String) -> Result<ScbMeshData, String> {
                 for (material_name, props) in material_props_map {
                     if let Some(resolved) = resolve_texture_path(base_dir, &props.texture_path) {
                         let path_key = resolved.to_string_lossy().to_string();
-                        if let Some(texture_data) = decoded_textures.get(&path_key) {
+                        if let Some((texture_data, has_alpha)) = decoded_textures.get(&path_key) {
                             material_data.insert(material_name, MaterialData {
                                 texture: texture_data.clone(),
                                 uv_scale: props.uv_scale,
                                 uv_offset: props.uv_offset,
                                 flipbook_size: props.flipbook_size,
                                 flipbook_frame: props.flipbook_frame,
+                                has_alpha: *has_alpha,
                             });
                         }
                     }
@@ -344,7 +346,7 @@ async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {
                 .await
                 .unwrap_or_default();
 
-                let mut decoded_textures: HashMap<String, String> = HashMap::new();
+                let mut decoded_textures: HashMap<String, (String, bool)> = HashMap::new();
                 for result in results.into_iter().flatten() {
                     decoded_textures.insert(result.0, result.1);
                 }
@@ -355,13 +357,14 @@ async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {
                 for (material_name, props) in material_props_map {
                     if let Some(resolved) = resolve_texture_path(base_dir, &props.texture_path) {
                         let path_key = resolved.to_string_lossy().to_string();
-                        if let Some(texture_data) = decoded_textures.get(&path_key) {
+                        if let Some((texture_data, has_alpha)) = decoded_textures.get(&path_key) {
                             material_data.insert(material_name, MaterialData {
                                 texture: texture_data.clone(),
                                 uv_scale: props.uv_scale,
                                 uv_offset: props.uv_offset,
                                 flipbook_size: props.flipbook_size,
                                 flipbook_frame: props.flipbook_frame,
+                                has_alpha: *has_alpha,
                             });
                         }
                     }

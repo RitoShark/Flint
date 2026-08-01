@@ -44,6 +44,11 @@ pub struct MaterialData {
     pub flipbook_size: Option<[u32; 2]>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flipbook_frame: Option<f32>,
+    /// Any pixel with alpha < 255 in the decoded texture — drives the
+    /// preview's alpha-test/blend path (League's charskin look) instead
+    /// of forcing opaque.
+    #[serde(default)]
+    pub has_alpha: bool,
 }
 
 #[derive(Debug, Serialize)]

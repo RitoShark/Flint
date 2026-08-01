@@ -724,7 +724,9 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     const texture = new Texture(dataUrl, scene, false, true);
                     texture.wrapU = Texture.WRAP_ADDRESSMODE;
                     texture.wrapV = Texture.WRAP_ADDRESSMODE;
-                    texture.hasAlpha = false;
+                    // has_alpha from the decoder (any pixel with alpha < 255)
+                    // — drives the alpha-test/blend path at material build.
+                    texture.hasAlpha = !!data.has_alpha;
 
                     if (data.uv_scale) {
                         texture.uScale = data.uv_scale[0];
@@ -808,11 +810,23 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 mat.alpha = 1;
             } else if (texture) {
                 mat.backFaceCulling = true;
-                texture.hasAlpha = false;
                 mat.albedoTexture = texture;
                 mat.albedoColor = new Color3(1, 1, 1);
-                mat.useAlphaFromAlbedoTexture = false;
-                mat.transparencyMode = Material.MATERIAL_OPAQUE;
+                if (texture.hasAlpha) {
+                    // League charskin look (ported from the reference
+                    // viewer): cutoff + per-fragment blend keeps feathered
+                    // transparency at hair/cape edges, and the depth
+                    // pre-pass writes the cutoff'd depth first so
+                    // overlapping parts don't sort each other into black
+                    // silhouettes.
+                    mat.useAlphaFromAlbedoTexture = true;
+                    mat.transparencyMode = Material.MATERIAL_ALPHATESTANDBLEND;
+                    mat.alphaCutOff = 0.2;
+                    mat.needDepthPrePass = true;
+                } else {
+                    mat.useAlphaFromAlbedoTexture = false;
+                    mat.transparencyMode = Material.MATERIAL_OPAQUE;
+                }
             } else {
                 mat.backFaceCulling = true;
                 mat.albedoColor = new Color3(1, 0, 1);

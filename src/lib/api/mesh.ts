@@ -14,6 +14,8 @@ type MaterialDataInfo = {
     uv_offset?: [number, number];
     flipbook_size?: [number, number];
     flipbook_frame?: number;
+    /** Any pixel with alpha < 255 in the decoded texture. */
+    has_alpha?: boolean;
 };
 
 /**
