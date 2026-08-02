@@ -16,7 +16,9 @@ use flint_core::wad::adapter::WadHandle as WadReader;
 
 const SAMPLE_LIMIT_COMPLEX: usize = 3;
 const SAMPLE_LIMIT_SCALAR: usize = 1;
-const ENTRY_KEY_LIMIT_PER_CLASS: usize = 3;
+// One sample entry per root class: every entry renders the same aggregated
+// class schema, so more keys would just duplicate the identical block.
+const ENTRY_KEY_LIMIT_PER_CLASS: usize = 1;
 const LINKED_PATH_SAMPLE_LIMIT: usize = 8;
 
 // =============================================================================
@@ -618,18 +620,21 @@ pub async fn aggregate_champion_bin_schema(
     let mut output = String::with_capacity(2 * 1024 * 1024);
     use std::fmt::Write;
 
-    let _ = writeln!(output, "// Champion BIN Schema Reference — Flint");
-    let _ = writeln!(output, "// Generated: {}", chrono::Utc::now().to_rfc3339());
+    // `#` is ritobin's comment marker — the parser skips these lines, so the
+    // file opens in the BIN editor like any other ritobin text. `//` is NOT
+    // valid ritobin and would make the whole file unparseable.
+    let _ = writeln!(output, "# Champion BIN Schema Reference — Flint");
+    let _ = writeln!(output, "# Generated: {}", chrono::Utc::now().to_rfc3339());
     let _ = writeln!(
         output,
-        "// WADs: {} | LinkedData BINs parsed: {} | Failed: {}",
+        "# WADs: {} | LinkedData BINs parsed: {} | Failed: {}",
         total_wads, bins_parsed, bins_failed
     );
-    let _ = writeln!(output, "// Classes: {} | Fields: {}", schema.len(), total_fields);
-    let _ = writeln!(output, "// Up to {} sample entries per root class, up to {} samples per container/map.",
-        ENTRY_KEY_LIMIT_PER_CLASS, SAMPLE_LIMIT_COMPLEX);
-    let _ = writeln!(output, "//");
-    let _ = writeln!(output, "// Format: real ritobin block syntax — copy any block straight into a .ritobin file.");
+    let _ = writeln!(output, "# Classes: {} | Fields: {}", schema.len(), total_fields);
+    let _ = writeln!(output, "# One sample entry per root class, up to {} samples per container/map.",
+        SAMPLE_LIMIT_COMPLEX);
+    let _ = writeln!(output, "#");
+    let _ = writeln!(output, "# Format: real ritobin block syntax — copy any block straight into a .ritobin file.");
     let _ = writeln!(output);
 
     let _ = writeln!(output, "#PROP_text");
@@ -663,9 +668,9 @@ pub async fn aggregate_champion_bin_schema(
         .map(|p| {
             p.parent()
                 .unwrap_or(&p)
-                .join("champion-bin-schema.ritobin.txt")
+                .join("champion-bin-schema.ritobin")
         })
-        .unwrap_or_else(|_| std::path::PathBuf::from("champion-bin-schema.ritobin.txt"));
+        .unwrap_or_else(|_| std::path::PathBuf::from("champion-bin-schema.ritobin"));
 
     std::fs::write(&output_path, &output)
         .map_err(|e| format!("Failed to write schema file: {}", e))?;
