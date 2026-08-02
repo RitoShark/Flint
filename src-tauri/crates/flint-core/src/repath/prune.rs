@@ -9,7 +9,14 @@ use walkdir::WalkDir;
 use super::refather::RepathConfig;
 use super::paths::*;
 use super::refather::find_main_skin_bin;
-pub(crate) fn cleanup_unused_files(content_base: &Path, referenced_paths: &HashSet<String>, prefix: &str, config: &RepathConfig) -> Result<usize> {
+pub(crate) fn cleanup_unused_files(
+    content_base: &Path,
+    referenced_paths: &HashSet<String>,
+    prefix: &str,
+    config: &RepathConfig,
+    // Paths referenced only by non-shipping champion-root BINs — kept in place.
+    preserved_paths: &HashSet<String>,
+) -> Result<usize> {
     use rayon::prelude::*;
 
     let expected_paths: HashSet<String> = referenced_paths
@@ -50,6 +57,11 @@ pub(crate) fn cleanup_unused_files(content_base: &Path, referenced_paths: &HashS
             if expected_paths.contains(&normalized) {
                 return None;
             }
+            // Referenced only by a non-shipping champion-root BIN → stays at its
+            // original path (it overrides the live game path the real root uses).
+            if preserved_paths.contains(&normalized) {
+                return None;
+            }
             // Not referenced → delete candidate (original behavior: non-expected was
             // always deleted, in BOTH in_new_tree states).
             Some(path.to_path_buf())
@@ -81,6 +93,8 @@ pub(crate) fn sweep_source_tree_orphans(
     referenced_paths: &HashSet<String>,
     prefix: &str,
     config: &RepathConfig,
+    // Paths referenced only by non-shipping champion-root BINs — kept in place.
+    preserved_paths: &HashSet<String>,
 ) -> usize {
     use rayon::prelude::*;
 
@@ -122,6 +136,10 @@ pub(crate) fn sweep_source_tree_orphans(
             }
             // Referenced (raw or repathed) → keep; the relocate pass handles it.
             if expected.contains(&normalized) {
+                return None;
+            }
+            // Champion-root-only references stay at their original paths.
+            if preserved_paths.contains(&normalized) {
                 return None;
             }
             Some(path.to_path_buf())
