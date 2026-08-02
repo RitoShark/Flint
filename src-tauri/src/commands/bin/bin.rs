@@ -354,6 +354,16 @@ pub async fn read_or_convert_bin(
     Ok(tauri::ipc::Response::new(text.into_bytes()))
 }
 
+/// Whether this path is ritobin TEXT (`.ritobin` / `.py`) rather than a binary
+/// `.bin`. Text files skip the PROP/PTCH magic gate on read and are saved back
+/// as text (validated, but never overwritten with binary bytes).
+fn is_ritobin_text_path(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some(ext) if ext.eq_ignore_ascii_case("ritobin") || ext.eq_ignore_ascii_case("py")
+    )
+}
+
 async fn read_or_convert_bin_inner(
     bin_path: String,
 ) -> Result<String, String> {
@@ -376,6 +386,15 @@ async fn read_or_convert_bin_inner(
         let entry = map.entry(bin_path.clone()).or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())));        Arc::clone(&*entry)
     };
     let _guard = lock.lock().await;
+
+    // Ritobin TEXT files (.ritobin / .py) are already the editor's format —
+    // return their content directly instead of demanding PROP/PTCH magic.
+    if is_ritobin_text_path(bin_file) {
+        let text = fs::read_to_string(bin_file)
+            .map_err(|e| format!("Failed to read ritobin text file: {}", e))?;
+        tracing::info!("[BIN_READ] {} is ritobin text — returned as-is ({} chars)", bin_path, text.len());
+        return Ok(text);
+    }
 
     // Reject non-BIN files (wrong file type routed here via stale UI state).
     {
@@ -428,6 +447,11 @@ pub async fn save_ritobin_to_bin(
         return Err("Path cannot be empty".to_string());
     }
 
+    // A .ritobin/.py target IS the text form: parse only to validate the edit,
+    // then persist the text itself — writing binary bytes under a .ritobin name
+    // would corrupt the file for every other reader.
+    let text_target = is_ritobin_text_path(Path::new(&bin_path));
+
     // Parse + encode is CPU-bound (ritobin text → tree → bytes). Run it on the
     // blocking pool so a large BIN save doesn't stall the async runtime / UI.
     let content_for_encode = content.clone();
@@ -443,6 +467,13 @@ pub async fn save_ritobin_to_bin(
     // Mark the path as an expected self-write so the watcher doesn't bounce it
     // back into the editor as an external modification.
     crate::core::write_echo::mark(&bin_path);
+
+    if text_target {
+        fs::write(&bin_path, content.as_bytes())
+            .map_err(|e| format!("Failed to write ritobin text file: {}", e))?;
+        tracing::info!("Saved ritobin text file: {} ({} chars)", bin_path, content.len());
+        return Ok(());
+    }
 
     fs::write(&bin_path, &binary_data)
         .map_err(|e| format!("Failed to write .bin file: {}", e))?;
