@@ -124,6 +124,11 @@ pub async fn bin_has_animation_masks(bin_path: String) -> Result<bool, String> {
     let _t = ipc_trace::enter("bin_has_animation_masks");
 
     let bytes = std::fs::read(&bin_path).map_err(|e| format!("Failed to read {}: {}", bin_path, e))?;
+    // Ritobin text (or any non-BIN file): nothing to probe — and read_bin would
+    // error-log the magic mismatch on every .ritobin opened in the editor.
+    if bytes.len() < 4 || (&bytes[..4] != b"PROP" && &bytes[..4] != b"PTCH") {
+        return Ok(false);
+    }
     let bin = read_bin(&bytes).map_err(|e| format!("Failed to parse BIN: {}", e))?;
     Ok(!flint_core::bin::read_masks(&bin).is_empty())
 }
