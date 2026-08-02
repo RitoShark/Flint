@@ -34,8 +34,8 @@ import { createEngine } from '../../lib/babylon/engine';
 import { buildSknMeshes, type MeshDTO } from '../../lib/babylon/meshBuilder';
 import { buildBabylonSkeleton, type BoneData } from '../../lib/babylon/skeletonBuilder';
 import { AnimationPlayer } from '../../lib/babylon/animationPlayer';
-import { SubmeshVisibilityTimeline } from '../../lib/babylon/submeshVisibility';
-import type { AnimationClipInfo } from '../../lib/api/mesh';
+import { SubmeshVisibilityTimeline, fnv1a32Lower } from '../../lib/babylon/submeshVisibility';
+import type { AnimationClipInfo, SkinForm, SubmeshVisEvent } from '../../lib/api/mesh';
 import { modelPreviewSessionStore, type ModelPreviewSession } from '../../lib/stores/modelPreviewSessionStore';
 import { shaderForgeAvailable, loadShaderForge } from '@shaderforge';
 
@@ -242,6 +242,10 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const savedSettings = useMemo(() => loadSettings(), []);
     const [wireframe, setWireframe] = useState(savedSettings.wireframe);
     const [visibleMaterials, setVisibleMaterials] = useState<Set<string>>(new Set());
+    // Gear forms (GearSkinUpgrade, e.g. Kayn's Assassin/Slayer) from the skin BIN.
+    const [forms, setForms] = useState<SkinForm[]>([]);
+    // Index into `forms` of the active form, or -1 for the base look.
+    const [activeForm, setActiveForm] = useState(-1);
 
     const [showSkybox, setShowSkybox] = useState(savedSettings.showSkybox);
     const showSkyboxRef = useRef(showSkybox);
@@ -408,6 +412,13 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const clipsRef = useRef<AnimationClipInfo[]>([]);
     const initialHideRef = useRef<string[]>([]);
     const submeshTimelineRef = useRef<SubmeshVisibilityTimeline | null>(null);
+    // Mirrors of the forms state for callbacks that run outside the render (render loop,
+    // async loads).
+    const formsRef = useRef<SkinForm[]>([]);
+    const activeFormRef = useRef(-1);
+    // Params of the current clip's timeline, so a form change can rebuild it in place with
+    // the new baseline (without re-fetching the .anm).
+    const timelineInitRef = useRef<{ submeshNames: string[]; events: SubmeshVisEvent[]; fps: number } | null>(null);
     // Signature of the last visibility set pushed to React, to avoid per-frame state churn.
     const lastVisSigRef = useRef<string>('');
     // True once the user manually toggles a submesh (Materials popup). Gates session restore.
@@ -439,6 +450,8 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const filePathRef = useRef(filePath);
     const fileVersionRef = useRef(fileVersion);
 
+    formsRef.current = forms;
+    activeFormRef.current = activeForm;
     latestRef.current.visibleMaterials = visibleMaterials;
     latestRef.current.selectedAnimation = selectedAnimation;
     latestRef.current.isPlaying = isPlaying;
@@ -639,6 +652,10 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             try {
                 let data: MeshData;
 
+                // New model → back to the base form; SKN loads repopulate below.
+                setForms([]);
+                setActiveForm(-1);
+
                 if (meshType === 'static') {
                     data = await api.readScbMesh(filePath);
                 } else {
@@ -665,6 +682,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         // it only affects the shadow pass, which this preview doesn't render.
                         initialHideRef.current = animList.initial_hide ?? [];
                         clipsRef.current = animList.clips ?? [];
+                        setForms(animList.forms ?? []);
                         if (animList.clips && animList.clips.length > 0) {
                             setAnimations(animList.clips);
                             // Prop-driven open (standalone .anm) takes priority, then cache.
@@ -982,15 +1000,39 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         };
     }, [scene, camera, meshData, skeletonData]);
 
-    // Reset visibility to the static baseline (all shown minus initialSubmeshToHide).
+    // The load-time hidden set: initialSubmeshToHide plus the active gear form's
+    // mCharacterSubmeshesToHide/Show delta (hide first, show wins). Forms are DELTAS over the
+    // baseline, not full states — the base BIN already hides every form's meshes at load,
+    // which is why the gears don't hide each other. Returns lowercased names.
+    const effectiveInitialHide = React.useCallback((): string[] => {
+        const hidden = new Set(initialHideRef.current.map(n => n.toLowerCase()));
+        const form = formsRef.current[activeFormRef.current];
+        if (!form || !meshData) return [...hidden];
+        const allNames = meshData.kind === 'skn'
+            ? (meshData as SknMeshData).materials.map(m => m.name)
+            : (meshData as ScbMeshData).materials;
+        const lowerByHash = new Map<number, string>();
+        for (const n of allNames) lowerByHash.set(fnv1a32Lower(n), n.toLowerCase());
+        for (const h of form.hide_hashes) {
+            const n = lowerByHash.get(h >>> 0);
+            if (n) hidden.add(n);
+        }
+        for (const h of form.show_hashes) {
+            const n = lowerByHash.get(h >>> 0);
+            if (n) hidden.delete(n);
+        }
+        return [...hidden];
+    }, [meshData]);
+
+    // Reset visibility to the static baseline (all shown minus the effective hidden set).
     const applyBaselineVisibility = React.useCallback(() => {
         if (!meshData) return;
         const allNames = meshData.kind === 'skn'
             ? (meshData as SknMeshData).materials.map(m => m.name)
             : (meshData as ScbMeshData).materials;
-        const hiddenLower = new Set(initialHideRef.current.map(n => n.toLowerCase()));
+        const hiddenLower = new Set(effectiveInitialHide());
         setVisibleMaterials(new Set(allNames.filter(n => !hiddenLower.has(n.toLowerCase()))));
-    }, [meshData]);
+    }, [meshData, effectiveInitialHide]);
 
     // Push the timeline's visible set at `tSeconds` into `visibleMaterials`, but only when it
     // actually changed (the render loop calls this every frame). `hiddenAt`/`visibleAt` are
@@ -1011,6 +1053,28 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const applyBaselineVisibilityRef = useRef(applyBaselineVisibility);
     applyBaselineVisibilityRef.current = applyBaselineVisibility;
 
+    // Form switch: recompute visibility from the new baseline. If a clip is up, rebuild its
+    // timeline in place (events keep layering on top of the form); otherwise the static
+    // baseline applies directly. Clears any manual submesh overrides — picking a form is an
+    // explicit "show me this configuration".
+    useEffect(() => {
+        activeFormRef.current = activeForm;
+        materialsOverriddenRef.current = false;
+        lastVisSigRef.current = '';
+        const init = timelineInitRef.current;
+        if (init && submeshTimelineRef.current) {
+            submeshTimelineRef.current = new SubmeshVisibilityTimeline({
+                ...init,
+                initialHide: effectiveInitialHide(),
+            });
+            applyTimelineVisibility(animationPlayerRef.current?.time ?? 0);
+        } else {
+            applyBaselineVisibility();
+        }
+        // Only react to the form itself; the helpers are kept fresh via refs/deps above.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeForm]);
+
     useEffect(() => {
         if (!selectedAnimation) {
             setAnimationData(null);
@@ -1018,6 +1082,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             animationPlayerRef.current = null;
             // Dropped the animation â†’ fall back to the static baseline visibility.
             submeshTimelineRef.current = null;
+            timelineInitRef.current = null;
             lastVisSigRef.current = '';
             applyBaselineVisibilityRef.current();
             return;
@@ -1038,11 +1103,14 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 setCurrentTime(0);
 
                 // fps comes from the baked .anm; needed to convert event frames â†’ seconds.
-                submeshTimelineRef.current = new SubmeshVisibilityTimeline({
+                timelineInitRef.current = {
                     submeshNames,
-                    initialHide: initialHideRef.current,
                     events: clip?.events ?? [],
                     fps: (animData as any).fps ?? 30,
+                };
+                submeshTimelineRef.current = new SubmeshVisibilityTimeline({
+                    ...timelineInitRef.current,
+                    initialHide: effectiveInitialHide(),
                 });
                 lastVisSigRef.current = '';
 
@@ -1563,6 +1631,15 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     const nm = typeof mat === 'string' ? mat : mat.name;
                     return n + (visibleMaterials.has(nm) ? 1 : 0);
                 }, 0);
+                // Only offer forms whose hashes resolve against this mesh's submeshes —
+                // a gear that only touches another SKN's parts would be a dead button.
+                const meshHashes = new Set(meshData.materials.map(mat =>
+                    fnv1a32Lower(typeof mat === 'string' ? mat : mat.name)));
+                const usableForms = forms
+                    .map((form, index) => ({ form, index }))
+                    .filter(({ form }) =>
+                        form.hide_hashes.some(h => meshHashes.has(h >>> 0)) ||
+                        form.show_hashes.some(h => meshHashes.has(h >>> 0)));
                 return (
                 <div className="model-preview__popup model-preview__popup--top-right model-preview__popup--wide mp-materials">
                     <div className="mp-materials__head">
@@ -1583,6 +1660,25 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                             <div className="mp-materials__warning">
                                 <span className="mp-materials__warning-icon" aria-hidden>!</span>
                                 <span>{meshData.texture_warning}</span>
+                            </div>
+                        )}
+                        {usableForms.length > 0 && (
+                            <div className="mp-materials__forms">
+                                <button
+                                    className={`mp-form-btn ${activeForm === -1 ? 'mp-form-btn--active' : ''}`}
+                                    onClick={() => setActiveForm(-1)}
+                                >
+                                    Base
+                                </button>
+                                {usableForms.map(({ form, index }) => (
+                                    <button
+                                        key={index}
+                                        className={`mp-form-btn ${activeForm === index ? 'mp-form-btn--active' : ''}`}
+                                        onClick={() => setActiveForm(index)}
+                                    >
+                                        {form.name}
+                                    </button>
+                                ))}
                             </div>
                         )}
                         <div className="mp-materials__list">

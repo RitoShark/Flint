@@ -595,11 +595,17 @@ pub async fn read_animation_list(skn_path: String) -> Result<AnimationList, Stri
             format!("Failed to extract animation list: {}", e)
         })?;
 
-    // Attach the static submesh baseline from the skin BIN (non-fatal if not found).
+    // Attach the static submesh baseline + gear forms from the skin BIN (non-fatal if not
+    // found) — one read/parse serves both.
     if let Some(skin_bin) = flint_core::mesh::texture::find_skin_bin(skn_path) {
-        let initial = flint_core::mesh::submesh_visibility::parse_initial_hidden_file(&skin_bin);
-        list.initial_hide = initial.hide;
-        list.initial_shadow_hide = initial.shadow_hide;
+        if let Ok(data) = std::fs::read(&skin_bin) {
+            if let Ok(tree) = flint_core::bin::codec::read_bin(&data) {
+                let initial = flint_core::mesh::submesh_visibility::parse_initial_hidden(&tree);
+                list.initial_hide = initial.hide;
+                list.initial_shadow_hide = initial.shadow_hide;
+                list.forms = flint_core::mesh::submesh_visibility::parse_skin_forms(&tree);
+            }
+        }
     }
 
     Ok(list)

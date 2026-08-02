@@ -26,6 +26,7 @@ use crate::bin::codec;
 // Class hashes (FNV1a-32, lowercased). `fnv1a` is a const fn, so these fold at compile time.
 const CLASS_SUBMESH_VIS_EVENT: u32 = fnv1a("SubmeshVisibilityEventData");
 const CLASS_SKIN_CHAR: u32 = fnv1a("SkinCharacterDataProperties");
+const CLASS_GEAR_SKIN_UPGRADE: u32 = fnv1a("GearSkinUpgrade");
 
 // Field hashes.
 const F_EVENT_DATA_MAP: u32 = fnv1a("mEventDataMap");
@@ -37,6 +38,9 @@ const F_SHOW_SUBMESH_LIST: u32 = fnv1a("mShowSubmeshList");
 const F_INITIAL_HIDE: u32 = fnv1a("initialSubmeshToHide");
 const F_INITIAL_SHADOW_HIDE: u32 = fnv1a("initialSubmeshShadowsToHide");
 const F_ANIMATION_FILE_PATH: u32 = fnv1a("mAnimationFilePath");
+const F_GEAR_SKIN_UPGRADES: u32 = fnv1a("mGearSkinUpgrades");
+const F_CHAR_SUBMESHES_HIDE: u32 = fnv1a("mCharacterSubmeshesToHide");
+const F_CHAR_SUBMESHES_SHOW: u32 = fnv1a("mCharacterSubmeshesToShow");
 
 /// One submesh-visibility event within an animation clip.
 ///
@@ -56,6 +60,85 @@ pub struct InitialHidden {
     pub hide: Vec<String>,
     /// Submesh names excluded from the shadow pass (still rendered in the world pass).
     pub shadow_hide: Vec<String>,
+}
+
+/// One gear "form" of a skin (`GearSkinUpgrade`, e.g. Kayn's Assassin/Slayer upgrades).
+///
+/// `hide_hashes` / `show_hashes` are FNV1a-32 (lowercased) submesh-name hashes from the
+/// gear's `mCharacterSubmeshesToHide` / `mCharacterSubmeshesToShow`. A form is a DELTA over
+/// the `initialSubmeshToHide` baseline, not a full visibility state — the base BIN already
+/// hides every form's meshes at load, which is why the gears don't hide each other.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct SkinForm {
+    pub name: String,
+    pub hide_hashes: Vec<u32>,
+    pub show_hashes: Vec<u32>,
+}
+
+/// Parse the skin's gear forms from an already-read skin BIN tree.
+///
+/// Order follows `SkinCharacterDataProperties.skinUpgradeData.mGearSkinUpgrades` where those
+/// links resolve; any `GearSkinUpgrade` entry the link list missed (repathed mods relink
+/// freely) is appended in file order. Gears with no submesh changes are dropped — they only
+/// swap VFX/icons, which the preview doesn't render.
+pub fn parse_skin_forms(bin: &Bin) -> Vec<SkinForm> {
+    let mut gears: Vec<&ritoshark::bin::BinEntry> = Vec::new();
+    if let Some(entry) = bin.entries.iter().find(|e| e.class_hash == CLASS_SKIN_CHAR) {
+        if let Some(BinValue::List { items, .. }) = find_field(&entry.fields, F_GEAR_SKIN_UPGRADES) {
+            for item in items {
+                let link = match item {
+                    BinValue::Link(h) | BinValue::Hash(h) if *h != 0 => *h,
+                    _ => continue,
+                };
+                if let Some(gear) = bin
+                    .entries
+                    .iter()
+                    .find(|e| e.path_hash == link && e.class_hash == CLASS_GEAR_SKIN_UPGRADE)
+                {
+                    gears.push(gear);
+                }
+            }
+        }
+    }
+    for entry in bin.entries.iter().filter(|e| e.class_hash == CLASS_GEAR_SKIN_UPGRADE) {
+        if !gears.iter().any(|g| g.path_hash == entry.path_hash) {
+            gears.push(entry);
+        }
+    }
+
+    let mut forms = Vec::new();
+    for gear in gears {
+        // The lists live inside `mGearData` (a pointer), so deep-search the field tree.
+        let hide_hashes = find_field(&gear.fields, F_CHAR_SUBMESHES_HIDE)
+            .map(hash_list_items)
+            .unwrap_or_default();
+        let show_hashes = find_field(&gear.fields, F_CHAR_SUBMESHES_SHOW)
+            .map(hash_list_items)
+            .unwrap_or_default();
+        if hide_hashes.is_empty() && show_hashes.is_empty() {
+            continue;
+        }
+        forms.push(SkinForm {
+            name: format!("Form {}", forms.len() + 1),
+            hide_hashes,
+            show_hashes,
+        });
+    }
+    forms
+}
+
+/// The non-zero hashes of a `list[hash]` value (empty for anything else).
+fn hash_list_items(value: &BinValue) -> Vec<u32> {
+    let BinValue::List { items, .. } = value else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter_map(|item| match item {
+            BinValue::Hash(h) if *h != 0 => Some(*h),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Parse a skin BIN's `initialSubmeshToHide` / `initialSubmeshShadowsToHide` from disk.
@@ -226,6 +309,32 @@ fn collect_submesh_hashes(
         }
     }
     out
+}
+
+/// Depth-first search a field tree for any value under the given field hash, recursing into
+/// pointers/embeds/options (not lists or maps — the fields we chase live on structs).
+fn find_field(fields: &indexmap::IndexMap<u32, BinValue>, field_hash: u32) -> Option<&BinValue> {
+    if let Some(v) = fields.get(&field_hash) {
+        return Some(v);
+    }
+    for val in fields.values() {
+        let found = match val {
+            BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
+                find_field(fields, field_hash)
+            }
+            BinValue::Option { value: Some(inner), .. } => match &**inner {
+                BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
+                    find_field(fields, field_hash)
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+        if found.is_some() {
+            return found;
+        }
+    }
+    None
 }
 
 /// Depth-first search a field tree for a `String` value under the given field hash.
@@ -422,6 +531,74 @@ mod tests {
         // The 0 sentinel is dropped.
         assert_eq!(clip[1].hide_hashes, vec![0xAAAA]);
         assert!(clip[1].show_hashes.is_empty());
+    }
+
+    fn gear_entry(path_hash: u32, hide: &[u32], show: &[u32]) -> BinEntry {
+        // GearSkinUpgrade { mGearData: pointer = GearData { mCharacterSubmeshesToHide, ... } }
+        let mut gear_data = IndexMap::new();
+        gear_data.insert(F_CHAR_SUBMESHES_HIDE, hash_list(hide));
+        gear_data.insert(F_CHAR_SUBMESHES_SHOW, hash_list(show));
+        let mut fields = IndexMap::new();
+        fields.insert(
+            fnv1a("mGearData"),
+            BinValue::Pointer { class: fnv1a("GearData"), fields: gear_data },
+        );
+        BinEntry { path_hash, class_hash: CLASS_GEAR_SKIN_UPGRADE, fields }
+    }
+
+    #[test]
+    fn parses_gear_forms_in_link_order_with_unlinked_appended() {
+        // SkinCharacterDataProperties { skinUpgradeData: embed { mGearSkinUpgrades: [2, 1] } }
+        let mut upgrade = IndexMap::new();
+        upgrade.insert(
+            F_GEAR_SKIN_UPGRADES,
+            BinValue::List {
+                is_list2: false,
+                item: BinType::Link,
+                items: vec![BinValue::Link(2), BinValue::Link(1)],
+            },
+        );
+        let mut char_fields = IndexMap::new();
+        char_fields.insert(
+            fnv1a("skinUpgradeData"),
+            BinValue::Embed { class: fnv1a("skinUpgradeData"), fields: upgrade },
+        );
+
+        let bin = Bin {
+            entries: vec![
+                BinEntry { path_hash: 100, class_hash: CLASS_SKIN_CHAR, fields: char_fields },
+                // File order 1, 2, 3 — but the link list says gear 2 comes first.
+                gear_entry(1, &[0xA1], &[0xA2]),
+                gear_entry(2, &[0xB1], &[0xB2]),
+                // Unlinked gear (repathed mod): still picked up, after the linked ones.
+                gear_entry(3, &[0xC1], &[]),
+                // VFX-only gear (no submesh lists): dropped.
+                gear_entry(4, &[], &[]),
+            ],
+            ..Bin::new()
+        };
+
+        let forms = parse_skin_forms(&bin);
+        assert_eq!(forms.len(), 3);
+        assert_eq!(forms[0].hide_hashes, vec![0xB1]);
+        assert_eq!(forms[0].show_hashes, vec![0xB2]);
+        assert_eq!(forms[1].hide_hashes, vec![0xA1]);
+        assert_eq!(forms[2].hide_hashes, vec![0xC1]);
+        assert_eq!(forms[0].name, "Form 1");
+        assert_eq!(forms[2].name, "Form 3");
+    }
+
+    #[test]
+    fn skin_without_gears_has_no_forms() {
+        let bin = Bin {
+            entries: vec![BinEntry {
+                path_hash: 1,
+                class_hash: CLASS_SKIN_CHAR,
+                fields: IndexMap::new(),
+            }],
+            ..Bin::new()
+        };
+        assert!(parse_skin_forms(&bin).is_empty());
     }
 
     #[test]

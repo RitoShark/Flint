@@ -211,12 +211,23 @@ export interface AnimationClipInfo {
     events?: SubmeshVisEvent[];
 }
 
+/** One gear "form" of a skin (`GearSkinUpgrade`, e.g. Kayn's Assassin/Slayer). The hash lists
+ *  are FNV1a-32 (lowercased) submesh names — a DELTA layered over `initial_hide` (the base BIN
+ *  already hides every form's meshes at load, so gears don't hide each other). */
+export interface SkinForm {
+    name: string;
+    hide_hashes: number[];
+    show_hashes: number[];
+}
+
 export interface AnimationList {
     clips: AnimationClipInfo[];
     /** Submesh names hidden at load (from the skin BIN's `initialSubmeshToHide`). */
     initial_hide?: string[];
     /** Submesh names excluded from the shadow pass at load (`initialSubmeshShadowsToHide`). */
     initial_shadow_hide?: string[];
+    /** Gear forms, in `mGearSkinUpgrades` order (empty for skins without them). */
+    forms?: SkinForm[];
 }
 
 interface AnimationData {

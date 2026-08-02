@@ -6411,6 +6411,39 @@ input.np-search:focus {
   color: var(--color-warning, #fbbf24);
   border: 1.5px solid currentColor;
 }
+/* Gear-form switcher (GearSkinUpgrade skins, e.g. Kayn) — Base + one button per form. */
+.mp-materials__forms {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.mp-form-btn {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.mp-form-btn:hover {
+  color: var(--text-primary);
+}
+.mp-form-btn--active {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
 .mp-materials__list {
   display: flex;
   flex-direction: column;

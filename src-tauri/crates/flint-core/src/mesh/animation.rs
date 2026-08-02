@@ -32,6 +32,10 @@ pub struct AnimationList {
     /// (`initialSubmeshShadowsToHide`).
     #[serde(default)]
     pub initial_shadow_hide: Vec<String>,
+    /// Gear forms (`GearSkinUpgrade`, e.g. Kayn) — submesh hide/show deltas layered over
+    /// `initial_hide`.
+    #[serde(default)]
+    pub forms: Vec<crate::mesh::submesh_visibility::SkinForm>,
 }
 
 pub fn extract_animation_graph_path(skin_bin_path: &Path) -> Option<PathBuf> {
@@ -249,6 +253,7 @@ pub fn extract_animation_list(bin_path: &Path) -> anyhow::Result<AnimationList> 
         clips,
         initial_hide: Vec::new(),
         initial_shadow_hide: Vec::new(),
+        forms: Vec::new(),
     })
 }
 
