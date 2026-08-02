@@ -1631,15 +1631,27 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     const nm = typeof mat === 'string' ? mat : mat.name;
                     return n + (visibleMaterials.has(nm) ? 1 : 0);
                 }, 0);
-                // Only offer forms whose hashes resolve against this mesh's submeshes —
-                // a gear that only touches another SKN's parts would be a dead button.
-                const meshHashes = new Set(meshData.materials.map(mat =>
-                    fnv1a32Lower(typeof mat === 'string' ? mat : mat.name)));
+                // Only offer forms that actually CHANGE this mesh's baseline visibility.
+                // Filters both gears that only touch another SKN's parts (dead button) and
+                // gears that mirror the base look — skins often list every form as a gear,
+                // so a form identical to Base would be a redundant second button.
+                const lowerByHash = new Map<number, string>();
+                for (const mat of meshData.materials) {
+                    const nm = typeof mat === 'string' ? mat : mat.name;
+                    lowerByHash.set(fnv1a32Lower(nm), nm.toLowerCase());
+                }
+                const baseHidden = new Set(initialHideRef.current.map(n => n.toLowerCase()));
                 const usableForms = forms
                     .map((form, index) => ({ form, index }))
                     .filter(({ form }) =>
-                        form.hide_hashes.some(h => meshHashes.has(h >>> 0)) ||
-                        form.show_hashes.some(h => meshHashes.has(h >>> 0)));
+                        form.hide_hashes.some(h => {
+                            const n = lowerByHash.get(h >>> 0);
+                            return !!n && !baseHidden.has(n);
+                        }) ||
+                        form.show_hashes.some(h => {
+                            const n = lowerByHash.get(h >>> 0);
+                            return !!n && baseHidden.has(n);
+                        }));
                 return (
                 <div className="model-preview__popup model-preview__popup--top-right model-preview__popup--wide mp-materials">
                     <div className="mp-materials__head">
