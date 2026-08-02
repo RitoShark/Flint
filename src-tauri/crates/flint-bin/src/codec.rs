@@ -114,7 +114,13 @@ pub fn write_bin(tree: &Bin) -> Result<Vec<u8>> {
 }
 
 pub fn tree_to_text_with_hashes(tree: &Bin, hashes: &HashMapper) -> Result<String> {
-    Ok(ritoshark::bin::to_text(tree, Some(hashes)))
+    // Blend-transition keys: `AnimationGraphData.mBlendDataTable`'s packed u64
+    // keys print as `"FromClip" -> "ToClip"` pairs instead of 19-digit
+    // integers. `from_text` accepts the readable form (and the plain u64)
+    // unconditionally, so every text→bin path in the app round-trips no matter
+    // which form the text carries.
+    let opts = ritoshark::bin::TextOptions { blend_keys: true };
+    Ok(ritoshark::bin::to_text_with(tree, Some(hashes), &opts))
 }
 
 
@@ -257,6 +263,47 @@ fn push_quoted(out: &mut String, name: &str) {
 pub fn unhash_text_cached(text: &str) -> (String, usize) {
     let hashes = get_cached_bin_hashes().read();
     unhash_text(text, &hashes)
+}
+
+#[cfg(test)]
+mod blend_text_tests {
+    use super::*;
+    use ritoshark::bin::{BinEntry, BinType, BinValue, BlendKey, BLEND_DATA_TABLE};
+    use ritoshark::hash::fnv1a;
+
+    #[test]
+    fn blend_keys_print_readable_and_round_trip() {
+        // mBlendDataTable: map[u64, f32] with one fully-resolved key and one
+        // whose destination clip is unknown to the mapper.
+        let resolved = BlendKey::from_names("Attack1", "Laugh").to_u64();
+        let unresolved = ((fnv1a("Attack1") as u64) << 32) | 0xdead_beef;
+        let mut fields = indexmap::IndexMap::new();
+        fields.insert(
+            BLEND_DATA_TABLE,
+            BinValue::Map {
+                key: BinType::U64,
+                value: BinType::F32,
+                entries: vec![
+                    (BinValue::U64(resolved), BinValue::F32(0.1)),
+                    (BinValue::U64(unresolved), BinValue::F32(0.2)),
+                ],
+            },
+        );
+        let mut bin = Bin::new();
+        bin.entries.push(BinEntry { path_hash: 0x1, class_hash: 0x2, fields });
+
+        let mut mapper = HashMapper::new();
+        mapper.insert(fnv1a("Attack1") as u64, "Attack1");
+        mapper.insert(fnv1a("Laugh") as u64, "Laugh");
+
+        let text = tree_to_text_with_hashes(&bin, &mapper).unwrap();
+        assert!(text.contains("\"Attack1\" -> \"Laugh\""), "resolved pair readable: {text}");
+        assert!(text.contains("\"Attack1\" -> 0xdeadbeef"), "unresolved half stays hex: {text}");
+
+        // The lenient parser repacks the readable keys byte-identically.
+        let parsed = text_to_tree(&text).unwrap();
+        assert_eq!(write_bin(&bin).unwrap(), write_bin(&parsed).unwrap());
+    }
 }
 
 #[cfg(test)]
