@@ -1,5 +1,3 @@
-pub mod bnk;
-pub mod wpk;
-pub mod wem;
-pub mod hirc;
+pub mod bank;
 pub mod event_mapper;
+pub mod hirc;

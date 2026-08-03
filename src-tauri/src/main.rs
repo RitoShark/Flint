@@ -427,8 +427,6 @@ fn main() {
             commands::audio::replace_audio_entries,
             commands::audio::silence_audio_entry,
             commands::audio::remove_audio_entry,
-            commands::audio::write_bnk,
-            commands::audio::write_wpk,
             commands::audio::save_audio_file,
             // Windows taskbar progress indicator
             commands::taskbar::set_taskbar_progress,

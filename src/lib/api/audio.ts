@@ -76,14 +76,6 @@ export async function removeAudioEntry(bankData: number[], fileId: number): Prom
     return invokeCommand('remove_audio_entry', { bankData, fileId });
 }
 
-export async function writeBnk(entries: { id: number; data: number[] }[]): Promise<number[]> {
-    return invokeCommand('write_bnk', { entries });
-}
-
-export async function writeWpk(entries: { id: number; data: number[] }[]): Promise<number[]> {
-    return invokeCommand('write_wpk', { entries });
-}
-
 export async function saveAudioFile(path: string, data: Uint8Array | number[]): Promise<void> {
     const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
     return invokeRaw('save_audio_file', bytes, { path });
