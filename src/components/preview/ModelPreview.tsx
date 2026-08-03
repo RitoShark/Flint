@@ -132,6 +132,20 @@ const loadSettings = () => {
 };
 
 /**
+ * Find the clip an animation path refers to. A standalone `.anm` open gives an asset path
+ * (`ASSETS/…/idle1.anm`) while clips carry whatever the animation BIN stored, so match
+ * case-insensitively from either end.
+ */
+function matchClip<T extends { animation_path: string }>(clips: T[], target: string): T | undefined {
+    return clips.find(c =>
+        c.animation_path === target ||
+        c.animation_path.toLowerCase() === target.toLowerCase() ||
+        c.animation_path.toLowerCase().endsWith(target.toLowerCase()) ||
+        target.toLowerCase().endsWith(c.animation_path.toLowerCase()),
+    );
+}
+
+/**
  * Decide which animation to pre-select on load. `initialAnimation` (a standalone
  * .anm open) wins; otherwise a cached session is restored if its clip still exists.
  * Returns `{ path, play }` or null.
@@ -142,19 +156,12 @@ function pickInitialAnimation(
     autoPlay: boolean,
     restore: { selectedAnimation: string; isPlaying: boolean } | null,
 ): { path: string; play: boolean } | null {
-    const match = (target: string) =>
-        clips.find(c =>
-            c.animation_path === target ||
-            c.animation_path.toLowerCase() === target.toLowerCase() ||
-            c.animation_path.toLowerCase().endsWith(target.toLowerCase()) ||
-            target.toLowerCase().endsWith(c.animation_path.toLowerCase()),
-        );
     if (initialAnimation) {
-        const c = match(initialAnimation);
+        const c = matchClip(clips, initialAnimation);
         if (c) return { path: c.animation_path, play: autoPlay };
     }
     if (restore?.selectedAnimation) {
-        const c = match(restore.selectedAnimation);
+        const c = matchClip(clips, restore.selectedAnimation);
         if (c) return { path: c.animation_path, play: restore.isPlaying };
     }
     return null;
@@ -449,7 +456,13 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     // Engine effect has an empty dep array, so it can't close over live props.
     const filePathRef = useRef(filePath);
     const fileVersionRef = useRef(fileVersion);
+    // The mesh-load effect reads these but must NOT depend on them — see the clip-switch
+    // effect below.
+    const initialAnimationRef = useRef(initialAnimation);
+    const autoPlayRef = useRef(autoPlay);
 
+    initialAnimationRef.current = initialAnimation;
+    autoPlayRef.current = autoPlay;
     formsRef.current = forms;
     activeFormRef.current = activeForm;
     latestRef.current.visibleMaterials = visibleMaterials;
@@ -686,7 +699,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         if (animList.clips && animList.clips.length > 0) {
                             setAnimations(animList.clips);
                             // Prop-driven open (standalone .anm) takes priority, then cache.
-                            const wantAnim = pickInitialAnimation(animList.clips, initialAnimation, autoPlay, restore);
+                            const wantAnim = pickInitialAnimation(animList.clips, initialAnimationRef.current, autoPlayRef.current, restore);
                             if (wantAnim) {
                                 setSelectedAnimation(wantAnim.path);
                                 setIsPlaying(wantAnim.play);
@@ -734,7 +747,22 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
         loadMesh();
         return () => { cancelled = true; };
-    }, [filePath, meshType, fileVersion, initialAnimation, autoPlay]);
+        // initialAnimation/autoPlay are read through refs on purpose: a new .anm clicked while
+        // this viewer is open must not re-fetch the mesh (which re-frames the camera) — the
+        // clip-switch effect below handles it.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [filePath, meshType, fileVersion]);
+
+    // Another .anm clicked while the viewer is already showing its skin: just select that
+    // clip. Setting `selectedAnimation` is enough — the clip-load effect fetches the .anm and
+    // rebuilds the visibility timeline, leaving the engine, meshes and camera untouched.
+    useEffect(() => {
+        if (!initialAnimation || animations.length === 0) return;
+        const clip = matchClip(animations, initialAnimation);
+        if (!clip) return;
+        setSelectedAnimation(clip.animation_path);
+        setIsPlaying(autoPlay);
+    }, [initialAnimation, autoPlay, animations]);
 
     useEffect(() => {
         if (!scene || !camera || !meshData) return;

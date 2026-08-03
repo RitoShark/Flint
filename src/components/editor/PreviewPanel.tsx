@@ -38,30 +38,76 @@ const EmptyState: React.FC = () => (
 );
 
 /**
- * Standalone .anm open: resolve the .skn referenced by the skin BIN's simpleSkin,
- * then render the SKN viewer with this animation pre-selected and auto-playing.
+ * The skinned-model viewer, serving BOTH `.skn` and `.anm` selections.
+ *
+ * A `.skn` renders directly; a `.anm` is first resolved to the `.skn` its skin BIN references
+ * (`simpleSkin`) and then handed to the same `ModelPreview` as `initialAnimation`. Because both
+ * selections render this one component at the same spot in the tree, clicking clip after clip —
+ * or jumping from the model to one of its clips — keeps ONE viewer, engine and camera alive and
+ * only swaps the animation. `ModelPreview` is keyed by the resolved `.skn`, so it only remounts
+ * when the model genuinely changes.
  */
-const AnmPreview: React.FC<{ filePath: string }> = ({ filePath }) => {
+const SkinnedPreview: React.FC<{ filePath: string }> = ({ filePath }) => {
+    type Resolved = { sknPath: string; anmAssetPath?: string };
     const [state, setState] = useState<
         { status: 'loading' } |
-        { status: 'ok'; sknPath: string; anmAssetPath: string } |
+        { status: 'ok'; res: Resolved } |
         { status: 'error'; message: string }
     >({ status: 'loading' });
+    // Set for one frame when the MODEL changes, so the outgoing engine's WebGL context is
+    // released before the next one is created. PreviewPanel does the same for .skn → .skn; it
+    // has to happen here for switches that pass through an .anm resolve.
+    const [swapping, setSwapping] = useState(false);
+    const mountedSknRef = useRef<string | null>(null);
 
     useEffect(() => {
         let cancelled = false;
-        setState({ status: 'loading' });
+        // Keep whatever is on screen while resolving — blanking would unmount the very viewer
+        // we're trying to reuse.
+        setState(prev => (prev.status === 'ok' ? prev : { status: 'loading' }));
+
+        const apply = (res: Resolved) => {
+            if (cancelled) return;
+            // Nothing mounted (first open, or we're already inside a gap) → mount straight away.
+            if (mountedSknRef.current !== null && mountedSknRef.current !== res.sknPath) {
+                setSwapping(true);
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    // A superseding selection leaves `swapping` set; its own apply/catch clears
+                    // it, so the gap can never strand the pane on a spinner.
+                    if (cancelled) return;
+                    setSwapping(false);
+                    setState({ status: 'ok', res });
+                }));
+                return;
+            }
+            setSwapping(false);
+            setState({ status: 'ok', res });
+        };
+
+        const fail = (err: unknown) => {
+            if (cancelled) return;
+            setSwapping(false);
+            setState({ status: 'error', message: (err as Error)?.message ?? String(err) });
+        };
+
+        if (!isAnmPath(filePath)) {
+            apply({ sknPath: filePath });
+            return () => { cancelled = true; };
+        }
         api.resolveAnmSkin(filePath)
-            .then(res => { if (!cancelled) setState({ status: 'ok', sknPath: res.skn_path, anmAssetPath: res.anm_asset_path }); })
-            .catch(err => { if (!cancelled) setState({ status: 'error', message: (err as Error)?.message ?? String(err) }); });
+            .then(res => apply({ sknPath: res.skn_path, anmAssetPath: res.anm_asset_path }))
+            .catch(fail);
         return () => { cancelled = true; };
     }, [filePath]);
 
-    if (state.status === 'loading') {
+    const mounted = state.status === 'ok' && !swapping ? state.res.sknPath : null;
+    useEffect(() => { mountedSknRef.current = mounted; }, [mounted]);
+
+    if (swapping || state.status === 'loading') {
         return (
             <div className="model-preview__overlay model-preview__overlay--loading">
                 <div className="spinner" />
-                <span>Resolving skin for animation...</span>
+                <span>{isAnmPath(filePath) ? 'Resolving skin for animation...' : 'Loading model...'}</span>
             </div>
         );
     }
@@ -70,11 +116,11 @@ const AnmPreview: React.FC<{ filePath: string }> = ({ filePath }) => {
     }
     return (
         <ModelPreview
-            key={state.sknPath}
-            filePath={state.sknPath}
+            key={state.res.sknPath}
+            filePath={state.res.sknPath}
             meshType="skinned"
-            initialAnimation={state.anmAssetPath}
-            autoPlay
+            initialAnimation={state.res.anmAssetPath}
+            autoPlay={!!state.res.anmAssetPath}
         />
     );
 };
@@ -169,6 +215,11 @@ const is3DType = (info: FileInfo | null): boolean => {
         info.file_type === 'model/x-lol-sco';
 };
 
+// Extensions straight off the path — known before `inspectPath` comes back.
+const isAnmPath = (path: string): boolean => /\.anm$/i.test(path);
+/** Both are served by `SkinnedPreview`, so switching between them reuses one viewer. */
+const isSkinnedPath = (path: string): boolean => isAnmPath(path) || /\.skn$/i.test(path);
+
 export const PreviewPanel: React.FC = () => {
     const activeTabId = useProjectTabStore((s) => s.activeTabId);
     const openTabs = useProjectTabStore((s) => s.openTabs);
@@ -204,13 +255,22 @@ export const PreviewPanel: React.FC = () => {
         }
 
         const was3D = is3DType(prevFileInfoRef.current);
+        // Moving between .skn/.anm keeps the SAME SkinnedPreview (and its engine and camera)
+        // mounted — it just swaps the clip. Blanking the pane for the inspect round-trip, or
+        // cycling the WebGL context, would tear down the very viewer we're reusing;
+        // SkinnedPreview owns the context gap for the case where the model really does change.
+        const prevExt = prevFileInfoRef.current?.extension;
+        const keepSkinnedViewer =
+            (prevExt === 'skn' || prevExt === 'anm') && isSkinnedPath(selectedFile);
 
-        setFileInfo(null);
-        setFolderSelPath(null);
-        setLoading(true);
+        if (!keepSkinnedViewer) {
+            setFileInfo(null);
+            setFolderSelPath(null);
+            setLoading(true);
+        }
         setError(null);
 
-        if (was3D) {
+        if (was3D && !keepSkinnedViewer) {
             setWebglCooldown(true);
         }
 
@@ -308,6 +368,15 @@ export const PreviewPanel: React.FC = () => {
             return <EmptyState />;
         }
 
+        // Routed off the PATH, above the mismatch guard below: on a .skn/.anm switch the
+        // fileInfo in hand is still the previous selection's, and falling through to the
+        // spinner would tear the live viewer down. SkinnedPreview resolves the path itself and
+        // is deliberately NOT keyed by it, so it swaps the clip in place.
+        if (isSkinnedPath(filePath) && (fileInfo.extension === 'skn' || fileInfo.extension === 'anm' ||
+            fileInfo.file_type === 'model/x-lol-skn' || fileInfo.file_type === 'model/x-lol-anm')) {
+            return <SkinnedPreview filePath={filePath} />;
+        }
+
         if (fileInfo.path !== filePath) {
             return (
                 <div className="preview-panel__loading">
@@ -373,13 +442,6 @@ export const PreviewPanel: React.FC = () => {
             return <BnkPreview key={filePath} filePath={filePath} />;
         }
 
-        if (fileInfo.extension === 'anm' || fileInfo.file_type === 'model/x-lol-anm') {
-            return <AnmPreview key={filePath} filePath={filePath} />;
-        }
-
-        if (fileInfo.extension === 'skn' || fileInfo.file_type === 'model/x-lol-skn') {
-            return <ModelPreview filePath={filePath} meshType="skinned" />;
-        }
 
         if (
             fileInfo.extension === 'scb' || fileInfo.extension === 'sco' ||
