@@ -17,6 +17,17 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      # Mounts the shader-preview overlay at private/shaderforge, which the
+      # `shaderforge` cargo feature and the @shaderforge vite alias compile in
+      # place of the committed stub. Both the token (Contents:Read) and the repo
+      # path are secrets, so this public workflow names neither.
+      - name: Clone ShaderForge overlay
+        shell: bash
+        run: |
+          git clone --depth 1 \
+            "https://x-access-token:${{ secrets.SHADERFORGE_TOKEN }}@github.com/${{ secrets.SHADERFORGE_REPO }}.git" \
+            private/shaderforge
+
       - name: Generate changelog
         id: changelog
         uses: orhun/git-cliff-action@v4
@@ -48,6 +59,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
+          # Builds the real shader preview in, not the stub.
+          args: --features shaderforge
           tagName: ${{ github.ref_name }}
           releaseName: 'Flint ${{ github.ref_name }}'
           releaseBody: ${{ steps.changelog.outputs.content }}
