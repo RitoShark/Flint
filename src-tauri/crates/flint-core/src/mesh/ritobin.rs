@@ -6,6 +6,8 @@
 
 use std::path::Path;
 
+use ritoshark::bin::Bin;
+
 use crate::mesh::discovery::{extract_character_folder, find_project_root, find_scb_bin};
 use crate::mesh::texture::find_skin_bin;
 
@@ -171,6 +173,49 @@ pub fn find_linked_bin_ritobin_text(mesh_path: &Path) -> Option<String> {
     } else {
         Some(merged)
     }
+}
+
+/// Read and parse every `.bin` in a skin BIN's direct `linked` header that resolves on disk.
+///
+/// Same resolution as [`find_linked_bin_ritobin_text`] (direct list only, no recursion, no
+/// project-wide scan) but returns parsed trees instead of text — entries Riot's build hoisted
+/// out of `skinN.bin` into a shared `<Champ>_Skins_*.bin` are reachable only this way.
+/// Unreadable/unparseable links are skipped; the caller treats a short list as "not found".
+pub fn read_linked_bin_trees(mesh_path: &Path, skin_bin: &Path, tree: &Bin) -> Vec<Bin> {
+    let project_root = find_project_root(mesh_path);
+    let mut trees = Vec::new();
+
+    for linked in &tree.linked {
+        let normalized = linked.replace('\\', "/");
+        if !normalized.to_lowercase().ends_with(".bin") {
+            continue;
+        }
+
+        let Some(bin_path) = resolve_linked_bin_path(mesh_path, project_root.as_deref(), &normalized)
+        else {
+            tracing::debug!("  Linked BIN not found on disk: {}", linked);
+            continue;
+        };
+
+        // A BIN can link back to itself (via its own concat) — already covered by the caller.
+        if bin_path == skin_bin {
+            continue;
+        }
+
+        let Ok(data) = std::fs::read(&bin_path) else {
+            tracing::debug!("  ✗ Failed to read linked BIN: {}", bin_path.display());
+            continue;
+        };
+        match crate::bin::codec::read_bin(&data) {
+            Ok(linked_tree) => {
+                tracing::debug!("  ✓ Read linked BIN: {} ({} entries)", bin_path.display(), linked_tree.entries.len());
+                trees.push(linked_tree);
+            }
+            Err(e) => tracing::debug!("  ✗ Failed to parse linked BIN {}: {}", bin_path.display(), e),
+        }
+    }
+
+    trees
 }
 
 /// Resolve a BIN `linked` path (e.g. `data/characters/kayn/skins/skin20.bin`) to a real file.

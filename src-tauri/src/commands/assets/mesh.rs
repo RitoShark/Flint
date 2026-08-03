@@ -603,7 +603,11 @@ pub async fn read_animation_list(skn_path: String) -> Result<AnimationList, Stri
                 let initial = flint_core::mesh::submesh_visibility::parse_initial_hidden(&tree);
                 list.initial_hide = initial.hide;
                 list.initial_shadow_hide = initial.shadow_hide;
-                list.forms = flint_core::mesh::submesh_visibility::parse_skin_forms(&tree);
+                // Gears shared between skins get hoisted into a linked `<Champ>_Skins_*.bin`;
+                // the closure only runs when a gear link misses inside the skin BIN itself.
+                list.forms = flint_core::mesh::submesh_visibility::parse_skin_forms(&tree, || {
+                    flint_core::mesh::ritobin::read_linked_bin_trees(skn_path, &skin_bin, &tree)
+                });
             }
         }
     }

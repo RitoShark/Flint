@@ -77,27 +77,31 @@ pub struct SkinForm {
 
 /// Parse the skin's gear forms from an already-read skin BIN tree.
 ///
-/// Order follows `SkinCharacterDataProperties.skinUpgradeData.mGearSkinUpgrades` where those
-/// links resolve; any `GearSkinUpgrade` entry the link list missed (repathed mods relink
-/// freely) is appended in file order. Gears with no submesh changes are dropped — they only
-/// swap VFX/icons, which the preview doesn't render.
-pub fn parse_skin_forms(bin: &Bin) -> Vec<SkinForm> {
+/// Order follows `SkinCharacterDataProperties.skinUpgradeData.mGearSkinUpgrades`. A link that
+/// doesn't resolve inside the skin BIN is looked up in the BINs of its `linked` header:
+/// Riot's build hoists entries shared between skins into `<Champ>_Skins_*.bin` and leaves only
+/// the link behind, so a gear shared by several skins is reachable ONLY through that list.
+/// `load_linked` supplies those trees and is called lazily — skins whose gears all resolve
+/// locally (and the overwhelming majority, which have no gears at all) never pay the reads.
+///
+/// Any `GearSkinUpgrade` the link list missed (repathed mods relink freely) is appended in file
+/// order, but ONLY from the skin BIN — a shared linked BIN carries other skins' gears too, and
+/// adopting those would invent forms this skin doesn't have. Gears with no submesh changes are
+/// dropped — they only swap VFX/icons, which the preview doesn't render.
+pub fn parse_skin_forms(bin: &Bin, load_linked: impl FnOnce() -> Vec<Bin>) -> Vec<SkinForm> {
+    let links = gear_links(bin);
+
+    // Only touch the disk when a link is actually missing from the skin BIN.
+    let linked: Vec<Bin> = if links.iter().all(|h| find_gear(bin, *h).is_some()) {
+        Vec::new()
+    } else {
+        load_linked()
+    };
+
     let mut gears: Vec<&ritoshark::bin::BinEntry> = Vec::new();
-    if let Some(entry) = bin.entries.iter().find(|e| e.class_hash == CLASS_SKIN_CHAR) {
-        if let Some(BinValue::List { items, .. }) = find_field(&entry.fields, F_GEAR_SKIN_UPGRADES) {
-            for item in items {
-                let link = match item {
-                    BinValue::Link(h) | BinValue::Hash(h) if *h != 0 => *h,
-                    _ => continue,
-                };
-                if let Some(gear) = bin
-                    .entries
-                    .iter()
-                    .find(|e| e.path_hash == link && e.class_hash == CLASS_GEAR_SKIN_UPGRADE)
-                {
-                    gears.push(gear);
-                }
-            }
+    for link in &links {
+        if let Some(gear) = find_gear(bin, *link).or_else(|| linked.iter().find_map(|t| find_gear(t, *link))) {
+            gears.push(gear);
         }
     }
     for entry in bin.entries.iter().filter(|e| e.class_hash == CLASS_GEAR_SKIN_UPGRADE) {
@@ -125,6 +129,30 @@ pub fn parse_skin_forms(bin: &Bin) -> Vec<SkinForm> {
         });
     }
     forms
+}
+
+/// The skin's `mGearSkinUpgrades` link targets, in declaration order (zeros dropped).
+fn gear_links(bin: &Bin) -> Vec<u32> {
+    let Some(entry) = bin.entries.iter().find(|e| e.class_hash == CLASS_SKIN_CHAR) else {
+        return Vec::new();
+    };
+    let Some(BinValue::List { items, .. }) = find_field(&entry.fields, F_GEAR_SKIN_UPGRADES) else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter_map(|item| match item {
+            BinValue::Link(h) | BinValue::Hash(h) if *h != 0 => Some(*h),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The `GearSkinUpgrade` entry a link points at, if this tree holds it.
+fn find_gear(bin: &Bin, link: u32) -> Option<&ritoshark::bin::BinEntry> {
+    bin.entries
+        .iter()
+        .find(|e| e.path_hash == link && e.class_hash == CLASS_GEAR_SKIN_UPGRADE)
 }
 
 /// The non-zero hashes of a `list[hash]` value (empty for anything else).
@@ -546,16 +574,15 @@ mod tests {
         BinEntry { path_hash, class_hash: CLASS_GEAR_SKIN_UPGRADE, fields }
     }
 
-    #[test]
-    fn parses_gear_forms_in_link_order_with_unlinked_appended() {
-        // SkinCharacterDataProperties { skinUpgradeData: embed { mGearSkinUpgrades: [2, 1] } }
+    /// SkinCharacterDataProperties { skinUpgradeData: embed { mGearSkinUpgrades: links } }
+    fn skin_char_entry(links: &[u32]) -> BinEntry {
         let mut upgrade = IndexMap::new();
         upgrade.insert(
             F_GEAR_SKIN_UPGRADES,
             BinValue::List {
                 is_list2: false,
                 item: BinType::Link,
-                items: vec![BinValue::Link(2), BinValue::Link(1)],
+                items: links.iter().map(|h| BinValue::Link(*h)).collect(),
             },
         );
         let mut char_fields = IndexMap::new();
@@ -563,11 +590,15 @@ mod tests {
             fnv1a("skinUpgradeData"),
             BinValue::Embed { class: fnv1a("skinUpgradeData"), fields: upgrade },
         );
+        BinEntry { path_hash: 100, class_hash: CLASS_SKIN_CHAR, fields: char_fields }
+    }
 
+    #[test]
+    fn parses_gear_forms_in_link_order_with_unlinked_appended() {
         let bin = Bin {
             entries: vec![
-                BinEntry { path_hash: 100, class_hash: CLASS_SKIN_CHAR, fields: char_fields },
-                // File order 1, 2, 3 — but the link list says gear 2 comes first.
+                // The link list says gear 2 comes first, against file order 1, 2, 3.
+                skin_char_entry(&[2, 1]),
                 gear_entry(1, &[0xA1], &[0xA2]),
                 gear_entry(2, &[0xB1], &[0xB2]),
                 // Unlinked gear (repathed mod): still picked up, after the linked ones.
@@ -578,7 +609,7 @@ mod tests {
             ..Bin::new()
         };
 
-        let forms = parse_skin_forms(&bin);
+        let forms = parse_skin_forms(&bin, Vec::new);
         assert_eq!(forms.len(), 3);
         assert_eq!(forms[0].hide_hashes, vec![0xB1]);
         assert_eq!(forms[0].show_hashes, vec![0xB2]);
@@ -598,7 +629,79 @@ mod tests {
             }],
             ..Bin::new()
         };
-        assert!(parse_skin_forms(&bin).is_empty());
+        assert!(parse_skin_forms(&bin, Vec::new).is_empty());
+    }
+
+    #[test]
+    fn gears_hoisted_into_linked_bins_still_resolve() {
+        // Riot's build moves entries shared between skins into `<Champ>_Skins_*.bin`, leaving
+        // the skin BIN with links and no gear entries of its own.
+        let skin = Bin {
+            entries: vec![skin_char_entry(&[2, 1])],
+            ..Bin::new()
+        };
+        let shared = Bin {
+            entries: vec![gear_entry(1, &[0xA1], &[0xA2]), gear_entry(2, &[0xB1], &[0xB2])],
+            ..Bin::new()
+        };
+
+        let forms = parse_skin_forms(&skin, || vec![shared]);
+        assert_eq!(forms.len(), 2);
+        // Link order still wins over the linked BIN's file order.
+        assert_eq!(forms[0].hide_hashes, vec![0xB1]);
+        assert_eq!(forms[0].show_hashes, vec![0xB2]);
+        assert_eq!(forms[1].hide_hashes, vec![0xA1]);
+    }
+
+    #[test]
+    fn gears_split_across_skin_and_linked_bins_both_resolve() {
+        let skin = Bin {
+            entries: vec![skin_char_entry(&[1, 2]), gear_entry(1, &[0xA1], &[])],
+            ..Bin::new()
+        };
+        let shared = Bin { entries: vec![gear_entry(2, &[0xB1], &[])], ..Bin::new() };
+
+        let forms = parse_skin_forms(&skin, || vec![shared]);
+        assert_eq!(forms.len(), 2);
+        assert_eq!(forms[0].hide_hashes, vec![0xA1]);
+        assert_eq!(forms[1].hide_hashes, vec![0xB1]);
+    }
+
+    #[test]
+    fn unlinked_gears_in_a_linked_bin_are_not_adopted() {
+        // A shared BIN also holds OTHER skins' gears — only this skin's link list may pull
+        // from it, or the preview would offer forms this skin doesn't have.
+        let skin = Bin { entries: vec![skin_char_entry(&[1])], ..Bin::new() };
+        let shared = Bin {
+            entries: vec![
+                gear_entry(1, &[0xA1], &[]),
+                // Another skin's gear, sharing the same deduplicated BIN.
+                gear_entry(99, &[0xFF], &[]),
+            ],
+            ..Bin::new()
+        };
+
+        let forms = parse_skin_forms(&skin, || vec![shared]);
+        assert_eq!(forms.len(), 1);
+        assert_eq!(forms[0].hide_hashes, vec![0xA1]);
+    }
+
+    #[test]
+    fn linked_bins_are_not_loaded_when_every_gear_resolves_locally() {
+        // Reading a champion's linked BINs costs real I/O (a skin can link 17 of them), so the
+        // common case must not pay for it.
+        let bin = Bin {
+            entries: vec![skin_char_entry(&[1]), gear_entry(1, &[0xA1], &[])],
+            ..Bin::new()
+        };
+
+        let mut loaded = false;
+        let forms = parse_skin_forms(&bin, || {
+            loaded = true;
+            Vec::new()
+        });
+        assert!(!loaded, "linked BINs were read even though the gear was in the skin BIN");
+        assert_eq!(forms.len(), 1);
     }
 
     #[test]
