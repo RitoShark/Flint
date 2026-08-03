@@ -330,12 +330,15 @@ pub async fn unregister_file_associations() -> Result<AssocResult, String> {
                 let _ = open_with_key.delete_value(spec.prog_id);
             }
 
-            // Only clear the extension key if its default points at our ProgID.
+            // Surrender the default handler only while it is still ours — the
+            // user may have pointed the extension elsewhere since. Clearing the
+            // value rather than the key matters because the same key holds other
+            // apps' OpenWithProgids, which are not ours to delete.
             let ext_key_path = format!(r"Software\Classes\{}", spec.ext);
             if let Ok(ext_key) = hkcu.open_subkey_with_flags(&ext_key_path, KEY_READ | KEY_WRITE) {
                 if let Ok(val) = ext_key.get_value::<String, _>("") {
                     if val == spec.prog_id {
-                        let _ = hkcu.delete_subkey_all(&ext_key_path);
+                        let _ = ext_key.delete_value("");
                     }
                 }
             }
@@ -487,6 +490,45 @@ mod verb_tests {
                 verb.arg
             );
         }
+    }
+
+    /// The NSIS uninstaller has to repeat this table, because unregistering is a
+    /// tauri command and an uninstall never runs the app. Adding an extension
+    /// here and not there leaves a dead handler behind on every future
+    /// uninstall, which is invisible until a user complains.
+    #[test]
+    fn the_uninstaller_cleans_up_everything_we_register() {
+        let hooks = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("nsis/hooks.nsh"),
+        )
+        .expect("nsis/hooks.nsh is part of the bundle config");
+
+        for spec in ASSOCS {
+            assert!(
+                hooks.contains(&format!("\"{}\"", spec.ext)),
+                "{} is registered but the uninstaller never removes it",
+                spec.ext
+            );
+            assert!(
+                hooks.contains(&format!("\"{}\"", spec.prog_id)),
+                "ProgID {} is registered but the uninstaller never removes it",
+                spec.prog_id
+            );
+        }
+
+        for verb in DIRECTORY_VERBS {
+            assert!(
+                hooks.contains(verb.verb_key),
+                "directory verb {} would survive an uninstall on every folder's context menu",
+                verb.verb_key
+            );
+        }
+
+        assert!(
+            hooks.contains("$UpdateMode <> 1"),
+            "the cleanup must not run when the uninstaller is invoked with /UPDATE, \
+             or every app update would drop the user's associations"
+        );
     }
 
     #[test]
