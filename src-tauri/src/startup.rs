@@ -160,7 +160,6 @@ async fn run_startup(app: AppHandle) {
     #[cfg(debug_assertions)]
     {
         finish_without_update(&app, "Preparing Flint interface...", started).await;
-        return;
     }
 
     #[cfg(not(debug_assertions))]
