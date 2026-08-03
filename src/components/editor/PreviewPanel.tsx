@@ -4,6 +4,7 @@ import * as api from '../../lib/api';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { Icon } from '../ui/Icon';
 import { requestUnhash } from '../../lib/editor/binEditorEvents';
+import { isSamePath } from '../../lib/pathIdentity';
 import { openWadInExtract, isWadPath } from '../../lib/openWad';
 import { ImagePreview } from '../preview/ImagePreview';
 import { TextPreview } from '../preview/TextPreview';
@@ -66,8 +67,19 @@ const SkinnedPreview: React.FC<{ filePath: string }> = ({ filePath }) => {
         // we're trying to reuse.
         setState(prev => (prev.status === 'ok' ? prev : { status: 'loading' }));
 
-        const apply = (res: Resolved) => {
+        const apply = (resolved: Resolved) => {
             if (cancelled) return;
+            // The .skn a .anm resolves to comes back from Rust as an OS path, while a .skn
+            // picked in the tree is a forward-slash path built here. When they're the same file
+            // spelled differently, keep the spelling already mounted — otherwise ModelPreview's
+            // `key` AND its `filePath` both change, and it reloads the mesh (re-framing the
+            // camera) even though nothing moved. This is what still reloaded the preview when
+            // no animation was active: with one open, both spellings came from Rust and matched.
+            const mounted = mountedSknRef.current;
+            const res: Resolved = mounted !== null && isSamePath(mounted, resolved.sknPath)
+                ? { ...resolved, sknPath: mounted }
+                : resolved;
+
             // Nothing mounted (first open, or we're already inside a gap) → mount straight away.
             if (mountedSknRef.current !== null && mountedSknRef.current !== res.sknPath) {
                 setSwapping(true);
@@ -100,8 +112,9 @@ const SkinnedPreview: React.FC<{ filePath: string }> = ({ filePath }) => {
         return () => { cancelled = true; };
     }, [filePath]);
 
-    const mounted = state.status === 'ok' && !swapping ? state.res.sknPath : null;
-    useEffect(() => { mountedSknRef.current = mounted; }, [mounted]);
+    // The .skn ModelPreview is actually showing right now (null while loading or mid-gap).
+    const mountedSkn = state.status === 'ok' && !swapping ? state.res.sknPath : null;
+    useEffect(() => { mountedSknRef.current = mountedSkn; }, [mountedSkn]);
 
     if (swapping || state.status === 'loading') {
         return (
