@@ -73,15 +73,35 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         return tab?.projectPath ?? null;
     });
 
+    /**
+     * Drop decoded audio, and unload it from the player if that is what the
+     * element is holding.
+     *
+     * Detaching matters because handlePlayToggle short-circuits while the entry
+     * is already loaded — it resumes the existing src rather than reloading it.
+     * Revoking the URL alone leaves the element playing the pre-edit audio, and
+     * the only way back is selecting another entry so the id stops matching.
+     */
     const invalidateCache = useCallback((id?: number) => {
+        const drop = (url: string) => {
+            const audio = audioRef.current;
+            if (audio && audio.src === url) {
+                audio.pause();
+                audio.removeAttribute('src');
+                audio.load();
+                setPlayingId(null);
+            }
+            URL.revokeObjectURL(url);
+        };
+
         if (id === undefined) {
-            for (const { url } of cacheRef.current.values()) URL.revokeObjectURL(url);
+            for (const { url } of cacheRef.current.values()) drop(url);
             cacheRef.current.clear();
             return;
         }
         const cached = cacheRef.current.get(id);
         if (cached) {
-            URL.revokeObjectURL(cached.url);
+            drop(cached.url);
             cacheRef.current.delete(id);
         }
     }, []);
