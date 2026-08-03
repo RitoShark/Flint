@@ -151,10 +151,26 @@ fn a_replacement_lands_as_a_playable_wem() {
     wav.extend_from_slice(&2048u32.to_le_bytes());
     wav.extend_from_slice(&vec![0u8; 2048]);
 
+    let original_payload = bank::read_entry(&original, entry).unwrap();
     let edited = bank::replace_entry(&original, entry, &wav).unwrap();
     let stored = bank::read_entry(&edited, entry).unwrap();
 
     let wem = Wem::new(&stored).expect("a wav must be encoded into a real wem");
     assert_eq!(wem.format().sample_rate, 44100);
+    assert_eq!(
+        wem.format().codec,
+        Wem::new(&original_payload).unwrap().format().codec,
+        "a replacement must use the same codec as the sound it replaces"
+    );
     bank::decode_wem(&stored).expect("and it must decode back");
+
+    /* The whole point of Vorbis over PCM: a replacement stays comparable in size
+    to real game audio instead of ballooning. 2048 bytes of PCM at 16-bit mono is
+    1024 frames; the same as Vorbis must not come out larger than the raw input. */
+    assert!(
+        stored.len() < wav.len(),
+        "encoded {} bytes from a {} byte wav — that is PCM, not Vorbis",
+        stored.len(),
+        wav.len()
+    );
 }

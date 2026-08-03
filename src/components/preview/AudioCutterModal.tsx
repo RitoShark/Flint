@@ -9,7 +9,6 @@ import {
     sliceAudioBuffer,
     formatTime,
 } from './audioUtils';
-import { estimatePcmWemBytes, formatBytes } from '../../lib/audioDsp';
 
 interface AudioCutterModalProps {
     entry: AudioEntryInfo;
@@ -662,16 +661,11 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
         }
     }, [buffer, selection, fadeIn, fadeOut, targetRate, onApply, stopPlayback]);
 
-    /* The encoder writes PCM, so a long stereo import gets big fast — show it up front. */
-    const outputEstimate = useMemo(() => {
+    const outputShape = useMemo(() => {
         if (!buffer) return null;
         const rate = targetRate ?? buffer.sampleRate;
-        const seconds = Math.max(0, selection.end - selection.start);
-        return {
-            rate,
-            bytes: estimatePcmWemBytes(Math.ceil(seconds * rate), buffer.numberOfChannels),
-        };
-    }, [buffer, selection, targetRate]);
+        return `${rate} Hz · ${buffer.numberOfChannels === 1 ? 'mono' : 'stereo'} · Wwise Vorbis`;
+    }, [buffer, targetRate]);
 
     // -----------------------------------------------------------------------
     // Zoom scrollbar (Premiere-style: thumb represents view, drag edges to zoom)
@@ -958,11 +952,7 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                             ))}
                         </select>
                     </label>
-                    {outputEstimate && (
-                        <span style={styles.subtle}>
-                            ≈ {formatBytes(outputEstimate.bytes)} as PCM
-                        </span>
-                    )}
+                    {outputShape && <span style={styles.subtle}>{outputShape}</span>}
                 </div>
 
                 <div style={styles.footer}>

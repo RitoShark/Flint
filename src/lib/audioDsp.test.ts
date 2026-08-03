@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyFade, isWwiseWem, estimatePcmWemBytes } from './audioDsp';
+import { applyFade, isWwiseWem } from './audioDsp';
 
 function riff(codec: number, fmtSize = 16): Uint8Array {
     const body = 8;
@@ -86,10 +86,3 @@ describe('applyFade', () => {
     });
 });
 
-describe('estimatePcmWemBytes', () => {
-    it('grows with frames and channels', () => {
-        const mono = estimatePcmWemBytes(44100, 1);
-        const stereo = estimatePcmWemBytes(44100, 2);
-        expect(stereo - mono).toBe(44100 * 2);
-    });
-});

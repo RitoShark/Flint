@@ -10,11 +10,16 @@ Replacement audio arrives from the UI as a PCM WAV, which Wwise cannot play. It 
 real `.wem` here; a file that already parses as one is embedded verbatim instead.
 */
 
-use ritoshark::audio::{AudioFormat, Bnk, PcmAudio, Wem, Wpk, encode_pcm};
+use ritoshark::audio::{
+    AudioFormat, Bnk, PcmAudio, Wem, WemCodec, Wpk, encode_vorbis, encode_vorbis_like,
+};
 use ritoshark::prelude::{Parse, Serialize};
 use serde::{Deserialize, Serialize as SerdeSerialize};
 
 const HIRC: [u8; 4] = *b"HIRC";
+
+/// Vorbis convention: -0.2 worst, 1.0 best. 0.5 is the crate's documented default.
+const VORBIS_QUALITY: f32 = 0.5;
 
 #[derive(Debug, Clone, SerdeSerialize, Deserialize)]
 pub struct AudioEntryInfo {
@@ -159,7 +164,10 @@ pub fn read_entry(data: &[u8], id: u32) -> Result<Vec<u8>, String> {
 
 pub fn replace_entry(data: &[u8], id: u32, payload: &[u8]) -> Result<Vec<u8>, String> {
     let mut bank = Bank::parse(data)?;
-    bank.replace(id, to_wem(payload)?)?;
+    // The sound being replaced is the encoder's header template, so the new one
+    // matches a file the engine already loads.
+    let encoded = to_wem(payload, Some(bank.entry(id)?))?;
+    bank.replace(id, encoded)?;
     bank.to_bytes()
 }
 
@@ -195,12 +203,29 @@ pub fn decode_wem(data: &[u8]) -> Result<DecodedAudio, String> {
 /** Turns whatever the user picked into an embeddable `.wem`.
 
 Anything that already parses as one is embedded verbatim, which keeps a `.wem` taken out of
-another bank bit-identical. Everything else has to be a PCM WAV and is encoded. */
-pub fn to_wem(data: &[u8]) -> Result<Vec<u8>, String> {
+another bank bit-identical. Everything else has to be a PCM WAV and is encoded to Wwise Vorbis —
+the one codec the game demonstrably plays, and comparable in size to what it replaces.
+
+`reference` is the payload being replaced, when there is one. Its header supplies the fields the
+encoder cannot derive, so the result matches a file the engine already loads. */
+pub fn to_wem(data: &[u8], reference: Option<&[u8]>) -> Result<Vec<u8>, String> {
     if Wem::new(data).is_ok() {
         return Ok(data.to_vec());
     }
-    encode_pcm(&read_pcm_wav(data)?).map_err(|e| format!("Failed to encode WEM: {e}"))
+
+    let pcm = read_pcm_wav(data)?;
+
+    // A template is only usable if the reference really is Wwise Vorbis; League
+    // ships nothing else, but a bank holding PCM would otherwise fail outright.
+    let template = reference.filter(|bytes| {
+        Wem::new(bytes).is_ok_and(|wem| wem.format().codec == WemCodec::Vorbis)
+    });
+
+    match template {
+        Some(bytes) => encode_vorbis_like(bytes, &pcm, VORBIS_QUALITY),
+        None => encode_vorbis(&pcm, VORBIS_QUALITY),
+    }
+    .map_err(|e| format!("Failed to encode WEM: {e}"))
 }
 
 fn le_u16(data: &[u8], at: usize) -> u16 {
@@ -375,21 +400,29 @@ mod tests {
     #[test]
     fn an_existing_wem_is_embedded_verbatim() {
         let wem = ritoshark::audio::silence(32000, 2, 64).unwrap();
-        assert_eq!(to_wem(&wem).unwrap(), wem);
+        assert_eq!(to_wem(&wem, None).unwrap(), wem);
     }
 
     #[test]
     fn float_and_integer_wavs_both_convert() {
         for candidate in [wav(16, 1, &[0u8; 512]), wav(32, 3, &[0u8; 1024])] {
-            let wem = to_wem(&candidate).unwrap();
+            let wem = to_wem(&candidate, None).unwrap();
             let decoded = Wem::new(&wem).unwrap().to_pcm().unwrap();
             assert_eq!(decoded.sample_rate, 44100);
         }
     }
 
     #[test]
+    fn a_replacement_is_encoded_as_wwise_vorbis_not_pcm() {
+        // PCM is several times larger and League ships none of it, so encoding a
+        // replacement as PCM would be both bloated and unproven in-game.
+        let wem = to_wem(&wav(16, 1, &[0u8; 4096]), None).unwrap();
+        assert_eq!(Wem::new(&wem).unwrap().format().codec, WemCodec::Vorbis);
+    }
+
+    #[test]
     fn a_non_wav_is_rejected_rather_than_embedded() {
-        assert!(to_wem(b"ID3\x04not audio we can read").is_err());
+        assert!(to_wem(b"ID3\x04not audio we can read", None).is_err());
     }
 
     #[test]

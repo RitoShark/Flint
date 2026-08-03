@@ -82,20 +82,3 @@ export function applyFade(
     }
 }
 
-/**
- * Bytes a PCM `.wem` of this shape will occupy.
- *
- * Worth showing the user: the encoder writes PCM, which is several times larger
- * than the Vorbis the game ships, so a long stereo import at 48 kHz turns into a
- * surprisingly large bank.
- */
-export function estimatePcmWemBytes(frames: number, channels: number): number {
-    const header = 0x100;
-    return header + frames * channels * 2;
-}
-
-export function formatBytes(n: number): string {
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    return `${(n / (1024 * 1024)).toFixed(2)} MB`;
-}
