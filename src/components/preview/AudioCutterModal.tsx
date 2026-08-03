@@ -4,17 +4,25 @@ import type { AudioEntryInfo } from '../../lib/types';
 import {
     audioBufferToWav,
     decodeWemToBuffer,
+    fadeAudioBuffer,
+    resampleBuffer,
     sliceAudioBuffer,
     formatTime,
 } from './audioUtils';
+import { estimatePcmWemBytes, formatBytes } from '../../lib/audioDsp';
 
 interface AudioCutterModalProps {
     entry: AudioEntryInfo;
     filePath: string;
     bankBytes: Uint8Array | null;
+    /** Set when importing a user file instead of editing the entry already in the bank. */
+    source?: { buffer: AudioBuffer; name: string } | null;
     onClose: () => void;
     onApply: (newWav: Uint8Array) => Promise<void>;
 }
+
+/** Rates that occur in shipped League audio, per the ritoshark codec census. */
+const SAMPLE_RATES = [48000, 44100, 36000, 32000, 24000, 16000, 12000, 8000, 6000];
 
 type DragKind = null | 'start' | 'end' | 'selection' | 'new' | 'pan' | 'cursor';
 
@@ -37,6 +45,7 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
     entry,
     filePath,
     bankBytes,
+    source,
     onClose,
     onApply,
 }) => {
@@ -52,6 +61,10 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
     const [playbackPos, setPlaybackPos] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
     const [applying, setApplying] = useState(false);
+    const [fadeIn, setFadeIn] = useState(0);
+    const [fadeOut, setFadeOut] = useState(0);
+    /** Null means "leave the rate alone". */
+    const [targetRate, setTargetRate] = useState<number | null>(null);
 
     // -----------------------------------------------------------------------
     // View state
@@ -114,10 +127,13 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
         let cancelled = false;
         (async () => {
             try {
-                const wemBytes = bankBytes
-                    ? await api.readAudioEntryBytes(bankBytes, entry.id)
-                    : await api.readAudioEntry(filePath, entry.id);
-                const buf = await decodeWemToBuffer(wemBytes);
+                const buf = source
+                    ? source.buffer
+                    : await decodeWemToBuffer(
+                          bankBytes
+                              ? await api.readAudioEntryBytes(bankBytes, entry.id)
+                              : await api.readAudioEntry(filePath, entry.id),
+                      );
                 if (cancelled) return;
                 setBuffer(buf);
                 setSelection({ start: 0, end: buf.duration });
@@ -129,7 +145,7 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
         return () => {
             cancelled = true;
         };
-    }, [entry.id, filePath, bankBytes]);
+    }, [entry.id, filePath, bankBytes, source]);
 
     useEffect(() => {
         peaksRef.current = null;
@@ -636,12 +652,26 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
         try {
             stopPlayback();
             const sliced = sliceAudioBuffer(buffer, selection.start, selection.end);
-            const wav = audioBufferToWav(sliced);
-            await onApply(wav);
+            const faded = fadeAudioBuffer(sliced, fadeIn, fadeOut);
+            const rendered = targetRate ? await resampleBuffer(faded, targetRate) : faded;
+            await onApply(audioBufferToWav(rendered));
+        } catch (err) {
+            setLoadError((err as Error).message || String(err));
         } finally {
             setApplying(false);
         }
-    }, [buffer, selection, onApply, stopPlayback]);
+    }, [buffer, selection, fadeIn, fadeOut, targetRate, onApply, stopPlayback]);
+
+    /* The encoder writes PCM, so a long stereo import gets big fast — show it up front. */
+    const outputEstimate = useMemo(() => {
+        if (!buffer) return null;
+        const rate = targetRate ?? buffer.sampleRate;
+        const seconds = Math.max(0, selection.end - selection.start);
+        return {
+            rate,
+            bytes: estimatePcmWemBytes(Math.ceil(seconds * rate), buffer.numberOfChannels),
+        };
+    }, [buffer, selection, targetRate]);
 
     // -----------------------------------------------------------------------
     // Zoom scrollbar (Premiere-style: thumb represents view, drag edges to zoom)
@@ -763,9 +793,12 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
         >
             <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
                 <div style={styles.header}>
-                    <span style={{ fontWeight: 600 }}>Audio cutter</span>
+                    <span style={{ fontWeight: 600 }}>
+                        {source ? 'Import audio' : 'Audio cutter'}
+                    </span>
                     <span style={styles.subtle}>
-                        WEM {entry.id} · {duration > 0 ? formatTime(duration) : '—'}
+                        {source ? `${source.name} → WEM ${entry.id}` : `WEM ${entry.id}`} ·{' '}
+                        {duration > 0 ? formatTime(duration) : '—'}
                     </span>
                 </div>
 
@@ -893,6 +926,45 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                     />
                 </div>
 
+                <div style={styles.timeRow}>
+                    <TimeField
+                        label="Fade in"
+                        value={fadeIn}
+                        max={Math.max(0, selection.end - selection.start)}
+                        onChange={setFadeIn}
+                    />
+                    <TimeField
+                        label="Fade out"
+                        value={fadeOut}
+                        max={Math.max(0, selection.end - selection.start)}
+                        onChange={setFadeOut}
+                    />
+                    <label style={styles.timeField}>
+                        <span style={styles.timeLabel}>Rate</span>
+                        <select
+                            value={targetRate ?? ''}
+                            onChange={(e) =>
+                                setTargetRate(e.target.value ? Number(e.target.value) : null)
+                            }
+                            style={{ ...styles.timeInput, width: 120 }}
+                        >
+                            <option value="">
+                                Keep{buffer ? ` (${buffer.sampleRate} Hz)` : ''}
+                            </option>
+                            {SAMPLE_RATES.map((rate) => (
+                                <option key={rate} value={rate}>
+                                    {rate} Hz
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    {outputEstimate && (
+                        <span style={styles.subtle}>
+                            ≈ {formatBytes(outputEstimate.bytes)} as PCM
+                        </span>
+                    )}
+                </div>
+
                 <div style={styles.footer}>
                     <button className="btn btn--sm btn--ghost" onClick={onClose} disabled={applying}>
                         Cancel
@@ -901,9 +973,9 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                         className="btn btn--sm btn--primary"
                         onClick={handleApply}
                         disabled={!buffer || applying || selection.end <= selection.start + 0.001}
-                        title="Replace this WEM with the selected range"
+                        title={`Replace WEM ${entry.id} with the selected range`}
                     >
-                        {applying ? 'Applying...' : 'Apply trim'}
+                        {applying ? 'Applying...' : source ? 'Import' : 'Apply trim'}
                     </button>
                 </div>
             </div>

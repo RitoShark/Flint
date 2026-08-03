@@ -4,6 +4,7 @@
  */
 
 import * as api from '../../lib/api';
+import { applyFade } from '../../lib/audioDsp';
 
 /** Encode an AudioBuffer as a 16-bit PCM WAV file (RIFF container). */
 export function audioBufferToWav(buf: AudioBuffer): Uint8Array {
@@ -56,6 +57,65 @@ export async function decodeWemToBuffer(wemBytes: Uint8Array): Promise<AudioBuff
         return await ctx.decodeAudioData(audioBytes.slice().buffer);
     } finally {
         await ctx.close().catch(() => {});
+    }
+}
+
+/**
+ * Decode a user-supplied audio file — MP3, OGG, FLAC, M4A, WAV — to samples.
+ *
+ * The webview is Chromium, so its decoder already covers every format someone
+ * is likely to drop in. That is what lets the app meet the ritoshark crate at
+ * PCM without carrying a stack of decoders of its own.
+ */
+export async function decodeAudioFile(bytes: Uint8Array): Promise<AudioBuffer> {
+    const ctx = new AudioContext();
+    try {
+        return await ctx.decodeAudioData(bytes.slice().buffer);
+    } catch {
+        throw new Error(
+            'Could not decode this file. Supported: WAV, MP3, OGG, FLAC, M4A and .wem.',
+        );
+    } finally {
+        await ctx.close().catch(() => {});
+    }
+}
+
+/** Render a buffer at a different sample rate. Returns it unchanged if it already matches. */
+export async function resampleBuffer(buf: AudioBuffer, targetRate: number): Promise<AudioBuffer> {
+    if (targetRate === buf.sampleRate) return buf;
+
+    const frames = Math.max(1, Math.ceil(buf.duration * targetRate));
+    const offline = new OfflineAudioContext(buf.numberOfChannels, frames, targetRate);
+    const source = offline.createBufferSource();
+    source.buffer = buf;
+    source.connect(offline.destination);
+    source.start();
+    return offline.startRendering();
+}
+
+/** Copy a buffer with linear fades applied to both ends. */
+export function fadeAudioBuffer(
+    buf: AudioBuffer,
+    fadeInSec: number,
+    fadeOutSec: number,
+): AudioBuffer {
+    if (fadeInSec <= 0 && fadeOutSec <= 0) return buf;
+
+    const ctx = new AudioContext();
+    try {
+        const out = ctx.createBuffer(buf.numberOfChannels, buf.length, buf.sampleRate);
+        const channels: Float32Array[] = [];
+        for (let c = 0; c < buf.numberOfChannels; c++) {
+            // getChannelData hands back the live array, so fading it in place
+            // writes straight into the new buffer.
+            const data = out.getChannelData(c);
+            data.set(buf.getChannelData(c));
+            channels.push(data);
+        }
+        applyFade(channels, buf.sampleRate, fadeInSec, fadeOutSec);
+        return out;
+    } finally {
+        void ctx.close().catch(() => {});
     }
 }
 

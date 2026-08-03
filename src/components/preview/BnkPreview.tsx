@@ -5,7 +5,8 @@ import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { useAppMetadataStore, useProjectTabStore } from '../../lib/stores';
 import type { AudioBankInfo, AudioEntryInfo, EventMapping } from '../../lib/types';
 import { AudioCutterModal } from './AudioCutterModal';
-import { applyGainToWem } from './audioUtils';
+import { applyGainToWem, decodeAudioFile } from './audioUtils';
+import { isWwiseWem } from '../../lib/audioDsp';
 
 import type {
     BnkPreviewProps, ViewMode, BinLinkState, HircSource, DecodedCacheEntry, EventGroup,
@@ -13,7 +14,7 @@ import type {
 import { PLAY_GLYPH, STOP_GLYPH, CARET_ICON } from './bnk/types';
 import {
     formatBytes, findBinCandidate,
-    findCompanionEventsBank, groupMappings, isRiffWave,
+    findCompanionEventsBank, groupMappings,
 } from './bnk/helpers';
 import { CtxItem, CtxDivider } from './bnk/CtxMenu';
 import { panelStyles } from './bnk/styles';
@@ -51,7 +52,10 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         null,
     );
 
-    const [cutterModal, setCutterModal] = useState<{ entry: AudioEntryInfo } | null>(null);
+    const [cutterModal, setCutterModal] = useState<{
+        entry: AudioEntryInfo;
+        source?: { buffer: AudioBuffer; name: string };
+    } | null>(null);
 
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const cacheRef = useRef<Map<number, DecodedCacheEntry>>(new Map());
@@ -386,7 +390,10 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
             const selected = await open({
                 title: `Replace WEM ${entry.id} with audio file`,
                 filters: [
-                    { name: 'Audio (WAV / WEM)', extensions: ['wav', 'wem'] },
+                    {
+                        name: 'Audio',
+                        extensions: ['wem', 'wav', 'mp3', 'ogg', 'flac', 'm4a', 'aac', 'opus'],
+                    },
                     { name: 'All Files', extensions: ['*'] },
                 ],
                 multiple: false,
@@ -394,18 +401,26 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
             });
             if (!selected) return;
 
+            const path = selected as string;
             try {
-                const newBytes = await api.readFileBytes(selected as string);
-                if (!isRiffWave(newBytes)) {
-                    setError(
-                        'Unsupported file: expected a RIFF/WAVE container (.wav or .wem). ' +
-                        'Convert MP3/OGG/FLAC to PCM WAV first (Audacity, ffmpeg, or any audio editor).',
+                const newBytes = await api.readFileBytes(path);
+
+                // An actual wem is embedded verbatim — decoding and re-encoding
+                // it would lose quality for nothing.
+                if (isWwiseWem(newBytes)) {
+                    await applyEdit(entry.id, async (curr) =>
+                        api.replaceAudioEntry(curr, entry.id, Array.from(newBytes)),
                     );
                     return;
                 }
-                await applyEdit(entry.id, async (curr) =>
-                    api.replaceAudioEntry(curr, entry.id, Array.from(newBytes)),
-                );
+
+                // Everything else goes through the cutter, so the trim, fades and
+                // sample rate are chosen before it is encoded.
+                const buffer = await decodeAudioFile(newBytes);
+                setCutterModal({
+                    entry,
+                    source: { buffer, name: path.split(/[\\/]/).pop() || 'audio' },
+                });
             } catch (err) {
                 setError(`Replace failed: ${(err as Error).message || err}`);
             }
@@ -1042,6 +1057,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                     entry={cutterModal.entry}
                     filePath={filePath}
                     bankBytes={bankBytes}
+                    source={cutterModal.source}
                     onClose={() => setCutterModal(null)}
                     onApply={async (newWav) => {
                         const id = cutterModal.entry.id;

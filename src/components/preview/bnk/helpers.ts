@@ -114,10 +114,3 @@ export function groupMappings(mappings: EventMapping[]): { events: EventGroup[];
         .sort((a, b) => a.name.localeCompare(b.name));
     return { events, mappedIds };
 }
-
-export function isRiffWave(bytes: Uint8Array): boolean {
-    if (bytes.length < 12) return false;
-    const magic = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
-    const form = String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11]);
-    return magic === 'RIFF' && form === 'WAVE';
-}
