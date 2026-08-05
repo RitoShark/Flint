@@ -4,16 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# Hematite skin-fixer engine. Pinned at Hematite main rev de6291b, whose rs_*
+# Hematite skin-fixer engine. Pinned at Hematite main rev f63c656, whose rs_*
 # pins MATCH the workspace `ritoshark` rev — that's what keeps Cargo.lock at ONE
 # copy of each rs_* crate. When bumping either side, bump the other to the same
 # RitoShark-Crates rev and verify the lock has no duplicate rs_* entries; two
 # copies double the build and make their types mutually incompatible.
-hematite-orchestrate = { git = "https://github.com/RitoShark/Hematite", rev = "de6291b" }
-hematite-core = { git = "https://github.com/RitoShark/Hematite", rev = "de6291b" }
-hematite-file = { git = "https://github.com/RitoShark/Hematite", rev = "de6291b" }
-hematite-live = { git = "https://github.com/RitoShark/Hematite", rev = "de6291b" }
-hematite-types = { git = "https://github.com/RitoShark/Hematite", rev = "de6291b" }
+hematite-orchestrate = { git = "https://github.com/RitoShark/Hematite", rev = "f63c656" }
+hematite-core = { git = "https://github.com/RitoShark/Hematite", rev = "f63c656" }
+hematite-file = { git = "https://github.com/RitoShark/Hematite", rev = "f63c656" }
+hematite-live = { git = "https://github.com/RitoShark/Hematite", rev = "f63c656" }
+hematite-types = { git = "https://github.com/RitoShark/Hematite", rev = "f63c656" }
 
 anyhow.workspace = true
 serde.workspace = true

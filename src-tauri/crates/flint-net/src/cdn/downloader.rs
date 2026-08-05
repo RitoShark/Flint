@@ -92,7 +92,7 @@ pub fn plan_download(manifest: &crate::cdn::manifest::Manifest, indices: &[usize
             let entry = manifest.file(index)?;
             Some(FilePlan {
                 rel_path: paths.get(index).map(|(p, _)| p.clone()).unwrap_or_default(),
-                size: entry.size as u64,
+                size: entry.size,
                 chunks: manifest.file_chunks(index),
                 hash_type: manifest.rman.file_hash_type(entry),
             })
