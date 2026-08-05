@@ -82,6 +82,10 @@ export const SettingsModal: React.FC = () => {
     const [championSchemaProgress, setChampionSchemaProgress] = useState<SchemaProgress | null>(null);
     const [championSchemaResult, setChampionSchemaResult] = useState<api.ChampionSchemaStats | null>(null);
 
+    const [isAggregatingAnimation, setIsAggregatingAnimation] = useState(false);
+    const [animationSchemaProgress, setAnimationSchemaProgress] = useState<SchemaProgress | null>(null);
+    const [animationSchemaResult, setAnimationSchemaResult] = useState<api.AnimationSchemaStats | null>(null);
+
     const [isAggregatingTft, setIsAggregatingTft] = useState(false);
     const [tftSchemaProgress, setTftSchemaProgress] = useState<SchemaProgress | null>(null);
     const [tftSchemaResult, setTftSchemaResult] = useState<api.TftSchemaStats | null>(null);
@@ -177,6 +181,13 @@ export const SettingsModal: React.FC = () => {
     useEffect(() => {
         const unlisten = listen<SchemaProgress>('champion-schema-progress', (event) => {
             setChampionSchemaProgress(event.payload);
+        });
+        return () => { unlisten.then((fn) => fn()); };
+    }, []);
+
+    useEffect(() => {
+        const unlisten = listen<SchemaProgress>('animation-schema-progress', (event) => {
+            setAnimationSchemaProgress(event.payload);
         });
         return () => { unlisten.then((fn) => fn()); };
     }, []);
@@ -397,6 +408,26 @@ export const SettingsModal: React.FC = () => {
             showToast('error', 'Champion schema aggregation failed. Check the log for details.');
         } finally {
             setIsAggregatingChampion(false);
+        }
+    };
+
+    const handleAggregateAnimationSchema = async () => {
+        if (!leaguePath) {
+            showToast('error', 'League path not configured. Set it in the Paths tab first.');
+            return;
+        }
+        setIsAggregatingAnimation(true);
+        setAnimationSchemaProgress(null);
+        setAnimationSchemaResult(null);
+        try {
+            const stats = await api.aggregateAnimationBinSchema(leaguePath);
+            setAnimationSchemaResult(stats);
+            showToast('success', `Animation schema built: ${stats.classes_found.toLocaleString()} classes, ${stats.total_fields.toLocaleString()} fields`);
+        } catch (error) {
+            console.error('Animation schema aggregation failed:', error);
+            showToast('error', 'Animation schema aggregation failed. Check the log for details.');
+        } finally {
+            setIsAggregatingAnimation(false);
         }
     };
 
@@ -938,6 +969,11 @@ export const SettingsModal: React.FC = () => {
                                     <span className="dev-tile__label">{isAggregatingChampion ? 'Building…' : 'Champion'}</span>
                                     <span className="dev-tile__desc">Skin + linked data BINs</span>
                                 </button>
+                                <button className="dev-tile" onClick={handleAggregateAnimationSchema} disabled={isAggregatingAnimation || !leaguePath} title="Champions WAD animation BINs only: one superset block per clip/event/blend class, with mBlendDataTable keys as &quot;from&quot; -> &quot;to&quot;.">
+                                    <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('code') }} />
+                                    <span className="dev-tile__label">{isAggregatingAnimation ? 'Building…' : 'Animation'}</span>
+                                    <span className="dev-tile__desc">Clip + event + blend classes</span>
+                                </button>
                                 <button className="dev-tile" onClick={handleAggregateTftSchema} disabled={isAggregatingTft || !leaguePath} title="TFT WADs: companions + map-mode data (traits, items, augments), merged into one ritobin file.">
                                     <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('code') }} />
                                     <span className="dev-tile__label">{isAggregatingTft ? 'Building…' : 'TFT'}</span>
@@ -962,6 +998,10 @@ export const SettingsModal: React.FC = () => {
                             {isAggregatingChampion && championSchemaProgress && <SchemaProgressView progress={championSchemaProgress} />}
                             {championSchemaResult && !isAggregatingChampion && (
                                 <SchemaResultView classes={championSchemaResult.classes_found} fields={championSchemaResult.total_fields} binsParsed={championSchemaResult.bins_parsed} binsFailed={championSchemaResult.bins_failed} wads={championSchemaResult.wads_scanned} outputPath={championSchemaResult.output_path} label="LinkedData BINs" />
+                            )}
+                            {isAggregatingAnimation && animationSchemaProgress && <SchemaProgressView progress={animationSchemaProgress} />}
+                            {animationSchemaResult && !isAggregatingAnimation && (
+                                <SchemaResultView classes={animationSchemaResult.classes_found} fields={animationSchemaResult.total_fields} binsParsed={animationSchemaResult.bins_parsed} binsFailed={animationSchemaResult.bins_failed} wads={animationSchemaResult.wads_scanned} outputPath={animationSchemaResult.output_path} label="animation BINs" />
                             )}
                             {isAggregatingTft && tftSchemaProgress && <SchemaProgressView progress={tftSchemaProgress} />}
                             {tftSchemaResult && !isAggregatingTft && (

@@ -81,6 +81,7 @@ export class FlintError extends Error {
             'get_hud_file_stats': 'Failed to get HUD file statistics.',
             'aggregate_bin_schema': 'Failed to aggregate BIN schema.',
             'aggregate_champion_bin_schema': 'Failed to aggregate champion BIN schema.',
+            'aggregate_animation_bin_schema': 'Failed to aggregate animation BIN schema.',
             'aggregate_troybin_schema': 'Failed to aggregate troybin schema.',
             'extract_all_luabins': 'Failed to extract luabin files.',
             'find_original_file': 'Failed to look up original file.',

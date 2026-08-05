@@ -545,6 +545,7 @@ fn main() {
             // Dev commands (schema aggregation)
             commands::dev::aggregate_bin_schema,
             commands::champion_schema::aggregate_champion_bin_schema,
+            commands::animation_schema::aggregate_animation_bin_schema,
             commands::tft_schema::aggregate_tft_bin_schema,
             commands::troybin_schema::aggregate_troybin_schema,
             commands::luabin_extract::extract_all_luabins,

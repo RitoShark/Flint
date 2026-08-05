@@ -26,6 +26,19 @@ export async function aggregateChampionBinSchema(leaguePath: string): Promise<Ch
     return invokeCommand('aggregate_champion_bin_schema', { leaguePath });
 }
 
+export interface AnimationSchemaStats {
+    wads_scanned: number;
+    bins_parsed: number;
+    bins_failed: number;
+    classes_found: number;
+    total_fields: number;
+    output_path: string;
+}
+
+export async function aggregateAnimationBinSchema(leaguePath: string): Promise<AnimationSchemaStats> {
+    return invokeCommand('aggregate_animation_bin_schema', { leaguePath });
+}
+
 export interface TftSchemaStats {
     wads_scanned: number;
     bins_parsed: number;

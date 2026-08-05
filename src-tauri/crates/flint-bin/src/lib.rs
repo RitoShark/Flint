@@ -14,6 +14,10 @@ pub use codec::{
 };
 pub use ritoshark::bin::{Bin, BinEntry, BinType, BinValue};
 
+/// `mBlendDataTable`'s `u64` keys pack two FNV1a clip hashes; the library owns
+/// that layout, re-exported here so callers reach it alongside the value model.
+pub use ritoshark::bin::{is_blend_key_field, BlendKey, BLEND_DATA_TABLE};
+
 /// Hash dictionary the text form resolves names through. Owned by the hash
 /// crate, re-exported here so callers reach it alongside the codec that uses it.
 pub use flint_hash::hash::bin_dict::{get_cached_bin_hashes, reload_bin_hash_cache};
