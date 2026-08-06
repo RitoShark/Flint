@@ -59,6 +59,7 @@ export * from './binSplit';
 export * from './file';
 export * from './texture';
 export * from './mesh';
+export * from './modelEdit';
 export * from './animask';
 export * from './audio';
 export * from './checkpoint';

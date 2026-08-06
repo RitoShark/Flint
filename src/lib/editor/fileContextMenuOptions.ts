@@ -1,5 +1,6 @@
 import * as api from '../api';
 import { openThumbnailWindow } from '../api/thumbnail';
+import { openModelEditorWindow } from '../api/modelEdit';
 import { getIcon } from '../ui-helpers/fileIcons';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useProjectTabStore } from '../stores/projectTabStore';
@@ -591,9 +592,14 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
     if (ext === 'skn') {
         options.push({
+            label: 'Open in 3D Editor',
+            icon: getIcon('model'),
+            separator: true,
+            onClick: () => openModelEditorWindow(projectPath, fullPath.replace(/\//g, '\\')),
+        });
+        options.push({
             label: 'Create Thumbnail…',
             icon: getIcon('picture'),
-            separator: true,
             onClick: () => openThumbnailWindow(projectPath, fullPath.replace(/\//g, '\\')),
         });
     }

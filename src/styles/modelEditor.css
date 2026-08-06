@@ -1,0 +1,71 @@
+.m3d {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font: 13px/1.4 system-ui, sans-serif;
+}
+
+.m3d__topbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 38px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--border);
+    flex: 0 0 auto;
+}
+
+.m3d__filename { font-weight: 600; }
+.m3d__dirty { color: var(--accent-primary); line-height: 1; }
+
+.m3d__body {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.m3d__dock {
+    flex: 0 0 260px;
+    min-width: 200px;
+    overflow: auto;
+    border-right: 1px solid var(--border);
+}
+.m3d__dock--right {
+    border-right: none;
+    border-left: 1px solid var(--border);
+}
+
+.m3d__viewport {
+    flex: 1 1 auto;
+    min-width: 0;
+    position: relative;
+}
+
+.m3d__status {
+    flex: 0 0 auto;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    border-top: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.m3d__list { list-style: none; margin: 0; padding: 4px 0; }
+.m3d__list-row { padding: 4px 12px; cursor: default; }
+.m3d__list-row:hover { background: var(--bg-hover); }
+
+.m3d__empty,
+.m3d__loading {
+    padding: 24px;
+    color: var(--text-secondary);
+}
+.m3d__empty--error code {
+    display: block;
+    margin-top: 8px;
+    font-size: 12px;
+    word-break: break-all;
+}

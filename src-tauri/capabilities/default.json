@@ -5,7 +5,8 @@
     "windows": [
         "main",
         "map-preview",
-        "thumbnail"
+        "thumbnail",
+        "model-editor"
     ],
     "permissions": [
         "core:default",

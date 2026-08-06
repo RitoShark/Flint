@@ -16,6 +16,7 @@ import { App } from './components/layout/App';
 import { DesignLab } from './components/ui/DesignLab';
 import { MapPreviewWindow } from './components/preview/MapPreviewWindow';
 import { ThumbnailWindow } from './components/thumbnail/ThumbnailWindow';
+import { ModelEditorWindow } from './components/editor3d/ModelEditorWindow';
 
 import './styles/index.css';
 // Must load AFTER index.css to override.
@@ -49,6 +50,9 @@ const isMapPreview =
 
 const isThumbnail =
     typeof window !== 'undefined' && window.location.hash.startsWith('#thumbnail');
+
+const isModelEditor =
+    typeof window !== 'undefined' && window.location.hash.startsWith('#model-editor');
 
 function StartupReadySignal() {
     const hydrated = useConfigStore((state) => state._hydrated);
@@ -99,22 +103,24 @@ const root = createRoot(container);
 // eslint-disable-next-line no-console
 console.log(`[startup] root.render() at +${(performance.now() - __FLINT_JS_START).toFixed(1)}ms from JS entry`);
 root.render(
-    isThumbnail
-        ? React.createElement(ThumbnailWindow)
-        : isMapPreview
-            ? React.createElement(MapPreviewWindow)
-            : isDesignLab
-                ? React.createElement(React.StrictMode, null, React.createElement(DesignLab))
-                : React.createElement(
-                      React.StrictMode,
-                      null,
-                      React.createElement(
-                          AppProvider,
+    isModelEditor
+        ? React.createElement(ModelEditorWindow)
+        : isThumbnail
+            ? React.createElement(ThumbnailWindow)
+            : isMapPreview
+                ? React.createElement(MapPreviewWindow)
+                : isDesignLab
+                    ? React.createElement(React.StrictMode, null, React.createElement(DesignLab))
+                    : React.createElement(
+                          React.StrictMode,
                           null,
-                          React.createElement(App),
-                          React.createElement(StartupReadySignal),
+                          React.createElement(
+                              AppProvider,
+                              null,
+                              React.createElement(App),
+                              React.createElement(StartupReadySignal),
+                          )
                       )
-                  )
 );
 
 if (!isDesignLab) {

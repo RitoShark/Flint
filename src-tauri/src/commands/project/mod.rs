@@ -9,6 +9,7 @@ pub mod tree;
 pub mod layers;
 pub mod map_project;
 pub mod map_preview;
+pub mod model_editor;
 pub mod map_tiles;
 pub mod thumbnail_window;
 pub mod project_watcher;
