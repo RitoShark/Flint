@@ -1,38 +1,16 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Scene } from '@babylonjs/core/scene';
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
-import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
-import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
-import { Skeleton } from '@babylonjs/core/Bones/skeleton';
-import { Bone } from '@babylonjs/core/Bones/bone';
-import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
-import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Material } from '@babylonjs/core/Materials/material';
-import { Texture } from '@babylonjs/core/Materials/Textures/texture';
-import { CubeTexture } from '@babylonjs/core/Materials/Textures/cubeTexture';
-import { Vector3, Color3, Color4 } from '@babylonjs/core/Maths/math';
-import { CreateLineSystem } from '@babylonjs/core/Meshes/Builders/linesBuilder';
-import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder';
-import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder';
-import { SkeletonViewer } from '@babylonjs/core/Debug/skeletonViewer';
+import { Vector3 } from '@babylonjs/core/Maths/math';
 
 import * as api from '../../lib/api';
-import {
-    computeFraming,
-    applyFraming,
-    type BoundingBox,
-} from '../../lib/babylon/cameraFraming';
 import { useAction, useScope } from '../../lib/shortcuts/hooks';
-
-/** Adapter so cameraFraming never has to import Babylon. */
-const makeVector3 = (x: number, y: number, z: number) => new Vector3(x, y, z);
 import { useAppMetadataStore } from '../../lib/stores';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 
-import { createEngine } from '../../lib/babylon/engine';
-import { buildSknMeshes, type MeshDTO } from '../../lib/babylon/meshBuilder';
-import { buildBabylonSkeleton, type BoneData } from '../../lib/babylon/skeletonBuilder';
+import { createSknScene, type SknSceneHandle, type SknSkeletonMetadata } from '../../lib/babylon/sknScene';
 import { AnimationPlayer } from '../../lib/babylon/animationPlayer';
 import { SubmeshVisibilityTimeline, fnv1a32Lower } from '../../lib/babylon/submeshVisibility';
 import type { AnimationClipInfo, SkinForm, SubmeshVisEvent } from '../../lib/api/mesh';
@@ -61,55 +39,6 @@ interface ModelPreviewProps {
 // ============================================================================
 
 const SETTINGS_KEY = 'flint-model-preview-settings';
-
-/**
- * Dispose a Babylon SkeletonViewer safely and clear the ref.
- *
- * SkeletonViewer owns its own UtilityLayerRenderer + utility scene; disposing it
- * runs `utilityScene.dispose() → engine.wipeCaches() → unbindAllAttributes()`,
- * which touches `engine._currentBufferPointers`. If the WebGL context was lost
- * or the engine is already mid-teardown, that array is undefined and Babylon
- * throws `Cannot set properties of undefined (setting 'active')` — which, thrown
- * from a React effect commit, crashed the whole ModelPreview tree. Swallow the
- * Babylon-internal failure (the viewer is being thrown away anyway).
- */
-function safeDisposeSkeletonViewer(ref: React.MutableRefObject<SkeletonViewer | null>): void {
-    const viewer = ref.current;
-    ref.current = null;
-    if (!viewer) return;
-    try {
-        viewer.dispose();
-    } catch (e) {
-        console.debug('[ModelPreview] SkeletonViewer.dispose() failed (context lost / engine torn down); ignoring', e);
-    }
-}
-
-/** Skeleton thickness slider range (UI 0..100). Drives the joint-sphere size on
- *  the SPHERES display; the default sits on the thin side so joints read like a
- *  real rig without swallowing the mesh. */
-
-/**
- * Build the line SkeletonViewer (the original, reliable display). One shared
- * builder so both create sites stay identical.
- */
-function buildSkeletonViewer(
-    skeleton: Skeleton,
-    mesh: Mesh,
-    scene: Scene,
-): SkeletonViewer {
-    const viewer = new SkeletonViewer(
-        skeleton,
-        mesh,
-        scene,
-        true,
-        1,
-        {
-            displayMode: SkeletonViewer.DISPLAY_LINES,
-        },
-    );
-    viewer.isEnabled = true;
-    return viewer;
-}
 
 const loadSettings = () => {
     try {
@@ -255,8 +184,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const [activeForm, setActiveForm] = useState(-1);
 
     const [showSkybox, setShowSkybox] = useState(savedSettings.showSkybox);
-    const showSkyboxRef = useRef(showSkybox);
-    showSkyboxRef.current = showSkybox;
     const [floorMode, setFloorMode] = useState<'grid' | 'textured' | 'none'>(savedSettings.floorMode);
     const [ambientIntensity, setAmbientIntensity] = useState(savedSettings.ambientIntensity);
     const [directionalIntensity, setDirectionalIntensity] = useState(savedSettings.directionalIntensity);
@@ -285,6 +212,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const [scene, setScene] = useState<Scene | null>(null);
     const [camera, setCamera] = useState<ArcRotateCamera | null>(null);
+    // The headless controller (engine/camera/lights/skybox/grid/materials/skeleton
+    // overlay — see sknScene.ts). `scene`/`camera` above are mirrors of
+    // `handle.scene`/`handle.scene.activeCamera`, kept as state so the effects
+    // below can keep depending on them exactly as they did before this existed.
+    const sknSceneRef = useRef<SknSceneHandle | null>(null);
 
     // ── Viewport shortcuts ───────────────────────────────────────────────────
     // Scoped to the preview being mounted with a live camera rather than to canvas
@@ -294,8 +226,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     useScope('model-preview', !!camera);
 
     useAction('view.frameCamera', () => {
-        if (!camera || !meshData) return;
-        applyFraming(camera, computeFraming(meshData.bounding_box as BoundingBox), makeVector3);
+        sknSceneRef.current?.frameCamera();
     });
 
     /** Multiplicative zoom, clamped to the scale-aware limits framing installed. */
@@ -308,8 +239,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
     useAction('view.zoomIn', () => zoomByFactor(1 / 1.2));
     useAction('view.zoomOut', () => zoomByFactor(1.2));
-
-    const activeMeshesRef = useRef<Mesh[]>([]);
 
     // ── Game shaders (private shader-preview module) ─────────────────
     // Opt-in per user preference: translation is expensive, so nothing
@@ -329,7 +258,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
     const applyGameShadersPass = async () => {
         const s = scene;
-        const passMeshes = activeMeshesRef.current;
+        const passMeshes = sknSceneRef.current?.getActiveMeshes() ?? [];
         if (!shaderForgeAvailable || !s || s.isDisposed || passMeshes.length === 0) return;
         const token = ++passTokenRef.current;
         const aborted = () =>
@@ -402,13 +331,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [gameShaders]);
-    const skeletonRef = useRef<Skeleton | null>(null);
-    const skeletonViewerRef = useRef<SkeletonViewer | null>(null);
-    const gridMeshRef = useRef<any>(null);
-    const floorMeshRef = useRef<any>(null);
-    const skyboxMeshRef = useRef<Mesh | null>(null);
-    const skyboxUrlsRef = useRef<string[]>([]);
-    const skyboxLoadingRef = useRef(false);
 
     const animationPlayerRef = useRef<AnimationPlayer | null>(null);
     const lastTimeRef = useRef<number>(0);
@@ -430,12 +352,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const lastVisSigRef = useRef<string>('');
     // True once the user manually toggles a submesh (Materials popup). Gates session restore.
     const materialsOverriddenRef = useRef<boolean>(false);
-
-    const builtSklRef = useRef<{
-        boneIndexByHash: Map<number, number>;
-        bones: Bone[];
-        joints: BoneData[];
-    } | null>(null);
 
     // Session snapshot consumed once by the mesh-load + camera-frame effects.
     const restoreRef = useRef<ModelPreviewSession | null>(null);
@@ -486,95 +402,13 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         const canvas = canvasRef.current;
         if (!canvas) return;
 
-        const engine = createEngine(canvas);
-        console.debug('[engine] CREATED (live GL engines pile up if this fires per file)');
-
-        const onWinError = (e: ErrorEvent) =>
-            console.error(`[render] ðŸ’¥ window error: ${e.message}`, e.error?.stack ?? e.error ?? '');
-        const onRejection = (e: PromiseRejectionEvent) =>
-            console.error('[render] ðŸ’¥ unhandledrejection:', e.reason?.stack ?? e.reason ?? e.reason);
-        const onCtxLost = (e: Event) => {
-            e.preventDefault();
-            console.error('[render] ðŸ’¥ canvas webglcontextlost (GPU context dropped)');
-        };
-        const onCtxRestored = () => console.debug('[render] âœ“ canvas webglcontextrestored');
-        window.addEventListener('error', onWinError);
-        window.addEventListener('unhandledrejection', onRejection);
-        canvas.addEventListener('webglcontextlost', onCtxLost);
-        canvas.addEventListener('webglcontextrestored', onCtxRestored);
-        engine.onContextLostObservable.add(() => console.error('[render] ðŸ’¥ Babylon onContextLost'));
-        engine.onContextRestoredObservable.add(() => console.debug('[render] âœ“ Babylon onContextRestored'));
-
-        const activeScene = new Scene(engine);
-        setScene(activeScene);
-
-        activeScene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0);
-
-        const activeCamera = new ArcRotateCamera(
-            "camera",
-            Math.PI / 2 + Math.PI / 8,
-            Math.PI / 3,
-            5,
-            Vector3.Zero(),
-            activeScene
-        );
-        activeCamera.panningSensibility = 100;
-        activeCamera.attachControl(canvas, true);
-        activeCamera.wheelDeltaPercentage = 0.05;
-        setCamera(activeCamera);
-
-        const handleContextMenu = (e: MouseEvent) => {
-            e.preventDefault();
-        };
-        canvas.addEventListener('contextmenu', handleContextMenu);
-
-        const ambientLight = new HemisphericLight("ambient", new Vector3(0, 1, 0), activeScene);
-        ambientLight.intensity = customizeLighting ? ambientIntensity : 1.2;
-        ambientLight.specular = new Color3(0, 0, 0);
-
-        const dirLight1 = new DirectionalLight("dirLight1", new Vector3(-1, -1, -1), activeScene);
-        dirLight1.intensity = customizeLighting ? directionalIntensity : 0.0;
-
-        const dirLight2 = new DirectionalLight("dirLight2", new Vector3(1, 1, 1), activeScene);
-        dirLight2.intensity = customizeLighting ? directionalIntensity * 0.4 : 0.0;
-
-        const dirLight3 = new DirectionalLight("dirLight3", new Vector3(0, 1, 0), activeScene);
-        dirLight3.intensity = customizeLighting ? directionalIntensity * 0.3 : 0.0;
-
-        let renderErrCount = 0;
-        engine.runRenderLoop(() => {
-            try {
-                if (animationPlayerRef.current) {
-                    const now = performance.now();
-                    if (lastTimeRef.current !== 0) {
-                        const dt = (now - lastTimeRef.current) / 1000;
-                        animationPlayerRef.current.tick(dt);
-
-                        const curTime = animationPlayerRef.current.time;
-                        const rounded = Math.round(curTime * 100) / 100;
-                        if (Math.abs(rounded - lastReactTimeRef.current) >= 0.05) {
-                            lastReactTimeRef.current = rounded;
-                            setCurrentTime(curTime);
-                        }
-                        // Drive submesh visibility from the current playhead (recomputes from
-                        // baseline, so loop-wrap is handled without special-casing).
-                        applyTimelineVisibilityRef.current(curTime);
-                    }
-                    lastTimeRef.current = now;
-                }
-                activeScene.render();
-            } catch (err) {
-                renderErrCount++;
-                if (renderErrCount <= 5 || renderErrCount % 180 === 0) {
-                    console.error(`[render] frame #${renderErrCount} threw (loop kept alive):`, err);
-                }
-            }
-        });
-
-        const handleResize = () => {
-            engine.resize();
-        };
-        window.addEventListener('resize', handleResize);
+        // Environment starts blank (no default grid/skybox) — the dedicated
+        // floor-mode/skybox effects below apply the persisted settings right
+        // after mount, exactly like the standalone effects they replace did.
+        const handle = createSknScene(canvas, { grid: false, skybox: false });
+        sknSceneRef.current = handle;
+        setScene(handle.scene);
+        setCamera(handle.scene.activeCamera as ArcRotateCamera);
 
         (canvas as any)._flintCleanup = () => {
             // Persist a final snapshot so the last camera/playhead survive remount.
@@ -588,51 +422,8 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 camera: lr.getCamera(),
             });
 
-            window.removeEventListener('resize', handleResize);
-            canvas.removeEventListener('contextmenu', handleContextMenu);
-            window.removeEventListener('error', onWinError);
-            window.removeEventListener('unhandledrejection', onRejection);
-            canvas.removeEventListener('webglcontextlost', onCtxLost);
-            canvas.removeEventListener('webglcontextrestored', onCtxRestored);
-            console.debug('[engine] DISPOSED');
-
-            safeDisposeSkeletonViewer(skeletonViewerRef);
-
-            activeMeshesRef.current.forEach(m => {
-                if (m.material) {
-                    const mat = m.material as PBRMaterial;
-                    if (mat.albedoTexture) mat.albedoTexture.dispose();
-                    mat.dispose();
-                }
-                m.dispose();
-            });
-            activeMeshesRef.current = [];
-
-            if (skeletonRef.current) {
-                skeletonRef.current.dispose();
-                skeletonRef.current = null;
-            }
-
-            if (gridMeshRef.current) {
-                gridMeshRef.current.dispose();
-                gridMeshRef.current = null;
-            }
-
-            if (floorMeshRef.current) {
-                if (floorMeshRef.current.material) {
-                    floorMeshRef.current.material.dispose();
-                }
-                floorMeshRef.current.dispose();
-                floorMeshRef.current = null;
-            }
-
-            // engine.dispose() drops the skybox mesh + cube texture with the
-            // scene; only the blob URLs need manual revocation.
-            skyboxMeshRef.current = null;
-            skyboxUrlsRef.current.forEach(u => URL.revokeObjectURL(u));
-            skyboxUrlsRef.current = [];
-
-            engine.dispose();
+            sknSceneRef.current = null;
+            handle.dispose();
         };
 
         return () => {
@@ -766,266 +557,41 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
     useEffect(() => {
         if (!scene || !camera || !meshData) return;
+        const handle = sknSceneRef.current;
+        if (!handle) return;
 
-        safeDisposeSkeletonViewer(skeletonViewerRef);
-
-        activeMeshesRef.current.forEach(m => {
-            if (m.material) {
-                const mat = m.material as PBRMaterial;
-                if (mat.albedoTexture) mat.albedoTexture.dispose();
-                mat.dispose();
-            }
-            m.dispose();
-        });
-        activeMeshesRef.current = [];
-
-        if (skeletonRef.current) {
-            skeletonRef.current.dispose();
-            skeletonRef.current = null;
-        }
-        builtSklRef.current = null;
-        animationPlayerRef.current = null;
-
-        let babylonSkeleton: Skeleton | undefined;
-        if (skeletonData) {
-            const built = buildBabylonSkeleton(skeletonData, scene, "skeleton");
-            babylonSkeleton = built.skeleton;
-            skeletonRef.current = babylonSkeleton;
-            builtSklRef.current = {
-                boneIndexByHash: built.boneIndexByHash,
-                bones: built.bones,
-                joints: built.joints
-            };
-        }
-
-        const isSkn = meshData.kind === 'skn';
-        const meshDto: MeshDTO = {
-            positions: meshData.positions,
-            indices: meshData.indices,
-            normals: meshData.normals,
-            uvs: meshData.uvs,
-            bone_indices: isSkn ? (meshData as SknMeshData).bone_indices : undefined,
-            bone_weights: isSkn ? (meshData as SknMeshData).bone_weights : undefined,
-            submeshes: isSkn
-                ? (meshData as SknMeshData).materials.map(m => ({
-                    name: m.name,
-                    start_vertex: m.start_vertex,
-                    vertex_count: m.vertex_count,
-                    start_index: m.start_index,
-                    index_count: m.index_count
-                }))
-                : (meshData as ScbMeshData).materials.map(matName => {
-                    const scb = meshData as ScbMeshData;
-                    const range = scb.material_ranges?.[matName] || [0, scb.indices.length];
-                    return {
-                        name: matName,
-                        start_vertex: 0,
-                        vertex_count: scb.positions.length / 3,
-                        start_index: range[0],
-                        index_count: range[1]
-                    };
-                }),
-            bbox: meshData.bounding_box
-        };
-
-        const influences = skeletonData?.influences;
-
-        console.debug(
-            `[MeshPreview] build ${meshData.kind}: ` +
-            `pos=${meshData.positions?.length}(${(meshData.positions?.length ?? 0) / 3}v) ` +
-            `idx=${meshData.indices?.length} uv=${meshData.uvs?.length} nrm=${meshData.normals?.length} ` +
-            `bbox=${JSON.stringify(meshData.bounding_box)} skel=${!!babylonSkeleton} ` +
-            `submeshes=${meshDto.submeshes.length}[${meshDto.submeshes.map(s => `${s.name}:v${s.start_vertex}+${s.vertex_count}/i${s.start_index}+${s.index_count}`).join('; ')}]`
-        );
-
-        let meshes: ReturnType<typeof buildSknMeshes>['meshes'];
         try {
-            meshes = buildSknMeshes(meshDto, scene, babylonSkeleton, influences).meshes;
-            console.debug(`[MeshPreview] buildSknMeshes OK â†’ ${meshes.length} mesh(es)`);
+            // `loadMesh` is synchronous under the hood (see its doc-comment in
+            // sknScene.ts) — a build failure throws here, synchronously, exactly
+            // like the old inline `buildSknMeshes` call did.
+            void handle.loadMesh(meshData, skeletonData);
         } catch (err) {
-            console.error(`[MeshPreview] buildSknMeshes THREW (${meshData.kind}):`, err);
             setError(`Mesh build failed: ${(err as Error)?.message ?? String(err)}`);
             return;
         }
-        activeMeshesRef.current = meshes;
-        // Model renders in group 1 so it always draws AFTER (on top of) the
-        // skybox, which lives in group 0. Without this the skybox box (drawn in
-        // the same group) can paint over the whole model.
-        for (const m of meshes) m.renderingGroupId = 1;
 
-        const textureCache = new Map<string, Texture>();
-        const matData = meshData.material_data;
-        if (matData && Object.keys(matData).length > 0) {
-            for (const [matName, data] of Object.entries(matData)) {
-                try {
-                    const dataUrl = "data:image/png;base64," + data.texture;
-                    const texture = new Texture(dataUrl, scene, false, true);
-                    texture.wrapU = Texture.WRAP_ADDRESSMODE;
-                    texture.wrapV = Texture.WRAP_ADDRESSMODE;
-                    // has_alpha from the decoder (any pixel with alpha < 255)
-                    // — drives the alpha-test/blend path at material build.
-                    texture.hasAlpha = !!data.has_alpha;
-
-                    // Plain tiling only. The offset/flipbook transforms we
-                    // used to apply here interacted wrongly with the PNG
-                    // loader's V-flip on authored-UV materials; the base
-                    // look now matches the reference viewer (plain WRAP +
-                    // scale), and materials with real UV manipulation render
-                    // correctly through the game-shaders pass instead.
-                    if (data.uv_scale) {
-                        texture.uScale = data.uv_scale[0];
-                        texture.vScale = data.uv_scale[1];
-                    }
-                    textureCache.set(matName, texture);
-                } catch (e) {
-                    console.error("Failed to decode base64 texture for:", matName, e);
-                }
-            }
-        } else if (isSkn && (meshData as SknMeshData).textures) {
-            const textures = (meshData as SknMeshData).textures!;
-            for (const [matName, base64Data] of Object.entries(textures)) {
-                try {
-                    const dataUrl = "data:image/png;base64," + base64Data;
-                    const texture = new Texture(dataUrl, scene, false, true);
-                    texture.wrapU = Texture.WRAP_ADDRESSMODE;
-                    texture.wrapV = Texture.WRAP_ADDRESSMODE;
-                    texture.hasAlpha = false;
-                    textureCache.set(matName, texture);
-                } catch (e) {
-                    console.error("Failed to decode base64 texture fallback for:", matName, e);
-                }
-            }
+        const camRestore = restoreRef.current?.camera;
+        if (camRestore) {
+            const cam = handle.scene.activeCamera as ArcRotateCamera;
+            cam.alpha = camRestore.alpha;
+            cam.beta = camRestore.beta;
+            cam.radius = camRestore.radius;
+            cam.target = new Vector3(camRestore.target[0], camRestore.target[1], camRestore.target[2]);
         }
 
-        console.debug(
-            `[MeshPreview] visibleMaterials(${visibleMaterials.size})=[${[...visibleMaterials].map(x => `'${x}'`).join(', ')}] ` +
-            `textureCacheKeys=[${[...textureCache.keys()].map(x => `'${x}'`).join(', ')}] ` +
-            `meshNames=[${meshes.map(m => `'${m.name}'`).join(', ')}]`
-        );
-        meshes.forEach(m => {
-            const matName = m.name;
-
-            let texture = textureCache.get(matName);
-            if (!texture && matName.startsWith("mesh_")) {
-                texture = textureCache.get(matName.substring(5));
-            }
-            if (!texture) {
-                texture = textureCache.get(`mesh_${matName}`);
-            }
-            if (!texture) {
-                const lower = matName.toLowerCase();
-                for (const [key, tex] of textureCache) {
-                    if (key.toLowerCase() === lower) {
-                        texture = tex;
-                        break;
-                    }
-                }
-            }
-
-            const mat = new PBRMaterial(matName + "_material", scene);
-            mat.unlit = true;
-            mat.twoSidedLighting = true;
-            mat.metallic = 0;
-            mat.roughness = 1;
-            mat.environmentIntensity = 0;
-            mat.needDepthPrePass = false;
-            mat.wireframe = wireframe;
-
-            if (!isSkn) {
-                mat.albedoColor = new Color3(0.6, 0, 0);
-                mat.albedoTexture = null;
-                mat.backFaceCulling = false;
-                mat.useAlphaFromAlbedoTexture = false;
-                mat.transparencyMode = Material.MATERIAL_OPAQUE;
-                mat.alpha = 1;
-            } else if (texture) {
-                mat.backFaceCulling = true;
-                mat.albedoTexture = texture;
-                mat.albedoColor = new Color3(1, 1, 1);
-                if (texture.hasAlpha) {
-                    // League charskin look (ported from the reference
-                    // viewer): cutoff + per-fragment blend keeps feathered
-                    // transparency at hair/cape edges, and the depth
-                    // pre-pass writes the cutoff'd depth first so
-                    // overlapping parts don't sort each other into black
-                    // silhouettes.
-                    mat.useAlphaFromAlbedoTexture = true;
-                    mat.transparencyMode = Material.MATERIAL_ALPHATESTANDBLEND;
-                    mat.alphaCutOff = 0.2;
-                    mat.needDepthPrePass = true;
-                } else {
-                    mat.useAlphaFromAlbedoTexture = false;
-                    mat.transparencyMode = Material.MATERIAL_OPAQUE;
-                }
-            } else {
-                mat.backFaceCulling = true;
-                mat.albedoColor = new Color3(1, 0, 1);
-            }
-
-            m.material = mat;
-            const willEnable = visibleMaterials.has(matName);
-            m.setEnabled(willEnable);
-            console.debug(
-                `[MeshPreview] applyMat mesh='${matName}' textureFound=${!!texture} ` +
-                `visibleMaterials.has('${matName}')=${willEnable} -> setEnabled(${willEnable}) ` +
-                `=> isEnabled=${m.isEnabled()} albedo=${texture ? 'tex' : 'MAGENTA(no-tex)'}`
-            );
-        });
+        // Skeleton overlay for the freshly-loaded mesh — mirrors the original
+        // build effect's one-shot viewer creation (the dedicated `showSkeleton`
+        // toggle effect below only fires again on an explicit user toggle).
+        handle.setSkeletonOverlay(showSkeleton ? 'lines' : 'off');
 
         // Game-shaders pass (private module): opt-in via the Display
         // popup toggle — translation work only happens when it's on.
         // The snapshot map from any previous model is stale now.
         prevMaterialsRef.current.clear();
-        if (isSkn && shaderForgeAvailable && gameShadersRef.current) {
+        if (meshData.kind === 'skn' && shaderForgeAvailable && gameShadersRef.current) {
             void applyGameShadersPass();
         }
-
-        meshes.forEach((m, i) => {
-            const bi = m.getBoundingInfo();
-            const bb = bi.boundingBox;
-            const mat = m.material as PBRMaterial | null;
-            console.debug(
-                `[MeshPreview] FINAL mesh[${i}] name='${m.name}' enabled=${m.isEnabled()} ` +
-                `isVisible=${m.isVisible} visibility=${m.visibility} alphaIndex=${m.alphaIndex} ` +
-                `gpuVerts=${m.getTotalVertices()} gpuIdx=${m.getTotalIndices()} ` +
-                `pos=(${m.position.x.toFixed(1)},${m.position.y.toFixed(1)},${m.position.z.toFixed(1)}) ` +
-                `scale=(${m.scaling.x},${m.scaling.y},${m.scaling.z}) ` +
-                `bbMinW=(${bb.minimumWorld.x.toFixed(1)},${bb.minimumWorld.y.toFixed(1)},${bb.minimumWorld.z.toFixed(1)}) ` +
-                `bbMaxW=(${bb.maximumWorld.x.toFixed(1)},${bb.maximumWorld.y.toFixed(1)},${bb.maximumWorld.z.toFixed(1)}) ` +
-                `mat='${mat?.name}' matAlpha=${mat?.alpha} unlit=${mat?.unlit} wireframe=${mat?.wireframe} ` +
-                `albedoColor=${mat?.albedoColor ? `(${mat.albedoColor.r},${mat.albedoColor.g},${mat.albedoColor.b})` : 'none'} ` +
-                `hasAlbedoTex=${!!mat?.albedoTexture}`
-            );
-        });
-
-        // Framing math lives in cameraFraming.ts so it can also be re-run on demand
-        // by the 'F' shortcut, and unit-tested without Babylon.
-        const framing = computeFraming(meshData.bounding_box as BoundingBox);
-        applyFraming(camera, framing, makeVector3);
-
-        const camRestore = restoreRef.current?.camera;
-        if (camRestore) {
-            camera.alpha = camRestore.alpha;
-            camera.beta = camRestore.beta;
-            camera.radius = camRestore.radius;
-            camera.target = new Vector3(camRestore.target[0], camRestore.target[1], camRestore.target[2]);
-        }
-        console.debug(
-            `[MeshPreview] camera: radius=${framing.radius.toFixed(3)} ` +
-            `target=(${framing.center.map((n) => n.toFixed(2)).join(',')})`
-        );
-
-        if (showSkeleton && babylonSkeleton && meshes.length > 0) {
-            try {
-                skeletonViewerRef.current = buildSkeletonViewer(babylonSkeleton, meshes[0], scene);
-            } catch (e) {
-                console.error("Failed to build skeleton viewer:", e);
-            }
-        }
-
-        return () => {
-            textureCache.forEach(tex => tex.dispose());
-        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [scene, camera, meshData, skeletonData]);
 
     // The load-time hidden set: initialSubmeshToHide plus the active gear form's
@@ -1069,7 +635,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         const timeline = submeshTimelineRef.current;
         if (!timeline) return;
         const visible = timeline.visibleAt(tSeconds);
-        const sig = [...visible].sort().join('');
+        const sig = [...visible].sort().join('');
         if (sig === lastVisSigRef.current) return;
         lastVisSigRef.current = sig;
         setVisibleMaterials(visible);
@@ -1108,7 +674,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             setAnimationData(null);
             setCurrentTime(0);
             animationPlayerRef.current = null;
-            // Dropped the animation â†’ fall back to the static baseline visibility.
+            // Dropped the animation → fall back to the static baseline visibility.
             submeshTimelineRef.current = null;
             timelineInitRef.current = null;
             lastVisSigRef.current = '';
@@ -1130,7 +696,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 setAnimationData(animData as any);
                 setCurrentTime(0);
 
-                // fps comes from the baked .anm; needed to convert event frames â†’ seconds.
+                // fps comes from the baked .anm; needed to convert event frames → seconds.
                 timelineInitRef.current = {
                     submeshNames,
                     events: clip?.events ?? [],
@@ -1142,13 +708,18 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 });
                 lastVisSigRef.current = '';
 
-                if (skeletonRef.current && builtSklRef.current) {
-                    const { boneIndexByHash, bones, joints } = builtSklRef.current;
+                // Bone data for the AnimationPlayer comes off the Babylon Skeleton's
+                // `metadata` slot, stamped there by sknScene.ts's loadMesh — see
+                // SknSkeletonMetadata's doc-comment for why it lives there instead of
+                // a controller method.
+                const skeleton = scene?.skeletons[0];
+                const meta = skeleton?.metadata as SknSkeletonMetadata | undefined;
+                if (skeleton && meta) {
                     const player = new AnimationPlayer(
                         animData as any,
-                        boneIndexByHash,
-                        bones,
-                        joints
+                        meta.boneIndexByHash,
+                        skeleton.bones,
+                        meta.joints
                     );
                     player.paused = !isPlaying;
                     const seekTo = latestRef.current.currentTime;
@@ -1193,91 +764,39 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         applyTimelineVisibility(val);
     };
 
+    // Drives the AnimationPlayer + submesh-visibility timeline off the scene's own
+    // render clock. The controller's render loop calls `scene.render()` inside a
+    // try/catch every frame; `onBeforeRenderObservable` fires from inside that
+    // call, so an exception here is still caught there exactly as it was when
+    // this logic lived inline in the render loop itself.
     useEffect(() => {
         if (!scene) return;
+        const observer = scene.onBeforeRenderObservable.add(() => {
+            if (animationPlayerRef.current) {
+                const now = performance.now();
+                if (lastTimeRef.current !== 0) {
+                    const dt = (now - lastTimeRef.current) / 1000;
+                    animationPlayerRef.current.tick(dt);
 
-        if (gridMeshRef.current) {
-            gridMeshRef.current.dispose();
-            gridMeshRef.current = null;
-        }
-        if (floorMeshRef.current) {
-            if (floorMeshRef.current.material) {
-                floorMeshRef.current.material.dispose();
-            }
-            floorMeshRef.current.dispose();
-            floorMeshRef.current = null;
-        }
-
-        if (floorMode === 'grid') {
-            const gridLines: Vector3[][] = [];
-            const gridColors: Color4[][] = [];
-            const size = 1000;
-            const step = 20;
-            const color = new Color4(0.29, 0.29, 0.29, 1.0);
-            for (let i = -size; i <= size; i += step) {
-                gridLines.push([new Vector3(i, 0, -size), new Vector3(i, 0, size)]);
-                gridLines.push([new Vector3(-size, 0, i), new Vector3(size, 0, i)]);
-                gridColors.push([color, color], [color, color]);
-            }
-            gridMeshRef.current = CreateLineSystem("grid", { lines: gridLines, colors: gridColors, useVertexAlpha: false }, scene);
-            gridMeshRef.current.isPickable = false;
-            gridMeshRef.current.renderingGroupId = 1; // above the skybox (group 0)
-        } else if (floorMode === 'textured') {
-            let isMounted = true;
-
-            const loadFloor = async () => {
-                try {
-                    const pngBytes = await api.getBundledFloorPng();
-                    if (!isMounted || scene.isDisposed) return;
-
-                    const blob = new Blob([new Uint8Array(pngBytes)], { type: 'image/png' });
-                    const objectUrl = URL.createObjectURL(blob);
-
-                    const ground = CreateGround("ground", { width: 1500, height: 1500 }, scene);
-                    ground.isPickable = false;
-                    ground.position.y = -2;
-                    const mat = new StandardMaterial("ground-mat", scene);
-                    mat.backFaceCulling = false;
-
-                    const tex = new Texture(
-                        objectUrl, scene, undefined, undefined, undefined,
-                        () => {
-                            URL.revokeObjectURL(objectUrl);
-                            console.debug('[floor] ground texture loaded (url revoked)');
-                        },
-                        (msg, ex) => {
-                            URL.revokeObjectURL(objectUrl);
-                            console.error('[floor] ground texture FAILED to load:', msg, ex);
-                        },
-                    );
-                    mat.diffuseTexture = tex;
-                    mat.specularColor = new Color3(0, 0, 0);
-                    ground.material = mat;
-
-                    ground.renderingGroupId = 1; // above the skybox (group 0)
-                    floorMeshRef.current = ground;
-                    console.debug(`[floor] ground created (scene meshes=${scene.meshes.length})`);
-
-                    scene.onAfterRenderObservable.addOnce(() => {
-                        const dump = scene.meshes.map(mm => {
-                            const mm2 = mm as any;
-                            return `${mm.name}{en=${mm.isEnabled()},vis=${mm.isVisible},a=${mm.visibility},y=${mm.position.y.toFixed(1)},` +
-                                `verts=${mm.getTotalVertices()},mat=${mm2.material?.getClassName?.() ?? mm2.material?.name ?? 'none'}}`;
-                        });
-                        const cam = scene.activeCamera as any;
-                        console.debug(
-                            `[floor] AFTER-RENDER scene.meshes(${scene.meshes.length})=[${dump.join(', ')}] ` +
-                            `cam.radius=${cam?.radius?.toFixed?.(1)} cam.minZ=${cam?.minZ} cam.maxZ=${cam?.maxZ} ` +
-                            `clearColor=(${scene.clearColor.r.toFixed(2)},${scene.clearColor.g.toFixed(2)},${scene.clearColor.b.toFixed(2)})`
-                        );
-                    });
-                } catch (e) {
-                    console.error("Failed to load textured floor:", e);
+                    const curTime = animationPlayerRef.current.time;
+                    const rounded = Math.round(curTime * 100) / 100;
+                    if (Math.abs(rounded - lastReactTimeRef.current) >= 0.05) {
+                        lastReactTimeRef.current = rounded;
+                        setCurrentTime(curTime);
+                    }
+                    // Drive submesh visibility from the current playhead (recomputes from
+                    // baseline, so loop-wrap is handled without special-casing).
+                    applyTimelineVisibilityRef.current(curTime);
                 }
-            };
-            loadFloor();
-            return () => { isMounted = false; };
-        }
+                lastTimeRef.current = now;
+            }
+        });
+        return () => { scene.onBeforeRenderObservable.remove(observer); };
+    }, [scene]);
+
+    useEffect(() => {
+        if (!scene) return;
+        sknSceneRef.current?.setFloorMode(floorMode);
     }, [scene, floorMode]);
 
     useEffect(() => {
@@ -1302,121 +821,22 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
     useEffect(() => {
         if (!scene) return;
-        let cancelled = false;
-
-        const disposeSkybox = () => {
-            if (skyboxMeshRef.current) {
-                try {
-                    const mat = skyboxMeshRef.current.material as StandardMaterial | null;
-                    mat?.reflectionTexture?.dispose();
-                    mat?.dispose();
-                    skyboxMeshRef.current.dispose();
-                } catch { /* ignore */ }
-                skyboxMeshRef.current = null;
-            }
-            skyboxUrlsRef.current.forEach(u => URL.revokeObjectURL(u));
-            skyboxUrlsRef.current = [];
-        };
-
-        if (!showSkybox) {
-            disposeSkybox();
-            scene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0);
-            return;
-        }
-
-        // Dark clear as a fallback until the cubemap faces load.
-        scene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0);
-        if (skyboxMeshRef.current) {
-            skyboxMeshRef.current.setEnabled(true);
-            return;
-        }
-        if (skyboxLoadingRef.current) return;
-        skyboxLoadingRef.current = true;
-
-        (async () => {
-            try {
-                // Load the 6 bundled WebP faces as blob URLs.
-                //
-                // ORDER IS LOAD-BEARING: Babylon's CubeTexture `files` arg is
-                // consumed BY INDEX (it stores `this._files = files` verbatim and
-                // never parses the names), and blob URLs carry no filename at
-                // all — so the array position alone decides which GPU face each
-                // image becomes. The order is positives-then-negatives,
-                // [px, py, pz, nx, ny, nz], matching Babylon's own default
-                // extensions list. Interleaving it as px,nx,py,… puts the sky
-                // (py) on a side wall and a side wall overhead.
-                const faces = ['px', 'py', 'pz', 'nx', 'ny', 'nz'];
-                const urls = await Promise.all(faces.map(async (f) => {
-                    const bytes = await api.getBundledSkyboxFace(f);
-                    return URL.createObjectURL(new Blob([bytes.buffer as ArrayBuffer], { type: 'image/webp' }));
-                }));
-                if (cancelled) { urls.forEach(u => URL.revokeObjectURL(u)); return; }
-                skyboxUrlsRef.current = urls;
-
-                // MANUAL skybox (NOT scene.createDefaultSkybox — that also sets
-                // scene.environmentTexture, which re-lights/washes out the PBR
-                // model).
-                //
-                // ZOOM-PROOF: the box FOLLOWS the camera every frame
-                // (infiniteDistance) so the camera is always inside it, and it
-                // writes NO depth (disableDepthWrite) so it can never occlude or
-                // z-fight the model no matter how far you zoom in/out. The box
-                // renders first in group 0; the model (default group) draws over
-                // it. `needDepthPrePass=false` + no fog keeps it a pure backdrop.
-                // Half-size (50) stays comfortably between the camera near (1)
-                // and far (10000) planes at every zoom, so it never clips.
-                const box = CreateBox('skybox', { size: 100 }, scene);
-                const mat = new StandardMaterial('skybox-mat', scene);
-                mat.backFaceCulling = false;
-                mat.disableLighting = true;
-                mat.disableDepthWrite = true;
-                mat.reflectionTexture = new CubeTexture('', scene, null, true, urls);
-                mat.reflectionTexture.coordinatesMode = Texture.SKYBOX_MODE;
-                mat.diffuseColor = new Color3(0, 0, 0);
-                mat.specularColor = new Color3(0, 0, 0);
-                box.material = mat;
-                box.infiniteDistance = true;
-                box.isPickable = false;
-                box.applyFog = false;
-                box.renderingGroupId = 0;
-                skyboxMeshRef.current = box;
-                box.setEnabled(showSkyboxRef.current);
-            } catch (e) {
-                console.warn('[ModelPreview] skybox load failed, using flat clear color:', e);
-            } finally {
-                skyboxLoadingRef.current = false;
-            }
-        })();
-
-        return () => { cancelled = true; };
+        sknSceneRef.current?.setSkyboxVisible(showSkybox);
     }, [scene, showSkybox]);
 
     useEffect(() => {
-        activeMeshesRef.current.forEach(m => {
-            if (m.material) {
-                m.material.wireframe = wireframe;
-            }
-        });
+        sknSceneRef.current?.setWireframe(wireframe);
     }, [wireframe]);
 
     useEffect(() => {
-        activeMeshesRef.current.forEach(m => {
-            m.setEnabled(visibleMaterials.has(m.name));
-        });
+        const handle = sknSceneRef.current;
+        if (!handle) return;
+        handle.getActiveMeshes().forEach(m => handle.setSubmeshVisible(m.name, visibleMaterials.has(m.name)));
     }, [visibleMaterials]);
 
     useEffect(() => {
         if (!scene) return;
-
-        safeDisposeSkeletonViewer(skeletonViewerRef);
-
-        if (showSkeleton && skeletonRef.current && activeMeshesRef.current.length > 0) {
-            try {
-                skeletonViewerRef.current = buildSkeletonViewer(skeletonRef.current, activeMeshesRef.current[0], scene);
-            } catch (e) {
-                console.error("Failed to update skeleton viewer state:", e);
-            }
-        }
+        sknSceneRef.current?.setSkeletonOverlay(showSkeleton ? 'lines' : 'off');
     }, [scene, showSkeleton]);
 
     useEffect(() => {
@@ -1507,7 +927,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         : error
             ? (
                 <div className="model-preview__overlay model-preview__overlay--error">
-                    <span className="error-icon">âš ï¸</span>
+                    <span className="error-icon">⚠️</span>
                     <span>{error}</span>
                 </div>
             )
@@ -1891,7 +1311,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                             } else {
                                 return (
                                     <div className="asset-preview-tooltip__error">
-                                        <span className="asset-preview-tooltip__error-icon">ðŸŽ¨</span>
+                                        <span className="asset-preview-tooltip__error-icon">🎨</span>
                                         <span>No texture loaded</span>
                                     </div>
                                 );
