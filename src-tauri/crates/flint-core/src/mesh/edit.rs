@@ -199,6 +199,18 @@ mod tests {
     }
 
     #[test]
+    fn rename_to_a_duplicate_name_differing_only_in_case_is_an_error() {
+        let mesh = fixture();
+        let err = apply_ops(
+            &mesh,
+            None,
+            &[ModelEdit::RenameSubmesh { index: 1, name: "BODY".into() }],
+        )
+        .expect_err("case-insensitive duplicate names are rejected");
+        assert!(err.contains("BODY"), "error names the collision: {err}");
+    }
+
+    #[test]
     fn rename_to_an_empty_name_is_an_error() {
         let mesh = fixture();
         let err = apply_ops(
