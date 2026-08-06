@@ -171,11 +171,16 @@ pub async fn derive_model_mesh(
         .mesh
         .to_bytes()
         .map_err(|e| format!("Could not serialize derived mesh: {e:?}"))?;
-    let tmp = std::env::temp_dir().join(format!("flint-derive-{session_id}.skn"));
+    // Keyed on a per-call id, not the session id: concurrent calls for the same
+    // session (a rapid preview refresh, a stray double-dispatch) would otherwise
+    // share one temp filename and interleave writes/reads/deletes, producing
+    // spurious parse errors or garbled geometry in the viewport.
+    let tmp = std::env::temp_dir().join(format!("flint-derive-{}.skn", Uuid::new_v4()));
     std::fs::write(&tmp, &bytes).map_err(|e| format!("Could not stage derived mesh: {e}"))?;
     let mesh_data = flint_core::mesh::skn::parse_skn_file(&tmp)
-        .map_err(|e| format!("Could not re-read derived mesh: {e}"))?;
+        .map_err(|e| format!("Could not re-read derived mesh: {e}"));
     let _ = std::fs::remove_file(&tmp);
+    let mesh_data = mesh_data?;
 
     let buf = flint_core::mesh::wire::encode_skn_binary(&mesh_data)?;
     Ok(tauri::ipc::Response::new(buf))
@@ -197,15 +202,15 @@ pub async fn save_model_session(
         .map(PathBuf::from)
         .unwrap_or_else(|| guard.source_path.clone());
 
-    let skn_bytes = derived
-        .mesh
-        .to_bytes()
-        .map_err(|e| format!("Could not serialize .skn: {e:?}"))?;
-    std::fs::write(&skn_out, &skn_bytes)
-        .map_err(|e| format!("Could not write {}: {e}", skn_out.display()))?;
-
-    // The .skl is written ONLY when a paste appended influences. Phase 1 never
-    // touches joint names, ids, parents or transforms.
+    // Write the .skl FIRST, before the .skn. The .skl is written ONLY when a
+    // paste appended influences — Phase 1 never touches joint names, ids,
+    // parents or transforms. If the .skl write fails here, the .skn on disk is
+    // still the old one, so the pair on disk is untouched and consistent. The
+    // reverse order is the one that can corrupt: a new .skn whose influence
+    // data references bind additions, paired with the OLD .skl that lacks
+    // them, is a broken asset. This order's failure mode is harmless instead —
+    // an old .skn paired with a .skl carrying extra influence entries is inert,
+    // because unused influence slots are never referenced by the mesh.
     let mut skl_written: Option<PathBuf> = None;
     if derived.skeleton_dirty {
         if let (Some(skel), Some(_)) = (derived.skeleton.as_ref(), guard.skeleton_path.as_ref()) {
@@ -218,6 +223,13 @@ pub async fn save_model_session(
             skl_written = Some(skl_out);
         }
     }
+
+    let skn_bytes = derived
+        .mesh
+        .to_bytes()
+        .map_err(|e| format!("Could not serialize .skn: {e:?}"))?;
+    std::fs::write(&skn_out, &skn_bytes)
+        .map_err(|e| format!("Could not write {}: {e}", skn_out.display()))?;
 
     // RE-PARSE from disk. The WAD editor shipped a bug where an in-place save
     // rewrote the file while the session kept the old parse; every later read
