@@ -10,7 +10,18 @@ import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import * as api from '../../lib/api';
 import { sanitizeChampionName } from '../../lib/util/utils';
 import { FlintFlameMark } from '../ui/FlintFlameMark';
-import type { ProjectTab, ExtractSession } from '../../lib/types';
+import type { ProjectTab, ExtractSession, FileEditorKind } from '../../lib/types';
+
+/** A file-editor tab is named by what the editor opened it AS, so the icon comes
+ *  from the kind rather than the extension — every one used to show a BIN icon,
+ *  including `mod.config.json` and `.troybin`. */
+const FILE_EDITOR_TAB_ICON: Record<FileEditorKind, Parameters<typeof getIcon>[0]> = {
+    modConfig: 'settings',
+    binText: 'bin',
+    troybin: 'config',
+    luaBin64: 'code',
+    raw: 'file',
+};
 
 // Brand mark for whichever launcher the sync button currently targets. Paths live in public/, so
 // they are served verbatim and need no import.
@@ -197,7 +208,9 @@ const ManifestTab: React.FC<ManifestTabProps> = ({ label, isActive, onSwitch, on
             title={`CDN manifest: ${label}`}
             data-tauri-drag-region="false"
         >
-            <span className="titlebar__tab-icon" dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
+            {/* `globe` — a CDN manifest is remote content, distinct from the local
+                `.fantome`/`.modpkg` archive tabs that keep `package`. */}
+            <span className="titlebar__tab-icon" dangerouslySetInnerHTML={{ __html: getIcon('globe') }} />
             <span className="titlebar__tab-name">{label}</span>
             <button className="titlebar__tab-close" onClick={triggerClose} title="Close Tab">
                 <svg viewBox="0 0 16 16" width="12" height="12">
@@ -572,9 +585,12 @@ export const TitleBar: React.FC = () => {
                                 title="WAD Explorer — unified game asset browser"
                                 data-tauri-drag-region="false"
                             >
+                                {/* `search`, not `wad` — the Explorer browses every WAD in the
+                                    install, so sharing an icon with a single opened WAD tab
+                                    made the two indistinguishable in the strip. */}
                                 <span
                                     className="titlebar__tab-icon"
-                                    dangerouslySetInnerHTML={{ __html: getIcon('wad') }}
+                                    dangerouslySetInnerHTML={{ __html: getIcon('search') }}
                                 />
                                 <span className="titlebar__tab-name">WAD Explorer</span>
                                 <button
@@ -606,7 +622,12 @@ export const TitleBar: React.FC = () => {
                                 title={tab.target.filePath}
                                 data-tauri-drag-region="false"
                             >
-                                <span className="titlebar__tab-icon" dangerouslySetInnerHTML={{ __html: getIcon('bin') }} />
+                                <span
+                                    className="titlebar__tab-icon"
+                                    dangerouslySetInnerHTML={{
+                                        __html: getIcon(FILE_EDITOR_TAB_ICON[tab.target.kind] ?? 'file'),
+                                    }}
+                                />
                                 <span className="titlebar__tab-name">
                                     {tab.target.filePath.split(/[/\\]/).pop()}
                                     {tab.dirty && <span style={{ color: 'var(--accent-primary)', marginLeft: 3 }}>●</span>}

@@ -220,9 +220,10 @@
     color: var(--accent-primary);
 }
 
-.titlebar__tab--active .titlebar__tab-icon {
-    filter: drop-shadow(0 0 3px color-mix(in oklab, var(--accent-primary) 50%, transparent));
-}
+/* No glow on the active icon. The active tab already reads through four
+   signals — accent gradient, accent border, the ::before bar, and this colour
+   change — and a 3px drop-shadow on a 14px glyph blurs it rather than
+   emphasising it. */
 
 .titlebar__tab-name {
     font-size: 11.5px;
