@@ -48,7 +48,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             const activeProjectKind = tabs.openTabs.find(t => t.id === tabs.activeTabId)?.project?.kind ?? null;
             options.push({
                 label: 'Project',
-                icon: getIcon('code'),
+                icon: getIcon('wrench'),
                 separator: true,
                 submenu: [
                     {
@@ -58,7 +58,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                     },
                     {
                         label: 'Edit Project Info',
-                        icon: getIcon('code'),
+                        icon: getIcon('settings'),
                         onClick: () => {
                             const configPath = `${projectPath.replace(/\\/g, '/')}/mod.config.json`;
                             useNavigationStore.getState().navigateToFileEditor({
@@ -70,7 +70,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                     },
                     {
                         label: 'Set Thumbnail…',
-                        icon: getIcon('document'),
+                        icon: getIcon('picture'),
                         onClick: () => openModal('thumbnail', { projectPath }),
                     },
                     {
@@ -81,7 +81,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                     },
                     {
                         label: 'Port to Chromas…',
-                        icon: getIcon('texture'),
+                        icon: getIcon('contrast'),
                         onClick: () => openModal('chromaPort'),
                     },
                     {
@@ -147,7 +147,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
             options.push({
                 label: 'Export',
-                icon: getIcon('package'),
+                icon: getIcon('export'),
                 separator: true,
                 submenu: [
                     {
@@ -172,14 +172,14 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             });
             options.push({
                 label: 'Batch Recolor',
-                icon: getIcon('texture'),
+                icon: getIcon('contrast'),
                 separator: true,
                 onClick: () => openModal('recolor', { filePath: node.path, isFolder: true }),
             });
         } else {
             options.push({
                 label: 'Batch Recolor',
-                icon: getIcon('texture'),
+                icon: getIcon('contrast'),
                 onClick: () => openModal('recolor', { filePath: node.path, isFolder: true }),
             });
         }
@@ -212,7 +212,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             const binTools: ContextMenuOption[] = [];
             binTools.push({
                 label: 'Split BINs by Class…',
-                icon: getIcon('code'),
+                icon: getIcon('bin'),
                 onClick: async () => {
                     const defaultOutputName = await api.getVfxFilename(fullPath.replace(/\//g, '\\'));
                     openModal('binSplit', {
@@ -275,7 +275,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
             options.push({
                 label: 'BIN Tools',
-                icon: getIcon('code'),
+                icon: getIcon('wrench'),
                 separator: true,
                 submenu: binTools,
             });
@@ -293,7 +293,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                 });
             options.push({
                 label: 'Check Files',
-                icon: getIcon('check'),
+                icon: getIcon('search'),
                 separator: true,
                 submenu: [
                     {
@@ -312,17 +312,17 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
         options.push({
             label: 'Copy',
-            icon: getIcon('code'),
+            icon: getIcon('copy'),
             separator: true,
             submenu: [
                 {
                     label: 'Absolute Path',
-                    icon: getIcon('code'),
+                    icon: getIcon('link'),
                     onClick: () => navigator.clipboard.writeText(fullPath.replace(/\//g, '\\')),
                 },
                 {
                     label: 'Relative Path',
-                    icon: getIcon('code'),
+                    icon: getIcon('link'),
                     onClick: () => navigator.clipboard.writeText(copyablePath(node.path)),
                 },
                 {
@@ -371,7 +371,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
     if (fileName === 'mod.config.json') {
         options.push({
             label: 'Edit Project Info',
-            icon: getIcon('code'),
+            icon: getIcon('settings'),
             onClick: () => {
                 useNavigationStore.getState().navigateToFileEditor({
                     filePath: fullPath,
@@ -382,7 +382,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
         });
         options.push({
             label: 'Add Contributor',
-            icon: getIcon('plus'),
+            icon: getIcon('user'),
             onClick: async () => {
                 try {
                     const text = await api.readTextFile(fullPath);
@@ -414,7 +414,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
         if (isBinText) {
             options.push({
                 label: 'Edit BIN',
-                icon: getIcon('code'),
+                icon: getIcon('bin'),
                 onClick: () => {
                     useNavigationStore.getState().navigateToFileEditor({
                         filePath: fullPath,
@@ -427,7 +427,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             // .troybin is a binary League config (read-only viewer), NOT ritobin text.
             options.push({
                 label: 'View Troybin',
-                icon: getIcon('code'),
+                icon: getIcon('config'),
                 onClick: () => {
                     useNavigationStore.getState().navigateToFileEditor({
                         filePath: fullPath,
@@ -451,7 +451,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
         } else if (isRawText) {
             options.push({
                 label: 'Edit File',
-                icon: getIcon('code'),
+                icon: getIcon('text'),
                 onClick: () => {
                     useNavigationStore.getState().navigateToFileEditor({
                         filePath: fullPath,
@@ -473,7 +473,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
     options.push({
         label: 'Duplicate',
-        icon: getIcon('file'),
+        icon: getIcon('copy'),
         onClick: async () => {
             try {
                 await api.duplicateFile(projectPath, node.path);
@@ -501,7 +501,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
         if (ext !== 'png') {
             options.push({
                 label: 'Recolor',
-                icon: getIcon('texture'),
+                icon: getIcon('contrast'),
                 separator: true,
                 onClick: () => openModal('recolor', { filePath: node.path, isFolder: false }),
             });
@@ -584,7 +584,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
         options.push({
             label: 'File Transformation',
-            icon: getIcon('code'),
+            icon: getIcon('wrench'),
             submenu: transformItems,
         });
     }
@@ -608,7 +608,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
         const compareSubmenu: ContextMenuOption[] = [
             {
                 label: 'Original (from WAD)',
-                icon: getIcon('code'),
+                icon: getIcon('wad'),
                 onClick: () => openModal('fileCompare', {
                     mode: 'original',
                     filePath: node.path,
@@ -617,7 +617,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             },
             {
                 label: 'Backup',
-                icon: getIcon('file'),
+                icon: getIcon('save'),
                 onClick: async () => {
                     try {
                         const exists = await api.hasFileBackup(projectPath, node.path);
@@ -693,7 +693,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
         const backupSubmenu: ContextMenuOption[] = [
             {
                 label: 'Create / Update',
-                icon: getIcon('file'),
+                icon: getIcon('save'),
                 onClick: async () => {
                     try {
                         await api.createFileBackup(projectPath, node.path);
@@ -706,7 +706,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             },
             {
                 label: 'Restore from Backup',
-                icon: getIcon('file'),
+                icon: getIcon('history'),
                 onClick: async () => {
                     try {
                         const exists = await api.hasFileBackup(projectPath, node.path);
@@ -774,18 +774,18 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
         options.push({
             label: 'Compare with…',
-            icon: getIcon('code'),
+            icon: getIcon('contrast'),
             separator: true,
             submenu: compareSubmenu,
         });
         options.push({
             label: 'Restore from Original',
-            icon: getIcon('file'),
+            icon: getIcon('history'),
             onClick: restoreFromOriginal,
         });
         options.push({
             label: 'Backup',
-            icon: getIcon('file'),
+            icon: getIcon('save'),
             submenu: backupSubmenu,
         });
     }
@@ -793,7 +793,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
     if (ext === 'bin' && !fileName.toLowerCase().includes('_concat')) {
         options.push({
             label: 'Split BIN by Class…',
-            icon: getIcon('code'),
+            icon: getIcon('bin'),
             separator: true,
             onClick: async () => {
                 const defaultOutputName = await api.getVfxFilename(fullPath.replace(/\//g, '\\'));
@@ -807,17 +807,17 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
     options.push({
         label: 'Copy',
-        icon: getIcon('code'),
+        icon: getIcon('copy'),
         separator: true,
         submenu: [
             {
                 label: 'Absolute Path',
-                icon: getIcon('code'),
+                icon: getIcon('link'),
                 onClick: () => navigator.clipboard.writeText(fullPath.replace(/\//g, '\\')),
             },
             {
                 label: 'Relative Path',
-                icon: getIcon('code'),
+                icon: getIcon('link'),
                 onClick: () => navigator.clipboard.writeText(copyablePath(node.path)),
             },
             {
@@ -839,7 +839,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             },
             {
                 label: 'With Default App',
-                icon: getIcon('file'),
+                icon: getIcon('export'),
                 onClick: async () => {
                     try {
                         const normalizedPath = fullPath.replace(/\//g, '\\');

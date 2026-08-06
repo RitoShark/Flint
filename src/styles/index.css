@@ -8059,9 +8059,12 @@ input.np-search:focus {
    submenus that fan out to the right.
    -------------------------------------------------------------------------- */
 .context-menu {
-  --cm-radius: 12px;
-  --cm-pad-x: 6px;
-  --cm-pad-y: 6px;
+  /* Radius and the accent-tinted icon colour are lifted from `.settings-row`
+     (settings-polish.css) so the menu reads as the same family as Settings. */
+  --cm-radius: 10px;
+  --cm-pad-x: 4px;
+  --cm-pad-y: 4px;
+  --cm-icon: color-mix(in oklab, var(--accent-primary) 45%, var(--text-secondary));
   --cm-ease-spring: cubic-bezier(.34, 1.56, .64, 1);
   --cm-ease-out: cubic-bezier(.22, 1, .36, 1);
 
@@ -8074,14 +8077,14 @@ input.np-search:focus {
   border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
   border-radius: var(--cm-radius);
   box-shadow:
-    0 24px 48px -16px rgba(0, 0, 0, 0.55),
-    0 6px 16px -6px rgba(0, 0, 0, 0.45),
+    0 18px 36px -14px rgba(0, 0, 0, 0.55),
+    0 4px 12px -5px rgba(0, 0, 0, 0.45),
     0 0 0 1px color-mix(in oklab, #fff 4%, transparent) inset;
-  min-width: 196px;
+  min-width: 168px;
   padding: var(--cm-pad-y) var(--cm-pad-x);
   user-select: none;
   transform-origin: top left;
-  animation: contextMenuIn 180ms var(--cm-ease-spring) both;
+  animation: contextMenuIn 150ms var(--cm-ease-spring) both;
   /* Stay above modals, drag overlays, but below toasts. */
   z-index: 2000;
 }
@@ -8120,55 +8123,51 @@ input.np-search:focus {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 7px 10px 7px 10px;
-  margin: 1px 0;
-  border-radius: 8px;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 7px;
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: 12px;
+  line-height: 1.35;
   color: var(--text-secondary);
   transition:
-    background 140ms var(--cm-ease-out),
-    color 140ms var(--cm-ease-out),
-    transform 100ms var(--cm-ease-out);
+    background 120ms var(--cm-ease-out),
+    color 120ms var(--cm-ease-out);
   isolation: isolate;
 }
 
-/* Gradient hover stripe — accent-tinted bar that washes the row on hover.
-   Keeps colour energy in the panel without screaming. */
+/* Flat accent wash on hover. A gradient reads as noise at this row height —
+   the rail below is what marks the active row. */
 .context-menu__item::before {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: linear-gradient(90deg,
-    color-mix(in oklab, var(--accent-primary) 22%, transparent),
-    color-mix(in oklab, var(--accent-primary) 8%, transparent) 60%,
-    transparent);
+  background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
   opacity: 0;
-  transition: opacity 140ms var(--cm-ease-out);
+  transition: opacity 120ms var(--cm-ease-out);
   z-index: -1;
 }
 
-/* Accent dot on the left edge that slides in on hover. Subtle but signals
-   "this is the current row" without needing a heavy background. */
+/* Accent rail on the left edge that grows in on hover — the one piece of
+   motion kept, so the active row is unmistakable without the whole item
+   shifting under the cursor. */
 .context-menu__item::after {
   content: "";
   position: absolute;
-  left: 3px;
+  left: 2px;
   top: 50%;
-  width: 3px;
+  width: 2px;
   height: 0;
   background: var(--accent-primary);
   border-radius: 2px;
   transform: translateY(-50%);
-  transition: height 160ms var(--cm-ease-spring);
+  transition: height 150ms var(--cm-ease-spring);
 }
 
 .context-menu__item:hover:not(.context-menu__item--disabled),
 .context-menu__item--open {
   color: var(--text-primary);
-  transform: translateX(1px);
 }
 
 .context-menu__item:hover:not(.context-menu__item--disabled)::before,
@@ -8178,11 +8177,11 @@ input.np-search:focus {
 
 .context-menu__item:hover:not(.context-menu__item--disabled)::after,
 .context-menu__item--open::after {
-  height: 16px;
+  height: 13px;
 }
 
-.context-menu__item:active:not(.context-menu__item--disabled) {
-  transform: translateX(1px) scale(0.985);
+.context-menu__item:active:not(.context-menu__item--disabled)::before {
+  background: color-mix(in oklab, var(--accent-primary) 22%, transparent);
 }
 
 .context-menu__item--danger {
@@ -8204,16 +8203,17 @@ input.np-search:focus {
   color: var(--error);
 }
 
+/* Accent-tinted, matching `.settings-row__icon`. A glyph on the text baseline
+   reads low, so the box is a centred flex parent and the SVG is display:block. */
 .context-menu__icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   flex-shrink: 0;
-  color: currentColor;
-  opacity: 0.78;
-  transition: opacity 140ms var(--cm-ease-out), transform 140ms var(--cm-ease-out);
+  color: var(--cm-icon);
+  transition: color 120ms var(--cm-ease-out);
 }
 
 .context-menu__icon--empty {
@@ -8221,14 +8221,13 @@ input.np-search:focus {
   visibility: hidden;
 }
 
-.context-menu__item:hover .context-menu__icon {
-  opacity: 1;
-  transform: scale(1.08);
+.context-menu__item:hover:not(.context-menu__item--disabled) .context-menu__icon {
+  color: var(--accent-primary);
 }
 
 .context-menu__icon svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   display: block;
 }
 
@@ -8242,35 +8241,31 @@ input.np-search:focus {
 
 .context-menu__shortcut {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 10.5px;
+  font-size: 10px;
   letter-spacing: 0.02em;
   color: var(--text-muted);
-  padding-left: 12px;
+  padding-left: 10px;
   flex-shrink: 0;
 }
 
 .context-menu__chevron {
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
   flex-shrink: 0;
   color: var(--text-muted);
-  transition: color 140ms var(--cm-ease-out), transform 140ms var(--cm-ease-out);
+  transition: color 120ms var(--cm-ease-out);
 }
 
 .context-menu__item--parent:hover .context-menu__chevron,
 .context-menu__item--open .context-menu__chevron {
   color: var(--accent-primary);
-  transform: translateX(2px);
 }
 
+/* Hairline rule, the same separation device `.settings-row` uses. */
 .context-menu__separator {
   height: 1px;
-  background: linear-gradient(90deg,
-    transparent,
-    color-mix(in oklab, var(--border) 90%, transparent) 18%,
-    color-mix(in oklab, var(--border) 90%, transparent) 82%,
-    transparent);
-  margin: 5px 4px;
+  background: color-mix(in oklab, var(--border) 55%, transparent);
+  margin: 4px 6px;
 }
 
 .context-menu__item--disabled {
