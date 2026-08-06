@@ -332,6 +332,20 @@ fn paste_submesh(
     let mut copied: Vec<SkinnedMeshVertex> =
         source.mesh.vertices[v_start..v_start + v_count].to_vec();
 
+    // A zero-weight slot's index is meaningless — it may still carry a raw,
+    // stale value from the source skeleton's influence-table space (common
+    // exporter output for "unskinned decorative" geometry). Zero it
+    // unconditionally, whether or not a remap is about to run below, so a
+    // pasted vertex never carries an index that only made sense in the source
+    // file's own influence table.
+    for v in &mut copied {
+        for slot in 0..4 {
+            if v.blend_weights[slot] <= 0.0 {
+                v.blend_indices[slot] = 0;
+            }
+        }
+    }
+
     // Remap skinning only when the geometry is actually skinned. An unskinned
     // paste (all weights zero) needs no rig on either side.
     let needs_remap = copied
@@ -351,7 +365,6 @@ fn paste_submesh(
         for v in &mut copied {
             for slot in 0..4 {
                 if v.blend_weights[slot] <= 0.0 {
-                    v.blend_indices[slot] = 0;
                     continue;
                 }
                 v.blend_indices[slot] = remap_influence(src_skel, dest_skel, v.blend_indices[slot])?;
@@ -785,5 +798,83 @@ mod tests {
         )
         .expect_err("cannot remap without a destination rig");
         assert!(err.to_lowercase().contains("skeleton"), "error explains why: {err}");
+    }
+
+    #[test]
+    fn paste_past_the_256_influence_limit_is_rejected() {
+        // 257 joints exist in the rig: J0..J255 are already bound (influences
+        // 0..256, i.e. exactly at MAX_INFLUENCES), J256 exists as a joint but
+        // is not yet in the influence table, so binding it requires an append
+        // that the guard must refuse.
+        let names: Vec<String> = (0..257).map(|i| format!("J{i}")).collect();
+        let name_refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
+        let influences: Vec<u16> = (0..256).collect();
+        let dest_skel = skeleton_with(&name_refs, &influences);
+
+        let src_skel = skeleton_with(&["J256"], &[0]);
+
+        let mut src_mesh = fixture();
+        src_mesh.ranges = vec![SkinnedMeshRange::new("Extra", 0, 3, 0, 3)];
+        src_mesh.vertices.truncate(3);
+        src_mesh.indices = vec![0, 1, 2];
+        for v in &mut src_mesh.vertices {
+            v.blend_indices = [0, 0, 0, 0];
+        }
+
+        let resolve = move |_p: &Path| {
+            Ok(PasteSource { mesh: src_mesh.clone(), skeleton: Some(src_skel.clone()) })
+        };
+
+        let err = apply_ops(
+            &fixture(),
+            Some(&dest_skel),
+            &[ModelEdit::PasteSubmesh {
+                source_skn: PathBuf::from("other.skn"),
+                source_index: 0,
+                name: "Extra".into(),
+            }],
+            &resolve,
+        )
+        .expect_err("a 257th distinct influence exceeds the u8 blend-index limit");
+        assert!(err.contains("256"), "error cites the limit: {err}");
+    }
+
+    #[test]
+    fn paste_past_the_u16_vertex_limit_is_rejected() {
+        // Mirrors `duplicate_past_the_u16_index_limit_is_rejected`: grow the
+        // destination so pasting three more vertices crosses 65_536.
+        let filler = fixture().vertices[0];
+        let mesh = SkinnedMesh {
+            vertices: vec![filler; 65_534],
+            indices: (0..65_534u32).map(|i| i as u16).collect(),
+            ranges: vec![SkinnedMeshRange::new("Body", 0, 65_534, 0, 65_534)],
+            ..fixture()
+        };
+
+        let mut src_mesh = fixture();
+        src_mesh.ranges = vec![SkinnedMeshRange::new("Extra", 0, 3, 0, 3)];
+        src_mesh.vertices.truncate(3);
+        src_mesh.indices = vec![0, 1, 2];
+        // Unskinned paste — no skeleton needed on either side, isolating this
+        // test to the vertex-count guard alone.
+        for v in &mut src_mesh.vertices {
+            v.blend_weights = [0.0, 0.0, 0.0, 0.0];
+        }
+
+        let resolve =
+            move |_p: &Path| Ok(PasteSource { mesh: src_mesh.clone(), skeleton: None });
+
+        let err = apply_ops(
+            &mesh,
+            None,
+            &[ModelEdit::PasteSubmesh {
+                source_skn: PathBuf::from("other.skn"),
+                source_index: 0,
+                name: "Extra".into(),
+            }],
+            &resolve,
+        )
+        .expect_err("65_534 + 3 exceeds the u16 index space");
+        assert!(err.contains("65535") || err.contains("65,535"), "error cites the limit: {err}");
     }
 }
