@@ -43,7 +43,9 @@ name (`rs_hash::elf_lower`), and BINs reference bones by FNV1a-32 of the name �
 `ParticleEventDataPair.mBoneName`/`mTargetBoneName`, `JointSnapEventData.mJointNameToOverride`/
 `mJointNameToSnapTo`, `SpringPhysicsEventData.SpringToAffect`. Renaming a joint in the `.skl`
 alone silently breaks every one of those. Doing it safely *is* the propagation engine, so it
-is its own phase. Phase 1's skeleton tree is select / inspect / filter only, with no writes.
+is its own phase. Phase 1's skeleton tree is select / inspect / filter only. The single `.skl`
+write Phase 1 can perform is appending to the `influences` table during a cross-file paste — see
+"Cross-file copy-paste" — which touches no joint name, id, parent or transform.
 
 ## What already exists
 
@@ -161,7 +163,8 @@ state. A session holds the **pristine** parse plus a staged op log:
 pub struct ModelSession {
     source_path: PathBuf,
     pristine: SkinnedMesh,          // rs_mesh, never mutated
-    skeleton: Option<Skeleton>,     // rs_anim, read-only in Phase 1
+    skeleton: Option<Skeleton>,     // rs_anim; only `influences` is ever appended to
+    skeleton_path: Option<PathBuf>,
     ops: Vec<ModelEdit>,
     cursor: usize,                  // undo/redo position within `ops`
 }
@@ -188,7 +191,7 @@ Commands:
 | `stage_model_edit(session_id, edit)` | Push op at cursor (truncating any redo tail), return the new derived summary |
 | `undo_model_edit` / `redo_model_edit` | Move the cursor, return the derived summary |
 | `derive_model_mesh(session_id)` | Current derived mesh in the `wire.rs` binary format, for viewport reload |
-| `save_model_session(session_id, dest?)` | Apply ops, write `.skn`, **re-parse the written file into the session**, clear `ops` |
+| `save_model_session(session_id, dest?)` | Apply ops, write `.skn` (and the `.skl` only if a paste appended influences), **re-parse the written file(s) into the session**, clear `ops` |
 | `close_model_session(session_id)` | Drop it |
 
 **The post-save re-parse is not optional.** The WAD editor shipped a bug where an in-place save
@@ -209,7 +212,7 @@ Copy-paste of a submesh between two different `.skn` files is the one op that mu
 because merging vertex and index buffers means remapping bone indices:
 
 1. Append the source range's vertices to the destination vertex buffer.
-2. For each vertex, resolve `bone_indices[i]` through the **source** skeleton's `influences`
+2. For each vertex, resolve `blend_indices[i]` through the **source** skeleton's `influences`
    table to a real joint id, look that joint up **by name** in the destination skeleton, and
    re-encode as a destination influence index — appending to the destination `influences` list
    when the joint is present in the destination skeleton but not yet in its influence table.
@@ -218,6 +221,21 @@ because merging vertex and index buffers means remapping bone indices:
    geometry welded to the origin, which looks like a renderer bug.
 4. Rebase the copied indices onto the new vertex start and append a new `SkinnedMeshRange`.
 5. Recompute `bounding_box` and `bounding_sphere` over the merged vertex set.
+
+Two hard format limits make this fallible, and both are rejected with a clear message rather
+than silently truncated:
+
+- **Indices are `u16`.** A duplicate or paste that would push the merged vertex count past
+  65,535 is rejected.
+- **`blend_indices` are `u8`.** A paste that would push the destination `influences` list past
+  256 entries is rejected.
+
+**The influence-table append is the one skeleton write Phase 1 performs.** `Skeleton.influences`
+is a skinning binding, not part of the joint hierarchy — appending to it neither renames a joint,
+nor moves one, nor changes the tree. So Phase 1 writes the `.skl` **only** to append influence
+entries, and only when a paste requires it; joint names, ids, parents and transforms are never
+touched, and a paste needing no new influences leaves the `.skl` byte-identical. Everything the
+skeleton tree exposes in the UI stays read-only.
 
 **Pasted geometry carries its material name only.** A `.skn` stores a material *name* per
 range; the material itself lives in the skin BIN. So the paste reports "material `<name>` is not
@@ -327,6 +345,9 @@ Save
 - Cross-file paste remaps bone indices correctly through both `influences` tables (fixture with
   a known joint layout), and fails with named joints when a source joint is absent in the
   destination skeleton.
+- A paste needing no new influences leaves the `.skl` byte-identical.
+- Duplicate/paste past 65,535 vertices is rejected, not truncated; paste past 256 influences is
+  rejected.
 - Undo/redo cursor: stage three ops, undo twice, redo once, derived state equals staging just
   the first two.
 
