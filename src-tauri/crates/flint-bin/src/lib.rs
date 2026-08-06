@@ -2,6 +2,7 @@
 //! and the split/concat passes built on top of them.
 
 pub mod animask;
+pub mod audit;
 pub mod bin_json;
 pub mod codec;
 pub mod concat;
@@ -29,4 +30,5 @@ pub use split::{
     split_bin_multi, MultiAnalysis, MultiSourceInfo, OrganizeResult, SplitResult, VFX_CLASS_NAMES,
 };
 pub use animask::{read_masks, write_masks, MaskEntry};
+pub use audit::{audit_wad_folder, AuditReport, BloatFile};
 pub use paint::has_vfx_content;

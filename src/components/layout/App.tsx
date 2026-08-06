@@ -43,6 +43,7 @@ import { ChromaPortModal } from '../modals/ChromaPortModal';
 import { WhatsNewModal } from '../modals/WhatsNewModal';
 import { LoadscreenBannerModal } from '../modals/LoadscreenBannerModal';
 import { SkinFixerModal } from '../modals/SkinFixerModal';
+import { WadAuditModal } from '../modals/WadAuditModal';
 import { LoadManifestModal } from '../modals/LoadManifestModal';
 import { ManifestBrowser } from '../browser/ManifestBrowser';
 import { ToastContainer } from '../overlays/Toast';
@@ -83,6 +84,7 @@ const ActiveModal: React.FC<{ activeModal: string | null }> = React.memo(({ acti
         case 'loadscreenBanner': return <LoadscreenBannerModal />;
         case 'loadManifest':     return <LoadManifestModal />;
         case 'skinFixer':        return <SkinFixerModal />;
+        case 'wadAudit':         return <WadAuditModal />;
         default:                 return null;
     }
 });

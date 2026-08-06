@@ -80,3 +80,4 @@ export * from './cdn';
 export * from './thumbnail';
 export * from './skinFixer';
 export * from './paint';
+export * from './audit';

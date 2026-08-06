@@ -281,6 +281,35 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             });
         }
 
+        // The audit walks a whole unpacked WAD tree, so it only makes sense on the
+        // `.wad.client` folder itself — a subfolder would report everything outside
+        // it as missing.
+        if (node.name.toLowerCase().endsWith('.wad.client')) {
+            const openAudit = (tab: 'missing' | 'bloat') =>
+                openModal('wadAudit', {
+                    folderPath: fullPath.replace(/\//g, '\\'),
+                    folderName: node.name,
+                    tab,
+                });
+            options.push({
+                label: 'Check Files',
+                icon: getIcon('check'),
+                separator: true,
+                submenu: [
+                    {
+                        label: 'Missing Files…',
+                        icon: getIcon('warning'),
+                        onClick: () => openAudit('missing'),
+                    },
+                    {
+                        label: 'Bloat Files…',
+                        icon: getIcon('trash'),
+                        onClick: () => openAudit('bloat'),
+                    },
+                ],
+            });
+        }
+
         options.push({
             label: 'Copy',
             icon: getIcon('code'),

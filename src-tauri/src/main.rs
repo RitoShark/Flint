@@ -347,6 +347,7 @@ fn main() {
             commands::file::check_transfer_conflicts,
             commands::file::is_directory,
             commands::file::list_folder_contents,
+            commands::audit::audit_wad_folder,
             commands::bin_split::analyze_bin_for_split,
             commands::bin_split::split_bin_entries,
             commands::bin_split::analyze_folder_for_split,
