@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import * as api from '../../lib/api';
 import type { ModelSessionInfo } from '../../lib/api/modelEdit';
 import '../../styles/modelEditor.css';
@@ -25,6 +26,12 @@ export const ModelEditorWindow: React.FC = () => {
     const [session, setSession] = useState<ModelSessionInfo | null>(null);
     const [error, setError] = useState<string | null>(null);
 
+    // Mirrors whichever session is currently open. A ref (not state) so the
+    // onCloseRequested handler below always reads the live id instead of one
+    // captured at listener-registration time — it's written at the same
+    // point as setSession/setSession(null), never via a follow-up effect.
+    const sessionIdRef = useRef<string | null>(null);
+
     // The backend retargets an already-open window rather than spawning a second
     // WebView2, so the file can change under us.
     useEffect(() => {
@@ -41,6 +48,7 @@ export const ModelEditorWindow: React.FC = () => {
         let cancelled = false;
         let openedId: string | null = null;
         setSession(null);
+        sessionIdRef.current = null;
         setError(null);
 
         void (async () => {
@@ -52,6 +60,7 @@ export const ModelEditorWindow: React.FC = () => {
                     return;
                 }
                 setSession(info);
+                sessionIdRef.current = info.sessionId;
             } catch (err) {
                 if (!cancelled) setError(String(err));
             }
@@ -59,9 +68,38 @@ export const ModelEditorWindow: React.FC = () => {
 
         return () => {
             cancelled = true;
-            if (openedId) void api.closeModelSession(openedId);
+            if (openedId) {
+                void api.closeModelSession(openedId);
+                if (sessionIdRef.current === openedId) sessionIdRef.current = null;
+            }
         };
     }, [target]);
+
+    // Closing the WebviewWindow natively (OS close button / Alt+F4) destroys
+    // this JS context outright — a component-unmount cleanup never runs, so
+    // without this the backend ModelEditSession (parsed mesh + skeleton) is
+    // orphaned in the app-wide state map for the rest of the process
+    // lifetime. preventDefault() first and unconditionally: the async
+    // closeModelSession call cannot be relied on to finish before the window
+    // tears down. Task 13's unsaved-changes guard extends this same handler
+    // — do not add a second onCloseRequested listener for this window.
+    useEffect(() => {
+        const win = getCurrentWindow();
+        let unlisten: (() => void) | undefined;
+        win.onCloseRequested(async (event) => {
+            event.preventDefault();
+            const id = sessionIdRef.current;
+            if (id) {
+                try {
+                    await api.closeModelSession(id);
+                } catch {
+                    // A failed close must never trap the user in an unclosable window.
+                }
+            }
+            await win.destroy();
+        }).then((u) => { unlisten = u; });
+        return () => unlisten?.();
+    }, []);
 
     const fileName = useCallback(
         () => (target ? target.skn.replace(/\\/g, '/').split('/').pop() ?? target.skn : ''),
