@@ -14,11 +14,14 @@ fn is_unresolved_hash(path: &str) -> bool {
 
 use crate::hash::wad_chunk_hash;
 
-/// Builds a valid WAD v3.4 binary (zstd-compressed, deduplicated chunks) from a
-/// `.wad.client` directory.
-pub fn build_wad_from_directory(wad_dir: &Path) -> Result<Vec<u8>, String> {
-    use crate::wad::writer::{write_wad, EntryToWrite};
+/** The shippable files inside a `.wad.client` directory, as (WAD-internal path, disk
+path) pairs. Excludes `testcuberenderer` scratch content and `.ritobin` editor sidecars,
+neither of which belongs in a distributed mod.
 
+Both export shapes go through this: packing into a WAD binary and emitting the folder
+verbatim into a `.fantome`. Keeping one walk means the two can never ship different
+content. */
+pub fn wad_directory_files(wad_dir: &Path) -> Result<HashMap<String, PathBuf>, String> {
     let mut wad_files: HashMap<String, PathBuf> = HashMap::new();
     for entry in walkdir::WalkDir::new(wad_dir)
         .into_iter()
@@ -37,6 +40,15 @@ pub fn build_wad_from_directory(wad_dir: &Path) -> Result<Vec<u8>, String> {
         let wad_path = relative.to_string_lossy().replace('\\', "/");
         wad_files.insert(wad_path, entry.path().to_path_buf());
     }
+    Ok(wad_files)
+}
+
+/// Builds a valid WAD v3.4 binary (zstd-compressed, deduplicated chunks) from a
+/// `.wad.client` directory.
+pub fn build_wad_from_directory(wad_dir: &Path) -> Result<Vec<u8>, String> {
+    use crate::wad::writer::{write_wad, EntryToWrite};
+
+    let wad_files = wad_directory_files(wad_dir)?;
 
     if wad_files.is_empty() {
         return Err(format!("No files found in WAD directory: {}", wad_dir.display()));
