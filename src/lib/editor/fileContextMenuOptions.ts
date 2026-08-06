@@ -86,7 +86,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                     },
                     {
                         label: 'Add Animated Loadscreen Banner',
-                        icon: getIcon('picture'),
+                        icon: getIcon('image'),
                         separator: true,
                         onClick: () => {
                             void (async () => {
@@ -212,7 +212,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             const binTools: ContextMenuOption[] = [];
             binTools.push({
                 label: 'Split BINs by Class…',
-                icon: getIcon('bin'),
+                icon: getIcon('layerText'),
                 onClick: async () => {
                     const defaultOutputName = await api.getVfxFilename(fullPath.replace(/\//g, '\\'));
                     openModal('binSplit', {
@@ -492,7 +492,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
         if (projectPath && fileName.toLowerCase().endsWith('-mask.tex')) {
             options.push({
                 label: 'Edit Loadscreen Banner Mask',
-                icon: getIcon('picture'),
+                icon: getIcon('image'),
                 separator: true,
                 onClick: () => openModal('loadscreenBanner', { projectPath, maskPath: fullPath }),
             });
@@ -617,7 +617,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             },
             {
                 label: 'Backup',
-                icon: getIcon('save'),
+                icon: getIcon('history'),
                 onClick: async () => {
                     try {
                         const exists = await api.hasFileBackup(projectPath, node.path);
@@ -706,7 +706,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             },
             {
                 label: 'Restore from Backup',
-                icon: getIcon('history'),
+                icon: getIcon('import'),
                 onClick: async () => {
                     try {
                         const exists = await api.hasFileBackup(projectPath, node.path);
@@ -774,18 +774,18 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
         options.push({
             label: 'Compare with…',
-            icon: getIcon('contrast'),
+            icon: getIcon('git'),
             separator: true,
             submenu: compareSubmenu,
         });
         options.push({
             label: 'Restore from Original',
-            icon: getIcon('history'),
+            icon: getIcon('import'),
             onClick: restoreFromOriginal,
         });
         options.push({
             label: 'Backup',
-            icon: getIcon('save'),
+            icon: getIcon('history'),
             submenu: backupSubmenu,
         });
     }
@@ -793,7 +793,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
     if (ext === 'bin' && !fileName.toLowerCase().includes('_concat')) {
         options.push({
             label: 'Split BIN by Class…',
-            icon: getIcon('bin'),
+            icon: getIcon('layerText'),
             separator: true,
             onClick: async () => {
                 const defaultOutputName = await api.getVfxFilename(fullPath.replace(/\//g, '\\'));
@@ -830,7 +830,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
     options.push({
         label: 'Open',
-        icon: getIcon('folderOpen2'),
+        icon: getIcon('export'),
         submenu: [
             {
                 label: 'Reveal in Explorer',
@@ -839,7 +839,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             },
             {
                 label: 'With Default App',
-                icon: getIcon('export'),
+                icon: getIcon('file'),
                 onClick: async () => {
                     try {
                         const normalizedPath = fullPath.replace(/\//g, '\\');

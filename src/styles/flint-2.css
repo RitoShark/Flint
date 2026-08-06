@@ -60,7 +60,7 @@ html[data-fps="on"] *::after {
 html[data-glass="on"] .modal,
 html[data-glass="on"] .dl-modal,
 html[data-glass="on"] .modal--settings,
-html[data-glass="on"] .ctx-menu,
+html[data-glass="on"] .context-menu,
 html[data-glass="on"] .dropdown-menu,
 html[data-glass="on"] .dl-dd-portal {
     backdrop-filter: blur(var(--ux-glass-blur)) saturate(160%);
@@ -73,7 +73,8 @@ html[data-glass="on"] .modal-overlay {
 }
 html[data-glass="off"] .modal,
 html[data-glass="off"] .dl-modal,
-html[data-glass="off"] .modal--settings {
+html[data-glass="off"] .modal--settings,
+html[data-glass="off"] .context-menu {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
     background: var(--bg-secondary);

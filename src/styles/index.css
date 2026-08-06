@@ -8062,25 +8062,28 @@ input.np-search:focus {
   /* Radius and the accent-tinted icon colour are lifted from `.settings-row`
      (settings-polish.css) so the menu reads as the same family as Settings. */
   --cm-radius: 10px;
-  --cm-pad-x: 4px;
-  --cm-pad-y: 4px;
-  --cm-icon: color-mix(in oklab, var(--accent-primary) 45%, var(--text-secondary));
+  --cm-pad-x: 5px;
+  --cm-pad-y: 5px;
+  /* Clean neutral at rest — deliberately NOT tinted with the accent. Mixing
+     accent into grey yields a murky slate, and it also weakens the hover, which
+     is the whole point: neutral -> accent is a real change, tinted -> accent is
+     barely one. */
+  --cm-icon: var(--text-secondary);
   --cm-ease-spring: cubic-bezier(.34, 1.56, .64, 1);
   --cm-ease-out: cubic-bezier(.22, 1, .36, 1);
 
-  background:
-    linear-gradient(180deg,
-      color-mix(in oklab, var(--bg-tertiary) 92%, transparent),
-      color-mix(in oklab, var(--bg-secondary) 96%, transparent));
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  /* Solid base only. The blur and translucency come from the shared glass
+     system in flint-2.css (`html[data-glass="on"] .context-menu`), so this
+     panel follows the Settings → Theme toggle like every other surface.
+     Don't reintroduce a local backdrop-filter — it ignores that switch. */
+  background: var(--bg-secondary);
   border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
   border-radius: var(--cm-radius);
   box-shadow:
     0 18px 36px -14px rgba(0, 0, 0, 0.55),
     0 4px 12px -5px rgba(0, 0, 0, 0.45),
     0 0 0 1px color-mix(in oklab, #fff 4%, transparent) inset;
-  min-width: 168px;
+  min-width: 186px;
   padding: var(--cm-pad-y) var(--cm-pad-x);
   user-select: none;
   transform-origin: top left;
@@ -8123,11 +8126,11 @@ input.np-search:focus {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
+  gap: 9px;
+  padding: 6px 9px;
   border-radius: 7px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 12.5px;
   line-height: 1.35;
   color: var(--text-secondary);
   transition:
@@ -8168,6 +8171,9 @@ input.np-search:focus {
 .context-menu__item:hover:not(.context-menu__item--disabled),
 .context-menu__item--open {
   color: var(--text-primary);
+  /* Re-point the variable rather than colouring `.context-menu__icon` directly,
+     so a danger row can override it to red without fighting specificity. */
+  --cm-icon: var(--accent-primary);
 }
 
 .context-menu__item:hover:not(.context-menu__item--disabled)::before,
@@ -8177,7 +8183,7 @@ input.np-search:focus {
 
 .context-menu__item:hover:not(.context-menu__item--disabled)::after,
 .context-menu__item--open::after {
-  height: 13px;
+  height: 15px;
 }
 
 .context-menu__item:active:not(.context-menu__item--disabled)::before {
@@ -8186,13 +8192,12 @@ input.np-search:focus {
 
 .context-menu__item--danger {
   color: color-mix(in oklab, var(--error) 75%, var(--text-secondary));
+  /* A destructive row reads red at rest too — the icon must not stay neutral. */
+  --cm-icon: color-mix(in oklab, var(--error) 70%, var(--text-secondary));
 }
 
 .context-menu__item--danger::before {
-  background: linear-gradient(90deg,
-    color-mix(in oklab, var(--error) 28%, transparent),
-    color-mix(in oklab, var(--error) 10%, transparent) 60%,
-    transparent);
+  background: color-mix(in oklab, var(--error) 16%, transparent);
 }
 
 .context-menu__item--danger::after {
@@ -8201,16 +8206,22 @@ input.np-search:focus {
 
 .context-menu__item--danger:hover:not(.context-menu__item--disabled) {
   color: var(--error);
+  --cm-icon: var(--error);
 }
 
-/* Accent-tinted, matching `.settings-row__icon`. A glyph on the text baseline
-   reads low, so the box is a centred flex parent and the SVG is display:block. */
+.context-menu__item--danger:active:not(.context-menu__item--disabled)::before {
+  background: color-mix(in oklab, var(--error) 24%, transparent);
+}
+
+/* Colour comes from `--cm-icon`, which each row state re-points (neutral at
+   rest, accent on hover, red on danger). A glyph on the text baseline reads
+   low, so the box is a centred flex parent and the SVG is display:block. */
 .context-menu__icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
   color: var(--cm-icon);
   transition: color 120ms var(--cm-ease-out);
@@ -8221,13 +8232,9 @@ input.np-search:focus {
   visibility: hidden;
 }
 
-.context-menu__item:hover:not(.context-menu__item--disabled) .context-menu__icon {
-  color: var(--accent-primary);
-}
-
 .context-menu__icon svg {
-  width: 13px;
-  height: 13px;
+  width: 14px;
+  height: 14px;
   display: block;
 }
 
@@ -8241,16 +8248,16 @@ input.np-search:focus {
 
 .context-menu__shortcut {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 10px;
+  font-size: 10.5px;
   letter-spacing: 0.02em;
   color: var(--text-muted);
-  padding-left: 10px;
+  padding-left: 12px;
   flex-shrink: 0;
 }
 
 .context-menu__chevron {
-  width: 11px;
-  height: 11px;
+  width: 12px;
+  height: 12px;
   flex-shrink: 0;
   color: var(--text-muted);
   transition: color 120ms var(--cm-ease-out);
@@ -8265,7 +8272,7 @@ input.np-search:focus {
 .context-menu__separator {
   height: 1px;
   background: color-mix(in oklab, var(--border) 55%, transparent);
-  margin: 4px 6px;
+  margin: 5px 7px;
 }
 
 .context-menu__item--disabled {
