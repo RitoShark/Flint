@@ -12,7 +12,7 @@ use commands::settings::{initialize_app_home, get_flint_home};
 use flint_core::hash::get_hash_dir;
 use core::frontend_log::{FrontendLogLayer, set_app_handle};
 use shell_args::PendingFileOpen;
-use state::{CdnSessionState, HashOverlayState, LmdbCacheState, PendingFileOpenState, WadCacheState, WadEditState};
+use state::{CdnSessionState, HashOverlayState, LmdbCacheState, ModelEditState, PendingFileOpenState, WadCacheState, WadEditState};
 use tauri::{Emitter, Manager};
 use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter};
 
@@ -121,6 +121,7 @@ fn main() {
         .manage(LmdbCacheState::new())
         .manage(WatcherState::new())
         .manage(WadEditState::new())
+        .manage(ModelEditState::new())
         .manage(CdnSessionState::new())
         .manage(PendingFileOpenState::new())
         .manage(HashOverlayState::new())
@@ -484,6 +485,14 @@ fn main() {
             commands::skin_fixer::hematite_list_fixes,
             commands::skin_fixer::hematite_scan_projects,
             commands::skin_fixer::hematite_run_fixes,
+            // 3D editor model edit sessions
+            commands::editor::model_edit::open_model_session,
+            commands::editor::model_edit::stage_model_edit,
+            commands::editor::model_edit::undo_model_edit,
+            commands::editor::model_edit::redo_model_edit,
+            commands::editor::model_edit::derive_model_mesh,
+            commands::editor::model_edit::save_model_session,
+            commands::editor::model_edit::close_model_session,
             // Shader preview (flint-shaderforge boundary; stub answers when
             // the private overlay isn't compiled in)
             commands::shaderforge::translate_material_shader,

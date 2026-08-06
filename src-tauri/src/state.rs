@@ -195,6 +195,45 @@ impl WadEditState {
     }
 }
 
+// =============================================================================
+// 3D model edit sessions
+// =============================================================================
+
+/// One open `.skn` in the 3D editor. `pristine` is the parse of what is on disk
+/// and is never mutated; every derived state is a fresh fold of `log.active()`
+/// over it. Mirrors `WadEditSession`.
+pub struct ModelEditSession {
+    pub session_id: String,
+    pub source_path: PathBuf,
+    pub skeleton_path: Option<PathBuf>,
+    pub pristine: ritoshark::mesh::SkinnedMesh,
+    pub skeleton: Option<ritoshark::anim::Skeleton>,
+    pub log: flint_core::mesh::edit::OpLog,
+}
+
+#[derive(Clone, Default)]
+pub struct ModelEditState(Arc<RwLock<HashMap<String, Arc<RwLock<ModelEditSession>>>>>);
+
+impl ModelEditState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn insert(&self, session: ModelEditSession) -> String {
+        let id = session.session_id.clone();
+        self.0.write().insert(id.clone(), Arc::new(RwLock::new(session)));
+        id
+    }
+
+    pub fn get(&self, session_id: &str) -> Option<Arc<RwLock<ModelEditSession>>> {
+        self.0.read().get(session_id).cloned()
+    }
+
+    pub fn remove(&self, session_id: &str) -> bool {
+        self.0.write().remove(session_id).is_some()
+    }
+}
+
 /// In-memory store of parsed CDN manifests, keyed by a generated session id.
 /// Mirrors `WadEditState`: one entry per open manifest tab. The `Manifest` is
 /// read-only after parse, so it's stored as a plain `Arc` (no inner lock).
