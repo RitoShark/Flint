@@ -76,16 +76,14 @@
         color-mix(in oklab, var(--accent-primary) 22%, transparent) 0%,
         color-mix(in oklab, var(--accent-primary) 8%, transparent) 45%,
         transparent 72%);
-    filter: blur(5px);
-    opacity: 0.7;
+    filter: blur(4px);
+    opacity: 0.28;
     z-index: -1;
     pointer-events: none;
 }
 
 .titlebar__logo svg {
     display: block;
-    /* Mild static drop-shadow that ties the icon to the halo behind it. */
-    filter: drop-shadow(0 0 3px color-mix(in oklab, var(--accent-primary) 55%, transparent));
 }
 
 .titlebar__app-name {
@@ -114,7 +112,7 @@
        now pills that sit centered in the bar. */
     background: color-mix(in oklab, var(--bg-tertiary) 55%, transparent);
     border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
-    border-radius: 8px;
+    border-radius: 3px;
     padding: 0 6px 0 10px;
     height: 28px;
     min-height: 28px;
@@ -184,7 +182,7 @@
         opacity 220ms cubic-bezier(.22, 1, .36, 1);
     opacity: 0;
     pointer-events: none;
-    border-radius: 2px;
+    border-radius: 0;
 }
 
 .titlebar__tab:hover:not(.titlebar__tab--active) {
@@ -238,7 +236,7 @@
 .titlebar__tab-close {
     width: 18px;
     height: 18px;
-    border-radius: 50%;
+    border-radius: 3px;
     align-self: center;
     transition:
         background 160ms cubic-bezier(.22, 1, .36, 1),
@@ -255,8 +253,6 @@
 .titlebar__tab-close:hover {
     background: color-mix(in oklab, var(--error) 28%, transparent);
     color: var(--error);
-    transform: scale(1.12);
-    box-shadow: 0 0 0 2px color-mix(in oklab, var(--error) 18%, transparent);
 }
 
 .titlebar__tab-close:hover svg {
@@ -289,7 +285,7 @@
 .titlebar__button {
     width: 30px;
     height: 28px;
-    border-radius: 7px;
+    border-radius: 3px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -316,7 +312,6 @@
 .titlebar__button:hover svg,
 .titlebar__button:hover img {
     transform: scale(1.1);
-    filter: drop-shadow(0 0 4px color-mix(in oklab, var(--accent-primary) 35%, transparent));
 }
 
 .titlebar__button:active {
@@ -359,8 +354,7 @@
     transition:
         background 160ms cubic-bezier(.22, 1, .36, 1),
         color 160ms cubic-bezier(.22, 1, .36, 1),
-        transform 200ms cubic-bezier(.34, 1.56, .64, 1),
-        box-shadow 200ms cubic-bezier(.22, 1, .36, 1);
+        transform 200ms cubic-bezier(.34, 1.56, .64, 1);
 }
 
 .titlebar__button--close:hover {
@@ -368,14 +362,10 @@
         color-mix(in oklab, var(--error) 80%, transparent),
         color-mix(in oklab, var(--error) 60%, transparent));
     color: #fff;
-    box-shadow:
-        0 0 0 1px color-mix(in oklab, var(--error) 40%, transparent),
-        0 4px 14px -4px color-mix(in oklab, var(--error) 55%, transparent);
 }
 
 .titlebar__button--close:hover svg {
     transform: scale(1.15) rotate(90deg);
-    filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.5));
 }
 
 .titlebar__button--close:active {
@@ -409,10 +399,10 @@
     backdrop-filter: blur(14px) saturate(140%);
     -webkit-backdrop-filter: blur(14px) saturate(140%);
     border: 1px solid color-mix(in oklab, var(--border) 80%, transparent) !important;
-    border-radius: 10px !important;
+    border-radius: 4px !important;
     box-shadow:
-        0 16px 40px -16px rgba(0, 0, 0, 0.55),
-        0 4px 12px rgba(0, 0, 0, 0.35) !important;
+        0 10px 24px -12px rgba(0, 0, 0, 0.5),
+        0 2px 6px rgba(0, 0, 0, 0.3) !important;
     padding: 5px !important;
     animation: tbDropdownIn 180ms cubic-bezier(.34, 1.56, .64, 1) both;
     transform-origin: top right;
@@ -430,14 +420,14 @@
 }
 
 .titlebar__dropdown-menu > button {
-    border-radius: 6px !important;
+    border-radius: 3px !important;
     transition:
         background 160ms cubic-bezier(.22, 1, .36, 1),
         color 160ms cubic-bezier(.22, 1, .36, 1) !important;
 }
 
+/* Flat wash, matching `.context-menu__item::before`. A horizontal gradient on
+   a short row reads as a smudge rather than a highlight. */
 .titlebar__dropdown-menu > button:hover {
-    background: linear-gradient(90deg,
-        color-mix(in oklab, var(--accent-primary) 18%, transparent),
-        color-mix(in oklab, var(--accent-primary) 6%, transparent)) !important;
+    background: color-mix(in oklab, var(--accent-primary) 14%, transparent) !important;
 }

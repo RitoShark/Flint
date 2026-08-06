@@ -8061,7 +8061,7 @@ input.np-search:focus {
 .context-menu {
   /* Radius and the accent-tinted icon colour are lifted from `.settings-row`
      (settings-polish.css) so the menu reads as the same family as Settings. */
-  --cm-radius: 10px;
+  --cm-radius: 4px;
   --cm-pad-x: 5px;
   --cm-pad-y: 5px;
   /* Clean neutral at rest — deliberately NOT tinted with the accent. Mixing
@@ -8080,9 +8080,8 @@ input.np-search:focus {
   border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
   border-radius: var(--cm-radius);
   box-shadow:
-    0 18px 36px -14px rgba(0, 0, 0, 0.55),
-    0 4px 12px -5px rgba(0, 0, 0, 0.45),
-    0 0 0 1px color-mix(in oklab, #fff 4%, transparent) inset;
+    0 10px 24px -12px rgba(0, 0, 0, 0.5),
+    0 2px 6px -3px rgba(0, 0, 0, 0.4);
   min-width: 186px;
   padding: var(--cm-pad-y) var(--cm-pad-x);
   user-select: none;
@@ -8128,7 +8127,7 @@ input.np-search:focus {
   align-items: center;
   gap: 9px;
   padding: 6px 9px;
-  border-radius: 7px;
+  border-radius: 3px;
   cursor: pointer;
   font-size: 12.5px;
   line-height: 1.35;
@@ -8163,7 +8162,6 @@ input.np-search:focus {
   width: 2px;
   height: 0;
   background: var(--accent-primary);
-  border-radius: 2px;
   transform: translateY(-50%);
   transition: height 150ms var(--cm-ease-spring);
 }
