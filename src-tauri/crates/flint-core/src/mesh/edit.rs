@@ -1059,4 +1059,62 @@ mod tests {
         assert!(!log.can_undo());
         assert!(log.active().is_empty());
     }
+
+    #[test]
+    fn model_summary_serializes_with_camel_case_keys() {
+        let summary = ModelSummary {
+            submeshes: vec![SubmeshInfo {
+                name: "Body".into(),
+                vertex_count: 10,
+                index_count: 30,
+                vertex_start: 0,
+                index_start: 0,
+            }],
+            vertex_count: 10,
+            index_count: 30,
+            influence_count: 2,
+            dirty: true,
+            can_undo: true,
+            can_redo: false,
+        };
+
+        let json = serde_json::to_value(&summary).expect("serializes");
+        let obj = json.as_object().expect("is an object");
+
+        // Assert all 7 top-level camelCase keys are present.
+        assert!(obj.contains_key("submeshes"), "top-level key 'submeshes' must be camelCase");
+        assert!(obj.contains_key("vertexCount"), "top-level key 'vertexCount' must be camelCase");
+        assert!(obj.contains_key("indexCount"), "top-level key 'indexCount' must be camelCase");
+        assert!(obj.contains_key("influenceCount"), "top-level key 'influenceCount' must be camelCase");
+        assert!(obj.contains_key("dirty"), "top-level key 'dirty' must be present");
+        assert!(obj.contains_key("canUndo"), "top-level key 'canUndo' must be camelCase");
+        assert!(obj.contains_key("canRedo"), "top-level key 'canRedo' must be camelCase");
+
+        // Assert that snake_case variants are NOT present (regression guard).
+        assert!(!obj.contains_key("vertex_count"), "snake_case 'vertex_count' must not exist");
+        assert!(!obj.contains_key("index_count"), "snake_case 'index_count' must not exist");
+        assert!(!obj.contains_key("influence_count"), "snake_case 'influence_count' must not exist");
+        assert!(!obj.contains_key("can_undo"), "snake_case 'can_undo' must not exist");
+        assert!(!obj.contains_key("can_redo"), "snake_case 'can_redo' must not exist");
+
+        // Assert SubmeshInfo camelCase keys in the submeshes array.
+        let submeshes = obj
+            .get("submeshes")
+            .and_then(|v| v.as_array())
+            .expect("submeshes is an array");
+        assert_eq!(submeshes.len(), 1);
+        let submesh_obj = submeshes[0].as_object().expect("submesh is an object");
+
+        assert!(submesh_obj.contains_key("name"), "submesh key 'name' must be present");
+        assert!(submesh_obj.contains_key("vertexCount"), "submesh key 'vertexCount' must be camelCase");
+        assert!(submesh_obj.contains_key("indexCount"), "submesh key 'indexCount' must be camelCase");
+        assert!(submesh_obj.contains_key("vertexStart"), "submesh key 'vertexStart' must be camelCase");
+        assert!(submesh_obj.contains_key("indexStart"), "submesh key 'indexStart' must be camelCase");
+
+        // Assert that snake_case variants are NOT present in submesh.
+        assert!(!submesh_obj.contains_key("vertex_count"), "snake_case 'vertex_count' must not exist in submesh");
+        assert!(!submesh_obj.contains_key("index_count"), "snake_case 'index_count' must not exist in submesh");
+        assert!(!submesh_obj.contains_key("vertex_start"), "snake_case 'vertex_start' must not exist in submesh");
+        assert!(!submesh_obj.contains_key("index_start"), "snake_case 'index_start' must not exist in submesh");
+    }
 }
