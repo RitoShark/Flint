@@ -3,6 +3,7 @@ import { openThumbnailWindow } from '../api/thumbnail';
 import { getIcon } from '../ui-helpers/fileIcons';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useProjectTabStore } from '../stores/projectTabStore';
+import { copyablePath } from '../wadPath';
 import type { ContextMenuOption, ModalType } from '../types';
 
 interface BuildOptionsArgs {
@@ -293,7 +294,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                 {
                     label: 'Relative Path',
                     icon: getIcon('code'),
-                    onClick: () => navigator.clipboard.writeText(node.path),
+                    onClick: () => navigator.clipboard.writeText(copyablePath(node.path)),
                 },
                 {
                     label: 'Folder Name',
@@ -788,7 +789,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             {
                 label: 'Relative Path',
                 icon: getIcon('code'),
-                onClick: () => navigator.clipboard.writeText(node.path),
+                onClick: () => navigator.clipboard.writeText(copyablePath(node.path)),
             },
             {
                 label: 'File Name',

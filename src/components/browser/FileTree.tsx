@@ -17,6 +17,7 @@ import {
 import * as api from '../../lib/api';
 import { buildFileContextMenuOptions } from '../../lib/editor/fileContextMenuOptions';
 import { beginPointerDrag } from '../../lib/pointerDrag';
+import { copyablePath } from '../../lib/wadPath';
 import { useTransferStore } from '../../lib/stores/transferStore';
 import type { TreeDragPayload, TreeDragItem } from '../../lib/dnd';
 import type { FileTreeNode, ProjectTab } from '../../lib/types';
@@ -471,10 +472,13 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
 
     useAction('tree.copyPath', () => {
         const selPaths = selectedPathsRef.current;
-        const paths = selPaths.size > 0 ? [...selPaths] : [focusedPathRef.current].filter(Boolean);
+        const paths =
+            selPaths.size > 0
+                ? [...selPaths]
+                : [focusedPathRef.current].filter((p): p is string => Boolean(p));
         if (!paths.length) return;
         // Matches the 'Copy relative path' context-menu item in fileContextMenuOptions.
-        void navigator.clipboard.writeText(paths.join('\n'));
+        void navigator.clipboard.writeText(paths.map(copyablePath).join('\n'));
         showToastRef.current('success', paths.length === 1 ? 'Path copied' : `${paths.length} paths copied`);
     });
 
