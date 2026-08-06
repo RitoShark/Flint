@@ -64,7 +64,8 @@ pub fn apply_ops(
             ModelEdit::DuplicateSubmesh { index, name } => {
                 duplicate_submesh(&mut mesh, *index, name)?
             }
-            ModelEdit::ReorderSubmesh { .. } | ModelEdit::PasteSubmesh { .. } => {
+            ModelEdit::ReorderSubmesh { from, to } => reorder_submesh(&mut mesh, *from, *to)?,
+            ModelEdit::PasteSubmesh { .. } => {
                 return Err("op not implemented yet".to_string())
             }
         }
@@ -211,6 +212,17 @@ fn duplicate_submesh(mesh: &mut SkinnedMesh, index: usize, name: &str) -> Result
     ));
 
     recompute_bounds(mesh);
+    Ok(())
+}
+
+fn reorder_submesh(mesh: &mut SkinnedMesh, from: usize, to: usize) -> Result<(), String> {
+    check_index(mesh, from)?;
+    check_index(mesh, to)?;
+    if from == to {
+        return Ok(());
+    }
+    let range = mesh.ranges.remove(from);
+    mesh.ranges.insert(to, range);
     Ok(())
 }
 
@@ -414,5 +426,28 @@ mod tests {
         )
         .expect_err("80k vertices exceeds the u16 index space");
         assert!(err.contains("65535") || err.contains("65,535"), "error cites the limit: {err}");
+    }
+
+    #[test]
+    fn reorder_permutes_ranges_without_touching_buffers() {
+        let mesh = fixture();
+        let derived = apply_ops(&mesh, None, &[ModelEdit::ReorderSubmesh { from: 0, to: 1 }])
+            .expect("reorder succeeds");
+        let out = derived.mesh;
+
+        assert_eq!(out.ranges[0].name, "Cape");
+        assert_eq!(out.ranges[1].name, "Body");
+        // Offsets travel with their range; buffers are identical.
+        assert_eq!(out.ranges[0].vertex_start, 3);
+        assert_eq!(out.ranges[1].vertex_start, 0);
+        assert_eq!(out.vertices, mesh.vertices);
+        assert_eq!(out.indices, mesh.indices);
+    }
+
+    #[test]
+    fn reorder_out_of_range_is_an_error() {
+        let mesh = fixture();
+        assert!(apply_ops(&mesh, None, &[ModelEdit::ReorderSubmesh { from: 0, to: 7 }]).is_err());
+        assert!(apply_ops(&mesh, None, &[ModelEdit::ReorderSubmesh { from: 7, to: 0 }]).is_err());
     }
 }
