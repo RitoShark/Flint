@@ -10,7 +10,7 @@ use ritoshark::anim::Skeleton;
 use ritoshark::math::{Aabb, Sphere, Vec3};
 use ritoshark::mesh::{SkinnedMesh, SkinnedMeshRange, SkinnedMeshVertex};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// SKN indices are `u16`, so the merged vertex buffer can never exceed this.
 pub const MAX_VERTICES: usize = u16::MAX as usize + 1;
@@ -52,6 +52,7 @@ pub fn apply_ops(
     pristine: &SkinnedMesh,
     skeleton: Option<&Skeleton>,
     ops: &[ModelEdit],
+    resolve: &dyn Fn(&Path) -> Result<PasteSource, String>,
 ) -> Result<Derived, String> {
     let mut mesh = pristine.clone();
     let mut skel = skeleton.cloned();
@@ -65,13 +66,20 @@ pub fn apply_ops(
                 duplicate_submesh(&mut mesh, *index, name)?
             }
             ModelEdit::ReorderSubmesh { from, to } => reorder_submesh(&mut mesh, *from, *to)?,
-            ModelEdit::PasteSubmesh { .. } => {
-                return Err("op not implemented yet".to_string())
+            ModelEdit::PasteSubmesh { source_skn, source_index, name } => {
+                let source = resolve(source_skn)?;
+                paste_submesh(
+                    &mut mesh,
+                    &mut skel,
+                    &mut skeleton_dirty,
+                    &source,
+                    *source_index,
+                    name,
+                )?
             }
         }
     }
 
-    let _ = (&mut skel, &mut skeleton_dirty);
     Ok(Derived { mesh, skeleton: skel, skeleton_dirty })
 }
 
@@ -226,6 +234,155 @@ fn reorder_submesh(mesh: &mut SkinnedMesh, from: usize, to: usize) -> Result<(),
     Ok(())
 }
 
+/// A `.skn` + its sibling `.skl`, loaded as the source of a cross-file paste.
+pub struct PasteSource {
+    pub mesh: SkinnedMesh,
+    pub skeleton: Option<Skeleton>,
+}
+
+/// Load a paste source from disk. The `.skl` is the sibling with the same stem —
+/// the same rule `ModelPreview` uses. A missing `.skl` is not fatal here; the
+/// paste itself will reject the op if a remap turns out to be needed.
+pub fn load_paste_source(path: &Path) -> Result<PasteSource, String> {
+    use ritoshark::prelude::Parse;
+    let bytes = std::fs::read(path).map_err(|e| format!("reading {}: {e}", path.display()))?;
+    let mesh = SkinnedMesh::from_bytes(&bytes)
+        .map_err(|e| format!("parsing {}: {e:?}", path.display()))?;
+    let skl_path = path.with_extension("skl");
+    let skeleton = std::fs::read(&skl_path)
+        .ok()
+        .and_then(|b| Skeleton::from_bytes(&b).ok());
+    Ok(PasteSource { mesh, skeleton })
+}
+
+/// Map one source influence index to a destination influence index, appending to
+/// the destination table when the joint is present in the rig but not yet bound.
+/// Returns the destination index.
+fn remap_influence(
+    src_skel: &Skeleton,
+    dest_skel: &mut Skeleton,
+    src_influence_idx: u8,
+) -> Result<u8, String> {
+    let src_joint_id = *src_skel
+        .influences
+        .get(src_influence_idx as usize)
+        .ok_or_else(|| {
+            format!("source influence index {src_influence_idx} is outside its skeleton's table")
+        })?;
+    let src_name = src_skel
+        .joints
+        .iter()
+        .find(|j| j.id == src_joint_id as i16)
+        .map(|j| j.name.as_str())
+        .ok_or_else(|| format!("source skeleton has no joint with id {src_joint_id}"))?;
+
+    let dest_joint_id = dest_skel
+        .joints
+        .iter()
+        .find(|j| j.name.eq_ignore_ascii_case(src_name))
+        .map(|j| j.id)
+        .ok_or_else(|| {
+            format!("this skin's skeleton has no joint named \"{src_name}\" — the pasted geometry is rigged to bones this rig does not have")
+        })?;
+
+    if let Some(pos) = dest_skel.influences.iter().position(|&i| i as i16 == dest_joint_id) {
+        return Ok(pos as u8);
+    }
+
+    if dest_skel.influences.len() >= MAX_INFLUENCES {
+        return Err(format!(
+            "this skin already binds {MAX_INFLUENCES} bones; blend indices are u8 so \"{src_name}\" cannot be added"
+        ));
+    }
+    dest_skel.influences.push(dest_joint_id as u16);
+    Ok((dest_skel.influences.len() - 1) as u8)
+}
+
+fn paste_submesh(
+    mesh: &mut SkinnedMesh,
+    skeleton: &mut Option<Skeleton>,
+    skeleton_dirty: &mut bool,
+    source: &PasteSource,
+    source_index: usize,
+    name: &str,
+) -> Result<(), String> {
+    check_name(mesh, name, None)?;
+
+    let range = source
+        .mesh
+        .ranges
+        .get(source_index)
+        .ok_or_else(|| format!("source submesh index {source_index} does not exist"))?
+        .clone();
+
+    let v_start = range.vertex_start as usize;
+    let v_count = range.vertex_count as usize;
+    let i_start = range.index_start as usize;
+    let i_count = range.index_count as usize;
+
+    let new_v_start = mesh.vertices.len();
+    if new_v_start + v_count > MAX_VERTICES {
+        return Err(format!(
+            "pasting \"{}\" would need {} vertices; a .skn stores u16 indices so it cannot exceed 65535",
+            range.name,
+            new_v_start + v_count
+        ));
+    }
+
+    let mut copied: Vec<SkinnedMeshVertex> =
+        source.mesh.vertices[v_start..v_start + v_count].to_vec();
+
+    // Remap skinning only when the geometry is actually skinned. An unskinned
+    // paste (all weights zero) needs no rig on either side.
+    let needs_remap = copied
+        .iter()
+        .any(|v| v.blend_weights.iter().any(|w| *w > 0.0));
+
+    if needs_remap {
+        let src_skel = source.skeleton.as_ref().ok_or_else(|| {
+            "the source .skn has no sibling .skl, so its bone bindings cannot be translated"
+                .to_string()
+        })?;
+        let dest_skel = skeleton.as_mut().ok_or_else(|| {
+            "this .skn has no sibling .skl, so pasted geometry cannot be re-bound to its skeleton"
+                .to_string()
+        })?;
+        let before = dest_skel.influences.len();
+        for v in &mut copied {
+            for slot in 0..4 {
+                if v.blend_weights[slot] <= 0.0 {
+                    v.blend_indices[slot] = 0;
+                    continue;
+                }
+                v.blend_indices[slot] = remap_influence(src_skel, dest_skel, v.blend_indices[slot])?;
+            }
+        }
+        if dest_skel.influences.len() != before {
+            *skeleton_dirty = true;
+        }
+    }
+
+    mesh.vertices.extend(copied);
+
+    let new_i_start = mesh.indices.len();
+    let rebased: Vec<u16> = source.mesh.indices[i_start..i_start + i_count]
+        .iter()
+        .map(|idx| idx - range.vertex_start as u16 + new_v_start as u16)
+        .collect();
+    mesh.indices.extend(rebased);
+
+    mesh.ranges.push(SkinnedMeshRange::new(
+        name,
+        new_v_start as u32,
+        v_count as u32,
+        new_i_start as u32,
+        i_count as u32,
+    ));
+
+    recompute_bounds(mesh);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -267,7 +424,7 @@ mod tests {
         let mesh = fixture();
         let original = mesh.to_bytes().expect("fixture serializes");
 
-        let derived = apply_ops(&mesh, None, &[]).expect("empty fold succeeds");
+        let derived = apply_ops(&mesh, None, &[], &no_paste).expect("empty fold succeeds");
         let written = derived.mesh.to_bytes().expect("derived serializes");
 
         assert_eq!(original, written, "a zero-op fold must be byte-identical");
@@ -282,6 +439,7 @@ mod tests {
             &mesh,
             None,
             &[ModelEdit::RenameSubmesh { index: 1, name: "Wings".into() }],
+            &no_paste,
         )
         .expect("rename succeeds");
 
@@ -299,6 +457,7 @@ mod tests {
             &mesh,
             None,
             &[ModelEdit::RenameSubmesh { index: 9, name: "Nope".into() }],
+            &no_paste,
         )
         .expect_err("index 9 does not exist");
         assert!(err.contains("index 9"), "error names the bad index: {err}");
@@ -311,6 +470,7 @@ mod tests {
             &mesh,
             None,
             &[ModelEdit::RenameSubmesh { index: 1, name: "Body".into() }],
+            &no_paste,
         )
         .expect_err("duplicate names are rejected");
         assert!(err.contains("Body"), "error names the collision: {err}");
@@ -323,6 +483,7 @@ mod tests {
             &mesh,
             None,
             &[ModelEdit::RenameSubmesh { index: 1, name: "BODY".into() }],
+            &no_paste,
         )
         .expect_err("case-insensitive duplicate names are rejected");
         assert!(err.contains("BODY"), "error names the collision: {err}");
@@ -335,6 +496,7 @@ mod tests {
             &mesh,
             None,
             &[ModelEdit::RenameSubmesh { index: 0, name: "  ".into() }],
+            &no_paste,
         )
         .expect_err("blank names are rejected");
         assert!(err.to_lowercase().contains("empty"), "error explains why: {err}");
@@ -343,7 +505,7 @@ mod tests {
     #[test]
     fn delete_compacts_buffers_and_reindexes_survivors() {
         let mesh = fixture();
-        let derived = apply_ops(&mesh, None, &[ModelEdit::DeleteSubmesh { index: 0 }])
+        let derived = apply_ops(&mesh, None, &[ModelEdit::DeleteSubmesh { index: 0 }], &no_paste)
             .expect("delete succeeds");
         let out = derived.mesh;
 
@@ -366,7 +528,7 @@ mod tests {
     #[test]
     fn delete_recomputes_bounds_from_surviving_vertices() {
         let mesh = fixture();
-        let derived = apply_ops(&mesh, None, &[ModelEdit::DeleteSubmesh { index: 0 }])
+        let derived = apply_ops(&mesh, None, &[ModelEdit::DeleteSubmesh { index: 0 }], &no_paste)
             .expect("delete succeeds");
         // Surviving vertices are x = 3, 4, 5.
         assert_eq!(derived.mesh.bounding_box.min.x, 3.0);
@@ -379,7 +541,7 @@ mod tests {
         mesh.ranges.truncate(1);
         mesh.vertices.truncate(3);
         mesh.indices.truncate(3);
-        let err = apply_ops(&mesh, None, &[ModelEdit::DeleteSubmesh { index: 0 }])
+        let err = apply_ops(&mesh, None, &[ModelEdit::DeleteSubmesh { index: 0 }], &no_paste)
             .expect_err("cannot delete the only submesh");
         assert!(err.to_lowercase().contains("last"), "error explains why: {err}");
     }
@@ -391,6 +553,7 @@ mod tests {
             &mesh,
             None,
             &[ModelEdit::DuplicateSubmesh { index: 0, name: "Body_copy".into() }],
+            &no_paste,
         )
         .expect("duplicate succeeds");
         let out = derived.mesh;
@@ -423,6 +586,7 @@ mod tests {
             &mesh,
             None,
             &[ModelEdit::DuplicateSubmesh { index: 0, name: "Body_copy".into() }],
+            &no_paste,
         )
         .expect_err("80k vertices exceeds the u16 index space");
         assert!(err.contains("65535") || err.contains("65,535"), "error cites the limit: {err}");
@@ -431,7 +595,7 @@ mod tests {
     #[test]
     fn reorder_permutes_ranges_without_touching_buffers() {
         let mesh = fixture();
-        let derived = apply_ops(&mesh, None, &[ModelEdit::ReorderSubmesh { from: 0, to: 1 }])
+        let derived = apply_ops(&mesh, None, &[ModelEdit::ReorderSubmesh { from: 0, to: 1 }], &no_paste)
             .expect("reorder succeeds");
         let out = derived.mesh;
 
@@ -447,7 +611,179 @@ mod tests {
     #[test]
     fn reorder_out_of_range_is_an_error() {
         let mesh = fixture();
-        assert!(apply_ops(&mesh, None, &[ModelEdit::ReorderSubmesh { from: 0, to: 7 }]).is_err());
-        assert!(apply_ops(&mesh, None, &[ModelEdit::ReorderSubmesh { from: 7, to: 0 }]).is_err());
+        assert!(apply_ops(&mesh, None, &[ModelEdit::ReorderSubmesh { from: 0, to: 7 }], &no_paste).is_err());
+        assert!(apply_ops(&mesh, None, &[ModelEdit::ReorderSubmesh { from: 7, to: 0 }], &no_paste).is_err());
+    }
+
+    use std::path::Path;
+
+    /// Resolver for tests that never paste.
+    pub(super) fn no_paste(_p: &Path) -> Result<PasteSource, String> {
+        Err("no paste source in this test".to_string())
+    }
+
+    fn joint(name: &str, id: i16) -> ritoshark::anim::Joint {
+        ritoshark::anim::Joint {
+            name: name.to_string(),
+            flags: 0,
+            id,
+            parent_id: -1,
+            radius: 2.1,
+            hash: ritoshark::hash::elf_lower(name),
+            local_translation: Vec3::ZERO,
+            local_scale: Vec3::ONE,
+            local_rotation: ritoshark::math::Quat::IDENTITY,
+            inverse_bind_translation: Vec3::ZERO,
+            inverse_bind_scale: Vec3::ONE,
+            inverse_bind_rotation: ritoshark::math::Quat::IDENTITY,
+        }
+    }
+
+    fn skeleton_with(names: &[&str], influences: &[u16]) -> Skeleton {
+        Skeleton {
+            flags: 0,
+            name: "test".into(),
+            asset: "test".into(),
+            joints: names.iter().enumerate().map(|(i, n)| joint(n, i as i16)).collect(),
+            influences: influences.to_vec(),
+        }
+    }
+
+    #[test]
+    fn paste_remaps_influence_indices_by_joint_name() {
+        // Destination influences: [Root(0), Spine(1)]  -> index 0 = Root, 1 = Spine
+        let dest_skel = skeleton_with(&["Root", "Spine", "Arm"], &[0, 1]);
+        // Source influences: [Spine(0)] under a DIFFERENT joint order, so the raw
+        // blend index 0 means Spine here but Root in the destination.
+        let src_skel = skeleton_with(&["Spine", "Root"], &[0]);
+
+        let mut src_mesh = fixture();
+        src_mesh.ranges = vec![SkinnedMeshRange::new("Horns", 0, 3, 0, 3)];
+        src_mesh.vertices.truncate(3);
+        src_mesh.indices = vec![0, 1, 2];
+        for v in &mut src_mesh.vertices {
+            v.blend_indices = [0, 0, 0, 0];
+        }
+
+        let resolve = move |_p: &Path| {
+            Ok(PasteSource { mesh: src_mesh.clone(), skeleton: Some(src_skel.clone()) })
+        };
+
+        let derived = apply_ops(
+            &fixture(),
+            Some(&dest_skel),
+            &[ModelEdit::PasteSubmesh {
+                source_skn: PathBuf::from("other.skn"),
+                source_index: 0,
+                name: "Horns".into(),
+            }],
+            &resolve,
+        )
+        .expect("paste succeeds");
+
+        let pasted = derived.mesh.ranges.last().expect("range appended");
+        assert_eq!(pasted.name, "Horns");
+        assert_eq!(pasted.vertex_start, 6);
+        // Source blend index 0 = source influences[0] = joint 0 = "Spine".
+        // Destination "Spine" is joint id 1, which sits at destination influences[1].
+        let first = derived.mesh.vertices[6];
+        assert_eq!(first.blend_indices[0], 1, "remapped through joint NAME, not raw index");
+        assert!(!derived.skeleton_dirty, "no new influence was needed");
+    }
+
+    #[test]
+    fn paste_appends_a_missing_influence_and_marks_the_skeleton_dirty() {
+        // "Arm" exists as a joint in the destination but is not in its influence table.
+        let dest_skel = skeleton_with(&["Root", "Spine", "Arm"], &[0, 1]);
+        let src_skel = skeleton_with(&["Arm"], &[0]);
+
+        let mut src_mesh = fixture();
+        src_mesh.ranges = vec![SkinnedMeshRange::new("Claw", 0, 3, 0, 3)];
+        src_mesh.vertices.truncate(3);
+        src_mesh.indices = vec![0, 1, 2];
+        for v in &mut src_mesh.vertices {
+            v.blend_indices = [0, 0, 0, 0];
+        }
+
+        let resolve = move |_p: &Path| {
+            Ok(PasteSource { mesh: src_mesh.clone(), skeleton: Some(src_skel.clone()) })
+        };
+
+        let derived = apply_ops(
+            &fixture(),
+            Some(&dest_skel),
+            &[ModelEdit::PasteSubmesh {
+                source_skn: PathBuf::from("other.skn"),
+                source_index: 0,
+                name: "Claw".into(),
+            }],
+            &resolve,
+        )
+        .expect("paste succeeds");
+
+        let skel = derived.skeleton.expect("skeleton present");
+        assert_eq!(skel.influences, vec![0, 1, 2], "Arm (joint id 2) appended");
+        assert_eq!(derived.mesh.vertices[6].blend_indices[0], 2, "points at the new slot");
+        assert!(derived.skeleton_dirty, "the .skl must be written");
+        // Joint hierarchy is untouched — Phase 1 only ever appends influences.
+        assert_eq!(skel.joints.len(), 3);
+        assert_eq!(skel.joints[2].name, "Arm");
+    }
+
+    #[test]
+    fn paste_fails_when_a_source_joint_is_absent_from_the_destination() {
+        let dest_skel = skeleton_with(&["Root", "Spine"], &[0, 1]);
+        let src_skel = skeleton_with(&["Tentacle"], &[0]);
+
+        let mut src_mesh = fixture();
+        src_mesh.ranges = vec![SkinnedMeshRange::new("Tent", 0, 3, 0, 3)];
+        src_mesh.vertices.truncate(3);
+        src_mesh.indices = vec![0, 1, 2];
+        for v in &mut src_mesh.vertices {
+            v.blend_indices = [0, 0, 0, 0];
+        }
+
+        let resolve = move |_p: &Path| {
+            Ok(PasteSource { mesh: src_mesh.clone(), skeleton: Some(src_skel.clone()) })
+        };
+
+        let err = apply_ops(
+            &fixture(),
+            Some(&dest_skel),
+            &[ModelEdit::PasteSubmesh {
+                source_skn: PathBuf::from("other.skn"),
+                source_index: 0,
+                name: "Tent".into(),
+            }],
+            &resolve,
+        )
+        .expect_err("Tentacle has no home in the destination rig");
+        assert!(err.contains("Tentacle"), "error names the missing joint: {err}");
+    }
+
+    #[test]
+    fn paste_without_a_destination_skeleton_is_an_error() {
+        let src_skel = skeleton_with(&["Root"], &[0]);
+        let mut src_mesh = fixture();
+        src_mesh.ranges = vec![SkinnedMeshRange::new("X", 0, 3, 0, 3)];
+        src_mesh.vertices.truncate(3);
+        src_mesh.indices = vec![0, 1, 2];
+
+        let resolve = move |_p: &Path| {
+            Ok(PasteSource { mesh: src_mesh.clone(), skeleton: Some(src_skel.clone()) })
+        };
+
+        let err = apply_ops(
+            &fixture(),
+            None,
+            &[ModelEdit::PasteSubmesh {
+                source_skn: PathBuf::from("other.skn"),
+                source_index: 0,
+                name: "X".into(),
+            }],
+            &resolve,
+        )
+        .expect_err("cannot remap without a destination rig");
+        assert!(err.to_lowercase().contains("skeleton"), "error explains why: {err}");
     }
 }
