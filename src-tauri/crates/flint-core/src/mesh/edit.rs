@@ -396,6 +396,117 @@ fn paste_submesh(
     Ok(())
 }
 
+/// The staged op log plus an undo cursor. `ops[..cursor]` is the active prefix;
+/// everything from `cursor` on is the redo tail.
+#[derive(Debug, Default, Clone)]
+pub struct OpLog {
+    ops: Vec<ModelEdit>,
+    cursor: usize,
+}
+
+impl OpLog {
+    /// Stage an op. Any redo tail is discarded — those ops were authored against
+    /// a state that no longer exists.
+    pub fn push(&mut self, op: ModelEdit) {
+        self.ops.truncate(self.cursor);
+        self.ops.push(op);
+        self.cursor = self.ops.len();
+    }
+
+    /// Move the cursor back one op. Returns false when already at the start.
+    pub fn undo(&mut self) -> bool {
+        if self.cursor == 0 {
+            return false;
+        }
+        self.cursor -= 1;
+        true
+    }
+
+    /// Move the cursor forward one op. Returns false when already at the end.
+    pub fn redo(&mut self) -> bool {
+        if self.cursor >= self.ops.len() {
+            return false;
+        }
+        self.cursor += 1;
+        true
+    }
+
+    /// The ops to fold for the current state.
+    pub fn active(&self) -> &[ModelEdit] {
+        &self.ops[..self.cursor]
+    }
+
+    pub fn can_undo(&self) -> bool {
+        self.cursor > 0
+    }
+
+    pub fn can_redo(&self) -> bool {
+        self.cursor < self.ops.len()
+    }
+
+    /// True when the current state differs from what is on disk.
+    pub fn is_dirty(&self) -> bool {
+        self.cursor > 0
+    }
+
+    /// Drop every op — used after a successful save, when disk and state agree.
+    pub fn clear(&mut self) {
+        self.ops.clear();
+        self.cursor = 0;
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubmeshInfo {
+    pub name: String,
+    pub vertex_count: u32,
+    pub index_count: u32,
+    pub vertex_start: u32,
+    pub index_start: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelSummary {
+    pub submeshes: Vec<SubmeshInfo>,
+    pub vertex_count: u32,
+    pub index_count: u32,
+    pub influence_count: u32,
+    pub dirty: bool,
+    pub can_undo: bool,
+    pub can_redo: bool,
+}
+
+/// The small JSON the frontend needs after every op. Deliberately carries no
+/// geometry — buffers travel only through `derive_model_mesh`'s binary payload.
+pub fn summarize(derived: &Derived, log: &OpLog) -> ModelSummary {
+    ModelSummary {
+        submeshes: derived
+            .mesh
+            .ranges
+            .iter()
+            .map(|r| SubmeshInfo {
+                name: r.name.clone(),
+                vertex_count: r.vertex_count,
+                index_count: r.index_count,
+                vertex_start: r.vertex_start,
+                index_start: r.index_start,
+            })
+            .collect(),
+        vertex_count: derived.mesh.vertices.len() as u32,
+        index_count: derived.mesh.indices.len() as u32,
+        influence_count: derived
+            .skeleton
+            .as_ref()
+            .map(|s| s.influences.len() as u32)
+            .unwrap_or(0),
+        dirty: log.is_dirty(),
+        can_undo: log.can_undo(),
+        can_redo: log.can_redo(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -876,5 +987,76 @@ mod tests {
         )
         .expect_err("65_534 + 3 exceeds the u16 index space");
         assert!(err.contains("65535") || err.contains("65,535"), "error cites the limit: {err}");
+    }
+
+    #[test]
+    fn staging_after_undo_truncates_the_redo_tail() {
+        let mut log = OpLog::default();
+        log.push(ModelEdit::RenameSubmesh { index: 0, name: "A".into() });
+        log.push(ModelEdit::RenameSubmesh { index: 0, name: "B".into() });
+        assert!(log.undo());
+        assert!(log.can_redo());
+
+        log.push(ModelEdit::RenameSubmesh { index: 0, name: "C".into() });
+        assert!(!log.can_redo(), "the stale redo tail is gone");
+        assert_eq!(log.active().len(), 2);
+
+        let derived = apply_ops(&fixture(), None, log.active(), &no_paste).expect("folds");
+        assert_eq!(derived.mesh.ranges[0].name, "C");
+    }
+
+    #[test]
+    fn undo_then_redo_restores_the_same_state() {
+        let mut log = OpLog::default();
+        log.push(ModelEdit::RenameSubmesh { index: 0, name: "A".into() });
+        log.push(ModelEdit::DuplicateSubmesh { index: 0, name: "A_copy".into() });
+        log.push(ModelEdit::RenameSubmesh { index: 1, name: "Z".into() });
+
+        assert!(log.undo());
+        assert!(log.undo());
+        assert!(log.redo());
+        assert_eq!(log.active().len(), 2);
+
+        let derived = apply_ops(&fixture(), None, log.active(), &no_paste).expect("folds");
+        assert_eq!(derived.mesh.ranges[0].name, "A");
+        assert_eq!(derived.mesh.ranges.len(), 3);
+    }
+
+    #[test]
+    fn undo_at_the_start_and_redo_at_the_end_are_no_ops() {
+        let mut log = OpLog::default();
+        assert!(!log.undo());
+        assert!(!log.redo());
+        log.push(ModelEdit::RenameSubmesh { index: 0, name: "A".into() });
+        assert!(!log.redo());
+        assert!(log.undo());
+        assert!(!log.undo());
+    }
+
+    #[test]
+    fn summary_reports_ranges_counts_and_flags() {
+        let mut log = OpLog::default();
+        log.push(ModelEdit::RenameSubmesh { index: 1, name: "Wings".into() });
+        let derived = apply_ops(&fixture(), None, log.active(), &no_paste).expect("folds");
+        let summary = summarize(&derived, &log);
+
+        assert_eq!(summary.submeshes.len(), 2);
+        assert_eq!(summary.submeshes[1].name, "Wings");
+        assert_eq!(summary.submeshes[1].vertex_count, 3);
+        assert_eq!(summary.vertex_count, 6);
+        assert_eq!(summary.index_count, 6);
+        assert!(summary.dirty);
+        assert!(summary.can_undo);
+        assert!(!summary.can_redo);
+    }
+
+    #[test]
+    fn a_cleared_log_is_not_dirty() {
+        let mut log = OpLog::default();
+        log.push(ModelEdit::RenameSubmesh { index: 0, name: "A".into() });
+        log.clear();
+        assert!(!log.is_dirty());
+        assert!(!log.can_undo());
+        assert!(log.active().is_empty());
     }
 }
