@@ -122,6 +122,31 @@
     gap: 8px;
 }
 
+/* Joint-rename impact dialog — wider than the plain discard confirm so the
+ * .anm/BIN reference list has room; the list itself scrolls independently. */
+.m3d__impact-dialog {
+    width: 420px;
+}
+.m3d__impact-list {
+    list-style: none;
+    margin: 0;
+    padding: 6px 8px;
+    max-height: 180px;
+    overflow-y: auto;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: var(--font-mono, monospace);
+    color: var(--text-secondary);
+}
+.m3d__impact-list li {
+    padding: 2px 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .m3d__status {
     flex: 0 0 auto;
     height: 26px;
