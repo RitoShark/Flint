@@ -292,16 +292,27 @@ export const ModelEditorWindow: React.FC = () => {
         let unlisten: (() => void) | undefined;
         win.onCloseRequested(async (event) => {
             event.preventDefault();
-            if (!(await confirmDiscard())) return;
-            const id = sessionIdRef.current;
-            if (id) {
-                try {
-                    await api.closeModelSession(id);
-                } catch {
-                    // A failed close must never trap the user in an unclosable window.
-                }
+            let proceed = true;
+            try {
+                proceed = await confirmDiscard();
+            } catch {
+                // A broken guard must not be able to trap the user.
+                proceed = true;
             }
-            await win.destroy();
+            if (!proceed) return;
+            // Everything from here on is best-effort: once preventDefault has
+            // fired, ANY throw before destroy() leaves the window permanently
+            // unclosable. `destroy()` itself needs `core:window:allow-destroy`
+            // in capabilities/default.json — without it the call rejects and
+            // that is exactly the trap this try/finally exists to survive.
+            try {
+                const id = sessionIdRef.current;
+                if (id) await api.closeModelSession(id);
+            } catch {
+                // Session cleanup is not worth blocking the close over.
+            } finally {
+                void win.destroy().catch(() => win.close());
+            }
         }).then((u) => { unlisten = u; });
         return () => unlisten?.();
     }, [confirmDiscard]);

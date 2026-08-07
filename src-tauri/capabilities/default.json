@@ -17,6 +17,7 @@
         "core:window:allow-maximize",
         "core:window:allow-toggle-maximize",
         "core:window:allow-close",
+        "core:window:allow-destroy",
         "dialog:default",
         "dialog:allow-open",
         "dialog:allow-save",
