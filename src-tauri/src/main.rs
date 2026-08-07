@@ -491,9 +491,11 @@ fn main() {
             commands::editor::model_edit::stage_model_edit,
             commands::editor::model_edit::undo_model_edit,
             commands::editor::model_edit::redo_model_edit,
+            commands::editor::model_edit::preview_joint_rename,
             commands::editor::model_edit::derive_model_mesh,
             commands::editor::model_edit::save_model_session,
             commands::editor::model_edit::close_model_session,
+            commands::editor::model_edit::assign_submesh_to_form,
             // Shader preview (flint-shaderforge boundary; stub answers when
             // the private overlay isn't compiled in)
             commands::shaderforge::translate_material_shader,

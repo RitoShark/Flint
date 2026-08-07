@@ -35,6 +35,12 @@ pub struct ModelSaveResult {
     /// Set when a paste appended influences and the `.skl` was rewritten too.
     pub skl_path: Option<String>,
     pub summary: ModelSummary,
+    /// `.anm` files whose tracks were re-keyed to a renamed joint's new hash.
+    #[serde(default)]
+    pub anm_files_updated: Vec<String>,
+    /// BIN files whose bone-reference fields were rewritten to a renamed joint's new name.
+    #[serde(default)]
+    pub bin_files_updated: Vec<String>,
 }
 
 /// Fold the session's active ops. Split out because every command needs it.
@@ -149,6 +155,33 @@ pub async fn redo_model_edit(
     Ok(summarize(&derived, &guard.log))
 }
 
+/// Preview which `.anm` files and BIN bone-reference fields would need to
+/// change if the joint at `index` were renamed — scanned against the joint's
+/// CURRENT name/hash (i.e. after any rename ops already staged in this
+/// session), so chained renames preview against the right identity. Read-only:
+/// never touches disk beyond scanning.
+#[tauri::command]
+pub async fn preview_joint_rename(
+    state: tauri::State<'_, ModelEditState>,
+    session_id: String,
+    index: usize,
+) -> Result<flint_core::mesh::joint_rename::JointRenameImpact, String> {
+    let session = state
+        .get(&session_id)
+        .ok_or_else(|| format!("No model session {session_id}"))?;
+    let guard = session.read();
+    let derived = derive(&guard)?;
+    let skel = derived
+        .skeleton
+        .as_ref()
+        .ok_or_else(|| "this .skn has no skeleton".to_string())?;
+    let joint = skel
+        .joints
+        .get(index)
+        .ok_or_else(|| format!("joint index {index} out of range (skeleton has {} joints)", skel.joints.len()))?;
+    Ok(flint_core::mesh::joint_rename::scan_impact(&guard.source_path, &joint.name, joint.hash))
+}
+
 /// Current geometry in the shared binary wire format (see `mesh/wire.rs`).
 /// Textures are resolved by the existing `read_skn_mesh` path on first load;
 /// this command is the geometry-only refresh after a structural op.
@@ -198,6 +231,19 @@ pub async fn save_model_session(
     let mut guard = session.write();
 
     let derived = derive(&guard)?;
+    // Captured BEFORE the skl/skeleton on-disk re-read below overwrites
+    // `guard.skeleton` — this is the OLD identity every existing `.anm`/BIN
+    // reference on disk was written against.
+    let old_skeleton = guard.skeleton.clone();
+    let renamed_indices: std::collections::HashSet<usize> = guard
+        .log
+        .active()
+        .iter()
+        .filter_map(|op| match op {
+            ModelEdit::RenameJoint { index, .. } => Some(*index),
+            _ => None,
+        })
+        .collect();
     let skn_out = dest
         .map(PathBuf::from)
         .unwrap_or_else(|| guard.source_path.clone());
@@ -248,12 +294,51 @@ pub async fn save_model_session(
     guard.source_path = skn_out.clone();
     guard.log.clear();
 
+    // Propagate any joint rename to every `.anm` track and BIN bone-reference
+    // field the project owns, keyed off the OLD identity (`old_skeleton`) to
+    // the NEW one (`derived.skeleton`, the same skeleton just written to the
+    // `.skl`). This runs AFTER the `.skl`/`.skn` are already on disk and the
+    // session already resynced — a propagation failure below is reported to
+    // the caller but never unwinds the save itself.
+    let mut rename_pairs: Vec<(String, u32, String, u32)> = Vec::new();
+    if let (Some(old_skel), Some(new_skel)) = (old_skeleton.as_ref(), derived.skeleton.as_ref()) {
+        for idx in &renamed_indices {
+            if let (Some(old_joint), Some(new_joint)) = (old_skel.joints.get(*idx), new_skel.joints.get(*idx)) {
+                if old_joint.hash != new_joint.hash || old_joint.name != new_joint.name {
+                    rename_pairs.push((old_joint.name.clone(), old_joint.hash, new_joint.name.clone(), new_joint.hash));
+                }
+            }
+        }
+    }
+
+    let mut anm_files_updated = Vec::new();
+    let mut bin_files_updated = Vec::new();
+    if !rename_pairs.is_empty() {
+        let propagation = flint_core::mesh::joint_rename::propagate_renames(&skn_out, &rename_pairs);
+        anm_files_updated = propagation.anm_files_updated;
+        bin_files_updated = propagation.bin_files_updated;
+        if !propagation.errors.is_empty() {
+            tracing::warn!(
+                "[model-edit] saved {} but joint-rename propagation had failures: {}",
+                skn_out.display(),
+                propagation.errors.join("; ")
+            );
+            return Err(format!(
+                "saved {} but could not propagate the joint rename to every file: {}",
+                skn_out.display(),
+                propagation.errors.join("; ")
+            ));
+        }
+    }
+
     let fresh = derive(&guard)?;
     tracing::info!("[model-edit] saved {}", skn_out.display());
     Ok(ModelSaveResult {
         skn_path: skn_out.to_string_lossy().to_string(),
         skl_path: skl_written.map(|p| p.to_string_lossy().to_string()),
         summary: summarize(&fresh, &guard.log),
+        anm_files_updated,
+        bin_files_updated,
     })
 }
 
@@ -263,5 +348,64 @@ pub async fn close_model_session(
     session_id: String,
 ) -> Result<(), String> {
     state.remove(&session_id);
+    Ok(())
+}
+
+/// Add or remove a submesh from a gear form's hide/show lists, by directly
+/// editing the skin BIN — this is separate from the `.skn` edit session
+/// entirely (gear forms are `GearSkinUpgrade` entries in the skin BIN, not
+/// geometry in the mesh). `mode` is `"show"`, `"hide"`, or `"clear"` (removes
+/// from both lists).
+#[tauri::command]
+pub async fn assign_submesh_to_form(
+    skn_path: String,
+    form_index: usize,
+    submesh: String,
+    mode: String,
+) -> Result<(), String> {
+    let skn = Path::new(&skn_path);
+    let skin_bin_path = flint_core::mesh::texture::find_skin_bin(skn)
+        .ok_or_else(|| format!("No skin BIN found for {skn_path}"))?;
+
+    let data = std::fs::read(&skin_bin_path)
+        .map_err(|e| format!("Could not read {}: {e}", skin_bin_path.display()))?;
+    let mut tree = flint_core::bin::codec::read_bin(&data)
+        .map_err(|e| format!("Could not parse {}: {e}", skin_bin_path.display()))?;
+
+    // Two steps, not one `set_form_submesh_visibility` call: `load_linked`
+    // borrows `tree` immutably (to read its `linked` header), which can't
+    // coexist with the `&mut tree` the edit itself needs. Resolving the
+    // gear's path_hash first lets that immutable borrow end before the
+    // mutable one begins.
+    let gear_path_hash = flint_core::mesh::submesh_visibility::local_gear_path_hash_for_form_index(
+        &tree,
+        || flint_core::mesh::ritobin::read_linked_bin_trees(skn, &skin_bin_path, &tree),
+        form_index,
+    )?;
+    flint_core::mesh::submesh_visibility::apply_submesh_visibility_to_gear(
+        &mut tree,
+        gear_path_hash,
+        &submesh,
+        &mode,
+    )?;
+
+    let bytes = flint_core::bin::codec::write_bin(&tree)
+        .map_err(|e| format!("Could not serialize {}: {e}", skin_bin_path.display()))?;
+    std::fs::write(&skin_bin_path, &bytes)
+        .map_err(|e| format!("Could not write {}: {e}", skin_bin_path.display()))?;
+
+    // Invalidate the .ritobin text cache so the BIN editor re-converts instead
+    // of showing stale text (mirrors apply_loadscreen_banner).
+    let ritobin_cache = {
+        let mut p = skin_bin_path.clone().into_os_string();
+        p.push(".ritobin");
+        PathBuf::from(p)
+    };
+    let _ = std::fs::remove_file(&ritobin_cache);
+
+    tracing::info!(
+        "[model-edit] form {form_index} {mode} '{submesh}' in {}",
+        skin_bin_path.display()
+    );
     Ok(())
 }
