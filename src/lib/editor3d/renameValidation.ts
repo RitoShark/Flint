@@ -25,3 +25,25 @@ export function validateSubmeshName(
     }
     return null;
 }
+
+/**
+ * Same shape as `validateSubmeshName`, worded for joints. A joint's name is
+ * hashed into every `.anm` track and into BIN bone-reference fields the same
+ * way a submesh name is hashed into visibility events, so the same
+ * case-insensitive-collision rule applies.
+ */
+export function validateJointName(
+    name: string,
+    existing: string[],
+    selfIndex: number | null,
+): string | null {
+    if (name.trim() === '') return 'Name cannot be empty.';
+    const lower = name.toLowerCase();
+    for (let i = 0; i < existing.length; i++) {
+        if (i === selfIndex) continue;
+        if (existing[i].toLowerCase() === lower) {
+            return `A joint named "${existing[i]}" already exists.`;
+        }
+    }
+    return null;
+}

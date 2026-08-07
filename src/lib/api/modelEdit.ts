@@ -32,6 +32,10 @@ export interface ModelSaveResult {
     sknPath: string;
     sklPath: string | null;
     summary: ModelSummary;
+    /** `.anm` files rewritten because a renamed joint's name is hashed into their tracks. */
+    anmFilesUpdated: string[];
+    /** BIN files rewritten (e.g. `mBoneName`, `JointSnapEventData`) to follow a joint rename. */
+    binFilesUpdated: string[];
 }
 
 /** Mirrors the Rust `ModelEdit` enum (serde tag = "kind", camelCase fields). */
@@ -40,7 +44,22 @@ export type ModelEdit =
     | { kind: 'duplicateSubmesh'; index: number; name: string }
     | { kind: 'deleteSubmesh'; index: number }
     | { kind: 'reorderSubmesh'; from: number; to: number }
-    | { kind: 'pasteSubmesh'; sourceSkn: string; sourceIndex: number; name: string };
+    | { kind: 'pasteSubmesh'; sourceSkn: string; sourceIndex: number; name: string }
+    | { kind: 'renameJoint'; index: number; name: string };
+
+/** One BIN field referencing a joint by (hashed) name — e.g. `mBoneName`,
+ *  `JointSnapEventData` — surfaced so the rename-impact dialog can list it. */
+export interface BinBoneRef {
+    file: string;
+    field: string;
+}
+
+/** What a joint rename would rewrite: every `.anm` whose tracks are keyed by
+ *  this joint's hashed name, and every BIN field that references it. */
+export interface JointRenameImpact {
+    anmFiles: string[];
+    binRefs: BinBoneRef[];
+}
 
 /**
  * Opens the standalone 3D Editor window for a `.skn`. Mirrors the map-preview
@@ -78,4 +97,25 @@ export async function saveModelSession(sessionId: string, dest?: string): Promis
 
 export async function closeModelSession(sessionId: string): Promise<void> {
     return invokeCommand('close_model_session', { sessionId });
+}
+
+/** Previews what a `renameJoint` op would rewrite, before it's staged —
+ *  `index` is a position into the session's `skeleton.joints`. */
+export async function previewJointRename(sessionId: string, index: number): Promise<JointRenameImpact> {
+    return invokeCommand('preview_joint_rename', { sessionId, index });
+}
+
+/**
+ * Assigns a submesh's visibility within one gear form of the skin BIN
+ * (`show` adds it to `show_hashes`, `hide` to `hide_hashes`, `clear` removes
+ * it from both). This writes the skin BIN immediately — it is independent of
+ * the `.skn` edit session and is NOT undoable via the editor's undo stack.
+ */
+export async function assignSubmeshToForm(
+    sknPath: string,
+    formIndex: number,
+    submesh: string,
+    mode: 'show' | 'hide' | 'clear',
+): Promise<void> {
+    return invokeCommand('assign_submesh_to_form', { sknPath, formIndex, submesh, mode });
 }

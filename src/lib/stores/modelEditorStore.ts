@@ -58,6 +58,11 @@ interface ModelEditorState {
      *  reload happens for `renameSubmesh`, so nothing else would notice the
      *  hidden-set's key is stale). No-op if `oldName` wasn't hidden. */
     renameHiddenName(oldName: string, newName: string): void;
+    /** Patches a joint's name in the live skeleton after a `renameJoint` op
+     *  is staged — `stageModelEdit` only returns the (submesh-only)
+     *  `ModelSummary`, so the outliner's bone tree would otherwise go stale
+     *  since a joint rename never triggers `reloadGeometry`. */
+    renameJointName(index: number, name: string): void;
     reset(): void;
 }
 
@@ -123,6 +128,14 @@ export const useModelEditorStore = create<ModelEditorState>((set, get) => ({
         next.delete(oldName);
         next.add(newName);
         set({ hiddenNames: next });
+    },
+
+    renameJointName: (index, name) => {
+        const skeleton = get().skeleton;
+        if (!skeleton || !skeleton.bones[index]) return;
+        const bones = skeleton.bones.slice();
+        bones[index] = { ...bones[index], name };
+        set({ skeleton: { ...skeleton, bones } });
     },
 
     reset: () =>
