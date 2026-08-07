@@ -43,6 +43,31 @@ pub fn wad_directory_files(wad_dir: &Path) -> Result<HashMap<String, PathBuf>, S
     Ok(wad_files)
 }
 
+/** The `.wad.client` directories a project ships. `content/base` is the only layer an
+exporter reads, so a pre-export check that looked anywhere else would report on files no
+player ever receives. */
+pub fn project_wad_folders(project_path: &Path) -> Result<Vec<PathBuf>, String> {
+    let content_base = project_path.join("content").join("base");
+    let entries = std::fs::read_dir(&content_base)
+        .map_err(|e| format!("Failed to read content/base: {}", e))?;
+
+    let mut folders: Vec<PathBuf> = Vec::new();
+    for entry in entries {
+        let path = entry
+            .map_err(|e| format!("Failed to read directory entry: {}", e))?
+            .path();
+        let is_wad = path
+            .file_name()
+            .map(|n| n.to_string_lossy().ends_with(".wad.client"))
+            .unwrap_or(false);
+        if path.is_dir() && is_wad {
+            folders.push(path);
+        }
+    }
+    folders.sort();
+    Ok(folders)
+}
+
 /// Builds a valid WAD v3.4 binary (zstd-compressed, deduplicated chunks) from a
 /// `.wad.client` directory.
 pub fn build_wad_from_directory(wad_dir: &Path) -> Result<Vec<u8>, String> {
@@ -107,5 +132,33 @@ mod tests {
         let path = "DATA/Characters/Aatrox.bin";
         let buggy = xxhash_rust::xxh64::xxh64(path.as_bytes(), 0);
         assert_ne!(wad_chunk_hash(path), buggy);
+    }
+
+    #[test]
+    fn only_wad_client_dirs_under_content_base_are_shipped() {
+        let root = std::env::temp_dir().join(format!("flint-wadfolders-{}", std::process::id()));
+        let base = root.join("content").join("base");
+        std::fs::create_dir_all(base.join("Aatrox.wad.client")).unwrap();
+        std::fs::create_dir_all(base.join("Map11.wad.client")).unwrap();
+        std::fs::create_dir_all(base.join("scratch")).unwrap();
+        std::fs::create_dir_all(root.join("content").join("other.wad.client")).unwrap();
+        std::fs::write(base.join("packed.wad.client"), b"x").unwrap();
+
+        let names: Vec<String> = project_wad_folders(&root)
+            .unwrap()
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(names, vec!["Aatrox.wad.client", "Map11.wad.client"]);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_project_without_content_base_is_an_error() {
+        let root = std::env::temp_dir().join(format!("flint-nowads-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        assert!(project_wad_folders(&root).is_err());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -16,7 +16,25 @@ export interface AuditReport {
     bloat_bytes: number;
 }
 
+export interface WadMissingRefs {
+    wad: string;
+    missing: string[];
+}
+
+export interface ProjectMissingReport {
+    /** Only WADs that actually have missing references. */
+    wads: WadMissingRefs[];
+    total_missing: number;
+    bins_scanned: number;
+    bins_failed: number;
+}
+
 /** Audits an unpacked `.wad.client` folder for missing references and unreferenced files. */
 export async function auditWadFolder(folderPath: string): Promise<AuditReport> {
     return invokeCommand('audit_wad_folder', { folderPath });
+}
+
+/** Missing references across every WAD folder an export would ship. */
+export async function auditProjectMissingRefs(projectPath: string): Promise<ProjectMissingReport> {
+    return invokeCommand('audit_project_missing_refs', { projectPath });
 }

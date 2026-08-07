@@ -208,60 +208,47 @@ fn export_with_ltk_fantome(
         .map_err(|e| format!("Failed to create output file: {}", e))?;
 
     let mut zip = ZipWriter::new(file);
-    let content_base = project_path.join("content").join("base");
     let mut total_files = 0;
 
-    for entry in std::fs::read_dir(&content_base)
-        .map_err(|e| format!("Failed to read content/base: {}", e))?
-    {
-        let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
-        let path = entry.path();
+    for path in flint_core::export::project_wad_folders(project_path)? {
+        let wad_name = path.file_name().unwrap().to_string_lossy().to_string();
 
-        if path.is_dir()
-            && path
-                .file_name()
-                .map(|n| n.to_string_lossy().ends_with(".wad.client"))
-                .unwrap_or(false)
-        {
-            let wad_name = path.file_name().unwrap().to_string_lossy().to_string();
-
-            // Emitted as a FOLDER (`WAD/<name>.wad.client/<rel>`), not a packed WAD.
-            // Packing hashes every chunk path with xxh64(lowercase), so any path the
-            // hash DB can't resolve later reads back as an unrecoverable `{16hex}.ext`
-            // chunk. The loose form carries the literal strings, so nothing is lost —
-            // and both fantome readers (archive_edit + fantome_import) already detect
-            // it by the trailing slash after `.wad.client`.
-            let wad_files = flint_core::export::wad_directory_files(&path)?;
-            if wad_files.is_empty() {
-                tracing::warn!("Skipping empty WAD folder {}", wad_name);
-                continue;
-            }
-            let file_count = wad_files.len();
-            total_files += file_count;
-
-            let options = SimpleFileOptions::default()
-                .compression_method(zip::CompressionMethod::Deflated);
-            let mut sorted: Vec<_> = wad_files.into_iter().collect();
-            sorted.sort_by(|a, b| a.0.cmp(&b.0));
-
-            let mut written_bytes: u64 = 0;
-            for (rel, disk_path) in sorted {
-                let data = std::fs::read(&disk_path)
-                    .map_err(|e| format!("Failed to read {}: {}", disk_path.display(), e))?;
-                zip.start_file(format!("WAD/{}/{}", wad_name, rel), options)
-                    .map_err(|e| format!("Failed to create entry in ZIP: {}", e))?;
-                zip.write_all(&data)
-                    .map_err(|e| format!("Failed to write {} to ZIP: {}", rel, e))?;
-                written_bytes += data.len() as u64;
-            }
-
-            tracing::info!(
-                "Wrote WAD/{}/ as a folder ({} files, {} bytes)",
-                wad_name,
-                file_count,
-                written_bytes
-            );
+        // Emitted as a FOLDER (`WAD/<name>.wad.client/<rel>`), not a packed WAD.
+        // Packing hashes every chunk path with xxh64(lowercase), so any path the
+        // hash DB can't resolve later reads back as an unrecoverable `{16hex}.ext`
+        // chunk. The loose form carries the literal strings, so nothing is lost —
+        // and both fantome readers (archive_edit + fantome_import) already detect
+        // it by the trailing slash after `.wad.client`.
+        let wad_files = flint_core::export::wad_directory_files(&path)?;
+        if wad_files.is_empty() {
+            tracing::warn!("Skipping empty WAD folder {}", wad_name);
+            continue;
         }
+        let file_count = wad_files.len();
+        total_files += file_count;
+
+        let options = SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        let mut sorted: Vec<_> = wad_files.into_iter().collect();
+        sorted.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let mut written_bytes: u64 = 0;
+        for (rel, disk_path) in sorted {
+            let data = std::fs::read(&disk_path)
+                .map_err(|e| format!("Failed to read {}: {}", disk_path.display(), e))?;
+            zip.start_file(format!("WAD/{}/{}", wad_name, rel), options)
+                .map_err(|e| format!("Failed to create entry in ZIP: {}", e))?;
+            zip.write_all(&data)
+                .map_err(|e| format!("Failed to write {} to ZIP: {}", rel, e))?;
+            written_bytes += data.len() as u64;
+        }
+
+        tracing::info!(
+            "Wrote WAD/{}/ as a folder ({} files, {} bytes)",
+            wad_name,
+            file_count,
+            written_bytes
+        );
     }
 
     let info = serde_json::json!({
