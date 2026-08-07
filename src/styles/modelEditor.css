@@ -95,8 +95,8 @@
 .m3d__discard-dialog {
     background-color: var(--bg-secondary);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+    border-radius: 4px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
     width: 340px;
     max-width: 90vw;
     padding: 20px;
@@ -401,7 +401,7 @@
     height: 30px;
     background: color-mix(in oklab, var(--bg-secondary) 85%, transparent);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 3px;
     color: var(--text-secondary);
     cursor: pointer;
 }
@@ -423,8 +423,8 @@
     flex-direction: column;
     background: color-mix(in oklab, var(--bg-secondary) 92%, transparent);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+    border-radius: 4px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
     z-index: 10;
     overflow: hidden;
 }
