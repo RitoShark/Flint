@@ -232,3 +232,26 @@
 }
 .m3d__tree-toggle svg { display: block; }
 .m3d__tree-toggle--spacer { cursor: default; }
+
+.m3d__inspector {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 12px;
+    row-gap: 8px;
+    padding: 12px;
+    align-content: start;
+}
+
+.m3d__field {
+    display: contents;
+}
+.m3d__field-label {
+    color: var(--text-muted);
+    font-size: 12px;
+    white-space: nowrap;
+}
+.m3d__field-value {
+    color: var(--text-primary);
+    font-size: 12px;
+    word-break: break-word;
+}

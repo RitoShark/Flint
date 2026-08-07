@@ -5,6 +5,7 @@ import * as api from '../../lib/api';
 import type { ModelEdit, ModelSessionInfo } from '../../lib/api/modelEdit';
 import { useModelEditorStore } from '../../lib/stores/modelEditorStore';
 import { Outliner } from './Outliner';
+import { Inspector } from './Inspector';
 import { ContextMenu } from '../overlays/ContextMenu';
 import { ConfirmDialog } from '../overlays/ConfirmDialog';
 import '../../styles/modelEditor.css';
@@ -183,7 +184,9 @@ export const ModelEditorWindow: React.FC = () => {
                     )}
                 </aside>
                 <main className="m3d__viewport" />
-                <aside className="m3d__dock m3d__dock--right" />
+                <aside className="m3d__dock m3d__dock--right">
+                    {session && <Inspector />}
+                </aside>
             </div>
             <footer className="m3d__status">
                 {summary
