@@ -42,6 +42,10 @@
     min-width: 0;
     position: relative;
 }
+.m3d__canvas {
+    position: absolute;
+    inset: 0;
+}
 
 .m3d__status {
     flex: 0 0 auto;

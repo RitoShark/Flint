@@ -73,7 +73,7 @@ export interface ScbMeshData {
  *   [vertex_count × 4 × u8]  bone_indices
  * ```
  */
-function decodeMeshPayload(buf: ArrayBuffer): SknMeshData | ScbMeshData {
+export function decodeMeshPayload(buf: ArrayBuffer): SknMeshData | ScbMeshData {
     const view = new DataView(buf);
     const metaLen = view.getUint32(0, true);
     const metaBytes = new Uint8Array(buf, 4, metaLen);

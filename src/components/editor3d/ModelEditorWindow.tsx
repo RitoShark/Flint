@@ -4,6 +4,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import * as api from '../../lib/api';
 import type { ModelEdit, ModelSessionInfo } from '../../lib/api/modelEdit';
 import { useModelEditorStore } from '../../lib/stores/modelEditorStore';
+import type { SknSceneHandle } from '../../lib/babylon/sknScene';
+import { EditorViewport } from './EditorViewport';
 import { Outliner } from './Outliner';
 import { Inspector } from './Inspector';
 import { ContextMenu } from '../overlays/ContextMenu';
@@ -33,14 +35,25 @@ export const ModelEditorWindow: React.FC = () => {
     // Surfaces a rejected staged op (bad index, name collision, format limit)
     // without disturbing `session`/the store — the last good summary stays put.
     const [opError, setOpError] = useState<string | null>(null);
+    // Bumped by reloadGeometry; EditorViewport reloads geometry (only, no
+    // re-frame) via api.deriveModelMesh whenever this changes.
+    const [reloadToken, setReloadToken] = useState(0);
 
     const summary = useModelEditorStore((s) => s.summary);
+    const selection = useModelEditorStore((s) => s.selection);
+    const select = useModelEditorStore((s) => s.select);
 
     // Mirrors whichever session is currently open. A ref (not state) so the
     // onCloseRequested handler below always reads the live id instead of one
     // captured at listener-registration time — it's written at the same
     // point as setSession/setSession(null), never via a follow-up effect.
     const sessionIdRef = useRef<string | null>(null);
+
+    // The live Babylon scene controller for the viewport canvas. Populated by
+    // EditorViewport on mount, cleared on unmount — never recreated on a
+    // retarget, since EditorViewport itself stays mounted and just reloads
+    // whatever `sknPath` it's given.
+    const sknHandleRef = useRef<SknSceneHandle | null>(null);
 
     // The backend retargets an already-open window rather than spawning a second
     // WebView2, so the file can change under us.
@@ -90,9 +103,9 @@ export const ModelEditorWindow: React.FC = () => {
         };
     }, [target]);
 
-    // Geometry-changing ops need a viewport reload; the viewport itself lands
-    // in Task 12. Typed now so that task only has to fill the body.
-    const reloadGeometry = useCallback(async () => {}, []);
+    const reloadGeometry = useCallback(async () => {
+        setReloadToken((n) => n + 1);
+    }, []);
 
     const applyEdit = useCallback(async (edit: ModelEdit) => {
         const id = useModelEditorStore.getState().sessionId;
@@ -110,9 +123,19 @@ export const ModelEditorWindow: React.FC = () => {
         }
     }, [reloadGeometry]);
 
-    // Visibility/isolate are view state, wired to the viewport in Task 12.
-    const handleToggleVisible = useCallback((_name: string, _visible: boolean) => {}, []);
-    const handleIsolate = useCallback((_name: string | null) => {}, []);
+    const handleToggleVisible = useCallback((name: string, visible: boolean) => {
+        sknHandleRef.current?.setSubmeshVisible(name, visible);
+    }, []);
+    const handleIsolate = useCallback((name: string | null) => {
+        sknHandleRef.current?.setIsolated(name);
+    }, []);
+
+    // Selection sync: viewport pick → store (via EditorViewport's onPick
+    // below) and store → viewport tint (here), so either side driving a
+    // selection keeps both in step without one owning the other.
+    useEffect(() => {
+        sknHandleRef.current?.setSelection(selection?.kind === 'submesh' ? selection.name : null);
+    }, [selection]);
 
     // Closing the WebviewWindow natively (OS close button / Alt+F4) destroys
     // this JS context outright — a component-unmount cleanup never runs, so
@@ -183,7 +206,14 @@ export const ModelEditorWindow: React.FC = () => {
                         />
                     )}
                 </aside>
-                <main className="m3d__viewport" />
+                <main className="m3d__viewport">
+                    <EditorViewport
+                        sknPath={target.skn}
+                        reloadToken={reloadToken}
+                        onPick={(name) => select(name ? { kind: 'submesh', name } : null)}
+                        handleRef={sknHandleRef}
+                    />
+                </main>
                 <aside className="m3d__dock m3d__dock--right">
                     {session && <Inspector />}
                 </aside>
