@@ -9,5 +9,6 @@ pub mod scb;
 pub mod wire;
 pub mod discovery;
 pub mod edit;
+pub mod joint_rename;
 pub mod ritobin;
 

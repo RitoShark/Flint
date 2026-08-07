@@ -237,7 +237,7 @@ fn extract_skin_folder_from_path(path: &Path) -> Option<String> {
 /// The walk NEVER goes above the Flint project root (see
 /// [`is_flint_project_root`]) — a stray `data\` dir in AppData / the user's
 /// home would otherwise win over the correct WAD-folder fallback.
-fn find_project_root_from_path(file_path: &Path) -> Option<PathBuf> {
+pub(crate) fn find_project_root_from_path(file_path: &Path) -> Option<PathBuf> {
     let mut current = file_path.parent()?;
     let mut best: Option<PathBuf> = None;
 
