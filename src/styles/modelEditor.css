@@ -333,3 +333,32 @@
     font-size: 12px;
     word-break: break-word;
 }
+
+/* Gear-form selector (GearSkinUpgrade, e.g. Kayn's Assassin/Slayer) — only
+ * rendered when a form actually changes this mesh's baseline visibility. */
+.m3d__forms {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 0 12px 8px;
+}
+.m3d__form-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 22px;
+    padding: 0 10px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+.m3d__form-btn:hover { color: var(--text-primary); }
+.m3d__form-btn--active {
+    background: color-mix(in oklab, var(--accent-primary) 22%, var(--bg-tertiary));
+    border-color: var(--accent-primary);
+    color: var(--text-primary);
+}

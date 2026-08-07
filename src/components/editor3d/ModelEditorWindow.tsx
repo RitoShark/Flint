@@ -146,9 +146,19 @@ export const ModelEditorWindow: React.FC = () => {
     const applyEdit = useCallback(async (edit: ModelEdit) => {
         const id = useModelEditorStore.getState().sessionId;
         if (!id) return;
+        // Renaming doesn't reload geometry (see below), so it's the one edit
+        // where the live scene's mesh names and the hidden-set's keys would
+        // otherwise silently go stale — capture the old name to fix both up.
+        const oldName = edit.kind === 'renameSubmesh'
+            ? useModelEditorStore.getState().summary?.submeshes[edit.index]?.name
+            : undefined;
         try {
             const nextSummary = await api.stageModelEdit(id, edit);
             useModelEditorStore.getState().applySummary(nextSummary);
+            if (edit.kind === 'renameSubmesh' && oldName && oldName !== edit.name) {
+                sknHandleRef.current?.renameSubmesh(oldName, edit.name);
+                useModelEditorStore.getState().renameHiddenName(oldName, edit.name);
+            }
             setOpError(null);
             // Rename and reorder don't touch geometry.
             if (edit.kind !== 'renameSubmesh' && edit.kind !== 'reorderSubmesh') {
@@ -159,9 +169,6 @@ export const ModelEditorWindow: React.FC = () => {
         }
     }, [reloadGeometry]);
 
-    const handleToggleVisible = useCallback((name: string, visible: boolean) => {
-        sknHandleRef.current?.setSubmeshVisible(name, visible);
-    }, []);
     const handleIsolate = useCallback((name: string | null) => {
         sknHandleRef.current?.setIsolated(name);
     }, []);
@@ -374,7 +381,6 @@ export const ModelEditorWindow: React.FC = () => {
                     {session && (
                         <Outliner
                             onEdit={applyEdit}
-                            onToggleVisible={handleToggleVisible}
                             onIsolate={handleIsolate}
                         />
                     )}

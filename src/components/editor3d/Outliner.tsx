@@ -3,6 +3,7 @@ import { useModelEditorStore } from '../../lib/stores/modelEditorStore';
 import { useModalStore } from '../../lib/stores/modalStore';
 import { buildBoneTree, type BoneNode } from '../../lib/editor3d/boneTree';
 import { validateSubmeshName } from '../../lib/editor3d/renameValidation';
+import { usableForms } from '../../lib/editor3d/submeshBaseline';
 import { beginPointerDrag } from '../../lib/pointerDrag';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import type { ContextMenuOption } from '../../lib/types';
@@ -11,7 +12,6 @@ import type { Selection } from '../../lib/stores/modelEditorStore';
 
 export interface OutlinerProps {
     onEdit: (edit: ModelEdit) => Promise<void>;
-    onToggleVisible: (name: string, visible: boolean) => void;
     onIsolate: (name: string | null) => void;
 }
 
@@ -94,7 +94,7 @@ const BoneRow: React.FC<BoneRowProps> = ({
     );
 };
 
-export const Outliner: React.FC<OutlinerProps> = ({ onEdit, onToggleVisible, onIsolate }) => {
+export const Outliner: React.FC<OutlinerProps> = ({ onEdit, onIsolate }) => {
     const summary = useModelEditorStore((s) => s.summary);
     const skeleton = useModelEditorStore((s) => s.skeleton);
     const selection = useModelEditorStore((s) => s.selection);
@@ -105,11 +105,24 @@ export const Outliner: React.FC<OutlinerProps> = ({ onEdit, onToggleVisible, onI
     const openContextMenu = useModalStore((s) => s.openContextMenu);
     const openConfirmDialog = useModalStore((s) => s.openConfirmDialog);
 
+    // Baseline + gear-form visibility (GearSkinUpgrade, e.g. Kayn's Assassin/
+    // Slayer) and the resulting hidden set — view state, never staged as ops.
+    // The viewport (EditorViewport) reacts to `hiddenNames`/`activeForm` the
+    // same way it reacts to selection, so either side can drive it.
+    const animationList = useModelEditorStore((s) => s.animationList);
+    const activeForm = useModelEditorStore((s) => s.activeForm);
+    const setActiveForm = useModelEditorStore((s) => s.setActiveForm);
+    const hiddenNames = useModelEditorStore((s) => s.hiddenNames);
+    const toggleHiddenName = useModelEditorStore((s) => s.toggleHiddenName);
+
     const submeshes = useMemo(() => summary?.submeshes ?? [], [summary]);
     const names = useMemo(() => submeshes.map((s) => s.name), [submeshes]);
 
-    // View state, never staged as ops.
-    const [hiddenNames, setHiddenNames] = useState<Set<string>>(() => new Set());
+    const forms = useMemo(
+        () => usableForms(animationList?.initial_hide, animationList?.forms, names),
+        [animationList, names],
+    );
+
     const [isolatedName, setIsolatedName] = useState<string | null>(null);
 
     const [renameIndex, setRenameIndex] = useState<number | null>(null);
@@ -166,16 +179,9 @@ export const Outliner: React.FC<OutlinerProps> = ({ onEdit, onToggleVisible, onI
 
     const toggleVisible = useCallback(
         (name: string) => {
-            setHiddenNames((prev) => {
-                const next = new Set(prev);
-                const nowHidden = !next.has(name);
-                if (nowHidden) next.add(name);
-                else next.delete(name);
-                onToggleVisible(name, !nowHidden);
-                return next;
-            });
+            toggleHiddenName(name);
         },
-        [onToggleVisible],
+        [toggleHiddenName],
     );
 
     const toggleIsolate = useCallback(
@@ -308,6 +314,27 @@ export const Outliner: React.FC<OutlinerProps> = ({ onEdit, onToggleVisible, onI
         <div className="m3d__outliner">
             <div className="m3d__section">
                 <div className="m3d__section-title">Meshes</div>
+                {forms.length > 0 && (
+                    <div className="m3d__forms">
+                        <button
+                            type="button"
+                            className={`m3d__form-btn ${activeForm === -1 ? 'm3d__form-btn--active' : ''}`}
+                            onClick={() => setActiveForm(-1)}
+                        >
+                            Base
+                        </button>
+                        {forms.map(({ form, index }) => (
+                            <button
+                                type="button"
+                                key={index}
+                                className={`m3d__form-btn ${activeForm === index ? 'm3d__form-btn--active' : ''}`}
+                                onClick={() => setActiveForm(index)}
+                            >
+                                {form.name}
+                            </button>
+                        ))}
+                    </div>
+                )}
                 {submeshes.length === 0 ? (
                     <div className="m3d__hint">No submeshes.</div>
                 ) : (
