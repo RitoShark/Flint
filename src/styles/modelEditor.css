@@ -298,7 +298,7 @@
     color: var(--text-primary);
     font: inherit;
     padding: 1px 4px;
-    border-radius: 2px;
+    border-radius: 3px;
 }
 .m3d__name-error {
     font-size: 11px;
