@@ -191,10 +191,12 @@ export const Outliner: React.FC<OutlinerProps> = ({ onEdit, onToggleVisible, onI
 
     const handleReorderDragStart = useCallback(
         (e: React.PointerEvent, index: number) => {
-            setDragIndex(index);
             beginPointerDrag(e, {
                 label: names[index] ?? 'submesh',
+                // Only fires once real pointer movement crosses the drag threshold, so a
+                // plain click never flashes the "dragging" look on the row.
                 onMove: (x, y) => {
+                    setDragIndex(index);
                     const el = document.elementFromPoint(x, y) as HTMLElement | null;
                     const row = el?.closest<HTMLElement>('[data-submesh-index]');
                     const raw = row?.getAttribute('data-submesh-index');
