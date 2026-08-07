@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use ritoshark::bin::{Bin, BinValue};
+use ritoshark::bin::{Bin, BinType, BinValue};
 use ritoshark::hash::fnv1a;
 use serde::Serialize;
 
@@ -167,6 +167,205 @@ fn hash_list_items(value: &BinValue) -> Vec<u32> {
             _ => None,
         })
         .collect()
+}
+
+// ── Gear form editing (assign_submesh_to_form) ──────────────────────────────
+//
+// `parse_skin_forms` above is read-only and numbers forms by skipping any
+// `GearSkinUpgrade` with empty hide/show lists. Editing needs the SAME
+// numbering (so a form index the frontend got from `parse_skin_forms` still
+// means the same gear here) plus the entry's `path_hash` to find it again for
+// mutation — and it must refuse to touch a gear hoisted into a shared linked
+// BIN, since that file is reused by other skins and mutating it would
+// reassign the gear for all of them, not just this one.
+
+/// The `path_hash` of the `GearSkinUpgrade` backing `parse_skin_forms`'s
+/// `form_index`-th form, IF that gear lives in `bin` itself. Errors when the
+/// form's gear was hoisted into a shared linked BIN (mutating it would affect
+/// every other skin that also links it) or when `form_index` doesn't exist.
+pub fn local_gear_path_hash_for_form_index(
+    bin: &Bin,
+    load_linked: impl FnOnce() -> Vec<Bin>,
+    form_index: usize,
+) -> Result<u32, String> {
+    let links = gear_links(bin);
+    let linked: Vec<Bin> = if links.iter().all(|h| find_gear(bin, *h).is_some()) {
+        Vec::new()
+    } else {
+        load_linked()
+    };
+
+    // (path_hash, is_local), in the same order `parse_skin_forms` builds `gears`.
+    let mut gears: Vec<(u32, bool)> = Vec::new();
+    for link in &links {
+        if find_gear(bin, *link).is_some() {
+            gears.push((*link, true));
+        } else if linked.iter().any(|t| find_gear(t, *link).is_some()) {
+            gears.push((*link, false));
+        }
+    }
+    for entry in bin.entries.iter().filter(|e| e.class_hash == CLASS_GEAR_SKIN_UPGRADE) {
+        if !gears.iter().any(|(h, _)| *h == entry.path_hash) {
+            gears.push((entry.path_hash, true));
+        }
+    }
+
+    let mut form_idx = 0usize;
+    for (path_hash, is_local) in gears {
+        let fields = if is_local {
+            find_gear(bin, path_hash).map(|g| &g.fields)
+        } else {
+            linked.iter().find_map(|t| find_gear(t, path_hash)).map(|g| &g.fields)
+        };
+        let Some(fields) = fields else { continue };
+
+        let hide = find_field(fields, F_CHAR_SUBMESHES_HIDE).map(hash_list_items).unwrap_or_default();
+        let show = find_field(fields, F_CHAR_SUBMESHES_SHOW).map(hash_list_items).unwrap_or_default();
+        if hide.is_empty() && show.is_empty() {
+            continue;
+        }
+
+        if form_idx == form_index {
+            return if is_local {
+                Ok(path_hash)
+            } else {
+                Err("this form's gear data is shared with other skins (hoisted into a linked BIN) and cannot be edited here".to_string())
+            };
+        }
+        form_idx += 1;
+    }
+
+    Err(format!("form index {form_index} does not exist"))
+}
+
+/// Recursively find the fields map owning `mCharacterSubmeshesToHide` /
+/// `mCharacterSubmeshesToShow` under a `GearSkinUpgrade` entry's fields and
+/// add/remove `hash` there per `mode`. Both lists live as siblings on the same
+/// struct (`GearData`, reached through `mGearData`), so finding either one is
+/// enough to anchor the edit. Returns whether a home was found and edited.
+fn apply_submesh_visibility(fields: &mut indexmap::IndexMap<u32, BinValue>, hash: u32, mode: &SubmeshVisMode) -> bool {
+    if fields.contains_key(&F_CHAR_SUBMESHES_HIDE) || fields.contains_key(&F_CHAR_SUBMESHES_SHOW) {
+        match mode {
+            SubmeshVisMode::Show => {
+                remove_hash_from_list(fields, F_CHAR_SUBMESHES_HIDE, hash);
+                add_hash_to_list(fields, F_CHAR_SUBMESHES_SHOW, hash);
+            }
+            SubmeshVisMode::Hide => {
+                remove_hash_from_list(fields, F_CHAR_SUBMESHES_SHOW, hash);
+                add_hash_to_list(fields, F_CHAR_SUBMESHES_HIDE, hash);
+            }
+            SubmeshVisMode::Clear => {
+                remove_hash_from_list(fields, F_CHAR_SUBMESHES_HIDE, hash);
+                remove_hash_from_list(fields, F_CHAR_SUBMESHES_SHOW, hash);
+            }
+        }
+        return true;
+    }
+
+    for val in fields.values_mut() {
+        let found = match val {
+            BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
+                apply_submesh_visibility(fields, hash, mode)
+            }
+            BinValue::Option { value: Some(inner), .. } => match &mut **inner {
+                BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
+                    apply_submesh_visibility(fields, hash, mode)
+                }
+                _ => false,
+            },
+            _ => false,
+        };
+        if found {
+            return true;
+        }
+    }
+    false
+}
+
+fn add_hash_to_list(fields: &mut indexmap::IndexMap<u32, BinValue>, field: u32, hash: u32) {
+    let list = fields.entry(field).or_insert_with(|| BinValue::List {
+        is_list2: false,
+        item: BinType::Hash,
+        items: Vec::new(),
+    });
+    if let BinValue::List { items, .. } = list {
+        if !items.iter().any(|v| matches!(v, BinValue::Hash(h) if *h == hash)) {
+            items.push(BinValue::Hash(hash));
+        }
+    }
+}
+
+fn remove_hash_from_list(fields: &mut indexmap::IndexMap<u32, BinValue>, field: u32, hash: u32) {
+    if let Some(BinValue::List { items, .. }) = fields.get_mut(&field) {
+        items.retain(|v| !matches!(v, BinValue::Hash(h) if *h == hash));
+    }
+}
+
+enum SubmeshVisMode {
+    Show,
+    Hide,
+    Clear,
+}
+
+impl SubmeshVisMode {
+    fn parse(s: &str) -> Result<Self, String> {
+        match s {
+            "show" => Ok(Self::Show),
+            "hide" => Ok(Self::Hide),
+            "clear" => Ok(Self::Clear),
+            other => Err(format!("unknown mode \"{other}\" (expected show, hide, or clear)")),
+        }
+    }
+}
+
+/// Add or remove `submesh`'s FNV1a-32 (lowercased) hash in the `form_index`-th
+/// gear form's hide/show submesh lists, per `mode` (`"show"` / `"hide"` /
+/// `"clear"`). `"clear"` removes it from both lists. Refuses forms whose gear
+/// is hoisted into a shared linked BIN — see
+/// `local_gear_path_hash_for_form_index`.
+///
+/// Only usable when `load_linked` does not itself need to borrow `bin` (e.g.
+/// `Vec::new`, or a fixed set of already-loaded trees) — a closure that reads
+/// `bin` cannot be combined with the `&mut Bin` this needs in one call. A
+/// caller whose linked-BIN lookup does borrow the tree (as
+/// `read_linked_bin_trees` does) must instead call
+/// `local_gear_path_hash_for_form_index` and `apply_submesh_visibility_to_gear`
+/// as two separate steps, so the immutable borrow the lookup needs is fully
+/// released before the mutable borrow the edit needs begins.
+pub fn set_form_submesh_visibility(
+    bin: &mut Bin,
+    load_linked: impl FnOnce() -> Vec<Bin>,
+    form_index: usize,
+    submesh: &str,
+    mode: &str,
+) -> Result<(), String> {
+    let gear_path_hash = local_gear_path_hash_for_form_index(bin, load_linked, form_index)?;
+    apply_submesh_visibility_to_gear(bin, gear_path_hash, submesh, mode)
+}
+
+/// Mutate the already-resolved `gear_path_hash` entry directly. Split out from
+/// `set_form_submesh_visibility` so callers whose `load_linked` closure
+/// borrows the same `Bin` can resolve the index first (immutable borrow) and
+/// mutate second (mutable borrow) — combining both borrows in one call would
+/// not compile.
+pub fn apply_submesh_visibility_to_gear(
+    bin: &mut Bin,
+    gear_path_hash: u32,
+    submesh: &str,
+    mode: &str,
+) -> Result<(), String> {
+    let mode = SubmeshVisMode::parse(mode)?;
+    let hash = fnv1a(&submesh.to_lowercase());
+    let entry = bin
+        .entries
+        .iter_mut()
+        .find(|e| e.path_hash == gear_path_hash && e.class_hash == CLASS_GEAR_SKIN_UPGRADE)
+        .ok_or_else(|| "gear entry not found".to_string())?;
+
+    if !apply_submesh_visibility(&mut entry.fields, hash, &mode) {
+        return Err("could not locate this gear's submesh visibility lists".to_string());
+    }
+    Ok(())
 }
 
 /// Parse a skin BIN's `initialSubmeshToHide` / `initialSubmeshShadowsToHide` from disk.
@@ -702,6 +901,103 @@ mod tests {
         });
         assert!(!loaded, "linked BINs were read even though the gear was in the skin BIN");
         assert_eq!(forms.len(), 1);
+    }
+
+    // ── Gear form editing ────────────────────────────────────────────────────
+
+    #[test]
+    fn local_gear_path_hash_matches_parse_skin_forms_numbering() {
+        let bin = Bin {
+            entries: vec![
+                skin_char_entry(&[2, 1]),
+                gear_entry(1, &[0xA1], &[0xA2]),
+                gear_entry(2, &[0xB1], &[0xB2]),
+            ],
+            ..Bin::new()
+        };
+        // parse_skin_forms orders by the link list: gear 2 first (form 0), gear 1 second (form 1).
+        let forms = parse_skin_forms(&bin, Vec::new);
+        assert_eq!(forms[0].hide_hashes, vec![0xB1]);
+
+        let hash0 = local_gear_path_hash_for_form_index(&bin, Vec::new, 0).unwrap();
+        assert_eq!(hash0, 2, "form 0 must resolve to gear path_hash 2, matching parse_skin_forms order");
+        let hash1 = local_gear_path_hash_for_form_index(&bin, Vec::new, 1).unwrap();
+        assert_eq!(hash1, 1);
+
+        assert!(local_gear_path_hash_for_form_index(&bin, Vec::new, 2).is_err());
+    }
+
+    #[test]
+    fn local_gear_path_hash_refuses_a_hoisted_gear() {
+        let skin = Bin { entries: vec![skin_char_entry(&[1])], ..Bin::new() };
+        let shared = Bin { entries: vec![gear_entry(1, &[0xA1], &[])], ..Bin::new() };
+
+        let err = local_gear_path_hash_for_form_index(&skin, || vec![shared], 0)
+            .expect_err("a hoisted gear must not be reported as locally editable");
+        assert!(err.to_lowercase().contains("shared"), "error explains why: {err}");
+    }
+
+    #[test]
+    fn apply_submesh_visibility_moves_between_hide_and_show() {
+        let mut bin = Bin {
+            entries: vec![gear_entry(1, &[], &[])],
+            ..Bin::new()
+        };
+        let hash = fnv1a("newsubmesh");
+
+        apply_submesh_visibility_to_gear(&mut bin, 1, "NewSubmesh", "hide").unwrap();
+        let gear = bin.entries.iter().find(|e| e.path_hash == 1).unwrap();
+        let gear_data = match gear.fields.get(&fnv1a("mGearData")) {
+            Some(BinValue::Pointer { fields, .. }) => fields,
+            _ => panic!("mGearData missing"),
+        };
+        assert_eq!(hash_list_items(gear_data.get(&F_CHAR_SUBMESHES_HIDE).unwrap()), vec![hash]);
+        assert!(hash_list_items(gear_data.get(&F_CHAR_SUBMESHES_SHOW).unwrap()).is_empty());
+
+        // Moving to "show" must remove it from "hide" too — a submesh cannot be
+        // in both lists at once.
+        apply_submesh_visibility_to_gear(&mut bin, 1, "NewSubmesh", "show").unwrap();
+        let gear = bin.entries.iter().find(|e| e.path_hash == 1).unwrap();
+        let gear_data = match gear.fields.get(&fnv1a("mGearData")) {
+            Some(BinValue::Pointer { fields, .. }) => fields,
+            _ => panic!("mGearData missing"),
+        };
+        assert!(hash_list_items(gear_data.get(&F_CHAR_SUBMESHES_HIDE).unwrap()).is_empty());
+        assert_eq!(hash_list_items(gear_data.get(&F_CHAR_SUBMESHES_SHOW).unwrap()), vec![hash]);
+
+        apply_submesh_visibility_to_gear(&mut bin, 1, "NewSubmesh", "clear").unwrap();
+        let gear = bin.entries.iter().find(|e| e.path_hash == 1).unwrap();
+        let gear_data = match gear.fields.get(&fnv1a("mGearData")) {
+            Some(BinValue::Pointer { fields, .. }) => fields,
+            _ => panic!("mGearData missing"),
+        };
+        assert!(hash_list_items(gear_data.get(&F_CHAR_SUBMESHES_HIDE).unwrap()).is_empty());
+        assert!(hash_list_items(gear_data.get(&F_CHAR_SUBMESHES_SHOW).unwrap()).is_empty());
+    }
+
+    #[test]
+    fn apply_submesh_visibility_rejects_an_unknown_mode() {
+        let mut bin = Bin { entries: vec![gear_entry(1, &[], &[])], ..Bin::new() };
+        let err = apply_submesh_visibility_to_gear(&mut bin, 1, "X", "toggle")
+            .expect_err("unrecognized mode must be rejected");
+        assert!(err.contains("toggle"));
+    }
+
+    #[test]
+    fn set_form_submesh_visibility_end_to_end() {
+        let mut bin = Bin {
+            entries: vec![skin_char_entry(&[1]), gear_entry(1, &[0xA1], &[])],
+            ..Bin::new()
+        };
+        set_form_submesh_visibility(&mut bin, Vec::new, 0, "Extra", "hide").unwrap();
+        let gear = bin.entries.iter().find(|e| e.path_hash == 1).unwrap();
+        let gear_data = match gear.fields.get(&fnv1a("mGearData")) {
+            Some(BinValue::Pointer { fields, .. }) => fields,
+            _ => panic!("mGearData missing"),
+        };
+        let hide = hash_list_items(gear_data.get(&F_CHAR_SUBMESHES_HIDE).unwrap());
+        assert!(hide.contains(&0xA1));
+        assert!(hide.contains(&fnv1a("extra")));
     }
 
     #[test]
