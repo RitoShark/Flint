@@ -34,6 +34,8 @@ pub enum ModelEdit {
         source_index: usize,
         name: String,
     },
+    #[serde(rename_all = "camelCase")]
+    RenameJoint { index: usize, name: String },
 }
 
 /// The result of folding an op log over the pristine parse.
@@ -76,6 +78,9 @@ pub fn apply_ops(
                     *source_index,
                     name,
                 )?
+            }
+            ModelEdit::RenameJoint { index, name } => {
+                rename_joint(&mut skel, &mut skeleton_dirty, *index, name)?
             }
         }
     }
@@ -231,6 +236,53 @@ fn reorder_submesh(mesh: &mut SkinnedMesh, from: usize, to: usize) -> Result<(),
     }
     let range = mesh.ranges.remove(from);
     mesh.ranges.insert(to, range);
+    Ok(())
+}
+
+/// Rename a skeleton joint, keeping `name` and its `elf_lower` hash in sync.
+///
+/// Root joints (`parent_id == -1`) are refused: a root's name/hash is part of
+/// the rig's identity, and animation/BIN references outside this project's
+/// reach (base-game clips, shared rigs) assume it never changes. Non-root
+/// joints still propagate to every `.anm` track and BIN bone-reference field
+/// this project owns — see `mesh::joint_rename` — but that happens at save
+/// time, not here; this only edits the in-memory skeleton.
+fn rename_joint(
+    skeleton: &mut Option<Skeleton>,
+    skeleton_dirty: &mut bool,
+    index: usize,
+    name: &str,
+) -> Result<(), String> {
+    let skel = skeleton
+        .as_mut()
+        .ok_or_else(|| "this .skn has no skeleton to rename joints on".to_string())?;
+
+    if index >= skel.joints.len() {
+        return Err(format!(
+            "joint index {index} out of range (skeleton has {} joints)",
+            skel.joints.len()
+        ));
+    }
+
+    if skel.joints[index].parent_id == -1 {
+        return Err(format!(
+            "\"{}\" is a root joint and cannot be renamed — renaming a root breaks rig identity",
+            skel.joints[index].name
+        ));
+    }
+
+    if name.trim().is_empty() {
+        return Err("joint name cannot be empty".to_string());
+    }
+    for (i, joint) in skel.joints.iter().enumerate() {
+        if i != index && joint.name.eq_ignore_ascii_case(name) {
+            return Err(format!("a joint named \"{name}\" already exists"));
+        }
+    }
+
+    skel.joints[index].name = name.to_string();
+    skel.joints[index].hash = ritoshark::hash::elf_lower(name);
+    *skeleton_dirty = true;
     Ok(())
 }
 
@@ -739,6 +791,90 @@ mod tests {
         assert!(apply_ops(&mesh, None, &[ModelEdit::ReorderSubmesh { from: 7, to: 0 }], &no_paste).is_err());
     }
 
+    #[test]
+    fn rename_joint_updates_name_and_hash() {
+        // Root(0) <- Spine(1): Spine is a non-root, renameable joint.
+        let skel = skeleton_with_parents(&[("Root", 0, -1), ("Spine", 1, 0)], &[]);
+        let derived = apply_ops(
+            &fixture(),
+            Some(&skel),
+            &[ModelEdit::RenameJoint { index: 1, name: "Spine2".into() }],
+            &no_paste,
+        )
+        .expect("rename succeeds");
+
+        let out = derived.skeleton.expect("skeleton present");
+        assert_eq!(out.joints[1].name, "Spine2");
+        assert_eq!(out.joints[1].hash, ritoshark::hash::elf_lower("Spine2"));
+        // Untouched.
+        assert_eq!(out.joints[0].name, "Root");
+        assert!(derived.skeleton_dirty, "the .skl must be written");
+    }
+
+    #[test]
+    fn rename_joint_on_a_root_is_rejected() {
+        let skel = skeleton_with_parents(&[("Root", 0, -1), ("Spine", 1, 0)], &[]);
+        let err = apply_ops(
+            &fixture(),
+            Some(&skel),
+            &[ModelEdit::RenameJoint { index: 0, name: "NewRoot".into() }],
+            &no_paste,
+        )
+        .expect_err("root joints cannot be renamed");
+        assert!(err.to_lowercase().contains("root"), "error names the reason: {err}");
+    }
+
+    #[test]
+    fn rename_joint_out_of_range_is_an_error() {
+        let skel = skeleton_with_parents(&[("Root", 0, -1)], &[]);
+        let err = apply_ops(
+            &fixture(),
+            Some(&skel),
+            &[ModelEdit::RenameJoint { index: 9, name: "Nope".into() }],
+            &no_paste,
+        )
+        .expect_err("index 9 does not exist");
+        assert!(err.contains("index 9"), "error names the bad index: {err}");
+    }
+
+    #[test]
+    fn rename_joint_to_a_duplicate_name_is_an_error() {
+        let skel = skeleton_with_parents(&[("Root", 0, -1), ("Spine", 1, 0), ("Arm", 2, 1)], &[]);
+        let err = apply_ops(
+            &fixture(),
+            Some(&skel),
+            &[ModelEdit::RenameJoint { index: 2, name: "Spine".into() }],
+            &no_paste,
+        )
+        .expect_err("duplicate joint names are rejected");
+        assert!(err.contains("Spine"), "error names the collision: {err}");
+    }
+
+    #[test]
+    fn rename_joint_to_an_empty_name_is_an_error() {
+        let skel = skeleton_with_parents(&[("Root", 0, -1), ("Spine", 1, 0)], &[]);
+        let err = apply_ops(
+            &fixture(),
+            Some(&skel),
+            &[ModelEdit::RenameJoint { index: 1, name: "  ".into() }],
+            &no_paste,
+        )
+        .expect_err("blank names are rejected");
+        assert!(err.to_lowercase().contains("empty"), "error explains why: {err}");
+    }
+
+    #[test]
+    fn rename_joint_without_a_skeleton_is_an_error() {
+        let err = apply_ops(
+            &fixture(),
+            None,
+            &[ModelEdit::RenameJoint { index: 0, name: "X".into() }],
+            &no_paste,
+        )
+        .expect_err("no skeleton to rename joints on");
+        assert!(err.to_lowercase().contains("skeleton"), "error explains why: {err}");
+    }
+
     use std::path::Path;
 
     /// Resolver for tests that never paste.
@@ -760,6 +896,25 @@ mod tests {
             inverse_bind_translation: Vec3::ZERO,
             inverse_bind_scale: Vec3::ONE,
             inverse_bind_rotation: ritoshark::math::Quat::IDENTITY,
+        }
+    }
+
+    /// Like `skeleton_with`, but `entries` carries `(name, id, parent_id)` so
+    /// tests can build a non-root joint (`joint()` always sets `parent_id: -1`).
+    fn skeleton_with_parents(entries: &[(&str, i16, i16)], influences: &[u16]) -> Skeleton {
+        Skeleton {
+            flags: 0,
+            name: "test".into(),
+            asset: "test".into(),
+            joints: entries
+                .iter()
+                .map(|(name, id, parent_id)| {
+                    let mut j = joint(name, *id);
+                    j.parent_id = *parent_id;
+                    j
+                })
+                .collect(),
+            influences: influences.to_vec(),
         }
     }
 
