@@ -9,7 +9,6 @@ export type Selection =
     | { kind: 'joint'; id: number }
     | null;
 
-/** A submesh copied for pasting. In-window only — no OS clipboard in Phase 1. */
 export interface SubmeshClipboard {
     sourceSkn: string;
     sourceIndex: number;
@@ -26,16 +25,8 @@ interface ModelEditorState {
     clipboard: SubmeshClipboard | null;
     saving: boolean;
 
-    // Clips/forms/baseline from `readAnimationList` (non-fatal — a .skn with no
-    // resolvable animation BIN just leaves this null). `activeForm` is an index
-    // into `animationList.forms`, -1 for the base look.
     animationList: AnimationList | null;
     activeForm: number;
-    // Currently-hidden submesh names (exact case), view state — never a staged
-    // edit op. Starts at the `initialSubmeshToHide` baseline; a manual toggle
-    // (`toggleHiddenName`) flips `hiddenOverridden` so a later baseline/form
-    // re-derive doesn't stomp the user's choice. `initialSubmeshShadowHide` is
-    // intentionally NOT applied here either, matching ModelPreview.
     hiddenNames: Set<string>;
     hiddenOverridden: boolean;
 
@@ -44,24 +35,14 @@ interface ModelEditorState {
     select(selection: Selection): void;
     setClipboard(clipboard: SubmeshClipboard | null): void;
     setSaving(saving: boolean): void;
-    /** New mesh loaded: resets to the base form and recomputes the baseline
-     *  hidden set from `summary.submeshes` (whatever's current at call time). */
     setAnimationList(list: AnimationList | null): void;
-    /** Gear-form switch: clears any manual override so the new form's baseline
-     *  is what shows. The actual hidden-set recompute (which must also account
-     *  for a live animation timeline) happens in the viewport's effect on this
-     *  field — this setter only records the request. */
+    // Only records the active form — the hidden-set recompute for it happens in EditorViewport's effect on this field.
     setActiveForm(index: number): void;
     setHiddenNames(next: Set<string>): void;
     toggleHiddenName(name: string): void;
-    /** Keeps a hidden submesh hidden across a live rename (no geometry
-     *  reload happens for `renameSubmesh`, so nothing else would notice the
-     *  hidden-set's key is stale). No-op if `oldName` wasn't hidden. */
+    // Keeps a hidden submesh hidden across a rename — renameSubmesh never reloads geometry, so nothing else would refresh this key.
     renameHiddenName(oldName: string, newName: string): void;
-    /** Patches a joint's name in the live skeleton after a `renameJoint` op
-     *  is staged — `stageModelEdit` only returns the (submesh-only)
-     *  `ModelSummary`, so the outliner's bone tree would otherwise go stale
-     *  since a joint rename never triggers `reloadGeometry`. */
+    // Patches the live skeleton after renameJoint is staged — stageModelEdit's ModelSummary is submesh-only, so the outliner's bone tree would otherwise go stale.
     renameJointName(index: number, name: string): void;
     reset(): void;
 }
@@ -91,8 +72,6 @@ export const useModelEditorStore = create<ModelEditorState>((set, get) => ({
             selection: null,
         }),
 
-    // The backend summary is authoritative — it comes from the same fold that
-    // produced the geometry, so the UI can never drift from what would be saved.
     applySummary: (summary) => set({ summary }),
 
     select: (selection) => set({ selection }),

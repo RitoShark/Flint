@@ -1,20 +1,12 @@
-//! In-memory edit ops for a `.skn` (and its sibling `.skl`).
-//!
-//! The session model mirrors `commands/wad/wad_edit.rs`: the parsed source is kept
-//! pristine and never mutated, edits are staged as an op log, and every derived
-//! state is a fresh fold of the whole log over the pristine parse. Undo/redo is a
-//! cursor into the log, not an inverse-op stack — so there is no inverse to get
-//! wrong and no drift after a long editing session.
-
 use ritoshark::anim::Skeleton;
 use ritoshark::math::{Aabb, Sphere, Vec3};
 use ritoshark::mesh::{SkinnedMesh, SkinnedMeshRange, SkinnedMeshVertex};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// SKN indices are `u16`, so the merged vertex buffer can never exceed this.
+// SKN indices are u16 (65,535 cap).
 pub const MAX_VERTICES: usize = u16::MAX as usize + 1;
-/// `SkinnedMeshVertex::blend_indices` are `u8`, so the influence table caps here.
+// blend_indices are u8 (256 influence cap).
 pub const MAX_INFLUENCES: usize = 256;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,18 +30,13 @@ pub enum ModelEdit {
     RenameJoint { index: usize, name: String },
 }
 
-/// The result of folding an op log over the pristine parse.
 #[derive(Debug)]
 pub struct Derived {
     pub mesh: SkinnedMesh,
     pub skeleton: Option<Skeleton>,
-    /// True when an op appended to `skeleton.influences`, meaning the `.skl`
-    /// must be written alongside the `.skn`.
     pub skeleton_dirty: bool,
 }
 
-/// Fold `ops` over a clone of `pristine`. Every derived state is a fresh fold —
-/// callers never mutate the pristine parse.
 pub fn apply_ops(
     pristine: &SkinnedMesh,
     skeleton: Option<&Skeleton>,
@@ -98,9 +85,7 @@ fn check_index(mesh: &SkinnedMesh, index: usize) -> Result<(), String> {
     Ok(())
 }
 
-/// Reject a name that is blank or already taken by a *different* range.
-/// Submesh names are the key the skin BIN references geometry by, so a
-/// collision silently makes one of the two unreachable.
+// Submesh names are the key the skin BIN references geometry by, so a collision silently makes one of the two unreachable.
 fn check_name(mesh: &SkinnedMesh, name: &str, allow_index: Option<usize>) -> Result<(), String> {
     if name.trim().is_empty() {
         return Err("submesh name cannot be empty".to_string());
@@ -123,9 +108,7 @@ fn rename_submesh(mesh: &mut SkinnedMesh, index: usize, name: &str) -> Result<()
     Ok(())
 }
 
-/// Recompute the AABB and bounding sphere over the current vertex buffer.
-/// Any op that adds or removes vertices must call this — a stale box breaks
-/// camera framing and the game's culling alike.
+// Any op that adds/removes vertices must call this, or camera framing and the game's culling break.
 fn recompute_bounds(mesh: &mut SkinnedMesh) {
     if mesh.vertices.is_empty() {
         mesh.bounding_box = Aabb::new(Vec3::ZERO, Vec3::ZERO);
@@ -164,9 +147,7 @@ fn delete_submesh(mesh: &mut SkinnedMesh, index: usize) -> Result<(), String> {
     mesh.indices.drain(i_start..i_start + i_count);
     mesh.ranges.remove(index);
 
-    // Index VALUES are global vertex indices; every survivor above the removed
-    // span slides down. Survivors never point into the removed span, because a
-    // range's triangles only reference its own vertices.
+    // Index values are global vertex indices, not range-local — survivors above the removed span must shift down.
     let shift = range.vertex_count as u16;
     for idx in &mut mesh.indices {
         if *idx >= range.vertex_start as u16 {
@@ -239,14 +220,7 @@ fn reorder_submesh(mesh: &mut SkinnedMesh, from: usize, to: usize) -> Result<(),
     Ok(())
 }
 
-/// Rename a skeleton joint, keeping `name` and its `elf_lower` hash in sync.
-///
-/// Root joints (`parent_id == -1`) are refused: a root's name/hash is part of
-/// the rig's identity, and animation/BIN references outside this project's
-/// reach (base-game clips, shared rigs) assume it never changes. Non-root
-/// joints still propagate to every `.anm` track and BIN bone-reference field
-/// this project owns — see `mesh::joint_rename` — but that happens at save
-/// time, not here; this only edits the in-memory skeleton.
+// Root joints are refused — external clips/rigs assume their name never changes. Propagation to .anm/BIN happens at save time (mesh::joint_rename), not here.
 fn rename_joint(
     skeleton: &mut Option<Skeleton>,
     skeleton_dirty: &mut bool,
@@ -286,15 +260,11 @@ fn rename_joint(
     Ok(())
 }
 
-/// A `.skn` + its sibling `.skl`, loaded as the source of a cross-file paste.
 pub struct PasteSource {
     pub mesh: SkinnedMesh,
     pub skeleton: Option<Skeleton>,
 }
 
-/// Load a paste source from disk. The `.skl` is the sibling with the same stem —
-/// the same rule `ModelPreview` uses. A missing `.skl` is not fatal here; the
-/// paste itself will reject the op if a remap turns out to be needed.
 pub fn load_paste_source(path: &Path) -> Result<PasteSource, String> {
     use ritoshark::prelude::Parse;
     let bytes = std::fs::read(path).map_err(|e| format!("reading {}: {e}", path.display()))?;
@@ -307,9 +277,6 @@ pub fn load_paste_source(path: &Path) -> Result<PasteSource, String> {
     Ok(PasteSource { mesh, skeleton })
 }
 
-/// Map one source influence index to a destination influence index, appending to
-/// the destination table when the joint is present in the rig but not yet bound.
-/// Returns the destination index.
 fn remap_influence(
     src_skel: &Skeleton,
     dest_skel: &mut Skeleton,
@@ -384,12 +351,7 @@ fn paste_submesh(
     let mut copied: Vec<SkinnedMeshVertex> =
         source.mesh.vertices[v_start..v_start + v_count].to_vec();
 
-    // A zero-weight slot's index is meaningless — it may still carry a raw,
-    // stale value from the source skeleton's influence-table space (common
-    // exporter output for "unskinned decorative" geometry). Zero it
-    // unconditionally, whether or not a remap is about to run below, so a
-    // pasted vertex never carries an index that only made sense in the source
-    // file's own influence table.
+    // Zero-weight blend_indices slots must be zeroed unconditionally (even without a remap) — they can carry a stale raw index from the source skeleton's influence table.
     for v in &mut copied {
         for slot in 0..4 {
             if v.blend_weights[slot] <= 0.0 {
@@ -398,8 +360,6 @@ fn paste_submesh(
         }
     }
 
-    // Remap skinning only when the geometry is actually skinned. An unskinned
-    // paste (all weights zero) needs no rig on either side.
     let needs_remap = copied
         .iter()
         .any(|v| v.blend_weights.iter().any(|w| *w > 0.0));
@@ -448,8 +408,7 @@ fn paste_submesh(
     Ok(())
 }
 
-/// The staged op log plus an undo cursor. `ops[..cursor]` is the active prefix;
-/// everything from `cursor` on is the redo tail.
+// `ops[..cursor]` is the active prefix; everything from `cursor` on is the redo tail.
 #[derive(Debug, Default, Clone)]
 pub struct OpLog {
     ops: Vec<ModelEdit>,
@@ -457,15 +416,12 @@ pub struct OpLog {
 }
 
 impl OpLog {
-    /// Stage an op. Any redo tail is discarded — those ops were authored against
-    /// a state that no longer exists.
     pub fn push(&mut self, op: ModelEdit) {
         self.ops.truncate(self.cursor);
         self.ops.push(op);
         self.cursor = self.ops.len();
     }
 
-    /// Move the cursor back one op. Returns false when already at the start.
     pub fn undo(&mut self) -> bool {
         if self.cursor == 0 {
             return false;
@@ -474,7 +430,6 @@ impl OpLog {
         true
     }
 
-    /// Move the cursor forward one op. Returns false when already at the end.
     pub fn redo(&mut self) -> bool {
         if self.cursor >= self.ops.len() {
             return false;
@@ -483,7 +438,6 @@ impl OpLog {
         true
     }
 
-    /// The ops to fold for the current state.
     pub fn active(&self) -> &[ModelEdit] {
         &self.ops[..self.cursor]
     }
@@ -496,12 +450,10 @@ impl OpLog {
         self.cursor < self.ops.len()
     }
 
-    /// True when the current state differs from what is on disk.
     pub fn is_dirty(&self) -> bool {
         self.cursor > 0
     }
 
-    /// Drop every op — used after a successful save, when disk and state agree.
     pub fn clear(&mut self) {
         self.ops.clear();
         self.cursor = 0;
@@ -530,8 +482,7 @@ pub struct ModelSummary {
     pub can_redo: bool,
 }
 
-/// The small JSON the frontend needs after every op. Deliberately carries no
-/// geometry — buffers travel only through `derive_model_mesh`'s binary payload.
+// Deliberately carries no geometry — buffers travel only through derive_model_mesh's binary payload.
 pub fn summarize(derived: &Derived, log: &OpLog) -> ModelSummary {
     ModelSummary {
         submeshes: derived
@@ -565,9 +516,6 @@ mod tests {
     use ritoshark::mesh::SkinnedMeshVertexType;
     use ritoshark::prelude::{Parse, Serialize as RsSerialize};
 
-    /// A 2-range mesh: range "Body" owns vertices 0..3 / indices 0..3, range
-    /// "Cape" owns vertices 3..6 / indices 3..6. Indices are GLOBAL vertex
-    /// indices, matching what the game and `meshBuilder.ts` expect.
     pub(super) fn fixture() -> SkinnedMesh {
         let vert = |x: f32, bone: u8| SkinnedMeshVertex {
             position: Vec3::new(x, 0.0, 0.0),
@@ -604,7 +552,6 @@ mod tests {
         let written = derived.mesh.to_bytes().expect("derived serializes");
 
         assert_eq!(original, written, "a zero-op fold must be byte-identical");
-        // And it must still parse.
         SkinnedMesh::from_bytes(&written).expect("derived output re-parses");
     }
 
@@ -687,13 +634,10 @@ mod tests {
 
         assert_eq!(out.ranges.len(), 1);
         assert_eq!(out.ranges[0].name, "Cape");
-        // "Cape" moves to the front of both buffers.
         assert_eq!(out.ranges[0].vertex_start, 0);
         assert_eq!(out.ranges[0].index_start, 0);
         assert_eq!(out.vertices.len(), 3);
-        // Global index values shift down by the 3 removed vertices.
         assert_eq!(out.indices, vec![0, 1, 2]);
-        // And the result is a valid file.
         let bytes = {
             use ritoshark::prelude::Serialize as RsSerialize;
             out.to_bytes().expect("serializes")
@@ -706,7 +650,6 @@ mod tests {
         let mesh = fixture();
         let derived = apply_ops(&mesh, None, &[ModelEdit::DeleteSubmesh { index: 0 }], &no_paste)
             .expect("delete succeeds");
-        // Surviving vertices are x = 3, 4, 5.
         assert_eq!(derived.mesh.bounding_box.min.x, 3.0);
         assert_eq!(derived.mesh.bounding_box.max.x, 5.0);
     }
@@ -742,9 +685,7 @@ mod tests {
         assert_eq!(copy.index_start, 6);
         assert_eq!(copy.index_count, 3);
         assert_eq!(out.vertices.len(), 9);
-        // The copy's indices point at the copy's own vertices, not the original's.
         assert_eq!(&out.indices[6..9], &[6, 7, 8]);
-        // Original ranges are untouched.
         assert_eq!(out.ranges[0].vertex_start, 0);
         assert_eq!(out.ranges[1].vertex_start, 3);
     }
@@ -752,7 +693,6 @@ mod tests {
     #[test]
     fn duplicate_past_the_u16_index_limit_is_rejected() {
         let mut mesh = fixture();
-        // Grow "Body" so a duplicate would cross 65_536 vertices.
         let filler = mesh.vertices[0];
         mesh.vertices = vec![filler; 40_000];
         mesh.indices = (0..40_000u32).map(|i| i as u16).collect();
@@ -777,7 +717,6 @@ mod tests {
 
         assert_eq!(out.ranges[0].name, "Cape");
         assert_eq!(out.ranges[1].name, "Body");
-        // Offsets travel with their range; buffers are identical.
         assert_eq!(out.ranges[0].vertex_start, 3);
         assert_eq!(out.ranges[1].vertex_start, 0);
         assert_eq!(out.vertices, mesh.vertices);
@@ -793,7 +732,6 @@ mod tests {
 
     #[test]
     fn rename_joint_updates_name_and_hash() {
-        // Root(0) <- Spine(1): Spine is a non-root, renameable joint.
         let skel = skeleton_with_parents(&[("Root", 0, -1), ("Spine", 1, 0)], &[]);
         let derived = apply_ops(
             &fixture(),
@@ -806,7 +744,6 @@ mod tests {
         let out = derived.skeleton.expect("skeleton present");
         assert_eq!(out.joints[1].name, "Spine2");
         assert_eq!(out.joints[1].hash, ritoshark::hash::elf_lower("Spine2"));
-        // Untouched.
         assert_eq!(out.joints[0].name, "Root");
         assert!(derived.skeleton_dirty, "the .skl must be written");
     }
@@ -877,7 +814,6 @@ mod tests {
 
     use std::path::Path;
 
-    /// Resolver for tests that never paste.
     pub(super) fn no_paste(_p: &Path) -> Result<PasteSource, String> {
         Err("no paste source in this test".to_string())
     }
@@ -899,8 +835,6 @@ mod tests {
         }
     }
 
-    /// Like `skeleton_with`, but `entries` carries `(name, id, parent_id)` so
-    /// tests can build a non-root joint (`joint()` always sets `parent_id: -1`).
     fn skeleton_with_parents(entries: &[(&str, i16, i16)], influences: &[u16]) -> Skeleton {
         Skeleton {
             flags: 0,
@@ -930,10 +864,7 @@ mod tests {
 
     #[test]
     fn paste_remaps_influence_indices_by_joint_name() {
-        // Destination influences: [Root(0), Spine(1)]  -> index 0 = Root, 1 = Spine
         let dest_skel = skeleton_with(&["Root", "Spine", "Arm"], &[0, 1]);
-        // Source influences: [Spine(0)] under a DIFFERENT joint order, so the raw
-        // blend index 0 means Spine here but Root in the destination.
         let src_skel = skeleton_with(&["Spine", "Root"], &[0]);
 
         let mut src_mesh = fixture();
@@ -963,8 +894,6 @@ mod tests {
         let pasted = derived.mesh.ranges.last().expect("range appended");
         assert_eq!(pasted.name, "Horns");
         assert_eq!(pasted.vertex_start, 6);
-        // Source blend index 0 = source influences[0] = joint 0 = "Spine".
-        // Destination "Spine" is joint id 1, which sits at destination influences[1].
         let first = derived.mesh.vertices[6];
         assert_eq!(first.blend_indices[0], 1, "remapped through joint NAME, not raw index");
         assert!(!derived.skeleton_dirty, "no new influence was needed");
@@ -972,7 +901,6 @@ mod tests {
 
     #[test]
     fn paste_appends_a_missing_influence_and_marks_the_skeleton_dirty() {
-        // "Arm" exists as a joint in the destination but is not in its influence table.
         let dest_skel = skeleton_with(&["Root", "Spine", "Arm"], &[0, 1]);
         let src_skel = skeleton_with(&["Arm"], &[0]);
 
@@ -1004,7 +932,6 @@ mod tests {
         assert_eq!(skel.influences, vec![0, 1, 2], "Arm (joint id 2) appended");
         assert_eq!(derived.mesh.vertices[6].blend_indices[0], 2, "points at the new slot");
         assert!(derived.skeleton_dirty, "the .skl must be written");
-        // Joint hierarchy is untouched — Phase 1 only ever appends influences.
         assert_eq!(skel.joints.len(), 3);
         assert_eq!(skel.joints[2].name, "Arm");
     }
@@ -1068,10 +995,6 @@ mod tests {
 
     #[test]
     fn paste_past_the_256_influence_limit_is_rejected() {
-        // 257 joints exist in the rig: J0..J255 are already bound (influences
-        // 0..256, i.e. exactly at MAX_INFLUENCES), J256 exists as a joint but
-        // is not yet in the influence table, so binding it requires an append
-        // that the guard must refuse.
         let names: Vec<String> = (0..257).map(|i| format!("J{i}")).collect();
         let name_refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
         let influences: Vec<u16> = (0..256).collect();
@@ -1107,8 +1030,6 @@ mod tests {
 
     #[test]
     fn paste_past_the_u16_vertex_limit_is_rejected() {
-        // Mirrors `duplicate_past_the_u16_index_limit_is_rejected`: grow the
-        // destination so pasting three more vertices crosses 65_536.
         let filler = fixture().vertices[0];
         let mesh = SkinnedMesh {
             vertices: vec![filler; 65_534],
@@ -1121,8 +1042,6 @@ mod tests {
         src_mesh.ranges = vec![SkinnedMeshRange::new("Extra", 0, 3, 0, 3)];
         src_mesh.vertices.truncate(3);
         src_mesh.indices = vec![0, 1, 2];
-        // Unskinned paste — no skeleton needed on either side, isolating this
-        // test to the vertex-count guard alone.
         for v in &mut src_mesh.vertices {
             v.blend_weights = [0.0, 0.0, 0.0, 0.0];
         }
@@ -1236,7 +1155,6 @@ mod tests {
         let json = serde_json::to_value(&summary).expect("serializes");
         let obj = json.as_object().expect("is an object");
 
-        // Assert all 7 top-level camelCase keys are present.
         assert!(obj.contains_key("submeshes"), "top-level key 'submeshes' must be camelCase");
         assert!(obj.contains_key("vertexCount"), "top-level key 'vertexCount' must be camelCase");
         assert!(obj.contains_key("indexCount"), "top-level key 'indexCount' must be camelCase");
@@ -1245,14 +1163,12 @@ mod tests {
         assert!(obj.contains_key("canUndo"), "top-level key 'canUndo' must be camelCase");
         assert!(obj.contains_key("canRedo"), "top-level key 'canRedo' must be camelCase");
 
-        // Assert that snake_case variants are NOT present (regression guard).
         assert!(!obj.contains_key("vertex_count"), "snake_case 'vertex_count' must not exist");
         assert!(!obj.contains_key("index_count"), "snake_case 'index_count' must not exist");
         assert!(!obj.contains_key("influence_count"), "snake_case 'influence_count' must not exist");
         assert!(!obj.contains_key("can_undo"), "snake_case 'can_undo' must not exist");
         assert!(!obj.contains_key("can_redo"), "snake_case 'can_redo' must not exist");
 
-        // Assert SubmeshInfo camelCase keys in the submeshes array.
         let submeshes = obj
             .get("submeshes")
             .and_then(|v| v.as_array())
@@ -1266,7 +1182,6 @@ mod tests {
         assert!(submesh_obj.contains_key("vertexStart"), "submesh key 'vertexStart' must be camelCase");
         assert!(submesh_obj.contains_key("indexStart"), "submesh key 'indexStart' must be camelCase");
 
-        // Assert that snake_case variants are NOT present in submesh.
         assert!(!submesh_obj.contains_key("vertex_count"), "snake_case 'vertex_count' must not exist in submesh");
         assert!(!submesh_obj.contains_key("index_count"), "snake_case 'index_count' must not exist in submesh");
         assert!(!submesh_obj.contains_key("vertex_start"), "snake_case 'vertex_start' must not exist in submesh");

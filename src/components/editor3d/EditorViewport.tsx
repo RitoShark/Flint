@@ -12,25 +12,16 @@ import { useModelEditorStore } from '../../lib/stores/modelEditorStore';
 
 export interface EditorViewportProps {
     sknPath: string;
-    /** Bumped by `reloadGeometry` after a structural op; a derived reload must
-     *  not re-frame the camera (a duplicate must not yank the view). */
     reloadToken: number;
     onPick: (name: string | null) => void;
     handleRef: React.MutableRefObject<SknSceneHandle | null>;
 }
 
-/** Textures/material data resolve only through `readSknMesh`'s BIN lookup —
- *  `deriveModelMesh` returns geometry only, so every derived reload splices
- *  these back onto the fresh payload or the model goes untextured. */
 interface StashedMaterials {
     textures?: SknMeshData['textures'];
     material_data?: SknMeshData['material_data'];
 }
 
-/** Push the given hidden set onto every currently-built mesh. Called both
- *  right after a `loadMesh` (initial + derived reload — the scene resets its
- *  own hidden-set bookkeeping on every rebuild) and reactively whenever the
- *  store's hidden set changes (manual toggle, form switch, clip playback). */
 function applyHiddenToScene(handle: SknSceneHandle, hidden: Set<string>): void {
     handle.getActiveMeshes().forEach((m) => handle.setSubmeshVisible(m.name, !hidden.has(m.name)));
 }
@@ -38,29 +29,13 @@ function applyHiddenToScene(handle: SknSceneHandle, hidden: Set<string>): void {
 export const EditorViewport: React.FC<EditorViewportProps> = ({ sknPath, reloadToken, onPick, handleRef }) => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const materialsRef = useRef<StashedMaterials | null>(null);
-    // Submesh (material-range) names of whatever mesh is currently loaded —
-    // needed to hash-match gear-form deltas and build a clip's visibility
-    // timeline. Kept as a ref (not store state) since it's only ever read from
-    // inside imperative effects/closures here.
     const meshNamesRef = useRef<string[]>([]);
-    // Session's skeleton loads on a separate, independently-timed effect in
-    // ModelEditorWindow; read through a ref (updated every render, same
-    // pattern as BinEditor/WadPreviewPanel's `saveRef`) so the async mesh
-    // fetch below picks up whatever value is current when it settles instead
-    // of needing `skeleton` as an effect dependency, which would re-run the
-    // load a second time the moment the skeleton effect resolves after it.
     const skeleton = useModelEditorStore((s) => s.skeleton);
     const skeletonRef = useRef(skeleton);
     skeletonRef.current = skeleton;
-    // First load after mount/retarget skips the reloadToken effect — 0 is the
-    // sentinel "nothing staged yet" value reloadGeometry never produces.
+    // 0 is the sentinel "nothing staged yet" value reloadGeometry never produces.
     const isInitialReloadToken = useRef(true);
 
-    // ── Animation playback (ported from ModelPreview.tsx) ───────────────────
-    // Clip selection/playback is local to the viewport — nothing else in the
-    // editor needs it — but the RESULTING submesh visibility is shared state
-    // (the outliner's eye icons must reflect it), so that part lives in the
-    // store via `hiddenNames`/`applyHiddenToScene` below.
     const animationList = useModelEditorStore((s) => s.animationList);
     const activeForm = useModelEditorStore((s) => s.activeForm);
     const hiddenNames = useModelEditorStore((s) => s.hiddenNames);
@@ -77,15 +52,10 @@ export const EditorViewport: React.FC<EditorViewportProps> = ({ sknPath, reloadT
     const animationPlayerRef = useRef<AnimationPlayer | null>(null);
     const lastTimeRef = useRef(0);
     const lastReactTimeRef = useRef(0);
-    // This clip's timeline (baseline + events) and the params used to build it,
-    // so a form switch can rebuild it in place with the new baseline without
-    // re-fetching the .anm.
     const submeshTimelineRef = useRef<SubmeshVisibilityTimeline | null>(null);
     const timelineInitRef = useRef<{ submeshNames: string[]; events: SubmeshVisEvent[]; fps: number } | null>(null);
     const lastVisSigRef = useRef('');
 
-    // Recompute + push the timeline's hidden set at `tSeconds`, but only when
-    // it actually changed (the render loop calls this every frame).
     const applyTimelineTick = useCallback((tSeconds: number) => {
         const timeline = submeshTimelineRef.current;
         if (!timeline) return;
@@ -98,8 +68,6 @@ export const EditorViewport: React.FC<EditorViewportProps> = ({ sknPath, reloadT
     const applyTimelineTickRef = useRef(applyTimelineTick);
     applyTimelineTickRef.current = applyTimelineTick;
 
-    // No clip selected: static baseline+form hidden set (no manual-override
-    // concept here — see the form-switch effect below for why).
     const applyStaticBaseline = useCallback(() => {
         const names = meshNamesRef.current;
         if (names.length === 0) return;
@@ -115,8 +83,6 @@ export const EditorViewport: React.FC<EditorViewportProps> = ({ sknPath, reloadT
         const handle = createSknScene(canvas);
         handleRef.current = handle;
 
-        // Drives the AnimationPlayer + submesh-visibility timeline off the
-        // scene's own render clock — same approach as ModelPreview.tsx.
         const observer = handle.scene.onBeforeRenderObservable.add(() => {
             const player = animationPlayerRef.current;
             if (!player) return;
@@ -144,10 +110,6 @@ export const EditorViewport: React.FC<EditorViewportProps> = ({ sknPath, reloadT
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // First load: goes through `readSknMesh` so textures/material data
-    // resolve via the BIN lookup. Frames the camera. `readAnimationList` rides
-    // alongside it (Promise.allSettled) and is non-fatal — a .skn with no
-    // resolvable animation BIN still opens, just with no baseline/forms/clips.
     useEffect(() => {
         let cancelled = false;
         void (async () => {
@@ -172,8 +134,6 @@ export const EditorViewport: React.FC<EditorViewportProps> = ({ sknPath, reloadT
                 console.debug('[EditorViewport] readAnimationList failed (non-fatal)', sknPath, animResult.reason);
             }
 
-            // New model → back to no clip/base form; the store recomputes the
-            // baseline hidden set for us (see `setAnimationList`).
             setSelectedClip(null);
             setIsPlaying(false);
             setAnimationData(null);
@@ -195,8 +155,6 @@ export const EditorViewport: React.FC<EditorViewportProps> = ({ sknPath, reloadT
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sknPath]);
 
-    // Derived reload after a structural op (duplicate/delete/paste): geometry
-    // only, stashed textures spliced back on, camera left alone.
     useEffect(() => {
         if (isInitialReloadToken.current) {
             isInitialReloadToken.current = false;
@@ -217,9 +175,7 @@ export const EditorViewport: React.FC<EditorViewportProps> = ({ sknPath, reloadT
                 }
                 if (mesh.kind === 'skn') meshNamesRef.current = mesh.materials.map((m) => m.name);
 
-                // `loadMesh` unconditionally reframes from the new mesh's
-                // bounding box — save/restore the camera around the call so a
-                // duplicate/delete does not yank the view.
+                // loadMesh always reframes from the new bbox, so the camera view is saved/restored around this call or a duplicate/delete yanks it.
                 const camera = handle.scene.activeCamera as ArcRotateCamera | null;
                 const priorView = camera
                     ? { alpha: camera.alpha, beta: camera.beta, radius: camera.radius, target: camera.target.clone() }
@@ -234,8 +190,7 @@ export const EditorViewport: React.FC<EditorViewportProps> = ({ sknPath, reloadT
                     camera.target = priorView.target;
                 }
 
-                // The scene resets its own hidden-set bookkeeping on every
-                // rebuild — reapply whatever's currently in the store.
+                // The scene resets its own hidden-set bookkeeping on every rebuild — reapply whatever's currently in the store.
                 applyHiddenToScene(handle, useModelEditorStore.getState().hiddenNames);
             } catch (err) {
                 console.debug('[EditorViewport] deriveModelMesh reload failed', err);
@@ -247,8 +202,6 @@ export const EditorViewport: React.FC<EditorViewportProps> = ({ sknPath, reloadT
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [reloadToken]);
 
-    // Reactive: manual toggles, form switches and clip playback all funnel
-    // through `hiddenNames` — push whatever it is onto the live scene.
     useEffect(() => {
         const handle = handleRef.current;
         if (!handle) return;
@@ -256,9 +209,6 @@ export const EditorViewport: React.FC<EditorViewportProps> = ({ sknPath, reloadT
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hiddenNames]);
 
-    // Gear-form switch: recompute visibility from the new baseline. If a clip
-    // is up, rebuild its timeline in place (events keep layering on top of the
-    // new form); otherwise the static baseline applies directly.
     useEffect(() => {
         const names = meshNamesRef.current;
         if (names.length === 0) return;
@@ -275,15 +225,10 @@ export const EditorViewport: React.FC<EditorViewportProps> = ({ sknPath, reloadT
         } else {
             useModelEditorStore.getState().setHiddenNames(namesHiddenBy(baseline, names));
         }
-        // Only react to the form itself — the mesh-load effect handles the
-        // initial baseline for a freshly-opened model.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeForm]);
 
-    // Clip switch: load the .anm and (re)build the visibility timeline. Does
-    // NOT touch the mesh or camera — switching clips must never re-run
-    // `loadMesh`, which is why this is a separate effect keyed only on the
-    // clip + file, not on anything the mesh-load effect also depends on.
+    // Clip switching must never re-run loadMesh (it would reset the mesh/camera), so this effect is kept separate and keyed only on clip + file.
     useEffect(() => {
         if (!selectedClip) {
             setAnimationData(null);
@@ -293,8 +238,6 @@ export const EditorViewport: React.FC<EditorViewportProps> = ({ sknPath, reloadT
             timelineInitRef.current = null;
             lastVisSigRef.current = '';
 
-            // Restore the rest pose — the skeleton's bones were left wherever
-            // the last playing clip posed them otherwise.
             const skeleton2 = handleRef.current?.scene.skeletons[0];
             const meta = skeleton2?.metadata as SknSkeletonMetadata | undefined;
             if (skeleton2 && meta) resetSkeletonToRestPose(skeleton2.bones, meta.joints);
@@ -314,8 +257,6 @@ export const EditorViewport: React.FC<EditorViewportProps> = ({ sknPath, reloadT
                 setAnimationData(animData);
                 setCurrentTime(0);
 
-                // fps comes from the baked .anm; needed to convert event
-                // frames → seconds.
                 timelineInitRef.current = {
                     submeshNames: names,
                     events: clip?.events ?? [],
@@ -330,24 +271,16 @@ export const EditorViewport: React.FC<EditorViewportProps> = ({ sknPath, reloadT
                 });
                 lastVisSigRef.current = '';
 
-                // Bone data for the AnimationPlayer comes off the Babylon
-                // Skeleton's `metadata` slot, stamped there by sknScene.ts's
-                // loadMesh.
                 const skeleton2 = handleRef.current?.scene.skeletons[0];
                 const meta = skeleton2?.metadata as SknSkeletonMetadata | undefined;
                 if (skeleton2 && meta) {
-                    // `readAnimation`'s declared `AnimationData` return type doesn't carry
-                    // `tracks`/`frame_count` (ModelPreview.tsx casts the same way) — the
-                    // runtime payload has them; only the TS surface is incomplete.
+                    // readAnimation's declared AnimationData type doesn't carry tracks/frame_count (ModelPreview.tsx casts the same way) — the runtime payload has them, only the TS surface is incomplete.
                     const player = new AnimationPlayer(animData as unknown as BakedAnimationDTO, meta.boneIndexByHash, skeleton2.bones, meta.joints);
                     player.paused = !isPlayingRef.current;
                     animationPlayerRef.current = player;
                     lastTimeRef.current = performance.now();
                 }
 
-                // Apply the clip's visibility at its starting time immediately,
-                // so a paused/just-selected clip shows the correct submeshes
-                // without waiting for the first tick.
                 applyTimelineTickRef.current(animationPlayerRef.current?.time ?? 0);
             } catch (err) {
                 console.debug('[EditorViewport] readAnimation failed', selectedClip, err);

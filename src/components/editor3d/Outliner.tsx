@@ -19,8 +19,6 @@ export interface OutlinerProps {
     onIsolate: (name: string | null) => void;
 }
 
-/** Keep a joint whose name matches the filter, OR which has a matching
- *  descendant, so the path down to a match stays visible. */
 function filterBoneTree(nodes: BoneNode[], query: string): BoneNode[] {
     if (!query) return nodes;
     const filterNode = (node: BoneNode): BoneNode | null => {
@@ -74,9 +72,6 @@ const BoneRow: React.FC<BoneRowProps> = ({
     const hasChildren = node.children.length > 0;
     const expanded = forceExpanded || !collapsedIds.has(node.bone.id);
     const selected = selection?.kind === 'joint' && selection.id === node.bone.id;
-    // A root joint (there can be more than one) has no parent to re-anchor
-    // renamed references onto in the backend's eyes — it's rejected there too,
-    // this just keeps the UI from offering a doomed op.
     const isRoot = node.bone.parent_id === -1;
     const isRenaming = renamingId === node.bone.id;
 
@@ -178,10 +173,6 @@ export const Outliner: React.FC<OutlinerProps> = ({ onEdit, onIsolate }) => {
     const showToast = useNotificationStore((s) => s.showToast);
     const sessionId = useModelEditorStore((s) => s.sessionId);
 
-    // Baseline + gear-form visibility (GearSkinUpgrade, e.g. Kayn's Assassin/
-    // Slayer) and the resulting hidden set — view state, never staged as ops.
-    // The viewport (EditorViewport) reacts to `hiddenNames`/`activeForm` the
-    // same way it reacts to selection, so either side can drive it.
     const animationList = useModelEditorStore((s) => s.animationList);
     const activeForm = useModelEditorStore((s) => s.activeForm);
     const setActiveForm = useModelEditorStore((s) => s.setActiveForm);
@@ -195,10 +186,6 @@ export const Outliner: React.FC<OutlinerProps> = ({ onEdit, onIsolate }) => {
         () => usableForms(animationList?.initial_hide, animationList?.forms, names),
         [animationList, names],
     );
-    // Every gear form, unfiltered — unlike `forms` above (only the ones that
-    // currently change baseline visibility, for the top form-switch buttons),
-    // "Assign to Form" must offer every form so a currently-inert form can be
-    // given its first show/hide rule.
     const allForms = animationList?.forms ?? [];
 
     const [isolatedName, setIsolatedName] = useState<string | null>(null);
@@ -220,10 +207,6 @@ export const Outliner: React.FC<OutlinerProps> = ({ onEdit, onIsolate }) => {
     const [boneRenameError, setBoneRenameError] = useState<string | null>(null);
     const boneRenameInputRef = useRef<HTMLInputElement>(null);
 
-    // Impact-preview dialog for a pending joint rename — populated by
-    // `previewJointRename` before the rename is staged, so the user sees the
-    // blast radius (every `.anm` + BIN reference hashing this joint's name)
-    // before committing. `impact === null` while the preview is in flight.
     const [jointImpact, setJointImpact] = useState<{
         index: number;
         oldName: string;
@@ -268,7 +251,7 @@ export const Outliner: React.FC<OutlinerProps> = ({ onEdit, onIsolate }) => {
         const original = names[index];
         setRenameIndex(null);
         setRenameError(null);
-        if (trimmed === original) return; // no-op — nothing to stage
+        if (trimmed === original) return;
         void onEdit({ kind: 'renameSubmesh', index, name: trimmed });
     }, [renameIndex, renameValue, names, onEdit]);
 
@@ -333,7 +316,7 @@ export const Outliner: React.FC<OutlinerProps> = ({ onEdit, onIsolate }) => {
         const original = boneNames[index];
         setBoneRenameId(null);
         setBoneRenameError(null);
-        if (trimmed === original) return; // no-op — nothing to preview/stage
+        if (trimmed === original) return;
         void requestJointRenameImpact(index, original, trimmed);
     }, [boneRenameId, boneRenameValue, boneNames, skeleton, requestJointRenameImpact]);
 
@@ -381,8 +364,6 @@ export const Outliner: React.FC<OutlinerProps> = ({ onEdit, onIsolate }) => {
         (e: React.PointerEvent, index: number) => {
             beginPointerDrag(e, {
                 label: names[index] ?? 'submesh',
-                // Only fires once real pointer movement crosses the drag threshold, so a
-                // plain click never flashes the "dragging" look on the row.
                 onMove: (x, y) => {
                     setDragIndex(index);
                     const el = document.elementFromPoint(x, y) as HTMLElement | null;
@@ -471,7 +452,6 @@ export const Outliner: React.FC<OutlinerProps> = ({ onEdit, onIsolate }) => {
                     onClick: () => toggleIsolate(name),
                 },
             ];
-            // Absent entirely (not an empty submenu) when the skin has no gear forms.
             if (allForms.length > 0) {
                 const hash = fnv1a32Lower(name);
                 const formSubmenu: ContextMenuOption[] = [];

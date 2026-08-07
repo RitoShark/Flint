@@ -1,20 +1,3 @@
-/**
- * Headless Babylon scene controller for a `.skn` preview.
- *
- * Extracted from `ModelPreview.tsx`'s effects (~1905 lines, ~18 `useEffect`s) so
- * the preview pane and the (future) 3D editor viewport share exactly one
- * implementation of the engine/camera/lights/skybox/grid/materials/skeleton
- * plumbing. Several of the choices in here fixed real, previously-shipped bugs —
- * their explanatory comments are preserved verbatim from ModelPreview so the next
- * person doesn't have to rediscover them.
- *
- * This module MUST stay headless: no React, no imports from `src/components/`.
- * Callers that need Babylon objects the handle doesn't wrap directly (the
- * `ArcRotateCamera`, the built `Skeleton`, the skinned `Mesh` list for a
- * shader-preview pass) reach into `handle.scene` — see the doc-comment on
- * `SknSceneHandle.scene`.
- */
-
 import { Scene } from '@babylonjs/core/scene';
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
@@ -31,8 +14,7 @@ import { CreateLineSystem } from '@babylonjs/core/Meshes/Builders/linesBuilder';
 import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder';
 import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder';
 import { SkeletonViewer } from '@babylonjs/core/Debug/skeletonViewer';
-// Side-effect: registers `Scene.prototype.pick` (tree-shaken out of core by
-// default). Without this, `pickAt` throws "scene.pick is not a function".
+// Registers Scene.prototype.pick (tree-shaken out of core by default) — without this, pickAt throws "scene.pick is not a function".
 import '@babylonjs/core/Culling/ray';
 
 import { getBundledFloorPng, getBundledSkyboxFace } from '../api/texture';
@@ -48,94 +30,39 @@ import {
 } from './skeletonBuilder';
 import { computeFraming, applyFraming, type BoundingBox } from './cameraFraming';
 
-/** Adapter so cameraFraming never has to import Babylon. */
+// This module must stay headless — no React, no imports from src/components/.
 const makeVector3 = (x: number, y: number, z: number) => new Vector3(x, y, z);
-
-// ============================================================================
-// Public types
-// ============================================================================
 
 export type SkeletonOverlayMode = 'off' | 'lines' | 'octahedrons' | 'joints';
 export type FloorMode = 'grid' | 'textured' | 'none';
 
 export interface SknSceneOptions {
-    /** Draw the ground grid. Default true. */
     grid?: boolean;
-    /** Load the bundled skybox. Default true. */
     skybox?: boolean;
 }
 
-/**
- * Metadata the controller stamps onto the Babylon `Skeleton` it builds (via
- * `Skeleton.metadata`, a plain `any` slot Babylon reserves for exactly this).
- * `ModelPreview` still owns the `AnimationPlayer` (see the brief) and needs
- * `boneIndexByHash`/`joints` — which have no home on the Babylon `Skeleton`
- * object itself — to construct one; `bones` is available directly as
- * `skeleton.bones`. Reading this off `handle.scene.skeletons[0]` avoids adding
- * an animation-shaped method to a controller that otherwise knows nothing
- * about clips.
- */
 export interface SknSkeletonMetadata {
     boneIndexByHash: Map<number, number>;
     joints: BoneData[];
 }
 
 export interface SknSceneHandle {
-    /** Replace the loaded geometry. Framing runs once per call, from this
-     *  mesh's own bounding box. Accepts SCB/SCO (static) payloads too, in
-     *  addition to SKN — see the module-level note above `loadMesh`'s
-     *  implementation for why the type is wider than the brief's example. */
     loadMesh(mesh: SknMeshData | ScbMeshData, skeleton: SklData | null): Promise<void>;
     setSubmeshVisible(name: string, visible: boolean): void;
-    /** Show only this submesh; `null` shows everything not individually hidden. */
     setIsolated(name: string | null): void;
     setWireframe(on: boolean): void;
     setSkeletonOverlay(mode: SkeletonOverlayMode): void;
-    /** Emissive-tint the named submesh; `null` clears. Not a HighlightLayer —
-     *  that is a full-screen post-process and costs more than this needs. */
     setSelection(name: string | null): void;
     frameCamera(): void;
-    /** Canvas-space pick → submesh name, or null on a miss. */
     pickAt(x: number, y: number): string | null;
-    /** Rename in place, so a rename does not force a geometry reload. */
     renameSubmesh(oldName: string, newName: string): void;
-    /** Show/hide the bundled cubemap skybox. Not in the brief's method list —
-     *  added so ModelPreview's Environment popup keeps its existing toggle
-     *  without a second copy of the skybox-loading code living outside this
-     *  controller (see the file-level note in the report on this addition). */
     setSkyboxVisible(on: boolean): void;
-    /** Grid lines / textured ground plane / nothing. Same rationale as
-     *  `setSkyboxVisible` — ModelPreview's Environment popup already exposes
-     *  this three-way choice today. */
     setFloorMode(mode: FloorMode): void;
-    /** The currently-built per-submesh meshes, for a caller that needs to hand
-     *  them to something the controller doesn't own (ModelPreview's opt-in
-     *  shader-preview pass swaps materials on these directly). */
     getActiveMeshes(): Mesh[];
-    /** The underlying scene, for callers that still need Babylon directly
-     *  (the animation player, the active camera, the built skeleton). */
     readonly scene: Scene;
     dispose(): void;
 }
 
-// ============================================================================
-// Internal helpers (moved verbatim from ModelPreview.tsx)
-// ============================================================================
-
-/**
- * Dispose a Babylon SkeletonViewer safely and clear the ref.
- *
- * SkeletonViewer owns its own UtilityLayerRenderer + utility scene; disposing it
- * runs `utilityScene.dispose() → engine.wipeCaches() → unbindAllAttributes()`,
- * which touches `engine._currentBufferPointers`. If the WebGL context was lost
- * or the engine is already mid-teardown, that array is undefined and Babylon
- * throws `Cannot set properties of undefined (setting 'active')` — which, thrown
- * from a React effect commit, crashed the whole ModelPreview tree. Swallow the
- * Babylon-internal failure (the viewer is being thrown away anyway).
- *
- * Takes a plain `{ current }` box rather than `React.MutableRefObject` — this
- * module has no React dependency — so the caller can pass any mutable cell.
- */
 function safeDisposeSkeletonViewer(ref: { current: SkeletonViewer | null }): void {
     const viewer = ref.current;
     ref.current = null;
@@ -143,14 +70,11 @@ function safeDisposeSkeletonViewer(ref: { current: SkeletonViewer | null }): voi
     try {
         viewer.dispose();
     } catch (e) {
+        // SkeletonViewer.dispose() can throw if the WebGL context is lost or the engine is mid-teardown; swallow it so a React effect commit doesn't crash the tree.
         console.debug('[SknScene] SkeletonViewer.dispose() failed (context lost / engine torn down); ignoring', e);
     }
 }
 
-/**
- * Build the line SkeletonViewer (the original, reliable display). One shared
- * builder so both create sites stay identical.
- */
 function buildSkeletonViewer(skeleton: Skeleton, mesh: Mesh, scene: Scene): SkeletonViewer {
     const viewer = new SkeletonViewer(
         skeleton,
@@ -171,10 +95,6 @@ function disposeMeshAndMaterial(mesh: Mesh | null): void {
     mesh.material?.dispose();
     mesh.dispose();
 }
-
-// ============================================================================
-// Controller
-// ============================================================================
 
 export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions): SknSceneHandle {
     const wantGrid = opts?.grid !== false;
@@ -223,10 +143,7 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
     ambientLight.intensity = 1.2;
     ambientLight.specular = new Color3(0, 0, 0);
 
-    // Directional lights start off — ModelPreview's "customize lighting" effects
-    // (which reach into `scene.getLightByName` directly) turn them on. A fresh
-    // caller that never touches lighting gets the same flat ambient-only look
-    // ModelPreview opens with by default.
+    // Off by default — ModelPreview's lighting popup turns these on via scene.getLightByName('dirLight1'/2/3), so don't rename these lights.
     const dirLight1 = new DirectionalLight('dirLight1', new Vector3(-1, -1, -1), scene);
     dirLight1.intensity = 0.0;
     const dirLight2 = new DirectionalLight('dirLight2', new Vector3(1, 1, 1), scene);
@@ -234,7 +151,6 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
     const dirLight3 = new DirectionalLight('dirLight3', new Vector3(0, 1, 0), scene);
     dirLight3.intensity = 0.0;
 
-    // ── Per-submesh mesh bookkeeping ──────────────────────────────────────
     let meshes: Mesh[] = [];
     const meshByName = new Map<string, Mesh>();
     const explicitlyHidden = new Set<string>();
@@ -261,12 +177,6 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
     let skyboxLoadToken = 0;
     let skyboxVisible = false;
 
-    // ── Render loop ────────────────────────────────────────────────────────
-    // Kept minimal: this controller doesn't know about animation clips (that's
-    // ModelPreview's AnimationPlayer, driven off `scene.onBeforeRenderObservable`
-    // by the caller — see the `scene` doc-comment). The try/catch still covers
-    // caller-registered observers too, since Babylon runs them from inside
-    // `scene.render()`.
     let renderErrCount = 0;
     engine.runRenderLoop(() => {
         try {
@@ -279,16 +189,7 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
         }
     });
 
-    // ── Resize ─────────────────────────────────────────────────────────────
-    // A window resize AND a canvas ResizeObserver, matching MapPreview.tsx's
-    // established pattern for this exact widget class (a panel-splitter drag
-    // resizes the canvas without ever firing `window.resize`). The zero-size
-    // guard is mapEnvScene.ts's fix for the same engine-level bug: calling
-    // `engine.resize()` while the canvas is 0×0 (window minimized) corrupts the
-    // swapchain and the model renders as a stretched/garbled band on restore.
-    // Unlike mapEnvScene's map framing, `computeFraming` below never reads
-    // canvas size, so there is nothing to re-frame once size comes back — the
-    // guard alone is the whole fix here.
+    // A window resize AND a ResizeObserver (a panel-splitter drag resizes the canvas without firing window.resize). The zero-size guard prevents engine.resize() from corrupting the swapchain when the canvas is 0x0 (window minimized).
     function safeResize(): void {
         if (canvas.clientWidth === 0 || canvas.clientHeight === 0) return;
         engine.resize();
@@ -297,10 +198,6 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
     window.addEventListener('resize', onWindowResize);
     const sizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => safeResize()) : null;
     sizeObserver?.observe(canvas);
-
-    // ============================================================================
-    // Skybox
-    // ============================================================================
 
     function disposeSkybox(): void {
         if (skyboxMesh) {
@@ -320,14 +217,13 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
         skyboxVisible = on;
 
         if (!on) {
-            skyboxLoadToken++; // invalidate any in-flight load's stale continuation
+            skyboxLoadToken++;
             skyboxLoading = false;
             disposeSkybox();
             scene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0);
             return;
         }
 
-        // Dark clear as a fallback until the cubemap faces load.
         scene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0);
         if (skyboxMesh) {
             skyboxMesh.setEnabled(true);
@@ -339,16 +235,6 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
 
         (async () => {
             try {
-                // Load the 6 bundled WebP faces as blob URLs.
-                //
-                // ORDER IS LOAD-BEARING: Babylon's CubeTexture `files` arg is
-                // consumed BY INDEX (it stores `this._files = files` verbatim and
-                // never parses the names), and blob URLs carry no filename at
-                // all — so the array position alone decides which GPU face each
-                // image becomes. The order is positives-then-negatives,
-                // [px, py, pz, nx, ny, nz], matching Babylon's own default
-                // extensions list. Interleaving it as px,nx,py,… puts the sky
-                // (py) on a side wall and a side wall overhead.
                 const faces = ['px', 'py', 'pz', 'nx', 'ny', 'nz'];
                 const urls = await Promise.all(faces.map(async (f) => {
                     const bytes = await getBundledSkyboxFace(f);
@@ -357,18 +243,8 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
                 if (scene.isDisposed || myToken !== skyboxLoadToken) { urls.forEach(u => URL.revokeObjectURL(u)); return; }
                 skyboxUrls = urls;
 
-                // MANUAL skybox (NOT scene.createDefaultSkybox — that also sets
-                // scene.environmentTexture, which re-lights/washes out the PBR
-                // model).
-                //
-                // ZOOM-PROOF: the box FOLLOWS the camera every frame
-                // (infiniteDistance) so the camera is always inside it, and it
-                // writes NO depth (disableDepthWrite) so it can never occlude or
-                // z-fight the model no matter how far you zoom in/out. The box
-                // renders first in group 0; the model (default group) draws over
-                // it. `needDepthPrePass=false` + no fog keeps it a pure backdrop.
-                // Half-size (50) stays comfortably between the camera near (1)
-                // and far (10000) planes at every zoom, so it never clips.
+                // Babylon's CubeTexture `files` array is consumed by index (blob URLs carry no filename), so the order must be [px, py, pz, nx, ny, nz], matching Babylon's own default extensions list.
+                // Manual skybox, not scene.createDefaultSkybox — that also sets environmentTexture, which washes out the PBR model; infiniteDistance + disableDepthWrite keeps it a backdrop that can't occlude or z-fight at any zoom.
                 const box = CreateBox('skybox', { size: 100 }, scene);
                 const mat = new StandardMaterial('skybox-mat', scene);
                 mat.backFaceCulling = false;
@@ -388,20 +264,13 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
             } catch (e) {
                 console.warn('[SknScene] skybox load failed, using flat clear color:', e);
             } finally {
-                // Only clear the flag if this is still the current attempt — a
-                // cancelling `setSkyboxVisible(false)` already reset it, and a
-                // newer load may have started since.
                 if (myToken === skyboxLoadToken) skyboxLoading = false;
             }
         })();
     }
 
-    // ============================================================================
-    // Ground / grid
-    // ============================================================================
-
     function disposeFloor(): void {
-        floorLoadToken++; // cancel any in-flight textured-floor load
+        floorLoadToken++;
         if (gridMesh) {
             gridMesh.dispose();
             gridMesh = null;
@@ -431,7 +300,7 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
             }
             gridMesh = CreateLineSystem('grid', { lines: gridLines, colors: gridColors, useVertexAlpha: false }, scene);
             gridMesh.isPickable = false;
-            gridMesh.renderingGroupId = 1; // above the skybox (group 0)
+            gridMesh.renderingGroupId = 1;
         } else if (mode === 'textured') {
             const myToken = ++floorLoadToken;
 
@@ -464,7 +333,7 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
                     mat.specularColor = new Color3(0, 0, 0);
                     ground.material = mat;
 
-                    ground.renderingGroupId = 1; // above the skybox (group 0)
+                    ground.renderingGroupId = 1;
                     floorMesh = ground;
                     console.debug(`[floor] ground created (scene meshes=${scene.meshes.length})`);
 
@@ -487,10 +356,6 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
             })();
         }
     }
-
-    // ============================================================================
-    // Skeleton overlay
-    // ============================================================================
 
     function disposeSkeletonOverlay(): void {
         const box = { current: skeletonViewer };
@@ -527,16 +392,8 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
         }
     }
 
-    // ============================================================================
-    // Mesh / material build
-    // ============================================================================
-
     function disposeCurrentGeometry(): void {
-        // Mirrors ModelPreview's two-phase teardown: dispose the previous
-        // load's texture cache (which also catches any decoded texture that
-        // never got assigned to a mesh), THEN dispose the meshes/materials
-        // (which may double-dispose the same texture instance via
-        // `mat.albedoTexture` — harmless, Babylon tolerates repeat dispose).
+        // Texture cache is disposed before meshes/materials; this double-disposes any texture also referenced via mat.albedoTexture, which Babylon tolerates safely.
         currentTextureCache.forEach(tex => tex.dispose());
         currentTextureCache = new Map();
 
@@ -563,15 +420,7 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
         disposeSkeletonOverlay();
     }
 
-    // Deliberately NOT declared `async`: every step here is synchronous (texture
-    // decode kicks off Babylon's own internal async load but doesn't block this
-    // function), and a plain function that throws does so SYNCHRONOUSLY to its
-    // caller. An `async function` would instead turn a `throw` into a rejected
-    // promise delivered on a later microtask — which would let ModelPreview's
-    // sibling `[visibleMaterials]` effect run (in the same commit) before the
-    // meshes this call is building even exist. Returning `Promise.resolve()`
-    // keeps the declared `Promise<void>` contract for callers (like the future
-    // editor viewport) that legitimately want to `await` it.
+    // Deliberately not `async`: a plain function throws synchronously to its caller, while an async function would turn it into a rejected promise on a later microtask — letting a sibling effect run before these meshes exist.
     function loadMesh(meshData: SknMeshData | ScbMeshData, skeleton: SklData | null): Promise<void> {
         disposeCurrentGeometry();
 
@@ -636,9 +485,7 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
             throw err;
         }
         meshes = builtMeshes;
-        // Model renders in group 1 so it always draws AFTER (on top of) the
-        // skybox, which lives in group 0. Without this the skybox box (drawn in
-        // the same group) can paint over the whole model.
+        // Rendering group 1 so the model always draws after (on top of) the skybox in group 0 — otherwise the skybox box can paint over the whole model.
         for (const m of meshes) {
             m.renderingGroupId = 1;
             meshByName.set(m.name, m);
@@ -654,16 +501,9 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
                     const texture = new Texture(dataUrl, scene, false, true);
                     texture.wrapU = Texture.WRAP_ADDRESSMODE;
                     texture.wrapV = Texture.WRAP_ADDRESSMODE;
-                    // has_alpha from the decoder (any pixel with alpha < 255)
-                    // — drives the alpha-test/blend path at material build.
                     texture.hasAlpha = !!data.has_alpha;
 
-                    // Plain tiling only. The offset/flipbook transforms we
-                    // used to apply here interacted wrongly with the PNG
-                    // loader's V-flip on authored-UV materials; the base
-                    // look now matches the reference viewer (plain WRAP +
-                    // scale), and materials with real UV manipulation render
-                    // correctly through the game-shaders pass instead.
+                    // The offset/flipbook transforms this used to apply clashed with the PNG loader's V-flip on authored-UV materials; plain tiling matches the reference viewer, and real UV manipulation renders through the game-shaders pass instead.
                     if (data.uv_scale) {
                         texture.uScale = data.uv_scale[0];
                         texture.vScale = data.uv_scale[1];
@@ -730,12 +570,7 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
                 mat.albedoTexture = texture;
                 mat.albedoColor = new Color3(1, 1, 1);
                 if (texture.hasAlpha) {
-                    // League charskin look (ported from the reference
-                    // viewer): cutoff + per-fragment blend keeps feathered
-                    // transparency at hair/cape edges, and the depth
-                    // pre-pass writes the cutoff'd depth first so
-                    // overlapping parts don't sort each other into black
-                    // silhouettes.
+                    // Cutoff + per-fragment blend keeps feathered edges (hair/cape); the depth pre-pass writes cutoff'd depth first so overlapping parts don't sort into black silhouettes.
                     mat.useAlphaFromAlbedoTexture = true;
                     mat.transparencyMode = Material.MATERIAL_ALPHATESTANDBLEND;
                     mat.alphaCutOff = 0.2;
@@ -774,12 +609,6 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
             );
         });
 
-        // Framing math lives in cameraFraming.ts so it can also be re-run on demand
-        // (frameCamera()/the 'F' shortcut), and unit-tested without Babylon.
-        // One-time per load: this is the only place `applyFraming` runs for a
-        // given mesh identity, mirroring the original effect's `[scene, camera,
-        // meshData, skeletonData]` dependency array (it never re-ran on an
-        // `.anm` clip swap because clip state wasn't a dependency).
         currentBbox = meshData.bounding_box as BoundingBox;
         const framing = computeFraming(currentBbox);
         applyFraming(camera, framing, makeVector3);
@@ -788,16 +617,9 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
             `target=(${framing.center.map((n) => n.toFixed(2)).join(',')})`
         );
 
-        // No auto-reapply of a previous skeleton-overlay mode here: like the
-        // original effect, the caller is expected to call `setSkeletonOverlay`
-        // again after a fresh load if it wants the overlay to persist
-        // (`disposeCurrentGeometry()` above already tore down any prior one).
+        // loadMesh does not reapply a previous skeleton-overlay mode — the caller must call setSkeletonOverlay again after a fresh load.
         return Promise.resolve();
     }
-
-    // ============================================================================
-    // Visibility / isolate / wireframe / selection
-    // ============================================================================
 
     function applyMeshVisibility(mesh: Mesh, name: string): void {
         const visible = isolated !== null ? name === isolated : !explicitlyHidden.has(name);
@@ -861,10 +683,6 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
         return pickInfo.pickedMesh?.name ?? null;
     }
 
-    // ============================================================================
-    // Dispose
-    // ============================================================================
-
     function dispose(): void {
         window.removeEventListener('resize', onWindowResize);
         sizeObserver?.disconnect();
@@ -877,8 +695,7 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
 
         disposeCurrentGeometry();
         disposeFloor();
-        // engine.dispose() drops the skybox mesh + cube texture with the
-        // scene; only the blob URLs need manual revocation.
+        // engine.dispose() drops the skybox mesh + cube texture with the scene; only the blob URLs need manual revocation.
         skyboxMesh = null;
         skyboxUrls.forEach(u => URL.revokeObjectURL(u));
         skyboxUrls = [];
@@ -886,7 +703,6 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
         engine.dispose();
     }
 
-    // ── Initial environment, from opts ──────────────────────────────────────
     if (wantGrid) setFloorMode('grid');
     if (wantSkybox) setSkyboxVisible(true);
 

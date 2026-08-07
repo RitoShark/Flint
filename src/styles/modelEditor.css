@@ -122,8 +122,6 @@
     gap: 8px;
 }
 
-/* Joint-rename impact dialog — wider than the plain discard confirm so the
- * .anm/BIN reference list has room; the list itself scrolls independently. */
 .m3d__impact-dialog {
     width: 420px;
 }
@@ -360,8 +358,6 @@
     word-break: break-word;
 }
 
-/* Gear-form selector (GearSkinUpgrade, e.g. Kayn's Assassin/Slayer) — only
- * rendered when a form actually changes this mesh's baseline visibility. */
 .m3d__forms {
     display: flex;
     flex-wrap: wrap;
@@ -389,8 +385,6 @@
     color: var(--text-primary);
 }
 
-/* Viewport floating controls — mirrors ModelPreview's control-bar/popup
- * pattern, scoped to the editor's own class names. */
 .m3d__viewport-controls {
     position: absolute;
     top: 10px;

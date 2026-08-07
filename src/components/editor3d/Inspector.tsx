@@ -64,7 +64,6 @@ export const Inspector: React.FC = () => {
         );
     }
 
-    // selection.kind === 'joint'
     if (!skeleton) {
         return (
             <div className="m3d__inspector">

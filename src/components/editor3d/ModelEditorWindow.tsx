@@ -20,7 +20,6 @@ interface Target {
     skn: string;
 }
 
-/** Parse `?project=…&skn=…` out of `#model-editor?…`. */
 function targetFromHash(): Target | null {
     const hash = window.location.hash;
     const q = hash.indexOf('?');
@@ -39,13 +38,8 @@ export const ModelEditorWindow: React.FC = () => {
     const [target, setTarget] = useState<Target | null>(() => targetFromHash());
     const [session, setSession] = useState<ModelSessionInfo | null>(null);
     const [error, setError] = useState<string | null>(null);
-    // Surfaces a rejected staged op (bad index, name collision, format limit)
-    // without disturbing `session`/the store — the last good summary stays put.
     const [opError, setOpError] = useState<string | null>(null);
-    // Bumped by reloadGeometry; EditorViewport reloads geometry (only, no
-    // re-frame) via api.deriveModelMesh whenever this changes.
     const [reloadToken, setReloadToken] = useState(0);
-    // Save/Discard/Cancel modal for the two guarded exits below.
     const [discardGuardOpen, setDiscardGuardOpen] = useState(false);
 
     const summary = useModelEditorStore((s) => s.summary);
@@ -54,23 +48,12 @@ export const ModelEditorWindow: React.FC = () => {
     const saving = useModelEditorStore((s) => s.saving);
     const showToast = useNotificationStore((s) => s.showToast);
 
-    // Mirrors whichever session is currently open. A ref (not state) so the
-    // onCloseRequested handler below always reads the live id instead of one
-    // captured at listener-registration time — it's written at the same
-    // point as setSession/setSession(null), never via a follow-up effect.
     const sessionIdRef = useRef<string | null>(null);
 
-    // The live Babylon scene controller for the viewport canvas. Populated by
-    // EditorViewport on mount, cleared on unmount — never recreated on a
-    // retarget, since EditorViewport itself stays mounted and just reloads
-    // whatever `sknPath` it's given.
     const sknHandleRef = useRef<SknSceneHandle | null>(null);
 
     const discardResolveRef = useRef<((proceed: boolean) => void) | null>(null);
 
-    // Resolves `true` once it's safe to discard whatever's currently open —
-    // immediately when there's nothing unsaved, otherwise after the user
-    // picks Save/Discard/Cancel in the modal rendered below.
     const confirmDiscard = useCallback((): Promise<boolean> => {
         if (!useModelEditorStore.getState().summary?.dirty) return Promise.resolve(true);
         return new Promise<boolean>((resolve) => {
@@ -86,15 +69,11 @@ export const ModelEditorWindow: React.FC = () => {
         resolve?.(proceed);
     }, []);
 
-    // The backend retargets an already-open window rather than spawning a second
-    // WebView2, so the file can change under us.
     useEffect(() => {
         let unlisten: (() => void) | undefined;
         listen<[string, string]>('model-editor-load', (ev) => {
             void (async () => {
                 const [project, skn] = ev.payload;
-                // The backend has already focused this window either way;
-                // on Cancel we simply keep editing the current file.
                 if (!(await confirmDiscard())) return;
                 setTarget({ project, skn });
             })();
@@ -146,9 +125,7 @@ export const ModelEditorWindow: React.FC = () => {
     const applyEdit = useCallback(async (edit: ModelEdit) => {
         const id = useModelEditorStore.getState().sessionId;
         if (!id) return;
-        // Renaming doesn't reload geometry (see below), so it's the one edit
-        // where the live scene's mesh names and the hidden-set's keys would
-        // otherwise silently go stale — capture the old name to fix both up.
+        // renameSubmesh doesn't reload geometry, so the old name must be captured here to fix up the live scene's mesh name and hidden-set key, or they go stale silently.
         const oldName = edit.kind === 'renameSubmesh'
             ? useModelEditorStore.getState().summary?.submeshes[edit.index]?.name
             : undefined;
@@ -163,7 +140,6 @@ export const ModelEditorWindow: React.FC = () => {
                 useModelEditorStore.getState().renameJointName(edit.index, edit.name);
             }
             setOpError(null);
-            // Renames and reorder don't touch geometry.
             if (edit.kind !== 'renameSubmesh' && edit.kind !== 'reorderSubmesh' && edit.kind !== 'renameJoint') {
                 await reloadGeometry();
             }
@@ -176,9 +152,6 @@ export const ModelEditorWindow: React.FC = () => {
         sknHandleRef.current?.setIsolated(name);
     }, []);
 
-    // Selection sync: viewport pick → store (via EditorViewport's onPick
-    // below) and store → viewport tint (here), so either side driving a
-    // selection keeps both in step without one owning the other.
     useEffect(() => {
         sknHandleRef.current?.setSelection(selection?.kind === 'submesh' ? selection.name : null);
     }, [selection]);
@@ -200,7 +173,6 @@ export const ModelEditorWindow: React.FC = () => {
             showToast('success', `Saved ${savedName}${result.sklPath ? ' + .skl' : ''}${propagatedSuffix}`);
             return true;
         } catch (err) {
-            // Save failed — the session is unchanged (still dirty), so a retry is safe.
             setOpError(String(err));
             return false;
         } finally {
@@ -263,9 +235,6 @@ export const ModelEditorWindow: React.FC = () => {
         })();
     }, [performSave, resolveDiscardGuard]);
 
-    // Ctrl/Cmd+S save, Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z redo — refs read the
-    // latest handlers so a single mount-time listener stays correct, same
-    // `saveRef` pattern as BinEditor.tsx / WadPreviewPanel.tsx.
     const saveRef = useRef(handleSave);
     saveRef.current = handleSave;
     const undoRef = useRef(handleUndo);
@@ -292,15 +261,7 @@ export const ModelEditorWindow: React.FC = () => {
         return () => window.removeEventListener('keydown', onKey);
     }, []);
 
-    // Closing the WebviewWindow natively (OS close button / Alt+F4) destroys
-    // this JS context outright — a component-unmount cleanup never runs, so
-    // without this the backend ModelEditSession (parsed mesh + skeleton) is
-    // orphaned in the app-wide state map for the rest of the process
-    // lifetime. preventDefault() first and unconditionally: the async
-    // closeModelSession call cannot be relied on to finish before the window
-    // tears down. This is the single onCloseRequested handler for this
-    // window — the unsaved-changes guard extends it in place rather than
-    // registering a second listener.
+    // Native OS close destroys this JS context without running unmount cleanup, so the backend session must be closed here or it leaks for the process lifetime.
     useEffect(() => {
         const win = getCurrentWindow();
         let unlisten: (() => void) | undefined;
@@ -310,20 +271,15 @@ export const ModelEditorWindow: React.FC = () => {
             try {
                 proceed = await confirmDiscard();
             } catch {
-                // A broken guard must not be able to trap the user.
                 proceed = true;
             }
             if (!proceed) return;
-            // Everything from here on is best-effort: once preventDefault has
-            // fired, ANY throw before destroy() leaves the window permanently
-            // unclosable. `destroy()` itself needs `core:window:allow-destroy`
-            // in capabilities/default.json — without it the call rejects and
-            // that is exactly the trap this try/finally exists to survive.
+            // win.destroy() needs core:window:allow-destroy in capabilities, and any throw after preventDefault() leaves the window unclosable.
             try {
                 const id = sessionIdRef.current;
                 if (id) await api.closeModelSession(id);
             } catch {
-                // Session cleanup is not worth blocking the close over.
+                // ignore
             } finally {
                 void win.destroy().catch(() => win.close());
             }

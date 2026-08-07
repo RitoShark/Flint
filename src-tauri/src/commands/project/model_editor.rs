@@ -1,8 +1,3 @@
-//! Opens the separate 3D Editor window. Mirrors the thumbnail/map-preview
-//! pattern: reuse-by-label, unique WebView2 data dir + matching browser args on
-//! Windows (the 0x8007139F guard). See CLAUDE.md "Multi-window pattern".
-
-/// Percent-encode a path for a URL hash query (dependency-free).
 fn encode_query_component(s: &str) -> String {
     let mut out = String::with_capacity(s.len() * 3);
     for b in s.bytes() {
@@ -23,8 +18,6 @@ pub async fn open_model_editor_window(
     use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
     const LABEL: &str = "model-editor";
 
-    // One reusable window: each extra WebView2 costs a browser process and its
-    // own data directory. An already-open editor retargets instead.
     if let Some(win) = app.get_webview_window(LABEL) {
         let _ = win.set_focus();
         let _ = win.emit("model-editor-load", (project_path, skn_path));
@@ -37,7 +30,7 @@ pub async fn open_model_editor_window(
         encode_query_component(&skn_path),
     );
 
-    // MUST match `additionalBrowserArgs` in tauri.conf.json.
+    // A second WebView2 needs both additional_browser_args and a unique data_directory or it fails with 0x8007139F. MUST match additionalBrowserArgs in tauri.conf.json.
     const MAIN_BROWSER_ARGS: &str =
         "--disable-features=msSmartScreenProtection --disable-background-networking --disable-translate";
     let data_dir = app
