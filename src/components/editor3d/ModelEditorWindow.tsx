@@ -159,9 +159,12 @@ export const ModelEditorWindow: React.FC = () => {
                 sknHandleRef.current?.renameSubmesh(oldName, edit.name);
                 useModelEditorStore.getState().renameHiddenName(oldName, edit.name);
             }
+            if (edit.kind === 'renameJoint') {
+                useModelEditorStore.getState().renameJointName(edit.index, edit.name);
+            }
             setOpError(null);
-            // Rename and reorder don't touch geometry.
-            if (edit.kind !== 'renameSubmesh' && edit.kind !== 'reorderSubmesh') {
+            // Renames and reorder don't touch geometry.
+            if (edit.kind !== 'renameSubmesh' && edit.kind !== 'reorderSubmesh' && edit.kind !== 'renameJoint') {
                 await reloadGeometry();
             }
         } catch (err) {
@@ -190,7 +193,11 @@ export const ModelEditorWindow: React.FC = () => {
             useModelEditorStore.getState().applySummary(result.summary);
             setOpError(null);
             const savedName = basename(result.sknPath);
-            showToast('success', `Saved ${savedName}${result.sklPath ? ' + .skl' : ''}`);
+            const propagated: string[] = [];
+            if (result.anmFilesUpdated.length > 0) propagated.push(`${result.anmFilesUpdated.length} .anm`);
+            if (result.binFilesUpdated.length > 0) propagated.push(`${result.binFilesUpdated.length} .bin`);
+            const propagatedSuffix = propagated.length > 0 ? ` (${propagated.join(', ')} updated)` : '';
+            showToast('success', `Saved ${savedName}${result.sklPath ? ' + .skl' : ''}${propagatedSuffix}`);
             return true;
         } catch (err) {
             // Save failed — the session is unchanged (still dirty), so a retry is safe.
