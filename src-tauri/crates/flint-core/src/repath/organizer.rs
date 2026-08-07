@@ -80,7 +80,16 @@ pub fn organize_project(
 
     // Sub-champions only exist in regular champion WADs, not TFT or imports.
     let sub_bins = if config.wad_folder_override.is_none() && !config.consolidate_vfx {
-        find_sub_skin_bins(&file_base, &champion_sanitized, config.target_skin_id)
+        let declared = main_bin_path
+            .as_ref()
+            .map(|p| declared_sub_characters(p, &champion_sanitized))
+            .unwrap_or_default();
+        find_sub_skin_bins(
+            &file_base,
+            &champion_sanitized,
+            config.target_skin_id,
+            &declared,
+        )
     } else {
         Vec::new()
     };
@@ -217,15 +226,46 @@ pub fn organize_project(
     Ok(result)
 }
 
+/// The characters the skin BIN itself preloads (Zyra's plants, Annie's Tibbers, …),
+/// minus the champion. Empty when the BIN is unreadable or declares none.
+fn declared_sub_characters(main_bin_path: &Path, champion: &str) -> Vec<String> {
+    let champion_lower = champion.to_lowercase();
+    std::fs::read(main_bin_path)
+        .ok()
+        .and_then(|data| crate::bin::read_bin(&data).ok())
+        .map(|bin| crate::bin::extra_character_preloads(&bin))
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|c| *c != champion_lower)
+        .collect()
+}
+
 /// Sub-champions (Tibbers, Skaarl, …) ship as `characters/<sub>/` trees inside
 /// the champion WAD with a `skins/skin{N}.bin` matching the target skin id.
 /// Returns `(lowercased character name, skin BIN path)` per sub.
-fn find_sub_skin_bins(file_base: &Path, champion: &str, skin_id: u32) -> Vec<(String, PathBuf)> {
+///
+/// `declared` is the skin's own `extraCharacterPreloads` list and, when non-empty,
+/// is the authority on which characters count. Falling back to the bare glob would
+/// also match Riot's `jade_*` classic-mode roster, which belongs to no skin.
+fn find_sub_skin_bins(
+    file_base: &Path,
+    champion: &str,
+    skin_id: u32,
+    declared: &[String],
+) -> Vec<(String, PathBuf)> {
     let champion_lower = champion.to_lowercase();
     let targets = [
         format!("skins/skin{}.bin", skin_id),
         format!("skins/skin{:02}.bin", skin_id),
     ];
+
+    let accepts = |character: &str| {
+        if declared.is_empty() {
+            !character.starts_with(crate::bin::preloads::ALT_MODE_CHARACTER_PREFIX)
+        } else {
+            declared.iter().any(|d| d == character)
+        }
+    };
 
     let mut seen = std::collections::HashSet::new();
     let mut subs = Vec::new();
@@ -236,6 +276,7 @@ fn find_sub_skin_bins(file_base: &Path, champion: &str, skin_id: u32) -> Vec<(St
         let Some(rest) = rel_str.strip_prefix("data/characters/") else { continue };
         let Some((character, tail)) = rest.split_once('/') else { continue };
         if character != champion_lower
+            && accepts(character)
             && targets.iter().any(|t| tail == t)
             && seen.insert(character.to_string())
         {
@@ -352,32 +393,61 @@ mod tests {
         }
     }
 
-    #[test]
-    fn find_sub_skin_bins_detects_companions() {
+    fn companion_tree() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
-        let base = dir.path();
         for rel in [
             "data/characters/annie/skins/skin22.bin",
             "data/characters/annietibbers/skins/skin22.bin",
             "data/characters/annietibbers/skins/skin03.bin",
             "data/characters/petball/skins/skin03.bin",
             "data/characters/sona/skins/skin5.bin",
+            "data/characters/jade_annie/skins/skin22.bin",
+            "data/characters/jade_annie_tibbers/skins/skin22.bin",
         ] {
-            let p = base.join(rel);
+            let p = dir.path().join(rel);
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
             std::fs::write(p, b"").unwrap();
         }
+        dir
+    }
 
-        let subs = find_sub_skin_bins(base, "annie", 22);
+    #[test]
+    fn find_sub_skin_bins_detects_companions() {
+        let dir = companion_tree();
+        let base = dir.path();
+
+        let subs = find_sub_skin_bins(base, "annie", 22, &[]);
         assert_eq!(subs.len(), 1);
         assert_eq!(subs[0].0, "annietibbers");
 
-        let subs = find_sub_skin_bins(base, "annie", 3);
+        let subs = find_sub_skin_bins(base, "annie", 3, &[]);
         let mut names: Vec<&str> = subs.iter().map(|(s, _)| s.as_str()).collect();
         names.sort_unstable();
         assert_eq!(names, ["annietibbers", "petball"]);
 
-        assert!(find_sub_skin_bins(base, "annie", 7).is_empty());
+        assert!(find_sub_skin_bins(base, "annie", 7, &[]).is_empty());
+    }
+
+    #[test]
+    fn a_declared_list_is_the_authority() {
+        let dir = companion_tree();
+        let declared = vec!["annietibbers".to_string()];
+
+        let subs = find_sub_skin_bins(dir.path(), "annie", 22, &declared);
+        let names: Vec<&str> = subs.iter().map(|(s, _)| s.as_str()).collect();
+        assert_eq!(names, ["annietibbers"]);
+
+        // A companion the skin does not preload is not this skin's business.
+        let subs = find_sub_skin_bins(dir.path(), "annie", 3, &declared);
+        let names: Vec<&str> = subs.iter().map(|(s, _)| s.as_str()).collect();
+        assert_eq!(names, ["annietibbers"]);
+    }
+
+    #[test]
+    fn the_glob_never_yields_the_classic_mode_roster() {
+        let dir = companion_tree();
+        let subs = find_sub_skin_bins(dir.path(), "annie", 22, &[]);
+        assert!(!subs.iter().any(|(s, _)| s.starts_with("jade_")));
     }
 
     #[test]

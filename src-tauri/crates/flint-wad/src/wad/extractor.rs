@@ -492,6 +492,10 @@ fn collect_paths_from_value_into(value: &BinValue, out: &mut Vec<String>) {
 
 /// Glob the resolved WAD TOC for other characters shipping a
 /// `skins/skin{N}.bin` — those are sub-champions (Tibbers, Skaarl, …).
+///
+/// Only used when the skin BIN declares no `extraCharacterPreloads`. Riot's
+/// `jade_*` classic-mode roster ships a full skin tree inside the champion WAD
+/// and matches this glob without belonging to any skin, so it is excluded.
 fn find_sub_characters(resolved: &ResolvedHashes, champion_lower: &str, skin_id: u32) -> Vec<String> {
     let tails = [
         format!("skins/skin{}.bin", skin_id),
@@ -502,6 +506,7 @@ fn find_sub_characters(resolved: &ResolvedHashes, champion_lower: &str, skin_id:
         let Some(rest) = p.strip_prefix("data/characters/") else { continue };
         let Some((character, tail)) = rest.split_once('/') else { continue };
         if character != champion_lower
+            && !character.starts_with(flint_bin::preloads::ALT_MODE_CHARACTER_PREFIX)
             && tails.iter().any(|t| tail == t)
             && !subs.iter().any(|s| s == character)
         {
@@ -580,8 +585,27 @@ pub fn extract_skin_assets_selective(
     let sub_characters = if is_tft {
         Vec::new()
     } else {
-        let all_hashes: Vec<u64> = by_hash.keys().copied().collect();
-        find_sub_characters(&resolve_paths(&all_hashes), &champion_lower, skin_id)
+        let declared: Vec<String> = by_hash
+            .get(&xx(&seed))
+            .and_then(|chunk| wad.chunk_data(chunk).ok())
+            .and_then(|bytes| flint_bin::codec::read_bin(&bytes).ok())
+            .map(|bin| flint_bin::preloads::extra_character_preloads(&bin))
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|c| *c != champion_lower)
+            .collect();
+
+        if declared.is_empty() {
+            let all_hashes: Vec<u64> = by_hash.keys().copied().collect();
+            find_sub_characters(&resolve_paths(&all_hashes), &champion_lower, skin_id)
+        } else {
+            tracing::info!(
+                "[selective] skin declares {} sub-character(s): {}",
+                declared.len(),
+                declared.join(", ")
+            );
+            declared
+        }
     };
 
     for s in character_seeds(&champion_lower)
@@ -880,6 +904,21 @@ mod tests {
         assert_eq!(subs, vec!["annietibbers", "petball"]);
 
         assert!(find_sub_characters(&resolved, "annie", 7).is_empty());
+    }
+
+    #[test]
+    fn find_sub_characters_skips_the_classic_mode_roster() {
+        let mut resolved = ResolvedHashes::new();
+        for (h, p) in [
+            (1u64, "data/characters/annie/skins/skin22.bin"),
+            (2, "data/characters/annietibbers/skins/skin22.bin"),
+            (3, "data/characters/jade_annie/skins/skin22.bin"),
+            (4, "data/characters/jade_annie_tibbers/skins/skin22.bin"),
+        ] {
+            resolved.insert(h, p);
+        }
+
+        assert_eq!(find_sub_characters(&resolved, "annie", 22), vec!["annietibbers"]);
     }
 
     #[test]

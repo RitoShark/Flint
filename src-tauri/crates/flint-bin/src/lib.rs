@@ -8,6 +8,7 @@ pub mod codec;
 pub mod concat;
 pub mod converter;
 pub mod paint;
+pub mod preloads;
 pub mod split;
 
 pub use codec::{
@@ -31,4 +32,5 @@ pub use split::{
 };
 pub use animask::{read_masks, write_masks, MaskEntry};
 pub use audit::{audit_wad_folder, AuditReport, BloatFile};
+pub use preloads::extra_character_preloads;
 pub use paint::has_vfx_content;
