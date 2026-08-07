@@ -20,33 +20,6 @@
 .m3d__filename { font-weight: 600; }
 .m3d__dirty { color: var(--accent-primary); line-height: 1; }
 
-.m3d__tabs {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    margin-left: 16px;
-}
-.m3d__tab {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 26px;
-    padding: 0 12px;
-    background: none;
-    border: none;
-    border-radius: 4px;
-    color: var(--text-secondary);
-    font: inherit;
-    cursor: pointer;
-}
-.m3d__tab:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
-.m3d__tab--active {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    font-weight: 600;
-}
-.m3d__tab:disabled { color: var(--text-muted); cursor: not-allowed; }
-
 .m3d__topbar-actions {
     display: flex;
     align-items: center;

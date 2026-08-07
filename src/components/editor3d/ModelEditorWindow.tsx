@@ -340,17 +340,6 @@ export const ModelEditorWindow: React.FC = () => {
             <header className="m3d__topbar">
                 <span className="m3d__filename">{fileName}</span>
                 {summary?.dirty && <span className="m3d__dirty" aria-label="Unsaved changes">●</span>}
-                <div className="m3d__tabs" role="tablist">
-                    <button type="button" className="m3d__tab m3d__tab--active" role="tab" aria-selected="true">
-                        Mesh
-                    </button>
-                    <button type="button" className="m3d__tab" role="tab" aria-selected="false" disabled title="Coming in a later phase">
-                        Weights
-                    </button>
-                    <button type="button" className="m3d__tab" role="tab" aria-selected="false" disabled title="Coming in a later phase">
-                        Anim
-                    </button>
-                </div>
                 <div className="m3d__topbar-actions">
                     <button type="button" className="m3d__btn" onClick={handleUndo} disabled={!summary?.canUndo}>
                         Undo
