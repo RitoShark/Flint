@@ -230,7 +230,7 @@ export interface AnimationList {
     forms?: SkinForm[];
 }
 
-interface AnimationData {
+export interface AnimationData {
     duration: number;
     fps: number;
     joint_count: number;

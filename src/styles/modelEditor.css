@@ -48,6 +48,7 @@
     color: var(--bg-primary);
 }
 .m3d__btn--primary:hover:not(:disabled) { filter: brightness(1.08); }
+.m3d__btn--sm { height: 22px; padding: 0 10px; font-size: 12px; }
 .m3d__btn--danger {
     background: color-mix(in oklab, var(--error) 16%, var(--bg-tertiary));
     border-color: color-mix(in oklab, var(--error) 40%, var(--border));
@@ -361,4 +362,114 @@
     background: color-mix(in oklab, var(--accent-primary) 22%, var(--bg-tertiary));
     border-color: var(--accent-primary);
     color: var(--text-primary);
+}
+
+/* Viewport floating controls — mirrors ModelPreview's control-bar/popup
+ * pattern, scoped to the editor's own class names. */
+.m3d__viewport-controls {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: flex;
+    gap: 4px;
+    z-index: 10;
+}
+.m3d__viewport-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    background: color-mix(in oklab, var(--bg-secondary) 85%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+.m3d__viewport-btn svg { display: block; }
+.m3d__viewport-btn:hover { color: var(--text-primary); }
+.m3d__viewport-btn--active {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: var(--bg-primary);
+}
+
+.m3d__anim-popup {
+    position: absolute;
+    top: 10px;
+    right: 48px;
+    width: 260px;
+    max-height: min(70vh, 420px);
+    display: flex;
+    flex-direction: column;
+    background: color-mix(in oklab, var(--bg-secondary) 92%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+    z-index: 10;
+    overflow: hidden;
+}
+.m3d__anim-popup-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+}
+.m3d__anim-popup-count {
+    color: var(--text-muted);
+    font-weight: 400;
+    font-size: 12px;
+}
+.m3d__anim-list {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 4px;
+    gap: 2px;
+}
+.m3d__anim-row {
+    display: flex;
+    align-items: center;
+    text-align: left;
+    padding: 5px 8px;
+    background: none;
+    border: none;
+    border-radius: 4px;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.m3d__anim-row:hover { background: var(--bg-hover); color: var(--text-primary); }
+.m3d__anim-row--active {
+    background: color-mix(in oklab, var(--accent-primary) 22%, transparent);
+    color: var(--text-primary);
+}
+.m3d__anim-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 10px;
+    border-top: 1px solid var(--border);
+}
+.m3d__anim-buttons {
+    display: flex;
+    gap: 6px;
+}
+.m3d__anim-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.m3d__anim-timeline input[type='range'] {
+    width: 100%;
+}
+.m3d__anim-time {
+    color: var(--text-muted);
+    font-size: 11px;
 }
