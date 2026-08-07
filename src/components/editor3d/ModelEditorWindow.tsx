@@ -2,7 +2,11 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import * as api from '../../lib/api';
-import type { ModelSessionInfo } from '../../lib/api/modelEdit';
+import type { ModelEdit, ModelSessionInfo } from '../../lib/api/modelEdit';
+import { useModelEditorStore } from '../../lib/stores/modelEditorStore';
+import { Outliner } from './Outliner';
+import { ContextMenu } from '../overlays/ContextMenu';
+import { ConfirmDialog } from '../overlays/ConfirmDialog';
 import '../../styles/modelEditor.css';
 
 interface Target {
@@ -25,6 +29,11 @@ export const ModelEditorWindow: React.FC = () => {
     const [target, setTarget] = useState<Target | null>(() => targetFromHash());
     const [session, setSession] = useState<ModelSessionInfo | null>(null);
     const [error, setError] = useState<string | null>(null);
+    // Surfaces a rejected staged op (bad index, name collision, format limit)
+    // without disturbing `session`/the store — the last good summary stays put.
+    const [opError, setOpError] = useState<string | null>(null);
+
+    const summary = useModelEditorStore((s) => s.summary);
 
     // Mirrors whichever session is currently open. A ref (not state) so the
     // onCloseRequested handler below always reads the live id instead of one
@@ -50,6 +59,8 @@ export const ModelEditorWindow: React.FC = () => {
         setSession(null);
         sessionIdRef.current = null;
         setError(null);
+        setOpError(null);
+        useModelEditorStore.getState().reset();
 
         void (async () => {
             try {
@@ -59,8 +70,11 @@ export const ModelEditorWindow: React.FC = () => {
                     void api.closeModelSession(info.sessionId);
                     return;
                 }
+                const skeleton = info.skeletonPath ? await api.readSklSkeleton(info.skeletonPath) : null;
+                if (cancelled) return;
                 setSession(info);
                 sessionIdRef.current = info.sessionId;
+                useModelEditorStore.getState().setSession(info, skeleton);
             } catch (err) {
                 if (!cancelled) setError(String(err));
             }
@@ -74,6 +88,30 @@ export const ModelEditorWindow: React.FC = () => {
             }
         };
     }, [target]);
+
+    // Geometry-changing ops need a viewport reload; the viewport itself lands
+    // in Task 12. Typed now so that task only has to fill the body.
+    const reloadGeometry = useCallback(async () => {}, []);
+
+    const applyEdit = useCallback(async (edit: ModelEdit) => {
+        const id = useModelEditorStore.getState().sessionId;
+        if (!id) return;
+        try {
+            const nextSummary = await api.stageModelEdit(id, edit);
+            useModelEditorStore.getState().applySummary(nextSummary);
+            setOpError(null);
+            // Rename and reorder don't touch geometry.
+            if (edit.kind !== 'renameSubmesh' && edit.kind !== 'reorderSubmesh') {
+                await reloadGeometry();
+            }
+        } catch (err) {
+            setOpError(String(err));
+        }
+    }, [reloadGeometry]);
+
+    // Visibility/isolate are view state, wired to the viewport in Task 12.
+    const handleToggleVisible = useCallback((_name: string, _visible: boolean) => {}, []);
+    const handleIsolate = useCallback((_name: string | null) => {}, []);
 
     // Closing the WebviewWindow natively (OS close button / Alt+F4) destroys
     // this JS context outright — a component-unmount cleanup never runs, so
@@ -123,27 +161,37 @@ export const ModelEditorWindow: React.FC = () => {
         <div className="m3d">
             <header className="m3d__topbar">
                 <span className="m3d__filename">{fileName}</span>
-                {session?.summary.dirty && <span className="m3d__dirty" aria-label="Unsaved changes">●</span>}
+                {summary?.dirty && <span className="m3d__dirty" aria-label="Unsaved changes">●</span>}
             </header>
+            {opError && (
+                <div className="m3d__op-error" role="alert">
+                    <span>{opError}</span>
+                    <button type="button" className="m3d__op-error-dismiss" onClick={() => setOpError(null)} aria-label="Dismiss">
+                        <span>×</span>
+                    </button>
+                </div>
+            )}
             <div className="m3d__body">
                 <aside className="m3d__dock m3d__dock--left">
                     {!session && <div className="m3d__loading">Loading…</div>}
                     {session && (
-                        <ul className="m3d__list">
-                            {session.summary.submeshes.map((s) => (
-                                <li key={s.name} className="m3d__list-row">{s.name}</li>
-                            ))}
-                        </ul>
+                        <Outliner
+                            onEdit={applyEdit}
+                            onToggleVisible={handleToggleVisible}
+                            onIsolate={handleIsolate}
+                        />
                     )}
                 </aside>
                 <main className="m3d__viewport" />
                 <aside className="m3d__dock m3d__dock--right" />
             </div>
             <footer className="m3d__status">
-                {session
-                    ? `${session.summary.submeshes.length} submeshes · ${session.summary.vertexCount.toLocaleString()} verts`
+                {summary
+                    ? `${summary.submeshes.length} submeshes · ${summary.vertexCount.toLocaleString()} verts`
                     : ''}
             </footer>
+            <ContextMenu />
+            <ConfirmDialog />
         </div>
     );
 };
