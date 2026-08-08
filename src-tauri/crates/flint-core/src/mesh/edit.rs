@@ -28,6 +28,18 @@ pub enum ModelEdit {
     },
     #[serde(rename_all = "camelCase")]
     RenameJoint { index: usize, name: String },
+    #[serde(rename_all = "camelCase")]
+    PaintWeights { entries: Vec<WeightEntry> },
+}
+
+// Carries joint IDS, not influence-table slots: a slot number is only meaningful against one
+// version of the .skl, and painting can append influences mid-log.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeightEntry {
+    pub vertex: u32,
+    pub joints: Vec<u16>,
+    pub weights: Vec<f32>,
 }
 
 #[derive(Debug)]
@@ -68,6 +80,9 @@ pub fn apply_ops(
             }
             ModelEdit::RenameJoint { index, name } => {
                 rename_joint(&mut skel, &mut skeleton_dirty, *index, name)?
+            }
+            ModelEdit::PaintWeights { entries } => {
+                paint_weights(&mut mesh, &mut skel, &mut skeleton_dirty, entries)?
             }
         }
     }
@@ -257,6 +272,95 @@ fn rename_joint(
     skel.joints[index].name = name.to_string();
     skel.joints[index].hash = ritoshark::hash::elf_lower(name);
     *skeleton_dirty = true;
+    Ok(())
+}
+
+const MIN_WEIGHT: f32 = 1e-4;
+
+fn influence_slot_for_joint(skel: &mut Skeleton, joint_id: u16) -> Result<u8, String> {
+    if !skel.joints.iter().any(|j| j.id == joint_id as i16) {
+        return Err(format!("this skeleton has no joint with id {joint_id}"));
+    }
+    if let Some(pos) = skel.influences.iter().position(|&i| i == joint_id) {
+        return Ok(pos as u8);
+    }
+    if skel.influences.len() >= MAX_INFLUENCES {
+        return Err(format!(
+            "this skin already binds {MAX_INFLUENCES} bones; blend indices are u8 so no more can be painted in"
+        ));
+    }
+    skel.influences.push(joint_id);
+    Ok((skel.influences.len() - 1) as u8)
+}
+
+fn paint_weights(
+    mesh: &mut SkinnedMesh,
+    skeleton: &mut Option<Skeleton>,
+    skeleton_dirty: &mut bool,
+    entries: &[WeightEntry],
+) -> Result<(), String> {
+    if entries.is_empty() {
+        return Ok(());
+    }
+    let skel = skeleton.as_mut().ok_or_else(|| {
+        "this .skn has no sibling .skl, so vertex weights cannot be edited".to_string()
+    })?;
+    let influences_before = skel.influences.len();
+
+    for entry in entries {
+        let vi = entry.vertex as usize;
+        if vi >= mesh.vertices.len() {
+            return Err(format!(
+                "vertex index {vi} out of range (mesh has {} vertices)",
+                mesh.vertices.len()
+            ));
+        }
+        if entry.joints.len() != entry.weights.len() {
+            return Err(format!(
+                "vertex {vi}: {} joints but {} weights",
+                entry.joints.len(),
+                entry.weights.len()
+            ));
+        }
+
+        let mut pairs: Vec<(u16, f32)> = entry
+            .joints
+            .iter()
+            .copied()
+            .zip(entry.weights.iter().copied())
+            .filter(|(_, w)| w.is_finite() && *w > MIN_WEIGHT)
+            .collect();
+        for i in 1..pairs.len() {
+            if pairs[..i].iter().any(|(j, _)| *j == pairs[i].0) {
+                return Err(format!("vertex {vi} lists joint {} twice", pairs[i].0));
+            }
+        }
+        pairs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        pairs.truncate(4);
+        if pairs.is_empty() {
+            return Err(format!(
+                "vertex {vi} would be left unweighted — every vertex must keep at least one bone"
+            ));
+        }
+
+        let total: f32 = pairs.iter().map(|(_, w)| *w).sum();
+        let mut blend_indices = [0u8; 4];
+        let mut blend_weights = [0.0f32; 4];
+        for (slot, (joint_id, w)) in pairs.iter().enumerate() {
+            blend_indices[slot] = influence_slot_for_joint(skel, *joint_id)?;
+            blend_weights[slot] = w / total;
+        }
+        // pairs is sorted descending, so parking the rounding drift on slot 0 can never make it negative.
+        let sum: f32 = blend_weights.iter().sum();
+        blend_weights[0] += 1.0 - sum;
+
+        mesh.vertices[vi].blend_indices = blend_indices;
+        mesh.vertices[vi].blend_weights = blend_weights;
+    }
+
+    if skel.influences.len() != influences_before {
+        *skeleton_dirty = true;
+    }
     Ok(())
 }
 
@@ -477,6 +581,9 @@ pub struct ModelSummary {
     pub vertex_count: u32,
     pub index_count: u32,
     pub influence_count: u32,
+    // The DERIVED table, not the on-disk one — a paste or a paint can append to it mid-log, and
+    // blend indices in the derived mesh are slots into this exact vector.
+    pub influences: Vec<u16>,
     pub dirty: bool,
     pub can_undo: bool,
     pub can_redo: bool,
@@ -504,6 +611,11 @@ pub fn summarize(derived: &Derived, log: &OpLog) -> ModelSummary {
             .as_ref()
             .map(|s| s.influences.len() as u32)
             .unwrap_or(0),
+        influences: derived
+            .skeleton
+            .as_ref()
+            .map(|s| s.influences.clone())
+            .unwrap_or_default(),
         dirty: log.is_dirty(),
         can_undo: log.can_undo(),
         can_redo: log.can_redo(),
@@ -1063,6 +1175,139 @@ mod tests {
         assert!(err.contains("65535") || err.contains("65,535"), "error cites the limit: {err}");
     }
 
+    fn paint(vertex: u32, pairs: &[(u16, f32)]) -> ModelEdit {
+        ModelEdit::PaintWeights {
+            entries: vec![WeightEntry {
+                vertex,
+                joints: pairs.iter().map(|(j, _)| *j).collect(),
+                weights: pairs.iter().map(|(_, w)| *w).collect(),
+            }],
+        }
+    }
+
+    #[test]
+    fn paint_normalizes_and_writes_influence_slots() {
+        let skel = skeleton_with(&["Root", "Spine", "Arm"], &[0, 1, 2]);
+        let derived = apply_ops(&fixture(), Some(&skel), &[paint(0, &[(2, 3.0), (1, 1.0)])], &no_paste)
+            .expect("paint succeeds");
+
+        let v = derived.mesh.vertices[0];
+        assert_eq!(v.blend_indices, [2, 1, 0, 0], "sorted by weight, mapped to slots");
+        assert!((v.blend_weights[0] - 0.75).abs() < 1e-5, "got {:?}", v.blend_weights);
+        assert!((v.blend_weights[1] - 0.25).abs() < 1e-5, "got {:?}", v.blend_weights);
+        assert_eq!(v.blend_weights[2], 0.0);
+        assert_eq!(v.blend_weights[3], 0.0);
+        assert!((v.blend_weights.iter().sum::<f32>() - 1.0).abs() < 1e-6, "slots must sum to 1");
+        assert!(!derived.skeleton_dirty, "no influence was appended");
+    }
+
+    #[test]
+    fn paint_appends_an_unbound_joint_to_the_influence_table() {
+        let skel = skeleton_with(&["Root", "Spine", "Arm"], &[0, 1]);
+        let derived = apply_ops(&fixture(), Some(&skel), &[paint(3, &[(2, 1.0)])], &no_paste)
+            .expect("paint succeeds");
+
+        let out = derived.skeleton.expect("skeleton present");
+        assert_eq!(out.influences, vec![0, 1, 2], "Arm appended");
+        assert_eq!(derived.mesh.vertices[3].blend_indices[0], 2, "points at the new slot");
+        assert!(derived.skeleton_dirty, "the .skl must be written");
+    }
+
+    #[test]
+    fn paint_drops_negligible_weights_and_keeps_the_top_four() {
+        let names = ["Root", "A", "B", "C", "D", "E"];
+        let skel = skeleton_with(&names, &[0, 1, 2, 3, 4, 5]);
+        let derived = apply_ops(
+            &fixture(),
+            Some(&skel),
+            &[paint(0, &[(1, 0.5), (2, 0.4), (3, 0.3), (4, 0.2), (5, 0.1), (0, 1e-9)])],
+            &no_paste,
+        )
+        .expect("paint succeeds");
+
+        let v = derived.mesh.vertices[0];
+        assert_eq!(v.blend_indices, [1, 2, 3, 4], "the four heaviest survive, in weight order");
+        assert!((v.blend_weights.iter().sum::<f32>() - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn paint_that_would_unweight_a_vertex_is_rejected() {
+        let skel = skeleton_with(&["Root", "Spine"], &[0, 1]);
+        let err = apply_ops(&fixture(), Some(&skel), &[paint(0, &[(1, 0.0)])], &no_paste)
+            .expect_err("a vertex cannot end up with no bone");
+        assert!(err.to_lowercase().contains("unweighted"), "error explains why: {err}");
+    }
+
+    #[test]
+    fn paint_on_a_joint_the_skeleton_does_not_have_is_rejected() {
+        let skel = skeleton_with(&["Root", "Spine"], &[0, 1]);
+        let err = apply_ops(&fixture(), Some(&skel), &[paint(0, &[(77, 1.0)])], &no_paste)
+            .expect_err("joint 77 does not exist");
+        assert!(err.contains("77"), "error names the joint: {err}");
+    }
+
+    #[test]
+    fn paint_out_of_range_vertex_is_rejected() {
+        let skel = skeleton_with(&["Root", "Spine"], &[0, 1]);
+        let err = apply_ops(&fixture(), Some(&skel), &[paint(999, &[(1, 1.0)])], &no_paste)
+            .expect_err("vertex 999 does not exist");
+        assert!(err.contains("999"), "error names the bad index: {err}");
+    }
+
+    #[test]
+    fn paint_past_the_256_influence_limit_is_rejected() {
+        let names: Vec<String> = (0..257).map(|i| format!("J{i}")).collect();
+        let name_refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
+        let influences: Vec<u16> = (0..256).collect();
+        let skel = skeleton_with(&name_refs, &influences);
+
+        let err = apply_ops(&fixture(), Some(&skel), &[paint(0, &[(256, 1.0)])], &no_paste)
+            .expect_err("a 257th distinct influence exceeds the u8 blend-index limit");
+        assert!(err.contains("256"), "error cites the limit: {err}");
+    }
+
+    #[test]
+    fn paint_without_a_skeleton_is_an_error() {
+        let err = apply_ops(&fixture(), None, &[paint(0, &[(1, 1.0)])], &no_paste)
+            .expect_err("no skeleton to bind weights against");
+        assert!(err.to_lowercase().contains("skl"), "error explains why: {err}");
+    }
+
+    #[test]
+    fn painting_the_same_vertex_twice_keeps_only_the_later_stroke() {
+        let skel = skeleton_with(&["Root", "Spine", "Arm"], &[0, 1, 2]);
+        let derived = apply_ops(
+            &fixture(),
+            Some(&skel),
+            &[paint(0, &[(1, 1.0)]), paint(0, &[(2, 1.0)])],
+            &no_paste,
+        )
+        .expect("both strokes fold");
+        assert_eq!(derived.mesh.vertices[0].blend_indices[0], 2);
+        assert_eq!(derived.mesh.vertices[0].blend_weights[0], 1.0);
+    }
+
+    #[test]
+    fn a_painted_mesh_round_trips_through_the_file_format() {
+        let skel = skeleton_with(&["Root", "Spine", "Arm"], &[0, 1, 2]);
+        let derived = apply_ops(&fixture(), Some(&skel), &[paint(2, &[(1, 0.6), (2, 0.4)])], &no_paste)
+            .expect("paint succeeds");
+        let bytes = derived.mesh.to_bytes().expect("serializes");
+        let reparsed = SkinnedMesh::from_bytes(&bytes).expect("re-parses");
+        assert_eq!(reparsed.vertices[2].blend_indices, derived.mesh.vertices[2].blend_indices);
+    }
+
+    #[test]
+    fn summary_reports_the_derived_influence_table() {
+        let skel = skeleton_with(&["Root", "Spine", "Arm"], &[0, 1]);
+        let mut log = OpLog::default();
+        log.push(paint(0, &[(2, 1.0)]));
+        let derived = apply_ops(&fixture(), Some(&skel), log.active(), &no_paste).expect("folds");
+        let summary = summarize(&derived, &log);
+        assert_eq!(summary.influences, vec![0, 1, 2]);
+        assert_eq!(summary.influence_count, 3);
+    }
+
     #[test]
     fn staging_after_undo_truncates_the_redo_tail() {
         let mut log = OpLog::default();
@@ -1147,6 +1392,7 @@ mod tests {
             vertex_count: 10,
             index_count: 30,
             influence_count: 2,
+            influences: vec![0, 1],
             dirty: true,
             can_undo: true,
             can_redo: false,
