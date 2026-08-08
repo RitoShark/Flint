@@ -28,7 +28,7 @@
     "createUpdaterArtifacts": "v1Compatible"
   },
   "productName": "Flint",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "identifier": "com.sirdexal.flint",
   "plugins": {
     "updater": {
