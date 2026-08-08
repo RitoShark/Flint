@@ -94,16 +94,25 @@ fn param_default(name: &str) -> BinValue {
     }
 }
 
-/// One `StaticMaterialSwitchDef { name, on }` embed.
-fn switch(name: &str, on: bool) -> BinValue {
+fn switch_off(name: &str) -> BinValue {
     BinValue::Embed {
         class: fnv1a_32("StaticMaterialSwitchDef"),
         fields: vec![
             prop("name", BinValue::String(name.to_string())),
-            prop("on", BinValue::Bool(on)),
+            prop("on", BinValue::Bool(false)),
         ]
         .into_iter()
         .collect(),
+    }
+}
+
+// `on` defaults to TRUE: an enabled switch OMITS the field. Writing `on = true` is wrong.
+fn switch_on(name: &str) -> BinValue {
+    BinValue::Embed {
+        class: fnv1a_32("StaticMaterialSwitchDef"),
+        fields: vec![prop("name", BinValue::String(name.to_string()))]
+            .into_iter()
+            .collect(),
     }
 }
 
@@ -124,6 +133,21 @@ fn sampler(mask_asset_path: &str) -> BinValue {
 /// Build the full `paramValues` list, applying the tunable `BannerParams`.
 fn param_values(p: &BannerParams) -> Vec<BinValue> {
     vec![
+        param_default("UI_ShapeMaskColor_SliceUV_Offset"),
+        param("UI_ShapeMaskColor_Tile", [1.0, 1.0, 0.0, 0.0]),
+        param("UI_ShapeMaskColor_SliceUV", [1.0, 1.0, 0.0, 0.0]),
+        param("UI_ShapeMaskColor_SmoothMinMax", [1.0, 0.1, 0.0, 0.0]),
+        param("UI_ShapeMaskColor_Sides_Rotation", [16.0, 0.0, 0.0, 0.0]),
+        param("UI_ShapeMask_Tile", [1.0, 1.0, 0.0, 0.0]),
+        param("UI_ShapeMask_Sides_Rotation", [16.0, 0.0, 0.0, 0.0]),
+        param("UI_ShapeMask_Color", [1.0, 1.0, 1.0, 1.0]),
+        param_default("UI_ShapeMask_SliceUV_Offset"),
+        param("UI_ShapeMask_SliceUV", [1.0, 1.0, 0.0, 0.0]),
+        param("UI_ShapeMask_SmoothMinMax", [1.0, 0.1, 0.0, 0.0]),
+        param_default("UI_Secondary_G_RotationAngle"),
+        param_default("UI_Secondary_B_RotationAngle"),
+        param_default("UI_Primary_RotationAngle"),
+        param_default("UI_Secondary_R_RotationAngle"),
         param("UI_Primary_UVRotation_Offset", [0.5, 0.5, 0.0, 0.0]),
         param("UI_Primary_UVRorationSpeed", [1.0, 0.0, 0.0, 0.0]),
         param_default("Flipbook_Frame"),
@@ -166,27 +190,30 @@ fn param_values(p: &BannerParams) -> Vec<BinValue> {
     ]
 }
 
-/// Build the `switches` list (all off by default — matches the reference).
 fn switch_values() -> Vec<BinValue> {
     vec![
-        switch("SHINE_ADDITIVE_ON", false),
-        switch("DESATURATION_ON", false),
-        switch("GLOW_PULSE_ON", false),
-        switch("UI_SECONDARY_BLEND_ON", false),
-        switch("UI_SECONDARY_ON", false),
-        switch("UI_SECONDAY_G_DISTORTION_ON", false),
-        switch("UI_SECONDAY_R_DISTORTION_ON", false),
-        switch("UI_PRIMARY_FLIPBOOKANIM_ON", false),
-        switch("UI_SECONDARY_B_MASK_ON", false),
-        switch("UI_SECONDARY_B_MASK_ROTATION_ON", false),
-        switch("UI_SECONDARY_RGB_SCROLL_ON", false),
-        switch("UI_PRIMARY_ROTATION_ON", false),
-        switch("UI_SECONDARY_B_MASK_ON_UI_PRIMARY", false),
-        switch("UI_SECONDARY_B_MASK_SCROLL_ON", false),
-        switch("UI_SECONDARY_RGB_ROTATION_ON", false),
-        switch("UI_PRIMARY_FLIPBOOK_ON", false),
-        switch("SHINE_ON", false),
-        switch("DISTORTION_ON_PRIMARY", false),
+        switch_off("UI_SHAPESMASK_ALPHA_ON"),
+        switch_off("UI_SHAPESMASK_COLOR_ON"),
+        switch_on("UI_SECONDARY_RGB_ROTATION_ANIMATION"),
+        switch_on("UI_PRIMARY_ROTATION_ANIMATION"),
+        switch_off("SHINE_ADDITIVE_ON"),
+        switch_off("DESATURATION_ON"),
+        switch_on("GLOW_PULSE_ON"),
+        switch_off("UI_SECONDARY_BLEND_ON"),
+        switch_on("UI_SECONDARY_ON"),
+        switch_off("UI_SECONDAY_G_DISTORTION_ON"),
+        switch_off("UI_SECONDAY_R_DISTORTION_ON"),
+        switch_off("UI_PRIMARY_FLIPBOOKANIM_ON"),
+        switch_on("UI_SECONDARY_B_MASK_ON"),
+        switch_off("UI_SECONDARY_B_MASK_ROTATION_ON"),
+        switch_on("UI_SECONDARY_RGB_SCROLL_ON"),
+        switch_off("UI_PRIMARY_ROTATION_ON"),
+        switch_on("UI_SECONDARY_B_MASK_ON_UI_PRIMARY"),
+        switch_off("UI_SECONDARY_B_MASK_SCROLL_ON"),
+        switch_off("UI_SECONDARY_RGB_ROTATION_ON"),
+        switch_off("UI_PRIMARY_FLIPBOOK_ON"),
+        switch_on("SHINE_ON"),
+        switch_on("DISTORTION_ON_PRIMARY"),
     ]
 }
 
@@ -508,6 +535,83 @@ mod tests {
         assert_eq!(fnv1a_32("StaticMaterialDef"), fnv1a_32("staticmaterialdef"));
         assert_eq!(fnv1a_32("ABC"), fnv1a_32("abc"));
         assert_ne!(fnv1a_32("a"), fnv1a_32("b"));
+    }
+
+    fn switch_states(entry: &BinEntry) -> Vec<(String, Option<bool>)> {
+        let Some(BinValue::List { items, .. }) = entry.fields.get(&fnv1a_32("switches")) else {
+            panic!("no switches list");
+        };
+        items
+            .iter()
+            .map(|item| {
+                let BinValue::Embed { fields, .. } = item else {
+                    panic!("switch is not an embed");
+                };
+                let Some(BinValue::String(name)) = fields.get(&fnv1a_32("name")) else {
+                    panic!("switch has no name");
+                };
+                let on = match fields.get(&fnv1a_32("on")) {
+                    Some(BinValue::Bool(b)) => Some(*b),
+                    None => None,
+                    Some(_) => panic!("switch `on` is not a bool"),
+                };
+                (name.clone(), on)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn enabled_switches_omit_the_on_field() {
+        let entry = build_material_entry("X/Y/Materials/Z", "ASSETS/a-mask.tex", &BannerParams::default());
+        let states = switch_states(&entry);
+
+        for (name, on) in &states {
+            assert_ne!(
+                *on,
+                Some(true),
+                "{name}: an enabled switch must OMIT `on`, never write `on = true`"
+            );
+        }
+
+        let enabled: Vec<&str> = states
+            .iter()
+            .filter(|(_, on)| on.is_none())
+            .map(|(n, _)| n.as_str())
+            .collect();
+        assert_eq!(
+            enabled,
+            vec![
+                "UI_SECONDARY_RGB_ROTATION_ANIMATION",
+                "UI_PRIMARY_ROTATION_ANIMATION",
+                "GLOW_PULSE_ON",
+                "UI_SECONDARY_ON",
+                "UI_SECONDARY_B_MASK_ON",
+                "UI_SECONDARY_RGB_SCROLL_ON",
+                "UI_SECONDARY_B_MASK_ON_UI_PRIMARY",
+                "SHINE_ON",
+                "DISTORTION_ON_PRIMARY",
+            ]
+        );
+    }
+
+    #[test]
+    fn switch_and_param_lists_match_the_riot_reference_shape() {
+        let entry = build_material_entry("X/Y/Materials/Z", "ASSETS/a-mask.tex", &BannerParams::default());
+        assert_eq!(switch_states(&entry).len(), 22);
+
+        let Some(BinValue::List { items, .. }) = entry.fields.get(&fnv1a_32("paramValues")) else {
+            panic!("no paramValues list");
+        };
+        assert_eq!(items.len(), 48);
+
+        let first = match &items[0] {
+            BinValue::Embed { fields, .. } => match fields.get(&fnv1a_32("name")) {
+                Some(BinValue::String(s)) => s.clone(),
+                _ => panic!("param has no name"),
+            },
+            _ => panic!("param is not an embed"),
+        };
+        assert_eq!(first, "UI_ShapeMaskColor_SliceUV_Offset");
     }
 
     #[test]
