@@ -26,18 +26,18 @@ use crate::core::ipc_trace;
 pub struct ConversionResult {
     /// Absolute path to the file that was written.
     pub output_path: String,
-    /// Width of the decoded top mipmap (post-clamp).
+    /// Width of the decoded top mipmap.
     pub width: u32,
-    /// Height of the decoded top mipmap (post-clamp).
+    /// Height of the decoded top mipmap.
     pub height: u32,
     /// Human-readable description of the encode format selected (e.g. "BC3 (DXT5)").
     pub format: String,
 }
 
-/// Decode any DDS or TEX file and return its top mipmap as an RGBA image
-/// clamped to multiples of 4 (BC1/BC3 block boundary). The clamped buffer
-/// is what both writers consume.
-fn decode_to_clamped_rgba(data: &[u8]) -> Result<(image::RgbaImage, Texture), String> {
+/// Decode any DDS or TEX file and return its top mipmap as an RGBA image at its
+/// real size. Every writer downstream pads to the block grid itself, so cropping
+/// to a multiple of 4 here would only shrink the texture and shift its UVs.
+fn decode_texture_rgba(data: &[u8]) -> Result<(image::RgbaImage, Texture), String> {
     if data.len() < 4 {
         return Err("File too small to be a valid texture".into());
     }
@@ -50,18 +50,9 @@ fn decode_to_clamped_rgba(data: &[u8]) -> Result<(image::RgbaImage, Texture), St
             .map_err(|e| format!("Failed to parse texture: {:?}", e))?
     };
 
-    let mut rgba = texture
+    let rgba = texture
         .decode_rgba()
         .map_err(|e| format!("Failed to decode top mipmap: {:?}", e))?;
-
-    // Block-compression formats need dims divisible by 4 or the encoder panics.
-    let (w, h) = rgba.dimensions();
-    let cw = (w / 4) * 4;
-    let ch = (h / 4) * 4;
-    if cw != w || ch != h {
-        rgba =
-            image::imageops::crop_imm(&rgba, 0, 0, cw.max(4), ch.max(4)).to_image();
-    }
 
     Ok((rgba, texture))
 }
@@ -83,11 +74,40 @@ pub(crate) fn decode_full_rgba(data: &[u8]) -> Result<image::RgbaImage, String> 
         .map_err(|e| format!("Failed to decode top mipmap: {:?}", e))
 }
 
+/// Encode RGBA pixels as a DDS in `format`, falling back to BC3 for anything the
+/// writer has no encoder for. Returns the bytes and a human-readable format label.
+///
+/// This goes through RitoShark rather than `image_dds`, whose writer always emits the
+/// DX10 extension — a FourCC and a 20-byte header the game's D3D9-era loader can't
+/// read, so such a file crashes the client.
+fn encode_dds(
+    rgba: &image::RgbaImage,
+    format: TexFormat,
+) -> Result<(Vec<u8>, &'static str), String> {
+    let (bytes, label) = match format {
+        TexFormat::Bc1 | TexFormat::Bc1Alt => {
+            (ritoshark::tex::write_dds_bytes_bc(rgba, TexFormat::Bc1), "BC1 (DXT1)")
+        }
+        TexFormat::Bc3 => (ritoshark::tex::write_dds_bytes_bc(rgba, TexFormat::Bc3), "BC3 (DXT5)"),
+        TexFormat::Bc5 => (ritoshark::tex::write_dds_bytes_bc(rgba, TexFormat::Bc5), "BC5"),
+        TexFormat::Bc7 => (ritoshark::tex::write_dds_bytes_bc(rgba, TexFormat::Bc7), "BC7"),
+        TexFormat::Bgra8 => (ritoshark::tex::write_dds_bytes(rgba), "BGRA8"),
+        _ => (
+            ritoshark::tex::write_dds_bytes_bc(rgba, TexFormat::Bc3),
+            "BC3 (fallback)",
+        ),
+    };
+    Ok((
+        bytes.map_err(|e| format!("Failed to encode DDS: {:?}", e))?,
+        label,
+    ))
+}
+
 /// Convert a TEX file to a sibling .dds.
 ///
-/// Format selection: RitoShark's `Texture::format` (BC1 / BC3 / RGBA8) is
-/// mapped to the matching `image_dds::ImageFormat`. Anything we can't map
-/// falls through to BC3 — the output is valid and preserves alpha.
+/// Format selection: the source `Texture::format` is written back as itself.
+/// Anything the DDS writer can't encode falls through to BC3 — the output is
+/// valid and preserves alpha.
 #[tauri::command]
 pub async fn convert_tex_to_dds(path: String) -> Result<ConversionResult, String> {
     let _t = ipc_trace::enter("convert_tex_to_dds");
@@ -101,30 +121,12 @@ pub async fn convert_tex_to_dds(path: String) -> Result<ConversionResult, String
         return Err("Not a TEX file (magic 'TEX\\0' missing)".into());
     }
 
-    let (rgba, texture) = decode_to_clamped_rgba(&data)?;
+    let (rgba, texture) = decode_texture_rgba(&data)?;
 
-    // Match the source TEX format; anything image_dds can't encode falls back to BC3.
-    let (dds_format, label) = match texture.format {
-        TexFormat::Bc1 => (image_dds::ImageFormat::BC1RgbaUnorm, "BC1 (DXT1)"),
-        TexFormat::Bc3 => (image_dds::ImageFormat::BC3RgbaUnorm, "BC3 (DXT5)"),
-        TexFormat::Bgra8 => (image_dds::ImageFormat::Rgba8Unorm, "RGBA8"),
-        _ => (image_dds::ImageFormat::BC3RgbaUnorm, "BC3 (fallback)"),
-    };
-
-    let new_dds = image_dds::dds_from_image(
-        &rgba,
-        dds_format,
-        image_dds::Quality::Normal,
-        image_dds::Mipmaps::Disabled,
-    )
-    .map_err(|e| format!("Failed to encode DDS: {:?}", e))?;
+    let (dds_bytes, label) = encode_dds(&rgba, texture.format)?;
 
     let out_path = src.with_extension("dds");
-    let mut output = fs::File::create(&out_path)
-        .map_err(|e| format!("Failed to create output file: {}", e))?;
-    new_dds
-        .write(&mut output)
-        .map_err(|e| format!("Failed to write DDS: {}", e))?;
+    fs::write(&out_path, &dds_bytes).map_err(|e| format!("Failed to write DDS: {}", e))?;
 
     Ok(ConversionResult {
         output_path: out_path.to_string_lossy().into_owned(),
@@ -152,7 +154,7 @@ pub async fn convert_dds_to_tex(path: String) -> Result<ConversionResult, String
         return Err("Not a DDS file (magic 'DDS ' missing)".into());
     }
 
-    let (rgba, _) = decode_to_clamped_rgba(&data)?;
+    let (rgba, _) = decode_texture_rgba(&data)?;
 
     // The FourCC picks the matching TEX format; the RGBA buffer alone doesn't carry it.
     let mut cursor = Cursor::new(&data);
@@ -376,7 +378,7 @@ pub async fn convert_texture_to_png(path: String) -> Result<ConversionResult, St
     }
 
     let data = fs::read(&src).map_err(|e| format!("Failed to read file: {}", e))?;
-    let (rgba, _) = decode_to_clamped_rgba(&data)?;
+    let (rgba, _) = decode_texture_rgba(&data)?;
 
     let out_path = src.with_extension("png");
     let mut png_bytes = Vec::new();
@@ -420,24 +422,9 @@ pub async fn convert_tex_bytes_to_dds(
         return Err("Not a TEX file".into());
     }
 
-    let (rgba, texture) = decode_to_clamped_rgba(data)?;
-    let dds_format = match texture.format {
-        TexFormat::Bc1 => image_dds::ImageFormat::BC1RgbaUnorm,
-        TexFormat::Bgra8 => image_dds::ImageFormat::Rgba8Unorm,
-        _ => image_dds::ImageFormat::BC3RgbaUnorm,
-    };
-
-    let new_dds = image_dds::dds_from_image(
-        &rgba,
-        dds_format,
-        image_dds::Quality::Normal,
-        image_dds::Mipmaps::Disabled,
-    )
-    .map_err(|e| format!("Failed to encode DDS: {:?}", e))?;
-
-    let mut buf = Vec::new();
-    new_dds.write(&mut buf).map_err(|e| format!("Failed to serialize DDS: {}", e))?;
-    Ok(tauri::ipc::Response::new(buf))
+    let (rgba, texture) = decode_texture_rgba(data)?;
+    let (dds_bytes, _) = encode_dds(&rgba, texture.format)?;
+    Ok(tauri::ipc::Response::new(dds_bytes))
 }
 
 /// Reverse of `convert_tex_bytes_to_dds`. Same raw-body contract.
@@ -456,7 +443,7 @@ pub async fn convert_dds_bytes_to_tex(
         return Err("Not a DDS file".into());
     }
 
-    let (rgba, _) = decode_to_clamped_rgba(data)?;
+    let (rgba, _) = decode_texture_rgba(data)?;
 
     let mut cursor = Cursor::new(data);
     let dds = ddsfile::Dds::read(&mut cursor)

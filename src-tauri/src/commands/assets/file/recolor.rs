@@ -1,12 +1,11 @@
 use image::{Rgba, RgbaImage};
-use ritoshark::tex::{TexFormat, Texture};
+use ritoshark::tex::{write_dds_bytes, write_dds_bytes_bc, TexFormat, Texture};
 use super::texture::parse_texture_any;
-use std::io::Cursor;
 use ritoshark::prelude::Serialize as _;
 use walkdir::WalkDir;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecolorFolderResult {
@@ -170,55 +169,46 @@ async fn recolor_single_file(
     let mut rgba_img = texture.decode_rgba()
         .map_err(|e| format!("Failed to decode mipmap: {:?}", e))?;
 
-    // BC1/BC3 block compression requires dimensions that are multiples of 4;
-    // clamp down to avoid corrupt output / panics on oddly-sized textures.
-    let (orig_w, orig_h) = rgba_img.dimensions();
-    let clamped_w = (orig_w / 4) * 4;
-    let clamped_h = (orig_h / 4) * 4;
-    if clamped_w != orig_w || clamped_h != orig_h {
-        rgba_img = image::imageops::crop_imm(&rgba_img, 0, 0, clamped_w.max(4), clamped_h.max(4)).to_image();
-    }
-
     apply_hsl_to_image(&mut rgba_img, hue, saturation, brightness);
 
+    write_back(&path_buf, &rgba_img, &data, is_tex, source_format)
+}
+
+/// Write edited pixels over the source file, keeping the format it already had.
+///
+/// The DDS side goes through RitoShark rather than `image_dds`, whose writer always
+/// emits the DX10 extension — a FourCC and a 20-byte header the client's D3D9-era
+/// loader can't read, which is what made a recolored DDS crash the game.
+fn write_back(
+    path: &Path,
+    rgba: &RgbaImage,
+    source: &[u8],
+    is_tex: bool,
+    source_format: TexFormat,
+) -> Result<(), String> {
     if is_tex {
-        let new_tex = encode_tex_same_format(&rgba_img, source_format)?;
+        let new_tex = encode_tex_same_format(rgba, source_format)?;
 
         // Preserve the source ext_format byte (header offset +8); changing
         // BC1/BC3's 0x01 to 0x00 can crash the client.
         let mut tex_bytes: Vec<u8> = new_tex.to_bytes()
             .map_err(|e| format!("Failed to encode TEX to buffer: {:?}", e))?;
-        if tex_bytes.len() >= 9 && data.len() >= 9 {
-            tex_bytes[8] = data[8];
+        if tex_bytes.len() >= 9 && source.len() >= 9 {
+            tex_bytes[8] = source[8];
         }
-        fs::write(&path_buf, &tex_bytes).map_err(|e| format!("Failed to write TEX: {}", e))?;
-    } else {
-        let mut cursor = Cursor::new(&data);
-        let dds = ddsfile::Dds::read(&mut cursor).map_err(|e| format!("Failed to parse DDS: {}", e))?;
-
-        let format = if let Some(fourcc) = dds.header.spf.fourcc {
-            if fourcc.0 == u32::from_le_bytes(*b"DXT1") {
-                image_dds::ImageFormat::BC1RgbaUnorm
-            } else {
-                image_dds::ImageFormat::BC3RgbaUnorm
-            }
-        } else {
-            image_dds::ImageFormat::Bgra8Unorm
-        };
-
-        // Mipmaps disabled — League crashes on partial mip chains.
-        let new_dds = image_dds::dds_from_image(
-            &rgba_img,
-            format,
-            image_dds::Quality::Normal,
-            image_dds::Mipmaps::Disabled,
-        ).map_err(|e| format!("Failed to encode DDS: {:?}", e))?;
-
-        let mut output = fs::File::create(&path_buf).map_err(|e| format!("Failed to create output file: {}", e))?;
-        new_dds.write(&mut output).map_err(|e| format!("Failed to write DDS: {}", e))?;
+        return fs::write(path, &tex_bytes).map_err(|e| format!("Failed to write TEX: {}", e));
     }
 
-    Ok(())
+    let dds_bytes = match source_format {
+        TexFormat::Bgra8 => write_dds_bytes(rgba),
+        TexFormat::Bc1 | TexFormat::Bc1Alt | TexFormat::Bc3 | TexFormat::Bc5 | TexFormat::Bc7 => {
+            write_dds_bytes_bc(rgba, source_format)
+        }
+        _ => write_dds_bytes_bc(rgba, TexFormat::Bc3),
+    }
+    .map_err(|e| format!("Failed to encode DDS: {:?}", e))?;
+
+    fs::write(path, &dds_bytes).map_err(|e| format!("Failed to write DDS: {}", e))
 }
 
 /// Re-encode an RGBA image into a TEX, matching the source texture's format.
@@ -322,55 +312,9 @@ async fn colorize_single_file(
     let mut rgba_img = texture.decode_rgba()
         .map_err(|e| format!("Failed to decode mipmap: {:?}", e))?;
 
-    // BC1/BC3 block compression requires dimensions that are multiples of 4;
-    // clamp down to avoid corrupt output / panics.
-    let (orig_w, orig_h) = rgba_img.dimensions();
-    let clamped_w = (orig_w / 4) * 4;
-    let clamped_h = (orig_h / 4) * 4;
-    if clamped_w != orig_w || clamped_h != orig_h {
-        rgba_img = image::imageops::crop_imm(&rgba_img, 0, 0, clamped_w.max(4), clamped_h.max(4)).to_image();
-    }
-
     colorize_image_impl(&mut rgba_img, target_hue, preserve_saturation);
 
-    if is_tex {
-        let new_tex = encode_tex_same_format(&rgba_img, source_format)?;
-
-        // Preserve the source ext_format byte (offset +8); changing
-        // BC1/BC3's 0x01 to 0x00 can crash the client.
-        let mut tex_bytes: Vec<u8> = new_tex.to_bytes()
-            .map_err(|e| format!("Failed to encode TEX to buffer: {:?}", e))?;
-        if tex_bytes.len() >= 9 && data.len() >= 9 {
-            tex_bytes[8] = data[8];
-        }
-        fs::write(&path_buf, &tex_bytes).map_err(|e| format!("Failed to write TEX: {}", e))?;
-    } else {
-        let mut cursor = Cursor::new(&data);
-        let dds = ddsfile::Dds::read(&mut cursor).map_err(|e| format!("Failed to parse DDS: {}", e))?;
-
-        let format = if let Some(fourcc) = dds.header.spf.fourcc {
-            if fourcc.0 == u32::from_le_bytes(*b"DXT1") {
-                image_dds::ImageFormat::BC1RgbaUnorm
-            } else {
-                image_dds::ImageFormat::BC3RgbaUnorm
-            }
-        } else {
-            image_dds::ImageFormat::Bgra8Unorm
-        };
-
-        // Mipmaps disabled — League crashes on partial mip chains.
-        let new_dds = image_dds::dds_from_image(
-            &rgba_img,
-            format,
-            image_dds::Quality::Normal,
-            image_dds::Mipmaps::Disabled,
-        ).map_err(|e| format!("Failed to encode DDS: {:?}", e))?;
-
-        let mut output = fs::File::create(&path_buf).map_err(|e| format!("Failed to create output file: {}", e))?;
-        new_dds.write(&mut output).map_err(|e| format!("Failed to write DDS: {}", e))?;
-    }
-
-    Ok(())
+    write_back(&path_buf, &rgba_img, &data, is_tex, source_format)
 }
 
 #[tauri::command]
@@ -416,3 +360,76 @@ pub async fn colorize_folder(
     Ok(RecolorFolderResult { processed, failed })
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const FOURCC_OFFSET: usize = 84;
+    const LEGACY_HEADER_LEN: usize = 128;
+
+    fn sample(w: u32, h: u32) -> RgbaImage {
+        RgbaImage::from_fn(w, h, |x, y| Rgba([(x * 16) as u8, (y * 16) as u8, 0x60, 0xff]))
+    }
+
+    fn write_temp(name: &str, rgba: &RgbaImage, format: TexFormat) -> PathBuf {
+        let path = std::env::temp_dir().join(format!("flint-recolor-{}-{}.dds", name, std::process::id()));
+        let bytes = match format {
+            TexFormat::Bgra8 => write_dds_bytes(rgba),
+            other => write_dds_bytes_bc(rgba, other),
+        }
+        .expect("encode source");
+        fs::write(&path, &bytes).expect("write source");
+        path
+    }
+
+    /// The client's loader can't read the DX10 extension, so a recolored DDS must
+    /// come back with the legacy FourCC it went in with.
+    #[test]
+    fn a_recolored_dds_keeps_a_legacy_header() {
+        for (name, format, expected) in [
+            ("bc1", TexFormat::Bc1, *b"DXT1"),
+            ("bc3", TexFormat::Bc3, *b"DXT5"),
+        ] {
+            let img = sample(8, 8);
+            let path = write_temp(name, &img, format);
+            let source = fs::read(&path).unwrap();
+
+            write_back(&path, &img, &source, false, format).expect("write back");
+
+            let out = fs::read(&path).unwrap();
+            assert_eq!(&out[FOURCC_OFFSET..FOURCC_OFFSET + 4], &expected, "{name}");
+            assert_ne!(&out[FOURCC_OFFSET..FOURCC_OFFSET + 4], b"DX10", "{name}");
+            let _ = fs::remove_file(&path);
+        }
+    }
+
+    #[test]
+    fn an_uncompressed_dds_stays_uncompressed() {
+        let img = sample(4, 4);
+        let path = write_temp("bgra", &img, TexFormat::Bgra8);
+        let source = fs::read(&path).unwrap();
+
+        write_back(&path, &img, &source, false, TexFormat::Bgra8).expect("write back");
+
+        let out = fs::read(&path).unwrap();
+        assert_ne!(&out[FOURCC_OFFSET..FOURCC_OFFSET + 4], b"DX10");
+        assert_eq!(out.len(), LEGACY_HEADER_LEN + 4 * 4 * 4);
+        let _ = fs::remove_file(&path);
+    }
+
+    /// Dimensions that aren't a multiple of 4 used to be cropped away, silently
+    /// resizing the texture; the encoder pads the block grid itself.
+    #[test]
+    fn an_odd_sized_texture_keeps_its_dimensions() {
+        let img = sample(6, 6);
+        let path = write_temp("odd", &img, TexFormat::Bc3);
+        let source = fs::read(&path).unwrap();
+
+        write_back(&path, &img, &source, false, TexFormat::Bc3).expect("write back");
+
+        let back = ritoshark::tex::read_dds_bytes(&fs::read(&path).unwrap()).expect("read back");
+        assert_eq!(back.dimensions(), (6, 6));
+        let _ = fs::remove_file(&path);
+    }
+}
