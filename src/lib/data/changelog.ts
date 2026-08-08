@@ -45,6 +45,32 @@ export interface VersionChangelog {
  */
 export const CHANGELOG: VersionChangelog[] = [
     {
+        version: '2.8.1',
+        date: 'August 2026',
+        headline: 'Flint 2.8.1',
+        subtitle: 'League Classic skin projects, a working animated loadscreen banner, and a heads-up about TFT.',
+        entries: [
+            {
+                icon: 'picture',
+                tag: 'feature',
+                title: 'League Classic skin projects',
+                description: 'Flip the new Classic switch next to PBE in the New Project window to mod the League Classic roster. Pick a champion and Flint lands on their Classic skin straight away — the jade ports of live skins are still in the list if you want them. Classic content lives inside the normal champion WAD, so export, preview and everything downstream work exactly as they do for a live skin. Champions whose look never changed (Ashe) simply have no Classic skin.',
+            },
+            {
+                icon: 'wrench',
+                tag: 'fix',
+                title: 'Animated loadscreen banners actually animate',
+                description: 'Every shader switch in the injected banner material was being written as off, so the effect was completely inert — no shine, no glow, no scroll, no distortion, and the mask you painted drove nothing. The material now matches Riot\'s own banner materials, so shine, glow pulse, scroll, distortion and the rotation animations run, and the blue channel you paint gates the VFX like it was always supposed to. Re-apply the preset on existing projects to pick this up.',
+            },
+            {
+                icon: 'info',
+                tag: 'improvement',
+                title: 'TFT projects are marked for removal',
+                description: 'TFT is moving to Unreal Engine and support for it cannot be maintained. TFT projects still work for as long as Riot keeps the existing companions on the current engine, but they can break or be removed at any time. The project type and any existing TFT project now say so up front.',
+            },
+        ],
+    },
+    {
         version: '2.4.0',
         date: 'July 2026',
         headline: 'Flint 2.4.0',
