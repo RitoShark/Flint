@@ -7,10 +7,12 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RecolorFolderResult {
     pub processed: u32,
     pub failed: u32,
+    /// Textures deliberately left alone (cubemaps), not failures.
+    pub skipped: u32,
 }
 
 // =============================================================================
@@ -137,7 +139,70 @@ pub async fn recolor_image(
     saturation: f32,
     brightness: f32,
 ) -> Result<(), String> {
-    recolor_single_file(&path, hue, saturation, brightness).await
+    recolor_single_file(&path, hue, saturation, brightness)
+        .await
+        .and_then(Outcome::into_result)
+}
+
+/// What happened to one file. A cubemap is reported rather than failed: the folder
+/// passes walk textures indiscriminately and hitting one is normal, not an error.
+enum Outcome {
+    Written,
+    SkippedCubemap,
+}
+
+const CUBEMAP_MESSAGE: &str =
+    "Cubemaps can't be recolored — the six faces would be flattened into one";
+
+impl Outcome {
+    fn into_result(self) -> Result<(), String> {
+        match self {
+            Outcome::Written => Ok(()),
+            Outcome::SkippedCubemap => Err(CUBEMAP_MESSAGE.into()),
+        }
+    }
+}
+
+/// A cubemap holds six faces in one file. Every edit path here decodes a single
+/// image and writes a single surface back, which would destroy the other five —
+/// the skybox turns into one face repeated, or the file stops loading altogether.
+fn is_cubemap(data: &[u8]) -> bool {
+    ritoshark::tex::dds_is_cubemap(data).unwrap_or(false)
+        || ritoshark::tex::dds_surface_count(data).is_ok_and(|faces| faces > 1)
+}
+
+struct EditableTexture {
+    source: Vec<u8>,
+    rgba: RgbaImage,
+    format: TexFormat,
+    is_tex: bool,
+}
+
+/// Read a texture and decode it, refusing anything that isn't a single 2D surface.
+fn open_editable(path: &Path) -> Result<Option<EditableTexture>, String> {
+    let data = fs::read(path).map_err(|e| format!("Failed to read file: {}", e))?;
+    if data.len() < 4 {
+        return Err("File too small".into());
+    }
+
+    let is_tex = &data[0..4] == b"TEX\0";
+    let is_dds = &data[0..4] == b"DDS ";
+    if !is_tex && !is_dds {
+        return Err("Not a supported texture format (DDS or TEX)".into());
+    }
+
+    if is_dds && is_cubemap(&data) {
+        tracing::info!("Skipping cubemap: {}", path.display());
+        return Ok(None);
+    }
+
+    let texture = parse_texture_any(&data)?;
+    let format = texture.format;
+    let rgba = texture
+        .decode_rgba()
+        .map_err(|e| format!("Failed to decode mipmap: {:?}", e))?;
+
+    Ok(Some(EditableTexture { source: data, rgba, format, is_tex }))
 }
 
 async fn recolor_single_file(
@@ -145,33 +210,26 @@ async fn recolor_single_file(
     hue: f32,
     saturation: f32,
     brightness: f32,
-) -> Result<(), String> {
+) -> Result<Outcome, String> {
     let path_buf = PathBuf::from(path);
     if !path_buf.exists() {
         return Err(format!("File not found: {}", path));
     }
 
-    let data = fs::read(&path_buf).map_err(|e| format!("Failed to read file: {}", e))?;
-    if data.len() < 4 {
-        return Err("File too small".into());
-    }
+    let Some(mut texture) = open_editable(&path_buf)? else {
+        return Ok(Outcome::SkippedCubemap);
+    };
 
-    let is_tex = &data[0..4] == b"TEX\0";
-    let is_dds = &data[0..4] == b"DDS ";
+    apply_hsl_to_image(&mut texture.rgba, hue, saturation, brightness);
 
-    if !is_tex && !is_dds {
-        return Err("Not a supported texture format (DDS or TEX)".into());
-    }
-
-    let texture = parse_texture_any(&data)?;
-    let source_format = texture.format;
-
-    let mut rgba_img = texture.decode_rgba()
-        .map_err(|e| format!("Failed to decode mipmap: {:?}", e))?;
-
-    apply_hsl_to_image(&mut rgba_img, hue, saturation, brightness);
-
-    write_back(&path_buf, &rgba_img, &data, is_tex, source_format)
+    write_back(
+        &path_buf,
+        &texture.rgba,
+        &texture.source,
+        texture.is_tex,
+        texture.format,
+    )?;
+    Ok(Outcome::Written)
 }
 
 /// Write edited pixels over the source file, keeping the format it already had.
@@ -245,34 +303,34 @@ pub async fn recolor_folder(
     }
 
     let should_skip_distortion = skip_distortion.unwrap_or(true);
-    let mut processed = 0;
-    let mut failed = 0;
+    let mut result = RecolorFolderResult::default();
 
     for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
         if path.is_file() {
             let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_lowercase();
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_lowercase();
-            
+
             // Skip distortion/distort textures - they use special UV effects
             if should_skip_distortion && (filename.contains("distortion") || filename.contains("distort")) {
                 tracing::debug!("Skipping distortion texture: {}", path.display());
                 continue;
             }
-            
+
             if ext == "dds" || ext == "tex" {
                 match recolor_single_file(&path.to_string_lossy(), hue, saturation, brightness).await {
-                    Ok(_) => processed += 1,
+                    Ok(Outcome::Written) => result.processed += 1,
+                    Ok(Outcome::SkippedCubemap) => result.skipped += 1,
                     Err(e) => {
                         tracing::warn!("Failed to recolor {}: {}", path.display(), e);
-                        failed += 1;
+                        result.failed += 1;
                     }
                 }
             }
         }
     }
 
-    Ok(RecolorFolderResult { processed, failed })
+    Ok(result)
 }
 
 #[tauri::command]
@@ -281,40 +339,35 @@ pub async fn colorize_image(
     target_hue: f32,
     preserve_saturation: bool,
 ) -> Result<(), String> {
-    colorize_single_file(&path, target_hue, preserve_saturation).await
+    colorize_single_file(&path, target_hue, preserve_saturation)
+        .await
+        .and_then(Outcome::into_result)
 }
 
 async fn colorize_single_file(
     path: &str,
     target_hue: f32,
     preserve_saturation: bool,
-) -> Result<(), String> {
+) -> Result<Outcome, String> {
     let path_buf = PathBuf::from(path);
     if !path_buf.exists() {
         return Err(format!("File not found: {}", path));
     }
 
-    let data = fs::read(&path_buf).map_err(|e| format!("Failed to read file: {}", e))?;
-    if data.len() < 4 {
-        return Err("File too small".into());
-    }
+    let Some(mut texture) = open_editable(&path_buf)? else {
+        return Ok(Outcome::SkippedCubemap);
+    };
 
-    let is_tex = &data[0..4] == b"TEX\0";
-    let is_dds = &data[0..4] == b"DDS ";
+    colorize_image_impl(&mut texture.rgba, target_hue, preserve_saturation);
 
-    if !is_tex && !is_dds {
-        return Err("Not a supported texture format (DDS or TEX)".into());
-    }
-
-    let texture = parse_texture_any(&data)?;
-    let source_format = texture.format;
-
-    let mut rgba_img = texture.decode_rgba()
-        .map_err(|e| format!("Failed to decode mipmap: {:?}", e))?;
-
-    colorize_image_impl(&mut rgba_img, target_hue, preserve_saturation);
-
-    write_back(&path_buf, &rgba_img, &data, is_tex, source_format)
+    write_back(
+        &path_buf,
+        &texture.rgba,
+        &texture.source,
+        texture.is_tex,
+        texture.format,
+    )?;
+    Ok(Outcome::Written)
 }
 
 #[tauri::command]
@@ -330,34 +383,34 @@ pub async fn colorize_folder(
     }
 
     let should_skip_distortion = skip_distortion.unwrap_or(true);
-    let mut processed = 0;
-    let mut failed = 0;
+    let mut result = RecolorFolderResult::default();
 
     for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
         if path.is_file() {
             let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_lowercase();
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_lowercase();
-            
+
             // Skip distortion/distort textures - they use special UV effects
             if should_skip_distortion && (filename.contains("distortion") || filename.contains("distort")) {
                 tracing::debug!("Skipping distortion texture: {}", path.display());
                 continue;
             }
-            
+
             if ext == "dds" || ext == "tex" {
                 match colorize_single_file(&path.to_string_lossy(), target_hue, preserve_saturation).await {
-                    Ok(_) => processed += 1,
+                    Ok(Outcome::Written) => result.processed += 1,
+                    Ok(Outcome::SkippedCubemap) => result.skipped += 1,
                     Err(e) => {
                         tracing::warn!("Failed to colorize {}: {}", path.display(), e);
-                        failed += 1;
+                        result.failed += 1;
                     }
                 }
             }
         }
     }
 
-    Ok(RecolorFolderResult { processed, failed })
+    Ok(result)
 }
 
 
@@ -415,6 +468,49 @@ mod tests {
         let out = fs::read(&path).unwrap();
         assert_ne!(&out[FOURCC_OFFSET..FOURCC_OFFSET + 4], b"DX10");
         assert_eq!(out.len(), LEGACY_HEADER_LEN + 4 * 4 * 4);
+        let _ = fs::remove_file(&path);
+    }
+
+    /// A cubemap decodes to one face; writing that back would replace six surfaces
+    /// with one and destroy the texture.
+    #[test]
+    fn a_cubemap_is_refused() {
+        let face = sample(4, 4);
+        let blocks = write_dds_bytes_bc(&face, TexFormat::Bc1).expect("encode face");
+        let payload = &blocks[128..];
+
+        let mut dds = ddsfile::Dds::new_d3d(ddsfile::NewD3dParams {
+            height: 4,
+            width: 4,
+            depth: None,
+            format: ddsfile::D3DFormat::DXT1,
+            mipmap_levels: None,
+            caps2: Some(ddsfile::Caps2::CUBEMAP | ddsfile::Caps2::CUBEMAP_ALLFACES),
+        })
+        .expect("build cubemap");
+        dds.data = payload.repeat(6);
+
+        let mut bytes = Vec::new();
+        dds.write(&mut bytes).expect("write cubemap");
+
+        assert!(is_cubemap(&bytes));
+
+        let path = std::env::temp_dir()
+            .join(format!("flint-recolor-cube-{}.dds", std::process::id()));
+        fs::write(&path, &bytes).expect("write file");
+
+        assert!(open_editable(&path).expect("open").is_none());
+
+        // The file must be untouched.
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_plain_texture_is_still_editable() {
+        let img = sample(8, 8);
+        let path = write_temp("plain", &img, TexFormat::Bc3);
+        assert!(open_editable(&path).expect("open").is_some());
         let _ = fs::remove_file(&path);
     }
 

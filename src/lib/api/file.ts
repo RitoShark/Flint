@@ -44,13 +44,20 @@ export async function recolorImage(
     return invokeCommand('recolor_image', { path, hue, saturation, brightness });
 }
 
+export interface RecolorFolderResult {
+    processed: number;
+    failed: number;
+    /** Textures deliberately left alone (cubemaps), not failures. */
+    skipped: number;
+}
+
 export async function recolorFolder(
     path: string,
     hue: number,
     saturation: number,
     brightness: number,
     skipDistortion: boolean = true
-): Promise<{ processed: number; failed: number }> {
+): Promise<RecolorFolderResult> {
     return invokeCommand('recolor_folder', { path, hue, saturation, brightness, skipDistortion });
 }
 
@@ -67,7 +74,7 @@ export async function colorizeFolder(
     targetHue: number,
     preserveSaturation: boolean,
     skipDistortion: boolean = true
-): Promise<{ processed: number; failed: number }> {
+): Promise<RecolorFolderResult> {
     return invokeCommand('colorize_folder', { path, targetHue, preserveSaturation, skipDistortion });
 }
 
