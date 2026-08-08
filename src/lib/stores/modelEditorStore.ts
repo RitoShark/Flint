@@ -97,7 +97,7 @@ export const useModelEditorStore = create<ModelEditorState>((set, get) => ({
     setMode: (mode) => {
         const next: Partial<ModelEditorState> = { mode, sampledVertex: null };
         // Weight mode is useless without the rig on screen, and Maya turns X-ray on with it.
-        if (mode === 'weights' && get().skeletonOverlay === 'off') next.skeletonOverlay = 'joints';
+        if (mode === 'weights' && get().skeletonOverlay === 'off') next.skeletonOverlay = 'bones';
         set(next);
     },
     setSkeletonOverlay: (skeletonOverlay) => set({ skeletonOverlay }),

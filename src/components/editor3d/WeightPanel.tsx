@@ -137,7 +137,7 @@ export const WeightPanel: React.FC<WeightPanelProps> = ({ onPaint }) => {
                 onChange={(falloff) => setBrush({ falloff })}
             />
             <p className="m3d__hint">
-                Drag to paint · Ctrl+click samples a vertex · middle-drag orbits, right-drag pans.
+                Drag to paint · Ctrl+click samples a vertex · Alt+drag navigates.
             </p>
 
             <div className="m3d__section-title">Joint</div>

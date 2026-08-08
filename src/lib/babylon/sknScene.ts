@@ -14,6 +14,7 @@ import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import { CreateLineSystem } from '@babylonjs/core/Meshes/Builders/linesBuilder';
 import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder';
 import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder';
+import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder';
 import { SkeletonViewer } from '@babylonjs/core/Debug/skeletonViewer';
 // Registers Scene.prototype.pick (tree-shaken out of core by default) — without this, pickAt throws "scene.pick is not a function".
 import '@babylonjs/core/Culling/ray';
@@ -24,22 +25,24 @@ import { createEngine } from './engine';
 import { buildSknMeshes, type MeshDTO } from './meshBuilder';
 import {
     buildBabylonSkeleton,
-    buildSkeletonOctahedrons,
-    buildSkeletonJoints,
+    buildSkeletonMaya,
+    jointMarkerRadius,
     type BoneData,
     type SklData,
 } from './skeletonBuilder';
 import { computeFraming, applyFraming, type BoundingBox } from './cameraFraming';
+import { attachMayaCameraControls } from './mayaCamera';
 
 // This module must stay headless — no React, no imports from src/components/.
 const makeVector3 = (x: number, y: number, z: number) => new Vector3(x, y, z);
 
-export type SkeletonOverlayMode = 'off' | 'lines' | 'octahedrons' | 'joints';
+export type SkeletonOverlayMode = 'off' | 'lines' | 'bones';
 export type FloorMode = 'grid' | 'textured' | 'none';
 
 export interface SknSceneOptions {
     grid?: boolean;
     skybox?: boolean;
+    navigation?: 'default' | 'maya';
 }
 
 export interface SknSkeletonMetadata {
@@ -65,6 +68,7 @@ export interface SknSceneHandle {
     setWireframe(on: boolean): void;
     setSkeletonOverlay(mode: SkeletonOverlayMode): void;
     setSkeletonXray(on: boolean): void;
+    setJointHighlights(active: number | null, hovered: number | null): void;
     setSelection(name: string | null): void;
     frameCamera(): void;
     pickAt(x: number, y: number): string | null;
@@ -79,7 +83,6 @@ export interface SknSceneHandle {
     setVertexColors(colors: Float32Array | null): void;
     updateVertexColors(colors: Float32Array, submeshNames: Iterable<string>): void;
     updateSkinning(jointIds: Uint16Array, weights: Float32Array): void;
-    setOrbitOnSecondaryButtons(on: boolean): void;
     readonly scene: Scene;
     dispose(): void;
 }
@@ -155,6 +158,10 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
     camera.attachControl(canvas, true);
     camera.wheelDeltaPercentage = 0.05;
 
+    const detachMayaControls = opts?.navigation === 'maya'
+        ? attachMayaCameraControls(camera, canvas)
+        : null;
+
     const handleContextMenu = (e: MouseEvent) => {
         e.preventDefault();
     };
@@ -183,10 +190,13 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
     let currentSkeleton: Skeleton | null = null;
     let currentSklData: SklData | null = null;
     let skeletonViewer: SkeletonViewer | null = null;
-    let skeletonOverlayMesh: Mesh | null = null;
+    let skeletonOverlayMeshes: Mesh[] = [];
     let skeletonOverlayMode: SkeletonOverlayMode = 'off';
     let skeletonXray = false;
     let jointPickRadius = 1;
+    let jointRadius = 1;
+    let activeJointMarker: Mesh | null = null;
+    let hoveredJointMarker: Mesh | null = null;
 
     let submeshRanges: SknSubmeshRange[] = [];
     const shadedMaterialByMesh = new Map<string, Material>();
@@ -389,8 +399,12 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
         const box = { current: skeletonViewer };
         safeDisposeSkeletonViewer(box);
         skeletonViewer = box.current;
-        disposeMeshAndMaterial(skeletonOverlayMesh);
-        skeletonOverlayMesh = null;
+        skeletonOverlayMeshes.forEach(disposeMeshAndMaterial);
+        skeletonOverlayMeshes = [];
+        disposeMeshAndMaterial(activeJointMarker);
+        activeJointMarker = null;
+        disposeMeshAndMaterial(hoveredJointMarker);
+        hoveredJointMarker = null;
     }
 
     // Rendering group 2 rather than a depth-func override: Babylon clears the depth buffer between
@@ -406,7 +420,9 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
     }
 
     function applyXrayToOverlay(): void {
-        applyXrayTo(skeletonOverlayMesh);
+        skeletonOverlayMeshes.forEach(applyXrayTo);
+        applyXrayTo(activeJointMarker);
+        applyXrayTo(hoveredJointMarker);
         const debugMesh = skeletonViewer?.debugMesh;
         if (debugMesh) applyXrayTo(debugMesh as unknown as Mesh);
     }
@@ -431,12 +447,10 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
 
         if (!currentSklData) return;
         try {
-            const built = mode === 'octahedrons'
-                ? buildSkeletonOctahedrons(currentSklData, scene)
-                : buildSkeletonJoints(currentSklData, scene);
-            skeletonOverlayMesh = built?.mesh ?? null;
+            const built = buildSkeletonMaya(currentSklData, scene);
+            skeletonOverlayMeshes = built?.meshes ?? [];
         } catch (e) {
-            console.error(`Failed to build skeleton ${mode} overlay:`, e);
+            console.error('Failed to build the skeleton overlay:', e);
         }
         applyXrayToOverlay();
     }
@@ -444,6 +458,53 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
     function setSkeletonXray(on: boolean): void {
         skeletonXray = on;
         applyXrayToOverlay();
+    }
+
+    function positionJointMarker(
+        existing: Mesh | null,
+        name: string,
+        color: Color3,
+        scale: number,
+        index: number | null,
+    ): Mesh | null {
+        const bone = index !== null ? currentSklData?.bones[index] : null;
+        if (!bone || skeletonOverlayMode === 'off') {
+            disposeMeshAndMaterial(existing);
+            return null;
+        }
+        const marker = existing ?? (() => {
+            const sphere = CreateSphere(name, { diameter: 2, segments: 10 }, scene);
+            sphere.isPickable = false;
+            const mat = new StandardMaterial(`${name}-mat`, scene);
+            mat.diffuseColor = color;
+            mat.specularColor = new Color3(0, 0, 0);
+            mat.emissiveColor = color.scale(0.65);
+            mat.backFaceCulling = false;
+            sphere.material = mat;
+            return sphere;
+        })();
+        const r = jointRadius * scale;
+        marker.scaling.set(r, r, r);
+        marker.position.set(...bone.world_position);
+        applyXrayTo(marker);
+        return marker;
+    }
+
+    function setJointHighlights(active: number | null, hovered: number | null): void {
+        activeJointMarker = positionJointMarker(
+            activeJointMarker,
+            'skeleton-joint-active',
+            new Color3(0.35, 1.0, 0.45),
+            1.7,
+            active,
+        );
+        hoveredJointMarker = positionJointMarker(
+            hoveredJointMarker,
+            'skeleton-joint-hovered',
+            new Color3(1.0, 0.85, 0.25),
+            1.4,
+            hovered === active ? null : hovered,
+        );
     }
 
     function disposeCurrentGeometry(): void {
@@ -559,20 +620,9 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
         }));
 
         if (skeleton && skeleton.bones.length > 0) {
-            const lo = [Infinity, Infinity, Infinity];
-            const hi = [-Infinity, -Infinity, -Infinity];
-            for (const b of skeleton.bones) {
-                for (let a = 0; a < 3; a++) {
-                    const v = b.world_position[a];
-                    if (!Number.isFinite(v)) continue;
-                    if (v < lo[a]) lo[a] = v;
-                    if (v > hi[a]) hi[a] = v;
-                }
-            }
-            const span = (a: number) => (Number.isFinite(hi[a] - lo[a]) ? hi[a] - lo[a] : 0);
-            const diagonal = Math.hypot(span(0), span(1), span(2));
-            // ~2.5× the marker radius buildSkeletonJoints draws, so hovering a joint doesn't need pixel precision.
-            jointPickRadius = Math.max(0.1, diagonal * 0.012);
+            jointRadius = jointMarkerRadius(skeleton.bones);
+            // ~2.5× the drawn marker, so hovering a joint doesn't need pixel precision.
+            jointPickRadius = Math.max(0.1, jointRadius * 2.5);
         }
 
         const textureCache = new Map<string, Texture>();
@@ -896,17 +946,11 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
         }
     }
 
-    // Frees the left button for brush strokes: middle-drag orbits, right-drag pans.
-    function setOrbitOnSecondaryButtons(on: boolean): void {
-        const pointers = camera.inputs.attached.pointers as { buttons?: number[] } | undefined;
-        if (!pointers?.buttons) return;
-        pointers.buttons.length = 0;
-        pointers.buttons.push(...(on ? [1, 2] : [0, 1, 2]));
-    }
 
     function dispose(): void {
         window.removeEventListener('resize', onWindowResize);
         sizeObserver?.disconnect();
+        detachMayaControls?.();
         canvas.removeEventListener('contextmenu', handleContextMenu);
         window.removeEventListener('error', onWinError);
         window.removeEventListener('unhandledrejection', onRejection);
@@ -934,6 +978,7 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
         setWireframe,
         setSkeletonOverlay,
         setSkeletonXray,
+        setJointHighlights,
         setSelection,
         frameCamera,
         pickAt,
@@ -948,7 +993,6 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
         setVertexColors,
         updateVertexColors,
         updateSkinning,
-        setOrbitOnSecondaryButtons,
         scene,
         dispose,
     };
