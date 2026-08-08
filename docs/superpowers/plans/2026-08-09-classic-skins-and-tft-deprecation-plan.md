@@ -53,13 +53,14 @@ loadscreen   = .../Jade_AhriLoadScreen_301.project_jade.jpg  (+ `_301_LE` vintag
   skin1/5/8/9/11/12/22/60 …). Those are moddable too.
 - Every jade asset filename carries a `.project_jade` infix before the extension.
 
-### The one unverified assumption
+### WAD layout — corrected
 
-**WAD file name.** The convention (`<alias>.wad.client`) implies
-`Game/DATA/FINAL/Champions/Jade_Ahri.wad.client`. This could not be checked here
-— no League install was found at the usual paths. **Verify on a real install
-before writing code**; if the jade champions live in a shared/mode WAD instead,
-step A4 needs a lookup table rather than a straight alias→WAD mapping.
+There is **no `Jade_Ahri.wad.client`.** Jade champions ship inside the **live
+champion's WAD**: `Jade_Ahri` lives in `Ahri.wad.client` under
+`data/characters/jade_ahri/`. So only the WAD *filename* drops the prefix —
+every character-folder path keeps it. `project.champion` therefore stays the full
+`Jade_Ahri`, and a single `wad_champion_name()` helper strips the prefix at the
+handful of sites that build a `.wad.client` name.
 
 ---
 
@@ -96,17 +97,17 @@ what people come for; the jade ports follow.
 
 ### A4. Project creation
 
-`create_project(name, champion, skin_id, league_path, output_path, …)` takes the
-champion as the **WAD alias**, so classic creation is:
+`create_project(name, champion, skin_id, league_path, output_path, …)` is called
+with `champion = "Jade_Ahri"`, `skin_id = 301`. Every character-folder derivation
+(`wad_contains_skin_bin`, the extraction seed, `find_main_skin_bin`) already does
+`champion.to_lowercase()` and lands on `jade_ahri` unchanged. The only thing that
+must be adjusted is the `.wad.client` filename, via `wad_champion_name()` in
+`flint-wad/src/wad/extractor.rs`, applied at:
 
-```
-champion = "Jade_Ahri"     skin_id = 301
-```
-
-and the existing extract → repath → organize pipeline should need no Rust change,
-provided the WAD name assumption above holds. Confirm that
-`find_main_skin_bin` resolves `data/characters/jade_ahri/skins/skin301.bin` out of
-the extracted tree (it walks the WAD's own `data/` tree, so it should).
+- `find_champion_wad` (extractor **and** adapter — two copies exist)
+- both `extract_skin_assets*` `wad_folder_name`s
+- `repath/refather.rs` and `repath/organizer.rs` (config wad folder +
+  `find_main_skin_bin`, whose `patterns` keep the `jade_` prefix)
 
 ### A5. Project metadata
 
