@@ -57,20 +57,61 @@ pub async fn rename_file(
     })
 }
 
-/// Replace a filename in path strings (case-insensitive).
-/// Searches for `/old_name` (with leading slash) so only exact filenames match —
-/// e.g. renaming `white.tex` won't touch `blablabla_white.tex`.
-fn replace_filename_in_paths(text: &str, old_name: &str, new_name: &str) -> String {
-    let search = format!("/{}", old_name).to_lowercase();
-    let replace = format!("/{}", new_name);
-    let text_lower = text.to_lowercase();
+/// The tail a BIN reference is matched by: the parent folder plus the name
+/// (`skins/skin27.bin`). League names a skin's BINs identically across folders, so
+/// matching the filename alone makes renaming `skins/skin27.bin` rewrite the
+/// reference to `animations/skin27.bin` as well.
+///
+/// The parent is only usable while it sits BELOW the WAD folder — a file directly
+/// inside `<name>.wad.client/` has no parent segment a game path would ever carry,
+/// so those fall back to the filename alone.
+fn reference_tail(rel_path: &str, name: &str) -> String {
+    let normalized = rel_path.replace('\\', "/");
+    let segments: Vec<&str> = normalized.split('/').filter(|s| !s.is_empty()).collect();
+
+    let Some(parent_idx) = segments.len().checked_sub(2) else {
+        return name.to_string();
+    };
+    let boundary = segments.iter().rposition(|s| {
+        let lower = s.to_ascii_lowercase();
+        lower.ends_with(".wad.client") || lower.ends_with(".wad") || lower == "content"
+    });
+
+    match boundary {
+        Some(b) if parent_idx <= b => name.to_string(),
+        _ => format!("{}/{}", segments[parent_idx], name),
+    }
+}
+
+/// True when `end` lands on a path separator, a quote, or anything else that can't
+/// continue a name — so `/skins` never matches inside `/skinsomething`.
+fn ends_at_boundary(text: &str, end: usize) -> bool {
+    match text[end..].chars().next() {
+        None => true,
+        Some(c) => !(c.is_alphanumeric() || c == '_' || c == '-' || c == '.'),
+    }
+}
+
+/// Replace the last segment of every `/{tail}` occurrence (case-insensitive),
+/// keeping the parent folder spelled exactly as the BIN spells it.
+fn replace_reference_tail(text: &str, tail: &str, new_name: &str) -> String {
+    let old_name_len = tail.rsplit('/').next().unwrap_or(tail).len();
+    let search = format!("/{}", tail).to_ascii_lowercase();
+    // ASCII-only lowercasing keeps byte offsets aligned with `text`.
+    let text_lower = text.to_ascii_lowercase();
+
     let mut result = String::with_capacity(text.len());
     let mut last_end = 0;
 
     for (start, _) in text_lower.match_indices(&search) {
+        let end = start + search.len();
+        if start < last_end || !ends_at_boundary(&text_lower, end) {
+            continue;
+        }
         result.push_str(&text[last_end..start]);
-        result.push_str(&replace);
-        last_end = start + search.len();
+        result.push_str(&text[start..end - old_name_len]);
+        result.push_str(new_name);
+        last_end = end;
     }
     result.push_str(&text[last_end..]);
     result
@@ -80,8 +121,9 @@ fn replace_filename_in_paths(text: &str, old_name: &str, new_name: &str) -> Stri
 ///
 /// Uses the BIN parse→text→modify→write pipeline so that different-length renames
 /// are handled correctly (string length prefixes are updated by the serializer).
-/// Matches by filename only (case-insensitive) because BIN text uses mixed-case
-/// game paths (e.g. `ASSETS/Characters/...`) that differ from the project's lowercase paths.
+/// Matches on the parent folder plus the name (case-insensitive) — never the whole
+/// path, because BIN text carries mixed-case game paths (`ASSETS/Characters/...`)
+/// whose prefix has nothing to do with the project's on-disk layout.
 fn update_bin_references(project_root: &Path, old_rel: &str, new_rel: &str) -> u32 {
     use flint_core::bin::{read_bin, write_bin, tree_to_text_cached, text_to_tree};
 
@@ -99,7 +141,8 @@ fn update_bin_references(project_root: &Path, old_rel: &str, new_rel: &str) -> u
         return 0;
     }
 
-    let old_name_lower = old_name.to_lowercase();
+    let old_tail = reference_tail(old_rel, &old_name);
+    let old_tail_lower = old_tail.to_ascii_lowercase();
 
     let mut count = 0u32;
     for entry in WalkDir::new(project_root).into_iter().filter_map(|e| e.ok()) {
@@ -117,8 +160,8 @@ fn update_bin_references(project_root: &Path, old_rel: &str, new_rel: &str) -> u
             Err(_) => continue,
         };
 
-        // Skip BIN files that don't contain the old filename at all.
-        let old_bytes = old_name_lower.as_bytes();
+        // Skip BIN files that don't carry the old path tail at all.
+        let old_bytes = old_tail_lower.as_bytes();
         let data_lower: Vec<u8> = data.iter().map(|b| b.to_ascii_lowercase()).collect();
         if !data_lower.windows(old_bytes.len()).any(|w| w == old_bytes) {
             continue;
@@ -140,7 +183,7 @@ fn update_bin_references(project_root: &Path, old_rel: &str, new_rel: &str) -> u
             }
         };
 
-        let modified_text = replace_filename_in_paths(&text, &old_name, &new_name);
+        let modified_text = replace_reference_tail(&text, &old_tail, &new_name);
         if modified_text == text {
             continue;
         }
@@ -348,3 +391,93 @@ pub async fn move_file(
     Ok(new_rel)
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const WAD: &str = "content/base/zyra.wad.client";
+
+    #[test]
+    fn the_tail_carries_the_parent_folder() {
+        assert_eq!(
+            reference_tail(
+                &format!("{}/data/characters/zyra/skins/skin27.bin", WAD),
+                "skin27.bin"
+            ),
+            "skins/skin27.bin"
+        );
+    }
+
+    #[test]
+    fn a_file_at_the_wad_root_falls_back_to_its_name() {
+        assert_eq!(
+            reference_tail(&format!("{}/skin27.bin", WAD), "skin27.bin"),
+            "skin27.bin"
+        );
+        assert_eq!(reference_tail("skin27.bin", "skin27.bin"), "skin27.bin");
+    }
+
+    #[test]
+    fn a_game_folder_named_base_is_still_a_parent() {
+        assert_eq!(
+            reference_tail(
+                &format!("{}/assets/characters/zyra/skins/base/body.tex", WAD),
+                "body.tex"
+            ),
+            "base/body.tex"
+        );
+    }
+
+    #[test]
+    fn renaming_a_skin_bin_leaves_the_animation_bin_alone() {
+        let text = concat!(
+            "link = \"DATA/Characters/Zyra/Skins/Skin27.bin\"\n",
+            "link = \"DATA/Characters/Zyra/Animations/Skin27.bin\"\n"
+        );
+        let out = replace_reference_tail(text, "skins/skin27.bin", "skin277.bin");
+        assert!(out.contains("DATA/Characters/Zyra/Skins/skin277.bin"));
+        assert!(out.contains("DATA/Characters/Zyra/Animations/Skin27.bin"));
+    }
+
+    #[test]
+    fn the_parent_keeps_the_spelling_the_bin_uses() {
+        let out = replace_reference_tail(
+            "\"ASSETS/Characters/Zyra/Skins/Base/Body.tex\"",
+            "base/body.tex",
+            "body2.tex",
+        );
+        assert_eq!(out, "\"ASSETS/Characters/Zyra/Skins/Base/body2.tex\"");
+    }
+
+    #[test]
+    fn a_longer_name_is_not_a_match() {
+        let text = "\"ASSETS/Characters/Zyra/Skins/Base/blablabla_white.tex\"";
+        assert_eq!(
+            replace_reference_tail(text, "base/white.tex", "black.tex"),
+            text
+        );
+    }
+
+    #[test]
+    fn a_folder_rename_stops_at_the_segment_boundary() {
+        let text = concat!(
+            "\"ASSETS/Characters/Zyra/Skins/Skin27/body.tex\"\n",
+            "\"ASSETS/Characters/Zyra/Skins/Skin27_extra/body.tex\"\n"
+        );
+        let out = replace_reference_tail(text, "skins/skin27", "skin277");
+        assert!(out.contains("Skins/skin277/body.tex"));
+        assert!(out.contains("Skins/Skin27_extra/body.tex"));
+    }
+
+    #[test]
+    fn every_occurrence_is_replaced() {
+        let text = concat!(
+            "\"DATA/Characters/Zyra/Skins/Skin27.bin\"\n",
+            "\"data/characters/zyra/skins/skin27.bin\"\n"
+        );
+        let out = replace_reference_tail(text, "skins/skin27.bin", "skin9.bin");
+        assert_eq!(out.matches("skin9.bin").count(), 2);
+        assert!(!out.to_ascii_lowercase().contains("skin27.bin"));
+    }
+}
