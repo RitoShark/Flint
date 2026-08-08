@@ -164,6 +164,18 @@ export function isJadeChampionId(championId: number): boolean {
 }
 
 /**
+ * The `Classic <Champ>` skin of a Jade champion — skin number 301 and up. A
+ * Jade champion also carries ports of live skins (num 0, 1, 27, …); those are
+ * moddable but are not what "League Classic" means. Champions whose current
+ * look is already the original (Ashe) have no classic skin at all.
+ */
+export const CLASSIC_SKIN_NUM_MIN = 300;
+
+export function isClassicSkin(skin: DDragonSkin): boolean {
+    return skin.num >= CLASSIC_SKIN_NUM_MIN;
+}
+
+/**
  * The League Classic roster. Same payload as {@link fetchChampions}, opposite
  * side of the id filter — `fetchChampions` keeps `id < 10000` and would
  * otherwise drop every one of these.

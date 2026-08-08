@@ -545,9 +545,15 @@ export const NewProjectModal: React.FC = () => {
         try {
             setWorking('Loading skins...');
             result = await datadragon.fetchChampionSkins(championId, alias, cdragonBranch);
+            if (roster === 'classic') {
+                result = [
+                    ...result.filter(datadragon.isClassicSkin),
+                    ...result.filter(s => !datadragon.isClassicSkin(s)),
+                ];
+            }
             setSkins(result);
-            const baseSkin = result.find(s => s.isBase) || result[0];
-            setSelectedSkin(baseSkin);
+            const preferred = roster === 'classic' ? result.find(datadragon.isClassicSkin) : undefined;
+            setSelectedSkin(preferred || result.find(s => s.isBase) || result[0]);
             setReady();
             console.info(`[NewProject] Loaded ${result.length} skins for ${alias} (id=${championId}, branch=${cdragonBranch})`);
         } catch (err) {
@@ -1243,24 +1249,7 @@ export const NewProjectModal: React.FC = () => {
 
                         <div className="np-section">
                             <div className="np-section__header">
-                                <label className="np-label">Champion</label>
-                                <div className="np-roster" role="group" aria-label="Roster">
-                                    <button
-                                        type="button"
-                                        className={`np-roster__btn${roster === 'live' ? ' np-roster__btn--active' : ''}`}
-                                        onClick={() => handleSelectRoster('live')}
-                                    >
-                                        Live
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className={`np-roster__btn${roster === 'classic' ? ' np-roster__btn--active' : ''}`}
-                                        onClick={() => handleSelectRoster('classic')}
-                                        title="League Classic — the Classic skin is Skin 301; not every champion has one"
-                                    >
-                                        League Classic
-                                    </button>
-                                </div>
+                                <label className="np-label">{roster === 'classic' ? 'Champion · League Classic' : 'Champion'}</label>
                                 <div className="np-search-wrap">
                                     <span className="np-search-icon"><Icon name="search" /></span>
                                     <input
@@ -1672,6 +1661,23 @@ export const NewProjectModal: React.FC = () => {
                                 <span className="np-pbe-toggle__thumb" />
                             </span>
                             <span className="np-pbe-toggle__label">PBE</span>
+                        </label>
+                    )}
+                    {projectType === 'skin' && (
+                        <label
+                            className={`np-pbe-toggle${roster === 'classic' ? ' np-pbe-toggle--on' : ''}`}
+                            title="Use the League Classic roster. The Classic skin is Skin 301 — not every champion has one."
+                        >
+                            <input
+                                type="checkbox"
+                                className="np-pbe-toggle__input"
+                                checked={roster === 'classic'}
+                                onChange={(e) => handleSelectRoster(e.target.checked ? 'classic' : 'live')}
+                            />
+                            <span className="np-pbe-toggle__track">
+                                <span className="np-pbe-toggle__thumb" />
+                            </span>
+                            <span className="np-pbe-toggle__label">Classic</span>
                         </label>
                     )}
                     <div className="np-footer__spacer" />
