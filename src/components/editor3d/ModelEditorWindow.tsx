@@ -3,13 +3,14 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { save } from '@tauri-apps/plugin-dialog';
 import * as api from '../../lib/api';
-import type { ModelEdit, ModelSessionInfo } from '../../lib/api/modelEdit';
+import type { ModelEdit, ModelSessionInfo, WeightEntry } from '../../lib/api/modelEdit';
 import { useModelEditorStore } from '../../lib/stores/modelEditorStore';
 import { useNotificationStore } from '../../lib/stores';
 import type { SknSceneHandle } from '../../lib/babylon/sknScene';
 import { EditorViewport } from './EditorViewport';
 import { Outliner } from './Outliner';
 import { Inspector } from './Inspector';
+import { WeightPanel } from './WeightPanel';
 import { ContextMenu } from '../overlays/ContextMenu';
 import { ConfirmDialog } from '../overlays/ConfirmDialog';
 import { ToastContainer } from '../overlays/Toast';
@@ -46,6 +47,8 @@ export const ModelEditorWindow: React.FC = () => {
     const selection = useModelEditorStore((s) => s.selection);
     const select = useModelEditorStore((s) => s.select);
     const saving = useModelEditorStore((s) => s.saving);
+    const mode = useModelEditorStore((s) => s.mode);
+    const setMode = useModelEditorStore((s) => s.setMode);
     const showToast = useNotificationStore((s) => s.showToast);
 
     const sessionIdRef = useRef<string | null>(null);
@@ -122,9 +125,9 @@ export const ModelEditorWindow: React.FC = () => {
         setReloadToken((n) => n + 1);
     }, []);
 
-    const applyEdit = useCallback(async (edit: ModelEdit) => {
+    const applyEdit = useCallback(async (edit: ModelEdit): Promise<boolean> => {
         const id = useModelEditorStore.getState().sessionId;
-        if (!id) return;
+        if (!id) return false;
         // renameSubmesh doesn't reload geometry, so the old name must be captured here to fix up the live scene's mesh name and hidden-set key, or they go stale silently.
         const oldName = edit.kind === 'renameSubmesh'
             ? useModelEditorStore.getState().summary?.submeshes[edit.index]?.name
@@ -140,13 +143,27 @@ export const ModelEditorWindow: React.FC = () => {
                 useModelEditorStore.getState().renameJointName(edit.index, edit.name);
             }
             setOpError(null);
-            if (edit.kind !== 'renameSubmesh' && edit.kind !== 'reorderSubmesh' && edit.kind !== 'renameJoint') {
-                await reloadGeometry();
-            }
+            const geometryUnchanged =
+                edit.kind === 'renameSubmesh' ||
+                edit.kind === 'reorderSubmesh' ||
+                edit.kind === 'renameJoint' ||
+                // The viewport already holds the painted weights; reloading would rebuild the scene and throw the brush state away.
+                edit.kind === 'paintWeights';
+            if (!geometryUnchanged) await reloadGeometry();
+            return true;
         } catch (err) {
             setOpError(String(err));
+            return false;
         }
     }, [reloadGeometry]);
+
+    // A rejected stroke leaves the viewport's own weight buffers ahead of the session, so the
+    // geometry is re-derived to pull them back in sync with what is actually staged.
+    const handlePaint = useCallback(async (entries: WeightEntry[]) => {
+        if (entries.length === 0) return;
+        const ok = await applyEdit({ kind: 'paintWeights', entries });
+        if (!ok) await reloadGeometry();
+    }, [applyEdit, reloadGeometry]);
 
     const handleIsolate = useCallback((name: string | null) => {
         sknHandleRef.current?.setIsolated(name);
@@ -310,6 +327,22 @@ export const ModelEditorWindow: React.FC = () => {
             <header className="m3d__topbar">
                 <span className="m3d__filename">{fileName}</span>
                 {summary?.dirty && <span className="m3d__dirty" aria-label="Unsaved changes">●</span>}
+                <div className="m3d__seg m3d__seg--topbar">
+                    <button
+                        type="button"
+                        className={`m3d__seg-btn ${mode === 'object' ? 'm3d__seg-btn--active' : ''}`}
+                        onClick={() => setMode('object')}
+                    >
+                        Model
+                    </button>
+                    <button
+                        type="button"
+                        className={`m3d__seg-btn ${mode === 'weights' ? 'm3d__seg-btn--active' : ''}`}
+                        onClick={() => setMode('weights')}
+                    >
+                        Weights
+                    </button>
+                </div>
                 <div className="m3d__topbar-actions">
                     <button type="button" className="m3d__btn" onClick={handleUndo} disabled={!summary?.canUndo}>
                         Undo
@@ -353,11 +386,12 @@ export const ModelEditorWindow: React.FC = () => {
                         sknPath={target.skn}
                         reloadToken={reloadToken}
                         onPick={(name) => select(name ? { kind: 'submesh', name } : null)}
+                        onPaint={handlePaint}
                         handleRef={sknHandleRef}
                     />
                 </main>
                 <aside className="m3d__dock m3d__dock--right">
-                    {session && <Inspector />}
+                    {session && (mode === 'weights' ? <WeightPanel onPaint={handlePaint} /> : <Inspector />)}
                 </aside>
             </div>
             <footer className="m3d__status">

@@ -15,7 +15,7 @@ import type { ModelEdit } from '../../lib/api/modelEdit';
 import type { Selection } from '../../lib/stores/modelEditorStore';
 
 export interface OutlinerProps {
-    onEdit: (edit: ModelEdit) => Promise<void>;
+    onEdit: (edit: ModelEdit) => Promise<boolean>;
     onIsolate: (name: string | null) => void;
 }
 

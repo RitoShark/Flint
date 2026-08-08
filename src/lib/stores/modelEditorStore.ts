@@ -3,11 +3,22 @@ import type { ModelSummary, ModelSessionInfo } from '../api/modelEdit';
 import type { SklData } from '../babylon/skeletonBuilder';
 import type { AnimationList } from '../api/mesh';
 import { baselineHiddenLower, namesHiddenBy } from '../editor3d/submeshBaseline';
+import type { BrushSettings, Influence } from '../editor3d/weightPaint';
+import type { SkeletonOverlayMode } from '../babylon/sknScene';
 
 export type Selection =
     | { kind: 'submesh'; name: string }
     | { kind: 'joint'; id: number }
     | null;
+
+export type EditorMode = 'object' | 'weights';
+
+export interface SampledVertex {
+    vertex: number;
+    influences: Influence[];
+}
+
+const DEFAULT_BRUSH: BrushSettings = { mode: 'add', radius: 1, strength: 0.4, falloff: 2 };
 
 export interface SubmeshClipboard {
     sourceSkn: string;
@@ -29,6 +40,20 @@ interface ModelEditorState {
     activeForm: number;
     hiddenNames: Set<string>;
     hiddenOverridden: boolean;
+
+    mode: EditorMode;
+    skeletonOverlay: SkeletonOverlayMode;
+    skeletonXray: boolean;
+    activeJointId: number | null;
+    brush: BrushSettings;
+    sampledVertex: SampledVertex | null;
+
+    setMode(mode: EditorMode): void;
+    setSkeletonOverlay(mode: SkeletonOverlayMode): void;
+    setSkeletonXray(on: boolean): void;
+    setActiveJointId(id: number | null): void;
+    setBrush(patch: Partial<BrushSettings>): void;
+    setSampledVertex(sample: SampledVertex | null): void;
 
     setSession(info: ModelSessionInfo, skeleton: SklData | null): void;
     applySummary(summary: ModelSummary): void;
@@ -61,6 +86,25 @@ export const useModelEditorStore = create<ModelEditorState>((set, get) => ({
     activeForm: -1,
     hiddenNames: new Set(),
     hiddenOverridden: false,
+
+    mode: 'object',
+    skeletonOverlay: 'off',
+    skeletonXray: true,
+    activeJointId: null,
+    brush: DEFAULT_BRUSH,
+    sampledVertex: null,
+
+    setMode: (mode) => {
+        const next: Partial<ModelEditorState> = { mode, sampledVertex: null };
+        // Weight mode is useless without the rig on screen, and Maya turns X-ray on with it.
+        if (mode === 'weights' && get().skeletonOverlay === 'off') next.skeletonOverlay = 'joints';
+        set(next);
+    },
+    setSkeletonOverlay: (skeletonOverlay) => set({ skeletonOverlay }),
+    setSkeletonXray: (skeletonXray) => set({ skeletonXray }),
+    setActiveJointId: (activeJointId) => set({ activeJointId }),
+    setBrush: (patch) => set({ brush: { ...get().brush, ...patch } }),
+    setSampledVertex: (sampledVertex) => set({ sampledVertex }),
 
     setSession: (info, skeleton) =>
         set({
@@ -130,5 +174,11 @@ export const useModelEditorStore = create<ModelEditorState>((set, get) => ({
             activeForm: -1,
             hiddenNames: new Set(),
             hiddenOverridden: false,
+            mode: 'object',
+            skeletonOverlay: 'off',
+            skeletonXray: true,
+            activeJointId: null,
+            brush: DEFAULT_BRUSH,
+            sampledVertex: null,
         }),
 }));

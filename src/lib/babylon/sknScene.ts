@@ -9,7 +9,8 @@ import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Material } from '@babylonjs/core/Materials/material';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import { CubeTexture } from '@babylonjs/core/Materials/Textures/cubeTexture';
-import { Vector3, Color3, Color4 } from '@babylonjs/core/Maths/math';
+import { Vector3, Color3, Color4, Matrix } from '@babylonjs/core/Maths/math';
+import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import { CreateLineSystem } from '@babylonjs/core/Meshes/Builders/linesBuilder';
 import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder';
 import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder';
@@ -46,19 +47,39 @@ export interface SknSkeletonMetadata {
     joints: BoneData[];
 }
 
+export interface SknSubmeshRange {
+    name: string;
+    startVertex: number;
+    vertexCount: number;
+}
+
+export interface SurfaceHit {
+    point: Vector3;
+    submesh: string;
+}
+
 export interface SknSceneHandle {
     loadMesh(mesh: SknMeshData | ScbMeshData, skeleton: SklData | null): Promise<void>;
     setSubmeshVisible(name: string, visible: boolean): void;
     setIsolated(name: string | null): void;
     setWireframe(on: boolean): void;
     setSkeletonOverlay(mode: SkeletonOverlayMode): void;
+    setSkeletonXray(on: boolean): void;
     setSelection(name: string | null): void;
     frameCamera(): void;
     pickAt(x: number, y: number): string | null;
+    pickSurfaceAt(x: number, y: number): SurfaceHit | null;
+    pickJointAt(x: number, y: number): number | null;
+    projectRadiusToPixels(point: Vector3, worldRadius: number): number;
     renameSubmesh(oldName: string, newName: string): void;
     setSkyboxVisible(on: boolean): void;
     setFloorMode(mode: FloorMode): void;
     getActiveMeshes(): Mesh[];
+    getSubmeshRanges(): SknSubmeshRange[];
+    setVertexColors(colors: Float32Array | null): void;
+    updateVertexColors(colors: Float32Array, submeshNames: Iterable<string>): void;
+    updateSkinning(jointIds: Uint16Array, weights: Float32Array): void;
+    setOrbitOnSecondaryButtons(on: boolean): void;
     readonly scene: Scene;
     dispose(): void;
 }
@@ -163,6 +184,13 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
     let currentSklData: SklData | null = null;
     let skeletonViewer: SkeletonViewer | null = null;
     let skeletonOverlayMesh: Mesh | null = null;
+    let skeletonOverlayMode: SkeletonOverlayMode = 'off';
+    let skeletonXray = false;
+    let jointPickRadius = 1;
+
+    let submeshRanges: SknSubmeshRange[] = [];
+    const shadedMaterialByMesh = new Map<string, Material>();
+    let weightMaterial: PBRMaterial | null = null;
 
     let selectedMesh: Mesh | null = null;
     let selectedOriginalEmissive: Color3 | null = null;
@@ -365,8 +393,27 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
         skeletonOverlayMesh = null;
     }
 
+    // Rendering group 2 rather than a depth-func override: Babylon clears the depth buffer between
+    // rendering groups by default, so a higher group is drawn on top of the model for free.
+    function applyXrayTo(mesh: { renderingGroupId: number; material?: Material | null } | null): void {
+        if (!mesh) return;
+        mesh.renderingGroupId = skeletonXray ? 2 : 1;
+        const mat = mesh.material as StandardMaterial | null | undefined;
+        if (mat) {
+            mat.disableDepthWrite = skeletonXray;
+            mat.alpha = skeletonXray ? 0.9 : 1;
+        }
+    }
+
+    function applyXrayToOverlay(): void {
+        applyXrayTo(skeletonOverlayMesh);
+        const debugMesh = skeletonViewer?.debugMesh;
+        if (debugMesh) applyXrayTo(debugMesh as unknown as Mesh);
+    }
+
     function setSkeletonOverlay(mode: SkeletonOverlayMode): void {
         disposeSkeletonOverlay();
+        skeletonOverlayMode = mode;
 
         if (mode === 'off') return;
 
@@ -378,6 +425,7 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
                     console.error('Failed to build skeleton viewer:', e);
                 }
             }
+            applyXrayToOverlay();
             return;
         }
 
@@ -390,9 +438,19 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
         } catch (e) {
             console.error(`Failed to build skeleton ${mode} overlay:`, e);
         }
+        applyXrayToOverlay();
+    }
+
+    function setSkeletonXray(on: boolean): void {
+        skeletonXray = on;
+        applyXrayToOverlay();
     }
 
     function disposeCurrentGeometry(): void {
+        // Puts each mesh's own material back first, or the loop below disposes the shared weight
+        // material N times and leaks every textured material it was standing in for.
+        setVertexColors(null);
+
         // Texture cache is disposed before meshes/materials; this double-disposes any texture also referenced via mat.albedoTexture, which Babylon tolerates safely.
         currentTextureCache.forEach(tex => tex.dispose());
         currentTextureCache = new Map();
@@ -411,6 +469,10 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
         isolated = null;
         selectedMesh = null;
         selectedOriginalEmissive = null;
+        submeshRanges = [];
+        shadedMaterialByMesh.clear();
+        weightMaterial?.dispose();
+        weightMaterial = null;
 
         if (currentSkeleton) {
             currentSkeleton.dispose();
@@ -489,6 +551,28 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
         for (const m of meshes) {
             m.renderingGroupId = 1;
             meshByName.set(m.name, m);
+        }
+        submeshRanges = meshDto.submeshes.map((s) => ({
+            name: s.name,
+            startVertex: s.start_vertex,
+            vertexCount: s.vertex_count,
+        }));
+
+        if (skeleton && skeleton.bones.length > 0) {
+            const lo = [Infinity, Infinity, Infinity];
+            const hi = [-Infinity, -Infinity, -Infinity];
+            for (const b of skeleton.bones) {
+                for (let a = 0; a < 3; a++) {
+                    const v = b.world_position[a];
+                    if (!Number.isFinite(v)) continue;
+                    if (v < lo[a]) lo[a] = v;
+                    if (v > hi[a]) hi[a] = v;
+                }
+            }
+            const span = (a: number) => (Number.isFinite(hi[a] - lo[a]) ? hi[a] - lo[a] : 0);
+            const diagonal = Math.hypot(span(0), span(1), span(2));
+            // ~2.5× the marker radius buildSkeletonJoints draws, so hovering a joint doesn't need pixel precision.
+            jointPickRadius = Math.max(0.1, diagonal * 0.012);
         }
 
         const textureCache = new Map<string, Texture>();
@@ -668,6 +752,13 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
         mesh.name = newName;
         meshByName.delete(oldName);
         meshByName.set(newName, mesh);
+        const range = submeshRanges.find((r) => r.name === oldName);
+        if (range) range.name = newName;
+        const shaded = shadedMaterialByMesh.get(oldName);
+        if (shaded) {
+            shadedMaterialByMesh.delete(oldName);
+            shadedMaterialByMesh.set(newName, shaded);
+        }
         if (explicitlyHidden.delete(oldName)) explicitlyHidden.add(newName);
         if (isolated === oldName) isolated = newName;
     }
@@ -681,6 +772,136 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
     function pickAt(x: number, y: number): string | null {
         const pickInfo = scene.pick(x, y);
         return pickInfo.pickedMesh?.name ?? null;
+    }
+
+    function pickSurfaceAt(x: number, y: number): SurfaceHit | null {
+        const pickInfo = scene.pick(x, y, (m) => m.isEnabled() && meshByName.has(m.name));
+        if (!pickInfo?.hit || !pickInfo.pickedPoint || !pickInfo.pickedMesh) return null;
+        return { point: pickInfo.pickedPoint.clone(), submesh: pickInfo.pickedMesh.name };
+    }
+
+    // Ray-vs-point against the bind-pose joint positions rather than GPU picking: it is exact against
+    // what the overlay draws, needs no proxy geometry, and 200 joints is nothing on the CPU.
+    function pickJointAt(x: number, y: number): number | null {
+        if (skeletonOverlayMode === 'off' || !currentSklData) return null;
+        const bones = currentSklData.bones;
+        if (bones.length === 0) return null;
+
+        const ray = scene.createPickingRay(x, y, Matrix.Identity(), camera);
+        const r2 = jointPickRadius * jointPickRadius;
+        let best = -1;
+        let bestDistanceAlongRay = Infinity;
+
+        for (let i = 0; i < bones.length; i++) {
+            const [px, py, pz] = bones[i].world_position;
+            if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) continue;
+            const dx = px - ray.origin.x;
+            const dy = py - ray.origin.y;
+            const dz = pz - ray.origin.z;
+            const along = dx * ray.direction.x + dy * ray.direction.y + dz * ray.direction.z;
+            if (along < 0) continue;
+            const perpX = dx - ray.direction.x * along;
+            const perpY = dy - ray.direction.y * along;
+            const perpZ = dz - ray.direction.z * along;
+            if (perpX * perpX + perpY * perpY + perpZ * perpZ > r2) continue;
+            if (along < bestDistanceAlongRay) {
+                bestDistanceAlongRay = along;
+                best = i;
+            }
+        }
+        return best >= 0 ? best : null;
+    }
+
+    function projectRadiusToPixels(point: Vector3, worldRadius: number): number {
+        const view = scene.getViewMatrix();
+        const projection = scene.getProjectionMatrix();
+        const viewport = camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight());
+        const centre = Vector3.Project(point, Matrix.Identity(), view.multiply(projection), viewport);
+        const right = camera.getDirection(Vector3.Right()).scale(worldRadius).addInPlace(point);
+        const edge = Vector3.Project(right, Matrix.Identity(), view.multiply(projection), viewport);
+        return Math.hypot(edge.x - centre.x, edge.y - centre.y) / engine.getHardwareScalingLevel();
+    }
+
+    function ensureWeightMaterial(): PBRMaterial {
+        if (weightMaterial) return weightMaterial;
+        const mat = new PBRMaterial('weight-paint-mat', scene);
+        mat.unlit = true;
+        mat.albedoColor = new Color3(1, 1, 1);
+        mat.metallic = 0;
+        mat.roughness = 1;
+        mat.environmentIntensity = 0;
+        mat.backFaceCulling = false;
+        mat.transparencyMode = Material.MATERIAL_OPAQUE;
+        weightMaterial = mat;
+        return mat;
+    }
+
+    function writeSubmeshColors(mesh: Mesh, range: SknSubmeshRange, colors: Float32Array, update: boolean): void {
+        const slice = new Float32Array(range.vertexCount * 4);
+        slice.set(colors.subarray(range.startVertex * 4, (range.startVertex + range.vertexCount) * 4));
+        if (update && mesh.isVerticesDataPresent(VertexBuffer.ColorKind)) {
+            mesh.updateVerticesData(VertexBuffer.ColorKind, slice);
+        } else {
+            mesh.setVerticesData(VertexBuffer.ColorKind, slice, true, 4);
+        }
+    }
+
+    function setVertexColors(colors: Float32Array | null): void {
+        if (!colors) {
+            for (const mesh of meshes) {
+                mesh.useVertexColors = false;
+                const original = shadedMaterialByMesh.get(mesh.name);
+                if (original) mesh.material = original;
+            }
+            shadedMaterialByMesh.clear();
+            return;
+        }
+
+        const weightMat = ensureWeightMaterial();
+        weightMat.wireframe = currentWireframe;
+        for (let i = 0; i < meshes.length; i++) {
+            const mesh = meshes[i];
+            const range = submeshRanges[i];
+            if (!range) continue;
+            if (mesh.material && mesh.material !== weightMat && !shadedMaterialByMesh.has(mesh.name)) {
+                shadedMaterialByMesh.set(mesh.name, mesh.material);
+            }
+            writeSubmeshColors(mesh, range, colors, false);
+            mesh.useVertexColors = true;
+            mesh.material = weightMat;
+        }
+    }
+
+    function updateVertexColors(colors: Float32Array, submeshNames: Iterable<string>): void {
+        const wanted = new Set(submeshNames);
+        for (let i = 0; i < meshes.length; i++) {
+            const range = submeshRanges[i];
+            if (!range || !wanted.has(range.name)) continue;
+            writeSubmeshColors(meshes[i], range, colors, true);
+        }
+    }
+
+    // jointIds carry the SKL joint id, matching the matricesIndices convention meshBuilder writes.
+    function updateSkinning(jointIds: Uint16Array, weights: Float32Array): void {
+        for (let i = 0; i < meshes.length; i++) {
+            const mesh = meshes[i];
+            const range = submeshRanges[i];
+            if (!range || !mesh.isVerticesDataPresent(VertexBuffer.MatricesIndicesKind)) continue;
+            const from = range.startVertex * 4;
+            const to = from + range.vertexCount * 4;
+            const indexSlice = new Float32Array(range.vertexCount * 4);
+            for (let k = from; k < to; k++) indexSlice[k - from] = jointIds[k];
+            mesh.updateVerticesData(VertexBuffer.MatricesIndicesKind, indexSlice);
+            mesh.updateVerticesData(VertexBuffer.MatricesWeightsKind, weights.slice(from, to));
+        }
+    }
+
+    // Frees the left button for brush strokes: middle-drag orbits, right-drag pans.
+    function setOrbitOnSecondaryButtons(on: boolean): void {
+        const pointers = camera.inputs.attached.pointers as { buttons?: number[] } | undefined;
+        if (!pointers?.buttons) return;
+        pointers.buttons.length = 0;
+        pointers.buttons.push(...(on ? [1, 2] : [0, 1, 2]));
     }
 
     function dispose(): void {
@@ -712,13 +933,22 @@ export function createSknScene(canvas: HTMLCanvasElement, opts?: SknSceneOptions
         setIsolated,
         setWireframe,
         setSkeletonOverlay,
+        setSkeletonXray,
         setSelection,
         frameCamera,
         pickAt,
+        pickSurfaceAt,
+        pickJointAt,
+        projectRadiusToPixels,
         renameSubmesh,
         setSkyboxVisible,
         setFloorMode,
         getActiveMeshes: () => meshes.slice(),
+        getSubmeshRanges: () => submeshRanges.slice(),
+        setVertexColors,
+        updateVertexColors,
+        updateSkinning,
+        setOrbitOnSecondaryButtons,
         scene,
         dispose,
     };

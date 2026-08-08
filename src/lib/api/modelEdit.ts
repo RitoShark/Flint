@@ -13,6 +13,7 @@ export interface ModelSummary {
     vertexCount: number;
     indexCount: number;
     influenceCount: number;
+    influences: number[];
     dirty: boolean;
     canUndo: boolean;
     canRedo: boolean;
@@ -40,7 +41,14 @@ export type ModelEdit =
     | { kind: 'deleteSubmesh'; index: number }
     | { kind: 'reorderSubmesh'; from: number; to: number }
     | { kind: 'pasteSubmesh'; sourceSkn: string; sourceIndex: number; name: string }
-    | { kind: 'renameJoint'; index: number; name: string };
+    | { kind: 'renameJoint'; index: number; name: string }
+    | { kind: 'paintWeights'; entries: WeightEntry[] };
+
+export interface WeightEntry {
+    vertex: number;
+    joints: number[];
+    weights: number[];
+}
 
 export interface BinBoneRef {
     file: string;

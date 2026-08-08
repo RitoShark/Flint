@@ -492,3 +492,180 @@
     color: var(--text-muted);
     font-size: 11px;
 }
+
+.m3d__seg {
+    display: flex;
+    align-items: stretch;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+}
+.m3d__seg--topbar { margin-left: 12px; height: 26px; }
+.m3d__seg-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 1 1 auto;
+    padding: 4px 10px;
+    background: var(--bg-tertiary);
+    border: none;
+    border-right: 1px solid var(--border);
+    color: var(--text-secondary);
+    font: inherit;
+    cursor: pointer;
+}
+.m3d__seg-btn:last-child { border-right: none; }
+.m3d__seg-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.m3d__seg-btn--active {
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+}
+
+.m3d__skeleton-popup {
+    position: absolute;
+    top: 48px;
+    right: 10px;
+    width: 240px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0 0 10px;
+    background: color-mix(in oklab, var(--bg-secondary) 92%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    z-index: 10;
+}
+.m3d__skeleton-popup .m3d__seg { margin: 0 10px; }
+.m3d__skeleton-popup .m3d__hint { padding: 0 10px; }
+
+.m3d__check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 10px;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+.m3d__check input { margin: 0; }
+
+.m3d__joint-tip {
+    position: absolute;
+    padding: 3px 7px;
+    background: color-mix(in oklab, var(--bg-secondary) 94%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-primary);
+    font-size: 12px;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 12;
+}
+
+.m3d__brush-ring {
+    position: absolute;
+    border: 1px solid var(--accent-primary);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 11;
+}
+
+.m3d__paint-notice {
+    position: absolute;
+    left: 50%;
+    bottom: 12px;
+    transform: translateX(-50%);
+    max-width: 70%;
+    padding: 6px 10px;
+    background: color-mix(in oklab, var(--bg-secondary) 94%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 11;
+}
+
+.m3d__weights { display: flex; flex-direction: column; gap: 8px; }
+
+.m3d__slider {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.m3d__slider-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+.m3d__slider-value { color: var(--text-primary); }
+.m3d__slider input { width: 100%; }
+
+.m3d__joint-list {
+    display: flex;
+    flex-direction: column;
+    max-height: 220px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+}
+.m3d__joint-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.m3d__joint-row:hover { background: var(--bg-hover); color: var(--text-primary); }
+.m3d__joint-row--active {
+    background: color-mix(in oklab, var(--accent-primary) 24%, transparent);
+    color: var(--text-primary);
+}
+.m3d__joint-name {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.m3d__joint-unbound {
+    flex: 0 0 auto;
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.m3d__influence {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.m3d__influence-swatch {
+    flex: 0 0 auto;
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+}
+.m3d__influence-name {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-secondary);
+}
+.m3d__influence-input {
+    flex: 0 0 68px;
+    height: 22px;
+    padding: 0 6px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-primary);
+    font: inherit;
+}
