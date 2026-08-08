@@ -8,6 +8,7 @@ import * as api from '../../lib/api';
 import { listen } from '@tauri-apps/api/event';
 import { useFolderDrop } from '../../lib/folderDrop';
 import { openOrImportFolder, isSameProjectPath } from '../../lib/projectOpen';
+import { isJadeAlias, liveChampionAlias } from '../../lib/data/datadragon';
 import type { SavedProject } from '../../lib/types';
 
 type SortMode = 'recent' | 'name' | 'champion';
@@ -22,14 +23,17 @@ function projectSubtitle(p: SavedProject): string {
     if (p.kind === 'tft') return p.champion ? `TFT · ${p.champion} · Will be removed` : 'TFT · Will be removed';
     if (p.kind === 'map') return p.mapId ? `Map · ${p.mapId}` : 'Map';
     if (p.kind === 'loading-screen') return 'Loading Screen';
-    return p.champion || 'Project';
+    if (!p.champion) return 'Project';
+    return isJadeAlias(p.champion)
+        ? `${liveChampionAlias(p.champion)} · Classic`
+        : p.champion;
 }
 
 function monogram(p: SavedProject): string {
     if (p.kind === 'tft') return 'TF';
     if (p.kind === 'map') return 'M';
     if (p.kind === 'loading-screen') return 'LS';
-    const c = (p.champion || p.name || '?').trim();
+    const c = liveChampionAlias((p.champion || p.name || '?').trim()).trim();
     if (!c) return '?';
     if (c.length <= 2) return c.toUpperCase();
     return (c[0] + c[1]).toUpperCase();
@@ -83,7 +87,7 @@ function normalizeChampionAlias(alias: string): string {
 /** Only valid for skin projects with a real champion alias; map /
  *  loading-screen projects fall back to the monogram tile. */
 function championSplashUrl(alias: string): string {
-    const normalized = normalizeChampionAlias(alias);
+    const normalized = normalizeChampionAlias(liveChampionAlias(alias));
     return `https://ddragon.leagueoflegends.com/cdn/img/champion/loading/${normalized}_0.jpg`;
 }
 

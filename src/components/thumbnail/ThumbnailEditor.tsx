@@ -11,6 +11,7 @@ import { loadStoredPresets, saveStoredPresets } from '../../lib/thumbnail/preset
 import { composeThumbnail, ExportFormat, resolveOutputSize } from '../../lib/thumbnail/export';
 import { saveThumbnail } from '../../lib/api/thumbnail';
 import { openProject } from '../../lib/api/project';
+import { liveChampionAlias } from '../../lib/data/datadragon';
 import { useNotificationStore } from '../../lib/stores';
 import { ThumbnailArtboard, ThumbnailArtboardHandle } from './ThumbnailArtboard';
 import { LayersPanel } from './LayersPanel';
@@ -180,7 +181,7 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
       try {
         const p = await openProject(project);
         const modName = (p.display_name || p.name || '').trim();
-        const champ = (p.champion || '').trim();
+        const champ = liveChampionAlias((p.champion || '').trim());
         const champName = champ
           ? champ.charAt(0).toUpperCase() + champ.slice(1)
           : (p.creator || '').trim();

@@ -175,6 +175,20 @@ export function isClassicSkin(skin: DDragonSkin): boolean {
     return skin.num >= CLASSIC_SKIN_NUM_MIN;
 }
 
+export function isJadeAlias(alias: string): boolean {
+    return /^jade_/i.test(alias);
+}
+
+/**
+ * `Jade_Ahri` → `Ahri`. A League Classic project stores the jade alias (the
+ * character folder), but DDragon has no Jade entries and CDragon keys its
+ * icons by numeric id, so anything looking a champion up BY ALIAS — splash
+ * art, display labels — has to ask for the live champion.
+ */
+export function liveChampionAlias(alias: string): string {
+    return isJadeAlias(alias) ? alias.slice('jade_'.length) : alias;
+}
+
 /**
  * The League Classic roster. Same payload as {@link fetchChampions}, opposite
  * side of the id filter — `fetchChampions` keeps `id < 10000` and would
