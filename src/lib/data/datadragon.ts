@@ -35,8 +35,17 @@ export interface DDragonSkin {
     chromas?: DDragonChroma[];
 }
 
+/**
+ * League Classic (internal codename "Jade") champions live in the same
+ * `champion-summary.json` under `id = 60000 + liveId` with `alias = "Jade_<X>"`.
+ * DataDragon has no Jade data at all, so CDragon is the only source.
+ */
+export const JADE_ID_MIN = 60000;
+export const JADE_ID_MAX = 70000;
+
 let cachedPatch: string | null = null;
 const cachedChampionsByBranch = new Map<CDragonBranch, DDragonChampion[]>();
+const cachedJadeChampionsByBranch = new Map<CDragonBranch, DDragonChampion[]>();
 
 const imageBlobCache = new Map<string, string>();
 const imageFetchQueue = new Map<string, Promise<string>>();
@@ -80,9 +89,12 @@ export async function preloadChampionIcons(champions: DDragonChampion[], branch:
 
 /** Preloads the centered loading-screen splash via CDragon (whitelisted in CSP). */
 export async function preloadSkinSplashes(championId: number, skins: DDragonSkin[], branch: CDragonBranch = "latest"): Promise<void> {
-    const batch = skins.map(s => {
+    const batch = skins.flatMap(s => {
         const centered = getSkinCenteredSplashUrl(s, branch);
-        return preloadImage(centered ?? getSkinSplashCDragonUrl(championId, s.id, branch));
+        if (centered) return [preloadImage(centered)];
+        // CDragon serves no champion-splashes entries for Jade ids.
+        if (isJadeChampionId(championId)) return [];
+        return [preloadImage(getSkinSplashCDragonUrl(championId, s.id, branch))];
     });
     await Promise.allSettled(batch);
 }
@@ -145,6 +157,36 @@ export async function fetchChampions(branch: CDragonBranch = "latest"): Promise<
         console.error(`Failed to fetch champions (${branch}):`, error);
         throw error;
     }
+}
+
+export function isJadeChampionId(championId: number): boolean {
+    return championId >= JADE_ID_MIN && championId < JADE_ID_MAX;
+}
+
+/**
+ * The League Classic roster. Same payload as {@link fetchChampions}, opposite
+ * side of the id filter — `fetchChampions` keeps `id < 10000` and would
+ * otherwise drop every one of these.
+ */
+export async function fetchJadeChampions(branch: CDragonBranch = "latest"): Promise<DDragonChampion[]> {
+    const cached = cachedJadeChampionsByBranch.get(branch);
+    if (cached) return cached;
+
+    const url = `${cdragonBase(branch)}/champion-summary.json`;
+    interface ChampionSummary {
+        id: number;
+        name: string;
+        alias: string;
+    }
+    const champions = await fetchWithRetry<ChampionSummary[]>(url);
+
+    const mapped = champions
+        .filter(c => isJadeChampionId(c.id))
+        .map(c => ({ id: c.id, name: c.name, alias: c.alias }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+    cachedJadeChampionsByBranch.set(branch, mapped);
+    return mapped;
 }
 
 /** Fetch with a timeout (no retries — fail fast). */
@@ -294,6 +336,7 @@ export function getSkinCenteredSplashUrl(skin: DDragonSkin, branch: CDragonBranc
 export function clearCache(): void {
     cachedPatch = null;
     cachedChampionsByBranch.clear();
+    cachedJadeChampionsByBranch.clear();
     for (const blobUrl of imageBlobCache.values()) {
         URL.revokeObjectURL(blobUrl);
     }

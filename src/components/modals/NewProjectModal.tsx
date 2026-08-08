@@ -120,6 +120,7 @@ export const NewProjectModal: React.FC = () => {
     };
     useEffect(() => () => { if (chromaPreviewTimerRef.current) clearTimeout(chromaPreviewTimerRef.current); }, []);
     const [usePbe, setUsePbe] = useState(false);
+    const [roster, setRoster] = useState<'live' | 'classic'>('live');
     const cdragonBranch: 'pbe' | 'latest' = usePbe ? 'pbe' : 'latest';
     const effectiveLeaguePath = usePbe ? configStore.leaguePathPbe : leaguePath;
 
@@ -206,7 +207,15 @@ export const NewProjectModal: React.FC = () => {
             loadChampions();
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isVisible, usePbe]);
+    }, [isVisible, usePbe, roster]);
+
+    const handleSelectRoster = (next: 'live' | 'classic') => {
+        if (next === roster) return;
+        setSelectedChampion(null);
+        setChampions([]);
+        setChampionSearch('');
+        setRoster(next);
+    };
 
     useEffect(() => {
         if (selectedChampion) {
@@ -505,16 +514,19 @@ export const NewProjectModal: React.FC = () => {
 
     const loadChampions = async () => {
         let result: datadragon.DDragonChampion[];
+        const rosterLabel = roster === 'classic' ? 'League Classic ' : usePbe ? 'PBE ' : '';
         try {
-            setWorking(usePbe ? 'Loading PBE champions...' : 'Loading champions...');
-            result = await datadragon.fetchChampions(cdragonBranch);
+            setWorking(`Loading ${rosterLabel}champions...`);
+            result = roster === 'classic'
+                ? await datadragon.fetchJadeChampions(cdragonBranch)
+                : await datadragon.fetchChampions(cdragonBranch);
             setChampions(result);
             setReady();
-            console.info(`[NewProject] Loaded ${result.length} champions from CDragon (${cdragonBranch})`);
+            console.info(`[NewProject] Loaded ${result.length} ${roster} champions from CDragon (${cdragonBranch})`);
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            console.error(`[NewProject] fetchChampions(${cdragonBranch}) failed: ${msg}`, err);
-            showToast('error', `Failed to load ${usePbe ? 'PBE ' : ''}champions — see log panel`);
+            console.error(`[NewProject] fetchChampions(roster=${roster}, ${cdragonBranch}) failed: ${msg}`, err);
+            showToast('error', `Failed to load ${rosterLabel}champions — see log panel`);
             setReady();
             return;
         }
@@ -1232,6 +1244,23 @@ export const NewProjectModal: React.FC = () => {
                         <div className="np-section">
                             <div className="np-section__header">
                                 <label className="np-label">Champion</label>
+                                <div className="np-roster" role="group" aria-label="Roster">
+                                    <button
+                                        type="button"
+                                        className={`np-roster__btn${roster === 'live' ? ' np-roster__btn--active' : ''}`}
+                                        onClick={() => handleSelectRoster('live')}
+                                    >
+                                        Live
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className={`np-roster__btn${roster === 'classic' ? ' np-roster__btn--active' : ''}`}
+                                        onClick={() => handleSelectRoster('classic')}
+                                        title="League Classic — the Classic skin is Skin 301; not every champion has one"
+                                    >
+                                        League Classic
+                                    </button>
+                                </div>
                                 <div className="np-search-wrap">
                                     <span className="np-search-icon"><Icon name="search" /></span>
                                     <input
