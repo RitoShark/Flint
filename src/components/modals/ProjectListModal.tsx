@@ -19,7 +19,7 @@ const SORT_OPTIONS = [
 ] as const;
 
 function projectSubtitle(p: SavedProject): string {
-    if (p.kind === 'tft') return p.champion ? `TFT · ${p.champion}` : 'TFT';
+    if (p.kind === 'tft') return p.champion ? `TFT · ${p.champion} · Will be removed` : 'TFT · Will be removed';
     if (p.kind === 'map') return p.mapId ? `Map · ${p.mapId}` : 'Map';
     if (p.kind === 'loading-screen') return 'Loading Screen';
     return p.champion || 'Project';

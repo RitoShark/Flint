@@ -1149,7 +1149,7 @@ export const NewProjectModal: React.FC = () => {
                         </button>
 
                         <button
-                            className={`np-type-card np-type-card--experimental${projectType === 'tft' ? ' np-type-card--active' : ''}`}
+                            className={`np-type-card np-type-card--deprecated${projectType === 'tft' ? ' np-type-card--active' : ''}`}
                             onClick={() => handleSelectExperimentalType('tft')}
                         >
                             <div className="np-type-card__glow" />
@@ -1159,6 +1159,7 @@ export const NewProjectModal: React.FC = () => {
                                 </svg>
                             </div>
                             <span className="np-type-card__label">TFT</span>
+                            <span className="np-type-card__badge">Will be removed</span>
                         </button>
                     </div>
 
@@ -2034,9 +2035,19 @@ export const NewProjectModal: React.FC = () => {
                                 <path d="M12 9v5M12 16.5v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                             </svg>
                         </div>
-                        <h3 className="np-experimental-dialog__title">Experimental Feature</h3>
+                        <h3 className="np-experimental-dialog__title">
+                            {experimentalWarning === 'tft' ? 'TFT support is going away' : 'Experimental Feature'}
+                        </h3>
                         <p className="np-experimental-dialog__body">
-                            <strong>{experimentalWarning === 'tft' ? 'TFT' : 'Map'} projects</strong> are experimental and may not work as intended. Proceed with caution.
+                            {experimentalWarning === 'tft' ? (
+                                <>
+                                    TFT is moving to Unreal Engine, and I can't commit to maintaining support for it.
+                                    As long as Riot keeps the existing companions on the current engine this will keep
+                                    working — but it can break or be removed at any time.
+                                </>
+                            ) : (
+                                <><strong>Map projects</strong> are experimental and may not work as intended. Proceed with caution.</>
+                            )}
                         </p>
                         <div className="np-experimental-dialog__actions">
                             <button className="btn btn--secondary" onClick={() => setExperimentalWarning(null)}>Cancel</button>

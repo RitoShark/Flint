@@ -193,6 +193,21 @@ export const App: React.FC = () => {
         return activeTab?.projectPath || null;
     }, [activeTabId, openTabs]);
 
+    const tftNoticeShownRef = React.useRef<Set<string>>(new Set());
+    useEffect(() => {
+        const activeTab = getActiveTab({ activeTabId, openTabs });
+        const path = activeTab?.projectPath;
+        if (!path || activeTab?.project?.kind !== 'tft') return;
+        if (tftNoticeShownRef.current.has(path)) return;
+        tftNoticeShownRef.current.add(path);
+        useModalStore.getState().openConfirmDialog({
+            title: 'TFT support is going away',
+            message: "TFT is moving to Unreal Engine, and I can't commit to maintaining support for it. As long as Riot keeps the existing companions on the current engine this project will keep working — but it can break or be removed at any time.",
+            confirmLabel: 'Got it',
+            onConfirm: () => { },
+        });
+    }, [activeTabId, openTabs]);
+
     // The hash overlay is a single backend slot for "the active project," not
     // one per tab (see HashOverlayState in state.rs). `currentProjectPath`
     // transitioning to null means the last open project tab just closed —

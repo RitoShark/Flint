@@ -1035,6 +1035,24 @@ input.np-search:focus {
 /* --------------------------------------------------------------------------
    Experimental type card badge
    -------------------------------------------------------------------------- */
+.np-type-card__badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: #f87171;
+    background: rgba(248, 113, 113, 0.12);
+    border: 1px solid rgba(248, 113, 113, 0.3);
+    border-radius: 3px;
+    padding: 1px 4px;
+    line-height: 1.4;
+}
+
 .np-type-card--experimental {
     position: relative;
 }
