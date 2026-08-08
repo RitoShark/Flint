@@ -122,17 +122,16 @@ respect (same WAD, same BIN layout, same preview, same export). Instead:
 
 ### A6. UI
 
-Do **not** add a fifth type card. Inside the existing **Skin** form add a source
-toggle next to the Live/PBE branch control:
+Do **not** add a fifth type card. Add a **"Classic" switch in the modal footer,
+right next to the PBE switch** (same `np-pbe-toggle` markup, skin projects only).
 
-```
-Roster:  [ Live ]  [ League Classic ]
-```
-
-Switching to League Classic swaps the champion list to `fetchJadeChampions`,
-everything downstream (skin picker, chroma popup, hero splash, create button) is
-the identical code path. Show a one-line hint that Classic skins are
-`Skin301` and that not every champion has one.
+Switching it on swaps the champion list to `fetchJadeChampions`; everything
+downstream (skin picker, chroma popup, hero splash, create button) is the
+identical code path. With the switch on, `loadSkins` sorts `isClassicSkin`
+(num ≥ 300) to the front and selects it, so picking Ahri lands on **Classic
+Ahri** rather than the base jade port. Champions with no classic skin (Ashe)
+fall back to base. The jade ports of live skins stay in the list — they are
+moddable too.
 
 ### A7. Tests
 
