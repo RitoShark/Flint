@@ -61,7 +61,7 @@ pub fn organize_project(
     let champion_sanitized = config.champion.to_lowercase().replace(' ', "-");
 
     let wad_folder_name = config.wad_folder_override.clone()
-        .unwrap_or_else(|| format!("{}.wad.client", champion_sanitized));
+        .unwrap_or_else(|| format!("{}.wad.client", flint_wad::wad::extractor::wad_champion_name(&champion_sanitized)));
     let wad_base = content_base.join(&wad_folder_name);
 
     let file_base = if wad_base.exists() {
@@ -298,7 +298,7 @@ fn capitalize(s: &str) -> String {
 fn find_main_skin_bin(content_base: &Path, champion: &str, skin_id: u32) -> Option<PathBuf> {
     let champion_lower = champion.to_lowercase();
 
-    let wad_folder = format!("{}.wad.client", champion_lower);
+    let wad_folder = format!("{}.wad.client", flint_wad::wad::extractor::wad_champion_name(&champion_lower));
     let wad_path = content_base.join(&wad_folder);
 
     let patterns = vec![

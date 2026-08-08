@@ -231,10 +231,22 @@ pub fn wad_contains_skin_bin(
     Ok(false)
 }
 
+// League Classic champions ship inside the LIVE champion's WAD: `Jade_Ahri`
+// lives in `Ahri.wad.client` under `data/characters/jade_ahri/`. Only the WAD
+// filename drops the prefix — every character-folder path keeps it.
+pub fn wad_champion_name(champion: &str) -> &str {
+    let prefix_len = "jade_".len();
+    if champion.len() > prefix_len && champion[..prefix_len].eq_ignore_ascii_case("jade_") {
+        &champion[prefix_len..]
+    } else {
+        champion
+    }
+}
+
 pub fn find_champion_wad(league_path: impl AsRef<Path>, champion: &str) -> Option<PathBuf> {
     let league_path = league_path.as_ref();
 
-    let champion_normalized = champion
+    let champion_normalized = wad_champion_name(champion)
         .to_lowercase()
         .replace("'", "")
         .replace(" ", "")
@@ -274,7 +286,7 @@ pub fn extract_skin_assets(
     let wad_folder_name  = if is_tft {
         "Companions.wad.client".to_string()
     } else {
-        format!("{}.wad.client", champion_lower)
+        format!("{}.wad.client", wad_champion_name(&champion_lower))
     };
     let wad_output_dir   = output_dir.join(&wad_folder_name);
 
@@ -542,7 +554,7 @@ pub fn extract_skin_assets_selective(
     let wad_folder_name = if is_tft {
         "Companions.wad.client".to_string()
     } else {
-        format!("{}.wad.client", champion_lower)
+        format!("{}.wad.client", wad_champion_name(&champion_lower))
     };
     let wad_output_dir = output_dir.join(&wad_folder_name);
 
@@ -882,6 +894,18 @@ pub fn resolve_wad_paths(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wad_name_strips_only_the_jade_prefix() {
+        assert_eq!(wad_champion_name("Jade_Ahri"), "Ahri");
+        assert_eq!(wad_champion_name("jade_ahri"), "ahri");
+        assert_eq!(wad_champion_name("JADE_TwistedFate"), "TwistedFate");
+        assert_eq!(wad_champion_name("Ahri"), "Ahri");
+        assert_eq!(wad_champion_name("Jade"), "Jade");
+        assert_eq!(wad_champion_name("Jade_"), "Jade_");
+        assert_eq!(wad_champion_name("Jayce"), "Jayce");
+        assert_eq!(wad_champion_name(""), "");
+    }
 
     #[test]
     fn find_sub_characters_globs_resolved_toc() {

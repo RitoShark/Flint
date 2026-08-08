@@ -87,7 +87,7 @@ pub fn find_champion_wad(league_path: impl AsRef<Path>, champion: &str) -> Optio
         .join("DATA")
         .join("FINAL")
         .join("Champions")
-        .join(format!("{}.wad.client", champion));
+        .join(format!("{}.wad.client", super::extractor::wad_champion_name(champion)));
     if candidate.exists() { Some(candidate) } else { None }
 }
 

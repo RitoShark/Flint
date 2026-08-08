@@ -261,7 +261,7 @@ pub fn repath_project(
     }
 
     let champion_lower = config.champion.to_lowercase();
-    let wad_folder_name = format!("{}.wad.client", champion_lower);
+    let wad_folder_name = format!("{}.wad.client", flint_wad::wad::extractor::wad_champion_name(&champion_lower));
     let wad_base = content_base.join(&wad_folder_name);
 
     let file_base = if wad_base.exists() {
