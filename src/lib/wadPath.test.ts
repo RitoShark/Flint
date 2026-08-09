@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { wadInternalPath, copyablePath } from './wadPath';
+import { wadInternalPath, copyablePath, projectRootFromFilePath } from './wadPath';
 
 describe('wadInternalPath', () => {
     it('strips the layered content prefix', () => {
@@ -53,5 +53,27 @@ describe('copyablePath', () => {
 
     it('normalises separators in the fallback', () => {
         expect(copyablePath('content\\base\\notes.txt')).toBe('content/base/notes.txt');
+    });
+});
+
+describe('projectRootFromFilePath', () => {
+    it('cuts at the content segment', () => {
+        expect(projectRootFromFilePath(
+            'C:/Users/me/Saya-Evelynn/content/base/evelynn.wad.client/data/characters/evelynn/skins/skin0.bin',
+        )).toBe('C:/Users/me/Saya-Evelynn');
+    });
+
+    it('accepts backslashes', () => {
+        expect(projectRootFromFilePath(
+            String.raw`E:\Mods\Foo\content\base\x.wad.client\a.bin`,
+        )).toBe('E:/Mods/Foo');
+    });
+
+    it('returns null for a file outside any project', () => {
+        expect(projectRootFromFilePath('C:/Riot Games/League of Legends/Game/DATA/x.bin')).toBeNull();
+    });
+
+    it('returns null when content is the very first segment', () => {
+        expect(projectRootFromFilePath('content/base/x.wad.client/a.bin')).toBeNull();
     });
 });
