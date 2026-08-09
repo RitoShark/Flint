@@ -9599,6 +9599,9 @@ input.np-search:focus {
   justify-content: center;
   width: 22px;
   height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -9639,14 +9642,33 @@ input.np-search:focus {
 }
 
 .bin-tools__chevron {
-  display: block;
-  font-size: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
   opacity: 0.6;
-  transition: transform var(--transition-fast);
 }
 
-.bin-tools__chevron--collapsed {
-  transform: rotate(-90deg);
+.bin-tools__chevron svg {
+  display: block;
+  width: 12px;
+  height: 12px;
+}
+
+.bin-tools__glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.bin-tools__glyph svg {
+  display: block;
+  width: 14px;
+  height: 14px;
 }
 
 .bin-tools__badge {
