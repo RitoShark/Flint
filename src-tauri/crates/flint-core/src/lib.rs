@@ -11,6 +11,7 @@ pub mod map;
 pub mod export;
 pub mod checkpoint;
 pub mod loadscreen_banner;
+pub mod port_jade;
 pub mod loadscreen;
 
 
