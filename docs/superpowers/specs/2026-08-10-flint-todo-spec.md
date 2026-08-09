@@ -56,32 +56,46 @@ composition at once.
 
 ---
 
-## 2. Project — League Classic skin scope
+## 2. Project — Port to Jade
 
-**Shipped in 2.8.1.** A "Classic" switch beside PBE swaps the champion list to
-the League Classic roster; the picker sorts the Classic skin (number 300+) first
-and selects it by default; champions with no Classic skin fall back to base.
+**Corrected 2026-08-10.** An earlier revision of this section read the todo line
+as a scope filter in the New Project skin picker. That was wrong, was built, and
+was reverted (`38336de`, reverted by `ed52d10`). The feature is a **project
+action**, not a creation-time filter. What follows is the real one.
 
-**Remaining — ASSUMPTION.** "*selection with only classic skin or every variant*"
-is read as a **scope filter in the picker**, not as converting an existing live
-project onto the jade character folder. Converting an existing project is a
-separate, much larger feature and is explicitly NOT specified here.
+**Goal.** Take a finished live-champion mod and make it apply in League Classic,
+without recreating it against the jade roster.
 
 **Behaviour.**
-- With the Classic switch on, the skin picker offers two scopes: **Classic only**
-  and **All variants**.
-- **Classic only** lists just the Classic skin (300+). A champion with none shows
-  an empty list and an inline note saying this champion has no Classic skin
-  because its current look is already the original.
-- **All variants** lists everything the jade champion carries — the Classic skin
-  plus the jade ports of live skins — Classic first.
-- The scope resets to Classic only whenever the Classic switch is turned on.
+- A **"Port to Jade"** item on the project right-click menu, for a normal skin
+  project.
+- It writes the project's skin into the jade character folder — a
+  `data/characters/jade_<champ>/skins/skin<N>.bin` for each chosen target — with
+  the entry paths, `SkinCharacterDataProperties` and `ResourceResolver` keys and
+  `mResourceResolver` rekeyed so each resolves as that jade skin.
+- The source skin's asset references are left pointing where they already point;
+  the mod's own assets are not duplicated.
+- Target selection offers **every variant** the jade champion has, or a
+  **user-chosen subset of skins**.
+- Existing files at a target path are never silently overwritten.
+- The file tree refreshes when it finishes, and the result reports how many
+  targets were written and how many were skipped.
 
 **Acceptance criteria.**
-- Ahri under Classic only shows exactly one skin, Classic Ahri.
-- Ashe under Classic only shows zero skins and the explanatory note, and the
-  Create button stays disabled.
-- Switching scope never changes the selected champion.
+- Porting an Ahri skin1 mod produces jade skin BINs that load in League Classic
+  with the mod's meshes, textures and VFX intact.
+- Re-running it writes nothing new and says so.
+- A hand-edited jade BIN already in the project survives untouched.
+- The original live-champion content is unchanged — porting adds, never moves.
+
+**Shares an engine with §3.** NoSkinLite clones one skin BIN across many slots of
+the same champion; Port to Jade clones it across slots of the jade twin. Same
+rekeying, different destination folder — build one engine in
+`RitoShark-Crates` and give it a target character folder plus a target index list.
+
+**Open.** Which jade skin indices "every variant" means — every slot the jade
+champion actually ships (from the CDragon listing, as §3 does), or only those the
+live project has an equivalent for.
 
 ---
 
