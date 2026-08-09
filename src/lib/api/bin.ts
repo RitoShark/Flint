@@ -54,3 +54,13 @@ export async function compileRitobinTextToBytes(content: string): Promise<Uint8A
 export async function unhashBinText(text: string): Promise<{ text: string; replaced: number }> {
     return invokeCommand('unhash_bin_text', { text });
 }
+
+export interface LinkedBinText {
+    path: string;
+    text: string;
+}
+
+/** Ritobin text of every BIN in this BIN's direct `linked` header. */
+export async function listLinkedBinTexts(binPath: string): Promise<LinkedBinText[]> {
+    return invokeCommand('list_linked_bin_texts', { binPath });
+}

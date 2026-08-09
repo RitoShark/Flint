@@ -27,8 +27,12 @@ import { checkRitobinBrackets, type BracketCheckResult } from '../../lib/editor/
 import {
     REVEAL_TEXT_EVENT,
     UNHASH_REQUEST_EVENT,
+    stashRevealLine,
+    takeRevealLine,
     type RevealTextDetail,
 } from '../../lib/editor/binEditorEvents';
+import { BinSearchPanel } from './BinSearchPanel';
+import { useNavigationStore } from '../../lib/stores/navigationStore';
 
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
@@ -231,6 +235,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const minimapAllowed = lineCount <= MINIMAP_MAX_LINES;
     const minimapOn = minimapPref && minimapAllowed;
     const [sidePanelOpen, setSidePanelOpen] = useState(false);
+    const [searchPanelOpen, setSearchPanelOpen] = useState(false);
     const [hasMaskMap, setHasMaskMap] = useState(false);
     const [maskEditorOpen, setMaskEditorOpen] = useState(false);
     const [hasVfx, setHasVfx] = useState(false);
@@ -451,6 +456,15 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         const restored = editorSessionStore.get(filePath);
         if (restored?.viewState && restored.fileVersion === fileVersion) {
             ed.restoreViewState(restored.viewState);
+            ed.focus();
+        }
+
+        // A search hit in a linked BIN navigates here and stashes its line;
+        // the restored view state above would otherwise win.
+        const pendingLine = takeRevealLine(filePath);
+        if (pendingLine !== null) {
+            ed.revealLineInCenter(pendingLine);
+            ed.setPosition({ lineNumber: pendingLine, column: 1 });
             ed.focus();
         }
 
@@ -954,9 +968,17 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                         <Icon name="layerText" />
                     </button>
                     <button
+                        className={`btn btn--icon${searchPanelOpen ? ' btn--primary' : ''}`}
+                        style={!searchPanelOpen ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
+                        onClick={() => { setSearchPanelOpen(!searchPanelOpen); setSidePanelOpen(false); }}
+                        title="Toggle search across this BIN and its linked bins"
+                    >
+                        <Icon name="search" />
+                    </button>
+                    <button
                         className={`btn btn--icon${sidePanelOpen ? ' btn--primary' : ''}`}
                         style={!sidePanelOpen ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
-                        onClick={() => setSidePanelOpen(!sidePanelOpen)}
+                        onClick={() => { setSidePanelOpen(!sidePanelOpen); setSearchPanelOpen(false); }}
                         title="Toggle BIN tools panel (skinScale, materialOverride, VFX)"
                     >
                         <Icon name="settings" />
@@ -1003,6 +1025,26 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 >
                     <div ref={editorContainerRef} style={{ width: '100%', height: '100%' }} />
                 </div>
+
+                {searchPanelOpen && (
+                    <BinSearchPanel
+                        filePath={filePath}
+                        content={content}
+                        onContentChange={(newContent) => {
+                            setContent(newContent);
+                            runBracketCheck(newContent);
+                        }}
+                        editorRef={editorRef}
+                        onOpenLinked={(path, line) => {
+                            stashRevealLine(path, line);
+                            useNavigationStore.getState().navigateToFileEditor({
+                                filePath: path,
+                                kind: 'binText',
+                            });
+                        }}
+                        onClose={() => setSearchPanelOpen(false)}
+                    />
+                )}
 
                 {sidePanelOpen && (
                     <BinToolsPanel

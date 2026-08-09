@@ -31,3 +31,27 @@ export function requestRevealText(filePath: string, needle: string): void {
         new CustomEvent<RevealTextDetail>(REVEAL_TEXT_EVENT, { detail: { filePath, needle } }),
     );
 }
+
+/* Revealing a line in a BIN that is not open yet cannot go through an event:
+   the editor's listener does not exist until it has mounted and decoded the
+   file, which is well after the caller navigates. So the line is STASHED and
+   the editor pulls it once it is ready — the same pull handshake the
+   cold-start "Open with" path uses. */
+const pendingReveals = new Map<string, number>();
+
+function revealKey(filePath: string): string {
+    return filePath.replace(/\\/g, '/').toLowerCase();
+}
+
+export function stashRevealLine(filePath: string, line: number): void {
+    pendingReveals.set(revealKey(filePath), line);
+}
+
+/** Consumes the stashed line, so a later remount does not jump again. */
+export function takeRevealLine(filePath: string): number | null {
+    const key = revealKey(filePath);
+    const line = pendingReveals.get(key);
+    if (line === undefined) return null;
+    pendingReveals.delete(key);
+    return line;
+}
