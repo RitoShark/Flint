@@ -1,9 +1,10 @@
 use crate::bin::{read_bin, write_bin};
 use crate::loadscreen_banner::fnv1a_32;
 use ritoshark::bin::{Bin, BinValue};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PortOutcome {
     pub written: Vec<u32>,
     pub skipped: Vec<u32>,

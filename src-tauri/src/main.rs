@@ -570,6 +570,8 @@ fn main() {
             commands::chroma::port_project_to_chromas,
             commands::chroma::sync_chroma_bins,
             commands::chroma::get_chroma_links,
+            commands::skin_port::port_project_to_jade,
+            commands::skin_port::port_project_no_skin_lite,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

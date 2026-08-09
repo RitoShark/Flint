@@ -15,6 +15,7 @@ pub mod project_watcher;
 pub mod checkpoint;
 pub mod compare;
 pub mod chroma;
+pub mod skin_port;
 pub mod hash_overlay;
 
 pub use project::*;
