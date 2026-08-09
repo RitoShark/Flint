@@ -3,6 +3,8 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useAppMetadataStore, useProjectTabStore, useModalStore, useNotificationStore, useConfigStore, useNavigationStore } from '../../lib/stores';
 import { openWadInExtract, isWadPath } from '../../lib/openWad';
 import { getFileIcon, getExpanderIcon, getIcon } from '../../lib/ui-helpers/fileIcons';
+import { Icon } from '../ui/Icon';
+import { WorkspaceSearch } from './WorkspaceSearch';
 import { VirtualizedList, type VirtualizedListHandle } from './wad-explorer/VirtualizedList';
 import { useAction, useScope } from '../../lib/shortcuts/hooks';
 import {
@@ -42,15 +44,42 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({ style }) => {
     const openTabs = useProjectTabStore((s) => s.openTabs);
     const showToast = useNotificationStore((s) => s.showToast);
     const [searchQuery, setSearchQuery] = useState('');
+    const [view, setView] = useState<'files' | 'search'>('files');
 
     const activeTab = getActiveTab(activeTabId, openTabs);
     if (!activeTab) return null;
 
     const isMapProject = activeTab.project.kind === 'map';
     const projectPath = activeTab.projectPath;
+    const selectedFile = activeTab.selectedFile;
+    const seedBin = selectedFile && selectedFile.toLowerCase().endsWith('.bin')
+        ? `${projectPath.replace(/\\/g, '/')}/${selectedFile}`
+        : null;
 
     return (
         <aside className="left-panel" id="left-panel" style={style}>
+            <div className="left-panel__views">
+                <button
+                    className={`left-panel__view${view === 'files' ? ' is-active' : ''}`}
+                    onClick={() => setView('files')}
+                >
+                    <Icon name="folder" className="left-panel__view-icon" />
+                    <span>Files</span>
+                </button>
+                <button
+                    className={`left-panel__view${view === 'search' ? ' is-active' : ''}`}
+                    onClick={() => setView('search')}
+                >
+                    <Icon name="search" className="left-panel__view-icon" />
+                    <span>Search</span>
+                </button>
+            </div>
+
+            {view === 'search' && (
+                <WorkspaceSearch projectPath={projectPath} seedBin={seedBin} />
+            )}
+            {view === 'files' && (
+                <>
             {isMapProject && (
                 <button
                     className="btn btn--sm"
@@ -80,6 +109,8 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({ style }) => {
                 />
             </div>
             <FileTree searchQuery={searchQuery} />
+                </>
+            )}
         </aside>
     );
 };

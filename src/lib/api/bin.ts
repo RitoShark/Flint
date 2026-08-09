@@ -64,3 +64,59 @@ export interface LinkedBinText {
 export async function listLinkedBinTexts(binPath: string): Promise<LinkedBinText[]> {
     return invokeCommand('list_linked_bin_texts', { binPath });
 }
+
+export interface BinSearchOptions {
+    caseSensitive: boolean;
+    wholeWord: boolean;
+    regex: boolean;
+}
+
+export interface BinSearchMatch {
+    line: number;
+    column: number;
+    length: number;
+    preview: string;
+}
+
+export interface BinFileMatches {
+    path: string;
+    rel_path: string;
+    matches: BinSearchMatch[];
+    extra: number;
+}
+
+export interface BinSearchResult {
+    files: BinFileMatches[];
+    scanned: number;
+    truncated: boolean;
+}
+
+export interface BinReplaceResult {
+    files_changed: number;
+    replacements: number;
+    failed: string[];
+}
+
+/** Searches every BIN under the project, plus linked bins outside it. */
+export async function searchProjectBins(
+    projectPath: string,
+    query: string,
+    options: BinSearchOptions,
+    seedBin?: string | null,
+): Promise<BinSearchResult> {
+    return invokeCommand('search_project_bins', {
+        projectPath,
+        query,
+        options,
+        seedBin: seedBin ?? null,
+    });
+}
+
+export async function replaceInBins(
+    paths: string[],
+    query: string,
+    replacement: string,
+    options: BinSearchOptions,
+): Promise<BinReplaceResult> {
+    return invokeCommand('replace_in_bins', { paths, query, replacement, options });
+}

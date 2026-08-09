@@ -4,5 +4,6 @@ pub mod audit;
 pub mod bin_split;
 pub mod paint;
 pub mod linked;
+pub mod search;
 
 pub use bin::*;
