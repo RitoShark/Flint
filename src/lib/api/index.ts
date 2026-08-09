@@ -75,6 +75,7 @@ export * from './updater';
 export * from './loadscreenBanner';
 export * from './compare';
 export * from './chroma';
+export * from './skinPort';
 export * from './taskbar';
 export * from './cdn';
 export * from './thumbnail';

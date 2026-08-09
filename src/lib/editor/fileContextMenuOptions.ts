@@ -4,6 +4,7 @@ import { getIcon } from '../ui-helpers/fileIcons';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useProjectTabStore } from '../stores/projectTabStore';
 import { copyablePath } from '../wadPath';
+import { isJadeAlias } from '../data/datadragon';
 import type { ContextMenuOption, ModalType } from '../types';
 
 interface BuildOptionsArgs {
@@ -45,7 +46,9 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
     if (node.isDirectory) {
         if (depth === 0 && projectPath) {
             const tabs = useProjectTabStore.getState();
-            const activeProjectKind = tabs.openTabs.find(t => t.id === tabs.activeTabId)?.project?.kind ?? null;
+            const activeProject = tabs.openTabs.find(t => t.id === tabs.activeTabId)?.project ?? null;
+            const activeProjectKind = activeProject?.kind ?? null;
+            const isSkinProject = !!activeProject && (activeProjectKind ?? 'skin') === 'skin';
             options.push({
                 label: 'Project',
                 icon: getIcon('wrench'),
@@ -84,6 +87,16 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                         icon: getIcon('contrast'),
                         onClick: () => openModal('chromaPort'),
                     },
+                    ...(isSkinProject && !isJadeAlias(activeProject!.champion) ? [{
+                        label: 'Port to Jade…',
+                        icon: getIcon('link'),
+                        onClick: () => openModal('portToJade'),
+                    }] : []),
+                    ...(isSkinProject && activeProject!.skin_id === 0 ? [{
+                        label: 'NoSkinLite…',
+                        icon: getIcon('copy'),
+                        onClick: () => openModal('noSkinLite'),
+                    }] : []),
                     {
                         label: 'Add Animated Loadscreen Banner',
                         icon: getIcon('image'),

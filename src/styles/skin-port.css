@@ -1,0 +1,159 @@
+/* ============================================================================
+   Port to Jade / NoSkinLite — target selection
+   ============================================================================ */
+
+.skin-port__intro {
+    margin: 0 0 12px;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text-secondary);
+}
+
+.skin-port__intro code {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: color-mix(in oklab, var(--accent-primary) 10%, transparent);
+    color: var(--text-primary);
+}
+
+.skin-port__intro strong {
+    color: var(--text-primary);
+}
+
+.skin-port__loading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+.skin-port__error {
+    margin: 0;
+    font-size: 13px;
+    color: var(--status-error, #e05252);
+}
+
+.skin-port__warn {
+    margin: 0 0 10px;
+    font-size: 12px;
+    color: var(--warning, #f0a020);
+}
+
+.skin-port__toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.skin-port__count {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+}
+
+.skin-port__gallery {
+    overflow-y: auto;
+    max-height: 420px;
+    margin: 0 -4px;
+    padding: 4px;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--border) 70%, transparent) transparent;
+}
+
+.skin-port__grid {
+    display: grid;
+    gap: 8px;
+}
+
+.skin-port__grid--art {
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+}
+
+.skin-port__grid--chip {
+    grid-template-columns: repeat(auto-fill, minmax(62px, 1fr));
+    gap: 6px;
+}
+
+.skin-port__card {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid transparent;
+    border-radius: var(--dl-radius);
+    background: var(--bg-tertiary);
+    cursor: pointer;
+    transition: border-color var(--dl-fast), background var(--dl-fast);
+}
+
+.skin-port__card:hover {
+    border-color: color-mix(in oklab, var(--accent-primary) 55%, transparent);
+}
+
+.skin-port__card--selected {
+    border-color: var(--accent-primary);
+    background: color-mix(in oklab, var(--accent-primary) 16%, var(--bg-tertiary));
+}
+
+.skin-port__card--art {
+    aspect-ratio: 1;
+    box-shadow: var(--dl-shadow-sm);
+}
+
+.skin-port__card--chip {
+    height: 34px;
+    font-family: var(--font-mono);
+}
+
+.skin-port__card-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top center;
+}
+
+.skin-port__card-slot {
+    font-family: var(--font-mono);
+    font-size: 15px;
+    color: var(--text-muted);
+}
+
+.skin-port__card--art .skin-port__card-label {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 20px 6px 6px;
+    background: linear-gradient(to top,
+            rgba(0, 0, 0, 0.78) 0%,
+            rgba(0, 0, 0, 0.36) 60%,
+            transparent 100%);
+    font-size: 10px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.92);
+    text-align: center;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+    pointer-events: none;
+}
+
+.skin-port__card--chip .skin-port__card-label {
+    font-size: 11.5px;
+    color: var(--text-secondary);
+}
+
+.skin-port__card--chip.skin-port__card--selected .skin-port__card-label {
+    color: var(--text-primary);
+}

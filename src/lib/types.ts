@@ -3,7 +3,7 @@
 // =============================================================================
 
 export type AppStatus = 'ready' | 'working' | 'error';
-export type ModalType = 'newProject' | 'settings' | 'export' | 'firstTimeSetup' | 'updateAvailable' | 'recolor' | 'checkpoint' | 'projectList' | 'modConfig' | 'importMod' | 'renameProject' | 'thumbnail' | 'binSplit' | 'fullResImage' | 'browseWad' | 'fileCompare' | 'addLayer' | 'chromaPort' | 'whatsNew' | 'map-textures' | 'loadscreenBanner' | 'loadManifest' | 'skinFixer' | 'wadAudit' | 'createProjectFromWad' | null;
+export type ModalType = 'newProject' | 'settings' | 'export' | 'firstTimeSetup' | 'updateAvailable' | 'recolor' | 'checkpoint' | 'projectList' | 'modConfig' | 'importMod' | 'renameProject' | 'thumbnail' | 'binSplit' | 'fullResImage' | 'browseWad' | 'fileCompare' | 'addLayer' | 'chromaPort' | 'portToJade' | 'noSkinLite' | 'whatsNew' | 'map-textures' | 'loadscreenBanner' | 'loadManifest' | 'skinFixer' | 'wadAudit' | 'createProjectFromWad' | null;
 export type ViewType = 'welcome' | 'preview' | 'editor' | 'project' | 'checkpoints' | 'extract' | 'wad-explorer' | 'file-editor' | 'manifest' | 'archive-editor';
 
 export type FileEditorKind = 'modConfig' | 'binText' | 'raw' | 'luaBin64' | 'troybin';

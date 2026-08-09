@@ -40,6 +40,8 @@ import { FileCompareModal } from '../modals/FileCompareModal';
 import { AddLayerModal } from '../modals/AddLayerModal';
 import { RenameProjectModal } from '../modals/RenameProjectModal';
 import { ChromaPortModal } from '../modals/ChromaPortModal';
+import { PortToJadeModal } from '../modals/PortToJadeModal';
+import { NoSkinLiteModal } from '../modals/NoSkinLiteModal';
 import { WhatsNewModal } from '../modals/WhatsNewModal';
 import { LoadscreenBannerModal } from '../modals/LoadscreenBannerModal';
 import { SkinFixerModal } from '../modals/SkinFixerModal';
@@ -80,6 +82,8 @@ const ActiveModal: React.FC<{ activeModal: string | null }> = React.memo(({ acti
         case 'fileCompare':      return <FileCompareModal />;
         case 'addLayer':         return <AddLayerModal />;
         case 'chromaPort':       return <ChromaPortModal />;
+        case 'portToJade':       return <PortToJadeModal />;
+        case 'noSkinLite':       return <NoSkinLiteModal />;
         case 'whatsNew':         return <WhatsNewModal />;
         case 'map-textures':     return <MapTexturesModal />;
         case 'loadscreenBanner': return <LoadscreenBannerModal />;
