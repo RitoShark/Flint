@@ -121,7 +121,6 @@ export const NewProjectModal: React.FC = () => {
     useEffect(() => () => { if (chromaPreviewTimerRef.current) clearTimeout(chromaPreviewTimerRef.current); }, []);
     const [usePbe, setUsePbe] = useState(false);
     const [roster, setRoster] = useState<'live' | 'classic'>('live');
-    const [classicScope, setClassicScope] = useState<'classic' | 'all'>('classic');
     const cdragonBranch: 'pbe' | 'latest' = usePbe ? 'pbe' : 'latest';
     const effectiveLeaguePath = usePbe ? configStore.leaguePathPbe : leaguePath;
 
@@ -210,21 +209,11 @@ export const NewProjectModal: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isVisible, usePbe, roster]);
 
-    useEffect(() => {
-        if (roster !== 'classic') return;
-        const scoped = classicScope === 'classic' ? skins.filter(datadragon.isClassicSkin) : skins;
-        if (scoped.some(s => s.id === selectedSkin?.id)) return;
-        setSelectedSkin(scoped[0] ?? null);
-        setSelectedChroma(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [classicScope, skins, roster]);
-
     const handleSelectRoster = (next: 'live' | 'classic') => {
         if (next === roster) return;
         setSelectedChampion(null);
         setChampions([]);
         setChampionSearch('');
-        setClassicScope('classic');
         setRoster(next);
     };
 
@@ -1016,13 +1005,9 @@ export const NewProjectModal: React.FC = () => {
         ? champions.filter(c => c.name.toLowerCase().includes(championSearch.toLowerCase()))
         : champions;
 
-    const classicOnly = roster === 'classic' && classicScope === 'classic';
-    const scopedSkins = classicOnly ? skins.filter(datadragon.isClassicSkin) : skins;
-    const championHasNoClassicSkin = roster === 'classic' && !skins.some(datadragon.isClassicSkin);
-
     const filteredSkins = skinSearch
-        ? scopedSkins.filter(s => s.name.toLowerCase().includes(skinSearch.toLowerCase()))
-        : scopedSkins;
+        ? skins.filter(s => s.name.toLowerCase().includes(skinSearch.toLowerCase()))
+        : skins;
 
     const canCreateSkin = projectType === 'skin'
         && !!projectName && !!projectPath && !!selectedChampion && !!selectedSkin && !isCreating;
@@ -1972,24 +1957,6 @@ export const NewProjectModal: React.FC = () => {
 
                         <div className="np-skin-picker__header">
                             <h3 className="np-skin-picker__title">Choose Skin</h3>
-                            {roster === 'classic' && (
-                                <div className="np-scope" role="group" aria-label="Skin scope">
-                                    <button
-                                        type="button"
-                                        className={`np-scope__btn${classicScope === 'classic' ? ' np-scope__btn--active' : ''}`}
-                                        onClick={() => setClassicScope('classic')}
-                                    >
-                                        Classic only
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className={`np-scope__btn${classicScope === 'all' ? ' np-scope__btn--active' : ''}`}
-                                        onClick={() => setClassicScope('all')}
-                                    >
-                                        All variants
-                                    </button>
-                                </div>
-                            )}
                             <div className="dl-search np-skin-picker__search">
                                 <span className="dl-icon">
                                     <svg viewBox="0 0 16 16" fill="none">
@@ -2015,13 +1982,6 @@ export const NewProjectModal: React.FC = () => {
                                 <Icon name="close" />
                             </button>
                         </div>
-
-                        {classicOnly && championHasNoClassicSkin && (
-                            <p className="np-scope__note">
-                                {selectedChampion.name} has no Classic skin — their current look is
-                                already the original. Switch to All variants to mod a jade port.
-                            </p>
-                        )}
 
                         <div className="np-skin-picker__grid">
                             {filteredSkins.map((skin, i) => {

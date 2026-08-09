@@ -1035,54 +1035,6 @@ input.np-search:focus {
 /* --------------------------------------------------------------------------
    Experimental type card badge
    -------------------------------------------------------------------------- */
-.np-scope {
-    display: flex;
-    gap: 3px;
-    flex-shrink: 0;
-    padding: 3px;
-    background: #0e0e0e;
-    border: 1px solid #1e1e1e;
-    border-radius: 8px;
-}
-
-.np-scope__btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 5px 10px;
-    font-size: 11px;
-    font-weight: 600;
-    white-space: nowrap;
-    color: var(--text-muted);
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-}
-
-.np-scope__btn:hover {
-    color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.04);
-}
-
-.np-scope__btn--active {
-    color: var(--text-primary);
-    background: #1a1a1a;
-    border-color: #2a2a2a;
-}
-
-.np-scope__note {
-    margin: 0 0 4px;
-    padding: 10px 14px;
-    font-size: 12px;
-    line-height: 1.5;
-    color: var(--text-secondary);
-    background: color-mix(in oklab, var(--accent-primary) 7%, transparent);
-    border-left: 2px solid color-mix(in oklab, var(--accent-primary) 55%, transparent);
-    border-radius: 0 8px 8px 0;
-}
-
 .np-type-card__badge {
     display: flex;
     align-items: center;
