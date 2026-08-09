@@ -1,4 +1,4 @@
-import { ChangeEvent } from 'react';
+import { ChangeEvent, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Layer } from '../../lib/thumbnail/layers';
 import { DlIcon, DlSegmented, DlSlider } from '../ui/design-lab';
@@ -107,6 +107,9 @@ function TextProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer
 
 function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer: Extract<Layer, { type: 'model' }> } & ChangeProps) {
   const hiddenCount = layer.hiddenMeshes?.length ?? 0;
+  const transformTouched =
+    !!layer.posX || !!layer.posY || !!layer.posZ || !!layer.tiltX || !!layer.rollZ;
+  const [transformOpen, setTransformOpen] = useState(transformTouched);
   return (
     <>
       {(layer.anim || hiddenCount > 0) && (
@@ -126,30 +129,6 @@ function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture }: { laye
         />
       </div>
       <div className="tb-grp">
-        <label>Move X <b>{round1(layer.posX ?? 0)}</b></label>
-        <SliderNum
-          min={-500} max={500} step={1} value={round1(layer.posX ?? 0)}
-          onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
-          onChange={(v, rec) => onChange({ posX: v }, rec)}
-        />
-      </div>
-      <div className="tb-grp">
-        <label>Move Y <b>{round1(layer.posY ?? 0)}</b></label>
-        <SliderNum
-          min={-500} max={500} step={1} value={round1(layer.posY ?? 0)}
-          onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
-          onChange={(v, rec) => onChange({ posY: v }, rec)}
-        />
-      </div>
-      <div className="tb-grp">
-        <label>Move Z (depth) <b>{round1(layer.posZ ?? 0)}</b></label>
-        <SliderNum
-          min={-500} max={500} step={1} value={round1(layer.posZ ?? 0)}
-          onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
-          onChange={(v, rec) => onChange({ posZ: v }, rec)}
-        />
-      </div>
-      <div className="tb-grp">
         <label>Turn — Y</label>
         <SliderNum
           min={-180} max={180} value={layer.orbit} suffix="°"
@@ -157,22 +136,64 @@ function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture }: { laye
           onChange={(v, rec) => onChange({ orbit: v }, rec)}
         />
       </div>
-      <div className="tb-grp">
-        <label>Tilt — X</label>
-        <SliderNum
-          min={-180} max={180} value={layer.tiltX ?? 0} suffix="°"
-          onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
-          onChange={(v, rec) => onChange({ tiltX: v }, rec)}
-        />
-      </div>
-      <div className="tb-grp">
-        <label>Roll — Z</label>
-        <SliderNum
-          min={-180} max={180} value={layer.rollZ ?? 0} suffix="°"
-          onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
-          onChange={(v, rec) => onChange({ rollZ: v }, rec)}
-        />
-      </div>
+
+      <button
+        type="button"
+        className="tb-disclose"
+        onClick={() => setTransformOpen(v => !v)}
+        aria-expanded={transformOpen}
+      >
+        <span className={`tb-disclose__chev${transformOpen ? ' tb-disclose__chev--open' : ''}`}>
+          <DlIcon name="chevronRight" />
+        </span>
+        <span>Transform</span>
+        {!transformOpen && transformTouched && <span className="tb-disclose__dot" />}
+      </button>
+
+      {transformOpen && (
+        <>
+          <div className="tb-grp">
+            <label>Move X <b>{round1(layer.posX ?? 0)}</b></label>
+            <SliderNum
+              min={-500} max={500} step={1} value={round1(layer.posX ?? 0)}
+              onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
+              onChange={(v, rec) => onChange({ posX: v }, rec)}
+            />
+          </div>
+          <div className="tb-grp">
+            <label>Move Y <b>{round1(layer.posY ?? 0)}</b></label>
+            <SliderNum
+              min={-500} max={500} step={1} value={round1(layer.posY ?? 0)}
+              onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
+              onChange={(v, rec) => onChange({ posY: v }, rec)}
+            />
+          </div>
+          <div className="tb-grp">
+            <label>Move Z (depth) <b>{round1(layer.posZ ?? 0)}</b></label>
+            <SliderNum
+              min={-500} max={500} step={1} value={round1(layer.posZ ?? 0)}
+              onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
+              onChange={(v, rec) => onChange({ posZ: v }, rec)}
+            />
+          </div>
+          <div className="tb-grp">
+            <label>Tilt — X</label>
+            <SliderNum
+              min={-180} max={180} value={layer.tiltX ?? 0} suffix="°"
+              onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
+              onChange={(v, rec) => onChange({ tiltX: v }, rec)}
+            />
+          </div>
+          <div className="tb-grp">
+            <label>Roll — Z</label>
+            <SliderNum
+              min={-180} max={180} value={layer.rollZ ?? 0} suffix="°"
+              onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
+              onChange={(v, rec) => onChange({ rollZ: v }, rec)}
+            />
+          </div>
+        </>
+      )}
     </>
   );
 }

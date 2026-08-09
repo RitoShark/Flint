@@ -707,6 +707,45 @@
   font-weight: 600;
 }
 
+.tb-disclose {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  margin-top: 14px;
+  padding: 6px 0;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color var(--motion-fast);
+}
+
+.tb-disclose:hover { color: var(--text-primary); }
+
+.tb-disclose__chev {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  transition: transform var(--motion-fast);
+}
+
+.tb-disclose__chev svg { display: block; width: 12px; height: 12px; }
+.tb-disclose__chev--open { transform: rotate(90deg); }
+
+.tb-disclose__dot {
+  width: 5px;
+  height: 5px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--accent-primary);
+}
+
 /* Slider + compact number input on one row (rotation/scale fields). */
 .tb-slidernum {
   display: flex;
