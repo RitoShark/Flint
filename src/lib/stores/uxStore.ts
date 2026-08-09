@@ -20,8 +20,18 @@ export interface UxPrefs {
      *  preview (UnknownPreview), e.g. { "dat": "hex" }. */
     unknownPreviewByExt: Record<string, 'hex' | 'text'>;
     /** Show Monaco's minimap in the BIN editor. Force-disabled above
-     *  MINIMAP_MAX_LINES regardless of this preference. */
+     *  `binEditorMinimapMaxLines` regardless of this preference. */
     binEditorMinimap: boolean;
+    /** Line count above which the minimap is force-disabled for performance. */
+    binEditorMinimapMaxLines: number;
+    binEditorWordWrap: boolean;
+    binEditorFontSize: number;
+    /** Run the Unhash pass automatically when a BIN opens. */
+    binEditorAutoUnhash: boolean;
+    /** Tools-panel sections that start expanded, keyed by section title. */
+    binEditorExpandedSections: Record<string, boolean>;
+    /** Id of the ritobin syntax colour preset. */
+    binEditorSyntaxTheme: string;
 }
 
 const DEFAULTS: UxPrefs = {
@@ -34,6 +44,12 @@ const DEFAULTS: UxPrefs = {
     glassOpacity: 0.65,
     unknownPreviewByExt: {},
     binEditorMinimap: true,
+    binEditorMinimapMaxLines: 150_000,
+    binEditorWordWrap: false,
+    binEditorFontSize: 13,
+    binEditorAutoUnhash: false,
+    binEditorExpandedSections: {},
+    binEditorSyntaxTheme: 'default',
 };
 
 /** Superseded default reds → the current one. A stored accent overrides the theme
@@ -77,16 +93,24 @@ interface UxState extends UxPrefs {
     /** Remember (or forget with null) the viewer for an unknown extension. */
     setUnknownPreviewForExt: (ext: string, mode: 'hex' | 'text' | null) => void;
     setBinEditorMinimap: (on: boolean) => void;
+    setBinEditorPrefs: (patch: Partial<UxPrefs>) => void;
     reset: () => void;
 }
 
 const initial: UxPrefs = { ...DEFAULTS, ...readStorage() };
 
 export const useUxStore = create<UxState>()((set, get) => {
+    /* Picks the keys off DEFAULTS rather than destructuring them by hand — a
+       new preference that the hand-written list forgot was silently never
+       persisted. */
     const persist = () => {
-        const { glassmorphism, fpsMode, buttonGlow, accentPrimary, accentSecondary, glassBlur, glassOpacity, unknownPreviewByExt, binEditorMinimap } = get();
-        writeStorage({ glassmorphism, fpsMode, buttonGlow, accentPrimary, accentSecondary, glassBlur, glassOpacity, unknownPreviewByExt, binEditorMinimap });
-        applyUxPrefs(get());
+        const state = get();
+        const prefs = { ...DEFAULTS };
+        for (const key of Object.keys(DEFAULTS) as (keyof UxPrefs)[]) {
+            (prefs as Record<string, unknown>)[key] = state[key];
+        }
+        writeStorage(prefs);
+        applyUxPrefs(prefs);
     };
     return {
         ...initial,
@@ -106,6 +130,7 @@ export const useUxStore = create<UxState>()((set, get) => {
             persist();
         },
         setBinEditorMinimap: (on) => { set({ binEditorMinimap: on }); persist(); },
+        setBinEditorPrefs: (patch) => { set(patch as Partial<UxState>); persist(); },
         reset: () => { set({ ...DEFAULTS }); persist(); },
     };
 });

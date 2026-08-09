@@ -20,13 +20,14 @@ import {
 } from '../ui';
 import { triggerTutorialReplay } from '../overlays/TutorialOverlay';
 
-type SettingsTab = 'creator' | 'general' | 'theme' | 'paths' | 'integrations' | 'dev';
+type SettingsTab = 'creator' | 'general' | 'theme' | 'binEditor' | 'paths' | 'integrations' | 'dev';
 
 import { PathSettingItem, type PathSetting } from './settings/PathSettingItem';
 import { SchemaProgressView, SchemaResultView, type SchemaProgress } from './settings/SchemaViews';
 import { ThemePresetGrid } from './settings/ThemeTab';
 import { CreatorTab } from './settings/CreatorTab';
 import { IntegrationsTab } from './settings/IntegrationsTab';
+import { BinEditorTab } from './settings/BinEditorTab';
 import { SettingsRow, SettingsTag } from './settings/SettingsRow';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 
@@ -538,6 +539,7 @@ export const SettingsModal: React.FC = () => {
         { id: 'creator', label: 'Creator', icon: 'user' },
         { id: 'general', label: 'General', icon: 'settings' },
         { id: 'theme', label: 'Theme', icon: 'picture' },
+        { id: 'binEditor', label: 'Bin Editor', icon: 'bin' },
         { id: 'paths', label: 'Paths', icon: 'folder' },
         { id: 'integrations', label: 'Integrations', icon: 'link' },
         { id: 'dev', label: 'Dev', icon: 'code' },
@@ -909,6 +911,8 @@ export const SettingsModal: React.FC = () => {
                             />
                         </div>
                     )}
+
+                    {activeTab === 'binEditor' && <BinEditorTab />}
 
                     {activeTab === 'dev' && (
                         <div className="settings-panel settings-panel--flush">

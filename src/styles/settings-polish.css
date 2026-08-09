@@ -888,6 +888,56 @@
 }
 
 /* Section subheader used across tabs (General: Preferences / Updates / System). */
+.modal--settings .bin-theme-grid,
+.fwiz .bin-theme-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.modal--settings .bin-theme-card,
+.fwiz .bin-theme-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px;
+    border: 2px solid var(--border);
+    border-radius: var(--dl-radius-sm, 4px);
+    cursor: pointer;
+    transition: border-color var(--dl-fast, 120ms);
+}
+
+.modal--settings .bin-theme-card:hover,
+.fwiz .bin-theme-card:hover {
+    border-color: color-mix(in oklab, var(--accent-primary) 55%, transparent);
+}
+
+.modal--settings .bin-theme-card--active,
+.fwiz .bin-theme-card--active {
+    border-color: var(--accent-primary);
+}
+
+.modal--settings .bin-theme-card__swatches,
+.fwiz .bin-theme-card__swatches {
+    display: flex;
+    gap: 4px;
+}
+
+.modal--settings .bin-theme-card__swatches span,
+.fwiz .bin-theme-card__swatches span {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+}
+
+.modal--settings .bin-theme-card__name,
+.fwiz .bin-theme-card__name {
+    font-size: 12px;
+    font-weight: 600;
+}
+
 .modal--settings .settings-subhead,
 .fwiz .settings-subhead {
     margin: 18px 0 2px;

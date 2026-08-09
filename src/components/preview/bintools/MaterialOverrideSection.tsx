@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Icon } from '../../ui';
 import { Section } from './Section';
+import { useSectionDefault } from './sectionDefaults';
 import {
     ensureMaterialOverride,
     insertMaterialOverrideEntry,
@@ -13,7 +14,7 @@ interface MaterialOverrideSectionProps {
 }
 
 export const MaterialOverrideSection: React.FC<MaterialOverrideSectionProps> = ({ content, onApply }) => {
-    const [collapsed, setCollapsed] = useState(false);
+    const [collapsed, setCollapsed] = useState(!useSectionDefault('Material Override'));
     const [exists, setExists] = useState(false);
     const [status, setStatus] = useState('');
     const [path, setPath] = useState('');

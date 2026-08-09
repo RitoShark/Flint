@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Section } from './Section';
+import { useSectionDefault } from './sectionDefaults';
 import { insertIdleEffect, type IdleEffectFields } from '../../../lib/editor/binTools/idleParticles';
 
 interface IdleParticlesSectionProps {
@@ -16,7 +17,7 @@ const EMPTY: IdleEffectFields = {
 };
 
 export const IdleParticlesSection: React.FC<IdleParticlesSectionProps> = ({ content, onApply }) => {
-    const [collapsed, setCollapsed] = useState(true);
+    const [collapsed, setCollapsed] = useState(!useSectionDefault('Idle Particles'));
     const [fields, setFields] = useState<IdleEffectFields>(EMPTY);
     const [status, setStatus] = useState('');
 

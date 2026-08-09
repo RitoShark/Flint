@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Section } from './Section';
+import { useSectionDefault } from './sectionDefaults';
 import {
     insertPersistentCondition,
     type PersistentVfxFields,
@@ -34,7 +35,7 @@ const EMPTY_CONDITION = {
 };
 
 export const PersistentVfxSection: React.FC<PersistentVfxSectionProps> = ({ content, onApply }) => {
-    const [collapsed, setCollapsed] = useState(true);
+    const [collapsed, setCollapsed] = useState(!useSectionDefault('Persistent VFX'));
     const [fields, setFields] = useState<PersistentVfxFields>(EMPTY);
     const [status, setStatus] = useState('');
 

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Icon } from '../../ui';
 import { Section } from './Section';
+import { useSectionDefault } from './sectionDefaults';
 import { applySkinScaleToText, parseSkinScale } from '../../../lib/editor/binTools/skinScale';
 
 interface SkinScaleSectionProps {
@@ -9,7 +10,7 @@ interface SkinScaleSectionProps {
 }
 
 export const SkinScaleSection: React.FC<SkinScaleSectionProps> = ({ content, onApply }) => {
-    const [collapsed, setCollapsed] = useState(false);
+    const [collapsed, setCollapsed] = useState(!useSectionDefault('Skin Scale'));
     const [value, setValue] = useState('1.0');
     const [pct, setPct] = useState('100');
     const [exists, setExists] = useState(false);

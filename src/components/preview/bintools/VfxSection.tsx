@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type * as monacoNs from 'monaco-editor';
 import { Section } from './Section';
+import { useSectionDefault } from './sectionDefaults';
 import { setEmittersFolded } from '../../../lib/editor/binTools/vfx';
 
 interface VfxSectionProps {
@@ -8,7 +9,7 @@ interface VfxSectionProps {
 }
 
 export const VfxSection: React.FC<VfxSectionProps> = ({ editorRef }) => {
-    const [collapsed, setCollapsed] = useState(false);
+    const [collapsed, setCollapsed] = useState(!useSectionDefault('VFX Emitters'));
 
     const fold = (collapse: boolean) => {
         const ed = editorRef.current;

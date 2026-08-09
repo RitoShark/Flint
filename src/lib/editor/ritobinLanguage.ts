@@ -1,4 +1,6 @@
 import type * as monacoNs from 'monaco-editor';
+import { resolvePreset } from './ritobinThemes';
+import { useUxStore } from '../stores/uxStore';
 
 type Monaco = typeof monacoNs;
 
@@ -84,64 +86,24 @@ export function registerRitobinLanguage(monaco: Monaco): void {
     });
 }
 
-export function registerRitobinTheme(monaco: Monaco): void {
+/*
+ * ONE theme id whose rules are swapped, NOT one registered theme per preset.
+ * Monaco's standalone theme is global to the instance, so a second theme id
+ * would leak the ritobin choice into the ini / JSON / lua editors that share
+ * it. Redefining the same id updates every open ritobin view at once.
+ */
+export function registerRitobinTheme(monaco: Monaco, presetId?: string): void {
+    const preset = resolvePreset(presetId ?? useUxStore.getState().binEditorSyntaxTheme);
     monaco.editor.defineTheme(RITOBIN_THEME_ID, {
         base: 'vs-dark',
         inherit: false,
-        rules: [
-            { token: '', foreground: 'c0c0c0' },
-            { token: 'comment', foreground: '6a9955', fontStyle: 'italic' },
-            { token: 'variable', foreground: 'dcdcaa' },
-            { token: 'type', foreground: '569cd6' },
-            { token: 'type.identifier', foreground: '4ec9b0' },
-            { token: 'keyword.bool', foreground: '569cd6' },
-            { token: 'number.hex', foreground: 'bd93f9' },
-            { token: 'number.float', foreground: 'b5cea8' },
-            { token: 'number', foreground: 'b5cea8' },
-            { token: 'string', foreground: 'ce9178' },
-            { token: 'delimiter', foreground: 'd4d4d4' },
-            { token: 'delimiter.bracket', foreground: 'ffd700' },
-            { token: 'delimiter.square', foreground: 'da70d6' },
-            { token: 'delimiter.parenthesis', foreground: '179fff' },
-            { token: 'identifier', foreground: 'c0c0c0' }
-        ],
-        colors: {
-            'editor.background': '#1b1b1b',
-            'editor.foreground': '#c0c0c0',
-
-            'editorLineNumber.foreground': '#707070',
-            'editorLineNumber.activeForeground': '#c0c0c0',
-
-            'editorGutter.background': '#191919',
-
-            'editor.lineHighlightBackground': '#222222',
-            'editor.lineHighlightBorder': '#00000000',
-
-            'editor.selectionBackground': '#264f78',
-            'editor.inactiveSelectionBackground': '#2a2a2a',
-
-            'editorCursor.foreground': '#0e639c',
-
-            'scrollbarSlider.background': '#3a3a3a88',
-            'scrollbarSlider.hoverBackground': '#454545aa',
-            'scrollbarSlider.activeBackground': '#555555ee',
-
-            'editorWidget.background': '#1e1e1e',
-            'editorWidget.border': '#2d2d2d',
-            'input.background': '#2a2a2a',
-            'input.border': '#2d2d2d',
-            'input.foreground': '#c0c0c0',
-
-            'editorFindMatch.background': '#515c6a',
-            'editorFindMatchHighlight.background': '#314365',
-
-            'editorBracketMatch.background': '#0e639c44',
-            'editorBracketMatch.border': '#0e639c',
-
-            'minimap.background': '#191919',
-            'minimapSlider.background': '#3a3a3a44',
-            'minimapSlider.hoverBackground': '#3a3a3a66',
-            'minimapSlider.activeBackground': '#3a3a3a88'
-        }
+        rules: preset.rules,
+        colors: preset.colors,
     });
+}
+
+/** Redefine and re-apply, so a live editor repaints without a remount. */
+export function applyRitobinTheme(monaco: Monaco, presetId: string): void {
+    registerRitobinTheme(monaco, presetId);
+    monaco.editor.setTheme(RITOBIN_THEME_ID);
 }

@@ -11,6 +11,7 @@ import { deferCleanup } from '../../lib/ui-helpers/deferCleanup';
 import {
     RITOBIN_LANGUAGE_ID,
     RITOBIN_THEME_ID,
+    applyRitobinTheme,
     registerRitobinLanguage,
     registerRitobinTheme
 } from '../../lib/editor/ritobinLanguage';
@@ -81,12 +82,6 @@ function extractStringAtPosition(line: string, column: number): string | null {
 // =============================================================================
 
 const CLOSER_FOR: Record<string, string> = { '{': '}', '[': ']', '(': ')' };
-
-/** Monaco renders the WHOLE document into the minimap canvas, which is what
- *  degrades on very large VFX bins — so the minimap is force-disabled above
- *  this many lines regardless of the user preference. Folding is NOT capped:
- *  bracket-range computation is cheap. */
-const MINIMAP_MAX_LINES = 150_000;
 
 const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     automaticLayout: true,
@@ -231,8 +226,13 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const [lineCount, setLineCount] = useState(0);
     const minimapPref = useUxStore((s) => s.binEditorMinimap);
     const setMinimapPref = useUxStore((s) => s.setBinEditorMinimap);
+    const minimapMaxLines = useUxStore((s) => s.binEditorMinimapMaxLines);
+    const wordWrapPref = useUxStore((s) => s.binEditorWordWrap);
+    const fontSizePref = useUxStore((s) => s.binEditorFontSize);
+    const autoUnhashPref = useUxStore((s) => s.binEditorAutoUnhash);
+    const syntaxThemePref = useUxStore((s) => s.binEditorSyntaxTheme);
     // Above the cap the preference is overridden, and the toggle is disabled.
-    const minimapAllowed = lineCount <= MINIMAP_MAX_LINES;
+    const minimapAllowed = lineCount <= minimapMaxLines;
     const minimapOn = minimapPref && minimapAllowed;
     const [sidePanelOpen, setSidePanelOpen] = useState(false);
     const [searchPanelOpen, setSearchPanelOpen] = useState(false);
@@ -431,6 +431,8 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         const ed = monaco.editor.create(editorContainerRef.current, {
             ...EDITOR_OPTIONS,
             minimap: { enabled: minimapOn },
+            wordWrap: wordWrapPref ? 'on' : 'off',
+            fontSize: fontSizePref,
             value: content,
             language: RITOBIN_LANGUAGE_ID,
             theme: RITOBIN_THEME_ID,
@@ -838,6 +840,27 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         return () => window.removeEventListener(UNHASH_REQUEST_EVENT, onRequest);
     }, [filePath]);
 
+    /* Auto-unhash runs once per opened file, keyed on the path — not on
+       `content`, which the pass itself rewrites. */
+    const autoUnhashedRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (!autoUnhashPref || loading || !content) return;
+        if (autoUnhashedRef.current === filePath) return;
+        autoUnhashedRef.current = filePath;
+        void unhashRef.current();
+    }, [autoUnhashPref, loading, content, filePath]);
+
+    useEffect(() => {
+        editorRef.current?.updateOptions({
+            wordWrap: wordWrapPref ? 'on' : 'off',
+            fontSize: fontSizePref,
+        });
+    }, [wordWrapPref, fontSizePref]);
+
+    useEffect(() => {
+        applyRitobinTheme(monaco as never, syntaxThemePref);
+    }, [syntaxThemePref]);
+
     /* Reveal a name in the text — the Paint panel's double-click gesture. The
        search runs over the live model (not React `content`) so it lands on the
        right line even with unsaved edits above it. */
@@ -963,7 +986,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                         disabled={!minimapAllowed}
                         title={minimapAllowed
                             ? 'Toggle minimap (document overview bar on the right)'
-                            : `Minimap is disabled above ${MINIMAP_MAX_LINES.toLocaleString()} lines for performance`}
+                            : `Minimap is disabled above ${minimapMaxLines.toLocaleString()} lines for performance`}
                     >
                         <Icon name="layerText" />
                     </button>

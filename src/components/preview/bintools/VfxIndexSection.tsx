@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import type * as monacoNs from 'monaco-editor';
 import { Section } from './Section';
+import { useSectionDefault } from './sectionDefaults';
 import { indexVfxSystems } from '../../../lib/editor/binTools/vfxIndex';
 
 interface VfxIndexSectionProps {
@@ -9,7 +10,7 @@ interface VfxIndexSectionProps {
 }
 
 export const VfxIndexSection: React.FC<VfxIndexSectionProps> = ({ content, editorRef }) => {
-    const [collapsed, setCollapsed] = useState(false);
+    const [collapsed, setCollapsed] = useState(!useSectionDefault('VFX Systems'));
     const systems = useMemo(() => indexVfxSystems(content), [content]);
 
     if (systems.length === 0) return null;
