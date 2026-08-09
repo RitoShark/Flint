@@ -5,6 +5,8 @@ import { SkinScaleSection } from './SkinScaleSection';
 import { MaterialOverrideSection } from './MaterialOverrideSection';
 import { VfxSection } from './VfxSection';
 import { VfxIndexSection } from './VfxIndexSection';
+import { IdleParticlesSection } from './IdleParticlesSection';
+import { PersistentVfxSection } from './PersistentVfxSection';
 import { applyContentToEditor } from '../../../lib/editor/applyContent';
 import { hasVfxEmitters } from '../../../lib/editor/binTools/vfx';
 
@@ -30,6 +32,8 @@ export const BinToolsPanel: React.FC<BinToolsPanelProps> = ({
         return () => clearTimeout(timer);
     }, [content]);
 
+    const isSkin = /SkinCharacterDataProperties\s*\{/.test(settled);
+
     const apply = (text: string) => {
         const ed = editorRef.current;
         if (ed) applyContentToEditor(ed, text);
@@ -47,6 +51,8 @@ export const BinToolsPanel: React.FC<BinToolsPanelProps> = ({
 
             <SkinScaleSection content={settled} onApply={apply} />
             <MaterialOverrideSection content={settled} onApply={apply} />
+            {isSkin && <IdleParticlesSection content={settled} onApply={apply} />}
+            {isSkin && <PersistentVfxSection content={settled} onApply={apply} />}
             {hasVfxEmitters(settled) && <VfxSection editorRef={editorRef} />}
             <VfxIndexSection content={settled} editorRef={editorRef} />
         </div>
