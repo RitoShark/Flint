@@ -781,6 +781,20 @@
   line-height: 1.5;
 }
 
+.tb-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tb-check input {
+  flex-shrink: 0;
+  margin: 0;
+  accent-color: var(--accent-primary);
+}
+
 /* Map-env texture slot rows (per-material picker) */
 .tb-env-slot {
   margin-top: 6px;

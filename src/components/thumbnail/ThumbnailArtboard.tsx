@@ -437,7 +437,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
         // Attach this model's OWN view canvas now that it has a sceneId (the
         // async load finished after the reconcile ran, so wire it here too).
         scene.setModelCanvas(handle.id, modelCanvasRefs.current.get(layer.id) ?? null);
-        scene.setModelTransform(handle.id, { x: layer.x, y: layer.y, w: layer.w, h: layer.h, scale: layer.scale, orbit: layer.orbit, tiltX: layer.tiltX ?? 0, rollZ: layer.rollZ ?? 0, posX: layer.posX ?? 0, posY: layer.posY ?? 0, posZ: layer.posZ ?? 0 });
+        scene.setModelTransform(handle.id, { x: layer.x, y: layer.y, w: layer.w, h: layer.h, scale: layer.scale, orbit: layer.orbit, tiltX: layer.tiltX ?? 0, rollZ: layer.rollZ ?? 0, posX: layer.posX ?? 0, posY: layer.posY ?? 0, posZ: layer.posZ ?? 0, mirrored: !!layer.mirrored });
         if (layer.hiddenMeshes && layer.hiddenMeshes.length > 0) {
           scene.setHiddenMeshes(handle.id, layer.hiddenMeshes);
         }
@@ -502,7 +502,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       }
 
       if (existing.x !== layer.x || existing.y !== layer.y || existing.w !== layer.w || existing.h !== layer.h || existing.scale !== layer.scale || existing.orbit !== layer.orbit || existing.tiltX !== (layer.tiltX ?? 0) || existing.rollZ !== (layer.rollZ ?? 0) || existing.posX !== (layer.posX ?? 0) || existing.posY !== (layer.posY ?? 0) || existing.posZ !== (layer.posZ ?? 0)) {
-        scene.setModelTransform(existing.sceneId, { x: layer.x, y: layer.y, w: layer.w, h: layer.h, scale: layer.scale, orbit: layer.orbit, tiltX: layer.tiltX ?? 0, rollZ: layer.rollZ ?? 0, posX: layer.posX ?? 0, posY: layer.posY ?? 0, posZ: layer.posZ ?? 0 });
+        scene.setModelTransform(existing.sceneId, { x: layer.x, y: layer.y, w: layer.w, h: layer.h, scale: layer.scale, orbit: layer.orbit, tiltX: layer.tiltX ?? 0, rollZ: layer.rollZ ?? 0, posX: layer.posX ?? 0, posY: layer.posY ?? 0, posZ: layer.posZ ?? 0, mirrored: !!layer.mirrored });
         existing.x = layer.x; existing.y = layer.y; existing.w = layer.w; existing.h = layer.h;
         existing.scale = layer.scale; existing.orbit = layer.orbit; existing.tiltX = layer.tiltX ?? 0; existing.rollZ = layer.rollZ ?? 0;
         existing.posX = layer.posX ?? 0; existing.posY = layer.posY ?? 0; existing.posZ = layer.posZ ?? 0;

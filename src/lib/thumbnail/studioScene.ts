@@ -81,6 +81,8 @@ export interface ModelTransformPatch {
     posX?: number;
     posY?: number;
     posZ?: number;
+    /** Flip the model across its own vertical axis (negative X scale). */
+    mirrored?: boolean;
 }
 
 /** The artboard's design-space dimensions (STAGE_W × STAGE_H). Model boxes
@@ -197,6 +199,7 @@ interface ModelState {
     posX: number;
     posY: number;
     posZ: number;
+    mirrored: boolean;
 }
 
 let modelSeq = 0;
@@ -803,6 +806,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             posX: 0,
             posY: 0,
             posZ: 0,
+            mirrored: false,
         };
         models.set(id, state);
         applyViewport(state);
@@ -906,13 +910,13 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         if (patch.w !== undefined) { m.w = patch.w; boxChanged = true; }
         if (patch.h !== undefined) { m.h = patch.h; boxChanged = true; }
         if (boxChanged) applyViewport(m);
-        if (patch.scale !== undefined) {
-            m.scale = patch.scale;
+        if (patch.mirrored !== undefined) m.mirrored = patch.mirrored;
+        if (patch.scale !== undefined || patch.mirrored !== undefined) {
+            if (patch.scale !== undefined) m.scale = patch.scale;
             // `scale` is a percentage (100 = 1.0×). Framing uses the UNSCALED
             // model, so scale then visibly shrinks/grows it within the box —
             // a smaller scale leaves headroom (the model reads smaller).
-            const s = patch.scale / 100;
-            for (const mesh of m.meshes) mesh.scaling.set(s, s, s);
+            applyScale(m);
             // Re-frame (head focus depends on scale) unless the user has taken
             // manual camera control.
             if (!m.userFramed) reframeModel(m);
@@ -929,6 +933,14 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         if (patch.posX !== undefined || patch.posY !== undefined || patch.posZ !== undefined) {
             applyPosition(m);
         }
+    }
+
+    /* Mirroring is a NEGATIVE X scale. Babylon flips `sideOrientation` itself
+     * when the world matrix determinant goes negative, so the winding stays
+     * correct without touching geometry — don't reach for `flipFaces()`. */
+    function applyScale(m: ModelState): void {
+        const s = (m.scale || 100) / 100;
+        for (const mesh of m.meshes) mesh.scaling.set(m.mirrored ? -s : s, s, s);
     }
 
     /** Translate the model in 3D world space (moves it WITHIN the scene without

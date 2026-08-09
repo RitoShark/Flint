@@ -71,6 +71,9 @@ export interface ModelLayer extends BaseLayer {
   posX?: number;
   posY?: number;
   posZ?: number;
+  /** Flip the model across its own vertical axis so a pose faces the other way.
+   *  Not the same as `orbit + 180`, which shows the model's back. */
+  mirrored?: boolean;
   /** Submesh (material) names hidden for this model. Empty/undefined = all
    *  submeshes visible. Driven by the mesh-visibility popup. */
   hiddenMeshes?: string[];

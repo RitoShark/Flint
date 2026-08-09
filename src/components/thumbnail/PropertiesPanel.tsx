@@ -136,6 +136,17 @@ function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture }: { laye
           onChange={(v, rec) => onChange({ orbit: v }, rec)}
         />
       </div>
+      <div className="tb-grp">
+        <label className="tb-check">
+          <input
+            type="checkbox"
+            checked={!!layer.mirrored}
+            onChange={(e) => onChange({ mirrored: e.target.checked }, true)}
+          />
+          Mirror
+        </label>
+        <div className="tb-hint">Faces the pose the other way — not the same as turning 180&deg;.</div>
+      </div>
 
       <button
         type="button"
