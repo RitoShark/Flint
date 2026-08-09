@@ -15,6 +15,8 @@ interface TargetGridProps {
     /** `art` shows a splash tile per target; `chip` is a dense numeric grid. */
     variant: 'art' | 'chip';
     noun: string;
+    /** Extra one-click preset shown beside All / None. */
+    preset?: { label: string; title: string; onSelect: () => void; disabled?: boolean };
 }
 
 export const TargetGrid: React.FC<TargetGridProps> = ({
@@ -25,6 +27,7 @@ export const TargetGrid: React.FC<TargetGridProps> = ({
     onSelectNone,
     variant,
     noun,
+    preset,
 }) => {
     const [imgErrors, setImgErrors] = React.useState<Set<number>>(new Set());
 
@@ -45,6 +48,16 @@ export const TargetGrid: React.FC<TargetGridProps> = ({
                 >
                     None
                 </button>
+                {preset && (
+                    <button
+                        className="dl-btn dl-btn--ghost dl-btn--sm"
+                        onClick={preset.onSelect}
+                        disabled={preset.disabled}
+                        title={preset.title}
+                    >
+                        {preset.label}
+                    </button>
+                )}
                 <span className="skin-port__count">
                     {selected.size} / {targets.length} {noun}
                 </span>

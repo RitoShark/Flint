@@ -3,6 +3,7 @@ import { useModalStore, useNotificationStore, useProjectTabStore } from '../../l
 import * as api from '../../lib/api';
 import { fetchSkinSlots } from '../../lib/data/skinSlots';
 import {
+    CLASSIC_SKIN_NUM_MIN,
     fetchChampionSkins,
     fetchJadeChampions,
     isJadeAlias,
@@ -106,6 +107,10 @@ export const PortToJadeModal: React.FC = () => {
         return () => { cancelled = true; };
     }, [isVisible, project]);
 
+    const classicSlots = targets
+        .map((t) => t.id)
+        .filter((id) => id >= CLASSIC_SKIN_NUM_MIN);
+
     const toggle = (id: number) =>
         setSelected((prev) => {
             const next = new Set(prev);
@@ -180,6 +185,12 @@ export const PortToJadeModal: React.FC = () => {
                         onSelectNone={() => setSelected(new Set())}
                         variant="art"
                         noun="slots"
+                        preset={{
+                            label: 'Classic only',
+                            title: 'Select just the Classic skin and its chromas',
+                            onSelect: () => setSelected(new Set(classicSlots)),
+                            disabled: classicSlots.length === 0,
+                        }}
                     />
                 )}
             </ModalBody>
