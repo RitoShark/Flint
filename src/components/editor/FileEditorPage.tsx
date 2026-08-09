@@ -9,7 +9,15 @@ import type { FileEditorTarget } from '../../lib/types';
 import { BinEditor } from '../preview/BinEditor';
 import { LuaBin64Editor } from '../preview/LuaBin64Editor';
 import { TroybinViewer } from '../preview/TroybinViewer';
-import { Button, Field, FormGroup, FormLabel, Input, Textarea } from '../ui';
+import { Button, Field, FormGroup, FormLabel, Icon, Input, Textarea } from '../ui';
+import { SearchSidebar } from '../browser/SearchSidebar';
+import { projectRootFromFilePath } from '../../lib/wadPath';
+import {
+    SYSTEM_COUNT_EVENT,
+    requestStepSystem,
+    requestUnhash,
+    type SystemCountDetail,
+} from '../../lib/editor/binEditorEvents';
 
 // ─── mod.config.json structured editor ──────────────────────────────────
 
@@ -295,6 +303,23 @@ const RawTextEditor: React.FC<{ target: FileEditorTarget }> = ({ target }) => {
 
 export const FileEditorPage: React.FC = () => {
     const target = useFileEditorStore((s) => s.target);
+    const [searchOpen, setSearchOpen] = useState(false);
+    const [vfxSystems, setVfxSystems] = useState<{ path: string; count: number }>({ path: '', count: 0 });
+
+    /* The editor is a CHILD of this page, so its VFX-system count comes up
+       through an event. The path rides with it so a stale count cannot leave
+       dead navigation buttons behind after switching files. */
+    useEffect(() => {
+        const onCount = (e: Event) => {
+            const detail = (e as CustomEvent<SystemCountDetail>).detail;
+            if (!detail) return;
+            setVfxSystems({ path: detail.filePath, count: detail.count });
+        };
+        window.addEventListener(SYSTEM_COUNT_EVENT, onCount);
+        return () => window.removeEventListener(SYSTEM_COUNT_EVENT, onCount);
+    }, []);
+
+    const vfxSystemCount = target && vfxSystems.path === target.filePath ? vfxSystems.count : 0;
 
     if (!target) {
         return (
@@ -304,28 +329,97 @@ export const FileEditorPage: React.FC = () => {
         );
     }
 
+    const isBin = target.kind === 'binText';
+    const searchRoot = isBin
+        ? (target.projectPath ?? projectRootFromFilePath(target.filePath))
+        : null;
+
     return (
-        <div
-            className="file-editor-page"
-            style={{
-                display: 'flex',
-                flexDirection: 'column',
-                height: '100%',
-                overflowY: target.kind === 'binText' ? 'hidden' : 'auto',
-                backgroundColor: 'var(--bg-primary)',
-            }}
-        >
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                {target.kind === 'modConfig' && <ModConfigEditor key={target.filePath} target={target} />}
-                {target.kind === 'raw' && <RawTextEditor key={target.filePath} target={target} />}
-                {target.kind === 'binText' && (
-                    <BinEditor key={target.filePath} filePath={target.filePath} hideFilename />
-                )}
-                {target.kind === 'luaBin64' && (
-                    <LuaBin64Editor key={target.filePath} filePath={target.filePath} hideFilename />
-                )}
-                {target.kind === 'troybin' && (
-                    <TroybinViewer key={target.filePath} filePath={target.filePath} />
+        <div style={{ display: 'flex', height: '100%', minHeight: 0 }}>
+            {searchOpen && searchRoot && (
+                <SearchSidebar
+                    projectPath={searchRoot}
+                    seedBin={target.filePath}
+                    onClose={() => setSearchOpen(false)}
+                    style={{ width: 300, flexShrink: 0 }}
+                />
+            )}
+            <div
+                className="file-editor-page"
+                style={{
+                    flex: 1,
+                    minWidth: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    height: '100%',
+                    overflowY: isBin ? 'hidden' : 'auto',
+                    backgroundColor: 'var(--bg-primary)',
+                }}
+            >
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                    {target.kind === 'modConfig' && <ModConfigEditor key={target.filePath} target={target} />}
+                    {target.kind === 'raw' && <RawTextEditor key={target.filePath} target={target} />}
+                    {isBin && (
+                        <BinEditor key={target.filePath} filePath={target.filePath} hideFilename />
+                    )}
+                    {target.kind === 'luaBin64' && (
+                        <LuaBin64Editor key={target.filePath} filePath={target.filePath} hideFilename />
+                    )}
+                    {target.kind === 'troybin' && (
+                        <TroybinViewer key={target.filePath} filePath={target.filePath} />
+                    )}
+                </div>
+
+                {isBin && (
+                    <div className="preview-panel__info-bar">
+                        <div className="preview-panel__info-left">
+                            {searchRoot ? (
+                                <button
+                                    className="preview-panel__open-btn"
+                                    onClick={() => setSearchOpen((v) => !v)}
+                                    title="Find and replace across every BIN in this project"
+                                >
+                                    <Icon name="search" className="preview-panel__btn-icon" />
+                                    <span>Search project</span>
+                                </button>
+                            ) : (
+                                <span className="preview-panel__info-item">
+                                    Not inside a project — workspace search unavailable
+                                </span>
+                            )}
+                        </div>
+                        <div className="preview-panel__info-actions">
+                            {vfxSystemCount > 0 && (
+                                <span className="preview-panel__step-group">
+                                    <button
+                                        className="preview-panel__open-btn"
+                                        onClick={() => requestStepSystem(target.filePath, false)}
+                                        title="Previous VFX system (Alt+[)"
+                                    >
+                                        <Icon name="chevronLeft" className="preview-panel__btn-icon" />
+                                    </button>
+                                    <span className="preview-panel__step-label">
+                                        {vfxSystemCount} system{vfxSystemCount === 1 ? '' : 's'}
+                                    </span>
+                                    <button
+                                        className="preview-panel__open-btn"
+                                        onClick={() => requestStepSystem(target.filePath, true)}
+                                        title="Next VFX system (Alt+])"
+                                    >
+                                        <Icon name="chevronRight" className="preview-panel__btn-icon" />
+                                    </button>
+                                </span>
+                            )}
+                            <button
+                                className="preview-panel__open-btn"
+                                onClick={() => requestUnhash(target.filePath)}
+                                title="Unhash: re-resolve any 0x… hash tokens against the known BIN hash dictionary"
+                            >
+                                <Icon name="search" className="preview-panel__btn-icon" />
+                                <span>Unhash</span>
+                            </button>
+                        </div>
+                    </div>
                 )}
             </div>
         </div>

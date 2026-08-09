@@ -36,3 +36,19 @@ export function wadInternalPath(projectRelPath: string): string | null {
 export function copyablePath(projectRelPath: string): string {
     return wadInternalPath(projectRelPath) ?? projectRelPath.replace(/\\/g, '/');
 }
+
+/**
+ * The project root an ABSOLUTE file path sits under, found by locating the
+ * `content/` segment a Flint project always has.
+ *
+ * The standalone file editor opens a BIN with no project tab behind it, so
+ * anything project-scoped there (workspace search) has to re-derive the root
+ * from the file itself. Returns null for a file outside any project.
+ */
+export function projectRootFromFilePath(filePath: string): string | null {
+    const normalized = filePath.replace(/\\/g, '/');
+    const segments = normalized.split('/');
+    const contentIdx = segments.findIndex((s) => s.toLowerCase() === 'content');
+    if (contentIdx <= 0) return null;
+    return segments.slice(0, contentIdx).join('/');
+}
