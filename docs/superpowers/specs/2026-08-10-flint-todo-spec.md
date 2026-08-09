@@ -184,30 +184,45 @@ synthetic all-fields reference: authoritative for names and types, never values.
 
 ---
 
-## 5. Bin Editor — search panel with linked-bin search
+## 5. VS Code left find-and-replace bar + linked bin search
 
-**Goal.** Find and replace across a skin's whole BIN graph, not just the open
-file. Riot hoists shared entries into linked bins, so a search confined to the
-open file misses most of a skin.
+**Corrected 2026-08-10.** The todo line is *"vscode left find and replace bar +
+linked bin search"*. An earlier revision read that as a search panel beside the
+editor with its own find UI, and that is what was built — a right-side panel,
+scoped to one file plus its links, with replace limited to the open file. Wrong
+on placement, wrong on scope. It was removed. What follows is the real one.
+
+**Goal.** One place to find (and replace) across the whole project, the way VS
+Code's Search view works — not a second Ctrl+F.
+
+**Monaco's built-in find widget is untouched.** Ctrl+F keeps the exact behaviour
+and styling it has today. Nothing in this section replaces, restyles or rebinds
+it.
 
 **Behaviour.**
-- A search panel beside the editor: query, replace, and the usual case /
+- The **left panel** gains a Files / Search switch. Search is a view of that
+  panel, not a floating overlay and not a second editor toolbar.
+- Query and replace fields, replace collapsed behind a disclosure, with case /
   whole-word / regex toggles.
-- Results are grouped by file — the open BIN first, then each linked BIN — with
-  a match count per group and a line preview per hit.
-- Clicking a hit in the open file reveals and selects it. Clicking a hit in a
-  linked BIN opens that BIN and reveals it there.
-- Replace and Replace All apply to the **open file only**; linked-BIN results are
-  read-only and say so. Replacing across files is out of scope.
+- Scope is **every BIN in the open project**, plus any linked BIN that resolves
+  outside the project tree. Riot hoists shared entries into linked bins, so a
+  search confined to one file misses most of a skin.
+- Results group by file with a match count and a line preview per hit;
+  groups collapse. Clicking a hit opens that BIN and reveals the line.
 - Search runs on submit, not per keystroke.
+- Replace All is confirm-gated, states how many matches in how many files, and
+  reports what actually changed. Per-file failures are surfaced, never silent.
 
 **Acceptance criteria.**
-- Searching a term that exists only in a linked BIN finds it.
-- A skin linking many bins stays responsive; the panel never converts linked bins
-  on every keystroke.
-- Replace All is a single undo step.
-- Results survive edits to the open file without going stale silently — either
-  they refresh or they are visibly marked as out of date.
+- Ctrl+F in the editor behaves exactly as before this feature existed.
+- A term that appears only in a BIN the user has never opened is found.
+- A term that exists only in a linked BIN outside the project is found.
+- Searching a large project does not litter it with `.ritobin` sidecars it was
+  not asked to create.
+- A capped result set says so rather than presenting a partial sweep as
+  complete.
+- A replace that produces unparseable ritobin leaves that file untouched and
+  reports it.
 
 ---
 
@@ -220,6 +235,9 @@ scrolling.
 - The tools panel lists every `VfxSystemDefinitionData` in the file, in document
   order, labelled by its particle path and falling back to the entry key.
 - Clicking a row reveals and selects that system in the editor.
+- **Next / previous are buttons on the bottom info bar**, beside Unhash, with the
+  system count between them — the todo asks for "move to next" as an option, not
+  only a shortcut. They are hidden when the file has no systems.
 - Keyboard: next system and previous system, wrapping at both ends.
 - The list tracks edits without a manual refresh, and updating it must not make
   typing in a large VFX BIN feel slow.
