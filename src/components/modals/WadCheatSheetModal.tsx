@@ -259,9 +259,8 @@ function RenderSectionBlocks({ blocks, ctx }: { blocks: Block[]; ctx: RenderCtx 
                 </blockquote>
             ); break;
             case 'listitem': elements.push(
-                <div key={i} className="cs-listitem" style={{ paddingLeft: `${block.indent + 12}px` }}>
-                    <span className="cs-listitem__bullet">•</span>
-                    <span><RenderTokens tokens={block.tokens} ctx={ctx} /></span>
+                <div key={i} className="cs-listitem" style={{ marginLeft: `${block.indent}px` }}>
+                    <RenderTokens tokens={block.tokens} ctx={ctx} />
                 </div>
             ); break;
             case 'paragraph': elements.push(
@@ -307,13 +306,8 @@ export const WadCheatSheetModal: React.FC<WadCheatSheetModalProps> = ({ onClose,
     return (
         <Modal open onClose={onClose} size="large" modifier="cs-modal">
             <div className="cs-modal__header">
-                <span className="cs-title">
-                    <span className="cs-title__icon"><Icon name="info" /></span>
-                    <span>
-                        <span className="cs-title__name">Asset Path Cheat Sheet</span>
-                        <span className="cs-title__sub">{filtered.length} of {sections.length} sections</span>
-                    </span>
-                </span>
+                <h2 className="cs-title">Asset Path Cheat Sheet</h2>
+                <span className="cs-count">{filtered.length} of {sections.length}</span>
                 <div className="cs-search">
                     <Icon name="search" />
                     <input
@@ -344,23 +338,19 @@ export const WadCheatSheetModal: React.FC<WadCheatSheetModalProps> = ({ onClose,
             <div className="cs-modal__body">
                 {filtered.length === 0 ? (
                     <div className="cs-empty">
-                        <span className="cs-empty__icon"><Icon name="search" /></span>
                         <strong>No sections match</strong>
-                        <span>Nothing in the cheat sheet contains “{search}”.</span>
+                        Nothing in the cheat sheet contains “{search}”.
                     </div>
                 ) : (
                     filtered.map((sec, si) => (
-                        <div key={si} className="cs-section">
+                        <section key={si} className="cs-section">
                             <RenderSectionBlocks blocks={sec.blocks} ctx={ctx} />
-                        </div>
+                        </section>
                     ))
                 )}
             </div>
 
-            <div className="cs-modal__footer">
-                <span className="cs-footer-dot" />
-                <span>Original cheat sheet by Aropatnik</span>
-            </div>
+            <div className="cs-modal__footer">Original cheat sheet by Aropatnik</div>
         </Modal>
     );
 };

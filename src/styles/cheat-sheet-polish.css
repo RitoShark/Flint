@@ -1,70 +1,62 @@
 /* ============================================================================
-   Flint — WAD Cheat Sheet modal polish
+   Flint — Asset Path Cheat Sheet
+   ----------------------------------------------------------------------------
+   Glass idiom, shared with the first-run wizard (.fwiz in flint-2.css):
+   translucent surfaces built with color-mix(... transparent) so the blur
+   behind the modal shows through, accent-tinted hairlines instead of solid
+   borders, 10px radii, --ux-* motion tokens.
+
+   ONE surface only. Sections are rhythm (a rule + spacing), not cards — no
+   panel inside the body inside the modal.
    ============================================================================ */
 
-/* --------------------------------------------------------------------------
-   Modal shell
-   -------------------------------------------------------------------------- */
 .modal--large.cs-modal {
-    border-radius: 16px;
-    overflow: hidden;
-    background:
-        radial-gradient(circle at top right,
-            color-mix(in oklab, var(--accent-primary) 6%, transparent) 0%,
-            transparent 40%),
-        var(--bg-secondary);
-    box-shadow:
-        0 24px 48px -16px rgba(0,0,0,.55),
-        0 4px 12px rgba(0,0,0,.25),
-        0 0 0 1px var(--border);
     height: 80vh;
     max-height: 800px;
+    border-radius: 14px;
+    overflow: hidden;
+    background:
+        radial-gradient(120% 80% at 100% 0%,
+            color-mix(in oklab, var(--accent-primary) 9%, transparent) 0%,
+            transparent 55%),
+        color-mix(in oklab, var(--bg-secondary) 88%, transparent);
+    box-shadow:
+        0 24px 48px -16px rgba(0, 0, 0, .55),
+        0 0 0 1px color-mix(in oklab, var(--accent-primary) 14%, var(--border));
 }
 
 /* --------------------------------------------------------------------------
-   Header — icon tile + title + subtitle + search + rotating-X
+   Header
    -------------------------------------------------------------------------- */
 .cs-modal .cs-modal__header {
-    background: transparent;
-    padding: 14px 18px 12px !important;
-    border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent) !important;
-    gap: 12px !important;
     display: flex;
     align-items: center;
+    gap: 10px !important;
+    padding: 13px 16px !important;
+    background: transparent;
+    border-bottom: 1px solid color-mix(in oklab, var(--accent-primary) 14%, transparent) !important;
 }
 
-.cs-title { display: inline-flex; align-items: center; gap: 12px; }
-.cs-title__icon {
-    width: 32px;
-    height: 32px;
-    display: grid;
-    place-items: center;
-    background:
-        linear-gradient(135deg,
-            color-mix(in oklab, var(--accent-primary) 22%, var(--bg-tertiary)),
-            var(--bg-tertiary));
-    border: 1px solid color-mix(in oklab, var(--accent-primary) 35%, var(--border));
-    border-radius: 9px;
-    color: var(--accent-primary);
-    box-shadow: 0 0 10px color-mix(in oklab, var(--accent-primary) 25%, transparent);
-}
-.cs-title__icon svg { width: 16px; height: 16px; display: block; }
-.cs-title__name {
-    display: block;
+.cs-modal .cs-title {
+    margin: 0;
     font-size: 13px;
     font-weight: 600;
+    letter-spacing: -0.01em;
     color: var(--text-primary);
-    line-height: 1.2;
-}
-.cs-title__sub {
-    display: block;
-    font-size: 11px;
-    color: var(--text-muted);
-    font-family: var(--font-mono);
-    margin-top: 2px;
 }
 
-/* Search */
+.cs-modal .cs-count {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    color: color-mix(in oklab, var(--accent-primary) 35%, var(--text-muted));
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 26%, transparent);
+    background: color-mix(in oklab, var(--accent-primary) 9%, transparent);
+    white-space: nowrap;
+}
+
 .cs-modal .cs-search {
     position: relative;
     display: flex;
@@ -78,30 +70,36 @@
     left: 10px;
     top: 50%;
     transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
     color: var(--text-muted);
     pointer-events: none;
-    display: inline-flex;
-    line-height: 0;
 }
 .cs-modal .cs-search > span:first-child svg { width: 13px; height: 13px; display: block; }
+
 .cs-modal .cs-search__input {
+    box-sizing: border-box;
     width: 100%;
     height: 30px;
     padding: 0 30px 0 32px;
+    font-family: var(--font-sans);
     font-size: 12px;
     color: var(--text-primary);
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    font-family: var(--font-sans);
-    transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
+    background: color-mix(in oklab, var(--bg-primary) 32%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+    border-radius: 10px;
+    transition: border-color var(--ux-fast), background var(--ux-fast), box-shadow var(--ux-fast);
 }
+.cs-modal .cs-search__input::placeholder { color: color-mix(in oklab, var(--text-muted) 80%, transparent); }
+.cs-modal .cs-search__input:hover { border-color: color-mix(in oklab, var(--accent-primary) 30%, var(--border)); }
 .cs-modal .cs-search__input:focus {
     outline: none;
-    border-color: var(--accent-primary);
-    box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent-primary) 30%, transparent);
+    border-color: color-mix(in oklab, var(--accent-primary) 55%, var(--border));
+    background: color-mix(in oklab, var(--bg-primary) 40%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-primary) 16%, transparent);
 }
-.cs-modal .cs-search__input::placeholder { color: var(--text-muted); }
+
 .cs-modal .cs-search__clear {
     position: absolute;
     right: 6px;
@@ -109,133 +107,141 @@
     transform: translateY(-50%);
     width: 20px;
     height: 20px;
-    display: grid;
-    place-items: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: transparent;
     border: none;
+    border-radius: 6px;
     color: var(--text-muted);
-    border-radius: 5px;
     cursor: pointer;
-    transition: background var(--motion-fast), color var(--motion-fast);
+    transition: background var(--ux-fast), color var(--ux-fast);
 }
-.cs-modal .cs-search__clear:hover { background: var(--bg-hover); color: var(--text-primary); }
+.cs-modal .cs-search__clear:hover {
+    background: color-mix(in oklab, var(--accent-primary) 12%, transparent);
+    color: var(--text-primary);
+}
 .cs-modal .cs-search__clear svg { width: 11px; height: 11px; display: block; }
 
 /* --------------------------------------------------------------------------
-   Body
+   Body — one continuous surface
    -------------------------------------------------------------------------- */
 .cs-modal .cs-modal__body {
-    padding: 18px 24px 20px !important;
-    background: color-mix(in oklab, var(--bg-primary) 80%, transparent);
+    padding: 4px 22px 20px !important;
+    background: transparent;
 }
-.cs-modal .cs-section {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 14px 18px 16px;
-    margin-bottom: 14px;
-    transition: border-color var(--motion-fast);
+
+.cs-modal .cs-section { padding: 14px 0 2px; }
+.cs-modal .cs-section + .cs-section {
+    border-top: 1px solid color-mix(in oklab, var(--border) 45%, transparent);
 }
-.cs-modal .cs-section:hover { border-color: color-mix(in oklab, var(--accent-primary) 25%, var(--border)); }
 
 /* --------------------------------------------------------------------------
-   Headings + structural blocks
+   Headings + blocks
    -------------------------------------------------------------------------- */
-.cs-modal .cs-h2 {
-    font-size: 14px !important;
-    font-weight: 600 !important;
-    margin: 0 0 10px !important;
-    color: var(--text-primary) !important;
+.cs-modal .cs-h2,
+.cs-modal .cs-h3 {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 9px;
+    margin: 0 0 10px !important;
+    font-size: 12.5px !important;
+    font-weight: 600 !important;
+    letter-spacing: -0.01em;
+    color: var(--text-primary) !important;
+    border-bottom: none !important;
+    padding-bottom: 0 !important;
+    text-transform: none;
 }
-.cs-modal .cs-h2::before {
+.cs-modal .cs-h2::before,
+.cs-modal .cs-h3::before {
     content: '';
-    display: inline-block;
-    width: 4px;
-    height: 14px;
+    flex: 0 0 auto;
+    width: 3px;
+    height: 13px;
     border-radius: 2px;
     background: linear-gradient(180deg, var(--accent-primary), var(--accent-secondary));
+    box-shadow: 0 0 8px color-mix(in oklab, var(--accent-primary) 45%, transparent);
 }
 .cs-modal .cs-h3 {
-    font-size: 12px !important;
-    font-weight: 600 !important;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    margin: 14px 0 8px !important;
+    font-size: 11.5px !important;
     color: var(--text-secondary) !important;
-    padding-bottom: 6px !important;
-    border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent) !important;
+    margin-top: 14px !important;
 }
+.cs-modal .cs-h3::before { opacity: 0.55; }
 
-/* Blockquotes — re-tinted with the Flint accent (was generic blue) */
+.cs-modal .cs-section-gap { height: 4px; }
+
 .cs-modal .cs-blockquote {
     margin: 8px 0 !important;
     padding: 8px 12px !important;
-    border-left: 3px solid var(--accent-primary) !important;
-    background: color-mix(in oklab, var(--accent-primary) 8%, transparent) !important;
-    border-radius: 0 8px 8px 0 !important;
+    border: none !important;
+    border-left: 2px solid color-mix(in oklab, var(--accent-primary) 55%, transparent) !important;
+    background: color-mix(in oklab, var(--accent-primary) 7%, transparent) !important;
+    border-radius: 0 10px 10px 0 !important;
     font-size: 12px !important;
     color: var(--text-secondary) !important;
 }
 
 .cs-modal .cs-listitem {
+    position: relative;
+    padding-left: 14px;
     font-size: 12px !important;
     line-height: 1.7 !important;
     color: var(--text-secondary) !important;
 }
-.cs-modal .cs-listitem__bullet {
-    color: var(--accent-primary) !important;
-    opacity: 0.8 !important;
-    font-size: 12px !important;
+.cs-modal .cs-listitem::before {
+    content: '';
+    position: absolute;
+    left: 2px;
+    top: 0.85em;
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: var(--accent-primary);
+    opacity: 0.75;
 }
+
 .cs-modal .cs-paragraph {
+    margin: 6px 0 !important;
     font-size: 12px !important;
     line-height: 1.6 !important;
     color: var(--text-secondary) !important;
-    margin: 6px 0 !important;
 }
 
 /* --------------------------------------------------------------------------
-   Tables
+   Tables — row rules only, no box around the box
    -------------------------------------------------------------------------- */
 .cs-modal .cs-table {
     width: 100%;
-    border-collapse: separate;
-    border-spacing: 0;
+    margin: 8px 0 12px;
+    border: none;
+    border-collapse: collapse;
     font-size: 11px;
-    margin: 8px 0;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    overflow: hidden;
 }
 .cs-modal .cs-table th {
+    padding: 5px 10px 5px 0 !important;
     text-align: left !important;
-    padding: 6px 10px !important;
-    background: color-mix(in oklab, var(--bg-tertiary) 60%, transparent) !important;
+    background: transparent !important;
     border: none !important;
-    border-bottom: 1px solid var(--border) !important;
-    font-weight: 600 !important;
+    border-bottom: 1px solid color-mix(in oklab, var(--accent-primary) 20%, transparent) !important;
     font-size: 10px;
+    font-weight: 600 !important;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--text-secondary) !important;
+    letter-spacing: 0.05em;
+    color: color-mix(in oklab, var(--accent-primary) 30%, var(--text-muted)) !important;
 }
 .cs-modal .cs-table td {
-    padding: 5px 10px !important;
+    padding: 5px 10px 5px 0 !important;
     border: none !important;
-    border-bottom: 1px solid color-mix(in oklab, var(--border) 50%, transparent) !important;
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 40%, transparent) !important;
     color: var(--text-secondary) !important;
 }
 .cs-modal .cs-table tbody tr:last-child td { border-bottom: none !important; }
-.cs-modal .cs-table tbody tr:hover td {
-    background: color-mix(in oklab, var(--accent-primary) 5%, transparent) !important;
-    color: var(--text-primary) !important;
-}
+.cs-modal .cs-table tbody tr:hover td { color: var(--text-primary) !important; }
 
 /* --------------------------------------------------------------------------
-   Code chips + pills (Flint-toned)
+   Code chips + action pills
    -------------------------------------------------------------------------- */
 .cs-modal .cs-code-group {
     display: inline-flex;
@@ -246,59 +252,55 @@
 .cs-modal .cs-code {
     font-family: var(--font-mono) !important;
     font-size: 11px !important;
-    background: var(--bg-primary) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: 5px !important;
     padding: 1px 6px !important;
+    border-radius: 6px !important;
+    background: color-mix(in oklab, var(--bg-primary) 45%, transparent) !important;
+    border: 1px solid color-mix(in oklab, var(--border) 70%, transparent) !important;
     color: color-mix(in oklab, var(--accent-primary) 22%, var(--text-primary)) !important;
     user-select: text;
     -webkit-user-select: text;
 }
 
-/* "Show WAD" / "Show File" — accent-primary action */
 .cs-modal .cs-pill {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     height: 18px !important;
     padding: 0 8px !important;
     font-size: 10px !important;
     font-weight: 600 !important;
-    text-transform: uppercase !important;
-    letter-spacing: 0.05em !important;
-    border-radius: 999px !important;
-    border: 1px solid !important;
-    cursor: pointer !important;
     line-height: 1 !important;
+    letter-spacing: 0.05em !important;
+    text-transform: uppercase !important;
     white-space: nowrap !important;
-    transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast), transform var(--motion-fast) !important;
+    border: 1px solid !important;
+    border-radius: 999px !important;
+    cursor: pointer !important;
+    opacity: 1 !important;
+    transition: background var(--ux-fast), color var(--ux-fast), border-color var(--ux-fast), transform var(--ux-fast) !important;
 }
-.cs-modal .cs-pill:active { transform: scale(0.97); opacity: 1 !important; }
+.cs-modal .cs-pill:active { transform: scale(0.97); }
 
 .cs-modal .cs-pill--wad {
-    background: color-mix(in oklab, var(--accent-primary) 14%, transparent) !important;
-    border-color: color-mix(in oklab, var(--accent-primary) 35%, transparent) !important;
+    background: color-mix(in oklab, var(--accent-primary) 12%, transparent) !important;
+    border-color: color-mix(in oklab, var(--accent-primary) 32%, transparent) !important;
     color: var(--accent-primary) !important;
-    opacity: 1 !important;
 }
 .cs-modal .cs-pill--wad:hover {
     background: var(--accent-primary) !important;
     border-color: var(--accent-primary) !important;
     color: #fff !important;
-    opacity: 1 !important;
 }
 
-/* "Show Regex" — green success palette (matches "this will run") */
 .cs-modal .cs-pill--filter {
-    background: color-mix(in oklab, var(--color-success) 14%, transparent) !important;
-    border-color: color-mix(in oklab, var(--color-success) 35%, transparent) !important;
+    background: color-mix(in oklab, var(--color-success) 12%, transparent) !important;
+    border-color: color-mix(in oklab, var(--color-success) 32%, transparent) !important;
     color: var(--color-success) !important;
-    opacity: 1 !important;
 }
 .cs-modal .cs-pill--filter:hover {
     background: var(--color-success) !important;
     border-color: var(--color-success) !important;
     color: #0b1e10 !important;
-    opacity: 1 !important;
 }
 
 /* --------------------------------------------------------------------------
@@ -307,13 +309,12 @@
 .cs-modal .cs-link {
     color: var(--accent-primary) !important;
     text-decoration: none !important;
-    border-bottom: 1px dashed color-mix(in oklab, var(--accent-primary) 50%, transparent);
-    transition: border-color var(--motion-fast), color var(--motion-fast);
+    border-bottom: 1px dashed color-mix(in oklab, var(--accent-primary) 45%, transparent);
+    transition: border-color var(--ux-fast), color var(--ux-fast);
 }
 .cs-modal .cs-link:hover {
     color: color-mix(in oklab, var(--accent-primary) 80%, white) !important;
     border-bottom-color: currentColor;
-    text-decoration: none !important;
 }
 
 /* --------------------------------------------------------------------------
@@ -325,46 +326,35 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
-    padding: 60px 20px;
+    padding: 72px 20px;
     text-align: center;
-    color: var(--text-muted);
-}
-.cs-modal .cs-empty__icon {
-    width: 44px;
-    height: 44px;
-    display: grid;
-    place-items: center;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    margin-bottom: 6px;
-    color: var(--text-secondary);
-}
-.cs-modal .cs-empty__icon svg { width: 22px; height: 22px; }
-.cs-modal .cs-empty strong {
-    font-size: 14px;
-    color: var(--text-primary);
-    font-weight: 600;
-}
-.cs-modal .cs-empty span {
     font-size: 12px;
     color: var(--text-muted);
+}
+.cs-modal .cs-empty strong {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
 }
 
 /* --------------------------------------------------------------------------
    Footer
    -------------------------------------------------------------------------- */
 .cs-modal .cs-modal__footer {
-    background: color-mix(in oklab, var(--bg-tertiary) 50%, transparent) !important;
-    border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent) !important;
-    padding: 8px 18px !important;
-    color: var(--text-muted) !important;
+    display: flex;
+    align-items: center;
+    padding: 9px 16px !important;
+    background: transparent !important;
+    border-top: 1px solid color-mix(in oklab, var(--accent-primary) 14%, transparent) !important;
     font-size: 11px !important;
-    gap: 8px !important;
+    color: var(--text-muted) !important;
 }
-.cs-footer-dot {
+.cs-modal .cs-modal__footer::before {
+    content: '';
+    flex: 0 0 auto;
     width: 5px;
     height: 5px;
+    margin-right: 8px;
     border-radius: 50%;
     background: var(--accent-primary);
     box-shadow: 0 0 6px color-mix(in oklab, var(--accent-primary) 50%, transparent);

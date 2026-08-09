@@ -5,7 +5,7 @@ Welcome to the Flint Asset Directory. You can use Flint's **WAD Explorer** searc
 
 ---
 
-### 🗺️ Map & Mode WADs
+### Map & Mode WADs
 * **Summoner's Rift:** `Map11.wad.client`
 * **ARAM (Howling Abyss):** `Map12.wad.client`
 * **Nexus Blitz:** `Map21.wad.client`
@@ -19,7 +19,7 @@ Welcome to the Flint Asset Directory. You can use Flint's **WAD Explorer** searc
 
 ---
 
-### 🦸 Champions
+### Champions
 * **3D Models, Skeletons, Animations:** `CHAMPION.wad.client assets/characters/CHAMPION/skins/SKINID/`
     * *Note:* Some champions have specific parts as a completely different character file (e.g., Nasus' ultimate).
 * **HUD, Ability Icons, Skin Icons:** `CHAMPION.wad.client assets/characters/CHAMPION/huds/`
@@ -38,13 +38,13 @@ Welcome to the Flint Asset Directory. You can use Flint's **WAD Explorer** searc
 
 ---
 
-### 🔢 Finding Skin IDs
+### Finding Skin IDs
 * Use [sirdexal.pages.dev/skin-explorer](https://sirdexal.pages.dev/skin-explorer) to look up which skin number maps to which skin name.
 * Or open `CHAMPION.wad.client assets/characters/CHAMPION/huds/` and inspect the champion square icons — they're named by skin ID.
 
 ---
 
-### 👾 Minions, Monsters & Environment
+### Minions, Monsters & Environment
 League splits minions into "Chaos" and "Order" teams. Both teams usually have a red and blue variant due to the "use relative team colors" setting (e.g., skinX and skinX+1 for one team, skinX+2 and skinX+3 for the other).
 
 * **Summoner's Rift Minions (visuals):** `Map11.wad.client assets/characters/sru_MINIONNAME/`
@@ -66,7 +66,7 @@ League splits minions into "Chaos" and "Order" teams. Both teams usually have a 
 
 ---
 
-### 📝 In-Game Text & Localization
+### In-Game Text & Localization
 All in-game text strings — item names, ability descriptions, UI labels, tooltip text — live in language-specific WADs separate from the main champion/map WADs. The WAD name follows the same `name.XX_YY.wad.client` pattern seen elsewhere.
 
 * **All global game text:** `global.en_US.wad.client`
@@ -78,7 +78,7 @@ All in-game text strings — item names, ability descriptions, UI labels, toolti
 
 ---
 
-### 🎨 UI, HUD & Items
+### UI, HUD & Items
 
 **Cursor:** `UI.wad.client assets/ux/cursors/`
 > Files are `.tga` — GIMP can natively open and export them.
@@ -112,7 +112,7 @@ All in-game text strings — item names, ability descriptions, UI labels, toolti
 
 ---
 
-### 🃏 TwistedFate W Cards
+### TwistedFate W Cards
 The card icons don't follow the usual champion path — they live across multiple WADs:
 * `Data.wad.client data/spells/icons2d/cardmaster_red.dds`
 * `Data.wad.client data/spells/icons2d/cardmaster_blue.dds`
@@ -122,7 +122,7 @@ The card icons don't follow the usual champion path — they live across multipl
 
 ---
 
-### 🌿 Map Objects & Buffs
+### Map Objects & Buffs
 
 **Blue Buff:**
 * `Global.wad.client assets/maps/particles/sr/buff_blue_rocks.tex`
@@ -143,7 +143,7 @@ The card icons don't follow the usual champion path — they live across multipl
 
 ---
 
-### 🪪 Wards
+### Wards
 * `Map11.wad.client assets/characters/sightward/` (support item ward)
 * `Map11.wad.client assets/characters/bluetrinket/` (blue trinket ward)
 * `Map11.wad.client assets/characters/yellowtrinket/` (yellow trinket ward)
@@ -154,7 +154,7 @@ The card icons don't follow the usual champion path — they live across multipl
 
 ---
 
-### 🧢 Hats (April Fools & Events)
+### Hats (April Fools & Events)
 Seasonal hats are particles attached to champions, not separate models. They're scattered across a few locations:
 * `Global.wad.client assets/characters/caitlyn/skins/skin11/particles/`
 * `Global.wad.client assets/characters/urgot/skins/base/particles/`
@@ -165,7 +165,7 @@ Search for `hat` inside `Global.wad.client` to find any event hats not listed ab
 
 ---
 
-### 🎧 Global Audio & Announcers
+### Global Audio & Announcers
 > When converting custom audio to `.WEM`, set Wwise conversion to **Vorbis Quality High**: *Project > Project Settings > Source Settings > Default Conversion Settings > Factory Conversion Settings > Vorbis > Vorbis Quality High*
 
 **Announcer:**
@@ -201,7 +201,7 @@ Search for `hat` inside `Global.wad.client` to find any event hats not listed ab
 
 ---
 
-### 🎭 Emote Sounds
+### Emote Sounds
 
 **Summoner Emote SFX** (most emotes):
 * `Common.wad.client assets/sounds/wwise2016/sfx/shared/misc_emotes_sfx_audio.wpk`
@@ -222,7 +222,7 @@ To find which sound event to modify for a specific emote:
 
 ---
 
-### 📂 Patch Codenames
+### Patch Codenames
 You will often see these inside filenames:
 
 | Codename | Event |
@@ -240,7 +240,7 @@ You will often see these inside filenames:
 
 ---
 
-### 🔗 Resources
+### Resources
 * [Divine Skins Wiki](https://wiki.divineskins.gg/)
 * [Divine Skins Discord](https://discord.gg/divineskins) — post in #help if you're stuck
 * [CommunityDragon Archives](https://raw.communitydragon.org/) — older patch assets
