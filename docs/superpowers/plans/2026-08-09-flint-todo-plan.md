@@ -221,24 +221,63 @@ champion list to the League Classic roster, and the skin picker sorts the Classi
 skin first and selects it by default. The jade ports of live skins stay in the
 list.
 
-The parenthetical reads two ways and they are very different jobs:
+The parenthetical — "*selection with only classic skin or every variant like no
+skinlite*" — now reads clearly given item 9: **a scope choice at creation time,
+by analogy with NoSkinLite's "clone into every slot"**. Either the project covers
+just the Classic skin (301), or it covers every jade variant the champion has.
 
-- **(a) A filter in the picker** — "Classic only" vs "All variants", so the jade
-  ports can be hidden. Small: one segmented control over the existing list.
+Two jobs remain, and it is worth knowing which is wanted:
+
+- **(a) A picker filter** — "Classic only" vs "All variants", so the jade ports
+  can be hidden. Small: one segmented control over the existing list, which today
+  sorts Classic first and selects it but shows everything.
 - **(b) Convert an existing live project to Classic** — re-target a finished
   Ahri project onto `jade_ahri` / skin 301, repathing `data/characters/ahri` →
-  `data/characters/jade_ahri` and every asset reference with it. That is a
-  refather-class job, close in size to `hard_rename_project`.
+  `data/characters/jade_ahri` and every asset reference with it. Refather-class,
+  close in size to `hard_rename_project`.
 
-Which one?
+(a) is almost certainly what the line means. Confirm before building (b).
 
-### 9. "no skinlite selection on right click menu if skin is on skin 0"
+### 9. NoSkinLite in the right-click menu
 
-**`skinlite` does not exist anywhere in Flint** — not in `src/`, not in
-`src-tauri/`, not in the crates, in any casing. So I cannot tell what menu item
-this is about or what it should do.
+**Resolved.** "no skinlite" is the feature name **NoSkinLite**, not the word
+"no" — the todo line reads "*NoSkinLite* selection on right click menu if skin is
+on skin 0". It does not exist in Flint; the reference implementation is Quartz's
+`quartz-lib/src/bin/noskinlite.rs`, exposed as a Windows shell verb
+(`v("32noskinlite", "NoSkinLite", "noskinlite")` in `commands/context_menu.rs`).
 
-What is skinlite, and which right-click menu is it on?
+**What it does:** clones a source `skinN.bin` into every skin slot
+`skin0..skin{max}` for that champion, rekeying the `SkinCharacterDataProperties`
+and `ResourceResolver` entries and fixing `mResourceResolver` so each clone
+resolves to its own skin index. The result is a mod that shows no matter which
+skin the player has selected.
+
+Details worth carrying over rather than rediscovering:
+
+- **The skin ceiling comes from CDragon's raw directory listing**
+  (`json/latest/game/data/characters/{alias}/skins/`), max of the `skin<N>.bin`
+  filenames — **not** `champion-summary` / `champions/{id}`, which only list
+  officially released skins and miss chroma / PBE / unreleased slots (Akali is
+  101, not 92; Bel'Veth 28, not 5). Plus a `+20` future margin, with a fallback
+  of 99 when the fetch fails, on a 10s timeout so an unreachable network doesn't
+  freeze the menu.
+- **Existing `skinN.bin` files are skipped unconditionally** so hand-edited skins
+  are never clobbered.
+
+**Plan for Flint:** this is a natural sibling of the "Create Project" item added
+to the WAD explorer in 2.8.1 — same menu, same `parseSkinBinPath` gate. Add a
+project-tree context item on a `skinN.bin` (and/or a project-root action) that
+runs the clone over the project's own `content/<layer>/<champ>.wad.client` tree.
+
+**The "if skin is on skin 0" gate** is the interesting part: offer it only when
+the project's skin is 0, i.e. the base-skin mod that the user wants to apply
+everywhere. Worth confirming that is the intent rather than a general "any source
+skin" action — Quartz's `run()` takes any source BIN, so restricting to skin 0 is
+a deliberate narrowing, not a technical limit.
+
+**Library-first:** the clone logic belongs in `RitoShark-Crates`, not copied from
+Quartz into Flint. Same rule that governs every other format-level capability
+(golden rule 4) — ask the owner, implement in the library, bump the pinned rev.
 
 ---
 
