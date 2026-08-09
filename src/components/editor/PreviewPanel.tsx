@@ -3,7 +3,12 @@ import { useConfigStore, useProjectTabStore, useModalStore, useNotificationStore
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { Icon } from '../ui/Icon';
-import { requestUnhash } from '../../lib/editor/binEditorEvents';
+import {
+    SYSTEM_COUNT_EVENT,
+    requestStepSystem,
+    requestUnhash,
+    type SystemCountDetail,
+} from '../../lib/editor/binEditorEvents';
 import { isSamePath } from '../../lib/pathIdentity';
 import { openWadInExtract, isWadPath } from '../../lib/openWad';
 import { ImagePreview } from '../preview/ImagePreview';
@@ -241,6 +246,7 @@ export const PreviewPanel: React.FC = () => {
     const jadePath = useConfigStore((state) => state.jadePath);
     const quartzPath = useConfigStore((state) => state.quartzPath);
     const [fileInfo, setFileInfo] = useState<FileInfo | null>(null);
+    const [vfxSystems, setVfxSystems] = useState<{ path: string; count: number }>({ path: '', count: 0 });
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [imageZoom, setImageZoom] = useState<'fit' | number>('fit');
@@ -346,6 +352,21 @@ export const PreviewPanel: React.FC = () => {
        second, near-empty bar carrying nothing but the same name. */
     const isBinEditor =
         fileInfo?.extension === 'bin' || fileInfo?.file_type === 'application/x-bin';
+
+    /* The editor is a CHILD of this panel, so its VFX-system count comes up
+       through an event rather than by lifting the editor's text into here. The
+       path is carried with it so a stale count from the previous file cannot
+       leave dead navigation buttons behind. */
+    useEffect(() => {
+        const onCount = (e: Event) => {
+            const detail = (e as CustomEvent<SystemCountDetail>).detail;
+            if (!detail) return;
+            setVfxSystems({ path: detail.filePath, count: detail.count });
+        };
+        window.addEventListener(SYSTEM_COUNT_EVENT, onCount);
+        return () => window.removeEventListener(SYSTEM_COUNT_EVENT, onCount);
+    }, []);
+    const vfxSystemCount = vfxSystems.path === filePath ? vfxSystems.count : 0;
 
     // Only render the folder view when the folder decision matches the CURRENT
     // selection — during the one render where selectedFile already changed but
@@ -535,6 +556,27 @@ export const PreviewPanel: React.FC = () => {
                     </div>
                     {(fileInfo.extension === 'bin' || fileInfo.file_type === 'application/x-bin') ? (
                         <div className="preview-panel__info-actions">
+                            {vfxSystemCount > 0 && (
+                                <span className="preview-panel__step-group">
+                                    <button
+                                        className="preview-panel__open-btn"
+                                        onClick={() => requestStepSystem(filePath, false)}
+                                        title="Previous VFX system (Alt+[)"
+                                    >
+                                        <Icon name="chevronLeft" className="preview-panel__btn-icon" />
+                                    </button>
+                                    <span className="preview-panel__step-label">
+                                        {vfxSystemCount} system{vfxSystemCount === 1 ? '' : 's'}
+                                    </span>
+                                    <button
+                                        className="preview-panel__open-btn"
+                                        onClick={() => requestStepSystem(filePath, true)}
+                                        title="Next VFX system (Alt+])"
+                                    >
+                                        <Icon name="chevronRight" className="preview-panel__btn-icon" />
+                                    </button>
+                                </span>
+                            )}
                             {/* Unhash lives here rather than in the editor's top
                                 toolbar — it's a one-shot document action, so it
                                 belongs beside the other file-level actions. */}

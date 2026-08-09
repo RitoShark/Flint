@@ -27,13 +27,13 @@ import { bracketStackAtLine } from '../../lib/editor/blockExtraction';
 import { checkRitobinBrackets, type BracketCheckResult } from '../../lib/editor/bracketCheck';
 import {
     REVEAL_TEXT_EVENT,
+    STEP_SYSTEM_EVENT,
     UNHASH_REQUEST_EVENT,
-    stashRevealLine,
+    reportSystemCount,
     takeRevealLine,
     type RevealTextDetail,
+    type StepSystemDetail,
 } from '../../lib/editor/binEditorEvents';
-import { BinSearchPanel } from './BinSearchPanel';
-import { useNavigationStore } from '../../lib/stores/navigationStore';
 
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
@@ -235,7 +235,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const minimapAllowed = lineCount <= minimapMaxLines;
     const minimapOn = minimapPref && minimapAllowed;
     const [sidePanelOpen, setSidePanelOpen] = useState(false);
-    const [searchPanelOpen, setSearchPanelOpen] = useState(false);
     const [hasMaskMap, setHasMaskMap] = useState(false);
     const [maskEditorOpen, setMaskEditorOpen] = useState(false);
     const [hasVfx, setHasVfx] = useState(false);
@@ -442,18 +441,8 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
 
         ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => { saveRef.current(); });
 
-        const stepSystem = (forward: boolean) => {
-            const model = ed.getModel();
-            if (!model) return;
-            const systems = indexVfxSystems(model.getValue());
-            const here = ed.getPosition()?.lineNumber ?? 0;
-            const target = forward ? nextSystem(systems, here) : previousSystem(systems, here);
-            if (!target) return;
-            ed.revealLineInCenter(target.line);
-            ed.setPosition({ lineNumber: target.line, column: 1 });
-        };
-        ed.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.BracketRight, () => stepSystem(true));
-        ed.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.BracketLeft, () => stepSystem(false));
+        ed.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.BracketRight, () => stepSystemRef.current(true));
+        ed.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.BracketLeft, () => stepSystemRef.current(false));
 
         const restored = editorSessionStore.get(filePath);
         if (restored?.viewState && restored.fileVersion === fileVersion) {
@@ -840,6 +829,36 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         return () => window.removeEventListener(UNHASH_REQUEST_EVENT, onRequest);
     }, [filePath]);
 
+    const stepSystem = useCallback((forward: boolean) => {
+        const ed = editorRef.current;
+        const model = ed?.getModel();
+        if (!ed || !model) return;
+        const systems = indexVfxSystems(model.getValue());
+        const here = ed.getPosition()?.lineNumber ?? 0;
+        const target = forward ? nextSystem(systems, here) : previousSystem(systems, here);
+        if (!target) return;
+        ed.revealLineInCenter(target.line);
+        ed.setPosition({ lineNumber: target.line, column: 1 });
+        ed.focus();
+    }, []);
+    const stepSystemRef = useRef(stepSystem);
+    stepSystemRef.current = stepSystem;
+
+    useEffect(() => {
+        const onStep = (e: Event) => {
+            const detail = (e as CustomEvent<StepSystemDetail>).detail;
+            if (detail?.filePath !== filePath) return;
+            stepSystemRef.current(detail.forward);
+        };
+        window.addEventListener(STEP_SYSTEM_EVENT, onStep);
+        return () => window.removeEventListener(STEP_SYSTEM_EVENT, onStep);
+    }, [filePath]);
+
+    const systemCount = useMemo(() => indexVfxSystems(content).length, [content]);
+    useEffect(() => {
+        reportSystemCount(filePath, systemCount);
+    }, [filePath, systemCount]);
+
     /* Auto-unhash runs once per opened file, keyed on the path — not on
        `content`, which the pass itself rewrites. */
     const autoUnhashedRef = useRef<string | null>(null);
@@ -991,17 +1010,9 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                         <Icon name="layerText" />
                     </button>
                     <button
-                        className={`btn btn--icon${searchPanelOpen ? ' btn--primary' : ''}`}
-                        style={!searchPanelOpen ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
-                        onClick={() => { setSearchPanelOpen(!searchPanelOpen); setSidePanelOpen(false); }}
-                        title="Toggle search across this BIN and its linked bins"
-                    >
-                        <Icon name="search" />
-                    </button>
-                    <button
                         className={`btn btn--icon${sidePanelOpen ? ' btn--primary' : ''}`}
                         style={!sidePanelOpen ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
-                        onClick={() => { setSidePanelOpen(!sidePanelOpen); setSearchPanelOpen(false); }}
+                        onClick={() => setSidePanelOpen(!sidePanelOpen)}
                         title="Toggle BIN tools panel (skinScale, materialOverride, VFX)"
                     >
                         <Icon name="settings" />
@@ -1048,26 +1059,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 >
                     <div ref={editorContainerRef} style={{ width: '100%', height: '100%' }} />
                 </div>
-
-                {searchPanelOpen && (
-                    <BinSearchPanel
-                        filePath={filePath}
-                        content={content}
-                        onContentChange={(newContent) => {
-                            setContent(newContent);
-                            runBracketCheck(newContent);
-                        }}
-                        editorRef={editorRef}
-                        onOpenLinked={(path, line) => {
-                            stashRevealLine(path, line);
-                            useNavigationStore.getState().navigateToFileEditor({
-                                filePath: path,
-                                kind: 'binText',
-                            });
-                        }}
-                        onClose={() => setSearchPanelOpen(false)}
-                    />
-                )}
 
                 {sidePanelOpen && (
                     <BinToolsPanel

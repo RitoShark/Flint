@@ -48,3 +48,5 @@ CLAUDE.md
 
 # Private overlay (closed-source modules)
 /private/
+
+vite.config.ts.timestamp-*

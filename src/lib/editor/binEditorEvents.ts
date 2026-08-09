@@ -32,6 +32,36 @@ export function requestRevealText(filePath: string, needle: string): void {
     );
 }
 
+/** Ask the BIN editor to jump to the next / previous VFX system. Dispatched by
+ *  the preview panel's info bar, which is a sibling of the editor. */
+export const STEP_SYSTEM_EVENT = 'flint:bin-step-system';
+
+/** The BIN editor reporting how many VFX systems its text currently has, so a
+ *  sibling can hide the navigation when there are none. */
+export const SYSTEM_COUNT_EVENT = 'flint:bin-system-count';
+
+export interface StepSystemDetail {
+    filePath: string;
+    forward: boolean;
+}
+
+export interface SystemCountDetail {
+    filePath: string;
+    count: number;
+}
+
+export function requestStepSystem(filePath: string, forward: boolean): void {
+    window.dispatchEvent(
+        new CustomEvent<StepSystemDetail>(STEP_SYSTEM_EVENT, { detail: { filePath, forward } }),
+    );
+}
+
+export function reportSystemCount(filePath: string, count: number): void {
+    window.dispatchEvent(
+        new CustomEvent<SystemCountDetail>(SYSTEM_COUNT_EVENT, { detail: { filePath, count } }),
+    );
+}
+
 /* Revealing a line in a BIN that is not open yet cannot go through an event:
    the editor's listener does not exist until it has mounted and decoded the
    file, which is well after the caller navigates. So the line is STASHED and
