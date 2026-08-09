@@ -124,21 +124,91 @@ shaped:
 skin can link 17 bins, so converting all of them on every keystroke is not
 acceptable. Search on submit, not on type.
 
-### 7. Bin Editor: persistent-VFX template
+### 7. Bin Editor: persistent VFX + idle particles
 
 **Today:** the tools panel builds `materialOverride` blocks through a clean pair
 of helpers — `ensureMaterialOverride` (creates the list if absent) and
 `insertMaterialOverrideEntry` (appends one `SkinMeshDataProperties_MaterialOverride`
-embed at the right indent). The todo asks for the same shape for persistent VFX.
+embed at the right indent). Both of the blocks below want the same treatment.
 
-**Plan:** mirror those two helpers exactly (`ensurePersistentVfx` /
-`insertPersistentVfxEntry`) plus a small form — VFX path, bone, and whatever else
-the class needs — in a new tools-panel section.
+**Schema** — read off `E:\RitoShark\Tools\champion-bin-schema.ritobin` lines
+205–375, inside the `SkinCharacterDataProperties` entry. That file is a
+SYNTHETIC all-fields reference (its three condition blocks are byte-identical and
+it mixes Aatrox spells with Ahri/Ashe/Graves values), so treat it as authoritative
+for **names and types**, never for values.
 
-**Verify the BIN shape first.** I did not confirm the exact class and field names
-for the persistent-VFX list against a real skin BIN. Dump one and read the actual
-entry before writing the template; guessing a class name here produces a BIN the
-game silently ignores. The oracles for this are the C# LeagueToolkit and ritobin.
+```
+PersistentEffectConditions: list2[pointer] = {
+    PersistentEffectConditionData {
+        OwnerCondition:  pointer   -- driver tree
+        SourceCondition: pointer   -- driver tree
+        PersistentVfxs:  list2[embed] of PersistentVfxData
+        SubmeshesToShow: list2[hash]
+        SubmeshesToHide: list2[hash]
+        ForceRenderVfx:  bool
+    }
+}
+
+PersistentVfxData {
+    boneName:                  string
+    targetBoneName:            string
+    effectKey:                 hash
+    Scale:                     f32
+    PlaySpeedModifier:         f32
+    ShowToOwnerOnly:           bool
+    AttachToCamera:            bool
+    UseDifferentKeyForOtherTeam: bool
+    EffectKeyForOtherTeam:     hash
+    0x9dba9f88:                u32
+    0xeaf5370d:                pointer = 0x34262325 { AnimationName: string }
+}
+
+idleParticlesEffects: list[embed] = {
+    SkinCharacterDataProperties_CharacterIdleEffect {
+        effectKey:      hash
+        boneName:       string
+        targetBoneName: string
+        effectName:     string
+        Position:       vec3
+    }
+}
+```
+
+Driver trees seen in the reference: `AllTrueMaterialDriver { mDrivers: list[pointer] }`,
+`NotMaterialDriver { mDriver: pointer }`, and the leaf
+`HasBuffDynamicMaterialBoolDriver { Spell: hash, mScriptName: string, mDeactivateEarlySeconds: f32, 0x149271dd: bool }`.
+
+**Plan — two tiers, because the two blocks are not equally hard.**
+
+*Idle particles are flat.* Five scalar fields, no nesting. `ensureIdleParticles` /
+`insertIdleParticleEntry` mirroring the material pair, driven by a five-field
+form. This one is genuinely "similar to materialOverride" and should ship first.
+
+*Persistent effects are not.* The VFX half is flat and forms cleanly
+(`PersistentVfxData` rows, the two submesh lists, `ForceRenderVfx`) — but
+`OwnerCondition` / `SourceCondition` are **recursive pointer trees**, and a flat
+form cannot express an arbitrary one. Do not attempt a general tree editor in v1.
+Offer the shape Riot actually ships instead: a buff condition (spell hash, script
+name, deactivate-early seconds) with an optional NOT, emitted as
+`AllTrueMaterialDriver { mDrivers: [ HasBuff… ] }` or
+`NotMaterialDriver { mDriver: HasBuff… }`. Anything more exotic stays hand-edited
+in the text, which the template must not clobber.
+
+**Keep unnamed fields as raw hashes.** `0x9dba9f88`, `0xeaf5370d`, the
+`0x34262325` class and `0x149271dd` have no dictionary name. Emit them verbatim
+as hash-keyed fields rather than guessing a name — rs_bin round-trips them fine,
+and a wrong guessed name is a silently broken BIN.
+
+**Verify against one real champion BIN before shipping.** The schema file is
+synthesized; a live `skinN.bin` that actually uses `PersistentEffectConditions`
+is the round-trip test (write the block, save, re-read, diff). The oracles if
+anything looks off are the C# LeagueToolkit and ritobin.
+
+**Tie-in worth noting:** `SubmeshesToShow` / `SubmeshesToHide` are the same
+submesh-name space the model preview already drives through `initialSubmeshToHide`
+and the animation visibility timeline. Previewing a persistent-effect state in the
+viewer is a natural follow-up — out of scope here, but it argues for parsing these
+into a typed structure rather than only emitting text.
 
 ---
 
