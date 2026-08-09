@@ -17,7 +17,7 @@ spending it twice is the whole point of the grouping.
 
 | System | Serves | New surface |
 |---|---|---|
-| S1 Skin-port engine | §2 Port to Jade, §3 NoSkinLite | 1 modal, 2 commands, 0 new engine code |
+| S1 Skin-port engine | §2 Port to Jade, §3 NoSkinLite | 2 modals, 2 commands, 0 new engine code |
 | S2 BIN tools panel | §4 persistent VFX + idle particles, §6 VFX index | Extracted panel folder, 3 new sections |
 | S3 BIN graph search | §5 search + linked-bin search | 1 command, 1 side panel |
 | S4 Editor settings | §7 Bin Editor tab, §8 syntax theme | 1 settings tab, N theme presets |
@@ -101,27 +101,32 @@ timeout, and on failure returns `null` so each caller applies its own fallback
 (Jade: error out, there is nothing to guess; NoSkinLite: ceiling 99, and say so
 in the toast).
 
-### Change 4 — one modal
+### Change 4 — two modals
 
-`src/components/modals/SkinPortModal.tsx`, modelled directly on
+**Decided 2026-08-10: two separate modals, not one moded component.**
+`src/components/modals/PortToJadeModal.tsx` and
+`src/components/modals/NoSkinLiteModal.tsx`, both modelled on
 `ChromaPortModal.tsx` — which is already the right shape: a gallery of
-selectable targets, All / None, a live count, and a `Port (n)` primary. Mode
-comes in through `modalOptions` (`'jade' | 'noSkinLite'`); the only differences
-are the title, the target source, and the card label.
+selectable targets, All / None, a live count, and a `Port (n)` primary.
 
-Card art: CDragon `skin.tilePath` per slot where one exists (jade champions do
-resolve through `champions/60103.json`), else a numbered placeholder. Slots with
-no CDragon entry still appear — the directory listing is the authority on what
-exists, CDragon's skin JSON is only the artwork.
+They differ enough to earn separate files: Jade picks from a sparse slot list
+with real skin artwork, NoSkinLite picks from a dense numeric range where art is
+meaningless. What they genuinely share — the selection grid — is extracted as
+`src/components/modals/skin-port/TargetGrid.tsx` rather than duplicated.
+
+Jade card art: CDragon `skin.tilePath` per slot where one exists (jade champions
+do resolve through `champions/60103.json`), else a numbered placeholder. Slots
+with no CDragon entry still appear — the directory listing is the authority on
+what exists, CDragon's skin JSON is only the artwork.
 
 Menu items go in `src/lib/editor/fileContextMenuOptions.ts` beside
 `Port to Chromas…` (line 83), in the `Project` submenu:
 
 - `Port to Jade…` — skin projects, hidden when the project's champion is already
   a `Jade_*` alias.
-- `NoSkinLite…` — skin projects. **ASSUMPTION carried from the spec:** the spec
-  gates this on skin id 0. Quartz does not. Recommendation is to drop the gate;
-  flagged for the owner, and the gate is one boolean either way.
+- `NoSkinLite…` — **shown only when the project's skin id is 0** (decided
+  2026-08-10; the spec's gate is kept, deliberately narrower than Quartz).
+  Confirm-gated, since it writes many new files.
 
 ### Acceptance
 
