@@ -29,12 +29,9 @@ import { bracketStackAtLine } from '../../lib/editor/blockExtraction';
 import { checkRitobinBrackets, type BracketCheckResult } from '../../lib/editor/bracketCheck';
 import {
     REVEAL_TEXT_EVENT,
-    STEP_SYSTEM_EVENT,
     UNHASH_REQUEST_EVENT,
-    reportSystemCount,
     takeRevealLine,
     type RevealTextDetail,
-    type StepSystemDetail,
 } from '../../lib/editor/binEditorEvents';
 
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
@@ -851,21 +848,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const stepSystemRef = useRef(stepSystem);
     stepSystemRef.current = stepSystem;
 
-    useEffect(() => {
-        const onStep = (e: Event) => {
-            const detail = (e as CustomEvent<StepSystemDetail>).detail;
-            if (detail?.filePath !== filePath) return;
-            stepSystemRef.current(detail.forward);
-        };
-        window.addEventListener(STEP_SYSTEM_EVENT, onStep);
-        return () => window.removeEventListener(STEP_SYSTEM_EVENT, onStep);
-    }, [filePath]);
-
     const systems = useMemo(() => indexVfxSystems(content), [content]);
-    useEffect(() => {
-        reportSystemCount(filePath, systems.length);
-    }, [filePath, systems.length]);
-
     /* Which system the cursor sits in — the last header at or above it. Driven
        off the cursor rather than scroll position so it agrees with Alt+] / Alt+[
        and with clicking a row in the tools panel. */
