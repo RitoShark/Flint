@@ -137,6 +137,15 @@ export async function importFolderAt(
     return project;
 }
 
+export function leagueRootFromWadPath(wadPath: string): string | null {
+    const parts = wadPath.replace(/\\/g, '/').split('/');
+    const i = parts.findIndex((p, n) =>
+        p.toLowerCase() === 'game'
+        && parts[n + 1]?.toLowerCase() === 'data'
+        && parts[n + 2]?.toLowerCase() === 'final');
+    return i > 0 ? parts.slice(0, i).join('/') : null;
+}
+
 export function parseSkinBinPath(path: string): { champion: string; skinId: number } | null {
     const m = path.replace(/\\/g, '/').toLowerCase()
         .match(/(?:^|\/)data\/characters\/([^/]+)\/skins\/skin(\d+)\.bin$/);

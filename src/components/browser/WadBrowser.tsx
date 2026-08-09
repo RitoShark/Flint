@@ -1,6 +1,6 @@
 import React, { useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import { useAppMetadataStore, useConfigStore, useModalStore, useNotificationStore, useWadExtractStore } from '../../lib/stores';
-import { parseSkinBinPath } from '../../lib/projectOpen';
+import { leagueRootFromWadPath, parseSkinBinPath } from '../../lib/projectOpen';
 import type { CreateProjectFromWadOptions } from '../modals/CreateProjectFromWadModal';
 import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -26,15 +26,6 @@ interface WadTreeFile {
 }
 
 type WadTreeNode = WadTreeFolder | WadTreeFile;
-
-function leagueRootFromWadPath(wadPath: string): string | null {
-    const parts = wadPath.replace(/\\/g, '/').split('/');
-    const i = parts.findIndex((p, n) =>
-        p.toLowerCase() === 'game'
-        && parts[n + 1]?.toLowerCase() === 'data'
-        && parts[n + 2]?.toLowerCase() === 'final');
-    return i > 0 ? parts.slice(0, i).join('/') : null;
-}
 
 // =============================================================================
 // Tree Construction and Navigation Helpers

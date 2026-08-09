@@ -8,6 +8,8 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { getIcon, getFileIcon } from '../../lib/ui-helpers/fileIcons';
 import type { ContextMenuOption, WadChunk, WadExplorerWad } from '../../lib/types';
 import { WadCheatSheetModal } from '../modals/WadCheatSheetModal';
+import type { CreateProjectFromWadOptions } from '../modals/CreateProjectFromWadModal';
+import { leagueRootFromWadPath, parseSkinBinPath } from '../../lib/projectOpen';
 
 import {
     checkboxSvg,
@@ -546,9 +548,28 @@ export const WadExplorer: React.FC = () => {
 
         const options: ContextMenuOption[] = [];
 
+        const skinBin = chunk.path ? parseSkinBinPath(chunk.path) : null;
+        if (skinBin) {
+            options.push({
+                label: 'Create Project…',
+                icon: getIcon('plus'),
+                onClick: () => {
+                    const leaguePath = leagueRootFromWadPath(wadPath)
+                        || useConfigStore.getState().leaguePath;
+                    if (!leaguePath) {
+                        showToast('error', 'No League install configured. Open Settings (Ctrl+,) to set one.');
+                        return;
+                    }
+                    const opts: CreateProjectFromWadOptions = { ...skinBin, leaguePath };
+                    useModalStore.getState().openModal('createProjectFromWad', opts as unknown as Record<string, unknown>);
+                },
+            });
+        }
+
         // ── Selection ──
         options.push({
             label: isChecked ? 'Uncheck' : 'Check',
+            separator: !!skinBin,
             icon: getIcon(isChecked ? 'close' : 'check'),
             onClick: () => useWadExplorerStore.getState().toggleCheck([key], !isChecked),
         });
