@@ -137,6 +137,42 @@ export async function importFolderAt(
     return project;
 }
 
+export function parseSkinBinPath(path: string): { champion: string; skinId: number } | null {
+    const m = path.replace(/\\/g, '/').toLowerCase()
+        .match(/(?:^|\/)data\/characters\/([^/]+)\/skins\/skin(\d+)\.bin$/);
+    if (!m) return null;
+    return { champion: m[1], skinId: parseInt(m[2], 10) };
+}
+
+export async function createSkinProject(args: {
+    name: string;
+    champion: string;
+    skinId: number;
+    outputPath: string;
+    leaguePath: string;
+}): Promise<Project> {
+    const project = await api.createProject({
+        name: args.name,
+        champion: args.champion,
+        skin: args.skinId,
+        projectPath: args.outputPath,
+        leaguePath: args.leaguePath,
+        creatorName: useConfigStore.getState().creatorName || undefined,
+    });
+
+    const projectDir = project.project_path || `${args.outputPath}/${args.name}`;
+    registerOpenedProject(project, projectDir);
+
+    try {
+        const files = await api.listProjectFiles(projectDir);
+        const tabId = useProjectTabStore.getState().activeTabId;
+        if (tabId) useProjectTabStore.getState().setFileTree(tabId, files);
+    } catch (err) {
+        console.error('[createSkinProject] Failed to load project files:', err);
+    }
+    return project;
+}
+
 export type DropOutcome =
     | { kind: 'opened'; project: Project }
     | { kind: 'imported'; project: Project }

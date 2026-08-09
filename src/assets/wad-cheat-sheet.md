@@ -1,7 +1,6 @@
 # Flint Asset Path Cheat Sheet
-*Original cheat sheet by **Aropatnik**. Adapted for **Flint**.*
 
-Welcome to the Flint Asset Directory. You can use Flint's **WAD Explorer** search bar to quickly jump to any of these paths.
+## Welcome to the Flint Asset Directory. You can use Flint's **WAD Explorer** search bar to quickly jump to any of these paths.
 
 ---
 

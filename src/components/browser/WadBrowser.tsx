@@ -1,5 +1,7 @@
 import React, { useMemo, useCallback, useState, useEffect, useRef } from 'react';
-import { useAppMetadataStore, useModalStore, useNotificationStore, useWadExtractStore } from '../../lib/stores';
+import { useAppMetadataStore, useConfigStore, useModalStore, useNotificationStore, useWadExtractStore } from '../../lib/stores';
+import { parseSkinBinPath } from '../../lib/projectOpen';
+import type { CreateProjectFromWadOptions } from '../modals/CreateProjectFromWadModal';
 import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getIcon, getFileIcon } from '../../lib/ui-helpers/fileIcons';
@@ -24,6 +26,15 @@ interface WadTreeFile {
 }
 
 type WadTreeNode = WadTreeFolder | WadTreeFile;
+
+function leagueRootFromWadPath(wadPath: string): string | null {
+    const parts = wadPath.replace(/\\/g, '/').split('/');
+    const i = parts.findIndex((p, n) =>
+        p.toLowerCase() === 'game'
+        && parts[n + 1]?.toLowerCase() === 'data'
+        && parts[n + 2]?.toLowerCase() === 'final');
+    return i > 0 ? parts.slice(0, i).join('/') : null;
+}
 
 // =============================================================================
 // Tree Construction and Navigation Helpers
@@ -123,6 +134,7 @@ export const WadBrowserPanel: React.FC<{
     const isSearching = !!session?.searchQuery?.trim();
 
     const openContextMenu = useModalStore((s) => s.openContextMenu);
+    const openModal = useModalStore((s) => s.openModal);
     const [isExtracting, setIsExtracting] = useState(false);
     const [isUnhashing, setIsUnhashing] = useState(false);
     const [isSavingWad, setIsSavingWad] = useState(false);
@@ -377,7 +389,23 @@ export const WadBrowserPanel: React.FC<{
 
         if (!session) return;
 
+        const skinBin = chunk.path ? parseSkinBinPath(chunk.path) : null;
+
         const options = [
+            ...(skinBin ? [{
+                label: 'Create Project…',
+                icon: getIcon('plus'),
+                onClick: () => {
+                    const leaguePath = leagueRootFromWadPath(session.wadPath)
+                        || useConfigStore.getState().leaguePath;
+                    if (!leaguePath) {
+                        showToast('error', 'No League install configured. Open Settings (Ctrl+,) to set one.');
+                        return;
+                    }
+                    const opts: CreateProjectFromWadOptions = { ...skinBin, leaguePath };
+                    openModal('createProjectFromWad', opts as unknown as Record<string, unknown>);
+                },
+            }] : []),
             {
                 label: 'Extract File...',
                 icon: getIcon('export'),
@@ -439,7 +467,7 @@ export const WadBrowserPanel: React.FC<{
         ];
 
         openContextMenu(e.clientX, e.clientY, options);
-    }, [session, showToast, openContextMenu, setStatus]);
+    }, [session, showToast, openContextMenu, openModal, setStatus]);
 
     const handleFolderContextMenu = useCallback((e: React.MouseEvent, node: WadTreeFolder) => {
         e.preventDefault();
