@@ -4,6 +4,7 @@ import { Icon } from '../../ui';
 import { SkinScaleSection } from './SkinScaleSection';
 import { MaterialOverrideSection } from './MaterialOverrideSection';
 import { VfxSection } from './VfxSection';
+import { VfxIndexSection } from './VfxIndexSection';
 import { applyContentToEditor } from '../../../lib/editor/applyContent';
 import { hasVfxEmitters } from '../../../lib/editor/binTools/vfx';
 
@@ -47,6 +48,7 @@ export const BinToolsPanel: React.FC<BinToolsPanelProps> = ({
             <SkinScaleSection content={settled} onApply={apply} />
             <MaterialOverrideSection content={settled} onApply={apply} />
             {hasVfxEmitters(settled) && <VfxSection editorRef={editorRef} />}
+            <VfxIndexSection content={settled} editorRef={editorRef} />
         </div>
     );
 };

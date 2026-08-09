@@ -19,6 +19,7 @@ import { MaskEditor } from './MaskEditor';
 import { PaintPanel } from './paint/PaintPanel';
 import { BinToolsPanel } from './bintools/BinToolsPanel';
 import { applyContentToEditor } from '../../lib/editor/applyContent';
+import { indexVfxSystems, nextSystem, previousSystem } from '../../lib/editor/binTools/vfxIndex';
 import { SubmeshPicker, type SubmeshPickerRequest } from './SubmeshPicker';
 import { Icon } from '../ui/Icon';
 import { bracketStackAtLine } from '../../lib/editor/blockExtraction';
@@ -433,6 +434,19 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         editorRef.current = ed;
 
         ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => { saveRef.current(); });
+
+        const stepSystem = (forward: boolean) => {
+            const model = ed.getModel();
+            if (!model) return;
+            const systems = indexVfxSystems(model.getValue());
+            const here = ed.getPosition()?.lineNumber ?? 0;
+            const target = forward ? nextSystem(systems, here) : previousSystem(systems, here);
+            if (!target) return;
+            ed.revealLineInCenter(target.line);
+            ed.setPosition({ lineNumber: target.line, column: 1 });
+        };
+        ed.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.BracketRight, () => stepSystem(true));
+        ed.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.BracketLeft, () => stepSystem(false));
 
         const restored = editorSessionStore.get(filePath);
         if (restored?.viewState && restored.fileVersion === fileVersion) {

@@ -9656,6 +9656,56 @@ input.np-search:focus {
   height: 12px;
 }
 
+.bin-tools__hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.bin-tools__index {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.bin-tools__index-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 6px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bin-tools__index-row:hover {
+  background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+  color: var(--text-primary);
+}
+
+.bin-tools__index-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bin-tools__index-line {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
 .bin-tools__glyph {
   display: flex;
   align-items: center;
