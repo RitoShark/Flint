@@ -1,0 +1,189 @@
+# flint-todo — implementation plan
+
+**Date:** 2026-08-09
+**Source:** `E:\RitoShark\Tools\flint-todo.md`
+**Status:** Proposed. Two items are blocked on a question (marked **BLOCKED**).
+
+Ordered by ratio of value to risk, not by the order in the todo. Each item says
+what exists today, so the estimate is grounded rather than guessed.
+
+---
+
+## Tier 1 — small, self-contained, no unknowns
+
+### 1. Thumbnail: hide the transform sliders by default
+
+**Today:** `PropertiesPanel.tsx` renders seven `SliderNum` rows for a model layer
+(scale, orbit, tiltX, rollZ, posX/Y/Z) plus four `DlSlider`s, all always visible.
+The panel is a tall wall of sliders before you have done anything.
+
+**Plan:** keep scale + orbit always visible (the two people actually reach for),
+move tilt / roll / position into a collapsed "Transform" disclosure. Persist the
+open/closed state in the existing thumbnail preset store so it survives a reload.
+
+**Open question — "open on modifier's button press."** Two readings: a click-to-
+toggle disclosure, or hold a modifier (Alt) to peek while held. A hold-to-peek
+that collapses on release is unusual for a properties panel and fights the
+existing Alt-drag brush-resize gesture used elsewhere in Flint. Recommend a
+plain toggle, with the section auto-opening whenever any of its values is
+non-default (so an existing preset never hides state you already set).
+
+### 2. Bin Editor: list every VFX system, and leap to the next one
+
+**Today:** the BIN tools panel's VFX section has exactly two buttons, Fold All
+and Unfold All. There is no system index and no way to jump between systems.
+`particlePath` does not appear anywhere in the frontend.
+
+**Plan:** purely lexical over the live Monaco model — no backend, same approach
+as the existing emitter copy/paste feature:
+
+- Reuse `findEnclosingBlock` / the bracket-stack scanner in
+  `lib/editor/blockExtraction.ts` to index every `VfxSystemDefinitionData` block
+  and pull its `particlePath` (falling back to the entry key when absent).
+- Render the index as a list in the tools panel; clicking a row calls
+  `revealLineInCenter` + selects the block.
+- Bind "next / previous system" (F8 / Shift+F8) off the same index, wrapping at
+  the ends, so you can walk a large VFX bin without scrolling.
+
+Rebuild the index on content change, debounced — a 573 KB skin BIN should not
+re-scan on every keystroke.
+
+### 3. Settings: a Bin Editor section
+
+**Today:** `SettingsModal` has six tabs (`creator`, `general`, `theme`, `paths`,
+`integrations`, `dev`). Nothing configures the editor; the tools panel's section
+collapse state and the minimap threshold are hardcoded in `BinEditor.tsx`.
+
+**Plan:** add a `binEditor` tab with the settings that already exist as constants:
+
+- which tools-panel sections start expanded (skinScale / materialOverride / VFX)
+- minimap on/off and the size threshold that currently force-disables it
+- word wrap, font size
+- run Unhash automatically when a BIN opens
+
+Persist through the existing config store (same pattern as
+`flint_verbose_logging` / `unknownPreviewByExt`). This is mostly plumbing —
+lifting hardcoded values into settings, not new behaviour.
+
+---
+
+## Tier 2 — real work, no blockers
+
+### 4. Bin Editor: syntax colour themes
+
+**Today:** `registerRitobinTheme` (`lib/editor/ritobinLanguage.ts`) hardcodes one
+palette: 16 token rules plus ~10 editor colours, `inherit: false`, registered
+once under a single `RITOBIN_THEME_ID`. Three components consume that id
+(`BinEditor`, `WadPreviewPanel`, `MonacoViewers`).
+
+**Plan:**
+
+- Extract the rule list into named presets — VS Dark (today's, the default),
+  a Flint-accent variant, and a high-contrast one — and register all of them.
+- Settings → Bin Editor picks one; the choice calls `monaco.editor.setTheme`,
+  so all three consumers follow without prop-threading.
+- Store the id, not the palette, so a preset can be retuned in a later release.
+
+Per-token custom colours are explicitly **out of scope for v1** — a full colour
+editor is a much bigger surface, and presets cover the actual complaint.
+
+### 5. Thumbnail: mirror a model
+
+**Today:** `ModelLayer` carries `scale`, `orbit`, `tiltX`, `rollZ`, `posX/Y/Z`.
+`orbit + 180` turns the model around (you see its back) — that is not a mirror.
+
+**Plan:** add `mirrored?: boolean` to `ModelLayer`, a toggle in the properties
+panel, and negate `scaling.x` on the model root in the scene.
+
+**The landmine:** negating one axis flips winding order. In Babylon the mesh will
+render inside-out (front faces culled) unless the materials' `sideOrientation` is
+flipped to match, and any normal-mapped material needs its normals handled too.
+Budget the work for that, not for the one-line scale negation — this is the item
+most likely to look "done" and be visibly wrong on a lit model.
+
+### 6. Bin Editor: search panel with linked-bin search
+
+**Today:** Monaco's own Ctrl+F / Ctrl+H work inside the open file only. Nothing
+searches the `linked` bins, even though Riot hoists shared entries into them
+(a Yasuo skin54 links 17 bins) — so a search that misses them misses most of the
+skin.
+
+**Plan:** a left-side `BinSearchPanel` beside the editor, VSCode Search-view
+shaped:
+
+- Current-file matches from `model.findMatches`, with replace / replace-all
+  routed through `pushEditOperations` so it stays one undo step.
+- Linked-file matches from a new command that resolves the BIN's `linked` header
+  and converts each to text. The backend halves already exist —
+  `ritobin::read_linked_bin_trees` and `find_linked_bin_ritobin_text` — so this
+  is a thin command plus result plumbing, not new format work.
+- Results grouped by file; clicking a linked-file hit opens that BIN and reveals
+  the line.
+
+**Load linked bins lazily and cache per session.** The existing rule applies: a
+skin can link 17 bins, so converting all of them on every keystroke is not
+acceptable. Search on submit, not on type.
+
+### 7. Bin Editor: persistent-VFX template
+
+**Today:** the tools panel builds `materialOverride` blocks through a clean pair
+of helpers — `ensureMaterialOverride` (creates the list if absent) and
+`insertMaterialOverrideEntry` (appends one `SkinMeshDataProperties_MaterialOverride`
+embed at the right indent). The todo asks for the same shape for persistent VFX.
+
+**Plan:** mirror those two helpers exactly (`ensurePersistentVfx` /
+`insertPersistentVfxEntry`) plus a small form — VFX path, bone, and whatever else
+the class needs — in a new tools-panel section.
+
+**Verify the BIN shape first.** I did not confirm the exact class and field names
+for the persistent-VFX list against a real skin BIN. Dump one and read the actual
+entry before writing the template; guessing a class name here produces a BIN the
+game silently ignores. The oracles for this are the C# LeagueToolkit and ritobin.
+
+---
+
+## BLOCKED — need a decision before planning
+
+### 8. "port project to classic skins (selection with only classic skin or every variant)"
+
+**Half of this shipped today** (2.8.1): a Classic switch beside PBE swaps the
+champion list to the League Classic roster, and the skin picker sorts the Classic
+skin first and selects it by default. The jade ports of live skins stay in the
+list.
+
+The parenthetical reads two ways and they are very different jobs:
+
+- **(a) A filter in the picker** — "Classic only" vs "All variants", so the jade
+  ports can be hidden. Small: one segmented control over the existing list.
+- **(b) Convert an existing live project to Classic** — re-target a finished
+  Ahri project onto `jade_ahri` / skin 301, repathing `data/characters/ahri` →
+  `data/characters/jade_ahri` and every asset reference with it. That is a
+  refather-class job, close in size to `hard_rename_project`.
+
+Which one?
+
+### 9. "no skinlite selection on right click menu if skin is on skin 0"
+
+**`skinlite` does not exist anywhere in Flint** — not in `src/`, not in
+`src-tauri/`, not in the crates, in any casing. So I cannot tell what menu item
+this is about or what it should do.
+
+What is skinlite, and which right-click menu is it on?
+
+---
+
+## Suggested order
+
+1, 2, 3 first — they are contained, and 3 unblocks the settings half of 4.
+Then 4, then 6 (the highest-value one, and the one that most needs uninterrupted
+time). 5 and 7 whenever, once their respective unknowns (winding order; the real
+BIN shape) are settled. 8 and 9 on answers.
+
+---
+
+## Housekeeping
+
+`flint-todo.md` sits at the Tools root, which the ecosystem rules say not to do
+("Don't leave loose files at the Tools root — file them under `docs/<app>/`").
+It belongs at `Tools/docs/flint/flint-todo.md`. Not moved — it is the owner's
+working file and moving it would break wherever it is pinned.
