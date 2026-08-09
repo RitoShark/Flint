@@ -9833,6 +9833,113 @@ input.np-search:focus {
   white-space: nowrap;
 }
 
+.bin-editor__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.bin-editor__chip:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: color-mix(in oklab, var(--accent-primary) 55%, transparent);
+}
+
+.bin-editor__chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.bin-editor__chip--on {
+  border-color: var(--accent-primary);
+  background: color-mix(in oklab, var(--accent-primary) 18%, var(--bg-tertiary));
+  color: var(--text-primary);
+}
+
+.bin-editor__chip-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.bin-editor__chip-icon svg {
+  display: block;
+  width: 13px;
+  height: 13px;
+}
+
+/* ── Sticky VFX-system bar (mirrors Monaco's sticky scroll, at the bottom) ── */
+
+.bin-editor__sticky {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: min(560px, 70%);
+  padding: 2px 4px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-top-right-radius: 4px;
+  box-shadow: 0 -2px 10px rgb(0 0 0 / 28%);
+}
+
+.bin-editor__sticky-step,
+.bin-editor__sticky-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.bin-editor__sticky-step:hover,
+.bin-editor__sticky-name:hover {
+  background: color-mix(in oklab, var(--accent-primary) 16%, transparent);
+  color: var(--text-primary);
+}
+
+.bin-editor__sticky-name {
+  min-width: 0;
+  flex: 1;
+}
+
+.bin-editor__sticky-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+.bin-editor__sticky-count {
+  flex-shrink: 0;
+  padding: 0 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
 .bin-tools__head {
   display: flex;
   align-items: center;

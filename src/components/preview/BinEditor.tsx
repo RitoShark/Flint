@@ -23,6 +23,8 @@ import { applyContentToEditor } from '../../lib/editor/applyContent';
 import { indexVfxSystems, nextSystem, previousSystem } from '../../lib/editor/binTools/vfxIndex';
 import { SubmeshPicker, type SubmeshPickerRequest } from './SubmeshPicker';
 import { Icon } from '../ui/Icon';
+import { useSearchPanelStore } from '../../lib/stores/searchPanelStore';
+import { projectRootFromFilePath } from '../../lib/wadPath';
 import { bracketStackAtLine } from '../../lib/editor/blockExtraction';
 import { checkRitobinBrackets, type BracketCheckResult } from '../../lib/editor/bracketCheck';
 import {
@@ -225,7 +227,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const [error, setError] = useState<string | null>(null);
     const [lineCount, setLineCount] = useState(0);
     const minimapPref = useUxStore((s) => s.binEditorMinimap);
-    const setMinimapPref = useUxStore((s) => s.setBinEditorMinimap);
     const minimapMaxLines = useUxStore((s) => s.binEditorMinimapMaxLines);
     const wordWrapPref = useUxStore((s) => s.binEditorWordWrap);
     const fontSizePref = useUxStore((s) => s.binEditorFontSize);
@@ -235,6 +236,9 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const minimapAllowed = lineCount <= minimapMaxLines;
     const minimapOn = minimapPref && minimapAllowed;
     const [sidePanelOpen, setSidePanelOpen] = useState(false);
+    const searchOpen = useSearchPanelStore((s) => s.open);
+    const toggleSearch = useSearchPanelStore((s) => s.toggle);
+    const searchRoot = useMemo(() => projectRootFromFilePath(filePath), [filePath]);
     const [hasMaskMap, setHasMaskMap] = useState(false);
     const [maskEditorOpen, setMaskEditorOpen] = useState(false);
     const [hasVfx, setHasVfx] = useState(false);
@@ -441,6 +445,8 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
 
         ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => { saveRef.current(); });
 
+        const cursorLineSub = ed.onDidChangeCursorPosition((e) => setCursorLine(e.position.lineNumber));
+
         ed.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.BracketRight, () => stepSystemRef.current(true));
         ed.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.BracketLeft, () => stepSystemRef.current(false));
 
@@ -584,6 +590,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             if (styleEl) styleEl.textContent = '';
             deferCleanup(() => {
                 inlineProvider.dispose();
+                cursorLineSub.dispose();
                 cursorMove.dispose();
                 submeshClick.dispose();
                 ed.dispose();
@@ -854,10 +861,23 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         return () => window.removeEventListener(STEP_SYSTEM_EVENT, onStep);
     }, [filePath]);
 
-    const systemCount = useMemo(() => indexVfxSystems(content).length, [content]);
+    const systems = useMemo(() => indexVfxSystems(content), [content]);
     useEffect(() => {
-        reportSystemCount(filePath, systemCount);
-    }, [filePath, systemCount]);
+        reportSystemCount(filePath, systems.length);
+    }, [filePath, systems.length]);
+
+    /* Which system the cursor sits in — the last header at or above it. Driven
+       off the cursor rather than scroll position so it agrees with Alt+] / Alt+[
+       and with clicking a row in the tools panel. */
+    const [cursorLine, setCursorLine] = useState(1);
+    const currentIndex = useMemo(() => {
+        let found = -1;
+        for (let i = 0; i < systems.length; i++) {
+            if (systems[i].line <= cursorLine) found = i; else break;
+        }
+        return found;
+    }, [systems, cursorLine]);
+    const currentSystem = currentIndex >= 0 ? systems[currentIndex] : systems[0] ?? null;
 
     /* Auto-unhash runs once per opened file, keyed on the path — not on
        `content`, which the pass itself rewrites. */
@@ -986,6 +1006,17 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                     {!bracketLabel && isDirty && (
                         <span className="bin-editor__bracket-ok">Brackets OK</span>
                     )}
+                    <button
+                        className={`bin-editor__chip${searchOpen ? ' bin-editor__chip--on' : ''}`}
+                        onClick={() => toggleSearch(filePath)}
+                        disabled={!searchRoot}
+                        title={searchRoot
+                            ? 'Find and replace across every BIN in this project'
+                            : 'This BIN is not inside a Flint project'}
+                    >
+                        <Icon className="bin-editor__chip-icon" name="search" />
+                        <span>Search project</span>
+                    </button>
                 </span>
                 <div className="bin-editor__toolbar-actions">
                     {!bracketStatus.valid && (
@@ -998,17 +1029,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                             {'}'}
                         </button>
                     )}
-                    <button
-                        className={`btn btn--icon${minimapOn ? ' btn--primary' : ''}`}
-                        style={!minimapOn ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
-                        onClick={() => setMinimapPref(!minimapPref)}
-                        disabled={!minimapAllowed}
-                        title={minimapAllowed
-                            ? 'Toggle minimap (document overview bar on the right)'
-                            : `Minimap is disabled above ${minimapMaxLines.toLocaleString()} lines for performance`}
-                    >
-                        <Icon name="layerText" />
-                    </button>
                     <button
                         className={`btn btn--icon${sidePanelOpen ? ' btn--primary' : ''}`}
                         style={!sidePanelOpen ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
@@ -1038,6 +1058,14 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                         </button>
                     )}
                     <button
+                        className="bin-editor__chip"
+                        onClick={() => void handleUnhash()}
+                        title="Unhash: re-resolve any 0x… hash tokens against the known BIN hash dictionary"
+                    >
+                        <Icon className="bin-editor__chip-icon" name="target" />
+                        <span>Unhash</span>
+                    </button>
+                    <button
                         className="btn btn--primary btn--icon"
                         onClick={handleSave}
                         disabled={!isDirty}
@@ -1058,6 +1086,50 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                     style={{ flex: 1, minWidth: 0 }}
                 >
                     <div ref={editorContainerRef} style={{ width: '100%', height: '100%' }} />
+
+                    {/* Monaco's sticky scroll names the block you are INSIDE at
+                        the top of the viewport. This is its mirror image: the
+                        VFX system you are in, pinned at the bottom, with the
+                        neighbours one click away. */}
+                    {systems.length > 0 && (
+                        <div className="bin-editor__sticky">
+                            <button
+                                className="bin-editor__sticky-step"
+                                onClick={() => stepSystem(false)}
+                                title="Previous VFX system (Alt+[)"
+                            >
+                                <Icon className="bin-editor__chip-icon" name="chevronLeft" />
+                            </button>
+                            <button
+                                className="bin-editor__sticky-name"
+                                onClick={() => {
+                                    const ed = editorRef.current;
+                                    if (!ed || !currentSystem) return;
+                                    ed.revealLineInCenter(currentSystem.line);
+                                    ed.setPosition({ lineNumber: currentSystem.line, column: 1 });
+                                    ed.focus();
+                                }}
+                                title={currentSystem
+                                    ? `${currentSystem.label} — line ${currentSystem.line}`
+                                    : 'Jump to the first VFX system'}
+                            >
+                                <Icon className="bin-editor__chip-icon" name="texture" />
+                                <span className="bin-editor__sticky-label">
+                                    {currentSystem?.label ?? 'No system at the cursor'}
+                                </span>
+                            </button>
+                            <span className="bin-editor__sticky-count">
+                                {currentIndex >= 0 ? currentIndex + 1 : '–'}/{systems.length}
+                            </span>
+                            <button
+                                className="bin-editor__sticky-step"
+                                onClick={() => stepSystem(true)}
+                                title="Next VFX system (Alt+])"
+                            >
+                                <Icon className="bin-editor__chip-icon" name="chevronRight" />
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 {sidePanelOpen && (

@@ -5,6 +5,7 @@ import { openWadInExtract, isWadPath } from '../../lib/openWad';
 import { getFileIcon, getExpanderIcon, getIcon } from '../../lib/ui-helpers/fileIcons';
 import { Icon } from '../ui/Icon';
 import { WorkspaceSearch } from './WorkspaceSearch';
+import { useSearchPanelStore } from '../../lib/stores/searchPanelStore';
 import { VirtualizedList, type VirtualizedListHandle } from './wad-explorer/VirtualizedList';
 import { useAction, useScope } from '../../lib/shortcuts/hooks';
 import {
@@ -44,7 +45,16 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({ style }) => {
     const openTabs = useProjectTabStore((s) => s.openTabs);
     const showToast = useNotificationStore((s) => s.showToast);
     const [searchQuery, setSearchQuery] = useState('');
+    const searchRequested = useSearchPanelStore((s) => s.open);
+    const setSearchOpen = useSearchPanelStore((s) => s.setOpen);
     const [view, setView] = useState<'files' | 'search'>('files');
+
+    /* The BIN editor's "Search project" chip lives in a different subtree, so it
+       flips the store and this follows. Switching back to Files clears the flag,
+       or the chip would read as still-on. */
+    useEffect(() => {
+        if (searchRequested) setView('search');
+    }, [searchRequested]);
 
     const activeTab = getActiveTab(activeTabId, openTabs);
     if (!activeTab) return null;
@@ -61,14 +71,14 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({ style }) => {
             <div className="left-panel__views">
                 <button
                     className={`left-panel__view${view === 'files' ? ' is-active' : ''}`}
-                    onClick={() => setView('files')}
+                    onClick={() => { setView('files'); setSearchOpen(false); }}
                 >
                     <Icon name="folder" className="left-panel__view-icon" />
                     <span>Files</span>
                 </button>
                 <button
                     className={`left-panel__view${view === 'search' ? ' is-active' : ''}`}
-                    onClick={() => setView('search')}
+                    onClick={() => { setView('search'); setSearchOpen(true); }}
                 >
                     <Icon name="search" className="left-panel__view-icon" />
                     <span>Search</span>
