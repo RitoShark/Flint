@@ -542,7 +542,6 @@ textarea:focus {
   min-height: 0;
   overflow-y: auto;
   padding-bottom: 8px;
-  scrollbar-width: thin;
 }
 
 .ws-search__group-head {
@@ -604,11 +603,9 @@ textarea:focus {
 }
 
 .ws-search__hit {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
+  display: block;
   width: 100%;
-  padding: 2px 8px 2px 24px;
+  padding: 2px 8px 2px 12px;
   border: none;
   background: transparent;
   color: var(--text-secondary);
@@ -616,26 +613,14 @@ textarea:focus {
   font-size: 10.5px;
   text-align: left;
   cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ws-search__hit:hover {
   background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
   color: var(--text-primary);
-}
-
-.ws-search__hit-line {
-  flex-shrink: 0;
-  min-width: 32px;
-  text-align: right;
-  color: var(--text-muted);
-}
-
-.ws-search__hit-text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .panel-resizer {

@@ -28,9 +28,12 @@ import { projectRootFromFilePath } from '../../lib/wadPath';
 import { bracketStackAtLine } from '../../lib/editor/blockExtraction';
 import { checkRitobinBrackets, type BracketCheckResult } from '../../lib/editor/bracketCheck';
 import {
+    REVEAL_LINE_EVENT,
     REVEAL_TEXT_EVENT,
     UNHASH_REQUEST_EVENT,
+    isSameRevealTarget,
     takeRevealLine,
+    type RevealLineDetail,
     type RevealTextDetail,
 } from '../../lib/editor/binEditorEvents';
 
@@ -937,6 +940,21 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         window.addEventListener(REVEAL_TEXT_EVENT, onReveal);
         return () => window.removeEventListener(REVEAL_TEXT_EVENT, onReveal);
     }, [filePath, showToast]);
+
+    useEffect(() => {
+        const onRevealLine = (e: Event) => {
+            const detail = (e as CustomEvent<RevealLineDetail>).detail;
+            if (!detail || !isSameRevealTarget(detail.filePath, filePath)) return;
+            const ed = editorRef.current;
+            if (!ed) return;
+            takeRevealLine(filePath);
+            ed.revealLineInCenter(detail.line);
+            ed.setPosition({ lineNumber: detail.line, column: 1 });
+            ed.focus();
+        };
+        window.addEventListener(REVEAL_LINE_EVENT, onRevealLine);
+        return () => window.removeEventListener(REVEAL_LINE_EVENT, onRevealLine);
+    }, [filePath]);
 
     // Split on BOTH separators in one pass. Chaining `split('\\') || split('/')`
     // never reaches the second branch: on a forward-slash path the first split

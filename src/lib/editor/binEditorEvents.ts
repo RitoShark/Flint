@@ -10,8 +10,17 @@ export const UNHASH_REQUEST_EVENT = 'flint:bin-unhash-request';
  *  double-click-an-emitter gesture. */
 export const REVEAL_TEXT_EVENT = 'flint:bin-reveal-text';
 
+/** Ask an ALREADY-MOUNTED BIN editor to jump to a line — a workspace-search hit
+ *  in the file that is already open. */
+export const REVEAL_LINE_EVENT = 'flint:bin-reveal-line';
+
 export interface UnhashRequestDetail {
     filePath: string;
+}
+
+export interface RevealLineDetail {
+    filePath: string;
+    line: number;
 }
 
 export interface RevealTextDetail {
@@ -54,4 +63,19 @@ export function takeRevealLine(filePath: string): number | null {
     if (line === undefined) return null;
     pendingReveals.delete(key);
     return line;
+}
+
+export function isSameRevealTarget(a: string, b: string): boolean {
+    return revealKey(a) === revealKey(b);
+}
+
+/* Stash AND announce: the editor for this file may or may not be mounted yet.
+   Mounted, it hears the event; not mounted, it pulls the stash once it is
+   ready. Without the event a second hit in the file already open does nothing,
+   because navigating to an active tab remounts nothing. */
+export function requestRevealLine(filePath: string, line: number): void {
+    stashRevealLine(filePath, line);
+    window.dispatchEvent(
+        new CustomEvent<RevealLineDetail>(REVEAL_LINE_EVENT, { detail: { filePath, line } }),
+    );
 }

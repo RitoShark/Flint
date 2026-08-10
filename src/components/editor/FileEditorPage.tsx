@@ -316,11 +316,7 @@ export const FileEditorPage: React.FC = () => {
     return (
         <div style={{ display: 'flex', height: '100%', minHeight: 0 }}>
             {searchOpen && searchRoot && (
-                <SearchSidebar
-                    projectPath={searchRoot}
-                    seedBin={target.filePath}
-                    style={{ width: 300, flexShrink: 0 }}
-                />
+                <SearchSidebar projectPath={searchRoot} seedBin={target.filePath} />
             )}
             <div
                 className="file-editor-page"

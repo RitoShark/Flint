@@ -2,7 +2,7 @@ import React, { useCallback, useState } from 'react';
 import * as api from '../../lib/api';
 import { Icon } from '../ui';
 import { useModalStore, useNotificationStore, useNavigationStore } from '../../lib/stores';
-import { stashRevealLine } from '../../lib/editor/binEditorEvents';
+import { requestRevealLine } from '../../lib/editor/binEditorEvents';
 
 interface WorkspaceSearchProps {
     projectPath: string;
@@ -60,7 +60,7 @@ export const WorkspaceSearch: React.FC<WorkspaceSearchProps> = ({ projectPath, s
     }, [projectPath, query, options, seedBin]);
 
     const open = (path: string, line: number) => {
-        stashRevealLine(path, line);
+        requestRevealLine(path, line);
         navigateToFileEditor({ filePath: path, kind: 'binText', projectPath });
     };
 
@@ -221,8 +221,7 @@ export const WorkspaceSearch: React.FC<WorkspaceSearchProps> = ({ projectPath, s
                                     onClick={() => open(file.path, hit.line)}
                                     title={`Line ${hit.line}`}
                                 >
-                                    <span className="ws-search__hit-line">{hit.line}</span>
-                                    <span className="ws-search__hit-text">{hit.preview}</span>
+                                    {hit.preview}
                                 </button>
                             ))}
                         </div>
