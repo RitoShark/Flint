@@ -1,6 +1,6 @@
 {
   "name": "flint",
-  "version": "2.8.1",
+  "version": "2.9.0",
   "description": "League of Legends Modding IDE",
   "license": "AGPL-3.0-only",
   "type": "module",

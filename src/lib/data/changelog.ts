@@ -45,6 +45,56 @@ export interface VersionChangelog {
  */
 export const CHANGELOG: VersionChangelog[] = [
     {
+        version: '2.9.0',
+        date: 'August 2026',
+        headline: 'Flint 2.9.0',
+        subtitle: 'Project-wide BIN search, a BIN editor you can configure, and two new ways to port a skin.',
+        entries: [
+            {
+                icon: 'search',
+                tag: 'feature',
+                title: 'Search and replace across every BIN in the project',
+                description: 'A VS Code-style search panel that sweeps every BIN in the project — plus the linked bins that live outside it, which is where Riot hoists most of a skin\'s shared entries. Match case, whole word and regex, with capture groups in the replacement. Results are grouped by file and syntax-coloured exactly as they appear in the editor; click one to jump straight to the line. Replace All is confirm-gated and skips any file whose result would not parse, so a sweep can never half-write a BIN. Open it with the Search project button in the BIN editor toolbar.',
+            },
+            {
+                icon: 'settings',
+                tag: 'feature',
+                title: 'Bin Editor settings',
+                description: 'A new Settings tab for the BIN editor: word wrap, font size, the minimap and its line limit, unhash-on-open, which tools-panel sections start expanded, and four syntax colour presets — Flint Dark, Ember, Slate and High Contrast. The theme applies everywhere ritobin is shown.',
+            },
+            {
+                icon: 'bin',
+                tag: 'feature',
+                title: 'Leap bar and VFX system navigation',
+                description: 'Monaco pins the blocks you are inside to the top of the editor; the leap bar mirrors that along the bottom, showing the next block below the viewport as its own source line. Click it to leap there, or use Alt+] and Alt+[ to step through every VFX system in the file. Off by default — turn it on in Settings, Bin Editor.',
+            },
+            {
+                icon: 'copy',
+                tag: 'feature',
+                title: 'Port to Jade and NoSkinLite',
+                description: 'Two new project actions. Port to Jade clones a skin onto the matching League Classic character, offering exactly the skin slots that character actually has. NoSkinLite clones a skin-0 project across a range of slots so it shows up regardless of which skin the player owns. Neither ever overwrites an existing BIN, so both are safe to re-run.',
+            },
+            {
+                icon: 'texture',
+                tag: 'feature',
+                title: 'BIN tools: idle particles and persistent VFX',
+                description: 'The tools panel gained forms for idle-particle effects and persistent VFX conditions, alongside skin scale and material overrides. Both write into the existing list or create it, as one undo step, straight into the text — so they work on a file with unsaved edits.',
+            },
+            {
+                icon: 'picture',
+                tag: 'improvement',
+                title: 'Mirror a model in the thumbnail creator',
+                description: 'Model layers can be mirrored across their vertical axis, and the transform sliders now stay collapsed until you open them.',
+            },
+            {
+                icon: 'wrench',
+                tag: 'fix',
+                title: 'Fixes',
+                description: 'The BIN editor\'s workspace search and system navigation now appear in the standalone file editor too, where a lot of BIN work actually happens. Create Project is back on the WAD Explorer\'s own chunk menu.',
+            },
+        ],
+    },
+    {
         version: '2.8.1',
         date: 'August 2026',
         headline: 'Flint 2.8.1',
