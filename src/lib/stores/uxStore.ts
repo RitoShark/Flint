@@ -34,8 +34,6 @@ export interface UxPrefs {
     binEditorSyntaxTheme: string;
     /** The leap bar — sticky scroll's mirror along the bottom edge. */
     binEditorLeapBar: boolean;
-    /** How many upcoming blocks the leap bar stacks. */
-    binEditorLeapRows: number;
 }
 
 const DEFAULTS: UxPrefs = {
@@ -54,8 +52,7 @@ const DEFAULTS: UxPrefs = {
     binEditorAutoUnhash: false,
     binEditorExpandedSections: {},
     binEditorSyntaxTheme: 'default',
-    binEditorLeapBar: true,
-    binEditorLeapRows: 3,
+    binEditorLeapBar: false,
 };
 
 /** Superseded default reds → the current one. A stored accent overrides the theme

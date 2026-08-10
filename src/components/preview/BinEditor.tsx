@@ -28,6 +28,7 @@ import { projectRootFromFilePath } from '../../lib/wadPath';
 import { bracketStackAtLine } from '../../lib/editor/blockExtraction';
 import { checkRitobinBrackets, type BracketCheckResult } from '../../lib/editor/bracketCheck';
 import { colorizeRitobinLine } from '../../lib/editor/ritobinColorize';
+import { resolvePreset } from '../../lib/editor/ritobinThemes';
 import {
     REVEAL_LINE_EVENT,
     REVEAL_TEXT_EVENT,
@@ -86,11 +87,15 @@ function extractStringAtPosition(line: string, column: number): string | null {
 
 const CLOSER_FOR: Record<string, string> = { '{': '}', '[': ']', '(': ')' };
 
+const EDITOR_FONT_FAMILY =
+    'var(--font-mono), "Cascadia Code", "Fira Code", Consolas, "Courier New", monospace';
+const EDITOR_LINE_HEIGHT = 20;
+
 const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     automaticLayout: true,
-    fontFamily: 'var(--font-mono), "Cascadia Code", "Fira Code", Consolas, "Courier New", monospace',
+    fontFamily: EDITOR_FONT_FAMILY,
     fontSize: 13,
-    lineHeight: 20,
+    lineHeight: EDITOR_LINE_HEIGHT,
     lineNumbers: 'on',
     lineNumbersMinChars: 5,
     minimap: { enabled: false },
@@ -234,7 +239,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const autoUnhashPref = useUxStore((s) => s.binEditorAutoUnhash);
     const syntaxThemePref = useUxStore((s) => s.binEditorSyntaxTheme);
     const leapBarPref = useUxStore((s) => s.binEditorLeapBar);
-    const leapRowsPref = useUxStore((s) => s.binEditorLeapRows);
     // Above the cap the preference is overridden, and the toggle is disabled.
     const minimapAllowed = lineCount <= minimapMaxLines;
     const minimapOn = minimapPref && minimapAllowed;
@@ -451,19 +455,26 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         const syncViewport = () => {
             const ranges = ed.getVisibleRanges();
             if (ranges.length === 0) return;
-            setViewport({
-                start: ranges[0].startLineNumber,
-                end: ranges[ranges.length - 1].endLineNumber,
-            });
+            setViewportEnd(ranges[ranges.length - 1].endLineNumber);
         };
         const scrollSub = ed.onDidScrollChange(syncViewport);
         syncViewport();
 
-        // The leap rows line their text up with the editor's own, so they take
-        // the gutter width from Monaco rather than guessing at it.
-        const syncGutter = () => setContentLeft(ed.getLayoutInfo().contentLeft);
-        const layoutSub = ed.onDidLayoutChange(syncGutter);
-        syncGutter();
+        // The leap row is laid out from Monaco's own measurements, not guessed
+        // at, so its number / fold column / text land on the editor's columns.
+        const syncLayout = () => {
+            const l = ed.getLayoutInfo();
+            setLayout({
+                numbersLeft: l.lineNumbersLeft,
+                numbersWidth: l.lineNumbersWidth,
+                decorationsLeft: l.decorationsLeft,
+                decorationsWidth: l.decorationsWidth,
+                contentLeft: l.contentLeft,
+                rightInset: l.minimap.minimapWidth + l.verticalScrollbarWidth,
+            });
+        };
+        const layoutSub = ed.onDidLayoutChange(syncLayout);
+        syncLayout();
 
         ed.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.BracketRight, () => stepSystemRef.current(true));
         ed.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.BracketLeft, () => stepSystemRef.current(false));
@@ -888,35 +899,43 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
        is the other half: the block coming up NEXT below the viewport. It follows
        the VIEWPORT, not the cursor — the cursor stays on line 1 until you click,
        which would pin the bar to the first block no matter where you scrolled. */
-    const [viewport, setViewport] = useState({ start: 1, end: 1 });
-    const [contentLeft, setContentLeft] = useState(0);
+    const [viewportEnd, setViewportEnd] = useState(1);
+    const [layout, setLayout] = useState({
+        numbersLeft: 0,
+        numbersWidth: 0,
+        decorationsLeft: 0,
+        decorationsWidth: 0,
+        contentLeft: 0,
+        rightInset: 0,
+    });
     const upcomingIndex = useMemo(
-        () => systems.findIndex((s) => s.line > viewport.end),
-        [systems, viewport.end],
+        () => systems.findIndex((s) => s.line > viewportEnd),
+        [systems, viewportEnd],
     );
-    const previousIndex = useMemo(() => {
-        for (let i = systems.length - 1; i >= 0; i--) {
-            if (systems[i].line < viewport.start) return i;
-        }
-        return -1;
-    }, [systems, viewport.start]);
     const upcoming = upcomingIndex >= 0 ? systems[upcomingIndex] : null;
     const blockNoun = navigable.kind === 'system' ? 'VFX system' : 'entry';
 
-    /* The rows are drawn as EDITOR LINES, not labels: the block's own source
-       line, syntax-coloured, behind a gutter the width of Monaco's own. That is
-       what makes it read as sticky scroll rather than as a toolbar. */
-    const leapRows = useMemo(() => {
-        if (!leapBarPref || upcomingIndex < 0) return [];
-        const lines = content.split('\n');
-        return systems
-            .slice(upcomingIndex, upcomingIndex + Math.max(1, leapRowsPref))
-            .map((block) => ({
-                line: block.line,
-                label: block.label,
-                spans: colorizeRitobinLine(monaco, lines[block.line - 1] ?? block.label, syntaxThemePref),
-            }));
-    }, [leapBarPref, leapRowsPref, syntaxThemePref, content, systems, upcomingIndex]);
+    /* One row, drawn as an EDITOR LINE — the block's own source text, the
+       editor's font, Monaco's columns, the theme's colours. Anything else reads
+       as a toolbar bolted under the editor instead of as sticky scroll. */
+    const leapRow = useMemo(() => {
+        if (!leapBarPref || !upcoming) return null;
+        const text = content.split('\n')[upcoming.line - 1] ?? upcoming.label;
+        return {
+            line: upcoming.line,
+            label: upcoming.label,
+            spans: colorizeRitobinLine(monaco, text, syntaxThemePref),
+        };
+    }, [leapBarPref, syntaxThemePref, content, upcoming]);
+
+    const leapColors = useMemo(() => {
+        const preset = resolvePreset(syntaxThemePref);
+        return {
+            background: preset.colors['editor.background'],
+            hover: preset.colors['editor.lineHighlightBackground'],
+            lineNumber: preset.colors['editorLineNumber.foreground'],
+        };
+    }, [syntaxThemePref]);
 
     /* Auto-unhash runs once per opened file, keyed on the path — not on
        `content`, which the pass itself rewrites. */
@@ -1143,54 +1162,50 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                     {/* Monaco's sticky scroll pins the blocks you are INSIDE to
                         the TOP. This is its mirror along the BOTTOM: the blocks
                         coming up next, drawn as their own source lines. */}
-                    {leapRows.length > 0 && (
-                        <div
+                    {leapRow && (
+                        <button
                             className="bin-editor__leap"
-                            style={{ fontSize: fontSizePref }}
+                            onClick={() => goToLine(leapRow.line)}
+                            title={`Leap to ${blockNoun}: ${leapRow.label} — line ${leapRow.line}`}
+                            style={{
+                                right: layout.rightInset,
+                                height: EDITOR_LINE_HEIGHT,
+                                fontFamily: EDITOR_FONT_FAMILY,
+                                fontSize: fontSizePref,
+                                lineHeight: `${EDITOR_LINE_HEIGHT}px`,
+                                background: leapColors.background,
+                                ['--leap-hover' as string]: leapColors.hover,
+                            }}
                         >
-                            {leapRows.map((row) => (
-                                <button
-                                    key={row.line}
-                                    className="bin-editor__leap-row"
-                                    onClick={() => goToLine(row.line)}
-                                    title={`Leap to ${blockNoun}: ${row.label} — line ${row.line}`}
-                                >
-                                    <span
-                                        className="bin-editor__leap-gutter"
-                                        style={{ width: contentLeft || undefined }}
-                                    >
-                                        <span className="bin-editor__leap-num">{row.line}</span>
-                                        <Icon className="bin-editor__leap-chev" name="chevronDown" />
-                                    </span>
-                                    <span className="bin-editor__leap-text">
-                                        {row.spans.map((span, i) => (
-                                            <span key={i} style={{ color: span.color }}>{span.text}</span>
-                                        ))}
-                                    </span>
-                                </button>
-                            ))}
-                            <div className="bin-editor__leap-nav">
-                                <button
-                                    className="bin-editor__leap-step"
-                                    onClick={() => stepSystem(false)}
-                                    disabled={previousIndex < 0}
-                                    title={`Previous ${blockNoun} (Alt+[)`}
-                                >
-                                    <Icon className="bin-editor__chip-icon" name="chevronUp" />
-                                </button>
-                                <span className="bin-editor__leap-count">
-                                    {upcomingIndex >= 0 ? upcomingIndex + 1 : systems.length}/{systems.length}
-                                </span>
-                                <button
-                                    className="bin-editor__leap-step"
-                                    onClick={() => stepSystem(true)}
-                                    disabled={!upcoming}
-                                    title={`Next ${blockNoun} (Alt+])`}
-                                >
-                                    <Icon className="bin-editor__chip-icon" name="chevronDown" />
-                                </button>
-                            </div>
-                        </div>
+                            <span
+                                className="bin-editor__leap-num"
+                                style={{
+                                    left: layout.numbersLeft,
+                                    width: layout.numbersWidth,
+                                    color: leapColors.lineNumber,
+                                }}
+                            >
+                                {leapRow.line}
+                            </span>
+                            <span
+                                className="bin-editor__leap-chev"
+                                style={{
+                                    left: layout.decorationsLeft,
+                                    width: layout.decorationsWidth,
+                                    color: leapColors.lineNumber,
+                                }}
+                            >
+                                <Icon name="chevronDown" />
+                            </span>
+                            <span
+                                className="bin-editor__leap-text"
+                                style={{ paddingLeft: layout.contentLeft }}
+                            >
+                                {leapRow.spans.map((span, i) => (
+                                    <span key={i} style={{ color: span.color }}>{span.text}</span>
+                                ))}
+                            </span>
+                        </button>
                     )}
                 </div>
 

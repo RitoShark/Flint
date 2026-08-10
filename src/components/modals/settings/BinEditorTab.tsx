@@ -116,8 +116,9 @@ export const BinEditorTab: React.FC = () => {
                 title="Leap bar"
                 sub={
                     <span className="settings-row__sub" style={{ whiteSpace: 'normal' }}>
-                        Monaco's sticky scroll mirrored along the bottom edge — the blocks coming
-                        up next, drawn as their own source lines. Click one to leap to it.
+                        Monaco's sticky scroll mirrored along the bottom edge — the next block
+                        below the viewport, drawn as its own source line. Click it to leap there,
+                        or use <code>Alt+]</code> / <code>Alt+[</code>.
                     </span>
                 }
                 onActivate={() => ux.setBinEditorPrefs({ binEditorLeapBar: !ux.binEditorLeapBar })}
@@ -129,25 +130,6 @@ export const BinEditorTab: React.FC = () => {
                     />
                 }
             />
-
-            {ux.binEditorLeapBar && (
-                <SettingsRow
-                    icon={<Icon name="layerText" />}
-                    title="Leap bar rows"
-                    sub={
-                        <input
-                            type="range"
-                            min={1}
-                            max={6}
-                            step={1}
-                            value={ux.binEditorLeapRows}
-                            onChange={(e) => ux.setBinEditorPrefs({ binEditorLeapRows: Number(e.target.value) })}
-                            className="theme-range"
-                        />
-                    }
-                    actions={<span className="settings-row__metric">{ux.binEditorLeapRows}</span>}
-                />
-            )}
 
             <SettingsRow
                 icon={<Icon name="search" />}

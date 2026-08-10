@@ -9886,124 +9886,60 @@ input.np-search:focus {
 
 /* ── Sticky VFX-system bar (mirrors Monaco's sticky scroll, at the bottom) ── */
 
-/* The leap bar: Monaco's sticky scroll, mirrored along the bottom edge. Rows
-   are drawn as editor LINES — Monaco's gutter width, the block's own source
-   text, the same syntax colours — so it reads as a continuation of the
-   document rather than as another toolbar. */
+/* The leap bar: Monaco's sticky scroll, mirrored along the bottom edge. It has
+   to BE an editor line, not a bar under one — the editor's own font, Monaco's
+   own column geometry (passed in from `getLayoutInfo`) and the ritobin theme's
+   own background and line-number colour. Every visual constant here would be a
+   near-miss; that is why they all arrive as inline style. */
 .bin-editor__leap {
   position: absolute;
   left: 0;
-  right: 0;
   bottom: 0;
   z-index: 12;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border);
-  box-shadow: 0 -3px 12px rgb(0 0 0 / 32%);
-  font-family: var(--font-mono);
-}
-
-.bin-editor__leap-row {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  height: 20px;
+  display: block;
   padding: 0;
   border: none;
-  background: transparent;
-  color: inherit;
-  font: inherit;
   text-align: left;
+  white-space: pre;
   cursor: pointer;
+  /* Monaco shadows the sticky widget on the side its content continues.
+     Mirrored, that is upward. */
+  box-shadow: 0 -6px 6px -6px rgb(0 0 0 / 55%);
 }
 
-.bin-editor__leap-row:hover {
-  background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
-}
-
-.bin-editor__leap-gutter {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 3px;
-  flex-shrink: 0;
-  min-width: 48px;
-  height: 100%;
-  padding-right: 6px;
-  color: var(--text-muted);
-  font-size: 0.85em;
+.bin-editor__leap:hover {
+  background: var(--leap-hover) !important;
 }
 
 .bin-editor__leap-num {
-  line-height: 1;
-}
-
-.bin-editor__leap-chev {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 12px;
-  flex-shrink: 0;
-}
-
-.bin-editor__leap-chev svg {
-  display: block;
-  width: 10px;
-  height: 10px;
-}
-
-.bin-editor__leap-text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: pre;
-}
-
-/* Sits over the rows rather than in them: the rows are the document, and a
-   control inside one would be a click target competing with the leap. */
-.bin-editor__leap-nav {
   position: absolute;
-  right: 0;
   top: 0;
   bottom: 0;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 0 6px;
-  background: var(--bg-secondary);
-  box-shadow: -8px 0 8px -6px rgb(0 0 0 / 45%);
+  justify-content: flex-end;
 }
 
-.bin-editor__leap-step {
+.bin-editor__leap-chev {
+  position: absolute;
+  top: 0;
+  bottom: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  border: none;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
+  opacity: 0.85;
 }
 
-.bin-editor__leap-step:disabled {
-  opacity: 0.4;
-  cursor: default;
+.bin-editor__leap-chev svg {
+  display: block;
+  width: 14px;
+  height: 14px;
 }
 
-.bin-editor__leap-step:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--accent-primary) 16%, transparent);
-  color: var(--text-primary);
-}
-
-.bin-editor__leap-count {
-  padding: 0 2px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-muted);
+.bin-editor__leap-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .bin-tools__head {
