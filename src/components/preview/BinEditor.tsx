@@ -20,7 +20,7 @@ import { MaskEditor } from './MaskEditor';
 import { PaintPanel } from './paint/PaintPanel';
 import { BinToolsPanel } from './bintools/BinToolsPanel';
 import { applyContentToEditor } from '../../lib/editor/applyContent';
-import { indexVfxSystems, nextSystem, previousSystem } from '../../lib/editor/binTools/vfxIndex';
+import { indexNavigable, nextSystem, previousSystem } from '../../lib/editor/binTools/vfxIndex';
 import { SubmeshPicker, type SubmeshPickerRequest } from './SubmeshPicker';
 import { Icon } from '../ui/Icon';
 import { useSearchPanelStore } from '../../lib/stores/searchPanelStore';
@@ -837,7 +837,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         const ed = editorRef.current;
         const model = ed?.getModel();
         if (!ed || !model) return;
-        const systems = indexVfxSystems(model.getValue());
+        const systems = indexNavigable(model.getValue()).blocks;
         const here = ed.getPosition()?.lineNumber ?? 0;
         const target = forward ? nextSystem(systems, here) : previousSystem(systems, here);
         if (!target) return;
@@ -848,7 +848,8 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const stepSystemRef = useRef(stepSystem);
     stepSystemRef.current = stepSystem;
 
-    const systems = useMemo(() => indexVfxSystems(content), [content]);
+    const navigable = useMemo(() => indexNavigable(content), [content]);
+    const systems = navigable.blocks;
     /* Which system the cursor sits in — the last header at or above it. Driven
        off the cursor rather than scroll position so it agrees with Alt+] / Alt+[
        and with clicking a row in the tools panel. */
@@ -960,7 +961,17 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                             {fileName}{isDirty ? ' \u2022' : ''}
                         </span>
                     )}
-                    <span className="bin-editor__stats" style={hideFilename ? { marginLeft: 0 } : undefined}>
+                    <button
+                        className={`bin-editor__chip bin-editor__chip--ghost${searchOpen ? ' bin-editor__chip--on' : ''}`}
+                        onClick={() => toggleSearch(filePath)}
+                        disabled={!searchRoot}
+                        title={searchRoot
+                            ? 'Find and replace across every BIN in this project'
+                            : 'This BIN is not inside a Flint project'}
+                    >
+                        <Icon className="bin-editor__chip-icon" name="search" />
+                    </button>
+                    <span className="bin-editor__stats" style={{ marginLeft: 0 }}>
                         {lineCount.toLocaleString()} lines
                     </span>
                     {bracketLabel && (
@@ -989,17 +1000,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                     {!bracketLabel && isDirty && (
                         <span className="bin-editor__bracket-ok">Brackets OK</span>
                     )}
-                    <button
-                        className={`bin-editor__chip${searchOpen ? ' bin-editor__chip--on' : ''}`}
-                        onClick={() => toggleSearch(filePath)}
-                        disabled={!searchRoot}
-                        title={searchRoot
-                            ? 'Find and replace across every BIN in this project'
-                            : 'This BIN is not inside a Flint project'}
-                    >
-                        <Icon className="bin-editor__chip-icon" name="search" />
-                        <span>Search project</span>
-                    </button>
                 </span>
                 <div className="bin-editor__toolbar-actions">
                     {!bracketStatus.valid && (
@@ -1079,7 +1079,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                             <button
                                 className="bin-editor__sticky-step"
                                 onClick={() => stepSystem(false)}
-                                title="Previous VFX system (Alt+[)"
+                                title={`Previous ${navigable.kind === 'system' ? 'VFX system' : 'entry'} (Alt+[)`}
                             >
                                 <Icon className="bin-editor__chip-icon" name="chevronLeft" />
                             </button>
@@ -1094,11 +1094,11 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                                 }}
                                 title={currentSystem
                                     ? `${currentSystem.label} — line ${currentSystem.line}`
-                                    : 'Jump to the first VFX system'}
+                                    : 'Jump to the first block'}
                             >
-                                <Icon className="bin-editor__chip-icon" name="texture" />
+                                <Icon className="bin-editor__chip-icon" name={navigable.kind === 'system' ? 'texture' : 'bin'} />
                                 <span className="bin-editor__sticky-label">
-                                    {currentSystem?.label ?? 'No system at the cursor'}
+                                    {currentSystem?.label ?? 'No block at the cursor'}
                                 </span>
                             </button>
                             <span className="bin-editor__sticky-count">
@@ -1107,7 +1107,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                             <button
                                 className="bin-editor__sticky-step"
                                 onClick={() => stepSystem(true)}
-                                title="Next VFX system (Alt+])"
+                                title={`Next ${navigable.kind === 'system' ? 'VFX system' : 'entry'} (Alt+])`}
                             >
                                 <Icon className="bin-editor__chip-icon" name="chevronRight" />
                             </button>

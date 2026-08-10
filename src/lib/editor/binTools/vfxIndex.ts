@@ -61,6 +61,41 @@ function readLabel(lines: string[], headerIdx: number): string | null {
     return name;
 }
 
+/** A top-level entry header: `    "Key" = ClassName {`. */
+const ENTRY_HEADER = /^(\s*)"([^"]+)"\s*=\s*[A-Za-z_][\w]*\s*\{/;
+
+/** Max indent an entry header may carry to count as top level (ritobin uses 4). */
+const TOP_LEVEL_INDENT = 4;
+
+export function indexEntries(text: string): VfxSystemEntry[] {
+    const lines = text.split('\n');
+    const found: VfxSystemEntry[] = [];
+
+    for (let i = 0; i < lines.length; i++) {
+        const match = lines[i].match(ENTRY_HEADER);
+        if (!match || match[1].length > TOP_LEVEL_INDENT) continue;
+        found.push({ line: i + 1, label: match[2], key: match[2] });
+    }
+
+    return found;
+}
+
+export type NavigableKind = 'system' | 'entry';
+
+/**
+ * What the editor's sticky bar steps through.
+ *
+ * VFX systems when the file has any; otherwise the top-level entries, because a
+ * skin BIN holds no `VfxSystemDefinitionData` at all (only `resourceMap` links
+ * to systems defined in the particles BIN) and would otherwise offer nothing to
+ * leap between.
+ */
+export function indexNavigable(text: string): { blocks: VfxSystemEntry[]; kind: NavigableKind } {
+    const systems = indexVfxSystems(text);
+    if (systems.length > 0) return { blocks: systems, kind: 'system' };
+    return { blocks: indexEntries(text), kind: 'entry' };
+}
+
 /** The next system after `line`, wrapping at the end. */
 export function nextSystem(systems: VfxSystemEntry[], line: number): VfxSystemEntry | null {
     if (systems.length === 0) return null;

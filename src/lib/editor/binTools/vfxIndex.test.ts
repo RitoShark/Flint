@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { indexVfxSystems, nextSystem, previousSystem } from './vfxIndex';
+import { indexEntries, indexNavigable, indexVfxSystems, nextSystem, previousSystem } from './vfxIndex';
 
 const BIN = [
     'entries: map[hash,embed] = {',
@@ -71,5 +71,47 @@ describe('navigation', () => {
             seen.push(line);
         }
         expect(seen).toEqual(systems.map((s) => s.line));
+    });
+});
+
+describe('indexEntries / indexNavigable', () => {
+    const SKIN = [
+        'entries: map[hash,embed] = {',
+        '    "Characters/Evelynn/Skins/Skin0" = SkinCharacterDataProperties {',
+        '        skinAudioProperties: embed = skinAudioProperties {',
+        '            deep: embed = Nested {',
+        '            }',
+        '        }',
+        '    }',
+        '    "Characters/Evelynn/Skins/Skin0/Resources" = ResourceResolver {',
+        '        resourceMap: map[hash,link] = {',
+        '            "Evelynn_Q_Tar" = "Characters/Evelynn/Skins/Skin0/Particles/Q_Tar"',
+        '        }',
+        '    }',
+        '}',
+    ].join('\n');
+
+    it('lists only top-level entry headers', () => {
+        const entries = indexEntries(SKIN);
+        expect(entries.map((e) => e.line)).toEqual([2, 8]);
+        expect(entries[1].label).toBe('Characters/Evelynn/Skins/Skin0/Resources');
+    });
+
+    it('ignores a nested block and a quoted map value', () => {
+        const labels = indexEntries(SKIN).map((e) => e.label);
+        expect(labels).not.toContain('Evelynn_Q_Tar');
+        expect(labels.some((l) => l.includes('Nested'))).toBe(false);
+    });
+
+    it('falls back to entries when a BIN has no VFX systems', () => {
+        const nav = indexNavigable(SKIN);
+        expect(nav.kind).toBe('entry');
+        expect(nav.blocks).toHaveLength(2);
+    });
+
+    it('prefers VFX systems when the BIN has them', () => {
+        const nav = indexNavigable(BIN);
+        expect(nav.kind).toBe('system');
+        expect(nav.blocks).toHaveLength(3);
     });
 });

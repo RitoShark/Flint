@@ -299,7 +299,6 @@ const RawTextEditor: React.FC<{ target: FileEditorTarget }> = ({ target }) => {
 export const FileEditorPage: React.FC = () => {
     const target = useFileEditorStore((s) => s.target);
     const searchOpen = useSearchPanelStore((s) => s.open);
-    const closeSearch = useSearchPanelStore((s) => s.setOpen);
 
     if (!target) {
         return (
@@ -320,7 +319,6 @@ export const FileEditorPage: React.FC = () => {
                 <SearchSidebar
                     projectPath={searchRoot}
                     seedBin={target.filePath}
-                    onClose={() => closeSearch(false)}
                     style={{ width: 300, flexShrink: 0 }}
                 />
             )}

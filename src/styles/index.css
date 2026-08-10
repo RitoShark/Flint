@@ -9859,6 +9859,25 @@ input.np-search:focus {
   cursor: default;
 }
 
+.bin-editor__chip--ghost {
+  padding: 0 6px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.bin-editor__chip--ghost:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+  border-color: transparent;
+  color: var(--text-primary);
+}
+
+.bin-editor__chip--ghost.bin-editor__chip--on {
+  background: color-mix(in oklab, var(--accent-primary) 18%, transparent);
+  border-color: transparent;
+  color: var(--accent-primary);
+}
+
 .bin-editor__chip--on {
   border-color: var(--accent-primary);
   background: color-mix(in oklab, var(--accent-primary) 18%, var(--bg-tertiary));
