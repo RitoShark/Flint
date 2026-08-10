@@ -112,6 +112,44 @@ export const BinEditorTab: React.FC = () => {
             />
 
             <SettingsRow
+                icon={<Icon name="chevronDown" />}
+                title="Leap bar"
+                sub={
+                    <span className="settings-row__sub" style={{ whiteSpace: 'normal' }}>
+                        Monaco's sticky scroll mirrored along the bottom edge — the blocks coming
+                        up next, drawn as their own source lines. Click one to leap to it.
+                    </span>
+                }
+                onActivate={() => ux.setBinEditorPrefs({ binEditorLeapBar: !ux.binEditorLeapBar })}
+                actions={
+                    <Checkbox
+                        toggle
+                        checked={ux.binEditorLeapBar}
+                        onChange={(e) => ux.setBinEditorPrefs({ binEditorLeapBar: e.target.checked })}
+                    />
+                }
+            />
+
+            {ux.binEditorLeapBar && (
+                <SettingsRow
+                    icon={<Icon name="layerText" />}
+                    title="Leap bar rows"
+                    sub={
+                        <input
+                            type="range"
+                            min={1}
+                            max={6}
+                            step={1}
+                            value={ux.binEditorLeapRows}
+                            onChange={(e) => ux.setBinEditorPrefs({ binEditorLeapRows: Number(e.target.value) })}
+                            className="theme-range"
+                        />
+                    }
+                    actions={<span className="settings-row__metric">{ux.binEditorLeapRows}</span>}
+                />
+            )}
+
+            <SettingsRow
                 icon={<Icon name="search" />}
                 title="Unhash on open"
                 sub={

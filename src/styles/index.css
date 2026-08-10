@@ -9886,65 +9886,121 @@ input.np-search:focus {
 
 /* ── Sticky VFX-system bar (mirrors Monaco's sticky scroll, at the bottom) ── */
 
-.bin-editor__sticky {
+/* The leap bar: Monaco's sticky scroll, mirrored along the bottom edge. Rows
+   are drawn as editor LINES — Monaco's gutter width, the block's own source
+   text, the same syntax colours — so it reads as a continuation of the
+   document rather than as another toolbar. */
+.bin-editor__leap {
   position: absolute;
   left: 0;
+  right: 0;
   bottom: 0;
   z-index: 12;
   display: flex;
-  align-items: center;
-  gap: 2px;
-  max-width: min(560px, 70%);
-  padding: 2px 4px;
+  flex-direction: column;
   background: var(--bg-secondary);
   border-top: 1px solid var(--border);
-  border-right: 1px solid var(--border);
-  border-top-right-radius: 4px;
-  box-shadow: 0 -2px 10px rgb(0 0 0 / 28%);
+  box-shadow: 0 -3px 12px rgb(0 0 0 / 32%);
+  font-family: var(--font-mono);
 }
 
-.bin-editor__sticky-step,
-.bin-editor__sticky-name {
+.bin-editor__leap-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 22px;
+  width: 100%;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bin-editor__leap-row:hover {
+  background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+}
+
+.bin-editor__leap-gutter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  flex-shrink: 0;
+  min-width: 48px;
+  height: 100%;
+  padding-right: 6px;
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+
+.bin-editor__leap-num {
+  line-height: 1;
+}
+
+.bin-editor__leap-chev {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  flex-shrink: 0;
+}
+
+.bin-editor__leap-chev svg {
+  display: block;
+  width: 10px;
+  height: 10px;
+}
+
+.bin-editor__leap-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+/* Sits over the rows rather than in them: the rows are the document, and a
+   control inside one would be a click target competing with the leap. */
+.bin-editor__leap-nav {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
   padding: 0 6px;
+  background: var(--bg-secondary);
+  box-shadow: -8px 0 8px -6px rgb(0 0 0 / 45%);
+}
+
+.bin-editor__leap-step {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
   border: none;
   border-radius: 3px;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 11.5px;
   cursor: pointer;
 }
 
-.bin-editor__sticky-step:disabled,
-.bin-editor__sticky-name:disabled {
+.bin-editor__leap-step:disabled {
   opacity: 0.4;
   cursor: default;
 }
 
-.bin-editor__sticky-step:hover:not(:disabled),
-.bin-editor__sticky-name:hover:not(:disabled) {
+.bin-editor__leap-step:hover:not(:disabled) {
   background: color-mix(in oklab, var(--accent-primary) 16%, transparent);
   color: var(--text-primary);
 }
 
-.bin-editor__sticky-name {
-  min-width: 0;
-  flex: 1;
-}
-
-.bin-editor__sticky-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-}
-
-.bin-editor__sticky-count {
-  flex-shrink: 0;
-  padding: 0 4px;
+.bin-editor__leap-count {
+  padding: 0 2px;
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--text-muted);

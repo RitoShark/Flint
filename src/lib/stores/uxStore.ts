@@ -32,6 +32,10 @@ export interface UxPrefs {
     binEditorExpandedSections: Record<string, boolean>;
     /** Id of the ritobin syntax colour preset. */
     binEditorSyntaxTheme: string;
+    /** The leap bar — sticky scroll's mirror along the bottom edge. */
+    binEditorLeapBar: boolean;
+    /** How many upcoming blocks the leap bar stacks. */
+    binEditorLeapRows: number;
 }
 
 const DEFAULTS: UxPrefs = {
@@ -50,6 +54,8 @@ const DEFAULTS: UxPrefs = {
     binEditorAutoUnhash: false,
     binEditorExpandedSections: {},
     binEditorSyntaxTheme: 'default',
+    binEditorLeapBar: true,
+    binEditorLeapRows: 3,
 };
 
 /** Superseded default reds → the current one. A stored accent overrides the theme
