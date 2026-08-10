@@ -1,8 +1,11 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
+import * as monaco from 'monaco-editor';
 import * as api from '../../lib/api';
 import { Icon } from '../ui';
-import { useModalStore, useNotificationStore, useNavigationStore } from '../../lib/stores';
+import { useModalStore, useNotificationStore, useNavigationStore, useUxStore } from '../../lib/stores';
 import { requestRevealLine } from '../../lib/editor/binEditorEvents';
+import { registerRitobinLanguage } from '../../lib/editor/ritobinLanguage';
+import { colorizeRitobinLine } from '../../lib/editor/ritobinColorize';
 
 interface WorkspaceSearchProps {
     projectPath: string;
@@ -26,10 +29,33 @@ function folderOf(path: string): string {
     return parts.join('/');
 }
 
+/* The panel can be open with no BIN editor mounted, so it registers the grammar
+   itself rather than relying on the editor having done it. Idempotent. */
+registerRitobinLanguage(monaco);
+
+const HitRow: React.FC<{
+    hit: api.BinSearchMatch;
+    presetId: string;
+    onOpen: () => void;
+}> = ({ hit, presetId, onOpen }) => {
+    const spans = useMemo(
+        () => colorizeRitobinLine(monaco, hit.preview, presetId),
+        [hit.preview, presetId],
+    );
+    return (
+        <button className="ws-search__hit" onClick={onOpen} title={`Line ${hit.line}`}>
+            {spans.map((span, i) => (
+                <span key={i} style={{ color: span.color }}>{span.text}</span>
+            ))}
+        </button>
+    );
+};
+
 export const WorkspaceSearch: React.FC<WorkspaceSearchProps> = ({ projectPath, seedBin }) => {
     const showToast = useNotificationStore((s) => s.showToast);
     const openConfirmDialog = useModalStore((s) => s.openConfirmDialog);
     const navigateToFileEditor = useNavigationStore((s) => s.navigateToFileEditor);
+    const syntaxTheme = useUxStore((s) => s.binEditorSyntaxTheme);
 
     const [query, setQuery] = useState('');
     const [replacement, setReplacement] = useState('');
@@ -215,14 +241,12 @@ export const WorkspaceSearch: React.FC<WorkspaceSearchProps> = ({ projectPath, s
                                 </span>
                             </button>
                             {!isCollapsed && file.matches.map((hit, i) => (
-                                <button
-                                    className="ws-search__hit"
+                                <HitRow
                                     key={`${hit.line}-${hit.column}-${i}`}
-                                    onClick={() => open(file.path, hit.line)}
-                                    title={`Line ${hit.line}`}
-                                >
-                                    {hit.preview}
-                                </button>
+                                    hit={hit}
+                                    presetId={syntaxTheme}
+                                    onOpen={() => open(file.path, hit.line)}
+                                />
                             ))}
                         </div>
                     );
