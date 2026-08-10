@@ -442,7 +442,16 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
 
         ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => { saveRef.current(); });
 
-        const cursorLineSub = ed.onDidChangeCursorPosition((e) => setCursorLine(e.position.lineNumber));
+        const syncViewport = () => {
+            const ranges = ed.getVisibleRanges();
+            if (ranges.length === 0) return;
+            setViewport({
+                start: ranges[0].startLineNumber,
+                end: ranges[ranges.length - 1].endLineNumber,
+            });
+        };
+        const scrollSub = ed.onDidScrollChange(syncViewport);
+        syncViewport();
 
         ed.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.BracketRight, () => stepSystemRef.current(true));
         ed.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.BracketLeft, () => stepSystemRef.current(false));
@@ -587,7 +596,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             if (styleEl) styleEl.textContent = '';
             deferCleanup(() => {
                 inlineProvider.dispose();
-                cursorLineSub.dispose();
+                scrollSub.dispose();
                 cursorMove.dispose();
                 submeshClick.dispose();
                 ed.dispose();
@@ -833,35 +842,52 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         return () => window.removeEventListener(UNHASH_REQUEST_EVENT, onRequest);
     }, [filePath]);
 
+    const goToLine = useCallback((line: number) => {
+        const ed = editorRef.current;
+        if (!ed) return;
+        // Near the top, not centred: a block header reads as a heading for what
+        // follows it, the same way clicking a sticky-scroll line behaves.
+        ed.revealLineNearTop(line);
+        ed.setPosition({ lineNumber: line, column: 1 });
+        ed.focus();
+    }, []);
+
     const stepSystem = useCallback((forward: boolean) => {
         const ed = editorRef.current;
         const model = ed?.getModel();
         if (!ed || !model) return;
-        const systems = indexNavigable(model.getValue()).blocks;
-        const here = ed.getPosition()?.lineNumber ?? 0;
-        const target = forward ? nextSystem(systems, here) : previousSystem(systems, here);
-        if (!target) return;
-        ed.revealLineInCenter(target.line);
-        ed.setPosition({ lineNumber: target.line, column: 1 });
-        ed.focus();
-    }, []);
+        const blocks = indexNavigable(model.getValue()).blocks;
+        const ranges = ed.getVisibleRanges();
+        const from = ranges.length > 0
+            ? (forward ? ranges[ranges.length - 1].endLineNumber : ranges[0].startLineNumber)
+            : (ed.getPosition()?.lineNumber ?? 0);
+        const target = forward
+            ? (blocks.find((b) => b.line > from) ?? nextSystem(blocks, from))
+            : ([...blocks].reverse().find((b) => b.line < from) ?? previousSystem(blocks, from));
+        if (target) goToLine(target.line);
+    }, [goToLine]);
     const stepSystemRef = useRef(stepSystem);
     stepSystemRef.current = stepSystem;
 
     const navigable = useMemo(() => indexNavigable(content), [content]);
     const systems = navigable.blocks;
-    /* Which system the cursor sits in — the last header at or above it. Driven
-       off the cursor rather than scroll position so it agrees with Alt+] / Alt+[
-       and with clicking a row in the tools panel. */
-    const [cursorLine, setCursorLine] = useState(1);
-    const currentIndex = useMemo(() => {
-        let found = -1;
-        for (let i = 0; i < systems.length; i++) {
-            if (systems[i].line <= cursorLine) found = i; else break;
+    /* Monaco's sticky scroll pins the blocks you are INSIDE to the top. This bar
+       is the other half: the block coming up NEXT below the viewport. It follows
+       the VIEWPORT, not the cursor — the cursor stays on line 1 until you click,
+       which would pin the bar to the first block no matter where you scrolled. */
+    const [viewport, setViewport] = useState({ start: 1, end: 1 });
+    const upcomingIndex = useMemo(
+        () => systems.findIndex((s) => s.line > viewport.end),
+        [systems, viewport.end],
+    );
+    const previousIndex = useMemo(() => {
+        for (let i = systems.length - 1; i >= 0; i--) {
+            if (systems[i].line < viewport.start) return i;
         }
-        return found;
-    }, [systems, cursorLine]);
-    const currentSystem = currentIndex >= 0 ? systems[currentIndex] : systems[0] ?? null;
+        return -1;
+    }, [systems, viewport.start]);
+    const upcoming = upcomingIndex >= 0 ? systems[upcomingIndex] : null;
+    const blockNoun = navigable.kind === 'system' ? 'VFX system' : 'entry';
 
     /* Auto-unhash runs once per opened file, keyed on the path — not on
        `content`, which the pass itself rewrites. */
@@ -1041,12 +1067,12 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                         </button>
                     )}
                     <button
-                        className="bin-editor__chip"
+                        className="btn btn--icon"
+                        style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}
                         onClick={() => void handleUnhash()}
                         title="Unhash: re-resolve any 0x… hash tokens against the known BIN hash dictionary"
                     >
-                        <Icon className="bin-editor__chip-icon" name="target" />
-                        <span>Unhash</span>
+                        <Icon name="target" />
                     </button>
                     <button
                         className="btn btn--primary btn--icon"
@@ -1070,46 +1096,45 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 >
                     <div ref={editorContainerRef} style={{ width: '100%', height: '100%' }} />
 
-                    {/* Monaco's sticky scroll names the block you are INSIDE at
-                        the top of the viewport. This is its mirror image: the
-                        VFX system you are in, pinned at the bottom, with the
-                        neighbours one click away. */}
+                    {/* Monaco's sticky scroll pins the blocks you are INSIDE to
+                        the TOP. This is the other half: what is coming up next
+                        BELOW the viewport, one click away. */}
                     {systems.length > 0 && (
                         <div className="bin-editor__sticky">
                             <button
                                 className="bin-editor__sticky-step"
                                 onClick={() => stepSystem(false)}
-                                title={`Previous ${navigable.kind === 'system' ? 'VFX system' : 'entry'} (Alt+[)`}
+                                disabled={previousIndex < 0}
+                                title={`Previous ${blockNoun} (Alt+[)`}
                             >
-                                <Icon className="bin-editor__chip-icon" name="chevronLeft" />
+                                <Icon className="bin-editor__chip-icon" name="chevronUp" />
                             </button>
                             <button
                                 className="bin-editor__sticky-name"
-                                onClick={() => {
-                                    const ed = editorRef.current;
-                                    if (!ed || !currentSystem) return;
-                                    ed.revealLineInCenter(currentSystem.line);
-                                    ed.setPosition({ lineNumber: currentSystem.line, column: 1 });
-                                    ed.focus();
-                                }}
-                                title={currentSystem
-                                    ? `${currentSystem.label} — line ${currentSystem.line}`
-                                    : 'Jump to the first block'}
+                                onClick={() => upcoming && goToLine(upcoming.line)}
+                                disabled={!upcoming}
+                                title={upcoming
+                                    ? `Next ${blockNoun}: ${upcoming.label} — line ${upcoming.line}`
+                                    : `End of file — no ${blockNoun} below`}
                             >
-                                <Icon className="bin-editor__chip-icon" name={navigable.kind === 'system' ? 'texture' : 'bin'} />
+                                <Icon
+                                    className="bin-editor__chip-icon"
+                                    name={navigable.kind === 'system' ? 'texture' : 'bin'}
+                                />
                                 <span className="bin-editor__sticky-label">
-                                    {currentSystem?.label ?? 'No block at the cursor'}
+                                    {upcoming?.label ?? `End of file`}
                                 </span>
                             </button>
                             <span className="bin-editor__sticky-count">
-                                {currentIndex >= 0 ? currentIndex + 1 : '–'}/{systems.length}
+                                {upcomingIndex >= 0 ? upcomingIndex + 1 : systems.length}/{systems.length}
                             </span>
                             <button
                                 className="bin-editor__sticky-step"
                                 onClick={() => stepSystem(true)}
-                                title={`Next ${navigable.kind === 'system' ? 'VFX system' : 'entry'} (Alt+])`}
+                                disabled={!upcoming}
+                                title={`Next ${blockNoun} (Alt+])`}
                             >
-                                <Icon className="bin-editor__chip-icon" name="chevronRight" />
+                                <Icon className="bin-editor__chip-icon" name="chevronDown" />
                             </button>
                         </div>
                     )}

@@ -9933,8 +9933,14 @@ input.np-search:focus {
   cursor: pointer;
 }
 
-.bin-editor__sticky-step:hover,
-.bin-editor__sticky-name:hover {
+.bin-editor__sticky-step:disabled,
+.bin-editor__sticky-name:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.bin-editor__sticky-step:hover:not(:disabled),
+.bin-editor__sticky-name:hover:not(:disabled) {
   background: color-mix(in oklab, var(--accent-primary) 16%, transparent);
   color: var(--text-primary);
 }
