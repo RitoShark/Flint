@@ -3,7 +3,6 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useAppMetadataStore, useProjectTabStore, useModalStore, useNotificationStore, useConfigStore, useNavigationStore } from '../../lib/stores';
 import { openWadInExtract, isWadPath } from '../../lib/openWad';
 import { getFileIcon, getExpanderIcon, getIcon } from '../../lib/ui-helpers/fileIcons';
-import { Icon } from '../ui/Icon';
 import { WorkspaceSearch } from './WorkspaceSearch';
 import { useSearchPanelStore } from '../../lib/stores/searchPanelStore';
 import { VirtualizedList, type VirtualizedListHandle } from './wad-explorer/VirtualizedList';
@@ -47,14 +46,14 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({ style }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const searchRequested = useSearchPanelStore((s) => s.open);
     const setSearchOpen = useSearchPanelStore((s) => s.setOpen);
-    const [view, setView] = useState<'files' | 'search'>('files');
 
-    /* The BIN editor's "Search project" chip lives in a different subtree, so it
-       flips the store and this follows. Switching back to Files clears the flag,
-       or the chip would read as still-on. */
+    /* Search has no tab of its own here — the project panel is the FILE TREE.
+       It appears only while the BIN editor's "Search project" chip is on, and
+       that chip (still on screen, in the centre panel) is what closes it. A
+       project switch closes it too, since the chip goes with the old tab. */
     useEffect(() => {
-        if (searchRequested) setView('search');
-    }, [searchRequested]);
+        setSearchOpen(false);
+    }, [activeTabId, setSearchOpen]);
 
     const activeTab = getActiveTab(activeTabId, openTabs);
     if (!activeTab) return null;
@@ -68,27 +67,10 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({ style }) => {
 
     return (
         <aside className="left-panel" id="left-panel" style={style}>
-            <div className="left-panel__views">
-                <button
-                    className={`left-panel__view${view === 'files' ? ' is-active' : ''}`}
-                    onClick={() => { setView('files'); setSearchOpen(false); }}
-                >
-                    <Icon name="folder" className="left-panel__view-icon" />
-                    <span>Files</span>
-                </button>
-                <button
-                    className={`left-panel__view${view === 'search' ? ' is-active' : ''}`}
-                    onClick={() => { setView('search'); setSearchOpen(true); }}
-                >
-                    <Icon name="search" className="left-panel__view-icon" />
-                    <span>Search</span>
-                </button>
-            </div>
-
-            {view === 'search' && (
+            {searchRequested && (
                 <WorkspaceSearch projectPath={projectPath} seedBin={seedBin} />
             )}
-            {view === 'files' && (
+            {!searchRequested && (
                 <>
             {isMapProject && (
                 <button

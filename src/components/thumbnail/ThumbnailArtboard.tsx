@@ -202,7 +202,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   // reconciliation effect for the full placement-model writeup.
   const sceneRef = useRef<ThumbnailScene | null>(null);
   const mapSceneRef = useRef<MapEnvScene | null>(null);
-  const modelBindingsRef = useRef<Map<string, { sceneId: string; sknPath: string; anim: string; frame: number; scale: number; orbit: number; tiltX: number; rollZ: number; posX: number; posY: number; posZ: number; x: number; y: number; w: number; h: number; hiddenMeshes: string; focusMode: string; hidden: boolean }>>(new Map());
+  const modelBindingsRef = useRef<Map<string, { sceneId: string; sknPath: string; anim: string; frame: number; scale: number; orbit: number; tiltX: number; rollZ: number; posX: number; posY: number; posZ: number; mirrored: boolean; x: number; y: number; w: number; h: number; hiddenMeshes: string; focusMode: string; hidden: boolean }>>(new Map());
   // Last-synced fingerprint of the env layer so the reconcile only touches the
   // map scene when the env layer actually changed (loads/variation/transform).
   const envSyncRef = useRef<string>('');
@@ -423,7 +423,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       // Reserve the binding immediately so a second effect run (e.g. a
       // fast prop change while the load is in flight) doesn't fire a
       // duplicate addModel for the same layer.
-      const placeholder = { sceneId: '', sknPath: layer.sknPath, anim: layer.anim, frame: layer.frame, scale: layer.scale, orbit: layer.orbit, tiltX: layer.tiltX ?? 0, rollZ: layer.rollZ ?? 0, posX: layer.posX ?? 0, posY: layer.posY ?? 0, posZ: layer.posZ ?? 0, x: layer.x, y: layer.y, w: layer.w, h: layer.h, hiddenMeshes: JSON.stringify(layer.hiddenMeshes ?? []), focusMode: layer.focusMode ?? 'full', hidden: !!layer.hidden };
+      const placeholder = { sceneId: '', sknPath: layer.sknPath, anim: layer.anim, frame: layer.frame, scale: layer.scale, orbit: layer.orbit, tiltX: layer.tiltX ?? 0, rollZ: layer.rollZ ?? 0, posX: layer.posX ?? 0, posY: layer.posY ?? 0, posZ: layer.posZ ?? 0, mirrored: !!layer.mirrored, x: layer.x, y: layer.y, w: layer.w, h: layer.h, hiddenMeshes: JSON.stringify(layer.hiddenMeshes ?? []), focusMode: layer.focusMode ?? 'full', hidden: !!layer.hidden };
       bindings.set(layer.id, placeholder);
       scene.addModel(layer.sknPath).then(async (handle) => {
         if (modelBindingsRef.current.get(layer.id) !== placeholder) {
@@ -501,11 +501,12 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
         continue;
       }
 
-      if (existing.x !== layer.x || existing.y !== layer.y || existing.w !== layer.w || existing.h !== layer.h || existing.scale !== layer.scale || existing.orbit !== layer.orbit || existing.tiltX !== (layer.tiltX ?? 0) || existing.rollZ !== (layer.rollZ ?? 0) || existing.posX !== (layer.posX ?? 0) || existing.posY !== (layer.posY ?? 0) || existing.posZ !== (layer.posZ ?? 0)) {
+      if (existing.x !== layer.x || existing.y !== layer.y || existing.w !== layer.w || existing.h !== layer.h || existing.scale !== layer.scale || existing.orbit !== layer.orbit || existing.tiltX !== (layer.tiltX ?? 0) || existing.rollZ !== (layer.rollZ ?? 0) || existing.posX !== (layer.posX ?? 0) || existing.posY !== (layer.posY ?? 0) || existing.posZ !== (layer.posZ ?? 0) || existing.mirrored !== !!layer.mirrored) {
         scene.setModelTransform(existing.sceneId, { x: layer.x, y: layer.y, w: layer.w, h: layer.h, scale: layer.scale, orbit: layer.orbit, tiltX: layer.tiltX ?? 0, rollZ: layer.rollZ ?? 0, posX: layer.posX ?? 0, posY: layer.posY ?? 0, posZ: layer.posZ ?? 0, mirrored: !!layer.mirrored });
         existing.x = layer.x; existing.y = layer.y; existing.w = layer.w; existing.h = layer.h;
         existing.scale = layer.scale; existing.orbit = layer.orbit; existing.tiltX = layer.tiltX ?? 0; existing.rollZ = layer.rollZ ?? 0;
         existing.posX = layer.posX ?? 0; existing.posY = layer.posY ?? 0; existing.posZ = layer.posZ ?? 0;
+        existing.mirrored = !!layer.mirrored;
       }
       if (existing.anim !== layer.anim && layer.anim) {
         existing.anim = layer.anim;

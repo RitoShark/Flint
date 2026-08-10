@@ -379,56 +379,6 @@ textarea:focus {
   overflow: hidden;
 }
 
-/* ── Left panel: Files / Search views ────────────────────────────────────── */
-
-.left-panel__views {
-  display: flex;
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.left-panel__view {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 7px 4px;
-  border: none;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  transition: color var(--transition-fast), background var(--transition-fast);
-}
-
-.left-panel__view:hover {
-  color: var(--text-primary);
-  background: color-mix(in oklab, var(--accent-primary) 10%, transparent);
-}
-
-.left-panel__view.is-active {
-  color: var(--accent-primary);
-  border-bottom-color: var(--accent-primary);
-}
-
-.left-panel__view-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-}
-
-.left-panel__view-icon svg {
-  display: block;
-  width: 14px;
-  height: 14px;
-}
-
 /* ── Workspace search ────────────────────────────────────────────────────── */
 
 .ws-search {
