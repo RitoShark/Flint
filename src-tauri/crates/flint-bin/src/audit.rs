@@ -71,9 +71,26 @@ fn is_game_path(rel: &str) -> bool {
     rel.starts_with("assets/") || rel.starts_with("data/")
 }
 
+fn is_missing_exempt(rel: &str) -> bool {
+    if rel.contains("/sounds/wwise2016/vo/") {
+        return true;
+    }
+
+    let parts: Vec<&str> = rel.split('/').collect();
+    parts.len() == 4
+        && parts[0] == "data"
+        && parts[1] == "characters"
+        && parts[3]
+            .strip_suffix(".bin")
+            .is_some_and(|stem| stem == parts[2])
+}
+
 fn is_bloat_exempt(rel: &str) -> bool {
-    rel.split('/')
-        .any(|seg| BLOAT_EXEMPT_DIRS.iter().any(|d| seg.eq_ignore_ascii_case(d)))
+    rel.split('/').any(|seg| {
+        BLOAT_EXEMPT_DIRS
+            .iter()
+            .any(|d| seg.eq_ignore_ascii_case(d))
+    })
 }
 
 /** Records a mention, plus the `2x_`/`4x_` HD siblings League ships alongside a texture.
@@ -239,6 +256,9 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
         .collect();
     let has_any_variant = !present_variants.is_empty();
     missing.retain(|m| {
+        if is_missing_exempt(m) {
+            return false;
+        }
         let base = m.rsplit('/').next().unwrap_or(m);
         if base.starts_with("2x_") || base.starts_with("4x_") {
             return has_any_variant;
@@ -285,7 +305,10 @@ mod tests {
     fn hash_named_files_hash_to_their_own_stem() {
         assert_eq!(unified_hash("0123456789abcdef.dds"), 0x0123456789abcdef);
         // Nested too — an extractor can place an unresolved chunk anywhere.
-        assert_eq!(unified_hash("assets/0123456789abcdef.dds"), 0x0123456789abcdef);
+        assert_eq!(
+            unified_hash("assets/0123456789abcdef.dds"),
+            0x0123456789abcdef
+        );
     }
 
     #[test]
@@ -325,10 +348,32 @@ mod tests {
     }
 
     #[test]
+    fn missing_check_ignores_voiceover_files() {
+        assert!(is_missing_exempt(
+            "assets/sounds/wwise2016/vo/en_us/characters/ahri/ahri_vo_audio.wpk"
+        ));
+        assert!(!is_missing_exempt(
+            "assets/sounds/wwise2016/sfx/characters/ahri/ahri_sfx_audio.bnk"
+        ));
+    }
+
+    #[test]
+    fn missing_check_ignores_the_base_champion_bin() {
+        assert!(is_missing_exempt("data/characters/ahri/ahri.bin"));
+        assert!(is_missing_exempt("data/characters/jade_ahri/jade_ahri.bin"));
+        assert!(!is_missing_exempt("data/characters/ahri/skins/skin0.bin"));
+        assert!(!is_missing_exempt("data/characters/ahri/animations.bin"));
+    }
+
+    #[test]
     fn icons2d_is_exempt_from_bloat() {
-        assert!(is_bloat_exempt("assets/characters/foo/hud/icons2d/passive.dds"));
+        assert!(is_bloat_exempt(
+            "assets/characters/foo/hud/icons2d/passive.dds"
+        ));
         assert!(is_bloat_exempt("assets/ICONS2D/x.dds"));
-        assert!(!is_bloat_exempt("assets/characters/foo/skins/base/body.tex"));
+        assert!(!is_bloat_exempt(
+            "assets/characters/foo/skins/base/body.tex"
+        ));
         // Only a whole segment counts, not a substring.
         assert!(!is_bloat_exempt("assets/icons2different/x.dds"));
     }
