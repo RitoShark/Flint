@@ -1,4 +1,6 @@
-use flint_core::bin::{bin_to_json, json_to_bin, read_bin, text_to_bin, write_bin};
+use flint_core::bin::{
+    bin_to_json, json_to_bin, read_bin, remember_custom_hash_names, text_to_bin, write_bin, Bin,
+};
 use flint_core::bin::tree_to_text_cached;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -13,6 +15,14 @@ static BIN_INFLIGHT: std::sync::OnceLock<dashmap::DashMap<String, Arc<tokio::syn
 
 fn bin_inflight() -> &'static dashmap::DashMap<String, Arc<tokio::sync::Mutex<()>>> {
     BIN_INFLIGHT.get_or_init(dashmap::DashMap::new)
+}
+
+fn remember_hash_names(text: &str, bin: &Bin) {
+    match remember_custom_hash_names(text, bin) {
+        Ok(count) if count > 0 => tracing::info!("Saved {} custom BIN hash name(s)", count),
+        Ok(_) => {}
+        Err(e) => tracing::warn!("Could not save custom BIN hash names: {}", e),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -147,6 +157,8 @@ pub async fn convert_text_to_bin(
             tracing::error!("Failed to parse text from '{}': {}", input_path, e);
             format!("Failed to parse text from '{}': {}", input_path, e)
         })?;
+
+    remember_hash_names(&text, &bin);
 
     tracing::debug!("Parsed text to bin with {} objects", bin.entries.len());
 
@@ -458,6 +470,7 @@ pub async fn save_ritobin_to_bin(
     let binary_data = tokio::task::spawn_blocking(move || {
         let bin = flint_core::bin::text_to_tree(&content_for_encode)
             .map_err(|e| format!("Failed to parse text content: {}", e))?;
+        remember_hash_names(&content_for_encode, &bin);
         flint_core::bin::write_bin(&bin)
             .map_err(|e| format!("Failed to convert to binary: {}", e))
     })
@@ -496,6 +509,7 @@ pub async fn compile_ritobin_text_to_bytes(
     let binary_data = tokio::task::spawn_blocking(move || {
         let bin = flint_core::bin::text_to_tree(&content)
             .map_err(|e| format!("Failed to parse text content: {}", e))?;
+        remember_hash_names(&content, &bin);
         flint_core::bin::write_bin(&bin)
             .map_err(|e| format!("Failed to convert to binary: {}", e))
     })

@@ -94,6 +94,7 @@ struct EnvCache {
 
 static WAD_LMDB_CACHE: OnceLock<Mutex<Option<EnvCache>>> = OnceLock::new();
 static BIN_LMDB_CACHE: OnceLock<Mutex<Option<EnvCache>>> = OnceLock::new();
+static CUSTOM_LMDB_CACHE: OnceLock<Mutex<Option<EnvCache>>> = OnceLock::new();
 
 fn wad_mutex() -> &'static Mutex<Option<EnvCache>> {
     WAD_LMDB_CACHE.get_or_init(|| Mutex::new(None))
@@ -101,6 +102,10 @@ fn wad_mutex() -> &'static Mutex<Option<EnvCache>> {
 
 fn bin_mutex() -> &'static Mutex<Option<EnvCache>> {
     BIN_LMDB_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn custom_mutex() -> &'static Mutex<Option<EnvCache>> {
+    CUSTOM_LMDB_CACHE.get_or_init(|| Mutex::new(None))
 }
 
 // ── Open helpers ──────────────────────────────────────────────────────────────
@@ -121,6 +126,22 @@ fn open_env(lmdb_dir: &Path) -> Option<heed::Env> {
         Ok(e) => Some(e),
         Err(e) => {
             tracing::warn!("Failed to open LMDB at {}: {}", lmdb_dir.display(), e);
+            None
+        }
+    }
+}
+
+fn create_env(lmdb_dir: &Path) -> Option<heed::Env> {
+    std::fs::create_dir_all(lmdb_dir).ok()?;
+    match unsafe {
+        EnvOpenOptions::new()
+            .map_size(64 * 1024 * 1024)
+            .max_dbs(2)
+            .open(lmdb_dir)
+    } {
+        Ok(e) => Some(e),
+        Err(e) => {
+            tracing::warn!("Failed to create LMDB at {}: {}", lmdb_dir.display(), e);
             None
         }
     }
@@ -164,11 +185,33 @@ pub fn get_bin_env(hash_dir: &str) -> Option<Arc<heed::Env>> {
     get_cached_env(bin_mutex(), &lmdb_dir)
 }
 
+pub fn get_custom_env(hash_dir: &str) -> Option<Arc<heed::Env>> {
+    let lmdb_dir = Path::new(hash_dir).join("hashes-custom.lmdb");
+    get_cached_env(custom_mutex(), &lmdb_dir)
+}
+
+pub fn get_or_create_custom_env(hash_dir: &str) -> Option<Arc<heed::Env>> {
+    let lmdb_dir = Path::new(hash_dir).join("hashes-custom.lmdb");
+    let key = lmdb_dir.to_string_lossy().into_owned();
+    let mut g = custom_mutex().lock().unwrap_or_else(|e| e.into_inner());
+
+    if let Some(ref cache) = *g {
+        if cache.key == key {
+            return Some(Arc::clone(&cache.env));
+        }
+    }
+
+    let env = create_env(&lmdb_dir)?;
+    let arc = Arc::new(env);
+    *g = Some(EnvCache { key, env: Arc::clone(&arc) });
+    Some(arc)
+}
+
 pub fn get_or_open_env(hash_dir: &str) -> Option<Arc<heed::Env>> {
     get_wad_env(hash_dir)
 }
 
-/// Drop both cached envs. Call before replacing the on-disk `data.mdb` so
+/// Drop all cached envs. Call before replacing the on-disk `data.mdb` so
 /// Windows doesn't refuse the overwrite (the file is memory-mapped while open).
 pub fn drop_lmdb_cache() {
     {
@@ -177,6 +220,10 @@ pub fn drop_lmdb_cache() {
     }
     {
         let mut g = bin_mutex().lock().unwrap_or_else(|e| e.into_inner());
+        *g = None;
+    }
+    {
+        let mut g = custom_mutex().lock().unwrap_or_else(|e| e.into_inner());
         *g = None;
     }
     // DB handles are tied to the dropped envs — a reopened env gets a new

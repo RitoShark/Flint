@@ -2,7 +2,32 @@
 
 use parking_lot::RwLock;
 use ritoshark::hash::HashMapper;
+use std::collections::BTreeMap;
 use std::sync::OnceLock;
+
+fn merge_custom_hashes(hashes: &mut HashMapper, hash_dir: &str) -> usize {
+    let Some(env) = crate::hash::get_custom_env(hash_dir) else {
+        return 0;
+    };
+    let Some(db) = crate::hash::lmdb_cache::cached_db(&env, "custom") else {
+        return 0;
+    };
+    let Ok(rtxn) = env.read_txn() else {
+        return 0;
+    };
+    let Ok(iter) = db.iter(&rtxn) else {
+        return 0;
+    };
+    let mut count = 0;
+    for (key, name) in iter.flatten() {
+        if key.len() == 4 {
+            let hash = u32::from_be_bytes([key[0], key[1], key[2], key[3]]);
+            hashes.insert(hash as u64, name.to_string());
+            count += 1;
+        }
+    }
+    count
+}
 
 /// Load BIN hashes from `hashes-bin.lmdb` (named DB `"bin"`, 4-byte BE keys).
 ///
@@ -80,8 +105,88 @@ pub fn load_bin_hashes() -> HashMapper {
         }
     }
 
-    tracing::info!("Loaded {} BIN hashes from hashes-bin.lmdb", count);
+    let custom_count = merge_custom_hashes(&mut hashes, &hash_dir);
+    tracing::info!("Loaded {} BIN hashes and {} custom hashes", count, custom_count);
     hashes
+}
+
+fn write_custom_bin_hashes(
+    env: &heed::Env,
+    entries: &BTreeMap<u32, String>,
+) -> Result<usize, String> {
+    let mut wtxn = env.write_txn().map_err(|e| e.to_string())?;
+    let db = env
+        .create_database::<heed::types::Bytes, heed::types::Str>(&mut wtxn, Some("custom"))
+        .map_err(|e| e.to_string())?;
+    let mut changed = 0;
+    for (hash, name) in entries {
+        let key = hash.to_be_bytes();
+        if db.get(&wtxn, &key[..]).map_err(|e| e.to_string())? != Some(name.as_str()) {
+            db.put(&mut wtxn, &key[..], name)
+                .map_err(|e| e.to_string())?;
+            changed += 1;
+        }
+    }
+    wtxn.commit().map_err(|e| e.to_string())?;
+    Ok(changed)
+}
+
+pub fn save_custom_bin_hashes(entries: &BTreeMap<u32, String>) -> Result<usize, String> {
+    if entries.is_empty() {
+        return Ok(0);
+    }
+    let hash_dir = crate::hash::get_hash_dir().map_err(|e| e.to_string())?;
+    let hash_dir = hash_dir.to_string_lossy().into_owned();
+    let env = crate::hash::get_or_create_custom_env(&hash_dir)
+        .ok_or_else(|| "Failed to open custom hash database".to_string())?;
+    let changed = write_custom_bin_hashes(&env, entries)?;
+    let mut cache = get_cached_bin_hashes().write();
+    for (hash, name) in entries {
+        cache.insert(*hash as u64, name.clone());
+    }
+    Ok(changed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use heed::types::{Bytes, Str};
+    use heed::EnvOpenOptions;
+
+    #[test]
+    fn custom_hashes_round_trip_through_the_custom_database() {
+        let dir = std::env::temp_dir().join(format!(
+            "flint-custom-hashes-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let env = unsafe {
+            EnvOpenOptions::new()
+                .map_size(1024 * 1024)
+                .max_dbs(2)
+                .open(&dir)
+                .unwrap()
+        };
+        let entries = BTreeMap::from([(0x1234_5678, "FlintCustomName".to_string())]);
+        assert_eq!(write_custom_bin_hashes(&env, &entries).unwrap(), 1);
+        assert_eq!(write_custom_bin_hashes(&env, &entries).unwrap(), 0);
+        let rtxn = env.read_txn().unwrap();
+        let db = env
+            .open_database::<Bytes, Str>(&rtxn, Some("custom"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            db.get(&rtxn, &0x1234_5678u32.to_be_bytes()).unwrap(),
+            Some("FlintCustomName")
+        );
+        drop(rtxn);
+        drop(env);
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
 
 static BIN_HASHES_CACHE: OnceLock<RwLock<HashMapper>> = OnceLock::new();

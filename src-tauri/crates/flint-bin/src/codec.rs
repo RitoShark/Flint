@@ -9,6 +9,7 @@ use flint_hash::hash::bin_dict::get_cached_bin_hashes;
 use ritoshark::bin::Bin;
 use ritoshark::hash::HashMapper;
 use ritoshark::prelude::{Parse as _, Serialize as _};
+use std::collections::{BTreeMap, HashSet};
 
 /// Maximum allowed BIN file size (50MB - no legitimate BIN should be larger)
 pub const MAX_BIN_SIZE: usize = 50 * 1024 * 1024;
@@ -135,6 +136,191 @@ pub fn text_to_tree(text: &str) -> Result<Bin> {
 }
 
 // ── Unhash-in-place for the editor ─────────────────────────────────────────────
+
+fn collect_value_hashes(value: &ritoshark::bin::BinValue, field: u32, out: &mut HashSet<u32>) {
+    use ritoshark::bin::BinValue;
+    match value {
+        BinValue::Hash(hash) | BinValue::Link(hash) => {
+            out.insert(*hash);
+        }
+        BinValue::U64(value) if ritoshark::bin::is_blend_key_field(field) => {
+            out.insert((value >> 32) as u32);
+            out.insert(*value as u32);
+        }
+        BinValue::Pointer { class, fields } | BinValue::Embed { class, fields } => {
+            out.insert(*class);
+            collect_field_hashes(fields, out);
+        }
+        BinValue::List { items, .. } => {
+            for item in items {
+                collect_value_hashes(item, field, out);
+            }
+        }
+        BinValue::Map { entries, .. } => {
+            for (key, value) in entries {
+                collect_value_hashes(key, field, out);
+                collect_value_hashes(value, field, out);
+            }
+        }
+        BinValue::Option {
+            value: Some(value),
+            ..
+        } => collect_value_hashes(value, field, out),
+        _ => {}
+    }
+}
+
+fn collect_field_hashes(
+    fields: &indexmap::IndexMap<u32, ritoshark::bin::BinValue>,
+    out: &mut HashSet<u32>,
+) {
+    for (field, value) in fields {
+        out.insert(*field);
+        collect_value_hashes(value, *field, out);
+    }
+}
+
+fn tree_hashes(tree: &Bin) -> HashSet<u32> {
+    let mut hashes = HashSet::new();
+    for entry in &tree.entries {
+        hashes.insert(entry.path_hash);
+        hashes.insert(entry.class_hash);
+        collect_field_hashes(&entry.fields, &mut hashes);
+    }
+    hashes
+}
+
+fn text_name_candidates(text: &str) -> Vec<String> {
+    let bytes = text.as_bytes();
+    let mut names = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'#' || (bytes[i] == b'/' && bytes.get(i + 1) == Some(&b'/')) {
+            i = text[i..]
+                .find('\n')
+                .map(|offset| i + offset + 1)
+                .unwrap_or(bytes.len());
+            continue;
+        }
+        if bytes[i] == b'"' {
+            i += 1;
+            let mut value = String::new();
+            while i < bytes.len() {
+                if bytes[i] == b'"' {
+                    i += 1;
+                    break;
+                }
+                if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                    i += 1;
+                    value.push(match bytes[i] {
+                        b'n' => '\n',
+                        b'r' => '\r',
+                        b't' => '\t',
+                        other => other as char,
+                    });
+                    i += 1;
+                    continue;
+                }
+                let len = utf8_len(bytes[i]);
+                value.push_str(&text[i..i + len]);
+                i += len;
+            }
+            if !value.is_empty() {
+                names.push(value);
+            }
+            continue;
+        }
+        if bytes[i] == b'_' || bytes[i].is_ascii_alphabetic() {
+            let start = i;
+            i += 1;
+            while i < bytes.len() && (bytes[i] == b'_' || bytes[i].is_ascii_alphanumeric()) {
+                i += 1;
+            }
+            names.push(text[start..i].to_string());
+            continue;
+        }
+        i += utf8_len(bytes[i]);
+    }
+    names
+}
+
+pub fn custom_hash_names_from_text(text: &str, tree: &Bin) -> BTreeMap<u32, String> {
+    let tree_hashes = tree_hashes(tree);
+    let known = get_cached_bin_hashes().read();
+    let mut names = BTreeMap::new();
+    for name in text_name_candidates(text) {
+        let hash = ritoshark::hash::fnv1a(&name);
+        if tree_hashes.contains(&hash)
+            && known
+                .get(hash as u64)
+                .is_none_or(|known_name| known_name != name)
+        {
+            names.entry(hash).or_insert(name);
+        }
+    }
+    names
+}
+
+pub fn remember_custom_hash_names(text: &str, tree: &Bin) -> Result<usize> {
+    let names = custom_hash_names_from_text(text, tree);
+    flint_hash::hash::save_custom_bin_hashes(&names)
+        .map_err(|e| BinError(format!("Failed to save custom hashes: {e}")))
+}
+
+#[cfg(test)]
+mod custom_hash_tests {
+    use super::*;
+    use indexmap::IndexMap;
+    use ritoshark::bin::{BinEntry, BinValue};
+    use ritoshark::hash::fnv1a;
+
+    #[test]
+    fn finds_only_names_that_were_hashed_into_the_tree() {
+        let entry_name = "FlintCustomEntry_7d9f";
+        let class_name = "FlintCustomClass_7d9f";
+        let field_name = "flintCustomField_7d9f";
+        let value_name = "FlintCustomValue_7d9f";
+        let mut fields = IndexMap::new();
+        fields.insert(fnv1a(field_name), BinValue::Hash(fnv1a(value_name)));
+        fields.insert(
+            fnv1a("ordinaryString"),
+            BinValue::String("NotHashed_7d9f".into()),
+        );
+        let mut tree = Bin::new();
+        tree.entries.push(BinEntry {
+            path_hash: fnv1a(entry_name),
+            class_hash: fnv1a(class_name),
+            fields,
+        });
+        let text = format!(
+            "\"{entry_name}\" = {class_name} {{\n    {field_name}: hash = \"{value_name}\"\n    ordinaryString: string = \"NotHashed_7d9f\"\n}}"
+        );
+        let names = custom_hash_names_from_text(&text, &tree);
+        assert_eq!(
+            names.get(&fnv1a(entry_name)),
+            Some(&entry_name.to_string())
+        );
+        assert_eq!(
+            names.get(&fnv1a(class_name)),
+            Some(&class_name.to_string())
+        );
+        assert_eq!(
+            names.get(&fnv1a(field_name)),
+            Some(&field_name.to_string())
+        );
+        assert_eq!(
+            names.get(&fnv1a(value_name)),
+            Some(&value_name.to_string())
+        );
+        assert!(!names.values().any(|name| name == "NotHashed_7d9f"));
+    }
+
+    #[test]
+    fn ignores_names_that_exist_only_in_comments() {
+        let names = text_name_candidates("# HiddenName_7d9f\n// OtherHidden_7d9f\nvisibleName");
+        assert_eq!(names, vec!["visibleName"]);
+    }
+}
 
 /// Whether `s` is a valid ritobin bareword identifier (`^[A-Za-z_][A-Za-z0-9_]*$`),
 /// so a resolved field/class name can be written unquoted. Mirrors rs_bin's
