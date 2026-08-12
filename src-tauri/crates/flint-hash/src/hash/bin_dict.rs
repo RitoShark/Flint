@@ -147,6 +147,45 @@ pub fn save_custom_bin_hashes(entries: &BTreeMap<u32, String>) -> Result<usize, 
     Ok(changed)
 }
 
+static BIN_HASHES_CACHE: OnceLock<RwLock<HashMapper>> = OnceLock::new();
+
+/// Thread-safe; loads hashes from disk once, then serves the cached map.
+///
+/// Self-heals an empty init: if the very first load returned nothing (LMDB not
+/// yet downloaded, or a cold-start snapshot race), the `OnceLock` would
+/// otherwise freeze that empty map forever and every BIN conversion would show
+/// raw hashes. Instead, an empty cache is retried lazily on the next call, so a
+/// later download / warm env fills it without an explicit `reload_bin_hash_cache`.
+pub fn get_cached_bin_hashes() -> &'static RwLock<HashMapper> {
+    let cache = BIN_HASHES_CACHE.get_or_init(|| {
+        tracing::info!("Initializing global BIN hash cache...");
+        let hashes = load_bin_hashes();
+        tracing::info!("Global BIN hash cache initialized with {} hashes", hashes.len());
+        RwLock::new(hashes)
+    });
+
+    if cache.read().is_empty() {
+        let reloaded = load_bin_hashes();
+        if !reloaded.is_empty() {
+            tracing::info!("BIN hash cache was empty — reloaded {} hashes", reloaded.len());
+            *cache.write() = reloaded;
+        }
+    }
+
+    cache
+}
+
+/// Call after updating hash files on disk.
+pub fn reload_bin_hash_cache() {
+    if let Some(cache) = BIN_HASHES_CACHE.get() {
+        tracing::info!("Reloading BIN hash cache from disk...");
+        let new_hashes = load_bin_hashes();
+        let total = new_hashes.len();
+        *cache.write() = new_hashes;
+        tracing::info!("BIN hash cache reloaded with {} hashes", total);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,44 +225,5 @@ mod tests {
         drop(rtxn);
         drop(env);
         let _ = std::fs::remove_dir_all(dir);
-    }
-}
-
-static BIN_HASHES_CACHE: OnceLock<RwLock<HashMapper>> = OnceLock::new();
-
-/// Thread-safe; loads hashes from disk once, then serves the cached map.
-///
-/// Self-heals an empty init: if the very first load returned nothing (LMDB not
-/// yet downloaded, or a cold-start snapshot race), the `OnceLock` would
-/// otherwise freeze that empty map forever and every BIN conversion would show
-/// raw hashes. Instead, an empty cache is retried lazily on the next call, so a
-/// later download / warm env fills it without an explicit `reload_bin_hash_cache`.
-pub fn get_cached_bin_hashes() -> &'static RwLock<HashMapper> {
-    let cache = BIN_HASHES_CACHE.get_or_init(|| {
-        tracing::info!("Initializing global BIN hash cache...");
-        let hashes = load_bin_hashes();
-        tracing::info!("Global BIN hash cache initialized with {} hashes", hashes.len());
-        RwLock::new(hashes)
-    });
-
-    if cache.read().is_empty() {
-        let reloaded = load_bin_hashes();
-        if !reloaded.is_empty() {
-            tracing::info!("BIN hash cache was empty — reloaded {} hashes", reloaded.len());
-            *cache.write() = reloaded;
-        }
-    }
-
-    cache
-}
-
-/// Call after updating hash files on disk.
-pub fn reload_bin_hash_cache() {
-    if let Some(cache) = BIN_HASHES_CACHE.get() {
-        tracing::info!("Reloading BIN hash cache from disk...");
-        let new_hashes = load_bin_hashes();
-        let total = new_hashes.len();
-        *cache.write() = new_hashes;
-        tracing::info!("BIN hash cache reloaded with {} hashes", total);
     }
 }

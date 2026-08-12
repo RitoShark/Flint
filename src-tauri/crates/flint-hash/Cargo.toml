@@ -24,3 +24,6 @@ directories = "5.0"
 zstd = "0.12"
 
 ritoshark.workspace = true
+
+[dev-dependencies]
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
