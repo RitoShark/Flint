@@ -30,6 +30,7 @@ export interface ThumbnailArtboardHandle {
   fitView: () => void;
   fullView: () => void;
   fitSelection: () => void;
+  snapshotLayers: () => Layer[];
   /** Real animation clips available for a `model` layer's currently loaded
    *  SKN (empty until the scene has finished loading it). The mesh/anim editor
    *  + Face-camera now live inside the artboard's own model toolbar, so these
@@ -241,6 +242,13 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   const getMapScene = useCallback((): MapEnvScene | null => mapSceneRef.current, []);
   const getModelSceneId = useCallback((layerId: string): string | null =>
     modelBindingsRef.current.get(layerId)?.sceneId || null, []);
+  const snapshotLayers = useCallback((): Layer[] => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.matches('.tb-el.text .tb-body[contenteditable="true"]')) {
+      active.blur();
+    }
+    return layersRef.current;
+  }, []);
 
   // ── Floating model toolbar (top-left of the artboard) — shown when a model
   // layer is selected. Hosts the ⚙ mesh/animation popover trigger + the Face
@@ -341,11 +349,11 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
 
   // Expose fit/100%/fit-selection/getModelAnims to the host (toolbar / keyboard shortcuts / PropertiesPanel).
   useEffect(() => {
-    if (controlsRef) controlsRef.current = { fitView, fullView, fitSelection, getScene, getMapScene, getModelSceneId };
+    if (controlsRef) controlsRef.current = { fitView, fullView, fitSelection, snapshotLayers, getScene, getMapScene, getModelSceneId };
     return () => {
       if (controlsRef) controlsRef.current = null;
     };
-  }, [controlsRef, fitView, fullView, fitSelection, getScene, getMapScene, getModelSceneId]);
+  }, [controlsRef, fitView, fullView, fitSelection, snapshotLayers, getScene, getMapScene, getModelSceneId]);
 
   // ── Fit once the viewport has real dimensions. Double-rAF handles the
   // normal first paint; a ResizeObserver catches the cold-WebView case where

@@ -427,12 +427,14 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
   // internal state, though composeThumbnail never reads DOM selection —
   // this is just to avoid a distracting "still selected" state on return.
   const handleExport = useCallback(async () => {
-    const scene = artboardControlsRef.current?.getScene();
-    if (!scene) {
+    const controls = artboardControlsRef.current;
+    const scene = controls?.getScene();
+    if (!controls || !scene) {
       showToast('error', 'Scene not ready yet — try again in a moment.');
       return;
     }
 
+    const exportLayers = controls.snapshotLayers();
     const projectName = skn.split(/[\\/]/).pop()?.replace(/\.skn$/i, '') || 'thumbnail';
     const outputPath = await save({
       title: 'Export Thumbnail',
@@ -446,9 +448,9 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
       const { w, h } = resolveOutputSize(exportRatio);
       const blob = await composeThumbnail({
         scene,
-        mapScene: artboardControlsRef.current?.getMapScene() ?? null,
-        resolveModelId: (layerId) => artboardControlsRef.current?.getModelSceneId(layerId) ?? null,
-        layers: history.get(),
+        mapScene: controls.getMapScene(),
+        resolveModelId: (layerId) => controls.getModelSceneId(layerId),
+        layers: exportLayers,
         preset,
         hue,
         vignette,
