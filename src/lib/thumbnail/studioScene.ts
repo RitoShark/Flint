@@ -29,7 +29,6 @@ import { GlowLayer } from '@babylonjs/core/Layers/glowLayer';
 import { Layer } from '@babylonjs/core/Layers/layer';
 import { Vector3, Color3, Color4, Viewport, Quaternion } from '@babylonjs/core/Maths/math';
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
-import { Material } from '@babylonjs/core/Materials/material';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import type { Skeleton } from '@babylonjs/core/Bones/skeleton';
@@ -37,10 +36,12 @@ import type { Bone } from '@babylonjs/core/Bones/bone';
 import { convertFileSrc } from '@tauri-apps/api/core';
 
 import { buildSknMeshes, type MeshDTO } from '../babylon/meshBuilder';
+import { sknAlphaPolicy } from '../babylon/sknAlpha';
 import { buildBabylonSkeleton, type BoneData } from '../babylon/skeletonBuilder';
 import { AnimationPlayer, type BakedAnimationDTO } from '../babylon/animationPlayer';
 import { invokeCommand } from '../api/core';
-import { readSknMesh, readSklSkeleton, readAnimationList, type SknMeshData } from '../api/mesh';
+import { readSknMesh, readSklSkeleton, readAnimationList, listAnmFolder, type SknMeshData } from '../api/mesh';
+import { buildAnmClips } from './animFolder';
 
 // ============================================================================
 // Public types
@@ -113,6 +114,11 @@ export interface ThumbnailScene {
      *  close-up ('head', auto-detects the head bone). */
     setModelFocus(id: string, mode: 'full' | 'head'): void;
     listAnims(id: string): AnimClip[];
+    /** Replace a model's clip list from a manually-picked `.anm` folder,
+     *  bypassing skin-BIN derivation. Returns the clips now available (empty if
+     *  the folder holds no `.anm` files, which leaves the existing list alone).
+     *  Used by the Clip dropdown's folder button. */
+    setAnimFolder(id: string, dir: string): Promise<AnimClip[]>;
     /** Submesh list for a model with per-submesh hidden state (drives the
      *  mesh-visibility popup). Empty until the model has loaded. */
     listMeshes(id: string): MeshInfo[];
@@ -608,7 +614,11 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
                     const texture = new Texture(dataUrl, scene, false, true);
                     texture.wrapU = Texture.WRAP_ADDRESSMODE;
                     texture.wrapV = Texture.WRAP_ADDRESSMODE;
-                    texture.hasAlpha = false;
+                    // has_alpha from the decoder (any pixel with alpha < 255)
+                    // — drives the alpha-test/blend path at material build, the
+                    // same as the model preview. Forcing this false was what
+                    // rendered the eye cutout quads as solid blocks.
+                    texture.hasAlpha = !!data.has_alpha;
                     if (data.uv_scale) {
                         texture.uScale = data.uv_scale[0];
                         texture.vScale = data.uv_scale[1];
@@ -676,11 +686,17 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
 
             if (texture) {
                 mat.backFaceCulling = true;
-                texture.hasAlpha = false;
                 mat.albedoTexture = texture;
                 mat.albedoColor = new Color3(1, 1, 1);
-                mat.useAlphaFromAlbedoTexture = false;
-                mat.transparencyMode = Material.MATERIAL_OPAQUE;
+                // Shared with the model preview so the two renderers can't
+                // drift: cutout alpha (eyes, hair cards, cape edges) is
+                // alpha-tested AND blended, with a depth pre-pass so
+                // overlapping alpha parts don't sort into black silhouettes.
+                const alpha = sknAlphaPolicy(texture.hasAlpha);
+                mat.useAlphaFromAlbedoTexture = alpha.useAlphaFromAlbedoTexture;
+                mat.transparencyMode = alpha.transparencyMode;
+                mat.alphaCutOff = alpha.alphaCutOff;
+                mat.needDepthPrePass = alpha.needDepthPrePass;
             } else {
                 mat.backFaceCulling = true;
                 mat.albedoColor = new Color3(1, 0, 1);
@@ -1015,6 +1031,22 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         return models.get(id)?.clips ?? [];
     }
 
+    /** Manual override for the clip list: read every `.anm` in `dir` and use
+     *  those as this model's clips. An empty folder is treated as a no-op
+     *  rather than wiping a working list — picking the wrong folder shouldn't
+     *  cost the artist the clips they already had. */
+    async function setAnimFolder(id: string, dir: string): Promise<AnimClip[]> {
+        const m = models.get(id);
+        if (!m) return [];
+        const files = await listAnmFolder(dir);
+        const clips = buildAnmClips(files.map(f => ({ fileName: f.file_name, path: f.path })));
+        if (clips.length === 0) return m.clips;
+        // The model may have been removed while the folder was being read.
+        if (!models.has(id)) return [];
+        m.clips = clips;
+        return clips;
+    }
+
     function listMeshes(id: string): MeshInfo[] {
         const m = models.get(id);
         if (!m) return [];
@@ -1180,6 +1212,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         faceModelToCamera,
         setModelFocus,
         listAnims,
+        setAnimFolder,
         listMeshes,
         setMeshHidden,
         setHiddenMeshes,

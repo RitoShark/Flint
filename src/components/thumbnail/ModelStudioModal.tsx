@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { open } from '@tauri-apps/plugin-dialog';
 import { ModelLayer } from '../../lib/thumbnail/layers';
 import { AnimClip, MeshInfo } from '../../lib/thumbnail/studioScene';
 import { DlButton, DlIcon, DlSegmented, DlSelect, DlSlider } from '../ui/design-lab';
@@ -13,6 +14,10 @@ export interface ModelStudioModalProps {
    *  submesh/clip lists populate rather than capturing a one-shot snapshot. */
   getMeshes: () => MeshInfo[];
   getClips: () => AnimClip[];
+  /** Load clips from a manually-picked `.anm` folder, overriding skin-BIN
+   *  derivation. Resolves to the clips now available (empty = folder held no
+   *  `.anm` files). */
+  onPickAnimFolder: (dir: string) => Promise<AnimClip[]>;
   onChange: (patch: Partial<ModelLayer>, record: boolean) => void;
   onBeginGesture: () => void;
   onCommitGesture: () => void;
@@ -30,9 +35,34 @@ const POP_W = 460; // popover width (px)
  * straight to the model layer (`hiddenMeshes`, `anim`, `frame`); the artboard
  * reconciles them into the Babylon scene live, so changes preview immediately.
  */
-export function ModelStudioModal({ layer, anchorRef, getMeshes, getClips, onChange, onBeginGesture, onCommitGesture, onClose }: ModelStudioModalProps) {
+export function ModelStudioModal({ layer, anchorRef, getMeshes, getClips, onPickAnimFolder, onChange, onBeginGesture, onCommitGesture, onClose }: ModelStudioModalProps) {
   const popRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const [picking, setPicking] = useState(false);
+  const [pickError, setPickError] = useState<string | null>(null);
+
+  // Point the model at a folder of `.anm` files, for projects whose clips
+  // aren't reachable from the skin BIN. Selecting the first clip immediately
+  // is deliberate: the artist picked a folder to GET an animation, so landing
+  // on one saves a second interaction.
+  const pickAnimFolder = async () => {
+    setPickError(null);
+    const dir = await open({ title: 'Select folder of .anm animations', directory: true });
+    if (typeof dir !== 'string') return; // cancelled
+    setPicking(true);
+    try {
+      const found = await onPickAnimFolder(dir);
+      if (found.length === 0) {
+        setPickError('No .anm files in that folder.');
+        return;
+      }
+      onChange({ animDir: dir, anim: found[0].animation_path, frame: 0 }, true);
+    } catch (e) {
+      setPickError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPicking(false);
+    }
+  };
 
   // Position the popover next to its anchor button, opening to the LEFT of the
   // properties panel (the panel hugs the right edge) and clamped to the
@@ -184,14 +214,35 @@ export function ModelStudioModal({ layer, anchorRef, getMeshes, getClips, onChan
           </div>
           <div className="tb-grp">
             <label>Clip</label>
-            <DlSelect
-              width="100%"
-              value={layer.anim || (animOptions[0]?.value ?? null)}
-              onChange={(v) => onChange({ anim: v }, true)}
-              options={animOptions}
-              placeholder={clips.length === 0 ? 'No animations' : 'Select clip'}
-              disabled={clips.length === 0}
-            />
+            <div className="tb-clip-row">
+              <DlSelect
+                width="100%"
+                value={layer.anim || (animOptions[0]?.value ?? null)}
+                onChange={(v) => onChange({ anim: v }, true)}
+                options={animOptions}
+                placeholder={clips.length === 0 ? 'No animations' : 'Select clip'}
+                disabled={clips.length === 0}
+              />
+              {/* Stays enabled even with an empty dropdown — an empty list is
+                  exactly when the artist needs to point at a folder. */}
+              <DlButton
+                size="sm"
+                variant="ghost"
+                onClick={pickAnimFolder}
+                disabled={picking}
+                title={layer.animDir
+                  ? `Animations from: ${layer.animDir}`
+                  : 'Load animations from a folder of .anm files'}
+              >
+                <DlIcon name={picking ? 'refresh' : 'folder'} size={14} />
+              </DlButton>
+            </div>
+            {pickError && <div className="tb-clip-note tb-clip-note--err">{pickError}</div>}
+            {!pickError && layer.animDir && (
+              <div className="tb-clip-note" title={layer.animDir}>
+                {clips.length} clips from folder
+              </div>
+            )}
           </div>
           <div className="tb-grp">
             <label>Frame <b>{layer.frame} / {layer.maxFrame}</b></label>

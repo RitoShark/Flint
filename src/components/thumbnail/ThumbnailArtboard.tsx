@@ -5,6 +5,7 @@ import { AnimClip, createThumbnailScene, MeshInfo, ThumbnailScene } from '../../
 import { createMapEnvScene, MapEnvScene } from '../../lib/thumbnail/mapEnvScene';
 import { fitFontSize, TextMeasure } from '../../lib/thumbnail/textFit';
 import { resolveBackground, resolveGlowColor, resolveTextStyle, ThumbnailPresetId } from '../../lib/thumbnail/hue';
+import { clipPathFor, clipPathOutside, discClipInModelSpace } from '../../lib/thumbnail/discClip';
 import { DiscComposite } from './DiscComposite';
 import { FrameComposite } from './FrameComposite';
 import { ModelStudioModal } from './ModelStudioModal';
@@ -220,6 +221,15 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     const binding = modelBindingsRef.current.get(layerId);
     if (!scene || !binding || !binding.sceneId) return [];
     return scene.listAnims(binding.sceneId);
+  }, []);
+
+  /** Load a model layer's clips from a manually-picked `.anm` folder. Returns
+   *  the clips now available so the caller can select one. */
+  const pickModelAnimFolder = useCallback(async (layerId: string, dir: string): Promise<AnimClip[]> => {
+    const scene = sceneRef.current;
+    const binding = modelBindingsRef.current.get(layerId);
+    if (!scene || !binding || !binding.sceneId) return [];
+    return scene.setAnimFolder(binding.sceneId, dir);
   }, []);
 
   const getModelMeshes = useCallback((layerId: string): MeshInfo[] => {
@@ -452,6 +462,21 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
         if (layer.hidden) scene.setModelVisible(handle.id, false);
         if (layer.focusMode === 'head') {
           scene.setModelFocus(handle.id, 'head');
+        }
+        // A saved manual folder override wins over skin-BIN derivation — re-apply
+        // it before reading clips so a reloaded project restores the same list.
+        // Non-fatal: a folder that has since moved just falls back to whatever
+        // the BIN derivation produced.
+        if (layer.animDir) {
+          try {
+            await scene.setAnimFolder(handle.id, layer.animDir);
+          } catch (e) {
+            console.warn('[thumbnail] anim folder override failed for', layer.animDir, e);
+          }
+          if (modelBindingsRef.current.get(layer.id) !== placeholder) {
+            scene.removeModel(handle.id);
+            return;
+          }
         }
         const clips = scene.listAnims(handle.id);
         // "Fresh" = the layer was just seeded (no explicit anim yet). For a
@@ -993,6 +1018,25 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   // `.tb-el` proxy stays in the main loop (empty body).
   const discLayer = sorted.find((l): l is DiscLayer => l.type === 'disc') ?? null;
 
+  /** CSS `clip-path` confining a model to the disc's circle, or undefined when
+   *  the model isn't clipped / there's no visible disc to clip to. Each model
+   *  canvas is absolutely positioned at its layer box, so the ellipse is
+   *  converted into that canvas's LOCAL pixel space. The export compositor
+   *  derives the same ellipse from `discClip.ts`, so preview and PNG agree. */
+  const modelClipPath = (layer: ModelLayer): string | undefined => {
+    if (layer.clipToDisc === false) return undefined;
+    if (!discLayer || discLayer.hidden) return undefined;
+    const e = discClipInModelSpace(discLayer, layer);
+    if (layer.clipMode === 'outside') {
+      // The clip's coordinate space is the model canvas's own box; a 0-sized
+      // box means the model fills the stage.
+      const w = layer.w > 0 ? layer.w : STAGE_W;
+      const h = layer.h > 0 ? layer.h : STAGE_H;
+      return clipPathOutside(e, { w, h });
+    }
+    return clipPathFor(e);
+  };
+
   return (
     <div
       className="tb-viewport"
@@ -1037,6 +1081,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
           anchorRef={studioBtnRef}
           getMeshes={() => getModelMeshes(selectedModel.id)}
           getClips={() => getModelAnims(selectedModel.id)}
+          onPickAnimFolder={(dir) => pickModelAnimFolder(selectedModel.id, dir)}
           onChange={(patch, record) => patchModelLayer(selectedModel.id, patch, record)}
           onBeginGesture={onBeginGesture}
           onCommitGesture={onCommitGesture}
@@ -1103,6 +1148,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
                 height: layer.h,
                 zIndex: zOf(layer.id),
                 filter: layer.shadow ? shadowFilter(layer) : undefined,
+                clipPath: modelClipPath(layer),
               }}
             />
           ))}
