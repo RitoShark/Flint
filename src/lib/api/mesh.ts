@@ -252,6 +252,19 @@ export async function readAnimationList(sknPath: string): Promise<AnimationList>
     return invokeCommand('read_animation_list', { sknPath });
 }
 
+/** One `.anm` file in a manually-picked folder. Labelling happens in
+ *  `lib/thumbnail/animFolder.ts`, not here. */
+export interface AnmFileEntry {
+    file_name: string;
+    path: string;
+}
+
+/** List the `.anm` files in a folder (non-recursive) for the Thumbnail
+ *  Creator's manual animation-folder override. */
+export async function listAnmFolder(dir: string): Promise<AnmFileEntry[]> {
+    return invokeCommand('list_anm_folder', { dir });
+}
+
 export async function readAnimation(path: string, basePath?: string): Promise<AnimationData> {
     return invokeCommand('read_animation', { path, basePath });
 }

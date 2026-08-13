@@ -147,6 +147,35 @@ function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture }: { laye
         </label>
         <div className="tb-hint">Faces the pose the other way — not the same as turning 180&deg;.</div>
       </div>
+      <div className="tb-grp">
+        <label className="tb-check">
+          <input
+            type="checkbox"
+            checked={layer.clipToDisc !== false}
+            onChange={(e) => onChange({ clipToDisc: e.target.checked }, true)}
+          />
+          Clip to circle
+        </label>
+        {layer.clipToDisc !== false && (
+          <>
+            <DlSegmented
+              fill
+              aria-label="Which side of the circle to keep"
+              value={layer.clipMode ?? 'inside'}
+              onChange={(v) => onChange({ clipMode: v as 'inside' | 'outside' }, true)}
+              options={[
+                { value: 'inside', label: 'Inside' },
+                { value: 'outside', label: 'Outside' },
+              ]}
+            />
+            <div className="tb-hint">
+              {layer.clipMode === 'outside'
+                ? 'Keeps only what falls outside the circle — for a model staged around it.'
+                : 'Keeps only what falls inside the circle — for the hero.'}
+            </div>
+          </>
+        )}
+      </div>
 
       <button
         type="button"

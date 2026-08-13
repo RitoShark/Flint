@@ -55,6 +55,21 @@ export interface ModelLayer extends BaseLayer {
   type: 'model';
   sknPath: string;
   anim: string;
+  /** Manually-picked folder of `.anm` files, overriding skin-BIN clip
+   *  derivation. Set by the Clip dropdown's folder button; persisted so the
+   *  override survives a save/reload and is re-applied when the layer reloads.
+   *  Undefined means "derive clips from the skin BIN" (the normal path). */
+  animDir?: string;
+  /** Clip this model against the disc's circle. Defaults ON (undefined =
+   *  clipped). No-op when there is no visible disc layer. */
+  clipToDisc?: boolean;
+  /** WHICH SIDE of the circle survives the clip. The two modes are
+   *  complementary halves of one composition: the hero occupies 'inside', a
+   *  full-body model occupies 'outside', and together they tile the frame with
+   *  the ring as the seam. Both cut at the SAME black-fill ellipse, so the
+   *  halves meet exactly — different radii would leave a gap or a
+   *  double-drawn sliver. Defaults to 'inside'. */
+  clipMode?: 'inside' | 'outside';
   frame: number;
   maxFrame: number;
   scale: number;

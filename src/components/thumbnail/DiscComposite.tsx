@@ -16,7 +16,12 @@ import { loadThumbnailAsset } from '../../lib/api/thumbnail';
 // NOT user-editable; the whole point of collapsing to one layer is that
 // it's a single locked unit.
 const GLOW_OFFSET = { dx: 16, dy: 0, w: 168, h: 360 };
-const BLACK_OFFSET = { dx: 16, dy: -26, w: 407, h: 412 };
+/** Exported because the model "clip to circle" feature clips to exactly this
+ *  ellipse — the BLACK FILL is the shape that reads as "the circle" on screen,
+ *  not the disc layer's own box. Both the live preview and the export
+ *  compositor derive their clip from this one constant (see `discClip.ts`), so
+ *  they cannot drift apart. */
+export const BLACK_OFFSET = { dx: 16, dy: -26, w: 407, h: 412 };
 const RING_OFFSET = { dx: 0, dy: 0, w: 123, h: 360 };
 
 // Module-level cache: the ring/glow WebP bytes never change at runtime, so
