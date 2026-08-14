@@ -615,6 +615,59 @@ pub async fn read_animation_list(skn_path: String) -> Result<AnimationList, Stri
     Ok(list)
 }
 
+/// One `.anm` file found by `list_anm_folder`. Naming/labelling is done on the
+/// frontend (`animFolder.ts`), which is where the collision rules are tested.
+#[derive(serde::Serialize)]
+pub struct AnmFileEntry {
+    pub file_name: String,
+    pub path: String,
+}
+
+/// List the `.anm` files in a manually-picked folder.
+///
+/// The normal clip list is derived from the skin BIN's animation graph. That
+/// derivation needs a graph it can resolve; ported/custom projects often have
+/// the `.anm` files on disk with no reachable graph, which leaves the artist
+/// with an empty Clip dropdown. This command backs the manual folder override:
+/// point it at an `animations/` folder and every `.anm` in it becomes
+/// selectable. `read_animation` already bakes a standalone `.anm` from an
+/// absolute path, so nothing else is needed to play them.
+///
+/// Non-recursive on purpose — League keeps a skin's clips in one flat folder,
+/// and recursing would pull in unrelated skins' animations.
+#[tauri::command]
+pub async fn list_anm_folder(dir: String) -> Result<Vec<AnmFileEntry>, String> {
+    tracing::debug!("Listing .anm folder: {}", dir);
+
+    let entries = std::fs::read_dir(&dir)
+        .map_err(|e| format!("Failed to read animation folder: {}", e))?;
+
+    let mut out: Vec<AnmFileEntry> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let is_anm = path
+            .extension()
+            .map(|e| e.eq_ignore_ascii_case("anm"))
+            .unwrap_or(false);
+        if !is_anm {
+            continue;
+        }
+        let Some(file_name) = path.file_name().map(|n| n.to_string_lossy().to_string()) else {
+            continue;
+        };
+        out.push(AnmFileEntry {
+            file_name,
+            path: path.to_string_lossy().to_string(),
+        });
+    }
+
+    tracing::debug!("Found {} .anm files in {}", out.len(), dir);
+    Ok(out)
+}
+
 /// Read and parse an ANM animation file and bake it
 #[tauri::command]
 pub async fn read_animation(path: String, base_path: Option<String>) -> Result<BakedAnimation, String> {

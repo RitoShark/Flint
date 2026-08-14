@@ -707,6 +707,34 @@
   font-weight: 600;
 }
 
+/* Clip dropdown + its "load .anm folder" button. The select flexes so the
+   button keeps its intrinsic width at any popover size. */
+.tb-clip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tb-clip-row > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Status line under the Clip row: which folder is driving the list, or why a
+   pick failed. Truncates rather than wrapping the popover wider. */
+.tb-clip-note {
+  margin-top: 5px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tb-clip-note--err {
+  color: var(--danger, #e5484d);
+}
+
 .tb-disclose {
   display: flex;
   align-items: center;

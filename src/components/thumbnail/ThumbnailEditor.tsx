@@ -18,7 +18,7 @@ import { LayersPanel } from './LayersPanel';
 import { PropertiesPanel } from './PropertiesPanel';
 import { HuePopover } from './HuePopover';
 import { SavePresetModal } from './SavePresetModal';
-import { DlButton, DlIcon, DlIconButton, DlMenu, DlSelect } from '../ui/design-lab';
+import { DlButton, DlIconButton, DlMenu, DlSelect } from '../ui/design-lab';
 
 type ExportFormatId = 'webp' | 'png' | 'jpg';
 type ExportRatioId = '16:9' | '16:10' | '4:3' | '1:1';
@@ -66,6 +66,9 @@ function seedLayers(sknPath: string): Layer[] {
     scale: 250,
     orbit: 0,
     focusMode: 'head',
+    // The hero occupies the INSIDE of the circle; the full-body companion
+    // below takes the outside. Together they tile the frame at the ring.
+    clipMode: 'inside',
   };
   const fullbody: Layer = {
     id: 'fullbody',
@@ -90,6 +93,9 @@ function seedLayers(sknPath: string): Layer[] {
     posZ: 50,
     focusMode: 'full',
     shadow: false,
+    // Complement of the hero: this model reads as standing AROUND the circle,
+    // so it's cut away wherever it would intrude on the hero's disc.
+    clipMode: 'outside',
   };
   // Match riot-base.thumbnail.json exactly: title, subtitle, hero, disc,
   // fullbody, env.
@@ -560,9 +566,6 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
         </div>
       )}
       <div className="tb-toolbar">
-        <span className="tb-toolbar__title"><DlIcon name="picture" size={16} />Thumbnail Creator</span>
-        <span className="dl-badge">{skn.split(/[\\/]/).pop()}</span>
-
         <div className="tb-toolbar__group">
           <DlSelect
             width={150}

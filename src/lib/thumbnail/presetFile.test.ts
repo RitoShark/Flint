@@ -9,7 +9,7 @@ const sampleLayers: Layer[] = [
   },
   {
     id: 'hero', type: 'model', name: 'Hero', hidden: false, rot: 0, locked: false,
-    x: 388, y: 70, w: 230, h: 270, sknPath: 'C:/x/hero.skn', anim: 'idle1.anm', frame: 0, maxFrame: 30, scale: 100, orbit: 0,
+    x: 388, y: 70, w: 230, h: 270, sknPath: 'C:/x/hero.skn', animDir: 'C:/x/skin77/animations', anim: 'idle1.anm', frame: 0, maxFrame: 30, scale: 100, orbit: 0,
   },
 ];
 
@@ -28,6 +28,12 @@ describe('buildPresetFile', () => {
     const file = buildPresetFile({ name: 'P', base: 'divine', font: 'Albiero', hue: 95, layers: sampleLayers });
     const model = file.layers.find(l => l.type === 'model');
     expect(model && 'sknPath' in model ? model.sknPath : 'MISSING').toBe('');
+  });
+
+  it('strips a manually-picked animDir so a shared preset carries no local folder', () => {
+    const file = buildPresetFile({ name: 'P', base: 'divine', font: 'Albiero', hue: 95, layers: sampleLayers });
+    const model = file.layers.find(l => l.type === 'model');
+    expect(model && 'animDir' in model ? model.animDir : undefined).toBeUndefined();
   });
 
   it('deep-clones layers (mutating the source array does not affect the built file)', () => {

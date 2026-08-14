@@ -80,6 +80,7 @@ import type { MapEnvScene } from './mapEnvScene';
 import { fitFontSize, type TextMeasure } from './textFit';
 import { resolveGlowColor, resolveTextColorEx, resolveTextGlow, type ThumbnailPresetId } from './hue';
 import { loadThumbnailAsset, type ThumbnailAssetName } from '../api/thumbnail';
+import { discClipEllipse } from './discClip';
 
 export type ExportFormat = 'image/webp' | 'image/png' | 'image/jpeg';
 
@@ -566,6 +567,26 @@ export async function composeThumbnail(opts: ComposeOptions): Promise<Blob> {
     const sceneId = resolveModelId?.(m.id) ?? m.id;
     const shotBlob = await scene.screenshotModel(sceneId, outW, outH);
     const shotBitmap = await createImageBitmap(shotBlob);
+    // "Clip to circle" (default ON): confine the model to the disc's black-fill
+    // ellipse so it can't spill past the ring. The ellipse comes from the same
+    // `discClip` module the live preview uses, scaled from stage space to the
+    // output size — so the exported PNG matches what the artist saw.
+    const clipped = m.clipToDisc !== false && discLayer && !discLayer.hidden;
+    ctx.save();
+    if (clipped) {
+      const e = discClipEllipse(discLayer);
+      const s = outW / STAGE_W;
+      const sy = outH / STAGE_H;
+      ctx.beginPath();
+      if (m.clipMode === 'outside') {
+        // Keep everything BUT the circle: full-frame rect with the ellipse
+        // punched out via the even-odd rule. Same ellipse as the 'inside' mode,
+        // so the two halves tile with no seam.
+        ctx.rect(0, 0, outW, outH);
+      }
+      ctx.ellipse(e.cx * s, e.cy * sy, e.rx * s, e.ry * sy, (e.rot * Math.PI) / 180, 0, Math.PI * 2);
+      ctx.clip(m.clipMode === 'outside' ? 'evenodd' : 'nonzero');
+    }
     if (m.shadow) {
       ctx.save();
       applyLayerShadow(ctx, m, outW / STAGE_W);
@@ -574,6 +595,7 @@ export async function composeThumbnail(opts: ComposeOptions): Promise<Blob> {
     } else {
       ctx.drawImage(shotBitmap, 0, 0, outW, outH);
     }
+    ctx.restore();
   };
 
   // 3+4. Models + disc, composited in LAYER ARRAY ORDER (index 0 = front), so
