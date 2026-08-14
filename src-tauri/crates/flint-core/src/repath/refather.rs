@@ -261,6 +261,8 @@ pub fn repath_project(
     }
 
     let champion_lower = config.champion.to_lowercase();
+    let keep_champion_roots = champion_lower
+        .starts_with(crate::bin::preloads::ALT_MODE_CHARACTER_PREFIX);
     let wad_folder_name = format!("{}.wad.client", flint_wad::wad::extractor::wad_champion_name(&champion_lower));
     let wad_base = content_base.join(&wad_folder_name);
 
@@ -287,15 +289,9 @@ pub fn repath_project(
     };
 
     let mut bin_files: Vec<PathBuf> = Vec::new();
-    // Champion-root BINs (kayn.bin, root.bin) never ship on the creation path: the concat
-    // BIN replaces their link and cleanup_irrelevant_bins deletes them. Assets referenced
-    // ONLY by them (hud/icons2d portraits, …) must therefore stay at their ORIGINAL paths —
-    // the live game's root still points there, so leaving them in place keeps them working
-    // as overrides while repathing would orphan them. They're collected here and scanned
-    // separately into a preserve set. Imports (skip_bin_cleanup) keep the root BIN, so
-    // there the old repath-everything behavior stays self-consistent.
+    // Classic champion roots ship; live roots stay game-backed at their original paths.
     let mut root_bin_files: Vec<PathBuf> = Vec::new();
-    let exclude_roots = !config.skip_bin_cleanup;
+    let exclude_roots = !config.skip_bin_cleanup && !keep_champion_roots;
 
     let push_with_links =
         |root: PathBuf, bin_files: &mut Vec<PathBuf>, root_bin_files: &mut Vec<PathBuf>| {
@@ -481,7 +477,7 @@ pub fn repath_project(
 
     if !config.skip_bin_cleanup {
         let t_step7 = std::time::Instant::now();
-        let keep = referenced_bin_keep_set(file_base);
+        let keep = referenced_bin_keep_set(file_base, keep_champion_roots);
         cleanup_irrelevant_bins(file_base, &config.champion, config.target_skin_id, &keep)?;
         tracing::debug!("[TIMING] step7 cleanup_irrelevant_bins: {:?}", t_step7.elapsed());
     } else {
@@ -1341,7 +1337,8 @@ mod tests {
         root_fields.insert(0xAAAA_u32, BinValue::String(
             "ASSETS/Characters/Kayn/HUD/Icons2D/Kayn_Circle.png".to_string()));
         root.entries.push(BinEntry { path_hash: 0x1, class_hash: 0x2, fields: root_fields });
-        std::fs::write(champ_dir.join("kayn.bin"), write_bin(&root).unwrap()).unwrap();
+        let root_bin = champ_dir.join("kayn.bin");
+        std::fs::write(&root_bin, write_bin(&root).unwrap()).unwrap();
 
         // Main skin BIN: links the root, references the body texture.
         let mut skin = Bin::new();
@@ -1375,6 +1372,71 @@ mod tests {
         // The skin-referenced texture still repaths normally.
         assert!(wad.join("assets/sirdexal/teeest/body.tex").exists());
         assert!(!tex_dir.join("body.tex").exists());
+        assert!(!root_bin.exists());
+    }
+
+    #[test]
+    fn classic_champion_root_ships_with_repathed_assets() {
+        use ritoshark::bin::{Bin, BinEntry};
+
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+        let wad = base.join("gangplank.wad.client");
+        let icon_dir = wad.join("assets/characters/jade_gangplank/hud/icons2d");
+        std::fs::create_dir_all(&icon_dir).unwrap();
+        std::fs::write(icon_dir.join("passive.dds"), b"i").unwrap();
+
+        let champion_dir = wad.join("data/characters/jade_gangplank");
+        std::fs::create_dir_all(champion_dir.join("skins")).unwrap();
+
+        let mut root = Bin::new();
+        let mut fields = indexmap::IndexMap::new();
+        fields.insert(
+            0xAAAA_u32,
+            BinValue::String(
+                "ASSETS/Characters/Jade_Gangplank/HUD/Icons2D/Passive.dds".to_string(),
+            ),
+        );
+        root.entries.push(BinEntry {
+            path_hash: 0x1,
+            class_hash: 0x2,
+            fields,
+        });
+        let root_bin = champion_dir.join("jade_gangplank.bin");
+        std::fs::write(&root_bin, write_bin(&root).unwrap()).unwrap();
+
+        let mut skin = Bin::new();
+        skin.linked = vec!["DATA/Characters/Jade_Gangplank/Jade_Gangplank.bin".to_string()];
+        let skin_bin = champion_dir.join("skins/skin303.bin");
+        std::fs::write(&skin_bin, write_bin(&skin).unwrap()).unwrap();
+
+        let config = RepathConfig {
+            creator_name: "SirDexal".to_string(),
+            project_name: "Classic".to_string(),
+            champion: "Jade_Gangplank".to_string(),
+            target_skin_id: 303,
+            cleanup_unused: true,
+            skip_bin_cleanup: false,
+            sub_characters: vec![],
+        };
+
+        repath_project(base, &config, &HashMap::new()).unwrap();
+
+        assert!(root_bin.exists());
+        assert!(skin_bin.exists());
+        assert!(!icon_dir.join("passive.dds").exists());
+        assert!(wad
+            .join("ASSETS/SirDexal/Classic/hud/icons2d/passive.dds")
+            .exists());
+
+        let root = read_bin(&std::fs::read(root_bin).unwrap()).unwrap();
+        let BinValue::String(path) = root.entries[0].fields.get(&0xAAAA_u32).unwrap() else {
+            panic!("expected repathed root asset path");
+        };
+        assert_eq!(
+            path.to_lowercase(),
+            "assets/sirdexal/classic/hud/icons2d/passive.dds"
+        );
     }
 
     #[test]
@@ -1627,7 +1689,7 @@ mod tests {
         std::fs::write(&skin_bin, write_bin(&skin).unwrap()).unwrap();
 
         // Build the keep-set the way repath_project does.
-        let keep = referenced_bin_keep_set(base);
+        let keep = referenced_bin_keep_set(base, false);
         assert!(
             !keep.contains("data/characters/aatrox/aatrox.bin"),
             "champion root must be excluded from the keep-set"

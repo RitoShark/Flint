@@ -158,18 +158,10 @@ pub(crate) fn sweep_source_tree_orphans(
         .count()
 }
 
-/// Transitive closure of every BIN reachable from any BIN's `linked` list,
-/// as lowercased forward-slashed project-relative paths. Used to protect
-/// referenced bins from cleanup deletion.
-///
-/// Champion-root bins (`<champ>/<champ>.bin`, `root.bin`) are deliberately
-/// EXCLUDED: on the project-creation path the concat BIN replaces them, so the
-/// original champ root must still be deleted even though the skin BIN links it
-/// (`update_main_bin_links` keeps it as a link). Keeping it here would leave the
-/// stale `<champ>.bin` behind and pin the assets it references to their original
-/// (un-repathed) locations. Imports skip `cleanup_irrelevant_bins` entirely
-/// (`skip_bin_cleanup: true`), so this exclusion only affects project creation.
-pub(crate) fn referenced_bin_keep_set(content_base: &Path) -> std::collections::HashSet<String> {
+pub(crate) fn referenced_bin_keep_set(
+    content_base: &Path,
+    keep_champion_roots: bool,
+) -> std::collections::HashSet<String> {
     use std::collections::HashSet;
     let mut keep: HashSet<String> = HashSet::new();
     for entry in WalkDir::new(content_base)
@@ -186,7 +178,9 @@ pub(crate) fn referenced_bin_keep_set(content_base: &Path) -> std::collections::
         let Ok(data) = fs::read(path) else { continue };
         let Ok(bin) = read_bin(&data) else { continue };
         for dep in bin.linked {
-            if crate::bin::classify_bin(&dep) == crate::bin::BinCategory::ChampionRoot {
+            if !keep_champion_roots
+                && crate::bin::classify_bin(&dep) == crate::bin::BinCategory::ChampionRoot
+            {
                 continue;
             }
             keep.insert(dep.replace('\\', "/").trim_start_matches('/').to_lowercase());
