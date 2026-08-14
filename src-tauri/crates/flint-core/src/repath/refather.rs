@@ -1372,14 +1372,11 @@ mod tests {
         assert!(!tex_dir.join("body.tex").exists());
         assert!(!root_bin.exists());
         let skin = read_bin(&std::fs::read(skin_bin).unwrap()).unwrap();
-        assert!(skin
-            .linked
-            .iter()
-            .all(|dep| crate::bin::classify_bin(dep) != crate::bin::BinCategory::ChampionRoot));
+        assert_eq!(skin.linked, vec!["DATA/Characters/Kayn/Kayn.bin"]);
     }
 
     #[test]
-    fn classic_champion_root_is_deleted_without_a_dangling_link() {
+    fn classic_champion_root_is_deleted_but_game_backed_link_stays() {
         use ritoshark::bin::{Bin, BinEntry};
 
         let dir = tempfile::tempdir().unwrap();
@@ -1433,10 +1430,10 @@ mod tests {
             .exists());
 
         let skin = read_bin(&std::fs::read(skin_bin).unwrap()).unwrap();
-        assert!(skin
-            .linked
-            .iter()
-            .all(|dep| crate::bin::classify_bin(dep) != crate::bin::BinCategory::ChampionRoot));
+        assert_eq!(
+            skin.linked,
+            vec!["DATA/Characters/Jade_Gangplank/Jade_Gangplank.bin"]
+        );
     }
 
     #[test]
@@ -1699,10 +1696,10 @@ mod tests {
         assert!(!root_bin.exists(), "champion root BIN must be deleted");
         assert!(skin_bin.exists(), "target skin BIN must be kept");
         let skin = read_bin(&std::fs::read(skin_bin).unwrap()).unwrap();
-        assert!(skin
-            .linked
-            .iter()
-            .all(|dep| crate::bin::classify_bin(dep) != crate::bin::BinCategory::ChampionRoot));
+        assert_eq!(
+            skin.linked,
+            vec!["data/characters/aatrox/aatrox.bin"]
+        );
     }
 
     #[test]

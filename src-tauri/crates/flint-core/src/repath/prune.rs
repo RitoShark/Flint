@@ -1,7 +1,7 @@
 //! Removal passes: unreferenced assets, orphaned sources, empty dirs.
 
-use crate::bin::codec::{read_bin, write_bin};
-use crate::error::{Error, Result};
+use crate::bin::codec::read_bin;
+use crate::error::Result;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -186,26 +186,6 @@ pub(crate) fn referenced_bin_keep_set(
     keep
 }
 
-fn remove_champion_root_links(path: &Path) -> Result<bool> {
-    let Ok(data) = fs::read(path) else {
-        return Ok(false);
-    };
-    let Ok(mut bin) = read_bin(&data) else {
-        return Ok(false);
-    };
-    let original_len = bin.linked.len();
-    bin.linked
-        .retain(|dep| crate::bin::classify_bin(dep) != crate::bin::BinCategory::ChampionRoot);
-    if bin.linked.len() == original_len {
-        return Ok(false);
-    }
-
-    let data = write_bin(&bin)
-        .map_err(|error| Error::bin_conversion_with_path(error.to_string(), path))?;
-    fs::write(path, data).map_err(|error| Error::io_with_path(error, path))?;
-    Ok(true)
-}
-
 /// Whitelist approach: keeps the main skin BIN (skins/skin{ID}.bin), the
 /// animation BIN (animations/skin{ID}.bin), and the concat BIN (_Concat.bin);
 /// everything else is deleted.
@@ -321,22 +301,6 @@ pub(crate) fn cleanup_irrelevant_bins(
         }
     }
 
-    for entry in WalkDir::new(content_base)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path()
-                .extension()
-                .map(|ext| ext.eq_ignore_ascii_case("bin"))
-                .unwrap_or(false)
-        })
-    {
-        let path = entry.path();
-        if remove_champion_root_links(path)? {
-            tracing::debug!("Removed champion root link(s) from BIN: {}", path.display());
-        }
-    }
-    
     if removed > 0 {
         tracing::info!("Cleaned up {} irrelevant BIN files", removed);
     }
