@@ -261,8 +261,6 @@ pub fn repath_project(
     }
 
     let champion_lower = config.champion.to_lowercase();
-    let keep_champion_roots = champion_lower
-        .starts_with(crate::bin::preloads::ALT_MODE_CHARACTER_PREFIX);
     let wad_folder_name = format!("{}.wad.client", flint_wad::wad::extractor::wad_champion_name(&champion_lower));
     let wad_base = content_base.join(&wad_folder_name);
 
@@ -289,9 +287,8 @@ pub fn repath_project(
     };
 
     let mut bin_files: Vec<PathBuf> = Vec::new();
-    // Classic champion roots ship; live roots stay game-backed at their original paths.
     let mut root_bin_files: Vec<PathBuf> = Vec::new();
-    let exclude_roots = !config.skip_bin_cleanup && !keep_champion_roots;
+    let exclude_roots = !config.skip_bin_cleanup;
 
     let push_with_links =
         |root: PathBuf, bin_files: &mut Vec<PathBuf>, root_bin_files: &mut Vec<PathBuf>| {
@@ -477,7 +474,7 @@ pub fn repath_project(
 
     if !config.skip_bin_cleanup {
         let t_step7 = std::time::Instant::now();
-        let keep = referenced_bin_keep_set(file_base, keep_champion_roots);
+        let keep = referenced_bin_keep_set(file_base);
         cleanup_irrelevant_bins(file_base, &config.champion, config.target_skin_id, &keep)?;
         tracing::debug!("[TIMING] step7 cleanup_irrelevant_bins: {:?}", t_step7.elapsed());
     } else {
@@ -1347,7 +1344,8 @@ mod tests {
         skin_fields.insert(0xBBBB_u32, BinValue::String(
             "ASSETS/Characters/Kayn/Skins/Base/Body.tex".to_string()));
         skin.entries.push(BinEntry { path_hash: 0x3, class_hash: 0x4, fields: skin_fields });
-        std::fs::write(champ_dir.join("skins/skin0.bin"), write_bin(&skin).unwrap()).unwrap();
+        let skin_bin = champ_dir.join("skins/skin0.bin");
+        std::fs::write(&skin_bin, write_bin(&skin).unwrap()).unwrap();
 
         let config = RepathConfig {
             creator_name: "SirDexal".to_string(),
@@ -1373,10 +1371,15 @@ mod tests {
         assert!(wad.join("assets/sirdexal/teeest/body.tex").exists());
         assert!(!tex_dir.join("body.tex").exists());
         assert!(!root_bin.exists());
+        let skin = read_bin(&std::fs::read(skin_bin).unwrap()).unwrap();
+        assert!(skin
+            .linked
+            .iter()
+            .all(|dep| crate::bin::classify_bin(dep) != crate::bin::BinCategory::ChampionRoot));
     }
 
     #[test]
-    fn classic_champion_root_ships_with_repathed_assets() {
+    fn classic_champion_root_is_deleted_without_a_dangling_link() {
         use ritoshark::bin::{Bin, BinEntry};
 
         let dir = tempfile::tempdir().unwrap();
@@ -1422,21 +1425,18 @@ mod tests {
 
         repath_project(base, &config, &HashMap::new()).unwrap();
 
-        assert!(root_bin.exists());
+        assert!(!root_bin.exists());
         assert!(skin_bin.exists());
-        assert!(!icon_dir.join("passive.dds").exists());
-        assert!(wad
+        assert!(icon_dir.join("passive.dds").exists());
+        assert!(!wad
             .join("ASSETS/SirDexal/Classic/hud/icons2d/passive.dds")
             .exists());
 
-        let root = read_bin(&std::fs::read(root_bin).unwrap()).unwrap();
-        let BinValue::String(path) = root.entries[0].fields.get(&0xAAAA_u32).unwrap() else {
-            panic!("expected repathed root asset path");
-        };
-        assert_eq!(
-            path.to_lowercase(),
-            "assets/sirdexal/classic/hud/icons2d/passive.dds"
-        );
+        let skin = read_bin(&std::fs::read(skin_bin).unwrap()).unwrap();
+        assert!(skin
+            .linked
+            .iter()
+            .all(|dep| crate::bin::classify_bin(dep) != crate::bin::BinCategory::ChampionRoot));
     }
 
     #[test]
@@ -1689,7 +1689,7 @@ mod tests {
         std::fs::write(&skin_bin, write_bin(&skin).unwrap()).unwrap();
 
         // Build the keep-set the way repath_project does.
-        let keep = referenced_bin_keep_set(base, false);
+        let keep = referenced_bin_keep_set(base);
         assert!(
             !keep.contains("data/characters/aatrox/aatrox.bin"),
             "champion root must be excluded from the keep-set"
@@ -1698,6 +1698,11 @@ mod tests {
         cleanup_irrelevant_bins(base, "aatrox", 0, &keep).unwrap();
         assert!(!root_bin.exists(), "champion root BIN must be deleted");
         assert!(skin_bin.exists(), "target skin BIN must be kept");
+        let skin = read_bin(&std::fs::read(skin_bin).unwrap()).unwrap();
+        assert!(skin
+            .linked
+            .iter()
+            .all(|dep| crate::bin::classify_bin(dep) != crate::bin::BinCategory::ChampionRoot));
     }
 
     #[test]
