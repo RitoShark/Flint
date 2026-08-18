@@ -437,7 +437,7 @@ fn render_container(
         return;
     }
 
-    let all_scalar = items.iter().all(|it| is_scalar_value(it));
+    let all_scalar = items.iter().all(|&it| is_scalar_value(it));
     if all_scalar && items.len() <= 4 {
         out.push_str("{ ");
         for (i, it) in items.iter().enumerate() {

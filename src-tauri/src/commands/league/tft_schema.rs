@@ -21,6 +21,8 @@ const SAMPLE_LIMIT_COMPLEX: usize = 3;
 const SAMPLE_LIMIT_SCALAR: usize = 1;
 const ENTRY_KEY_LIMIT_PER_CLASS: usize = 3;
 const LINKED_PATH_SAMPLE_LIMIT: usize = 8;
+const POLYMORPHIC_LIST_CLASS_LIMIT: usize = 16;
+const MAP_CLASS_LIMIT: usize = 12;
 
 // =============================================================================
 // Progress / public stats
@@ -58,6 +60,13 @@ struct FieldSchema {
     type_str: String,
     samples: Vec<BinValue>,
     sample_limit: usize,
+    seen_classes: Vec<u32>,
+    list_items: Vec<BinValue>,
+    list_classes: HashSet<u32>,
+    list_classless: usize,
+    map_entries: Vec<(BinValue, BinValue)>,
+    map_classes: HashSet<u32>,
+    map_classless: usize,
 }
 
 struct EntrySample {
@@ -145,6 +154,15 @@ fn is_scalar_value(v: &BinValue) -> bool {
     )
 }
 
+fn class_of(value: &BinValue) -> Option<u32> {
+    match value {
+        BinValue::Pointer { class, .. } | BinValue::Embed { class, .. } if *class != 0 => {
+            Some(*class)
+        }
+        _ => None,
+    }
+}
+
 // =============================================================================
 // Aggregation: walk every property, merge into the global schema
 // =============================================================================
@@ -174,6 +192,13 @@ fn process_class(
             type_str: type_str.clone(),
             samples: Vec::new(),
             sample_limit: limit,
+            seen_classes: Vec::new(),
+            list_items: Vec::new(),
+            list_classes: HashSet::new(),
+            list_classless: 0,
+            map_entries: Vec::new(),
+            map_classes: HashSet::new(),
+            map_classless: 0,
         });
 
         if field.type_str.is_empty() {
@@ -182,8 +207,25 @@ fn process_class(
         if limit > field.sample_limit {
             field.sample_limit = limit;
         }
+
+        if let Some(ch) = class_of(value) {
+            if !field.seen_classes.contains(&ch) {
+                field.seen_classes.push(ch);
+            }
+        }
+
         if field.samples.len() < field.sample_limit {
             field.samples.push(value.clone());
+        }
+
+        match value {
+            BinValue::List { items, .. } => {
+                merge_list_items(field, items);
+            }
+            BinValue::Map { entries, .. } => {
+                merge_map_entries(field, entries);
+            }
+            _ => {}
         }
     }
 
@@ -193,6 +235,52 @@ fn process_class(
     }
     for (ch, props) in nested {
         process_class(ch, &props, schema);
+    }
+}
+
+fn merge_list_items(field: &mut FieldSchema, items: &[BinValue]) {
+    for item in items {
+        let keep = match class_of(item) {
+            Some(class) => {
+                field.list_classes.len() < POLYMORPHIC_LIST_CLASS_LIMIT
+                    && field.list_classes.insert(class)
+            }
+            None => {
+                if field.list_classless < SAMPLE_LIMIT_COMPLEX {
+                    if !field.list_items.contains(item) {
+                        field.list_classless += 1;
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            }
+        };
+        if keep {
+            field.list_items.push(item.clone());
+        }
+    }
+}
+
+fn merge_map_entries(field: &mut FieldSchema, entries: &[(BinValue, BinValue)]) {
+    for (key, value) in entries {
+        let keep = match class_of(value) {
+            Some(class) => {
+                field.map_classes.len() < MAP_CLASS_LIMIT && field.map_classes.insert(class)
+            }
+            None => {
+                let room = field.map_classless < SAMPLE_LIMIT_COMPLEX;
+                if room {
+                    field.map_classless += 1;
+                }
+                room
+            }
+        };
+        if keep {
+            field.map_entries.push((key.clone(), value.clone()));
+        }
     }
 }
 
@@ -337,7 +425,9 @@ fn render_value(
             render_container(items, schema, provider, visited, indent, out);
         }
         BinValue::Map { entries, .. } => {
-            render_map(entries, schema, provider, visited, indent, out);
+            let sampled: Vec<&(BinValue, BinValue)> =
+                entries.iter().take(SAMPLE_LIMIT_COMPLEX).collect();
+            render_map_entries(&sampled, schema, provider, visited, indent, out);
         }
         BinValue::Option { value: inner, .. } => match inner {
             Some(boxed) => render_value(boxed, schema, provider, visited, indent, out),
@@ -356,15 +446,12 @@ fn render_container(
 ) {
     use std::fmt::Write;
 
-    let limit = SAMPLE_LIMIT_COMPLEX;
-    let items: Vec<&BinValue> = items.iter().take(limit).collect();
-
     if items.is_empty() {
         out.push_str("{}");
         return;
     }
 
-    let all_scalar = items.iter().all(|it| is_scalar_value(it));
+    let all_scalar = items.iter().all(is_scalar_value);
     if all_scalar && items.len() <= 4 {
         out.push_str("{ ");
         for (i, it) in items.iter().enumerate() {
@@ -387,8 +474,8 @@ fn render_container(
     write!(out, "{}}}", indent_str(indent)).unwrap();
 }
 
-fn render_map(
-    entries: &[(BinValue, BinValue)],
+fn render_map_entries(
+    entries: &[&(BinValue, BinValue)],
     schema: &HashMap<u32, ClassSchema>,
     provider: &HashMapper,
     visited: &mut HashSet<u32>,
@@ -402,10 +489,9 @@ fn render_map(
         return;
     }
 
-    let limit = SAMPLE_LIMIT_COMPLEX;
     out.push_str("{\n");
     let inner_indent = indent_str(indent + 1);
-    for (k, v) in entries.iter().take(limit) {
+    for (k, v) in entries.iter() {
         out.push_str(&inner_indent);
         render_value(k, schema, provider, visited, indent + 1, out);
         out.push_str(" = ");
@@ -448,13 +534,37 @@ fn render_class_block(
     out.push_str("{\n");
     let inner_indent = indent_str(indent + 1);
     for (name_hash, field) in &class.fields {
-        let field_name =
-            resolve_name(*name_hash, provider).unwrap_or_else(|| format!("0x{:08x}", name_hash));
+        let field_name = resolve_name(*name_hash, provider)
+            .unwrap_or_else(|| format!("0x{:08x}", name_hash));
+
+        if field.seen_classes.len() > 1 && field.list_items.is_empty() && field.map_entries.is_empty() {
+            let alt_names: Vec<String> = field
+                .seen_classes
+                .iter()
+                .filter_map(|&ch| resolve_name(ch, provider))
+                .collect();
+            if !alt_names.is_empty() {
+                let _ = writeln!(
+                    out,
+                    "{}# {}: pointer variants seen: {}",
+                    inner_indent,
+                    field_name,
+                    alt_names.join(", ")
+                );
+            }
+        }
+
         write!(out, "{}{}: {} = ", inner_indent, field_name, field.type_str).unwrap();
-        if let Some(sample) = field.samples.first() {
+
+        if !field.list_items.is_empty() {
+            render_container(&field.list_items, schema, provider, visited, indent + 1, out);
+        } else if !field.map_entries.is_empty() {
+            let entries: Vec<&(BinValue, BinValue)> = field.map_entries.iter().collect();
+            render_map_entries(&entries, schema, provider, visited, indent + 1, out);
+        } else if let Some(sample) = field.samples.first() {
             render_value(sample, schema, provider, visited, indent + 1, out);
         } else {
-            out.push_str("...");
+            out.push_str("null");
         }
         out.push('\n');
     }
@@ -464,49 +574,32 @@ fn render_class_block(
 }
 
 // =============================================================================
-// TFT WAD discovery
+// TFT WAD path discovery
 // =============================================================================
 
-fn collect_tft_wads(league_path: &std::path::Path) -> Vec<std::path::PathBuf> {
-    let mut wads: Vec<std::path::PathBuf> = Vec::new();
-    let final_dir = league_path.join("Game").join("DATA").join("FINAL");
+fn find_tft_wads(game_path: &std::path::Path) -> Vec<String> {
+    let mut wads = Vec::new();
 
-    let companions_candidates = [
-        final_dir.join("Companions.wad.client"),
-        final_dir.join("Companions").join("Companions.wad.client"),
-        league_path
-            .join("DATA")
-            .join("FINAL")
-            .join("Companions.wad.client"),
-    ];
-    for cand in companions_candidates {
-        if cand.is_file() {
-            wads.push(cand);
-            break;
-        }
+    let companions = game_path
+        .join("DATA")
+        .join("FINAL")
+        .join("Champions")
+        .join("Companions.wad.client");
+    if companions.exists() {
+        wads.push(companions.to_string_lossy().to_string());
     }
 
-    let shipping = final_dir.join("Maps").join("Shipping");
-    if let Ok(entries) = std::fs::read_dir(&shipping) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("")
-                .to_lowercase();
-            if !name.ends_with(".wad.client") && !name.ends_with(".wad") {
-                continue;
-            }
-            let stem = name
-                .trim_end_matches(".wad.client")
-                .trim_end_matches(".wad");
-            let is_map22 = stem == "map22" || stem == "map22levels";
-            if is_map22 {
-                wads.push(path);
+    let maps_dir = game_path.join("DATA").join("FINAL").join("Maps").join("Shipping");
+    if maps_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(&maps_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    let name = path.file_name().unwrap_or_default().to_string_lossy();
+                    if name.starts_with("Map22") && (name.ends_with(".wad.client") || name.ends_with(".wad")) {
+                        wads.push(path.to_string_lossy().to_string());
+                    }
+                }
             }
         }
     }
@@ -524,13 +617,13 @@ pub async fn aggregate_tft_bin_schema(
     league_path: String,
     lmdb: tauri::State<'_, LmdbCacheState>,
 ) -> Result<TftSchemaStats, String> {
-    let league_dir = std::path::Path::new(&league_path);
+    let game_path = std::path::Path::new(&league_path).join("Game");
+    let wad_paths = find_tft_wads(&game_path);
 
-    let wad_paths = collect_tft_wads(league_dir);
     if wad_paths.is_empty() {
         return Err(format!(
-            "No TFT WADs found under '{}'. Expected Game/DATA/FINAL/Companions.wad.client and/or Game/DATA/FINAL/Maps/Shipping/Map22.wad.client — make sure this is the League installation folder.",
-            league_dir.display()
+            "No TFT WADs found under {}/DATA/FINAL/ — looked for Champions/Companions.wad.client and Maps/Shipping/Map22*.wad.client",
+            game_path.display()
         ));
     }
 
@@ -550,7 +643,6 @@ pub async fn aggregate_tft_bin_schema(
     let mut bins_failed: usize = 0;
 
     for (wad_idx, wad_path) in wad_paths.iter().enumerate() {
-        let wad_path = wad_path.to_string_lossy().to_string();
         let _ = app.emit(
             "tft-schema-progress",
             TftSchemaProgress {
@@ -563,7 +655,7 @@ pub async fn aggregate_tft_bin_schema(
             },
         );
 
-        let mut reader = match WadReader::open(&wad_path) {
+        let mut reader = match WadReader::open(wad_path) {
             Ok(r) => r,
             Err(e) => {
                 tracing::warn!("TFT schema: failed to open {}: {}", wad_path, e);
@@ -581,36 +673,30 @@ pub async fn aggregate_tft_bin_schema(
 
         for chunk in &chunks {
             let path_hash = chunk.path_hash;
+            let resolved = match resolved_map.get(&path_hash) {
+                Some(p) => p,
+                None => continue,
+            };
 
-            let is_resolved_bin = resolved_map
-                .get(&path_hash)
-                .map(|p| p.to_lowercase().ends_with(".bin"))
-                .unwrap_or(false);
-
-            if !is_resolved_bin && resolved_map.contains_key(&path_hash) {
+            let resolved_lower = resolved.to_lowercase();
+            if !resolved_lower.ends_with(".bin") {
                 continue;
             }
 
             let data = match reader.wad_mut().load_chunk_decompressed(chunk) {
                 Ok(d) => d,
                 Err(_) => {
-                    if is_resolved_bin {
-                        bins_failed += 1;
-                    }
+                    bins_failed += 1;
                     continue;
                 }
             };
 
             if data.len() < 4 || (&data[..4] != b"PROP" && &data[..4] != b"PTCH") {
-                if is_resolved_bin {
-                    bins_failed += 1;
-                }
+                bins_failed += 1;
                 continue;
             }
             if data.len() > MAX_BIN_SIZE {
-                if is_resolved_bin {
-                    bins_failed += 1;
-                }
+                bins_failed += 1;
                 continue;
             }
 
@@ -639,8 +725,7 @@ pub async fn aggregate_tft_bin_schema(
                     root_class_order.push(entry.class_hash);
                 }
                 if entries_list.len() < ENTRY_KEY_LIMIT_PER_CLASS {
-                    let key_repr =
-                        resolve_entry_key(entry.path_hash, &get_cached_bin_hashes().read());
+                    let key_repr = resolve_entry_key(entry.path_hash, &get_cached_bin_hashes().read());
                     if !entries_list.iter().any(|e| e.key_repr == key_repr) {
                         entries_list.push(EntrySample { key_repr });
                     }
@@ -659,32 +744,32 @@ pub async fn aggregate_tft_bin_schema(
     let mut output = String::with_capacity(2 * 1024 * 1024);
     use std::fmt::Write;
 
-    let _ = writeln!(output, "// TFT BIN Schema Reference — Flint");
-    let _ = writeln!(output, "// Generated: {}", chrono::Utc::now().to_rfc3339());
+    let _ = writeln!(output, "# TFT BIN Schema Reference — Flint");
+    let _ = writeln!(output, "# Generated: {}", chrono::Utc::now().to_rfc3339());
     let _ = writeln!(
         output,
-        "// WADs: {} | BINs parsed: {} | Failed: {}",
+        "# WADs: {} | TFT BINs parsed: {} | Failed: {}",
         total_wads, bins_parsed, bins_failed
     );
     let _ = writeln!(
         output,
-        "// Classes: {} | Fields: {}",
+        "# Classes: {} | Fields: {}",
         schema.len(),
         total_fields
     );
     let _ = writeln!(
         output,
-        "// Up to {} sample entries per root class, up to {} samples per container/map.",
-        ENTRY_KEY_LIMIT_PER_CLASS, SAMPLE_LIMIT_COMPLEX
+        "# Up to {} sample entries per root class, polymorphic lists collect distinct concrete subclasses.",
+        ENTRY_KEY_LIMIT_PER_CLASS
     );
-    let _ = writeln!(output, "//");
+    let _ = writeln!(output, "#");
     let _ = writeln!(
         output,
-        "// Source: Companions.wad.client + Maps/Shipping/Map22*.wad.client"
+        "# Source: Companions.wad.client + Maps/Shipping/Map22*.wad.client"
     );
     let _ = writeln!(
         output,
-        "// Format: real ritobin block syntax — copy any block straight into a .ritobin file."
+        "# Format: real ritobin block syntax — copy any block straight into a .ritobin file."
     );
     let _ = writeln!(output);
 
@@ -719,9 +804,9 @@ pub async fn aggregate_tft_bin_schema(
         .map(|p| {
             p.parent()
                 .unwrap_or(&p)
-                .join("tft-bin-schema.ritobin.txt")
+                .join("tft-bin-schema.ritobin")
         })
-        .unwrap_or_else(|_| std::path::PathBuf::from("tft-bin-schema.ritobin.txt"));
+        .unwrap_or_else(|_| std::path::PathBuf::from("tft-bin-schema.ritobin"));
 
     std::fs::write(&output_path, &output)
         .map_err(|e| format!("Failed to write schema file: {}", e))?;

@@ -20,6 +20,11 @@ const SAMPLE_LIMIT_SCALAR: usize = 1;
 // class schema, so more keys would just duplicate the identical block.
 const ENTRY_KEY_LIMIT_PER_CLASS: usize = 1;
 const LINKED_PATH_SAMPLE_LIMIT: usize = 8;
+// Polymorphic list cap: gathers one sample per distinct concrete class up to
+// this bound so driver lists (like mDrivers) showcase every driver variant seen
+// across the install while preventing runaway growth.
+const POLYMORPHIC_LIST_CLASS_LIMIT: usize = 16;
+const MAP_CLASS_LIMIT: usize = 12;
 
 // =============================================================================
 // Progress / public stats
@@ -53,10 +58,26 @@ struct ClassSchema {
     fields: IndexMap<u32, FieldSchema>,
 }
 
+/** A field merged across every instance of its class seen in every scanned bin.
+Captures distinct concrete subclasses across all champions for pointer/embed fields
+and lists/maps, so polymorphic hierarchies (e.g. material drivers, augments, rig modifiers)
+render one clean exemplar of every distinct class without duplicate boilerplate. */
 struct FieldSchema {
     type_str: String,
     samples: Vec<BinValue>,
     sample_limit: usize,
+    /// For scalar pointer/embed fields: distinct concrete classes seen across all bins.
+    seen_classes: Vec<u32>,
+    /// For list[pointer] / list2[pointer] / list[embed] / list2[embed]:
+    /// At most one sample item per distinct concrete class.
+    list_items: Vec<BinValue>,
+    list_classes: HashSet<u32>,
+    list_classless: usize,
+    /// For map[k, v]:
+    /// At most one entry per distinct value class.
+    map_entries: Vec<(BinValue, BinValue)>,
+    map_classes: HashSet<u32>,
+    map_classless: usize,
 }
 
 struct EntrySample {
@@ -144,6 +165,16 @@ fn is_scalar_value(v: &BinValue) -> bool {
     )
 }
 
+/// The concrete class a pointer/embed value instantiates, if it is one and is not null.
+fn class_of(value: &BinValue) -> Option<u32> {
+    match value {
+        BinValue::Pointer { class, .. } | BinValue::Embed { class, .. } if *class != 0 => {
+            Some(*class)
+        }
+        _ => None,
+    }
+}
+
 // =============================================================================
 // Aggregation: walk every property, merge into the global schema
 // =============================================================================
@@ -173,6 +204,13 @@ fn process_class(
             type_str: type_str.clone(),
             samples: Vec::new(),
             sample_limit: limit,
+            seen_classes: Vec::new(),
+            list_items: Vec::new(),
+            list_classes: HashSet::new(),
+            list_classless: 0,
+            map_entries: Vec::new(),
+            map_classes: HashSet::new(),
+            map_classless: 0,
         });
 
         if field.type_str.is_empty() {
@@ -181,8 +219,26 @@ fn process_class(
         if limit > field.sample_limit {
             field.sample_limit = limit;
         }
+
+        // Track distinct concrete subclasses for scalar pointer/embed
+        if let Some(ch) = class_of(value) {
+            if !field.seen_classes.contains(&ch) {
+                field.seen_classes.push(ch);
+            }
+        }
+
         if field.samples.len() < field.sample_limit {
             field.samples.push(value.clone());
+        }
+
+        match value {
+            BinValue::List { items, .. } => {
+                merge_list_items(field, items);
+            }
+            BinValue::Map { entries, .. } => {
+                merge_map_entries(field, entries);
+            }
+            _ => {}
         }
     }
 
@@ -192,6 +248,56 @@ fn process_class(
     }
     for (ch, props) in nested {
         process_class(ch, &props, schema);
+    }
+}
+
+/** Merges list items across bins keeping one sample per distinct concrete class.
+Prevents duplicate identical structs in homogeneous lists while allowing polymorphic lists
+(like `mDrivers: list[pointer]`) to show all driver subclasses across the install. */
+fn merge_list_items(field: &mut FieldSchema, items: &[BinValue]) {
+    for item in items {
+        let keep = match class_of(item) {
+            Some(class) => {
+                field.list_classes.len() < POLYMORPHIC_LIST_CLASS_LIMIT
+                    && field.list_classes.insert(class)
+            }
+            None => {
+                if field.list_classless < SAMPLE_LIMIT_COMPLEX {
+                    if !field.list_items.contains(item) {
+                        field.list_classless += 1;
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            }
+        };
+        if keep {
+            field.list_items.push(item.clone());
+        }
+    }
+}
+
+/** Keeps the first entry seen for each distinct value class in maps. */
+fn merge_map_entries(field: &mut FieldSchema, entries: &[(BinValue, BinValue)]) {
+    for (key, value) in entries {
+        let keep = match class_of(value) {
+            Some(class) => {
+                field.map_classes.len() < MAP_CLASS_LIMIT && field.map_classes.insert(class)
+            }
+            None => {
+                let room = field.map_classless < SAMPLE_LIMIT_COMPLEX;
+                if room {
+                    field.map_classless += 1;
+                }
+                room
+            }
+        };
+        if keep {
+            field.map_entries.push((key.clone(), value.clone()));
+        }
     }
 }
 
@@ -336,7 +442,9 @@ fn render_value(
             render_container(items, schema, provider, visited, indent, out);
         }
         BinValue::Map { entries, .. } => {
-            render_map(entries, schema, provider, visited, indent, out);
+            let sampled: Vec<&(BinValue, BinValue)> =
+                entries.iter().take(SAMPLE_LIMIT_COMPLEX).collect();
+            render_map_entries(&sampled, schema, provider, visited, indent, out);
         }
         BinValue::Option { value: inner, .. } => match inner {
             Some(boxed) => render_value(boxed, schema, provider, visited, indent, out),
@@ -355,15 +463,12 @@ fn render_container(
 ) {
     use std::fmt::Write;
 
-    let limit = SAMPLE_LIMIT_COMPLEX;
-    let items: Vec<&BinValue> = items.iter().take(limit).collect();
-
     if items.is_empty() {
         out.push_str("{}");
         return;
     }
 
-    let all_scalar = items.iter().all(|it| is_scalar_value(it));
+    let all_scalar = items.iter().all(is_scalar_value);
     if all_scalar && items.len() <= 4 {
         out.push_str("{ ");
         for (i, it) in items.iter().enumerate() {
@@ -386,8 +491,8 @@ fn render_container(
     write!(out, "{}}}", indent_str(indent)).unwrap();
 }
 
-fn render_map(
-    entries: &[(BinValue, BinValue)],
+fn render_map_entries(
+    entries: &[&(BinValue, BinValue)],
     schema: &HashMap<u32, ClassSchema>,
     provider: &HashMapper,
     visited: &mut HashSet<u32>,
@@ -401,10 +506,9 @@ fn render_map(
         return;
     }
 
-    let limit = SAMPLE_LIMIT_COMPLEX;
     out.push_str("{\n");
     let inner_indent = indent_str(indent + 1);
-    for (k, v) in entries.iter().take(limit) {
+    for (k, v) in entries.iter() {
         out.push_str(&inner_indent);
         render_value(k, schema, provider, visited, indent + 1, out);
         out.push_str(" = ");
@@ -449,11 +553,37 @@ fn render_class_block(
     for (name_hash, field) in &class.fields {
         let field_name = resolve_name(*name_hash, provider)
             .unwrap_or_else(|| format!("0x{:08x}", name_hash));
+
+        // For scalar pointer/embed fields with multiple observed concrete subclasses,
+        // emit a comment listing alternative variants.
+        if field.seen_classes.len() > 1 && field.list_items.is_empty() && field.map_entries.is_empty() {
+            let alt_names: Vec<String> = field
+                .seen_classes
+                .iter()
+                .filter_map(|&ch| resolve_name(ch, provider))
+                .collect();
+            if !alt_names.is_empty() {
+                let _ = writeln!(
+                    out,
+                    "{}# {}: pointer variants seen: {}",
+                    inner_indent,
+                    field_name,
+                    alt_names.join(", ")
+                );
+            }
+        }
+
         write!(out, "{}{}: {} = ", inner_indent, field_name, field.type_str).unwrap();
-        if let Some(sample) = field.samples.first() {
+
+        if !field.list_items.is_empty() {
+            render_container(&field.list_items, schema, provider, visited, indent + 1, out);
+        } else if !field.map_entries.is_empty() {
+            let entries: Vec<&(BinValue, BinValue)> = field.map_entries.iter().collect();
+            render_map_entries(&entries, schema, provider, visited, indent + 1, out);
+        } else if let Some(sample) = field.samples.first() {
             render_value(sample, schema, provider, visited, indent + 1, out);
         } else {
-            out.push_str("...");
+            out.push_str("null");
         }
         out.push('\n');
     }
@@ -550,12 +680,9 @@ pub async fn aggregate_champion_bin_schema(
                 continue;
             }
 
-            if resolved_lower.ends_with("/root.bin") || resolved_lower == "root.bin" {
-                continue;
-            }
-
+            // Accept both ChampionRoot (Characters/{Champion}/{Champion}.bin) and LinkedData (Skins, Spells, CAC)
             match classify_bin(resolved) {
-                BinCategory::LinkedData => {}
+                BinCategory::LinkedData | BinCategory::ChampionRoot => {}
                 _ => continue,
             }
 
@@ -620,19 +747,18 @@ pub async fn aggregate_champion_bin_schema(
     let mut output = String::with_capacity(2 * 1024 * 1024);
     use std::fmt::Write;
 
-    // `#` is ritobin's comment marker — the parser skips these lines, so the
-    // file opens in the BIN editor like any other ritobin text. `//` is NOT
-    // valid ritobin and would make the whole file unparseable.
     let _ = writeln!(output, "# Champion BIN Schema Reference — Flint");
     let _ = writeln!(output, "# Generated: {}", chrono::Utc::now().to_rfc3339());
     let _ = writeln!(
         output,
-        "# WADs: {} | LinkedData BINs parsed: {} | Failed: {}",
+        "# WADs: {} | Champion BINs parsed: {} | Failed: {}",
         total_wads, bins_parsed, bins_failed
     );
     let _ = writeln!(output, "# Classes: {} | Fields: {}", schema.len(), total_fields);
-    let _ = writeln!(output, "# One sample entry per root class, up to {} samples per container/map.",
-        SAMPLE_LIMIT_COMPLEX);
+    let _ = writeln!(
+        output,
+        "# One sample entry per root class, polymorphic lists collect distinct concrete subclasses."
+    );
     let _ = writeln!(output, "#");
     let _ = writeln!(output, "# Format: real ritobin block syntax — copy any block straight into a .ritobin file.");
     let _ = writeln!(output);
@@ -704,4 +830,100 @@ pub async fn aggregate_champion_bin_schema(
         total_fields,
         output_path: output_path.to_string_lossy().to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn field() -> FieldSchema {
+        FieldSchema {
+            type_str: "list[pointer]".to_string(),
+            samples: Vec::new(),
+            sample_limit: SAMPLE_LIMIT_COMPLEX,
+            seen_classes: Vec::new(),
+            list_items: Vec::new(),
+            list_classes: HashSet::new(),
+            list_classless: 0,
+            map_entries: Vec::new(),
+            map_classes: HashSet::new(),
+            map_classless: 0,
+        }
+    }
+
+    fn driver_ptr(class: u32) -> BinValue {
+        BinValue::Pointer {
+            class,
+            fields: IndexMap::new(),
+        }
+    }
+
+    #[test]
+    fn polymorphic_list_sampling_keeps_one_sample_per_distinct_class() {
+        let mut f = field();
+        merge_list_items(
+            &mut f,
+            &[
+                driver_ptr(0x1111), // HasBuff
+                driver_ptr(0x1111), // Duplicate HasBuff from same bin
+                driver_ptr(0x2222), // CompareSkinId
+                driver_ptr(0x3333), // Cooldown
+                driver_ptr(0x1111), // Duplicate
+            ],
+        );
+
+        assert_eq!(f.list_items.len(), 3);
+        let classes: Vec<u32> = f
+            .list_items
+            .iter()
+            .filter_map(class_of)
+            .collect();
+        assert_eq!(classes, vec![0x1111, 0x2222, 0x3333]);
+    }
+
+    #[test]
+    fn homogeneous_list_collapses_to_single_exemplar() {
+        let mut f = field();
+        let duplicates: Vec<BinValue> = (0..10).map(|_| driver_ptr(0xaaaa)).collect();
+        merge_list_items(&mut f, &duplicates);
+
+        assert_eq!(f.list_items.len(), 1);
+    }
+
+    #[test]
+    fn multi_bin_driver_aggregation_gathers_all_distinct_classes() {
+        let mut f = field();
+        // Bin 1: Aatrox (HasBuff)
+        merge_list_items(&mut f, &[driver_ptr(0xaaaa)]);
+        // Bin 2: Kayn (CompareSkinId, HasBuff)
+        merge_list_items(&mut f, &[driver_ptr(0xbbbb), driver_ptr(0xaaaa)]);
+        // Bin 3: Zed (NotMaterialDriver)
+        merge_list_items(&mut f, &[driver_ptr(0xcccc)]);
+
+        assert_eq!(f.list_items.len(), 3);
+        let classes: Vec<u32> = f
+            .list_items
+            .iter()
+            .filter_map(class_of)
+            .collect();
+        assert_eq!(classes, vec![0xaaaa, 0xbbbb, 0xcccc]);
+    }
+
+    #[test]
+    fn scalar_list_deduplicates_and_caps() {
+        let mut f = field();
+        let strings = vec![
+            BinValue::String("Aatrox".into()),
+            BinValue::String("Aatrox".into()),
+            BinValue::String("Kayn".into()),
+            BinValue::String("Zed".into()),
+            BinValue::String("Yasuo".into()),
+        ];
+        merge_list_items(&mut f, &strings);
+
+        assert_eq!(f.list_items.len(), SAMPLE_LIMIT_COMPLEX);
+        assert_eq!(f.list_items[0], BinValue::String("Aatrox".into()));
+        assert_eq!(f.list_items[1], BinValue::String("Kayn".into()));
+        assert_eq!(f.list_items[2], BinValue::String("Zed".into()));
+    }
 }

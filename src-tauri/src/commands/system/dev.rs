@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use indexmap::IndexMap;
 use serde::Serialize;
@@ -14,8 +14,15 @@ use crate::state::LmdbCacheState;
 use flint_core::bin::{BinType, BinValue};
 use flint_core::hash::HashMapper;
 
+const SAMPLE_LIMIT_COMPLEX: usize = 3;
+const SAMPLE_LIMIT_SCALAR: usize = 1;
+const ENTRY_KEY_LIMIT_PER_CLASS: usize = 1;
+const LINKED_PATH_SAMPLE_LIMIT: usize = 8;
+const POLYMORPHIC_LIST_CLASS_LIMIT: usize = 16;
+const MAP_CLASS_LIMIT: usize = 12;
+
 // =============================================================================
-// Schema data structures
+// Progress / public stats
 // =============================================================================
 
 #[derive(Debug, Clone, Serialize)]
@@ -38,101 +45,33 @@ pub struct SchemaStats {
     pub output_path: String,
 }
 
+// =============================================================================
+// Internal schema representation
+// =============================================================================
+
 struct ClassSchema {
-    class_hash: u32,
-    fields: HashMap<u32, FieldSchema>,
+    fields: IndexMap<u32, FieldSchema>,
 }
 
 struct FieldSchema {
-    name_hash: u32,
-    types: Vec<String>,
-    nested_class_hash: Option<u32>,
-    occurrences: u32,
-    value_range: ValueRange,
+    type_str: String,
+    samples: Vec<BinValue>,
+    sample_limit: usize,
+    seen_classes: Vec<u32>,
+    list_items: Vec<BinValue>,
+    list_classes: HashSet<u32>,
+    list_classless: usize,
+    map_entries: Vec<(BinValue, BinValue)>,
+    map_classes: HashSet<u32>,
+    map_classless: usize,
+}
+
+struct EntrySample {
+    key_repr: String,
 }
 
 // =============================================================================
-// Value range tracking (min/max across all BINs)
-// =============================================================================
-
-enum ValueRange {
-    None,
-    Bool(bool, bool),            // (seen_true, seen_false)
-    Int(i64, i64),               // min, max
-    Float(f64, f64),             // min, max
-    Vec2([f64; 2], [f64; 2]),    // min[x,y], max[x,y]
-    Vec3([f64; 3], [f64; 3]),    // min[x,y,z], max[x,y,z]
-    Vec4([f64; 4], [f64; 4]),    // min[x,y,z,w], max[x,y,z,w]
-    Color([u8; 4], [u8; 4]),     // min[r,g,b,a], max[r,g,b,a]
-}
-
-impl ValueRange {
-    fn merge(&mut self, other: &ValueRange) {
-        match (self, other) {
-            (ValueRange::Bool(st, sf), ValueRange::Bool(ot, of)) => {
-                *st = *st || *ot;
-                *sf = *sf || *of;
-            }
-            (ValueRange::Int(smin, smax), ValueRange::Int(omin, omax)) => {
-                *smin = (*smin).min(*omin);
-                *smax = (*smax).max(*omax);
-            }
-            (ValueRange::Float(smin, smax), ValueRange::Float(omin, omax)) => {
-                *smin = smin.min(*omin);
-                *smax = smax.max(*omax);
-            }
-            (ValueRange::Vec2(smin, smax), ValueRange::Vec2(omin, omax)) => {
-                for i in 0..2 { smin[i] = smin[i].min(omin[i]); smax[i] = smax[i].max(omax[i]); }
-            }
-            (ValueRange::Vec3(smin, smax), ValueRange::Vec3(omin, omax)) => {
-                for i in 0..3 { smin[i] = smin[i].min(omin[i]); smax[i] = smax[i].max(omax[i]); }
-            }
-            (ValueRange::Vec4(smin, smax), ValueRange::Vec4(omin, omax)) => {
-                for i in 0..4 { smin[i] = smin[i].min(omin[i]); smax[i] = smax[i].max(omax[i]); }
-            }
-            (ValueRange::Color(smin, smax), ValueRange::Color(omin, omax)) => {
-                for i in 0..4 { smin[i] = smin[i].min(omin[i]); smax[i] = smax[i].max(omax[i]); }
-            }
-            _ => {}
-        }
-    }
-}
-
-fn extract_range(value: &BinValue) -> ValueRange {
-    match value {
-        BinValue::Bool(b) => ValueRange::Bool(*b, !*b),
-        BinValue::Flag(b) => ValueRange::Bool(*b, !*b),
-        BinValue::I8(n) => ValueRange::Int(*n as i64, *n as i64),
-        BinValue::U8(n) => ValueRange::Int(*n as i64, *n as i64),
-        BinValue::I16(n) => ValueRange::Int(*n as i64, *n as i64),
-        BinValue::U16(n) => ValueRange::Int(*n as i64, *n as i64),
-        BinValue::I32(n) => ValueRange::Int(*n as i64, *n as i64),
-        BinValue::U32(n) => ValueRange::Int(*n as i64, *n as i64),
-        BinValue::I64(n) => ValueRange::Int(*n, *n),
-        BinValue::U64(n) => ValueRange::Int(*n as i64, *n as i64),
-        BinValue::F32(n) => ValueRange::Float(*n as f64, *n as f64),
-        BinValue::Vec2(a) => {
-            let a = [a[0] as f64, a[1] as f64];
-            ValueRange::Vec2(a, a)
-        }
-        BinValue::Vec3(a) => {
-            let a = [a[0] as f64, a[1] as f64, a[2] as f64];
-            ValueRange::Vec3(a, a)
-        }
-        BinValue::Vec4(a) => {
-            let a = [a[0] as f64, a[1] as f64, a[2] as f64, a[3] as f64];
-            ValueRange::Vec4(a, a)
-        }
-        BinValue::Rgba(a) => {
-            let a = [a[0], a[1], a[2], a[3]];
-            ValueRange::Color(a, a)
-        }
-        _ => ValueRange::None,
-    }
-}
-
-// =============================================================================
-// Type description helpers
+// Type description
 // =============================================================================
 
 fn kind_str(kind: BinType) -> &'static str {
@@ -167,45 +106,53 @@ fn kind_str(kind: BinType) -> &'static str {
     }
 }
 
-/// Returns (ritobin-style type_string, optional nested class_hash).
-fn describe_value(value: &BinValue) -> (String, Option<u32>) {
+fn describe_type(value: &BinValue) -> String {
     match value {
-        BinValue::Pointer { class, .. } => ("pointer".to_string(), Some(*class)),
-        BinValue::Embed { class, .. } => ("embed".to_string(), Some(*class)),
-        BinValue::List {
-            is_list2,
-            item,
-            items,
-        } => {
-            let item_type = kind_str(*item);
-            let nested = find_nested_class_in_container(items);
+        BinValue::Pointer { .. } => "pointer".to_string(),
+        BinValue::Embed { .. } => "embed".to_string(),
+        BinValue::List { is_list2, item, .. } => {
             if *is_list2 {
-                (format!("list2[{}]", item_type), nested)
+                format!("list2[{}]", kind_str(*item))
             } else {
-                (format!("list[{}]", item_type), nested)
+                format!("list[{}]", kind_str(*item))
             }
         }
-        BinValue::Map {
-            key,
-            value,
-            entries,
-        } => {
-            let key_type = kind_str(*key);
-            let val_type = kind_str(*value);
-            let nested = entries.iter().find_map(|(_k, v)| nested_class_of(v));
-            (format!("map[{}, {}]", key_type, val_type), nested)
+        BinValue::Map { key, value, .. } => {
+            format!("map[{},{}]", kind_str(*key), kind_str(*value))
         }
-        BinValue::Option { item, value: inner } => {
-            let inner_type = kind_str(*item);
-            let nested = inner.as_deref().and_then(nested_class_of);
-            (format!("option[{}]", inner_type), nested)
-        }
-        other => (kind_str(other.ty()).to_string(), None),
+        BinValue::Option { item, .. } => format!("option[{}]", kind_str(*item)),
+        other => kind_str(other.ty()).to_string(),
     }
 }
 
-fn nested_class_of(v: &BinValue) -> Option<u32> {
-    match v {
+fn is_scalar_value(v: &BinValue) -> bool {
+    matches!(
+        v,
+        BinValue::Bool(_)
+            | BinValue::Flag(_)
+            | BinValue::I8(_)
+            | BinValue::U8(_)
+            | BinValue::I16(_)
+            | BinValue::U16(_)
+            | BinValue::I32(_)
+            | BinValue::U32(_)
+            | BinValue::I64(_)
+            | BinValue::U64(_)
+            | BinValue::F32(_)
+            | BinValue::Vec2(_)
+            | BinValue::Vec3(_)
+            | BinValue::Vec4(_)
+            | BinValue::Mtx44(_)
+            | BinValue::Rgba(_)
+            | BinValue::String(_)
+            | BinValue::Hash(_)
+            | BinValue::Link(_)
+            | BinValue::File(_)
+    )
+}
+
+fn class_of(value: &BinValue) -> Option<u32> {
+    match value {
         BinValue::Pointer { class, .. } | BinValue::Embed { class, .. } if *class != 0 => {
             Some(*class)
         }
@@ -213,168 +160,414 @@ fn nested_class_of(v: &BinValue) -> Option<u32> {
     }
 }
 
-fn find_nested_class_in_container(items: &[BinValue]) -> Option<u32> {
-    items.iter().find_map(nested_class_of)
-}
-
 // =============================================================================
-// Schema processing (recursive)
+// Aggregation: walk every property, merge into the global schema
 // =============================================================================
 
-fn process_properties(
+fn process_class(
     class_hash: u32,
     fields: &IndexMap<u32, BinValue>,
     schema: &mut HashMap<u32, ClassSchema>,
 ) {
+    if class_hash == 0 {
+        return;
+    }
+
     let class = schema.entry(class_hash).or_insert_with(|| ClassSchema {
-        class_hash,
-        fields: HashMap::new(),
+        fields: IndexMap::new(),
     });
 
-    for (name_hash, value) in fields.iter() {
-        let (type_str, nested_class_hash) = describe_value(value);
-
-        let range = extract_range(value);
+    for (name_hash, value) in fields {
+        let type_str = describe_type(value);
+        let limit = if is_scalar_value(value) {
+            SAMPLE_LIMIT_SCALAR
+        } else {
+            SAMPLE_LIMIT_COMPLEX
+        };
 
         let field = class.fields.entry(*name_hash).or_insert_with(|| FieldSchema {
-            name_hash: *name_hash,
-            types: Vec::new(),
-            nested_class_hash: None,
-            occurrences: 0,
-            value_range: ValueRange::None,
+            type_str: type_str.clone(),
+            samples: Vec::new(),
+            sample_limit: limit,
+            seen_classes: Vec::new(),
+            list_items: Vec::new(),
+            list_classes: HashSet::new(),
+            list_classless: 0,
+            map_entries: Vec::new(),
+            map_classes: HashSet::new(),
+            map_classless: 0,
         });
 
-        if !field.types.contains(&type_str) {
-            field.types.push(type_str);
+        if field.type_str.is_empty() {
+            field.type_str = type_str;
+        }
+        if limit > field.sample_limit {
+            field.sample_limit = limit;
         }
 
-        if field.nested_class_hash.is_none() {
-            field.nested_class_hash = nested_class_hash;
-        }
-
-        if matches!(field.value_range, ValueRange::None) {
-            field.value_range = range;
-        } else {
-            field.value_range.merge(&range);
-        }
-
-        field.occurrences += 1;
-    }
-
-    let recurse_targets: Vec<_> = fields
-        .values()
-        .filter_map(|value| match value {
-            BinValue::Pointer { class, fields } | BinValue::Embed { class, fields }
-                if *class != 0 =>
-            {
-                Some((*class, fields.clone()))
+        if let Some(ch) = class_of(value) {
+            if !field.seen_classes.contains(&ch) {
+                field.seen_classes.push(ch);
             }
-            _ => None,
-        })
-        .collect();
-
-    for (ch, props) in recurse_targets {
-        process_properties(ch, &props, schema);
-    }
-
-    for value in fields.values() {
-        recurse_container_items(value, schema);
-    }
-}
-
-fn recurse_container_items(value: &BinValue, schema: &mut HashMap<u32, ClassSchema>) {
-    match value {
-        BinValue::List { items, .. } => {
-            process_nested_struct_items(items.iter(), schema);
         }
-        BinValue::Map { entries, .. } => {
-            process_nested_struct_items(entries.iter().map(|(_k, v)| v), schema);
-        }
-        BinValue::Option {
-            value: Some(inner), ..
-        } => {
-            process_nested_struct_items(std::iter::once(inner.as_ref()), schema);
-        }
-        _ => {}
-    }
-}
 
-fn process_nested_struct_items<'a, I>(items: I, schema: &mut HashMap<u32, ClassSchema>)
-where
-    I: Iterator<Item = &'a BinValue>,
-{
-    for item in items {
-        match item {
-            BinValue::Pointer { class, fields } | BinValue::Embed { class, fields }
-                if *class != 0 =>
-            {
-                process_properties(*class, &fields.clone(), schema);
+        if field.samples.len() < field.sample_limit {
+            field.samples.push(value.clone());
+        }
+
+        match value {
+            BinValue::List { items, .. } => {
+                merge_list_items(field, items);
+            }
+            BinValue::Map { entries, .. } => {
+                merge_map_entries(field, entries);
             }
             _ => {}
         }
     }
+
+    let mut nested: Vec<(u32, IndexMap<u32, BinValue>)> = Vec::new();
+    for value in fields.values() {
+        collect_nested(value, &mut nested);
+    }
+    for (ch, props) in nested {
+        process_class(ch, &props, schema);
+    }
 }
 
-fn resolve_hash_name(hash: u32, bin_hashes: &HashMapper) -> Option<String> {
-    bin_hashes.get(hash as u64).map(|name| name.to_string())
-}
-
-// =============================================================================
-// Range formatting for ritobin-style output
-// =============================================================================
-
-fn fmt_f(v: f64) -> String {
-    let s = format!("{:.3}", v);
-    let s = s.trim_end_matches('0');
-    let s = s.trim_end_matches('.');
-    s.to_string()
-}
-
-fn fmt_range_f(min: f64, max: f64) -> String {
-    if (min - max).abs() < 1e-6 { fmt_f(min) } else { format!("{}..{}", fmt_f(min), fmt_f(max)) }
-}
-
-fn fmt_range_i(min: i64, max: i64) -> String {
-    if min == max { format!("{}", min) } else { format!("{}..{}", min, max) }
-}
-
-fn format_range(range: &ValueRange, type_str: &str) -> String {
-    match range {
-        ValueRange::Bool(t, f) => {
-            match (*t, *f) {
-                (true, true) => "true | false".to_string(),
-                (true, false) => "true".to_string(),
-                (false, true) => "false".to_string(),
-                _ => "false".to_string(),
+fn merge_list_items(field: &mut FieldSchema, items: &[BinValue]) {
+    for item in items {
+        let keep = match class_of(item) {
+            Some(class) => {
+                field.list_classes.len() < POLYMORPHIC_LIST_CLASS_LIMIT
+                    && field.list_classes.insert(class)
             }
-        }
-        ValueRange::Int(min, max) => fmt_range_i(*min, *max),
-        ValueRange::Float(min, max) => fmt_range_f(*min, *max),
-        ValueRange::Vec2(min, max) => {
-            format!("{{ {}, {} }}", fmt_range_f(min[0], max[0]), fmt_range_f(min[1], max[1]))
-        }
-        ValueRange::Vec3(min, max) => {
-            format!("{{ {}, {}, {} }}",
-                fmt_range_f(min[0], max[0]), fmt_range_f(min[1], max[1]), fmt_range_f(min[2], max[2]))
-        }
-        ValueRange::Vec4(min, max) => {
-            format!("{{ {}, {}, {}, {} }}",
-                fmt_range_f(min[0], max[0]), fmt_range_f(min[1], max[1]),
-                fmt_range_f(min[2], max[2]), fmt_range_f(min[3], max[3]))
-        }
-        ValueRange::Color(min, max) => {
-            let fmt = |i: usize| -> String {
-                if min[i] == max[i] { format!("{}", min[i]) } else { format!("{}..{}", min[i], max[i]) }
-            };
-            format!("{{ {}, {}, {}, {} }}", fmt(0), fmt(1), fmt(2), fmt(3))
-        }
-        ValueRange::None => {
-            if type_str == "string" { "\"...\"".to_string() }
-            else if type_str == "hash" || type_str == "link" || type_str == "file" { "0x...".to_string() }
-            else if type_str.starts_with("list") || type_str.starts_with("map") || type_str.starts_with("option") { "{}".to_string() }
-            else { "...".to_string() }
+            None => {
+                if field.list_classless < SAMPLE_LIMIT_COMPLEX {
+                    if !field.list_items.contains(item) {
+                        field.list_classless += 1;
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            }
+        };
+        if keep {
+            field.list_items.push(item.clone());
         }
     }
+}
+
+fn merge_map_entries(field: &mut FieldSchema, entries: &[(BinValue, BinValue)]) {
+    for (key, value) in entries {
+        let keep = match class_of(value) {
+            Some(class) => {
+                field.map_classes.len() < MAP_CLASS_LIMIT && field.map_classes.insert(class)
+            }
+            None => {
+                let room = field.map_classless < SAMPLE_LIMIT_COMPLEX;
+                if room {
+                    field.map_classless += 1;
+                }
+                room
+            }
+        };
+        if keep {
+            field.map_entries.push((key.clone(), value.clone()));
+        }
+    }
+}
+
+fn collect_nested(value: &BinValue, out: &mut Vec<(u32, IndexMap<u32, BinValue>)>) {
+    match value {
+        BinValue::Pointer { class, fields } | BinValue::Embed { class, fields } if *class != 0 => {
+            out.push((*class, fields.clone()));
+        }
+        BinValue::List { items, .. } => {
+            for item in items {
+                collect_nested(item, out);
+            }
+        }
+        BinValue::Map { entries, .. } => {
+            for (_k, v) in entries {
+                collect_nested(v, out);
+            }
+        }
+        BinValue::Option {
+            value: Some(inner), ..
+        } => collect_nested(inner, out),
+        _ => {}
+    }
+}
+
+// =============================================================================
+// Hash resolution helper
+// =============================================================================
+
+fn resolve_name(hash: u32, provider: &HashMapper) -> Option<String> {
+    provider.get(hash as u64).map(|n| n.to_string())
+}
+
+fn resolve_entry_key(hash: u32, provider: &HashMapper) -> String {
+    if let Some(name) = provider.get(hash as u64) {
+        format!("\"{}\"", escape_str(name))
+    } else {
+        format!("0x{:08x}", hash)
+    }
+}
+
+// =============================================================================
+// Ritobin-style rendering
+// =============================================================================
+
+fn fmt_f32(v: f32) -> String {
+    if v.is_nan() {
+        return "0".to_string();
+    }
+    if v == v.trunc() && v.abs() < 1.0e10 {
+        return format!("{}", v as i64);
+    }
+    let s = format!("{:.4}", v);
+    let s = s.trim_end_matches('0').trim_end_matches('.');
+    if s.is_empty() {
+        "0".to_string()
+    } else {
+        s.to_string()
+    }
+}
+
+fn escape_str(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+fn indent_str(level: usize) -> String {
+    "    ".repeat(level)
+}
+
+fn render_value(
+    value: &BinValue,
+    schema: &HashMap<u32, ClassSchema>,
+    provider: &HashMapper,
+    visited: &mut HashSet<u32>,
+    indent: usize,
+    out: &mut String,
+) {
+    use std::fmt::Write;
+
+    match value {
+        BinValue::None => out.push_str("null"),
+        BinValue::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        BinValue::Flag(b) => out.push_str(if *b { "true" } else { "false" }),
+        BinValue::I8(n) => write!(out, "{}", n).unwrap(),
+        BinValue::U8(n) => write!(out, "{}", n).unwrap(),
+        BinValue::I16(n) => write!(out, "{}", n).unwrap(),
+        BinValue::U16(n) => write!(out, "{}", n).unwrap(),
+        BinValue::I32(n) => write!(out, "{}", n).unwrap(),
+        BinValue::U32(n) => write!(out, "{}", n).unwrap(),
+        BinValue::I64(n) => write!(out, "{}", n).unwrap(),
+        BinValue::U64(n) => write!(out, "{}", n).unwrap(),
+        BinValue::F32(n) => out.push_str(&fmt_f32(*n)),
+        BinValue::Vec2(a) => {
+            write!(out, "{{ {}, {} }}", fmt_f32(a[0]), fmt_f32(a[1])).unwrap();
+        }
+        BinValue::Vec3(a) => {
+            write!(
+                out,
+                "{{ {}, {}, {} }}",
+                fmt_f32(a[0]),
+                fmt_f32(a[1]),
+                fmt_f32(a[2])
+            )
+            .unwrap();
+        }
+        BinValue::Vec4(a) => {
+            write!(
+                out,
+                "{{ {}, {}, {}, {} }}",
+                fmt_f32(a[0]),
+                fmt_f32(a[1]),
+                fmt_f32(a[2]),
+                fmt_f32(a[3])
+            )
+            .unwrap();
+        }
+        BinValue::Mtx44(_) => out.push_str("{ /* mat4 */ }"),
+        BinValue::Rgba(a) => {
+            write!(out, "{{ {}, {}, {}, {} }}", a[0], a[1], a[2], a[3]).unwrap();
+        }
+        BinValue::String(s) => {
+            write!(out, "\"{}\"", escape_str(s)).unwrap();
+        }
+        BinValue::Hash(h) => match resolve_name(*h, provider) {
+            Some(name) => write!(out, "\"{}\"", escape_str(&name)).unwrap(),
+            None => write!(out, "0x{:08x}", h).unwrap(),
+        },
+        BinValue::Link(h) => match resolve_name(*h, provider) {
+            Some(name) => write!(out, "\"{}\"", escape_str(&name)).unwrap(),
+            None => write!(out, "0x{:08x}", h).unwrap(),
+        },
+        BinValue::File(h) => {
+            write!(out, "0x{:016x}", h).unwrap();
+        }
+        BinValue::Pointer { class, .. } | BinValue::Embed { class, .. } => {
+            let class_name =
+                resolve_name(*class, provider).unwrap_or_else(|| format!("0x{:08x}", class));
+            write!(out, "{} ", class_name).unwrap();
+            render_class_block(*class, schema, provider, visited, indent, out);
+        }
+        BinValue::List { items, .. } => {
+            render_container(items, schema, provider, visited, indent, out);
+        }
+        BinValue::Map { entries, .. } => {
+            let sampled: Vec<&(BinValue, BinValue)> =
+                entries.iter().take(SAMPLE_LIMIT_COMPLEX).collect();
+            render_map_entries(&sampled, schema, provider, visited, indent, out);
+        }
+        BinValue::Option { value: inner, .. } => match inner {
+            Some(boxed) => render_value(boxed, schema, provider, visited, indent, out),
+            None => out.push_str("null"),
+        },
+    }
+}
+
+fn render_container(
+    items: &[BinValue],
+    schema: &HashMap<u32, ClassSchema>,
+    provider: &HashMapper,
+    visited: &mut HashSet<u32>,
+    indent: usize,
+    out: &mut String,
+) {
+    use std::fmt::Write;
+
+    if items.is_empty() {
+        out.push_str("{}");
+        return;
+    }
+
+    let all_scalar = items.iter().all(is_scalar_value);
+    if all_scalar && items.len() <= 4 {
+        out.push_str("{ ");
+        for (i, it) in items.iter().enumerate() {
+            if i > 0 {
+                out.push_str(", ");
+            }
+            render_value(it, schema, provider, visited, indent, out);
+        }
+        out.push_str(" }");
+        return;
+    }
+
+    out.push_str("{\n");
+    let inner_indent = indent_str(indent + 1);
+    for it in items.iter() {
+        out.push_str(&inner_indent);
+        render_value(it, schema, provider, visited, indent + 1, out);
+        out.push('\n');
+    }
+    write!(out, "{}}}", indent_str(indent)).unwrap();
+}
+
+fn render_map_entries(
+    entries: &[&(BinValue, BinValue)],
+    schema: &HashMap<u32, ClassSchema>,
+    provider: &HashMapper,
+    visited: &mut HashSet<u32>,
+    indent: usize,
+    out: &mut String,
+) {
+    use std::fmt::Write;
+
+    if entries.is_empty() {
+        out.push_str("{}");
+        return;
+    }
+
+    out.push_str("{\n");
+    let inner_indent = indent_str(indent + 1);
+    for (k, v) in entries.iter() {
+        out.push_str(&inner_indent);
+        render_value(k, schema, provider, visited, indent + 1, out);
+        out.push_str(" = ");
+        render_value(v, schema, provider, visited, indent + 1, out);
+        out.push('\n');
+    }
+    write!(out, "{}}}", indent_str(indent)).unwrap();
+}
+
+fn render_class_block(
+    class_hash: u32,
+    schema: &HashMap<u32, ClassSchema>,
+    provider: &HashMapper,
+    visited: &mut HashSet<u32>,
+    indent: usize,
+    out: &mut String,
+) {
+    use std::fmt::Write;
+
+    if !visited.insert(class_hash) {
+        out.push_str("{ /* recursive */ }");
+        return;
+    }
+
+    let class = match schema.get(&class_hash) {
+        Some(c) => c,
+        None => {
+            out.push_str("{}");
+            visited.remove(&class_hash);
+            return;
+        }
+    };
+
+    if class.fields.is_empty() {
+        out.push_str("{}");
+        visited.remove(&class_hash);
+        return;
+    }
+
+    out.push_str("{\n");
+    let inner_indent = indent_str(indent + 1);
+    for (name_hash, field) in &class.fields {
+        let field_name = resolve_name(*name_hash, provider)
+            .unwrap_or_else(|| format!("0x{:08x}", name_hash));
+
+        if field.seen_classes.len() > 1 && field.list_items.is_empty() && field.map_entries.is_empty() {
+            let alt_names: Vec<String> = field
+                .seen_classes
+                .iter()
+                .filter_map(|&ch| resolve_name(ch, provider))
+                .collect();
+            if !alt_names.is_empty() {
+                let _ = writeln!(
+                    out,
+                    "{}# {}: pointer variants seen: {}",
+                    inner_indent,
+                    field_name,
+                    alt_names.join(", ")
+                );
+            }
+        }
+
+        write!(out, "{}{}: {} = ", inner_indent, field_name, field.type_str).unwrap();
+
+        if !field.list_items.is_empty() {
+            render_container(&field.list_items, schema, provider, visited, indent + 1, out);
+        } else if !field.map_entries.is_empty() {
+            let entries: Vec<&(BinValue, BinValue)> = field.map_entries.iter().collect();
+            render_map_entries(&entries, schema, provider, visited, indent + 1, out);
+        } else if let Some(sample) = field.samples.first() {
+            render_value(sample, schema, provider, visited, indent + 1, out);
+        } else {
+            out.push_str("null");
+        }
+        out.push('\n');
+    }
+    write!(out, "{}}}", indent_str(indent)).unwrap();
+
+    visited.remove(&class_hash);
 }
 
 // =============================================================================
@@ -418,6 +611,9 @@ pub async fn aggregate_bin_schema(
     let env_opt = lmdb.get_env(&hash_dir);
 
     let mut schema: HashMap<u32, ClassSchema> = HashMap::new();
+    let mut entries_by_class: HashMap<u32, Vec<EntrySample>> = HashMap::new();
+    let mut root_class_order: Vec<u32> = Vec::new();
+    let mut linked_samples: Vec<String> = Vec::new();
     let mut bins_parsed: usize = 0;
     let mut bins_failed: usize = 0;
 
@@ -471,16 +667,35 @@ pub async fn aggregate_bin_schema(
                 }
 
                 if data.len() <= MAX_BIN_SIZE {
-                    match read_bin(&data) {
-                        Ok(bin) => {
-                            for entry in &bin.entries {
-                                process_properties(entry.class_hash, &entry.fields, &mut schema);
+                    if let Ok(bin) = read_bin(&data) {
+                        if linked_samples.len() < LINKED_PATH_SAMPLE_LIMIT {
+                            for dep in &bin.linked {
+                                if linked_samples.len() >= LINKED_PATH_SAMPLE_LIMIT {
+                                    break;
+                                }
+                                if !linked_samples.contains(dep) {
+                                    linked_samples.push(dep.clone());
+                                }
                             }
-                            bins_parsed += 1;
                         }
-                        Err(_) => {
-                            bins_failed += 1;
+
+                        for entry in &bin.entries {
+                            let entries_list = entries_by_class.entry(entry.class_hash).or_default();
+                            if !root_class_order.contains(&entry.class_hash) {
+                                root_class_order.push(entry.class_hash);
+                            }
+                            if entries_list.len() < ENTRY_KEY_LIMIT_PER_CLASS {
+                                let key_repr = resolve_entry_key(entry.path_hash, &get_cached_bin_hashes().read());
+                                if !entries_list.iter().any(|e| e.key_repr == key_repr) {
+                                    entries_list.push(EntrySample { key_repr });
+                                }
+                            }
+
+                            process_class(entry.class_hash, &entry.fields, &mut schema);
                         }
+                        bins_parsed += 1;
+                    } else {
+                        bins_failed += 1;
                     }
                 }
                 continue;
@@ -506,8 +721,30 @@ pub async fn aggregate_bin_schema(
 
             match read_bin(&data) {
                 Ok(bin) => {
+                    if linked_samples.len() < LINKED_PATH_SAMPLE_LIMIT {
+                        for dep in &bin.linked {
+                            if linked_samples.len() >= LINKED_PATH_SAMPLE_LIMIT {
+                                break;
+                            }
+                            if !linked_samples.contains(dep) {
+                                linked_samples.push(dep.clone());
+                            }
+                        }
+                    }
+
                     for entry in &bin.entries {
-                        process_properties(entry.class_hash, &entry.fields, &mut schema);
+                        let entries_list = entries_by_class.entry(entry.class_hash).or_default();
+                        if !root_class_order.contains(&entry.class_hash) {
+                            root_class_order.push(entry.class_hash);
+                        }
+                        if entries_list.len() < ENTRY_KEY_LIMIT_PER_CLASS {
+                            let key_repr = resolve_entry_key(entry.path_hash, &get_cached_bin_hashes().read());
+                            if !entries_list.iter().any(|e| e.key_repr == key_repr) {
+                                entries_list.push(EntrySample { key_repr });
+                            }
+                        }
+
+                        process_class(entry.class_hash, &entry.fields, &mut schema);
                     }
                     bins_parsed += 1;
                 }
@@ -518,72 +755,62 @@ pub async fn aggregate_bin_schema(
         }
     }
 
-    let bin_hashes = get_cached_bin_hashes().read();
+    let provider = get_cached_bin_hashes().read();
     let total_fields: usize = schema.values().map(|c| c.fields.len()).sum();
 
-    let mut classes: Vec<&ClassSchema> = schema.values().collect();
-    classes.sort_by(|a, b| b.fields.len().cmp(&a.fields.len()));
-
-    let mut output = String::with_capacity(2 * 1024 * 1024);
+    let mut output = String::with_capacity(4 * 1024 * 1024);
 
     use std::fmt::Write;
-    let _ = writeln!(output, "// BIN Schema Reference — Flint");
-    let _ = writeln!(output, "// Generated: {}", chrono::Utc::now().to_rfc3339());
+    let _ = writeln!(output, "# Whole-Game BIN Schema Reference — Flint");
+    let _ = writeln!(output, "# Generated: {}", chrono::Utc::now().to_rfc3339());
     let _ = writeln!(
         output,
-        "// WADs scanned: {} | BINs parsed: {} | Failed: {}",
+        "# WADs scanned: {} | BINs parsed: {} | Failed: {}",
         total_wads, bins_parsed, bins_failed
     );
     let _ = writeln!(
         output,
-        "// Classes: {} | Fields: {}",
+        "# Classes: {} | Fields: {}",
         schema.len(), total_fields
     );
+    let _ = writeln!(output, "#");
+    let _ = writeln!(output, "# Format: real ritobin block syntax — copy any block straight into a .ritobin file.");
+    let _ = writeln!(output);
 
-    for class in &classes {
-        let class_name = resolve_hash_name(class.class_hash, &bin_hashes)
-            .unwrap_or_else(|| format!("0x{:08X}", class.class_hash));
+    let _ = writeln!(output, "#PROP_text");
+    let _ = writeln!(output, "type: string = \"PROP\"");
+    let _ = writeln!(output, "version: u32 = 3");
 
-        let _ = writeln!(output);
-        let _ = writeln!(output, "// {} (0x{:08X})", class_name, class.class_hash);
-        let _ = writeln!(output, "{} {{", class_name);
-
-        let mut fields: Vec<&FieldSchema> = class.fields.values().collect();
-        fields.sort_by(|a, b| b.occurrences.cmp(&a.occurrences));
-
-        for field in &fields {
-            let field_name = resolve_hash_name(field.name_hash, &bin_hashes)
-                .unwrap_or_else(|| format!("0x{:08X}", field.name_hash));
-
-            let type_str = field.types.first().map(|s| s.as_str()).unwrap_or("?");
-
-            if let Some(nested_hash) = field.nested_class_hash {
-                let nested_name = resolve_hash_name(nested_hash, &bin_hashes)
-                    .unwrap_or_else(|| format!("0x{:08X}", nested_hash));
-
-                if type_str == "embed" || type_str == "pointer" {
-                    let _ = writeln!(output, "    {}: {} = {} {{}}", field_name, type_str, nested_name);
-                } else if type_str.starts_with("list") || type_str.starts_with("option") {
-                    let _ = writeln!(output, "    {}: {} = {{ {} {{}} }}", field_name, type_str, nested_name);
-                } else {
-                    let _ = writeln!(output, "    {}: {} = {{}}", field_name, type_str);
-                }
-            } else {
-                let val = format_range(&field.value_range, type_str);
-                let _ = writeln!(output, "    {}: {} = {}", field_name, type_str, val);
-            }
-        }
-
-        let _ = writeln!(output, "}}");
+    let _ = writeln!(output, "linked: list[string] = {{");
+    for path in &linked_samples {
+        let _ = writeln!(output, "    \"{}\"", escape_str(path));
     }
+    let _ = writeln!(output, "}}");
+
+    let _ = writeln!(output, "entries: map[hash,embed] = {{");
+    for class_hash in &root_class_order {
+        let class_name = resolve_name(*class_hash, &provider)
+            .unwrap_or_else(|| format!("0x{:08x}", class_hash));
+        let samples = match entries_by_class.get(class_hash) {
+            Some(v) if !v.is_empty() => v,
+            _ => continue,
+        };
+        for entry in samples {
+            let mut visited: HashSet<u32> = HashSet::new();
+            let mut block = String::new();
+            render_class_block(*class_hash, &schema, &provider, &mut visited, 1, &mut block);
+            let _ = writeln!(output, "    {} = {} {}", entry.key_repr, class_name, block);
+        }
+    }
+    let _ = writeln!(output, "}}");
 
     let output_path = get_hash_dir()
         .map(|p| {
             p.parent()
                 .unwrap_or(&p)
-                .join("bin-schema.txt")
+                .join("bin-schema.ritobin")
         })
-        .unwrap_or_else(|_| std::path::PathBuf::from("bin-schema.txt"));
+        .unwrap_or_else(|_| std::path::PathBuf::from("bin-schema.ritobin"));
 
     std::fs::write(&output_path, &output)
         .map_err(|e| format!("Failed to write schema file: {}", e))?;
@@ -610,4 +837,48 @@ pub async fn aggregate_bin_schema(
         total_fields,
         output_path: output_path.to_string_lossy().to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn field() -> FieldSchema {
+        FieldSchema {
+            type_str: "list[pointer]".to_string(),
+            samples: Vec::new(),
+            sample_limit: SAMPLE_LIMIT_COMPLEX,
+            seen_classes: Vec::new(),
+            list_items: Vec::new(),
+            list_classes: HashSet::new(),
+            list_classless: 0,
+            map_entries: Vec::new(),
+            map_classes: HashSet::new(),
+            map_classless: 0,
+        }
+    }
+
+    fn driver_ptr(class: u32) -> BinValue {
+        BinValue::Pointer {
+            class,
+            fields: IndexMap::new(),
+        }
+    }
+
+    #[test]
+    fn collects_multiple_nested_classes_for_polymorphic_fields() {
+        let mut f = field();
+        merge_list_items(
+            &mut f,
+            &[
+                driver_ptr(0xaaaa),
+                driver_ptr(0xbbbb),
+                driver_ptr(0xaaaa),
+            ],
+        );
+
+        assert_eq!(f.list_items.len(), 2);
+        let classes: Vec<u32> = f.list_items.iter().filter_map(class_of).collect();
+        assert_eq!(classes, vec![0xaaaa, 0xbbbb]);
+    }
 }
