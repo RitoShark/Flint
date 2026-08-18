@@ -2,8 +2,22 @@
 
 use parking_lot::RwLock;
 use ritoshark::hash::HashMapper;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::OnceLock;
+
+static LOCAL_CUSTOM_HASHES: OnceLock<RwLock<HashSet<u64>>> = OnceLock::new();
+
+/// Hashes whose only name comes from this machine's `custom` overlay rather than
+/// the shared dictionary. They resolve here and nowhere else, so anything that
+/// has to survive the trip to another machine must treat them as unresolved.
+pub fn local_custom_hashes() -> &'static RwLock<HashSet<u64>> {
+    LOCAL_CUSTOM_HASHES.get_or_init(|| RwLock::new(HashSet::new()))
+}
+
+fn remember_local_custom(hashes: impl IntoIterator<Item = u64>) {
+    let mut local = local_custom_hashes().write();
+    local.extend(hashes);
+}
 
 fn merge_custom_hashes(hashes: &mut HashMapper, hash_dir: &str) -> usize {
     let Some(env) = crate::hash::get_custom_env(hash_dir) else {
@@ -19,19 +33,23 @@ fn merge_custom_hashes(hashes: &mut HashMapper, hash_dir: &str) -> usize {
         return 0;
     };
     let mut count = 0;
+    let mut local = Vec::new();
     for (key, name) in iter.flatten() {
         if key.len() == 4 {
             let hash = u32::from_be_bytes([key[0], key[1], key[2], key[3]]);
             hashes.insert(hash as u64, name.to_string());
+            local.push(hash as u64);
             count += 1;
         } else if key.len() == 8 {
             let hash = u64::from_be_bytes([
                 key[0], key[1], key[2], key[3], key[4], key[5], key[6], key[7],
             ]);
             hashes.insert(hash, name.to_string());
+            local.push(hash);
             count += 1;
         }
     }
+    remember_local_custom(local);
     count
 }
 
@@ -229,6 +247,7 @@ pub fn save_custom_file_hashes(entries: &BTreeMap<u64, String>) -> Result<usize,
     let env = crate::hash::get_or_create_custom_env(&hash_dir)
         .ok_or_else(|| "Failed to open custom hash database".to_string())?;
     let changed = write_custom_file_hashes(&env, entries)?;
+    remember_local_custom(entries.keys().copied());
     let mut cache = get_cached_bin_hashes().write();
     for (hash, name) in entries {
         cache.insert(*hash, name.clone());
@@ -245,6 +264,7 @@ pub fn save_custom_bin_hashes(entries: &BTreeMap<u32, String>) -> Result<usize, 
     let env = crate::hash::get_or_create_custom_env(&hash_dir)
         .ok_or_else(|| "Failed to open custom hash database".to_string())?;
     let changed = write_custom_bin_hashes(&env, entries)?;
+    remember_local_custom(entries.keys().map(|hash| *hash as u64));
     let mut cache = get_cached_bin_hashes().write();
     for (hash, name) in entries {
         cache.insert(*hash as u64, name.clone());

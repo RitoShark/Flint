@@ -25,6 +25,31 @@ fn remember_hash_names(text: &str, bin: &Bin) {
     }
 }
 
+/// Resolve the `0x…` tokens only this bin's own trailer can name.
+fn apply_own_trailer(text: String, bin: &Bin) -> String {
+    let trailer = flint_core::bin::read_trailer(&bin.trailing);
+    if trailer.is_empty() {
+        return text;
+    }
+    tracing::info!("BIN carries {} embedded hash name(s)", trailer.len());
+    flint_core::bin::apply_trailer(text, &trailer)
+}
+
+/// Compile edited ritobin text, embedding the names the text is the only record
+/// of. A repathed asset exists in no dictionary, so once the editor writes the
+/// hash the path is unrecoverable unless it travels inside the bin.
+fn encode_with_trailer(text: &str) -> Result<Vec<u8>, String> {
+    let mut bin = flint_core::bin::text_to_tree(text)
+        .map_err(|e| format!("Failed to parse text content: {}", e))?;
+    remember_hash_names(text, &bin);
+    let trailer = flint_core::bin::capture_trailer(text, &bin);
+    if !trailer.is_empty() {
+        tracing::info!("Embedding {} hash name(s) in the BIN", trailer.len());
+        bin.trailing = flint_core::bin::append_trailer(&bin.trailing, &trailer);
+    }
+    flint_core::bin::write_bin(&bin).map_err(|e| format!("Failed to convert to binary: {}", e))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinInfo {
     pub entry_count: usize,
@@ -348,6 +373,7 @@ pub async fn parse_bin_file_to_text(
 
     let text = flint_core::bin::tree_to_text_cached(&bin)
         .map_err(|e| format!("Failed to convert to text: {}", e))?;
+    let text = apply_own_trailer(text, &bin);
 
     tracing::info!("Successfully parsed BIN file to text ({} chars)", text.len());
 
@@ -436,8 +462,9 @@ async fn read_or_convert_bin_inner(
     let text = {
         let bin = flint_core::bin::read_bin(&data)
             .map_err(|e| format!("Failed to parse bin file: {}", e))?;
-        flint_core::bin::tree_to_text_cached(&bin)
-            .map_err(|e| format!("Failed to convert to text: {}", e))?
+        let text = flint_core::bin::tree_to_text_cached(&bin)
+            .map_err(|e| format!("Failed to convert to text: {}", e))?;
+        apply_own_trailer(text, &bin)
     };
 
     tracing::info!("[BIN_READ] Converted {} to {} chars of text", bin_path, text.len());
@@ -467,15 +494,9 @@ pub async fn save_ritobin_to_bin(
     // Parse + encode is CPU-bound (ritobin text → tree → bytes). Run it on the
     // blocking pool so a large BIN save doesn't stall the async runtime / UI.
     let content_for_encode = content.clone();
-    let binary_data = tokio::task::spawn_blocking(move || {
-        let bin = flint_core::bin::text_to_tree(&content_for_encode)
-            .map_err(|e| format!("Failed to parse text content: {}", e))?;
-        remember_hash_names(&content_for_encode, &bin);
-        flint_core::bin::write_bin(&bin)
-            .map_err(|e| format!("Failed to convert to binary: {}", e))
-    })
-    .await
-    .map_err(|e| format!("encode task join error: {}", e))??;
+    let binary_data = tokio::task::spawn_blocking(move || encode_with_trailer(&content_for_encode))
+        .await
+        .map_err(|e| format!("encode task join error: {}", e))??;
 
     // Mark the path as an expected self-write so the watcher doesn't bounce it
     // back into the editor as an external modification.
@@ -506,15 +527,9 @@ pub async fn compile_ritobin_text_to_bytes(
 ) -> Result<tauri::ipc::Response, String> {
     let _t = ipc_trace::enter("compile_ritobin_text_to_bytes");
     // CPU-bound parse + encode — off the async runtime (see save_ritobin_to_bin).
-    let binary_data = tokio::task::spawn_blocking(move || {
-        let bin = flint_core::bin::text_to_tree(&content)
-            .map_err(|e| format!("Failed to parse text content: {}", e))?;
-        remember_hash_names(&content, &bin);
-        flint_core::bin::write_bin(&bin)
-            .map_err(|e| format!("Failed to convert to binary: {}", e))
-    })
-    .await
-    .map_err(|e| format!("encode task join error: {}", e))??;
+    let binary_data = tokio::task::spawn_blocking(move || encode_with_trailer(&content))
+        .await
+        .map_err(|e| format!("encode task join error: {}", e))??;
     Ok(tauri::ipc::Response::new(binary_data))
 }
 

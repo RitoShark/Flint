@@ -6,7 +6,7 @@
 //! cached `HashMapper` populated from the `hashes-bin.lmdb` dictionary.
 
 use flint_hash::hash::bin_dict::get_cached_bin_hashes;
-use ritoshark::bin::Bin;
+use ritoshark::bin::{Bin, Trailer};
 use ritoshark::hash::HashMapper;
 use ritoshark::prelude::{Parse as _, Serialize as _};
 use std::collections::{BTreeMap, HashSet};
@@ -258,26 +258,25 @@ fn custom_names_from_candidates(
     hashes: &TreeHashes,
 ) -> (BTreeMap<u32, String>, BTreeMap<u64, String>) {
     let known = get_cached_bin_hashes().read();
+    let local = flint_hash::hash::local_custom_hashes().read();
+    // A name this machine invented earlier is in the cache but in no dictionary
+    // anyone else has, so it still counts as custom — otherwise the second bin to
+    // use a repath would record nothing and lose it the moment the file travels.
+    let shared_knows = |hash: u64, name: &str| {
+        !local.contains(&hash) && known.get(hash).is_some_and(|known_name| known_name == name)
+    };
     let mut names = BTreeMap::new();
     let mut files = BTreeMap::new();
     for name in candidates {
         let hash = ritoshark::hash::fnv1a(name);
-        if hashes.names.contains(&hash)
-            && known
-                .get(hash as u64)
-                .is_none_or(|known_name| known_name != name)
-        {
+        if hashes.names.contains(&hash) && !shared_knows(hash as u64, name) {
             names.entry(hash).or_insert_with(|| name.clone());
         }
         if hashes.files.is_empty() {
             continue;
         }
         let file_hash = ritoshark::hash::xxh64(name);
-        if hashes.files.contains(&file_hash)
-            && known
-                .get(file_hash)
-                .is_none_or(|known_name| known_name != name)
-        {
+        if hashes.files.contains(&file_hash) && !shared_knows(file_hash, name) {
             files.entry(file_hash).or_insert_with(|| name.clone());
         }
     }
@@ -290,6 +289,31 @@ pub fn custom_hash_names_from_text(text: &str, tree: &Bin) -> BTreeMap<u32, Stri
 
 pub fn custom_file_names_from_text(text: &str, tree: &Bin) -> BTreeMap<u64, String> {
     custom_names_from_candidates(&text_name_candidates(text), &tree_hashes(tree)).1
+}
+
+/// The hash-to-name pairs this text is the only record of, ready to travel inside
+/// the bin. Captured while both halves are still on the page: once the value is a
+/// bare hash the name is gone, and a repath exists in no dictionary to look up.
+pub fn capture_trailer(text: &str, tree: &Bin) -> Trailer {
+    let (names, files) =
+        custom_names_from_candidates(&text_name_candidates(text), &tree_hashes(tree));
+    Trailer { names, files }
+}
+
+/// Rewrites the `0x…` tokens a bin's own trailer can name, so a repath reads back
+/// as the path the author typed rather than a hash.
+pub fn apply_trailer(text: String, trailer: &Trailer) -> String {
+    if trailer.is_empty() {
+        return text;
+    }
+    let mut hashes = HashMapper::new();
+    for (hash, name) in &trailer.names {
+        hashes.insert(*hash as u64, name.clone());
+    }
+    for (hash, name) in &trailer.files {
+        hashes.insert(*hash, name.clone());
+    }
+    unhash_text(&text, &hashes).0
 }
 
 pub fn remember_custom_hash_names(text: &str, tree: &Bin) -> Result<usize> {
@@ -372,6 +396,69 @@ mod custom_hash_tests {
         let files = custom_file_names_from_text(&text, &tree);
         assert_eq!(files.get(&ritoshark::hash::xxh64(path)), Some(&path.to_string()));
         assert_eq!(files.len(), 1);
+    }
+
+    #[test]
+    fn a_repathed_asset_survives_the_trip_to_a_machine_without_the_name() {
+        let path = "ASSETS/Modders/Flint7d9f/Skins/Skin0/Invented_7d9f.dds";
+        let emitter = "InventedEmitter_7d9f";
+        let mut fields = IndexMap::new();
+        fields.insert(fnv1a("mTextureRef"), BinValue::File(ritoshark::hash::xxh64(path)));
+        fields.insert(fnv1a("mEmitterName"), BinValue::Hash(fnv1a(emitter)));
+        let mut tree = Bin::new();
+        tree.entries.push(BinEntry {
+            path_hash: fnv1a("FlintTrailerEntry_7d9f"),
+            class_hash: fnv1a("VfxSystemDefinitionData"),
+            fields,
+        });
+        let text = format!(
+            "\"FlintTrailerEntry_7d9f\" = VfxSystemDefinitionData {{
+    mTextureRef: file = \"{path}\"
+    mEmitterName: hash = \"{emitter}\"
+}}"
+        );
+
+        let trailer = capture_trailer(&text, &tree);
+        assert_eq!(trailer.files.get(&ritoshark::hash::xxh64(path)), Some(&path.to_string()));
+        assert_eq!(trailer.names.get(&fnv1a(emitter)), Some(&emitter.to_string()));
+
+        let mut written = tree.clone();
+        written.trailing = crate::append_trailer(&written.trailing, &trailer);
+        let bytes = write_bin(&written).expect("write");
+        let reread = read_bin(&bytes).expect("read");
+        assert_eq!(reread.entries, tree.entries);
+
+        // Another machine: nothing in its dictionary names either hash.
+        let bare = tree_to_text_with_hashes(&reread, &HashMapper::new()).expect("text");
+        assert!(!bare.contains(path));
+        let recovered = apply_trailer(bare, &crate::read_trailer(&reread.trailing));
+        assert!(recovered.contains(path), "{recovered}");
+        assert!(recovered.contains(emitter), "{recovered}");
+    }
+
+    #[test]
+    fn a_name_this_machine_already_invented_is_still_captured() {
+        let path = "ASSETS/Modders/Flint7d9f/Skins/Skin0/Second_7d9f.dds";
+        let hash = ritoshark::hash::xxh64(path);
+        let mut fields = IndexMap::new();
+        fields.insert(fnv1a("mTextureRef"), BinValue::File(hash));
+        let mut tree = Bin::new();
+        tree.entries.push(BinEntry {
+            path_hash: fnv1a("FlintSecondEntry_7d9f"),
+            class_hash: fnv1a("VfxSystemDefinitionData"),
+            fields,
+        });
+        let text = format!(
+            "\"FlintSecondEntry_7d9f\" = VfxSystemDefinitionData {{
+    mTextureRef: file = \"{path}\"
+}}"
+        );
+
+        get_cached_bin_hashes().write().insert(hash, path.to_string());
+        flint_hash::hash::local_custom_hashes().write().insert(hash);
+
+        let trailer = capture_trailer(&text, &tree);
+        assert_eq!(trailer.files.get(&hash), Some(&path.to_string()));
     }
 
     #[test]

@@ -12,7 +12,8 @@ pub use lmdb_cache::{
 /// WAD-LMDB resolver.
 pub use lmdb_cache::ResolvedHashes;
 pub use bin_dict::{
-    get_cached_bin_hashes, reload_bin_hash_cache, save_custom_bin_hashes, save_custom_file_hashes,
+    get_cached_bin_hashes, local_custom_hashes, reload_bin_hash_cache, save_custom_bin_hashes,
+    save_custom_file_hashes,
 };
 
 

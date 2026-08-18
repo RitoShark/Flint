@@ -12,10 +12,15 @@ pub mod preloads;
 pub mod split;
 
 pub use codec::{
-    custom_file_names_from_text, custom_hash_names_from_text, read_bin, remember_custom_hash_names,
-    text_to_tree, tree_to_text_cached, unhash_text_cached, write_bin, MAX_BIN_SIZE,
+    apply_trailer, capture_trailer, custom_file_names_from_text, custom_hash_names_from_text,
+    read_bin, remember_custom_hash_names, text_to_tree, tree_to_text_cached, unhash_text_cached,
+    write_bin, MAX_BIN_SIZE,
 };
 pub use ritoshark::bin::{Bin, BinEntry, BinType, BinValue};
+
+/// The hash-to-path side table a bin carries after its declared body. Owned by
+/// the library so every tool reads the same layout.
+pub use ritoshark::bin::{append_trailer, read_trailer, Trailer};
 
 /// `mBlendDataTable`'s `u64` keys pack two FNV1a clip hashes; the library owns
 /// that layout, re-exported here so callers reach it alongside the value model.
