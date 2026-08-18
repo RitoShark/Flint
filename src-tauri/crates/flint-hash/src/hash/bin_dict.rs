@@ -24,17 +24,97 @@ fn merge_custom_hashes(hashes: &mut HashMapper, hash_dir: &str) -> usize {
             let hash = u32::from_be_bytes([key[0], key[1], key[2], key[3]]);
             hashes.insert(hash as u64, name.to_string());
             count += 1;
+        } else if key.len() == 8 {
+            let hash = u64::from_be_bytes([
+                key[0], key[1], key[2], key[3], key[4], key[5], key[6], key[7],
+            ]);
+            hashes.insert(hash, name.to_string());
+            count += 1;
         }
     }
     count
 }
 
-/// Load BIN hashes from `hashes-bin.lmdb` (named DB `"bin"`, 4-byte BE keys).
+fn merge_wad_hashes(hashes: &mut HashMapper, hash_dir: &str) -> usize {
+    let Some(env) = crate::hash::get_wad_env(hash_dir) else {
+        tracing::warn!("WAD LMDB not found at {}/hashes-wad.lmdb — WAD hashes unavailable for BIN resolving", hash_dir);
+        return 0;
+    };
+    let Some(db) = crate::hash::lmdb_cache::cached_db(&env, "wad") else {
+        tracing::warn!("WAD LMDB has no 'wad' named database");
+        return 0;
+    };
+    let Ok(rtxn) = env.read_txn() else {
+        tracing::warn!("Failed to open WAD LMDB read txn: {}", hash_dir);
+        return 0;
+    };
+    let Ok(iter) = db.iter(&rtxn) else {
+        tracing::warn!("Failed to create WAD LMDB iterator: {}", hash_dir);
+        return 0;
+    };
+    let mut count = 0;
+    for result in iter {
+        match result {
+            Ok((key_bytes, path_str)) => {
+                if key_bytes.len() == 8 {
+                    let hash = u64::from_be_bytes([
+                        key_bytes[0], key_bytes[1], key_bytes[2], key_bytes[3],
+                        key_bytes[4], key_bytes[5], key_bytes[6], key_bytes[7],
+                    ]);
+                    hashes.insert(hash, path_str.to_string());
+                    count += 1;
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Error reading WAD LMDB entry: {}", e);
+            }
+        }
+    }
+    count
+}
+
+fn merge_extracted_wad_overlay(hashes: &mut HashMapper, hash_dir: &str) -> usize {
+    let path = std::path::Path::new(hash_dir).join("hashes.extracted.txt");
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return 0;
+    };
+    let mut count = 0;
+    for line in content.lines() {
+        if let Some((h_str, path_str)) = line.split_once(' ') {
+            if let Ok(h) = u64::from_str_radix(h_str.trim(), 16) {
+                hashes.insert(h, path_str.trim().to_string());
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
+fn merge_extracted_bin_overlay(hashes: &mut HashMapper, hash_dir: &str) -> usize {
+    let path = std::path::Path::new(hash_dir).join("hashes.binhashes.extracted.txt");
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return 0;
+    };
+    let mut count = 0;
+    for line in content.lines() {
+        if let Some((h_str, path_str)) = line.split_once(' ') {
+            if let Ok(h) = u32::from_str_radix(h_str.trim(), 16) {
+                hashes.insert(h as u64, path_str.trim().to_string());
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
+/// Load BIN hashes from `hashes-bin.lmdb` (named DB `"bin"`, 4-byte BE keys)
+/// and WAD hashes from `hashes-wad.lmdb` (named DB `"wad"`, 8-byte BE keys).
 ///
 /// The lmdb-hashes release bundles all 4 BIN hash categories (entries, fields,
-/// hashes, types) into a single DB keyed by FNV1a-32. `rs_bin::to_text` resolves
-/// every u32 hash by widening it to `u64` (`mapper.get(hash as u64)`), so we
-/// insert each 32-bit key as `hash as u64` and a single map covers all categories.
+/// hashes, types) into a single DB keyed by FNV1a-32, and all WAD asset paths
+/// into a DB keyed by xxHash64. `rs_bin::to_text` resolves every u32 hash by
+/// widening it to `u64` (`mapper.get(hash as u64)`), and resolves 64-bit WAD
+/// file references (`file = <xxh64>`) via `mapper.get(hash)`.
 pub fn load_bin_hashes() -> HashMapper {
     use crate::hash::{downloader::get_hash_dir, get_bin_env};
 
@@ -48,65 +128,53 @@ pub fn load_bin_hashes() -> HashMapper {
         }
     };
 
-    let env = match get_bin_env(&hash_dir) {
-        Some(e) => e,
-        None => {
-            tracing::warn!("BIN LMDB not found at {}/hashes-bin.lmdb — BIN hashes unavailable", hash_dir);
-            return hashes;
-        }
-    };
-
-    // Open (and cache) the "bin" dbi handle BEFORE starting the read txn.
-    // `cached_db` performs the first-ever `mdb_dbi_open` for this dbi in its own
-    // txn and COMMITS it. If we opened the read txn first, its snapshot would
-    // predate that commit and the named DB would be invisible in it — the
-    // iterator then yields zero entries, the OnceLock caches an empty map, and
-    // every BIN conversion shows raw hashes forever (observed after a cold LMDB
-    // start). Mirror the working WAD path (`open_read_db`): dbi first, txn after.
-    let db = match crate::hash::lmdb_cache::cached_db(&env, "bin") {
-        Some(d) => d,
-        None => {
-            tracing::warn!("BIN LMDB has no 'bin' named database");
-            return hashes;
-        }
-    };
-
-    let rtxn = match env.read_txn() {
-        Ok(t) => t,
-        Err(e) => {
-            tracing::warn!("Failed to open BIN LMDB read txn: {}", e);
-            return hashes;
-        }
-    };
-
-    let iter = match db.iter(&rtxn) {
-        Ok(i) => i,
-        Err(e) => {
-            tracing::warn!("Failed to create BIN LMDB iterator: {}", e);
-            return hashes;
-        }
-    };
-
-    let mut count = 0;
-    for result in iter {
-        match result {
-            Ok((key_bytes, path_str)) => {
-                if key_bytes.len() == 4 {
-                    let hash = u32::from_be_bytes([
-                        key_bytes[0], key_bytes[1], key_bytes[2], key_bytes[3],
-                    ]);
-                    hashes.insert(hash as u64, path_str.to_string());
-                    count += 1;
+    let mut bin_count = 0;
+    if let Some(env) = get_bin_env(&hash_dir) {
+        // Open (and cache) the "bin" dbi handle BEFORE starting the read txn.
+        if let Some(db) = crate::hash::lmdb_cache::cached_db(&env, "bin") {
+            if let Ok(rtxn) = env.read_txn() {
+                if let Ok(iter) = db.iter(&rtxn) {
+                    for result in iter {
+                        match result {
+                            Ok((key_bytes, path_str)) => {
+                                if key_bytes.len() == 4 {
+                                    let hash = u32::from_be_bytes([
+                                        key_bytes[0], key_bytes[1], key_bytes[2], key_bytes[3],
+                                    ]);
+                                    hashes.insert(hash as u64, path_str.to_string());
+                                    bin_count += 1;
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!("Error reading BIN LMDB entry: {}", e);
+                            }
+                        }
+                    }
+                } else {
+                    tracing::warn!("Failed to create BIN LMDB iterator: {}", hash_dir);
                 }
+            } else {
+                tracing::warn!("Failed to open BIN LMDB read txn: {}", hash_dir);
             }
-            Err(e) => {
-                tracing::warn!("Error reading BIN LMDB entry: {}", e);
-            }
+        } else {
+            tracing::warn!("BIN LMDB has no 'bin' named database");
         }
+    } else {
+        tracing::warn!("BIN LMDB not found at {}/hashes-bin.lmdb — BIN hashes unavailable", hash_dir);
     }
 
+    let wad_count = merge_wad_hashes(&mut hashes, &hash_dir);
     let custom_count = merge_custom_hashes(&mut hashes, &hash_dir);
-    tracing::info!("Loaded {} BIN hashes and {} custom hashes", count, custom_count);
+    let extracted_wad_count = merge_extracted_wad_overlay(&mut hashes, &hash_dir);
+    let extracted_bin_count = merge_extracted_bin_overlay(&mut hashes, &hash_dir);
+
+    tracing::info!(
+        "Loaded {} BIN hashes, {} WAD hashes, and {} custom/overlay hashes (total: {})",
+        bin_count,
+        wad_count,
+        custom_count + extracted_wad_count + extracted_bin_count,
+        hashes.len()
+    );
     hashes
 }
 
@@ -224,6 +292,34 @@ mod tests {
         );
         drop(rtxn);
         drop(env);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn merge_extracted_wad_overlay_loads_xxhash64_hashes() {
+        let dir = std::env::temp_dir().join(format!(
+            "flint-extracted-hashes-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let overlay_file = dir.join("hashes.extracted.txt");
+        std::fs::write(
+            &overlay_file,
+            "123456789abcdef0 assets/characters/ahri/skins/skin01/ahri.dds\n",
+        )
+        .unwrap();
+
+        let mut mapper = HashMapper::new();
+        let loaded = merge_extracted_wad_overlay(&mut mapper, dir.to_str().unwrap());
+        assert_eq!(loaded, 1);
+        assert_eq!(
+            mapper.get(0x1234_5678_9abc_def0),
+            Some("assets/characters/ahri/skins/skin01/ahri.dds")
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 }
