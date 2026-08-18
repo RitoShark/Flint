@@ -199,6 +199,43 @@ fn write_custom_bin_hashes(
     Ok(changed)
 }
 
+fn write_custom_file_hashes(
+    env: &heed::Env,
+    entries: &BTreeMap<u64, String>,
+) -> Result<usize, String> {
+    let mut wtxn = env.write_txn().map_err(|e| e.to_string())?;
+    let db = env
+        .create_database::<heed::types::Bytes, heed::types::Str>(&mut wtxn, Some("custom"))
+        .map_err(|e| e.to_string())?;
+    let mut changed = 0;
+    for (hash, name) in entries {
+        let key = hash.to_be_bytes();
+        if db.get(&wtxn, &key[..]).map_err(|e| e.to_string())? != Some(name.as_str()) {
+            db.put(&mut wtxn, &key[..], name)
+                .map_err(|e| e.to_string())?;
+            changed += 1;
+        }
+    }
+    wtxn.commit().map_err(|e| e.to_string())?;
+    Ok(changed)
+}
+
+pub fn save_custom_file_hashes(entries: &BTreeMap<u64, String>) -> Result<usize, String> {
+    if entries.is_empty() {
+        return Ok(0);
+    }
+    let hash_dir = crate::hash::get_hash_dir().map_err(|e| e.to_string())?;
+    let hash_dir = hash_dir.to_string_lossy().into_owned();
+    let env = crate::hash::get_or_create_custom_env(&hash_dir)
+        .ok_or_else(|| "Failed to open custom hash database".to_string())?;
+    let changed = write_custom_file_hashes(&env, entries)?;
+    let mut cache = get_cached_bin_hashes().write();
+    for (hash, name) in entries {
+        cache.insert(*hash, name.clone());
+    }
+    Ok(changed)
+}
+
 pub fn save_custom_bin_hashes(entries: &BTreeMap<u32, String>) -> Result<usize, String> {
     if entries.is_empty() {
         return Ok(0);
@@ -291,6 +328,34 @@ mod tests {
             Some("FlintCustomName")
         );
         drop(rtxn);
+        drop(env);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn file_hashes_round_trip_under_eight_byte_keys() {
+        let dir = std::env::temp_dir().join(format!(
+            "flint-custom-file-hashes-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir_str = dir.to_string_lossy().into_owned();
+        let env = crate::hash::get_or_create_custom_env(&dir_str).unwrap();
+
+        let path = "assets/characters/flint/skins/skin0/custom.dds";
+        let hash = ritoshark::hash::xxh64(path);
+        let entries = BTreeMap::from([(hash, path.to_string())]);
+        assert_eq!(write_custom_file_hashes(&env, &entries).unwrap(), 1);
+        assert_eq!(write_custom_file_hashes(&env, &entries).unwrap(), 0);
+
+        let mut hashes = HashMapper::new();
+        assert_eq!(merge_custom_hashes(&mut hashes, &dir_str), 1);
+        assert_eq!(hashes.get(hash), Some(path));
+
         drop(env);
         let _ = std::fs::remove_dir_all(dir);
     }

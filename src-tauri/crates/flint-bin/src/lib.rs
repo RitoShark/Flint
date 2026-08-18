@@ -12,8 +12,8 @@ pub mod preloads;
 pub mod split;
 
 pub use codec::{
-    custom_hash_names_from_text, read_bin, remember_custom_hash_names, text_to_tree,
-    tree_to_text_cached, unhash_text_cached, write_bin, MAX_BIN_SIZE,
+    custom_file_names_from_text, custom_hash_names_from_text, read_bin, remember_custom_hash_names,
+    text_to_tree, tree_to_text_cached, unhash_text_cached, write_bin, MAX_BIN_SIZE,
 };
 pub use ritoshark::bin::{Bin, BinEntry, BinType, BinValue};
 

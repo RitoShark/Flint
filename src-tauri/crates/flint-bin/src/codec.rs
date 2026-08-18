@@ -137,18 +137,27 @@ pub fn text_to_tree(text: &str) -> Result<Bin> {
 
 // ── Unhash-in-place for the editor ─────────────────────────────────────────────
 
-fn collect_value_hashes(value: &ritoshark::bin::BinValue, field: u32, out: &mut HashSet<u32>) {
+#[derive(Default)]
+struct TreeHashes {
+    names: HashSet<u32>,
+    files: HashSet<u64>,
+}
+
+fn collect_value_hashes(value: &ritoshark::bin::BinValue, field: u32, out: &mut TreeHashes) {
     use ritoshark::bin::BinValue;
     match value {
         BinValue::Hash(hash) | BinValue::Link(hash) => {
-            out.insert(*hash);
+            out.names.insert(*hash);
+        }
+        BinValue::File(hash) if *hash != 0 => {
+            out.files.insert(*hash);
         }
         BinValue::U64(value) if ritoshark::bin::is_blend_key_field(field) => {
-            out.insert((value >> 32) as u32);
-            out.insert(*value as u32);
+            out.names.insert((value >> 32) as u32);
+            out.names.insert(*value as u32);
         }
         BinValue::Pointer { class, fields } | BinValue::Embed { class, fields } => {
-            out.insert(*class);
+            out.names.insert(*class);
             collect_field_hashes(fields, out);
         }
         BinValue::List { items, .. } => {
@@ -172,19 +181,19 @@ fn collect_value_hashes(value: &ritoshark::bin::BinValue, field: u32, out: &mut 
 
 fn collect_field_hashes(
     fields: &indexmap::IndexMap<u32, ritoshark::bin::BinValue>,
-    out: &mut HashSet<u32>,
+    out: &mut TreeHashes,
 ) {
     for (field, value) in fields {
-        out.insert(*field);
+        out.names.insert(*field);
         collect_value_hashes(value, *field, out);
     }
 }
 
-fn tree_hashes(tree: &Bin) -> HashSet<u32> {
-    let mut hashes = HashSet::new();
+fn tree_hashes(tree: &Bin) -> TreeHashes {
+    let mut hashes = TreeHashes::default();
     for entry in &tree.entries {
-        hashes.insert(entry.path_hash);
-        hashes.insert(entry.class_hash);
+        hashes.names.insert(entry.path_hash);
+        hashes.names.insert(entry.class_hash);
         collect_field_hashes(&entry.fields, &mut hashes);
     }
     hashes
@@ -244,27 +253,53 @@ fn text_name_candidates(text: &str) -> Vec<String> {
     names
 }
 
-pub fn custom_hash_names_from_text(text: &str, tree: &Bin) -> BTreeMap<u32, String> {
-    let tree_hashes = tree_hashes(tree);
+fn custom_names_from_candidates(
+    candidates: &[String],
+    hashes: &TreeHashes,
+) -> (BTreeMap<u32, String>, BTreeMap<u64, String>) {
     let known = get_cached_bin_hashes().read();
     let mut names = BTreeMap::new();
-    for name in text_name_candidates(text) {
-        let hash = ritoshark::hash::fnv1a(&name);
-        if tree_hashes.contains(&hash)
+    let mut files = BTreeMap::new();
+    for name in candidates {
+        let hash = ritoshark::hash::fnv1a(name);
+        if hashes.names.contains(&hash)
             && known
                 .get(hash as u64)
                 .is_none_or(|known_name| known_name != name)
         {
-            names.entry(hash).or_insert(name);
+            names.entry(hash).or_insert_with(|| name.clone());
+        }
+        if hashes.files.is_empty() {
+            continue;
+        }
+        let file_hash = ritoshark::hash::xxh64(name);
+        if hashes.files.contains(&file_hash)
+            && known
+                .get(file_hash)
+                .is_none_or(|known_name| known_name != name)
+        {
+            files.entry(file_hash).or_insert_with(|| name.clone());
         }
     }
-    names
+    (names, files)
+}
+
+pub fn custom_hash_names_from_text(text: &str, tree: &Bin) -> BTreeMap<u32, String> {
+    custom_names_from_candidates(&text_name_candidates(text), &tree_hashes(tree)).0
+}
+
+pub fn custom_file_names_from_text(text: &str, tree: &Bin) -> BTreeMap<u64, String> {
+    custom_names_from_candidates(&text_name_candidates(text), &tree_hashes(tree)).1
 }
 
 pub fn remember_custom_hash_names(text: &str, tree: &Bin) -> Result<usize> {
-    let names = custom_hash_names_from_text(text, tree);
-    flint_hash::hash::save_custom_bin_hashes(&names)
-        .map_err(|e| BinError(format!("Failed to save custom hashes: {e}")))
+    let (names, files) =
+        custom_names_from_candidates(&text_name_candidates(text), &tree_hashes(tree));
+    let saved_names = flint_hash::hash::save_custom_bin_hashes(&names)
+        .map_err(|e| BinError(format!("Failed to save custom hashes: {e}")))?;
+    let saved_files = flint_hash::hash::save_custom_file_hashes(&files)
+        .map_err(|e| BinError(format!("Failed to save custom file hashes: {e}")))?;
+    Ok(saved_names + saved_files)
 }
 
 #[cfg(test)]
@@ -313,6 +348,30 @@ mod custom_hash_tests {
             Some(&value_name.to_string())
         );
         assert!(!names.values().any(|name| name == "NotHashed_7d9f"));
+    }
+
+    #[test]
+    fn remembers_a_file_path_typed_for_a_file_value() {
+        let path = "ASSETS/Characters/Flint7d9f/Skins/Skin0/Custom_7d9f.dds";
+        let mut fields = IndexMap::new();
+        fields.insert(fnv1a("mFileRef"), BinValue::File(ritoshark::hash::xxh64(path)));
+        fields.insert(fnv1a("mOther"), BinValue::File(0));
+        let mut tree = Bin::new();
+        tree.entries.push(BinEntry {
+            path_hash: fnv1a("FlintFileEntry_7d9f"),
+            class_hash: fnv1a("FlintFileClass_7d9f"),
+            fields,
+        });
+        let text = format!(
+            "\"FlintFileEntry_7d9f\" = FlintFileClass_7d9f {{
+    mFileRef: file = \"{path}\"
+    mOther: file = 0x0000000000000000
+    ordinaryString: string = \"assets/not/referenced_7d9f.dds\"
+}}"
+        );
+        let files = custom_file_names_from_text(&text, &tree);
+        assert_eq!(files.get(&ritoshark::hash::xxh64(path)), Some(&path.to_string()));
+        assert_eq!(files.len(), 1);
     }
 
     #[test]
