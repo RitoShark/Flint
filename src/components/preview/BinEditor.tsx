@@ -188,7 +188,7 @@ function updateEmitterDecorations(
                 const lineNum = i + 1;
                 const cls = `flint-emitter-hint-${lineNum}`;
                 const escaped = emitterName.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-                cssRules.push(`.${cls}::after { content: "  // ${escaped}"; color: #6a9955; font-style: italic; opacity: 0.75; }`);
+                cssRules.push(`.${cls}::after { content: "  # ${escaped}"; color: #6a9955; font-style: italic; opacity: 0.75; }`);
                 decorations.push({
                     range: { startLineNumber: lineNum, startColumn: 1, endLineNumber: lineNum, endColumn: 1 },
                     options: { afterContentClassName: cls, isWholeLine: true },

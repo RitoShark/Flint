@@ -30,7 +30,6 @@ export function registerRitobinLanguage(monaco: Monaco): void {
         tokenizer: {
             root: [
                 [/#.*$/, 'comment'],
-                [/\/\/.*$/, 'comment'],
 
                 [/"[^"\\]*(?:\\.[^"\\]*)*"/, 'string'],
 
