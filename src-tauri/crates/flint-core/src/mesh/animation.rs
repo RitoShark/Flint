@@ -274,6 +274,24 @@ fn extract_animation_paths_from_value(value: &BinValue, clips: &mut Vec<Animatio
                 });
             }
         }
+        BinValue::File(h) => {
+            let known = flint_hash::hash::get_cached_bin_hashes().read();
+            if let Some(s) = known.get(*h) {
+                if s.to_lowercase().ends_with(".anm") {
+                    let name = Path::new(s)
+                        .file_stem()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "Unknown".to_string());
+
+                    clips.push(AnimationClipInfo {
+                        name,
+                        track_name: None,
+                        animation_path: s.to_string(),
+                        events: Vec::new(),
+                    });
+                }
+            }
+        }
 
         BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
             for val in fields.values() {

@@ -472,30 +472,53 @@ fn resolve_chunk_path(path: &str, chunk_data: &[u8]) -> PathBuf {
     chunk_path
 }
 
-/// Recursively collect every `assets/`/`data/` path embedded in a parsed BIN.
-fn collect_paths_from_value_into(value: &BinValue, out: &mut Vec<String>) {
+fn collect_paths_and_hashes_from_value_into(
+    value: &BinValue,
+    out_paths: &mut Vec<String>,
+    out_hashes: &mut Vec<u64>,
+) {
     match value {
         BinValue::String(v) => {
             if v.len() >= 5
                 && (v.len() >= 7 && v[..7].eq_ignore_ascii_case("assets/")
                     || v.len() >= 5 && v[..5].eq_ignore_ascii_case("data/"))
             {
-                out.push(v.to_lowercase().replace('\\', "/"));
+                out_paths.push(v.to_lowercase().replace('\\', "/"));
+            }
+        }
+        BinValue::File(h) => {
+            if *h != 0 {
+                out_hashes.push(*h);
+                let known = flint_hash::hash::get_cached_bin_hashes().read();
+                if let Some(v) = known.get(*h) {
+                    if v.len() >= 5
+                        && (v.len() >= 7 && v[..7].eq_ignore_ascii_case("assets/")
+                            || v.len() >= 5 && v[..5].eq_ignore_ascii_case("data/"))
+                    {
+                        out_paths.push(v.to_lowercase().replace('\\', "/"));
+                    }
+                }
             }
         }
         BinValue::List { items, .. } => {
-            for item in items { collect_paths_from_value_into(item, out); }
+            for item in items {
+                collect_paths_and_hashes_from_value_into(item, out_paths, out_hashes);
+            }
         }
         BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
-            for v in fields.values() { collect_paths_from_value_into(v, out); }
+            for v in fields.values() {
+                collect_paths_and_hashes_from_value_into(v, out_paths, out_hashes);
+            }
         }
-        BinValue::Option { value: Some(inner), .. } => {
-            collect_paths_from_value_into(inner, out);
+        BinValue::Option {
+            value: Some(inner), ..
+        } => {
+            collect_paths_and_hashes_from_value_into(inner, out_paths, out_hashes);
         }
         BinValue::Map { entries, .. } => {
             for (k, v) in entries {
-                collect_paths_from_value_into(k, out);
-                collect_paths_from_value_into(v, out);
+                collect_paths_and_hashes_from_value_into(k, out_paths, out_hashes);
+                collect_paths_and_hashes_from_value_into(v, out_paths, out_hashes);
             }
         }
         _ => {}
@@ -670,9 +693,10 @@ pub fn extract_skin_assets_selective(
         // `.bin` references go on the BFS queue to recurse; everything else
         // goes straight in the want set.
         let mut paths_found: Vec<String> = Vec::new();
+        let mut hashes_found: Vec<u64> = Vec::new();
         for entry in &bin.entries {
             for value in entry.fields.values() {
-                collect_paths_from_value_into(value, &mut paths_found);
+                collect_paths_and_hashes_from_value_into(value, &mut paths_found, &mut hashes_found);
             }
         }
         for p in paths_found {
@@ -682,6 +706,19 @@ pub fn extract_skin_assets_selective(
                 }
             } else {
                 want_paths.insert(p);
+            }
+        }
+        for h in hashes_found {
+            let known = flint_hash::hash::get_cached_bin_hashes().read();
+            if let Some(p) = known.get(h) {
+                let p_norm = p.to_lowercase().replace('\\', "/");
+                if p_norm.ends_with(".bin") {
+                    if bin_seen.insert(p_norm.clone()) {
+                        queue.push_back(p_norm);
+                    }
+                } else {
+                    want_paths.insert(p_norm);
+                }
             }
         }
     }

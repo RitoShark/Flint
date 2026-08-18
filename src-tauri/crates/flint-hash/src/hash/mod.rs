@@ -11,7 +11,7 @@ pub use lmdb_cache::{
 /// Arena-backed map of `xxh64 path hash → resolved path`, returned by the
 /// WAD-LMDB resolver.
 pub use lmdb_cache::ResolvedHashes;
-pub use bin_dict::save_custom_bin_hashes;
+pub use bin_dict::{get_cached_bin_hashes, reload_bin_hash_cache, save_custom_bin_hashes};
 
 
 

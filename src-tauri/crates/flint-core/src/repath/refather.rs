@@ -558,6 +558,20 @@ fn repath_value(value: &mut BinValue, existing_paths: &HashSet<String>, prefix: 
                 }
             }
         }
+        BinValue::File(h) => {
+            let known = flint_hash::hash::get_cached_bin_hashes().read();
+            if let Some(s) = known.get(*h) {
+                if is_asset_path(s) {
+                    let normalized = normalize_path(s);
+                    if existing_paths.contains(&normalized) {
+                        let repathed = apply_prefix_to_path(s, prefix, config);
+                        let final_path = replace_base_folder_in_animation_path(&repathed, config.target_skin_id);
+                        *h = xxhash_rust::xxh64::xxh64(final_path.to_lowercase().as_bytes(), 0);
+                        count += 1;
+                    }
+                }
+            }
+        }
         BinValue::List { items, .. } => {
             for item in items.iter_mut() {
                 count += repath_value(item, existing_paths, prefix, config);

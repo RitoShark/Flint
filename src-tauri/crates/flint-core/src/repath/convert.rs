@@ -164,6 +164,16 @@ fn rewrite_value_exts(value: &mut BinValue, wad_root: &Path, changed: &mut bool)
                 *changed = true;
             }
         }
+        BinValue::File(h) => {
+            let known = flint_hash::hash::get_cached_bin_hashes().read();
+            if let Some(s) = known.get(*h) {
+                let mut path_str = s.to_string();
+                if crate::repath::refather::is_asset_path(&path_str) && rewrite_ext(&mut path_str, wad_root) {
+                    *h = xxhash_rust::xxh64::xxh64(path_str.to_lowercase().as_bytes(), 0);
+                    *changed = true;
+                }
+            }
+        }
         BinValue::List { items, .. } => {
             for item in items.iter_mut() {
                 rewrite_value_exts(item, wad_root, changed);
