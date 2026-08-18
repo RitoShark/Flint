@@ -45,6 +45,32 @@ export interface VersionChangelog {
  */
 export const CHANGELOG: VersionChangelog[] = [
     {
+        version: '2.9.1',
+        date: 'August 2026 (Beta)',
+        headline: 'Flint 2.9.1 (Beta)',
+        subtitle: 'Multi-language localization support across 6 languages and Monaco editor autocomplete.',
+        entries: [
+            {
+                icon: 'globe',
+                tag: 'feature',
+                title: 'Multi-Language Support (TR, DE, ES, PT, PL, EN)',
+                description: 'Flint now features full internationalization across the entire interface. Switch between Turkish, German, Spanish, Portuguese, Polish, and English in Settings → General. Every view, welcome screen, context menu, modal, and tool has been localized with automatic fallback.',
+            },
+            {
+                icon: 'settings',
+                tag: 'improvement',
+                title: 'Monaco Auto-Suggestions setting',
+                description: 'Toggle Monaco keyword and word-based autocomplete popups in Settings → Bin Editor → Auto suggestions.',
+            },
+            {
+                icon: 'wrench',
+                tag: 'improvement',
+                title: 'Localized Context Menus & Dialogs',
+                description: 'Right-click context menus throughout the project file tree and explorer now dynamically reflect your chosen interface language.',
+            },
+        ],
+    },
+    {
         version: '2.9.0',
         date: 'August 2026',
         headline: 'Flint 2.9.0',
