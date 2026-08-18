@@ -6,6 +6,7 @@ import { useProjectTabStore } from '../stores/projectTabStore';
 import { copyablePath } from '../wadPath';
 import { isJadeAlias } from '../data/datadragon';
 import type { ContextMenuOption, ModalType } from '../types';
+import { t } from '../i18n';
 
 interface BuildOptionsArgs {
     node: { path: string; name: string; isDirectory: boolean };
@@ -50,17 +51,17 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             const activeProjectKind = activeProject?.kind ?? null;
             const isSkinProject = !!activeProject && (activeProjectKind ?? 'skin') === 'skin';
             options.push({
-                label: 'Project',
+                label: t('contextMenu.project'),
                 icon: getIcon('wrench'),
                 separator: true,
                 submenu: [
                     {
-                        label: 'Rename Project…',
+                        label: t('contextMenu.renameProject'),
                         icon: getIcon('text'),
                         onClick: () => openModal('renameProject', { projectPath }),
                     },
                     {
-                        label: 'Edit Project Info',
+                        label: t('contextMenu.editProjectInfo'),
                         icon: getIcon('settings'),
                         onClick: () => {
                             const configPath = `${projectPath.replace(/\\/g, '/')}/mod.config.json`;
@@ -72,33 +73,33 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                         },
                     },
                     {
-                        label: 'Set Thumbnail…',
+                        label: t('contextMenu.setThumbnail'),
                         icon: getIcon('picture'),
                         onClick: () => openModal('thumbnail', { projectPath }),
                     },
                     {
-                        label: 'Add Layer…',
+                        label: t('contextMenu.addLayer'),
                         icon: getIcon('plus'),
                         separator: true,
                         onClick: () => openModal('addLayer'),
                     },
                     {
-                        label: 'Port to Chromas…',
+                        label: t('contextMenu.portToChromas'),
                         icon: getIcon('contrast'),
                         onClick: () => openModal('chromaPort'),
                     },
                     ...(isSkinProject && !isJadeAlias(activeProject!.champion) ? [{
-                        label: 'Port to Jade…',
+                        label: t('contextMenu.portToJade'),
                         icon: getIcon('link'),
                         onClick: () => openModal('portToJade'),
                     }] : []),
                     ...(isSkinProject && activeProject!.skin_id === 0 ? [{
-                        label: 'NoSkinLite…',
+                        label: t('contextMenu.noSkinLite'),
                         icon: getIcon('copy'),
                         onClick: () => openModal('noSkinLite'),
                     }] : []),
                     {
-                        label: 'Add Animated Loadscreen Banner',
+                        label: t('contextMenu.addLoadscreenBanner'),
                         icon: getIcon('image'),
                         separator: true,
                         onClick: () => {
@@ -136,7 +137,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                     },
                     // Only loading-screen projects have the injected uibase to rebuild.
                     ...(activeProjectKind === 'loading-screen' ? [{
-                        label: 'Rebuild Animated Loadscreen',
+                        label: t('contextMenu.rebuildLoadscreen'),
                         icon: getIcon('refresh'),
                         onClick: () => {
                             if (!leaguePath) {
@@ -159,17 +160,17 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             });
 
             options.push({
-                label: 'Export',
+                label: t('contextMenu.export'),
                 icon: getIcon('export'),
                 separator: true,
                 submenu: [
                     {
-                        label: 'Export as .fantome',
+                        label: t('contextMenu.exportFantome'),
                         icon: getIcon('package'),
                         onClick: () => openModal('export', { format: 'fantome' }),
                     },
                     {
-                        label: 'Export as .modpkg',
+                        label: t('contextMenu.exportModpkg'),
                         icon: getIcon('package'),
                         onClick: () => openModal('export', { format: 'modpkg' }),
                     },
@@ -179,26 +180,26 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
         if (isContentFolder(node.path)) {
             options.push({
-                label: 'Add Layer…',
+                label: t('contextMenu.addLayer'),
                 icon: getIcon('plus'),
                 onClick: () => openModal('addLayer'),
             });
             options.push({
-                label: 'Batch Recolor',
+                label: t('contextMenu.batchRecolor'),
                 icon: getIcon('contrast'),
                 separator: true,
                 onClick: () => openModal('recolor', { filePath: node.path, isFolder: true }),
             });
         } else {
             options.push({
-                label: 'Batch Recolor',
+                label: t('contextMenu.batchRecolor'),
                 icon: getIcon('contrast'),
                 onClick: () => openModal('recolor', { filePath: node.path, isFolder: true }),
             });
         }
 
         options.push({
-            label: 'New Folder',
+            label: t('contextMenu.newFolder'),
             icon: getIcon('folder'),
             separator: true,
             onClick: async () => {
@@ -215,7 +216,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
         if (onRename) {
             options.push({
-                label: 'Rename',
+                label: t('contextMenu.rename'),
                 icon: getIcon('text'),
                 onClick: () => onRename(node.path),
             });
@@ -224,7 +225,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
         if (fileName.toLowerCase() === 'data') {
             const binTools: ContextMenuOption[] = [];
             binTools.push({
-                label: 'Split BINs by Class…',
+                label: t('contextMenu.splitBins'),
                 icon: getIcon('layerText'),
                 onClick: async () => {
                     const defaultOutputName = await api.getVfxFilename(fullPath.replace(/\//g, '\\'));
@@ -236,7 +237,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                 },
             });
             binTools.push({
-                label: 'Organize VFX (auto-consolidate)…',
+                label: t('contextMenu.organizeVfx'),
                 icon: getIcon('texture'),
                 onClick: async () => {
                     const folderAbs = fullPath.replace(/\//g, '\\');
@@ -250,12 +251,12 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                             : 'no other BINs to merge';
 
                         openConfirmDialog({
-                            title: 'Organize VFX',
+                            title: t('contextMenu.organizeVfx').replace(/…|\.\.\./g, ''),
                             message:
                                 `Pull ${preview.vfx_objects_estimate} VFX object${preview.vfx_objects_estimate === 1 ? '' : 's'} into ` +
                                 `data/${preview.vfx_filename} and merge ${preview.main_objects_estimate} non-VFX object${preview.main_objects_estimate === 1 ? '' : 's'} ` +
                                 `into the main BIN (${ownerRel}). ${deletedEstimate}. Continue?`,
-                            confirmLabel: 'Organize',
+                            confirmLabel: t('common.apply'),
                             onConfirm: async () => {
                                 if (!preview.suggested_owner) {
                                     showToast('error', 'No main skin BIN found in this folder — cannot organize');
@@ -287,7 +288,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             });
 
             options.push({
-                label: 'BIN Tools',
+                label: t('contextMenu.binTools'),
                 icon: getIcon('wrench'),
                 separator: true,
                 submenu: binTools,
@@ -305,17 +306,17 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                     tab,
                 });
             options.push({
-                label: 'Check Files',
+                label: t('contextMenu.checkFiles'),
                 icon: getIcon('search'),
                 separator: true,
                 submenu: [
                     {
-                        label: 'Missing Files…',
+                        label: t('contextMenu.missingFiles'),
                         icon: getIcon('warning'),
                         onClick: () => openAudit('missing'),
                     },
                     {
-                        label: 'Bloat Files…',
+                        label: t('contextMenu.bloatFiles'),
                         icon: getIcon('trash'),
                         onClick: () => openAudit('bloat'),
                     },
@@ -324,22 +325,22 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
         }
 
         options.push({
-            label: 'Copy',
+            label: t('contextMenu.copy'),
             icon: getIcon('copy'),
             separator: true,
             submenu: [
                 {
-                    label: 'Absolute Path',
+                    label: t('contextMenu.absolutePath'),
                     icon: getIcon('link'),
                     onClick: () => navigator.clipboard.writeText(fullPath.replace(/\//g, '\\')),
                 },
                 {
-                    label: 'Relative Path',
+                    label: t('contextMenu.relativePath'),
                     icon: getIcon('link'),
                     onClick: () => navigator.clipboard.writeText(copyablePath(node.path)),
                 },
                 {
-                    label: 'Folder Name',
+                    label: t('contextMenu.folderName'),
                     icon: getIcon('folder'),
                     onClick: () => navigator.clipboard.writeText(fileName),
                 },
@@ -347,21 +348,21 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
         });
 
         options.push({
-            label: 'Reveal in Explorer',
+            label: t('contextMenu.revealInExplorer'),
             icon: getIcon('folderOpen2'),
             onClick: () => api.openInExplorer(fullPath.replace(/\//g, '\\')).catch(() => { }),
         });
 
         options.push({
-            label: 'Delete',
+            label: t('contextMenu.delete'),
             icon: getIcon('trash'),
             danger: true,
             separator: true,
             onClick: () => {
                 openConfirmDialog({
-                    title: 'Delete Folder',
-                    message: `Are you sure you want to delete "${fileName}" and all its contents? This cannot be undone.`,
-                    confirmLabel: 'Delete',
+                    title: t('contextMenu.deleteFolderTitle'),
+                    message: t('contextMenu.deleteFolderMsg', { name: fileName }),
+                    confirmLabel: t('common.delete'),
                     danger: true,
                     onConfirm: async () => {
                         try {
@@ -383,7 +384,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
     if (fileName === 'mod.config.json') {
         options.push({
-            label: 'Edit Project Info',
+            label: t('contextMenu.editProjectInfo'),
             icon: getIcon('settings'),
             onClick: () => {
                 useNavigationStore.getState().navigateToFileEditor({
@@ -394,7 +395,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             },
         });
         options.push({
-            label: 'Add Contributor',
+            label: t('contextMenu.addContributor'),
             icon: getIcon('user'),
             onClick: async () => {
                 try {
@@ -426,7 +427,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
         if (isBinText) {
             options.push({
-                label: 'Edit BIN',
+                label: t('contextMenu.editBin'),
                 icon: getIcon('bin'),
                 onClick: () => {
                     useNavigationStore.getState().navigateToFileEditor({
@@ -439,7 +440,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
         } else if (isTroybin) {
             // .troybin is a binary League config (read-only viewer), NOT ritobin text.
             options.push({
-                label: 'View Troybin',
+                label: t('contextMenu.viewTroybin'),
                 icon: getIcon('config'),
                 onClick: () => {
                     useNavigationStore.getState().navigateToFileEditor({
@@ -451,7 +452,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             });
         } else if (isLuaBin) {
             options.push({
-                label: 'Edit LuaBin64',
+                label: t('contextMenu.editLuaBin'),
                 icon: getIcon('code'),
                 onClick: () => {
                     useNavigationStore.getState().navigateToFileEditor({
@@ -463,7 +464,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             });
         } else if (isRawText) {
             options.push({
-                label: 'Edit File',
+                label: t('contextMenu.editFile'),
                 icon: getIcon('text'),
                 onClick: () => {
                     useNavigationStore.getState().navigateToFileEditor({
@@ -478,14 +479,14 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
     if (onRename) {
         options.push({
-            label: 'Rename',
+            label: t('contextMenu.rename'),
             icon: getIcon('text'),
             onClick: () => onRename(node.path),
         });
     }
 
     options.push({
-        label: 'Duplicate',
+        label: t('contextMenu.duplicate'),
         icon: getIcon('copy'),
         onClick: async () => {
             try {
@@ -513,7 +514,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
         if (ext !== 'png') {
             options.push({
-                label: 'Recolor',
+                label: t('contextMenu.recolor'),
                 icon: getIcon('contrast'),
                 separator: true,
                 onClick: () => openModal('recolor', { filePath: node.path, isFolder: false }),
@@ -524,7 +525,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
         if (ext === 'tex') {
             transformItems.push({
-                label: 'Convert to .dds',
+                label: t('contextMenu.convertToDds'),
                 icon: getIcon('texture'),
                 onClick: async () => {
                     try {
@@ -540,7 +541,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
         }
         if (ext === 'dds') {
             transformItems.push({
-                label: 'Convert to .tex',
+                label: t('contextMenu.convertToTex'),
                 icon: getIcon('texture'),
                 onClick: async () => {
                     try {
@@ -576,12 +577,12 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                 },
             });
             // No format argument: BC3 when the image has alpha, BC1 when it does not.
-            transformItems.push(convertPng('Convert to .tex', (p) => api.convertPngToTex(p)));
-            transformItems.push(convertPng('Convert to .dds', (p) => api.convertPngToDds(p)));
+            transformItems.push(convertPng(t('contextMenu.convertToTex'), (p) => api.convertPngToTex(p)));
+            transformItems.push(convertPng(t('contextMenu.convertToDds'), (p) => api.convertPngToDds(p)));
         }
 
         if (ext !== 'png') transformItems.push({
-            label: 'Export as .png',
+            label: t('contextMenu.exportPng'),
             icon: getIcon('picture'),
             onClick: async () => {
                 try {
@@ -596,7 +597,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
         });
 
         options.push({
-            label: 'File Transformation',
+            label: t('contextMenu.fileTransform'),
             icon: getIcon('wrench'),
             submenu: transformItems,
         });
@@ -604,7 +605,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
     if (ext === 'skn') {
         options.push({
-            label: 'Create Thumbnail…',
+            label: t('contextMenu.createThumbnail'),
             icon: getIcon('picture'),
             separator: true,
             onClick: () => openThumbnailWindow(projectPath, fullPath.replace(/\//g, '\\')),
@@ -620,7 +621,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
     if (isWadAsset) {
         const compareSubmenu: ContextMenuOption[] = [
             {
-                label: 'Original (from WAD)',
+                label: t('contextMenu.compareOriginal'),
                 icon: getIcon('wad'),
                 onClick: () => openModal('fileCompare', {
                     mode: 'original',
@@ -629,7 +630,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                 }),
             },
             {
-                label: 'Backup',
+                label: t('contextMenu.compareBackup'),
                 icon: getIcon('history'),
                 onClick: async () => {
                     try {
@@ -678,9 +679,9 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                 `Overwrite "${fileName}" with the original from ${meta.queried_wad_name}?${matchNote}\n\n` +
                 `A backup of the current file will be saved automatically before replacing.`;
             openConfirmDialog({
-                title: 'Restore from Original',
+                title: t('contextMenu.restoreOriginal'),
                 message,
-                confirmLabel: 'Restore',
+                confirmLabel: t('common.restore') || 'Restore',
                 onConfirm: async () => {
                     try {
                         try {
@@ -705,7 +706,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
         const backupSubmenu: ContextMenuOption[] = [
             {
-                label: 'Create / Update',
+                label: t('contextMenu.backupCreate'),
                 icon: getIcon('save'),
                 onClick: async () => {
                     try {
@@ -718,7 +719,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                 },
             },
             {
-                label: 'Restore from Backup',
+                label: t('contextMenu.backupRestore'),
                 icon: getIcon('import'),
                 onClick: async () => {
                     try {
@@ -728,7 +729,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                             return;
                         }
                         openConfirmDialog({
-                            title: 'Restore from Backup',
+                            title: t('contextMenu.backupRestore'),
                             message: `Overwrite "${fileName}" with its backup? The current file's contents will be lost.`,
                             confirmLabel: 'Restore',
                             onConfirm: async () => {
@@ -751,7 +752,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                 },
             },
             {
-                label: 'Delete Backup',
+                label: t('contextMenu.backupDelete'),
                 icon: getIcon('trash'),
                 danger: true,
                 separator: true,
@@ -763,9 +764,9 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                             return;
                         }
                         openConfirmDialog({
-                            title: 'Delete Backup',
+                            title: t('contextMenu.backupDelete'),
                             message: `Delete the backup for "${fileName}"? The current file isn't touched.`,
-                            confirmLabel: 'Delete Backup',
+                            confirmLabel: t('contextMenu.backupDelete'),
                             danger: true,
                             onConfirm: async () => {
                                 try {
@@ -786,18 +787,18 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
         ];
 
         options.push({
-            label: 'Compare with…',
+            label: t('contextMenu.compareWith'),
             icon: getIcon('git'),
             separator: true,
             submenu: compareSubmenu,
         });
         options.push({
-            label: 'Restore from Original',
+            label: t('contextMenu.restoreOriginal'),
             icon: getIcon('import'),
             onClick: restoreFromOriginal,
         });
         options.push({
-            label: 'Backup',
+            label: t('contextMenu.backup'),
             icon: getIcon('history'),
             submenu: backupSubmenu,
         });
@@ -805,7 +806,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
 
     if (ext === 'bin' && !fileName.toLowerCase().includes('_concat')) {
         options.push({
-            label: 'Split BIN by Class…',
+            label: t('contextMenu.splitBin'),
             icon: getIcon('layerText'),
             separator: true,
             onClick: async () => {
@@ -819,22 +820,22 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
     }
 
     options.push({
-        label: 'Copy',
+        label: t('contextMenu.copy'),
         icon: getIcon('copy'),
         separator: true,
         submenu: [
             {
-                label: 'Absolute Path',
+                label: t('contextMenu.absolutePath'),
                 icon: getIcon('link'),
                 onClick: () => navigator.clipboard.writeText(fullPath.replace(/\//g, '\\')),
             },
             {
-                label: 'Relative Path',
+                label: t('contextMenu.relativePath'),
                 icon: getIcon('link'),
                 onClick: () => navigator.clipboard.writeText(copyablePath(node.path)),
             },
             {
-                label: 'File Name',
+                label: t('contextMenu.fileName'),
                 icon: getIcon('file'),
                 onClick: () => navigator.clipboard.writeText(fileName),
             },
@@ -842,16 +843,16 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
     });
 
     options.push({
-        label: 'Open',
+        label: t('contextMenu.open'),
         icon: getIcon('export'),
         submenu: [
             {
-                label: 'Reveal in Explorer',
+                label: t('contextMenu.revealInExplorer'),
                 icon: getIcon('folderOpen2'),
                 onClick: () => api.openInExplorer(fullPath.replace(/\//g, '\\')).catch(() => { }),
             },
             {
-                label: 'With Default App',
+                label: t('contextMenu.openDefaultApp'),
                 icon: getIcon('file'),
                 onClick: async () => {
                     try {
@@ -867,15 +868,15 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
     });
 
     options.push({
-        label: 'Delete',
+        label: t('contextMenu.delete'),
         icon: getIcon('trash'),
         danger: true,
         separator: true,
         onClick: () => {
             openConfirmDialog({
-                title: 'Delete File',
-                message: `Are you sure you want to delete "${fileName}"? This cannot be undone.`,
-                confirmLabel: 'Delete',
+                title: t('contextMenu.deleteFileTitle'),
+                message: t('contextMenu.deleteFileMsg', { name: fileName }),
+                confirmLabel: t('common.delete'),
                 danger: true,
                 onConfirm: async () => {
                     try {

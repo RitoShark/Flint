@@ -3,6 +3,7 @@ import { useUxStore } from '../../../lib/stores/uxStore';
 import { Checkbox, Icon } from '../../ui';
 import { SettingsRow, SettingsTag } from './SettingsRow';
 import { RITOBIN_PRESETS } from '../../../lib/editor/ritobinThemes';
+import { useTranslation } from '../../../lib/i18n';
 
 const TOOLS_SECTIONS = [
     'Skin Scale',
@@ -31,6 +32,7 @@ export function sectionStartsExpanded(
 
 export const BinEditorTab: React.FC = () => {
     const ux = useUxStore();
+    const { t } = useTranslation();
 
     const setSection = (title: string, expanded: boolean) =>
         ux.setBinEditorPrefs({
@@ -39,12 +41,12 @@ export const BinEditorTab: React.FC = () => {
 
     return (
         <div className="settings-panel">
-            <div className="settings-subhead">Editor</div>
+            <div className="settings-subhead">{t('settings.binEditor.editor')}</div>
 
             <SettingsRow
                 icon={<Icon name="text" />}
-                title="Word wrap"
-                sub={<span className="settings-row__sub">Wrap long lines instead of scrolling sideways.</span>}
+                title={t('settings.binEditor.wordWrap')}
+                sub={<span className="settings-row__sub">{t('settings.binEditor.wordWrapSub')}</span>}
                 onActivate={() => ux.setBinEditorPrefs({ binEditorWordWrap: !ux.binEditorWordWrap })}
                 actions={
                     <Checkbox
@@ -57,7 +59,7 @@ export const BinEditorTab: React.FC = () => {
 
             <SettingsRow
                 icon={<Icon name="settings" />}
-                title="Font size"
+                title={t('settings.binEditor.fontSize')}
                 sub={
                     <input
                         type="range"
@@ -74,8 +76,8 @@ export const BinEditorTab: React.FC = () => {
 
             <SettingsRow
                 icon={<Icon name="layerText" />}
-                title="Minimap"
-                sub={<span className="settings-row__sub">Document overview bar down the right edge.</span>}
+                title={t('settings.binEditor.minimap')}
+                sub={<span className="settings-row__sub">{t('settings.binEditor.minimapSub')}</span>}
                 onActivate={() => ux.setBinEditorMinimap(!ux.binEditorMinimap)}
                 actions={
                     <Checkbox
@@ -88,12 +90,11 @@ export const BinEditorTab: React.FC = () => {
 
             <SettingsRow
                 icon={<Icon name="refresh" />}
-                title="Minimap line limit"
-                tags={<SettingsTag>Performance</SettingsTag>}
+                title={t('settings.binEditor.minimapLineLimit')}
+                tags={<SettingsTag>{t('settings.theme.performance')}</SettingsTag>}
                 sub={
                     <span className="settings-row__sub" style={{ whiteSpace: 'normal' }}>
-                        Monaco paints the whole document into the minimap canvas, so above this
-                        many lines it is force-disabled regardless of the toggle.
+                        {t('settings.binEditor.minimapLineLimitSub')}
                     </span>
                 }
                 actions={
@@ -113,12 +114,10 @@ export const BinEditorTab: React.FC = () => {
 
             <SettingsRow
                 icon={<Icon name="chevronDown" />}
-                title="Leap bar"
+                title={t('settings.binEditor.leapBar')}
                 sub={
                     <span className="settings-row__sub" style={{ whiteSpace: 'normal' }}>
-                        Monaco's sticky scroll mirrored along the bottom edge — the next block
-                        below the viewport, drawn as its own source line. Click it to leap there,
-                        or use <code>Alt+]</code> / <code>Alt+[</code>.
+                        {t('settings.binEditor.leapBarSub')}
                     </span>
                 }
                 onActivate={() => ux.setBinEditorPrefs({ binEditorLeapBar: !ux.binEditorLeapBar })}
@@ -133,11 +132,10 @@ export const BinEditorTab: React.FC = () => {
 
             <SettingsRow
                 icon={<Icon name="search" />}
-                title="Unhash on open"
+                title={t('settings.binEditor.autoUnhash')}
                 sub={
                     <span className="settings-row__sub" style={{ whiteSpace: 'normal' }}>
-                        Re-resolve leftover <code>0x…</code> tokens against the hash dictionary as
-                        soon as a BIN opens, instead of waiting for the Unhash button.
+                        {t('settings.binEditor.autoUnhashSub')}
                     </span>
                 }
                 onActivate={() => ux.setBinEditorPrefs({ binEditorAutoUnhash: !ux.binEditorAutoUnhash })}
@@ -150,7 +148,25 @@ export const BinEditorTab: React.FC = () => {
                 }
             />
 
-            <div className="settings-subhead">Syntax colours</div>
+            <SettingsRow
+                icon={<Icon name="code" />}
+                title={t('settings.binEditor.autoSuggestions')}
+                sub={
+                    <span className="settings-row__sub" style={{ whiteSpace: 'normal' }}>
+                        {t('settings.binEditor.autoSuggestionsSub')}
+                    </span>
+                }
+                onActivate={() => ux.setBinEditorPrefs({ binEditorAutoSuggestions: !ux.binEditorAutoSuggestions })}
+                actions={
+                    <Checkbox
+                        toggle
+                        checked={ux.binEditorAutoSuggestions}
+                        onChange={(e) => ux.setBinEditorPrefs({ binEditorAutoSuggestions: e.target.checked })}
+                    />
+                }
+            />
+
+            <div className="settings-subhead">{t('settings.binEditor.syntaxColors')}</div>
             <div className="bin-theme-grid">
                 {RITOBIN_PRESETS.map((preset) => {
                     const active = ux.binEditorSyntaxTheme === preset.id;
@@ -179,7 +195,7 @@ export const BinEditorTab: React.FC = () => {
                 })}
             </div>
 
-            <div className="settings-subhead">Tools panel</div>
+            <div className="settings-subhead">{t('settings.binEditor.toolsPanel')}</div>
             {TOOLS_SECTIONS.map((title) => {
                 const expanded = sectionStartsExpanded(title, ux.binEditorExpandedSections);
                 return (
@@ -187,7 +203,7 @@ export const BinEditorTab: React.FC = () => {
                         key={title}
                         icon={<Icon name="chevronDown" />}
                         title={title}
-                        sub={<span className="settings-row__sub">Starts {expanded ? 'expanded' : 'collapsed'}.</span>}
+                        sub={<span className="settings-row__sub">{expanded ? t('settings.binEditor.startsExpanded') : t('settings.binEditor.startsCollapsed')}</span>}
                         onActivate={() => setSection(title, !expanded)}
                         actions={
                             <Checkbox
@@ -202,3 +218,4 @@ export const BinEditorTab: React.FC = () => {
         </div>
     );
 };
+

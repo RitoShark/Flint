@@ -15,31 +15,9 @@ import {
     ModalLoading,
     RadioGroup,
 } from '../ui';
+import { useTranslation } from '../../lib/i18n';
 
 type ExportFormat = 'fantome' | 'modpkg';
-
-const FORMAT_OPTIONS = [
-    {
-        value: 'fantome' as const,
-        label: (
-            <>
-                <span>.fantome</span>{' '}
-                <span style={{ color: 'var(--text-secondary)' }}>(Fantome Mod Manager)</span>
-            </>
-        ),
-        icon: <Icon name="package" />,
-    },
-    {
-        value: 'modpkg' as const,
-        label: (
-            <>
-                <span>.modpkg</span>{' '}
-                <span style={{ color: 'var(--text-secondary)' }}>(League Mod Tools)</span>
-            </>
-        ),
-        icon: <Icon name="package" />,
-    },
-];
 
 const missingListStyle: React.CSSProperties = {
     maxHeight: 260,
@@ -74,6 +52,7 @@ const noteStyle: React.CSSProperties = {
 };
 
 export const ExportModal: React.FC = () => {
+    const { t } = useTranslation();
     const closeModal = useModalStore((s) => s.closeModal);
     const activeModal = useModalStore((s) => s.activeModal);
     const modalOptions = useModalStore((s) => s.modalOptions);
@@ -87,6 +66,29 @@ export const ExportModal: React.FC = () => {
     const [isChecking, setIsChecking] = useState(false);
     const [progress, setProgress] = useState('');
     const [missingReport, setMissingReport] = useState<api.ProjectMissingReport | null>(null);
+
+    const formatOptions = React.useMemo(() => [
+        {
+            value: 'fantome' as const,
+            label: (
+                <>
+                    <span>.fantome</span>{' '}
+                    <span style={{ color: 'var(--text-secondary)' }}>{t('export.fantomeDesc')}</span>
+                </>
+            ),
+            icon: <Icon name="package" />,
+        },
+        {
+            value: 'modpkg' as const,
+            label: (
+                <>
+                    <span>.modpkg</span>{' '}
+                    <span style={{ color: 'var(--text-secondary)' }}>{t('export.modpkgDesc')}</span>
+                </>
+            ),
+            icon: <Icon name="package" />,
+        },
+    ], [t]);
 
     const activeTab = activeTabId
         ? openTabs.find((t) => t.id === activeTabId)
@@ -120,7 +122,7 @@ export const ExportModal: React.FC = () => {
         if (!outputPath) return;
 
         setIsExporting(true);
-        setProgress('Packaging mod...');
+        setProgress(t('export.packaging'));
 
         try {
             const result = await api.exportProject({
@@ -136,7 +138,7 @@ export const ExportModal: React.FC = () => {
                 },
             });
 
-            showToast('success', `Exported to ${result.path}`);
+            showToast('success', t('export.exportedSuccess', { path: result.path }));
             closeModal();
         } catch (err) {
             console.error('Export failed:', err);
@@ -174,16 +176,17 @@ export const ExportModal: React.FC = () => {
         const single = missingReport.total_missing === 1;
         return (
             <Modal open={isVisible} onClose={closeModal} modifier="modal--export">
-                {isExporting && <ModalLoading text="Exporting Mod" progress={progress} />}
+                {isExporting && <ModalLoading text={t('export.exporting')} progress={progress} />}
 
-                <ModalHeader title="Missing file references" />
+                <ModalHeader title={t('export.missingRefsTitle')} />
 
                 <ModalBody>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <Icon name="warning" />
                         <span>
-                            {missingReport.total_missing} {single ? 'file' : 'files'} referenced by this
-                            mod&apos;s BINs {single ? 'is' : 'are'} not in the project.
+                            {single
+                                ? t('export.missingRefsWarning', { count: missingReport.total_missing })
+                                : t('export.missingRefsWarningPlural', { count: missingReport.total_missing })}
                         </span>
                     </div>
 
@@ -203,17 +206,16 @@ export const ExportModal: React.FC = () => {
                     </div>
 
                     <p style={noteStyle}>
-                        These show up broken in game — usually a magenta texture or a missing effect.
-                        Exporting anyway ships the mod as it is.
+                        {t('export.missingRefsNote')}
                     </p>
                 </ModalBody>
 
                 <ModalFooter>
                     <Button variant="secondary" onClick={closeModal}>
-                        Cancel
+                        {t('common.cancel')}
                     </Button>
                     <Button variant="primary" onClick={runExport} disabled={isExporting}>
-                        Export anyway
+                        {t('export.exportAnyway')}
                     </Button>
                 </ModalFooter>
             </Modal>
@@ -222,25 +224,25 @@ export const ExportModal: React.FC = () => {
 
     return (
         <Modal open={isVisible} onClose={closeModal} modifier="modal--export">
-            {isExporting && <ModalLoading text="Exporting Mod" progress={progress} />}
-            {isChecking && <ModalLoading text="Checking file references" />}
+            {isExporting && <ModalLoading text={t('export.exporting')} progress={progress} />}
+            {isChecking && <ModalLoading text={t('export.checkingRefs')} />}
 
-            <ModalHeader title="Export Mod" onClose={closeModal} />
+            <ModalHeader title={t('export.title')} onClose={closeModal} />
 
             <ModalBody>
                 <FormGroup>
-                    <FormLabel>Export Format</FormLabel>
+                    <FormLabel>{t('export.format')}</FormLabel>
                     <RadioGroup<ExportFormat>
                         name="format"
                         value={format}
                         onChange={setFormat}
-                        options={FORMAT_OPTIONS}
+                        options={formatOptions}
                         stacked
                     />
                 </FormGroup>
 
                 <FormGroup>
-                    <FormLabel>Project</FormLabel>
+                    <FormLabel>{t('export.project')}</FormLabel>
                     <div style={{ color: 'var(--text-secondary)' }}>
                         {championLabel} - {projectLabel}
                     </div>
@@ -249,10 +251,10 @@ export const ExportModal: React.FC = () => {
 
             <ModalFooter>
                 <Button variant="secondary" onClick={closeModal}>
-                    Cancel
+                    {t('common.cancel')}
                 </Button>
                 <Button variant="primary" onClick={handleExport} disabled={isExporting || isChecking}>
-                    Export
+                    {t('common.export')}
                 </Button>
             </ModalFooter>
         </Modal>

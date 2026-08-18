@@ -18,6 +18,7 @@ import {
     ModalHeader,
     Spinner,
 } from '../ui';
+import { useTranslation } from '../../lib/i18n';
 
 type Step = 'projects' | 'fixes' | 'running' | 'results';
 
@@ -207,54 +208,56 @@ export const SkinFixerModal: React.FC = () => {
 
     const severityClass = (s: string) => `skinfix-sev skinfix-sev--${s}`;
 
+    const { t } = useTranslation();
+
     const footer = () => {
         switch (step) {
             case 'projects':
                 return (
                     <>
-                        <Button variant="secondary" onClick={closeModal}>Cancel</Button>
+                        <Button variant="secondary" onClick={closeModal}>{t('common.cancel')}</Button>
                         <Button
                             variant="primary"
                             icon="search"
                             disabled={selectedPaths.size === 0 || catalog.length === 0}
                             onClick={runScan}
                         >
-                            Scan {selectedPaths.size > 0 ? `(${selectedPaths.size})` : ''}
+                            {t('skinFixer.scanBtn')} {selectedPaths.size > 0 ? `(${selectedPaths.size})` : ''}
                         </Button>
                     </>
                 );
             case 'fixes':
                 return (
                     <>
-                        <Button variant="secondary" onClick={() => setStep('projects')}>Back</Button>
+                        <Button variant="secondary" onClick={() => setStep('projects')}>{t('common.back')}</Button>
                         <Button
                             variant="primary"
                             icon="success"
                             disabled={scanning || chosenFixIds.size === 0}
                             onClick={runFixes}
                         >
-                            Fix {chosenFixIds.size > 0 ? `${chosenFixIds.size} selected` : ''}
+                            {t('skinFixer.fixBtn')} {chosenFixIds.size > 0 ? `(${chosenFixIds.size})` : ''}
                         </Button>
                     </>
                 );
             case 'running':
-                return <Button variant="secondary" disabled>Fixing…</Button>;
+                return <Button variant="secondary" disabled>{t('skinFixer.fixing')}</Button>;
             case 'results':
-                return <Button variant="primary" onClick={closeModal}>Done</Button>;
+                return <Button variant="primary" onClick={closeModal}>{t('common.done')}</Button>;
         }
     };
 
     return (
         <Modal open={isVisible} onClose={closeModal} size="large" modifier="skin-fixer-modal">
-            <ModalHeader title="Skin Fixer" onClose={closeModal} />
+            <ModalHeader title={t('skinFixer.title')} onClose={closeModal} />
 
             <ModalBody>
                 <div className="skinfix-steps">
-                    <span className={`skinfix-step ${step === 'projects' ? 'is-active' : ''}`}>1 · Projects</span>
+                    <span className={`skinfix-step ${step === 'projects' ? 'is-active' : ''}`}>{t('skinFixer.step1')}</span>
                     <span className="skinfix-step-sep" />
-                    <span className={`skinfix-step ${step === 'fixes' ? 'is-active' : ''}`}>2 · Fixes</span>
+                    <span className={`skinfix-step ${step === 'fixes' ? 'is-active' : ''}`}>{t('skinFixer.step2')}</span>
                     <span className="skinfix-step-sep" />
-                    <span className={`skinfix-step ${step === 'running' || step === 'results' ? 'is-active' : ''}`}>3 · Run</span>
+                    <span className={`skinfix-step ${step === 'running' || step === 'results' ? 'is-active' : ''}`}>{t('skinFixer.step3')}</span>
                 </div>
 
                 {step === 'projects' && (
@@ -262,7 +265,7 @@ export const SkinFixerModal: React.FC = () => {
                         {allProjects.length === 0 ? (
                             <div className="skinfix-empty">
                                 <Icon name="folder" />
-                                <p>No projects found. Open or create a project first.</p>
+                                <p>{t('skinFixer.noProjects')}</p>
                             </div>
                         ) : (
                             allProjects.map((p) => {
@@ -293,18 +296,19 @@ export const SkinFixerModal: React.FC = () => {
                         {scanning ? (
                             <div className="skinfix-scanning">
                                 <Spinner />
-                                <p>Scanning {selectedPaths.size} project(s) for issues…</p>
+                                <p>{t('skinFixer.scanning', { count: selectedPaths.size })}</p>
                             </div>
                         ) : detected.length === 0 ? (
                             <div className="skinfix-empty">
                                 <Icon name="success" />
-                                <p>No issues detected — these projects look healthy.</p>
+                                <p>{t('skinFixer.noIssues')}</p>
                             </div>
                         ) : (
                             <>
                                 <p className="skinfix-fixes__hint">
-                                    {detected.length} fix{detected.length === 1 ? '' : 'es'} detected across{' '}
-                                    {selectedPaths.size} project(s). Uncheck anything you want to skip.
+                                    {detected.length === 1
+                                        ? t('skinFixer.detectedHint', { count: detected.length, projects: selectedPaths.size })
+                                        : t('skinFixer.detectedHintPlural', { count: detected.length, projects: selectedPaths.size })}
                                 </p>
                                 {detected.map((d) => {
                                     const on = chosenFixIds.has(d.entry.id);
@@ -344,20 +348,20 @@ export const SkinFixerModal: React.FC = () => {
                                         <Checkbox
                                             checked={createCheckpoint}
                                             onChange={(e) => setCreateCheckpoint(e.target.checked)}
-                                            label="Create a checkpoint before fixing"
+                                            label={t('skinFixer.createCheckpoint')}
                                         />
                                     </label>
                                     <label className="skinfix-opt">
                                         <Checkbox
                                             checked={useLive}
                                             onChange={(e) => setUseLive(e.target.checked)}
-                                            label="Recover missing files from the live game (if installed)"
+                                            label={t('skinFixer.recoverLive')}
                                         />
                                     </label>
                                 </div>
                                 <div className="skinfix-warn">
                                     <Icon name="warning" />
-                                    <span>Fixing rewrites the project's WAD files in place.</span>
+                                    <span>{t('skinFixer.warn')}</span>
                                 </div>
                             </>
                         )}
@@ -368,7 +372,7 @@ export const SkinFixerModal: React.FC = () => {
                     <div className="skinfix-running">
                         <Spinner />
                         <p className="skinfix-running__stage">
-                            {progress?.stage || (progress?.fix ? `Applied: ${progress.fix}` : progress?.note) || 'Working…'}
+                            {progress?.stage || (progress?.fix ? `Applied: ${progress.fix}` : progress?.note) || t('common.loading')}
                         </p>
                         {progress?.project && <p className="skinfix-running__proj">{progress.project}</p>}
                     </div>
@@ -381,7 +385,7 @@ export const SkinFixerModal: React.FC = () => {
                                 <div className="skinfix-result__head">
                                     <strong>{r.project.replace(/[\\/]+$/, '').split(/[\\/]/).pop()}</strong>
                                     {r.error ? (
-                                        <span className="skinfix-sev skinfix-sev--critical">failed</span>
+                                        <span className="skinfix-sev skinfix-sev--critical">{t('common.error')}</span>
                                     ) : (
                                         <span className="skinfix-result__stat">
                                             {r.fixes_applied} applied
@@ -402,7 +406,7 @@ export const SkinFixerModal: React.FC = () => {
                                     </ul>
                                 )}
                                 {!r.error && r.outcomes.length === 0 && (
-                                    <p className="skinfix-result__none">No changes.</p>
+                                    <p className="skinfix-result__none">{t('skinFixer.noChanges')}</p>
                                 )}
                             </div>
                         ))}

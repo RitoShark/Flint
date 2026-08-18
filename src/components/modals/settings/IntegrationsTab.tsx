@@ -1,5 +1,6 @@
 import React from 'react';
 import { SettingsRow, SettingsTag } from './SettingsRow';
+import { useTranslation } from '../../../lib/i18n';
 
 export type IntegrationDisplay = {
     id: 'ltk' | 'celestial' | 'jade' | 'quartz';
@@ -32,6 +33,7 @@ export const IntegrationsTab: React.FC<{
     preferredLauncher: 'ltk' | 'celestial' | null;
     onPreferredLauncherChange: (l: 'ltk' | 'celestial' | null) => void;
 }> = ({ integrations, onConnect, autoSync, onAutoSyncChange, ltkConfigured, preferredLauncher, onPreferredLauncherChange }) => {
+    const { t } = useTranslation();
     const launchers = integrations.filter((i) => i.kind === 'launcher');
     const apps = integrations.filter((i) => i.kind !== 'launcher');
     const effective = preferredLauncher
@@ -48,14 +50,14 @@ export const IntegrationsTab: React.FC<{
                 icon={<IntegrationLogo id={i.id} />}
                 on={connected}
                 title={i.name}
-                tags={isDefault ? <SettingsTag>Default</SettingsTag> : undefined}
+                tags={isDefault ? <SettingsTag>{t('common.default')}</SettingsTag> : undefined}
                 sub={connected ? i.path : i.tagline}
                 subTitle={connected ? i.path : undefined}
                 actions={connected ? (
                     <>
                         {isLauncher && !isDefault && (
                             <button className="dl-btn dl-btn--primary dl-btn--sm" onClick={() => onPreferredLauncherChange(i.id as 'ltk' | 'celestial')}>
-                                Set default
+                                {t('settings.integrations.setDefault')}
                             </button>
                         )}
                         {isLauncher && isDefault && (
@@ -63,18 +65,18 @@ export const IntegrationsTab: React.FC<{
                                 className={`dl-btn dl-btn--sm ${autoSync ? 'dl-btn--active' : ''}`}
                                 disabled={!ltkConfigured}
                                 onClick={() => onAutoSyncChange(!autoSync)}
-                                title="Push project changes to this launcher whenever files are modified"
+                                title={t('settings.integrations.autoSyncTitle')}
                             >
-                                Auto-Sync {autoSync ? 'On' : 'Off'}
+                                {autoSync ? t('settings.integrations.autoSyncOn') : t('settings.integrations.autoSyncOff')}
                             </button>
                         )}
-                        <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={() => void onConnect(i)}>Change</button>
-                        <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={() => i.setPath('')}>Disconnect</button>
+                        <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={() => void onConnect(i)}>{t('common.change')}</button>
+                        <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={() => i.setPath('')}>{t('common.disconnect')}</button>
                     </>
                 ) : (
                     <>
-                        <button className="dl-btn dl-btn--primary dl-btn--sm" onClick={() => void onConnect(i)}>Connect</button>
-                        <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={i.onDetect}>Auto-detect</button>
+                        <button className="dl-btn dl-btn--primary dl-btn--sm" onClick={() => void onConnect(i)}>{t('common.connect')}</button>
+                        <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={i.onDetect}>{t('common.detect')}</button>
                     </>
                 )}
             />
@@ -84,12 +86,13 @@ export const IntegrationsTab: React.FC<{
     return (
         <div className="integrations-tab">
             <p className="integrations-tab__intro">
-                Connect external tools so Flint can hand off work to them. Each one is fully optional — you can swap them any time.
+                {t('settings.integrations.intro')}
             </p>
-            <div className="integrations-tab__group-label">Launchers</div>
+            <div className="integrations-tab__group-label">{t('settings.integrations.launchers')}</div>
             {launchers.map((i) => renderCard(i, true))}
-            <div className="integrations-tab__group-label">External apps</div>
+            <div className="integrations-tab__group-label">{t('settings.integrations.externalApps')}</div>
             {apps.map((i) => renderCard(i, false))}
         </div>
     );
 };
+

@@ -28,8 +28,10 @@ import { useAction } from '../../lib/shortcuts/hooks';
 import { ChunkPreview } from './wad-explorer/ChunkPreview';
 import { QuickActionPanel, WadListSkeleton } from './wad-explorer/QuickActionPanel';
 import { ExtractOverlay } from './wad-explorer/ExtractOverlay';
+import { useTranslation } from '../../lib/i18n';
 
 export const WadExplorer: React.FC = () => {
+    const { t } = useTranslation();
     const wadExplorer = useWadExplorerStore(useShallow((s) => ({
         isOpen: s.isOpen,
         wads: s.wads,
@@ -1361,19 +1363,19 @@ export const WadExplorer: React.FC = () => {
                 <div className="left-panel__header" style={{ padding: '10px 12px 6px', flexShrink: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
                         <span dangerouslySetInnerHTML={{ __html: getIcon('wad') }} />
-                        <span style={{ fontSize: '12px', fontWeight: 600, flex: 1 }}>WAD Explorer</span>
+                        <span style={{ fontSize: '12px', fontWeight: 600, flex: 1 }}>{t('wadExplorer.title')}</span>
                         <button
                             className="btn btn--sm"
-                            title="Load a patch manifest from Riot's CDN (browse online, no install)"
+                            title={t('wadExplorer.cdnTooltip')}
                             onClick={() => openModal('loadManifest')}
                             style={{ fontSize: '11px', padding: '1px 8px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}
                         >
                             <span dangerouslySetInnerHTML={{ __html: getIcon('download') }} />
-                            <span>CDN</span>
+                            <span>{t('wadExplorer.cdnBtn')}</span>
                         </button>
                         <button
                             className="btn btn--sm"
-                            title="Asset Path Cheat Sheet"
+                            title={t('wadExplorer.cheatSheetTooltip')}
                             onClick={() => setShowCheatSheet(true)}
                             style={{ fontSize: '11px', padding: '1px 6px', opacity: 0.7, fontWeight: 600 }}
                         >?</button>
@@ -1399,11 +1401,11 @@ export const WadExplorer: React.FC = () => {
                             >PBE</button>
                         </div>
                         {wadExplorer.scanStatus === 'scanning' && (
-                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', opacity: 0.7 }}>Scanning…</span>
+                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', opacity: 0.7 }}>{t('common.loading')}</span>
                         )}
                         {wadExplorer.scanStatus === 'idle' && !effectiveLeagueRoot && (
-                            <button className="btn btn--sm" onClick={handlePickGamePath} title="Select game folder" style={{ fontSize: '10px', padding: '2px 6px' }}>
-                                Pick folder
+                            <button className="btn btn--sm" onClick={handlePickGamePath} title={t('wadExplorer.pickGameFolder')} style={{ fontSize: '10px', padding: '2px 6px' }}>
+                                {t('wadExplorer.pickGameFolder')}
                             </button>
                         )}
                     </div>
@@ -1414,7 +1416,7 @@ export const WadExplorer: React.FC = () => {
                             ref={searchRef}
                             type="text"
                             className="file-tree__search-input"
-                            placeholder="Filter files… (Ctrl+F)"
+                            placeholder={t('wadExplorer.searchPlaceholder')}
                             title="Matches file paths. Regex works too — invalid regex falls back to plain text."
                             value={inputValue}
                             onChange={handleInputChange}
@@ -1432,24 +1434,24 @@ export const WadExplorer: React.FC = () => {
                                 if (toolbarCheckState === 'all') handleDeselectAll();
                                 else handleSelectAll();
                             }}
-                            title={toolbarCheckState !== 'none' ? 'Deselect all' : 'Select all'}
+                            title={toolbarCheckState !== 'none' ? t('wadExplorer.deselectAll') : t('wadExplorer.selectAll')}
                         />
                         {wadExplorer.checkedFiles.size > 0 ? (
                             <>
                                 <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
-                                    {wadExplorer.checkedFiles.size.toLocaleString()} selected
+                                    {t('wadExplorer.selectedCount', { count: wadExplorer.checkedFiles.size.toLocaleString() })}
                                 </span>
                                 <div style={{ flex: 1 }} />
                                 <button className="btn btn--sm" onClick={handleDeselectAll} style={{ fontSize: '10px', padding: '2px 6px' }}>
-                                    Deselect All
+                                    {t('wadExplorer.deselectAll')}
                                 </button>
                                 <button className="btn btn--sm btn--primary" onClick={handleExtractSelected} disabled={extracting} style={{ fontSize: '10px', padding: '2px 8px' }}>
                                     <span dangerouslySetInnerHTML={{ __html: getIcon('export') }} />
-                                    <span>{extracting ? 'Extracting…' : 'Extract Selected'}</span>
+                                    <span>{extracting ? t('common.loading') : t('wadExplorer.extractSelected')}</span>
                                 </button>
                             </>
                         ) : (
-                            <span style={{ color: 'var(--text-muted)' }}>Select files to extract</span>
+                            <span style={{ color: 'var(--text-muted)' }}>{t('wadExplorer.selectFilesToExtract')}</span>
                         )}
                     </div>
                 )}
@@ -1458,36 +1460,36 @@ export const WadExplorer: React.FC = () => {
                     {wadExplorer.scanStatus === 'idle' && effectiveLeagueRoot && (
                         <div className="wad-empty">
                             <span className="wad-empty__icon" dangerouslySetInnerHTML={{ __html: getIcon('refresh') }} />
-                            <strong className="wad-empty__title">Preparing scan…</strong>
+                            <strong className="wad-empty__title">{t('common.loading')}</strong>
                             <span className="wad-empty__desc">Indexing the game directory.</span>
                         </div>
                     )}
                     {wadExplorer.scanStatus === 'scanning' && (
                         <div className="wad-empty">
                             <div className="spinner wad-empty__spinner" />
-                            <strong className="wad-empty__title">Scanning game directory</strong>
+                            <strong className="wad-empty__title">{t('wadExplorer.scanning')}</strong>
                             <span className="wad-empty__desc">Locating WAD archives…</span>
                         </div>
                     )}
                     {wadExplorer.scanStatus === 'error' && (
                         <div className="wad-empty wad-empty--error">
                             <span className="wad-empty__icon" dangerouslySetInnerHTML={{ __html: getIcon('error') }} />
-                            <strong className="wad-empty__title">Scan failed</strong>
+                            <strong className="wad-empty__title">{t('wadExplorer.scanFailed')}</strong>
                             <span className="wad-empty__desc">{wadExplorer.scanError}</span>
-                            <button className="btn btn--sm" onClick={handlePickGamePath}>Pick game folder</button>
+                            <button className="btn btn--sm" onClick={handlePickGamePath}>{t('wadExplorer.pickGameFolder')}</button>
                         </div>
                     )}
                     {wadExplorer.scanStatus === 'idle' && !effectiveLeagueRoot && (
                         <div className="wad-empty">
                             <span className="wad-empty__icon" dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
                             <strong className="wad-empty__title">
-                                No {branch === 'pbe' ? 'PBE ' : ''}League path
+                                {t('wadExplorer.noLeaguePath', { branch: branch === 'pbe' ? 'PBE ' : '' })}
                             </strong>
                             <span className="wad-empty__desc">
-                                Point Flint at your {branch === 'pbe' ? 'PBE ' : ''}League of Legends folder to start exploring WADs.
+                                {t('wadExplorer.noLeaguePathDesc', { branch: branch === 'pbe' ? 'PBE ' : '' })}
                             </span>
                             <button className="btn btn--sm btn--primary" onClick={handlePickGamePath}>
-                                Select {branch === 'pbe' ? 'PBE ' : ''}Game Folder
+                                {t('wadExplorer.selectGameFolder', { branch: branch === 'pbe' ? 'PBE ' : '' })}
                             </button>
                         </div>
                     )}

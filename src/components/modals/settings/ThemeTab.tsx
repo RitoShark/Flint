@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import * as api from '../../../lib/api';
 import { openColorPicker } from '../../common/ColorPicker';
+import { useTranslation } from '../../../lib/i18n';
 
 /* -------------------------------------------------------------------------- */
 /* Theme preset grid — same 5 cards as the wizard, lives on the Theme tab     */
@@ -25,6 +26,7 @@ export const ThemePresetGrid: React.FC<{
     /** Called when the user picks/changes the custom accent color. */
     onCustomAccent?: (hex: string) => void;
 }> = ({ selectedTheme, customAccent, onSelect, onCustomAccent }) => {
+    const { t } = useTranslation();
     useEffect(() => {
         api.seedBuiltinThemes().catch(() => {});
     }, []);
@@ -106,7 +108,7 @@ export const ThemePresetGrid: React.FC<{
                     </span>
                     <span className="theme-preset__foot">
                         <span className="theme-preset__name">
-                            {customActive ? accent.toUpperCase() : 'Custom'}
+                            {customActive ? accent.toUpperCase() : t('settings.theme.custom')}
                         </span>
                         <span className="theme-preset__dots">
                             <span className="theme-preset__dot" style={{ background: '#0c0c10' }} />
@@ -129,7 +131,7 @@ export const ThemePresetGrid: React.FC<{
                         type="button"
                         className="theme-custom-accent__circle"
                         style={{ background: accent }}
-                        title="Click to pick an accent color"
+                        title={t('settings.theme.pickAccentColor')}
                         onClick={(e) => openColorPicker(e, accent, applyCustom)}
                     />
                     <input
@@ -143,7 +145,7 @@ export const ThemePresetGrid: React.FC<{
                         }}
                         placeholder="#EF5244"
                     />
-                    <span className="theme-custom-accent__hint">Click the circle to pick any accent — the dark base stays.</span>
+                    <span className="theme-custom-accent__hint">{t('settings.theme.customAccentHint')}</span>
                 </div>
             )}
         </>

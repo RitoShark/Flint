@@ -3,8 +3,10 @@ import { createPortal } from 'react-dom';
 import { useModalStore, useProjectTabStore, useConfigStore, useNotificationStore, useNavigationStore } from '../../lib/stores';
 import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
 import * as api from '../../lib/api';
+import { useTranslation } from '../../lib/i18n';
 
 export const RenameProjectModal: React.FC = () => {
+    const { t } = useTranslation();
     const closeModal = useModalStore((s) => s.closeModal);
     const modalOptions = useModalStore((s) => s.modalOptions) as { projectPath?: string } | null;
     const showToast = useNotificationStore((s) => s.showToast);
@@ -75,7 +77,7 @@ export const RenameProjectModal: React.FC = () => {
         >
             <div className="dl-modal" role="dialog" aria-modal="true" style={{ maxWidth: 420 }}>
                 <div className="dl-modal__head">
-                    <h3 className="dl-modal__title">Rename project</h3>
+                    <h3 className="dl-modal__title">{t('renameProject.title')}</h3>
                 </div>
 
                 <div className="dl-modal__body">
@@ -84,7 +86,7 @@ export const RenameProjectModal: React.FC = () => {
                             fontSize: 10.5, fontWeight: 600, letterSpacing: '.05em',
                             textTransform: 'uppercase', color: 'var(--text-muted)',
                         }}>
-                            Project name
+                            {t('renameProject.label')}
                         </span>
                         <input
                             ref={inputRef}
@@ -92,28 +94,26 @@ export const RenameProjectModal: React.FC = () => {
                             value={name}
                             onChange={(e) => setName(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter' && canSave) save(); }}
-                            placeholder="My Project"
+                            placeholder={t('renameProject.placeholder')}
                             disabled={busy}
                         />
                     </label>
 
                     <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: 'var(--text-muted)' }}>
-                        This rewrites asset paths in every BIN, renames the asset folders and the
-                        project folder, and updates the config files. <strong style={{ color: 'var(--danger)' }}>It can’t be undone</strong> —
-                        the project reopens at its new location.
+                        {t('renameProject.desc')}
                     </p>
                 </div>
 
                 <div className="dl-modal__foot" style={{ justifyContent: 'flex-end' }}>
                     <button className="dl-btn dl-btn--ghost" onClick={closeModal} disabled={busy}>
-                        Cancel
+                        {t('common.cancel')}
                     </button>
                     <button
                         className={`dl-btn dl-btn--primary${busy ? ' dl-btn--loading' : ''}`}
                         onClick={save}
                         disabled={!canSave}
                     >
-                        Save
+                        {t('common.save')}
                     </button>
                 </div>
             </div>

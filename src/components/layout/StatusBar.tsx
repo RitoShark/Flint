@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppMetadataStore, useNotificationStore } from '../../lib/stores';
 import { setLogStore } from '../../lib/util/logger';
 import { Button, Icon } from '../ui';
+import { useTranslation } from '../../lib/i18n';
 
 type LogLevel = 'info' | 'warning' | 'error';
 type FilterLevel = 'all' | LogLevel;
@@ -33,6 +34,7 @@ function formatTime(timestamp: number): string {
 }
 
 export const LogPanel: React.FC = () => {
+    const { t } = useTranslation();
     const logs = useAppMetadataStore((s) => s.logs);
     const logPanelExpanded = useAppMetadataStore((s) => s.logPanelExpanded);
     const status = useAppMetadataStore((s) => s.status);
@@ -266,14 +268,14 @@ export const LogPanel: React.FC = () => {
                         {logs.length === 0 ? (
                             <div className="log-panel__empty">
                                 <span className="log-panel__empty-icon"><Icon name="info" /></span>
-                                <strong>No logs yet</strong>
-                                <span>Logs will appear here as you use Flint.</span>
-                                <small>Enable verbose logging in Settings to see more details.</small>
+                                <strong>{t('statusbar.noLogs')}</strong>
+                                <span>{t('statusbar.noLogsSub')}</span>
+                                <small>{t('statusbar.noLogsHint')}</small>
                             </div>
                         ) : filteredLogs.length === 0 ? (
                             <div className="log-panel__empty">
                                 <span className="log-panel__empty-icon"><Icon name="search" /></span>
-                                <strong>No matching logs</strong>
+                                <strong>{t('statusbar.noMatchingLogs')}</strong>
                                 <span>{filter ? `Nothing matches "${filter}"` : `No ${levelFilter} entries.`}</span>
                             </div>
                         ) : (

@@ -10,14 +10,9 @@ import { useFolderDrop } from '../../lib/folderDrop';
 import { openOrImportFolder, isSameProjectPath } from '../../lib/projectOpen';
 import { isJadeAlias, liveChampionAlias } from '../../lib/data/datadragon';
 import type { SavedProject } from '../../lib/types';
+import { useTranslation } from '../../lib/i18n';
 
 type SortMode = 'recent' | 'name' | 'champion';
-
-const SORT_OPTIONS = [
-    { value: 'recent',   label: 'Recently opened' },
-    { value: 'name',     label: 'Project name (A–Z)' },
-    { value: 'champion', label: 'Champion (A–Z)' },
-] as const;
 
 function projectSubtitle(p: SavedProject): string {
     if (p.kind === 'tft') return p.champion ? `TFT · ${p.champion} · Will be removed` : 'TFT · Will be removed';
@@ -439,10 +434,10 @@ export const ProjectListModal: React.FC = () => {
         if (!project) return;
 
         openConfirmDialog({
-            title: 'Delete Folder',
-            message: `Are you sure you want to delete "${project.name}"?\n\nThis will permanently delete all folder files and cannot be undone.`,
-            confirmLabel: 'Delete',
-            cancelLabel: 'Cancel',
+            title: t('projectList.deleteConfirmTitle'),
+            message: t('projectList.deleteConfirmMsg', { name: project.name }),
+            confirmLabel: t('common.delete'),
+            cancelLabel: t('common.cancel'),
             danger: true,
             onConfirm: async () => {
                 try {
@@ -661,6 +656,14 @@ export const ProjectListModal: React.FC = () => {
         return list;
     }, [savedProjects, search, sortMode]);
 
+    const { t } = useTranslation();
+
+    const sortOptions = useMemo(() => [
+        { value: 'recent',   label: t('projects.sortRecent') },
+        { value: 'name',     label: t('projects.sortName') },
+        { value: 'champion', label: t('projects.sortChampion') },
+    ], [t]);
+
     return (
         <Modal open={isVisible} onClose={closeModal} modifier="modal--project-list">
             <ModalHeader
@@ -668,11 +671,11 @@ export const ProjectListModal: React.FC = () => {
                     <span className="pl-title">
                         <span className="pl-title__icon"><Icon name="folder" /></span>
                         <span>
-                            <span className="pl-title__name">My Folders</span>
+                            <span className="pl-title__name">{t('projectList.title')}</span>
                             <span className="pl-title__sub">
                                 {savedProjects.length === 0
-                                    ? 'No saved folders yet'
-                                    : `${savedProjects.length} saved · open or import`}
+                                    ? t('projectList.noSaved')
+                                    : t('projectList.savedCount', { count: savedProjects.length })}
                             </span>
                         </span>
                     </span>
@@ -687,13 +690,13 @@ export const ProjectListModal: React.FC = () => {
                         <Input
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            placeholder="Search by kind, champion, name, or path…"
+                            placeholder={t('projectList.searchPlaceholder')}
                         />
                     </div>
                     <Picker<SortMode>
                         value={sortMode}
                         onChange={(v) => setSortMode(v as SortMode)}
-                        options={SORT_OPTIONS as unknown as { value: SortMode; label: string }[]}
+                        options={sortOptions as unknown as { value: SortMode; label: string }[]}
                         width={200}
                     />
                 </div>
@@ -703,9 +706,9 @@ export const ProjectListModal: React.FC = () => {
                 {dragOver && (
                     <div className="pl-drop-overlay">
                         <Icon name="folder" />
-                        <span className="pl-drop-overlay__title">Drop to open or import</span>
+                        <span className="pl-drop-overlay__title">{t('welcome.dropTitle')}</span>
                         <span className="pl-drop-overlay__hint">
-                            A Flint project opens; an extracted WAD folder is imported
+                            {t('welcome.dropHint')}
                         </span>
                     </div>
                 )}
@@ -714,7 +717,7 @@ export const ProjectListModal: React.FC = () => {
                 ) : visibleProjects.length === 0 ? (
                     <div className="pl-no-match">
                         <Icon name="search" />
-                        <span>No folders match “{search}”.</span>
+                        <span>{t('projectList.noMatch', { query: search })}</span>
                     </div>
                 ) : (
                     <div className="pl-list">
@@ -734,13 +737,13 @@ export const ProjectListModal: React.FC = () => {
 
             <ModalFooter>
                 <Button variant="secondary" icon="folder" onClick={handleBrowseFiles}>
-                    Open from disk
+                    {t('projectList.openDisk')}
                 </Button>
                 <Button variant="secondary" icon="folderOpen2" onClick={handleImportFolder}>
-                    Import Folder
+                    {t('projectList.importFolder')}
                 </Button>
                 <Button variant="success" icon="download" onClick={handleImportMod}>
-                    Import Mod
+                    {t('projectList.importMod')}
                 </Button>
             </ModalFooter>
         </Modal>
@@ -753,17 +756,19 @@ export const ProjectListModal: React.FC = () => {
 
 /** Actions live in the modal footer, which renders in this state too — so this
  *  only sets the scene and points at them. */
-const ProjectsEmpty: React.FC = () => (
-    <div className="pl-empty">
-        <div className="pl-empty__art">
-            <span className="pl-empty__ring" />
-            <span className="pl-empty__ring pl-empty__ring--2" />
-            <span className="pl-empty__icon"><Icon name="folder" /></span>
+const ProjectsEmpty: React.FC = () => {
+    const { t } = useTranslation();
+    return (
+        <div className="pl-empty">
+            <div className="pl-empty__art">
+                <span className="pl-empty__ring" />
+                <span className="pl-empty__ring pl-empty__ring--2" />
+                <span className="pl-empty__icon"><Icon name="folder" /></span>
+            </div>
+            <h3 className="pl-empty__title">{t('projectList.emptyTitle')}</h3>
+            <p className="pl-empty__desc">
+                {t('projectList.emptyDesc')}
+            </p>
         </div>
-        <h3 className="pl-empty__title">No folders yet</h3>
-        <p className="pl-empty__desc">
-            Drag a folder in to get started — a Flint project opens, an extracted WAD folder
-            is imported. Or use the buttons below.
-        </p>
-    </div>
-);
+    );
+};

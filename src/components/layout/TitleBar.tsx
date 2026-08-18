@@ -10,6 +10,7 @@ import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import * as api from '../../lib/api';
 import { sanitizeChampionName } from '../../lib/util/utils';
 import { FlintFlameMark } from '../ui/FlintFlameMark';
+import { useTranslation } from '../../lib/i18n';
 import type { ProjectTab, ExtractSession, FileEditorKind } from '../../lib/types';
 
 /** A file-editor tab is named by what the editor opened it AS, so the icon comes
@@ -285,6 +286,7 @@ const psdBtnStyle = (disabled: boolean): React.CSSProperties => ({
 });
 
 export const TitleBar: React.FC = () => {
+    const { t } = useTranslation();
     const activeTabId = useProjectTabStore((s) => s.activeTabId);
     const openTabs = useProjectTabStore((s) => s.openTabs);
     const extractSessions = useWadExtractStore((s) => s.extractSessions);
@@ -701,7 +703,7 @@ export const TitleBar: React.FC = () => {
                         disabled={isRebuildingLoadscreen}
                         title="Re-extract the current game's uibase and re-inject the animation config — no need to redo the spritesheet after a patch"
                         data-tauri-drag-region="false"
-                    >{isRebuildingLoadscreen ? 'Rebuilding…' : 'Rebuild'}</button>
+                    >{isRebuildingLoadscreen ? t('common.rebuilding') : t('common.rebuild')}</button>
                 )}
 
                 {currentView === 'preview' && currentProject && launcherTarget && (
@@ -709,8 +711,8 @@ export const TitleBar: React.FC = () => {
                         className={`titlebar__button titlebar__button--sync${isSyncing ? ' titlebar__button--syncing' : ''}`}
                         onClick={handleSyncToLauncher}
                         disabled={isSyncing}
-                        title={`Sync to ${launcherTarget.name}`}
-                        aria-label={`Sync to ${launcherTarget.name}`}
+                        title={`${t('titlebar.syncLauncher')} (${launcherTarget.name})`}
+                        aria-label={`${t('titlebar.syncLauncher')} (${launcherTarget.name})`}
                         data-tauri-drag-region="false"
                     >
                         <img
@@ -729,7 +731,7 @@ export const TitleBar: React.FC = () => {
                     <button
                         className="titlebar__button titlebar__button--timeline"
                         onClick={() => openModal('checkpoint')}
-                        title="Project Timeline"
+                        title={t('titlebar.timeline')}
                         data-tauri-drag-region="false"
                     >
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
@@ -744,7 +746,7 @@ export const TitleBar: React.FC = () => {
                             className="titlebar__button titlebar__button--export"
                             onClick={toggleDropdown}
                             disabled={isExporting}
-                            title="Export Mod"
+                            title={t('titlebar.exportMod')}
                             data-tauri-drag-region="false"
                         >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
@@ -781,7 +783,7 @@ export const TitleBar: React.FC = () => {
                                     onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                                     onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                                 >
-                                    Export as .fantome
+                                    {t('titlebar.exportFantome')}
                                 </button>
                                 <button
                                     onClick={() => handleExportAs('modpkg')}
@@ -799,7 +801,7 @@ export const TitleBar: React.FC = () => {
                                     onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                                     onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                                 >
-                                    Export as .modpkg
+                                    {t('titlebar.exportModpkg')}
                                 </button>
                             </div>
                         )}
@@ -809,7 +811,7 @@ export const TitleBar: React.FC = () => {
                 <button
                     className="titlebar__button titlebar__button--skinfixer"
                     onClick={() => openModal('skinFixer')}
-                    title="Skin Fixer — detect & fix broken skins"
+                    title={t('titlebar.skinFixerTooltip')}
                     data-tauri-drag-region="false"
                 >
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
@@ -820,7 +822,7 @@ export const TitleBar: React.FC = () => {
                 <button
                     className="titlebar__button titlebar__button--settings"
                     onClick={handleSettings}
-                    title="Settings"
+                    title={t('titlebar.settings')}
                     data-tauri-drag-region="false"
                 >
                     <SettingsIcon />
@@ -828,7 +830,7 @@ export const TitleBar: React.FC = () => {
                 <button
                     className="titlebar__button"
                     onClick={handleMinimize}
-                    title="Minimize"
+                    title={t('common.minimize')}
                     data-tauri-drag-region="false"
                 >
                     <MinimizeIcon />
@@ -836,7 +838,7 @@ export const TitleBar: React.FC = () => {
                 <button
                     className="titlebar__button"
                     onClick={handleMaximize}
-                    title="Maximize"
+                    title={t('common.maximize')}
                     data-tauri-drag-region="false"
                 >
                     <MaximizeIcon />
@@ -844,7 +846,7 @@ export const TitleBar: React.FC = () => {
                 <button
                     className={`titlebar__button titlebar__button--close${closingWindow ? ' titlebar__button--closing' : ''}`}
                     onClick={handleClose}
-                    title="Close"
+                    title={t('common.close')}
                     data-tauri-drag-region="false"
                     disabled={closingWindow}
                 >

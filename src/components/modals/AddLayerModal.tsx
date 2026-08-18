@@ -15,6 +15,7 @@ import {
     ModalLoading,
     Select,
 } from '../ui';
+import { useTranslation } from '../../lib/i18n';
 
 type CategoryId = 'animation' | 'model' | 'particle' | 'audio';
 
@@ -34,6 +35,7 @@ const CATEGORIES: Category[] = [
 const SLUG_RE = /^[a-zA-Z0-9_-]+$/;
 
 export const AddLayerModal: React.FC = () => {
+    const { t } = useTranslation();
     const closeModal = useModalStore((s) => s.closeModal);
     const activeModal = useModalStore((s) => s.activeModal);
     const showToast = useNotificationStore((s) => s.showToast);
@@ -138,14 +140,14 @@ export const AddLayerModal: React.FC = () => {
 
     return (
         <Modal open={isVisible} onClose={busy ? () => {} : closeModal}>
-            {busy && <ModalLoading text="Creating Layer" progress="Copying files..." />}
+            {busy && <ModalLoading text={t('addLayer.creating')} progress="Copying files..." />}
 
-            <ModalHeader title="Add Layer" onClose={closeModal} />
+            <ModalHeader title={t('addLayer.title')} onClose={closeModal} />
 
             <ModalBody>
                 <Field
-                    label="Layer name"
-                    hint="No spaces. Letters, digits, underscores, hyphens. Example: chroma_red"
+                    label={t('addLayer.name')}
+                    hint={t('addLayer.nameHint')}
                     error={slugError ?? undefined}
                     value={layerName}
                     onChange={(e) => setLayerName(e.target.value)}
@@ -155,15 +157,15 @@ export const AddLayerModal: React.FC = () => {
                 />
 
                 <Field
-                    label="Description (optional)"
+                    label={t('addLayer.description')}
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="High-res chroma textures"
+                    placeholder={t('addLayer.descriptionPlaceholder')}
                     disabled={busy}
                 />
 
                 <FormGroup>
-                    <FormLabel>Copy from</FormLabel>
+                    <FormLabel>{t('addLayer.copyFrom')}</FormLabel>
                     <Select
                         value={sourceLayer}
                         onChange={(e) => setSourceLayer(e.target.value)}
@@ -175,15 +177,12 @@ export const AddLayerModal: React.FC = () => {
                             </option>
                         ))}
                     </Select>
-                    <FormHint>The new layer is seeded from this existing layer.</FormHint>
+                    <FormHint>{t('addLayer.copyFromHint')}</FormHint>
                 </FormGroup>
 
                 <FormGroup>
-                    <FormLabel>Categories to copy</FormLabel>
-                    <FormHint>
-                        Only files matching these categories are copied into the new layer.
-                        Uncheck everything to create an empty layer.
-                    </FormHint>
+                    <FormLabel>{t('addLayer.categoriesToCopy')}</FormLabel>
+                    <FormHint>{t('addLayer.categoriesHint')}</FormHint>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
                         {CATEGORIES.map((cat) => (
                             <Checkbox
@@ -207,10 +206,10 @@ export const AddLayerModal: React.FC = () => {
 
             <ModalFooter>
                 <Button variant="secondary" onClick={closeModal} disabled={busy}>
-                    Cancel
+                    {t('common.cancel')}
                 </Button>
                 <Button variant="primary" onClick={handleSubmit} disabled={!canSubmit}>
-                    Create Layer
+                    {t('addLayer.create')}
                 </Button>
             </ModalFooter>
         </Modal>

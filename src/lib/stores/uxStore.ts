@@ -1,9 +1,11 @@
 import { create } from 'zustand';
 import { setButtonGlow } from '../ui-helpers/buttonGlow';
+import type { Language } from '../i18n/types';
 
 const STORAGE_KEY = 'flint_ux_prefs_v1';
 
 export interface UxPrefs {
+    language: Language;
     glassmorphism: boolean;
     fpsMode: boolean;
     /** Cursor-following radial glow on buttons. On by default (opt-out); force-disabled while fpsMode is on. */
@@ -26,6 +28,8 @@ export interface UxPrefs {
     binEditorMinimapMaxLines: number;
     binEditorWordWrap: boolean;
     binEditorFontSize: number;
+    /** Show Monaco autocomplete suggestions popup while typing in BIN files. */
+    binEditorAutoSuggestions: boolean;
     /** Run the Unhash pass automatically when a BIN opens. */
     binEditorAutoUnhash: boolean;
     /** Tools-panel sections that start expanded, keyed by section title. */
@@ -37,6 +41,7 @@ export interface UxPrefs {
 }
 
 const DEFAULTS: UxPrefs = {
+    language: 'en',
     glassmorphism: true,
     fpsMode: false,
     buttonGlow: true,
@@ -49,6 +54,7 @@ const DEFAULTS: UxPrefs = {
     binEditorMinimapMaxLines: 150_000,
     binEditorWordWrap: false,
     binEditorFontSize: 13,
+    binEditorAutoSuggestions: false,
     binEditorAutoUnhash: false,
     binEditorExpandedSections: {},
     binEditorSyntaxTheme: 'default',
@@ -86,6 +92,7 @@ function writeStorage(prefs: UxPrefs) {
 }
 
 interface UxState extends UxPrefs {
+    setLanguage: (lang: Language) => void;
     setGlassmorphism: (on: boolean) => void;
     setFpsMode: (on: boolean) => void;
     setButtonGlow: (on: boolean) => void;
@@ -117,6 +124,7 @@ export const useUxStore = create<UxState>()((set, get) => {
     };
     return {
         ...initial,
+        setLanguage: (lang) => { set({ language: lang }); persist(); },
         setGlassmorphism: (on) => { set({ glassmorphism: on }); persist(); },
         setFpsMode: (on) => { set({ fpsMode: on }); persist(); },
         setButtonGlow: (on) => { set({ buttonGlow: on }); persist(); },

@@ -236,6 +236,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const minimapMaxLines = useUxStore((s) => s.binEditorMinimapMaxLines);
     const wordWrapPref = useUxStore((s) => s.binEditorWordWrap);
     const fontSizePref = useUxStore((s) => s.binEditorFontSize);
+    const autoSuggestionsPref = useUxStore((s) => s.binEditorAutoSuggestions);
     const autoUnhashPref = useUxStore((s) => s.binEditorAutoUnhash);
     const syntaxThemePref = useUxStore((s) => s.binEditorSyntaxTheme);
     const leapBarPref = useUxStore((s) => s.binEditorLeapBar);
@@ -443,6 +444,11 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             minimap: { enabled: minimapOn },
             wordWrap: wordWrapPref ? 'on' : 'off',
             fontSize: fontSizePref,
+            quickSuggestions: autoSuggestionsPref ? { other: 'on', comments: 'off', strings: 'off' } : false,
+            suggestOnTriggerCharacters: autoSuggestionsPref,
+            wordBasedSuggestions: autoSuggestionsPref ? 'currentDocument' : 'off',
+            acceptSuggestionOnEnter: autoSuggestionsPref ? 'on' : 'off',
+            parameterHints: { enabled: autoSuggestionsPref },
             value: content,
             language: RITOBIN_LANGUAGE_ID,
             theme: RITOBIN_THEME_ID,
@@ -629,12 +635,36 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [loading, error]);
 
-    // Apply minimap changes in place. The editor-creation effect must not
-    // depend on the preference — re-running it would dispose the model and
-    // the undo stack — so toggling is pushed through updateOptions instead.
+    // Apply minimap & editor options changes in place. The editor-creation effect
+    // must not depend on these preferences — re-running it would dispose the model
+    // and the undo stack — so toggling is pushed through updateOptions instead.
     useEffect(() => {
         editorRef.current?.updateOptions({ minimap: { enabled: minimapOn } });
     }, [minimapOn]);
+
+    useEffect(() => {
+        editorRef.current?.updateOptions({
+            quickSuggestions: autoSuggestionsPref ? { other: 'on', comments: 'off', strings: 'off' } : false,
+            suggestOnTriggerCharacters: autoSuggestionsPref,
+            wordBasedSuggestions: autoSuggestionsPref ? 'currentDocument' : 'off',
+            acceptSuggestionOnEnter: autoSuggestionsPref ? 'on' : 'off',
+            parameterHints: { enabled: autoSuggestionsPref },
+        });
+    }, [autoSuggestionsPref]);
+
+    useEffect(() => {
+        editorRef.current?.updateOptions({ wordWrap: wordWrapPref ? 'on' : 'off' });
+    }, [wordWrapPref]);
+
+    useEffect(() => {
+        editorRef.current?.updateOptions({ fontSize: fontSizePref });
+    }, [fontSizePref]);
+
+    useEffect(() => {
+        if (editorRef.current) {
+            applyRitobinTheme(monaco as any, syntaxThemePref);
+        }
+    }, [syntaxThemePref]);
 
     useEffect(() => {
         return () => { if (bracketCheckTimerRef.current) clearTimeout(bracketCheckTimerRef.current); };

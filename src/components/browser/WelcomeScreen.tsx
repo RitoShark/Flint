@@ -7,6 +7,7 @@ import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { useFolderDrop } from '../../lib/folderDrop';
 import { openOrImportFolder, openProjectAt, isSameProjectPath } from '../../lib/projectOpen';
 import type { RecentProject } from '../../lib/types';
+import { useTranslation } from '../../lib/i18n';
 
 const ClockIcon: React.FC = () => (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
@@ -24,6 +25,7 @@ const ClockIcon: React.FC = () => (
 const RECENT_DEFAULT_LIMIT = 3;
 
 export const WelcomeScreen: React.FC = () => {
+    const { t } = useTranslation();
     const recentProjects = useConfigStore((s) => s.recentProjects);
     const creatorName = useConfigStore((s) => s.creatorName) || 'Creator';
     const openModal = useModalStore((s) => s.openModal);
@@ -32,7 +34,7 @@ export const WelcomeScreen: React.FC = () => {
     const setReady = useAppMetadataStore((s) => s.setReady);
     const setError = useAppMetadataStore((s) => s.setError);
     const showToast = useNotificationStore((s) => s.showToast);
-    const [greeting, setGreeting] = useState('');
+    const [greetingKey, setGreetingKey] = useState('welcome.greeting.morning');
     const [showAllRecent, setShowAllRecent] = useState(false);
     const dropZoneRef = useRef<HTMLDivElement>(null);
 
@@ -80,16 +82,16 @@ export const WelcomeScreen: React.FC = () => {
     });
 
     useEffect(() => {
-        const getGreeting = () => {
+        const getGreetingKey = () => {
             const hour = new Date().getHours();
-            if (hour >= 7 && hour < 12) return 'Good morning';
-            if (hour >= 12 && hour < 18) return 'Good afternoon';
-            if (hour >= 18 && hour < 22) return 'Good evening';
-            return 'Good night';
+            if (hour >= 7 && hour < 12) return 'welcome.greeting.morning';
+            if (hour >= 12 && hour < 18) return 'welcome.greeting.afternoon';
+            if (hour >= 18 && hour < 22) return 'welcome.greeting.evening';
+            return 'welcome.greeting.night';
         };
-        setGreeting(getGreeting());
+        setGreetingKey(getGreetingKey());
 
-        const interval = setInterval(() => setGreeting(getGreeting()), 60000);
+        const interval = setInterval(() => setGreetingKey(getGreetingKey()), 60000);
         return () => clearInterval(interval);
     }, []);
 
@@ -125,33 +127,33 @@ export const WelcomeScreen: React.FC = () => {
             {dragOver && (
                 <div className="welcome__drop-overlay">
                     <span className="welcome__drop-icon" dangerouslySetInnerHTML={{ __html: getIcon('folderOpen2') }} />
-                    <span className="welcome__drop-title">Drop to open or import</span>
-                    <span className="welcome__drop-hint">A Flint project opens; an extracted WAD folder is imported</span>
+                    <span className="welcome__drop-title">{t('welcome.dropTitle')}</span>
+                    <span className="welcome__drop-hint">{t('welcome.dropHint')}</span>
                 </div>
             )}
             <div className="welcome__header">
                 <h1 className="welcome__greeting">
-                    {greeting}, <span className="welcome__creator-name">{creatorName}</span>
+                    {t(greetingKey)}, <span className="welcome__creator-name">{creatorName}</span>
                 </h1>
-                <p className="welcome__subtitle">Create what you imagine</p>
+                <p className="welcome__subtitle">{t('welcome.subtitle')}</p>
             </div>
 
             <div className="welcome__columns">
                 <div className="welcome__column welcome__column--left">
-                    <h2 className="welcome__column-title">Folders</h2>
- 
+                    <h2 className="welcome__column-title">{t('welcome.folders')}</h2>
+
                     <div className="welcome__actions">
                         <button className="btn btn--primary btn--large" onClick={() => openModal('newProject')}>
-                            <span>Create Project</span>
+                            <span>{t('welcome.createProject')}</span>
                             <span dangerouslySetInnerHTML={{ __html: getIcon('plus') }} />
                         </button>
 
                         <button className="btn btn--secondary btn--large" onClick={handleOpenProject}>
-                            <span>Open Mods</span>
+                            <span>{t('welcome.openMods')}</span>
                             <span dangerouslySetInnerHTML={{ __html: getIcon('folderOpen2') }} />
                         </button>
                     </div>
- 
+
                     {recentProjects.length > 0 && (() => {
                         const total = recentProjects.length;
                         const limit = showAllRecent ? total : RECENT_DEFAULT_LIMIT;
@@ -161,12 +163,12 @@ export const WelcomeScreen: React.FC = () => {
                             <div className="welcome__recent">
                                 <h3 className="welcome__recent-title">
                                     <ClockIcon />
-                                    <span>Recent Folders</span>
+                                    <span>{t('welcome.recentFolders')}</span>
                                     <span className="welcome__recent-count">{total}</span>
                                 </h3>
                                 <div className="welcome__recent-list">
                                     {visible.map((project: RecentProject) => (
-                                        <div
+                                         <div
                                             key={project.path}
                                             className="welcome__recent-item"
                                             onClick={() => openRecentProject(project.path)}
@@ -184,7 +186,7 @@ export const WelcomeScreen: React.FC = () => {
                                                 <button
                                                     className="welcome__recent-delete"
                                                     onClick={(e) => handleRemoveRecent(e, project.path)}
-                                                    title="Remove from recent"
+                                                    title={t('welcome.removeRecent')}
                                                 >
                                                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
                                                         <path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -201,8 +203,8 @@ export const WelcomeScreen: React.FC = () => {
                                         onClick={() => setShowAllRecent((v) => !v)}
                                     >
                                         {showAllRecent
-                                            ? `Show fewer`
-                                            : `Show all (${hidden} more)`}
+                                            ? t('welcome.showFewer')
+                                            : t('welcome.showAll', { count: hidden })}
                                         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ transform: showAllRecent ? 'rotate(180deg)' : 'none', transition: 'transform 220ms ease' }}>
                                             <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                                         </svg>
@@ -212,24 +214,24 @@ export const WelcomeScreen: React.FC = () => {
                         );
                     })()}
                 </div>
- 
+
                 <div className="welcome__divider"></div>
 
                 <div className="welcome__column welcome__column--right">
-                    <h2 className="welcome__column-title">Explore Files</h2>
- 
+                    <h2 className="welcome__column-title">{t('welcome.exploreFiles')}</h2>
+
                     <div className="welcome__actions">
                         <button className="btn btn--secondary btn--large" onClick={() => openModal('browseWad')}>
                             <span dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
-                            <span>Browse WAD File</span>
+                            <span>{t('welcome.browseWadFile')}</span>
                         </button>
- 
+
                         <button className="btn btn--secondary btn--large" onClick={handleOpenWadExplorer}>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="2" />
                                 <path d="M3 9h18M8 5V3m8 2V3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                             </svg>
-                            <span>WAD Explorer</span>
+                            <span>{t('welcome.wadExplorer')}</span>
                         </button>
                     </div>
                 </div>

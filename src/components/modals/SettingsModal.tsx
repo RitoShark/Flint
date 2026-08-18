@@ -30,8 +30,10 @@ import { IntegrationsTab } from './settings/IntegrationsTab';
 import { BinEditorTab } from './settings/BinEditorTab';
 import { SettingsRow, SettingsTag } from './settings/SettingsRow';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
+import { useTranslation, SUPPORTED_LANGUAGES } from '../../lib/i18n';
 
 export const SettingsModal: React.FC = () => {
+    const { t } = useTranslation();
     const closeModal = useModalStore((s) => s.closeModal);
     const openModal = useModalStore((s) => s.openModal);
     const activeModal = useModalStore((s) => s.activeModal);
@@ -157,10 +159,10 @@ export const SettingsModal: React.FC = () => {
         }
         setCloseGuard(() => {
             openConfirmDialog({
-                title: 'Unsaved Settings',
-                message: "You've changed settings but haven't saved them. Closing now discards those changes.",
-                confirmLabel: 'Discard Changes',
-                cancelLabel: 'Keep Editing',
+                title: t('settings.unsavedTitle'),
+                message: t('settings.unsavedMsg'),
+                confirmLabel: t('settings.discardChanges'),
+                cancelLabel: t('settings.keepEditing'),
                 danger: true,
                 onConfirm: () => {
                     setCloseGuard(null);
@@ -170,7 +172,7 @@ export const SettingsModal: React.FC = () => {
             return true;
         });
         return () => setCloseGuard(null);
-    }, [isVisible, isDirty, setCloseGuard, openConfirmDialog, closeModal]);
+    }, [isVisible, isDirty, setCloseGuard, openConfirmDialog, closeModal, t]);
 
     useEffect(() => {
         const unlisten = listen<SchemaProgress>('schema-progress', (event) => {
@@ -536,47 +538,47 @@ export const SettingsModal: React.FC = () => {
     };
 
     const tabs: { id: SettingsTab; label: string; icon: IconName }[] = [
-        { id: 'creator', label: 'Creator', icon: 'user' },
-        { id: 'general', label: 'General', icon: 'settings' },
-        { id: 'theme', label: 'Theme', icon: 'picture' },
-        { id: 'binEditor', label: 'Bin Editor', icon: 'bin' },
-        { id: 'paths', label: 'Paths', icon: 'folder' },
-        { id: 'integrations', label: 'Integrations', icon: 'link' },
-        { id: 'dev', label: 'Dev', icon: 'code' },
+        { id: 'creator', label: t('settings.tab.creator'), icon: 'user' },
+        { id: 'general', label: t('settings.tab.general'), icon: 'settings' },
+        { id: 'theme', label: t('settings.tab.theme'), icon: 'picture' },
+        { id: 'binEditor', label: t('settings.tab.binEditor'), icon: 'bin' },
+        { id: 'paths', label: t('settings.tab.paths'), icon: 'folder' },
+        { id: 'integrations', label: t('settings.tab.integrations'), icon: 'link' },
+        { id: 'dev', label: t('settings.tab.dev'), icon: 'code' },
     ];
 
     const pathSettings: PathSetting[] = [
         {
-            label: 'Default Project Path',
-            placeholder: 'Where new projects are created',
+            label: t('settings.paths.defaultProject'),
+            placeholder: t('settings.paths.defaultProjectSub'),
             value: defaultProjectPath,
             onChange: setDefaultProjectPath,
-            browseTitle: 'Select Default Project Folder',
+            browseTitle: t('settings.paths.selectFolder'),
             iconName: 'folder',
-            hint: 'Where new mod projects get scaffolded.',
+            hint: t('settings.paths.defaultProjectSub'),
         },
         {
-            label: 'League of Legends',
+            label: t('settings.paths.leagueLive'),
             badge: 'Live',
             placeholder: 'C:\\Riot Games\\League of Legends',
             value: leaguePath,
             onChange: setLeaguePath,
-            browseTitle: 'Select League of Legends Folder',
+            browseTitle: t('settings.paths.selectFolder'),
             onDetect: handleDetectLeague,
-            detectLabel: 'Auto-detect',
+            detectLabel: t('common.detect'),
             disabled: isValidating,
             logoSrc: '/lol-logo.png',
             logoColor: '#0AC8B9',
         },
         {
-            label: 'League of Legends PBE',
+            label: t('settings.paths.leaguePbe'),
             badge: 'PBE',
             placeholder: 'C:\\Riot Games\\League of Legends (PBE)',
             value: leaguePathPbe,
             onChange: setLeaguePathPbe,
-            browseTitle: 'Select PBE Folder',
+            browseTitle: t('settings.paths.selectFolder'),
             onDetect: handleDetectPbe,
-            detectLabel: 'Auto-detect PBE',
+            detectLabel: `${t('common.detect')} PBE`,
             disabled: isValidating,
             logoSrc: '/lol-logo.png',
             logoColor: '#F0884F',
@@ -656,7 +658,7 @@ export const SettingsModal: React.FC = () => {
 
     return (
         <Modal open={isVisible} onClose={closeModal} modifier="modal--settings">
-            <ModalHeader title="Settings" onClose={closeModal} />
+            <ModalHeader title={t('settings.title')} onClose={closeModal} />
 
             <div className="settings-layout">
                 <div className="settings-sidebar">
@@ -712,36 +714,62 @@ export const SettingsModal: React.FC = () => {
 
                     {activeTab === 'general' && (
                         <div className="settings-panel settings-panel--flush">
-                            <div className="settings-subhead">Preferences</div>
+                            <div className="settings-subhead">{t('settings.general.language')}</div>
+                            <SettingsRow
+                                icon={<Icon name="picture" />}
+                                title={t('settings.general.language')}
+                                sub={<span className="settings-row__sub">{t('settings.general.languageSub')}</span>}
+                                actions={
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                        {SUPPORTED_LANGUAGES.map((langInfo) => {
+                                            const isSelected = (ux.language || 'en') === langInfo.code;
+                                            return (
+                                                <button
+                                                    key={langInfo.code}
+                                                    type="button"
+                                                    className={`dl-btn dl-btn--sm ${isSelected ? 'dl-btn--primary' : 'dl-btn--ghost'}`}
+                                                    onClick={() => ux.setLanguage(langInfo.code)}
+                                                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                                                >
+                                                    <span style={{ fontSize: '14px' }}>{langInfo.flag}</span>
+                                                    <span>{langInfo.nativeName}</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                }
+                            />
+
+                            <div className="settings-subhead">{t('settings.general.preferences')}</div>
                             <SettingsRow
                                 icon={<Icon name="code" />}
-                                title="Verbose Logging"
-                                sub={<span className="settings-row__sub">Show detailed debug output in the log panel</span>}
+                                title={t('settings.general.verboseLogging')}
+                                sub={<span className="settings-row__sub">{t('settings.general.verboseLoggingSub')}</span>}
                                 onActivate={() => setVerboseLogging(!verboseLogging)}
                                 actions={<Checkbox toggle checked={verboseLogging} onChange={(e) => setVerboseLogging(e.target.checked)} />}
                             />
                             <SettingsRow
                                 icon={<Icon name="download" />}
-                                title="Automatic Updates"
-                                sub={<span className="settings-row__sub">Automatically download and install updates before Flint opens</span>}
+                                title={t('settings.general.autoUpdates')}
+                                sub={<span className="settings-row__sub">{t('settings.general.autoUpdatesSub')}</span>}
                                 onActivate={() => setAutoUpdateEnabled(!autoUpdateEnabled)}
                                 actions={<Checkbox toggle checked={autoUpdateEnabled} onChange={(e) => setAutoUpdateEnabled(e.target.checked)} />}
                             />
 
-                            <div className="settings-subhead">Windows</div>
+                            <div className="settings-subhead">{t('settings.general.windows')}</div>
                             <SettingsRow
                                 icon={<Icon name="link" />}
-                                title="Open With — File Associations"
+                                title={t('settings.general.fileAssoc')}
                                 tags={<>
                                     <SettingsTag>Windows</SettingsTag>
                                     {assocStatus && (assocStatus.registered.length === 0
-                                        ? <span className="dl-badge">Not registered</span>
+                                        ? <span className="dl-badge">{t('settings.general.notRegistered')}</span>
                                         : <span className={`dl-badge ${assocStatus.missing.length > 0 ? 'dl-badge--warn' : 'dl-badge--success'}`}>
-                                            {assocStatus.missing.length > 0 ? `${assocStatus.missing.length} missing` : `${assocStatus.registered.length} registered`}
+                                            {assocStatus.missing.length > 0 ? `${assocStatus.missing.length} ${t('settings.general.missing')}` : `${assocStatus.registered.length} ${t('settings.general.registered')}`}
                                         </span>)}
                                 </>}
                                 sub={<span className="settings-row__sub" style={{ whiteSpace: 'normal' }}>
-                                    Adds Flint as an “Open with” option for .wad, .bin, .tex, .modpkg, .fantome and more — files open straight in Flint&rsquo;s editor without changing your default app.
+                                    {t('settings.general.fileAssocSub')}
                                 </span>}
                                 actions={<>
                                     <button
@@ -791,26 +819,26 @@ export const SettingsModal: React.FC = () => {
                                 </>}
                             />
 
-                            <div className="settings-subhead">Updates &amp; System</div>
+                            <div className="settings-subhead">{t('settings.general.updatesSystem')}</div>
                             <div className="settings-duo">
                                 <div className="settings-fcard">
                                     <div className="settings-fcard__head">
                                         <span className="settings-fcard__glyph"><Icon name="info" /></span>
-                                        <span className="settings-fcard__title">Program Version</span>
+                                        <span className="settings-fcard__title">{t('settings.general.programVersion')}</span>
                                     </div>
                                     <div className="settings-fcard__value">
                                         v{currentVersion}
                                         {updateAvailable && latestVersion && <span className="accent" style={{ fontSize: 12, marginLeft: 8 }}>→ v{latestVersion}</span>}
                                     </div>
                                     <p className="settings-fcard__hint">
-                                        {updateAvailable && latestVersion ? 'An update is available.' : 'You’re on the latest release.'}
+                                        {updateAvailable && latestVersion ? t('settings.general.updateAvailable') : t('settings.general.latestRelease')}
                                     </p>
                                     <div className="settings-fcard__actions">
                                         <button className="dl-btn dl-btn--sm" onClick={handleCheckForUpdates} disabled={isCheckingUpdate}>
-                                            {isCheckingUpdate ? 'Checking…' : 'Check for Updates'}
+                                            {isCheckingUpdate ? t('settings.general.checking') : t('settings.general.checkUpdates')}
                                         </button>
                                         {updateAvailable && latestVersion && (
-                                            <button className="dl-btn dl-btn--primary dl-btn--sm" onClick={handleUpdateNow}>Update Now</button>
+                                            <button className="dl-btn dl-btn--primary dl-btn--sm" onClick={handleUpdateNow}>{t('settings.general.updateNow')}</button>
                                         )}
                                     </div>
                                 </div>
@@ -820,7 +848,7 @@ export const SettingsModal: React.FC = () => {
                                         <span className="settings-fcard__glyph">
                                             <Icon name={hashesLoaded ? 'success' : 'warning'} />
                                         </span>
-                                        <span className="settings-fcard__title">Hash Database</span>
+                                        <span className="settings-fcard__title">{t('settings.general.hashDb')}</span>
                                     </div>
                                     <div className="settings-fcard__value">
                                         {hashesLoaded
@@ -828,11 +856,11 @@ export const SettingsModal: React.FC = () => {
                                             : <span style={{ color: 'var(--color-warning)' }}>Not loaded</span>}
                                     </div>
                                     <p className="settings-fcard__hint">
-                                        Rebuild to apply the latest fixes (BIN resolution, new hash dumps, etc.)
+                                        {t('settings.general.hashDbSub')}
                                     </p>
                                     <div className="settings-fcard__actions">
                                         <button className="dl-btn dl-btn--sm" onClick={handleForceRebuildHashes} disabled={isRebuildingHashes}>
-                                            {isRebuildingHashes ? 'Rebuilding…' : 'Force Rebuild'}
+                                            {isRebuildingHashes ? t('settings.general.rebuilding') : t('settings.general.forceRebuild')}
                                         </button>
                                     </div>
                                 </div>
@@ -842,9 +870,9 @@ export const SettingsModal: React.FC = () => {
 
                     {activeTab === 'theme' && (
                         <div className="settings-panel settings-panel--flush">
-                            <div className="settings-subhead">Appearance</div>
+                            <div className="settings-subhead">{t('settings.theme.appearance')}</div>
                             <p className="settings-subhead__note">
-                                Curated palettes that swap bg, surfaces, accent and text in one click — or pick a custom accent.
+                                {t('settings.theme.appearanceSub')}
                             </p>
                             <ThemePresetGrid
                                 selectedTheme={configStore.selectedTheme}
@@ -859,11 +887,11 @@ export const SettingsModal: React.FC = () => {
                                 }}
                             />
 
-                            <div className="settings-subhead">Surfaces</div>
+                            <div className="settings-subhead">{t('settings.theme.surfaces')}</div>
                             <SettingsRow
                                 icon={<Icon name="picture" />}
-                                title="Glassmorphism"
-                                sub={<span className="settings-row__sub">Frosted blur on panels and modals — turn off for solid surfaces.</span>}
+                                title={t('settings.theme.glassmorphism')}
+                                sub={<span className="settings-row__sub">{t('settings.theme.glassmorphismSub')}</span>}
                                 onActivate={() => ux.setGlassmorphism(!ux.glassmorphism)}
                                 actions={<Checkbox toggle checked={ux.glassmorphism} onChange={(e) => ux.setGlassmorphism(e.target.checked)} />}
                             />
@@ -871,7 +899,7 @@ export const SettingsModal: React.FC = () => {
                                 <>
                                     <SettingsRow
                                         icon={<Icon name="settings" />}
-                                        title="Glass blur"
+                                        title={t('settings.theme.glassBlur')}
                                         sub={
                                             <input type="range" min={0} max={32} step={1} value={ux.glassBlur}
                                                 onChange={(e) => ux.setGlassBlur(Number(e.target.value))} className="theme-range" />
@@ -880,7 +908,7 @@ export const SettingsModal: React.FC = () => {
                                     />
                                     <SettingsRow
                                         icon={<Icon name="settings" />}
-                                        title="Glass opacity"
+                                        title={t('settings.theme.glassOpacity')}
                                         sub={
                                             <input type="range" min={0.2} max={1} step={0.05} value={ux.glassOpacity}
                                                 onChange={(e) => ux.setGlassOpacity(Number(e.target.value))} className="theme-range" />
@@ -890,22 +918,22 @@ export const SettingsModal: React.FC = () => {
                                 </>
                             )}
 
-                            <div className="settings-subhead">Performance</div>
+                            <div className="settings-subhead">{t('settings.theme.performance')}</div>
                             <SettingsRow
                                 icon={<Icon name="refresh" />}
-                                title="FPS Mode"
-                                tags={<SettingsTag>Performance</SettingsTag>}
-                                sub={<span className="settings-row__sub" style={{ whiteSpace: 'normal' }}>Strip every CSS transition, animation and backdrop blur for maximum responsiveness — great for older hardware.</span>}
+                                title={t('settings.theme.fpsMode')}
+                                tags={<SettingsTag>{t('settings.theme.performance')}</SettingsTag>}
+                                sub={<span className="settings-row__sub" style={{ whiteSpace: 'normal' }}>{t('settings.theme.fpsModeSub')}</span>}
                                 onActivate={() => ux.setFpsMode(!ux.fpsMode)}
                                 actions={<Checkbox toggle checked={ux.fpsMode} onChange={(e) => ux.setFpsMode(e.target.checked)} />}
                             />
                             <SettingsRow
                                 icon={<Icon name="picture" />}
-                                title="Button Glow"
-                                tags={<SettingsTag>Performance</SettingsTag>}
+                                title={t('settings.theme.buttonGlow')}
+                                tags={<SettingsTag>{t('settings.theme.performance')}</SettingsTag>}
                                 sub={<span className="settings-row__sub" style={{ whiteSpace: 'normal' }}>{ux.fpsMode
-                                    ? 'Off automatically while FPS Mode is on (the cursor-tracking listener costs frames).'
-                                    : 'A soft radial glow that tracks your cursor across buttons. On by default.'}</span>}
+                                    ? t('settings.theme.buttonGlowDisabled')
+                                    : t('settings.theme.buttonGlowSub')}</span>}
                                 onActivate={ux.fpsMode ? undefined : () => ux.setButtonGlow(!ux.buttonGlow)}
                                 actions={<Checkbox toggle checked={ux.buttonGlow && !ux.fpsMode} disabled={ux.fpsMode} onChange={(e) => ux.setButtonGlow(e.target.checked)} />}
                             />
@@ -920,12 +948,11 @@ export const SettingsModal: React.FC = () => {
                                 <span className="dev-header__glyph"><Icon name="code" /></span>
                                 <div className="dev-header__text">
                                     <div className="dev-header__title">
-                                        Developer Tools
+                                        {t('settings.dev.title')}
                                         <span className="dl-badge dl-badge--warn">{import.meta.env.DEV ? 'Dev build' : 'Advanced'}</span>
                                     </div>
                                     <p className="dev-header__sub">
-                                        Internal utilities and schema extractors. Handle with care — these scan your
-                                        whole League install and write files to disk.
+                                        {t('settings.dev.sub')}
                                     </p>
                                 </div>
                             </div>
@@ -936,62 +963,62 @@ export const SettingsModal: React.FC = () => {
                                     <div className="dev-grid">
                                         <button className="dev-tile" onClick={() => setShowUIPreview(true)}>
                                             <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('picture') }} />
-                                            <span className="dev-tile__label">UI Showcase</span>
-                                            <span className="dev-tile__desc">Every component, every variant</span>
+                                            <span className="dev-tile__label">{t('settings.dev.uiShowcase')}</span>
+                                            <span className="dev-tile__desc">{t('settings.dev.uiShowcaseSub')}</span>
                                         </button>
                                         <button className="dev-tile" onClick={() => { closeModal(); setTimeout(() => useModalStore.getState().openModal('firstTimeSetup'), 300); }}>
                                             <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('refresh') }} />
-                                            <span className="dev-tile__label">Replay Setup</span>
-                                            <span className="dev-tile__desc">Reopen the welcome wizard</span>
+                                            <span className="dev-tile__label">{t('settings.dev.replaySetup')}</span>
+                                            <span className="dev-tile__desc">{t('settings.dev.replaySetupSub')}</span>
                                         </button>
                                         <button className="dev-tile" onClick={() => { closeModal(); setTimeout(() => triggerTutorialReplay(), 320); }}>
                                             <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('info') }} />
-                                            <span className="dev-tile__label">Restart Tutorial</span>
-                                            <span className="dev-tile__desc">Replay the guided tour</span>
+                                            <span className="dev-tile__label">{t('settings.dev.restartTutorial')}</span>
+                                            <span className="dev-tile__desc">{t('settings.dev.restartTutorialSub')}</span>
                                         </button>
                                         <button className="dev-tile" onClick={() => openModal('whatsNew', {})}>
                                             <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('info') }} />
-                                            <span className="dev-tile__label">What&rsquo;s New</span>
-                                            <span className="dev-tile__desc">Preview the update popup</span>
+                                            <span className="dev-tile__label">{t('settings.dev.whatsNew')}</span>
+                                            <span className="dev-tile__desc">{t('settings.dev.whatsNewSub')}</span>
                                         </button>
                                     </div>
                                 </>
                             )}
 
-                            <div className="settings-subhead">Schema extractors</div>
+                            <div className="settings-subhead">{t('settings.dev.schemaExtractors')}</div>
                             {!leaguePath && (
-                                <p className="dev-warn">Configure your League path in the Paths tab to enable these.</p>
+                                <p className="dev-warn">{t('settings.dev.schemaWarn')}</p>
                             )}
                             <div className="dev-grid">
                                 <button className="dev-tile" onClick={handleAggregateBinSchema} disabled={isAggregating || !leaguePath} title="Scans all WADs and unions every BIN class/field into a ritobin-style schema.">
                                     <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('code') }} />
-                                    <span className="dev-tile__label">{isAggregating ? 'Aggregating…' : 'BIN Entries'}</span>
-                                    <span className="dev-tile__desc">All WADs → full BIN schema</span>
+                                    <span className="dev-tile__label">{isAggregating ? t('common.rebuilding') : t('settings.dev.binEntries')}</span>
+                                    <span className="dev-tile__desc">{t('settings.dev.binEntriesSub')}</span>
                                 </button>
                                 <button className="dev-tile" onClick={handleAggregateChampionSchema} disabled={isAggregatingChampion || !leaguePath} title="Champions WAD only: skin BINs + linked data BINs, merged into one ritobin block file.">
                                     <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('code') }} />
-                                    <span className="dev-tile__label">{isAggregatingChampion ? 'Building…' : 'Champion'}</span>
-                                    <span className="dev-tile__desc">Skin + linked data BINs</span>
+                                    <span className="dev-tile__label">{isAggregatingChampion ? t('common.rebuilding') : t('settings.dev.champion')}</span>
+                                    <span className="dev-tile__desc">{t('settings.dev.championSub')}</span>
                                 </button>
                                 <button className="dev-tile" onClick={handleAggregateAnimationSchema} disabled={isAggregatingAnimation || !leaguePath} title="Champions WAD animation BINs only: one superset block per clip/event/blend class, with mBlendDataTable keys as &quot;from&quot; -> &quot;to&quot;.">
                                     <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('code') }} />
-                                    <span className="dev-tile__label">{isAggregatingAnimation ? 'Building…' : 'Animation'}</span>
-                                    <span className="dev-tile__desc">Clip + event + blend classes</span>
+                                    <span className="dev-tile__label">{isAggregatingAnimation ? t('common.rebuilding') : t('settings.dev.animation')}</span>
+                                    <span className="dev-tile__desc">{t('settings.dev.animationSub')}</span>
                                 </button>
                                 <button className="dev-tile" onClick={handleAggregateTftSchema} disabled={isAggregatingTft || !leaguePath} title="TFT WADs: companions + map-mode data (traits, items, augments), merged into one ritobin file.">
                                     <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('code') }} />
-                                    <span className="dev-tile__label">{isAggregatingTft ? 'Building…' : 'TFT'}</span>
-                                    <span className="dev-tile__desc">Companions + mode data</span>
+                                    <span className="dev-tile__label">{isAggregatingTft ? t('common.rebuilding') : t('settings.dev.tft')}</span>
+                                    <span className="dev-tile__desc">{t('settings.dev.tftSub')}</span>
                                 </button>
                                 <button className="dev-tile" onClick={handleBuildLuabinSchema} disabled={isAggregatingLuabins || !leaguePath} title="Finds all .luabin/.luabin64 chunks and merges their global assignments into luabin-schema.lua.">
                                     <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('code') }} />
-                                    <span className="dev-tile__label">{isAggregatingLuabins ? 'Building…' : 'Luabin'}</span>
-                                    <span className="dev-tile__desc">Global vars → schema.lua</span>
+                                    <span className="dev-tile__label">{isAggregatingLuabins ? t('common.rebuilding') : t('settings.dev.luabin')}</span>
+                                    <span className="dev-tile__desc">{t('settings.dev.luabinSub')}</span>
                                 </button>
                                 <button className="dev-tile" onClick={handleAggregateTroybinSchema} disabled={isAggregatingTroybin || !leaguePath} title="Picks up all .troybin files and merges every class property into one ritobin file.">
                                     <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('code') }} />
-                                    <span className="dev-tile__label">{isAggregatingTroybin ? 'Building…' : 'Troybin'}</span>
-                                    <span className="dev-tile__desc">All .troybin → schema</span>
+                                    <span className="dev-tile__label">{isAggregatingTroybin ? t('common.rebuilding') : t('settings.dev.troybin')}</span>
+                                    <span className="dev-tile__desc">{t('settings.dev.troybinSub')}</span>
                                 </button>
                             </div>
 
@@ -1031,7 +1058,7 @@ export const SettingsModal: React.FC = () => {
                     onClick={handleSave}
                     disabled={isValidating}
                 >
-                    Save Settings
+                    {t('settings.saveSettings')}
                 </Button>
             </ModalFooter>
 

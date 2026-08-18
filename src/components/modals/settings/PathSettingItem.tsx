@@ -3,6 +3,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { Icon, type IconName, Input } from '../../ui';
 import { getIcon } from '../../../lib/ui-helpers/fileIcons';
 import { SettingsRow, SettingsTag } from './SettingsRow';
+import { useTranslation } from '../../../lib/i18n';
 
 export interface PathSetting {
     label: string;
@@ -26,6 +27,7 @@ export interface PathSetting {
 }
 
 export const PathSettingItem: React.FC<{ setting: PathSetting }> = ({ setting }) => {
+    const { t } = useTranslation();
     const handleBrowse = async () => {
         const selected = await open({
             title: setting.browseTitle,
@@ -49,7 +51,7 @@ export const PathSettingItem: React.FC<{ setting: PathSetting }> = ({ setting })
                         placeholder={setting.placeholder}
                         value={setting.value}
                         onChange={(e) => setting.onChange(e.target.value)}
-                        buttonLabel="Browse"
+                        buttonLabel={t('common.browse')}
                         onButtonClick={handleBrowse}
                     />
                     {setting.onDetect && setting.detectLabel && (
@@ -68,3 +70,4 @@ export const PathSettingItem: React.FC<{ setting: PathSetting }> = ({ setting })
         />
     );
 };
+

@@ -10,6 +10,7 @@ import {
     ModalFooter,
     ModalHeader,
 } from '../ui';
+import { useTranslation } from '../../lib/i18n';
 
 const TAG_META: Record<ChangelogTag, { label: string; cls: string }> = {
     feature:     { label: 'New Feature',  cls: 'wn-tag--feature' },
@@ -47,6 +48,7 @@ const EntryCard: React.FC<{ entry: ChangelogEntry; index: number }> = ({ entry, 
 };
 
 export const WhatsNewModal: React.FC = () => {
+    const { t } = useTranslation();
     const closeModal = useModalStore((s) => s.closeModal);
     const activeModal = useModalStore((s) => s.activeModal);
 
@@ -78,13 +80,13 @@ export const WhatsNewModal: React.FC = () => {
                             </svg>
                         </span>
                         <span className="wn-title__text">
-                            <span className="wn-title__name">What's New</span>
+                            <span className="wn-title__name">{t('whatsNew.title')}</span>
                             <span className="wn-title__sub">
                                 {changelog
                                     ? `v${changelog.version} · ${changelog.date}`
                                     : currentVersion
                                         ? `v${currentVersion}`
-                                        : 'Loading…'}
+                                        : t('common.loading')}
                             </span>
                         </span>
                     </span>
@@ -113,7 +115,7 @@ export const WhatsNewModal: React.FC = () => {
                 ) : (
                     <div className="wn-empty">
                         <Icon name="info" />
-                        <p>No changelog available for this version.</p>
+                        <p>{t('whatsNew.noChangelog')}</p>
                     </div>
                 )}
             </ModalBody>
@@ -121,10 +123,10 @@ export const WhatsNewModal: React.FC = () => {
             <ModalFooter>
                 <span className="wn-footer-hint">
                     <Icon name="info" />
-                    This popup appears once per update.
+                    {t('whatsNew.footerHint')}
                 </span>
                 <Button variant="primary" onClick={closeModal}>
-                    Got it
+                    {t('whatsNew.gotIt')}
                 </Button>
             </ModalFooter>
         </Modal>

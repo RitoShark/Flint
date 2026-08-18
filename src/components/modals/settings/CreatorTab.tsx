@@ -1,6 +1,7 @@
 import React from 'react';
 import { Icon, Input, Textarea } from '../../ui';
 import { SettingsRow, SettingsTag } from './SettingsRow';
+import { useTranslation } from '../../../lib/i18n';
 
 export const CreatorTab: React.FC<{
     name: string;
@@ -12,12 +13,14 @@ export const CreatorTab: React.FC<{
     tip: string;
     onTip: (v: string) => void;
 }> = ({ name, onName, description, onDescription, home, onHome, tip, onTip }) => {
+    const { t } = useTranslation();
+
     return (
         <div className="settings-panel settings-panel--flush">
             <SettingsRow
                 icon={<Icon name="user" />}
                 on={name.trim().length > 0}
-                title="Creator name"
+                title={t('settings.creator.name')}
                 sub={
                     <div className="creator-field">
                         <Input
@@ -31,7 +34,7 @@ export const CreatorTab: React.FC<{
 
             <SettingsRow
                 icon={<Icon name="info" />}
-                title="Default description"
+                title={t('settings.creator.description')}
                 tags={<SettingsTag>Optional</SettingsTag>}
                 sub={
                     <div className="creator-field">
@@ -43,7 +46,7 @@ export const CreatorTab: React.FC<{
                             maxLength={280}
                         />
                         <p className="creator-field__hint">
-                            Pre-fills the description on every new project — editable per-project later. {description.length}/280
+                            {t('settings.creator.descriptionSub')} {description.length}/280
                         </p>
                     </div>
                 }
@@ -51,7 +54,7 @@ export const CreatorTab: React.FC<{
 
             <SettingsRow
                 icon={<Icon name="globe" />}
-                title="Home URL"
+                title={t('settings.creator.home')}
                 tags={<SettingsTag>Optional</SettingsTag>}
                 sub={
                     <div className="creator-field">
@@ -61,14 +64,14 @@ export const CreatorTab: React.FC<{
                             value={home}
                             onChange={(e) => onHome(e.target.value)}
                         />
-                        <p className="creator-field__hint">Shown as a “Home” link on every mod you publish.</p>
+                        <p className="creator-field__hint">{t('settings.creator.homeSub')}</p>
                     </div>
                 }
             />
 
             <SettingsRow
                 icon={<Icon name="heart" />}
-                title="Tip URL"
+                title={t('settings.creator.tip')}
                 tags={<SettingsTag>Optional</SettingsTag>}
                 sub={
                     <div className="creator-field">
@@ -78,10 +81,11 @@ export const CreatorTab: React.FC<{
                             value={tip}
                             onChange={(e) => onTip(e.target.value)}
                         />
-                        <p className="creator-field__hint">Shown as a tip-jar link so users can support your work.</p>
+                        <p className="creator-field__hint">{t('settings.creator.tipSub')}</p>
                     </div>
                 }
             />
         </div>
     );
 };
+
