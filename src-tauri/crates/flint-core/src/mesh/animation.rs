@@ -224,8 +224,86 @@ pub fn find_animation_bin(skn_path: &Path) -> Option<PathBuf> {
         current = dir.parent();
     }
 
+    if let Some(found) = find_animation_bin_by_content(skn_path) {
+        tracing::debug!("Found animation BIN by content: {}", found.display());
+        return Some(found);
+    }
+
     tracing::debug!("Animation BIN not found");
     None
+}
+
+const ATOMIC_CLIP_DATA: u32 = ritoshark::hash::fnv1a("AtomicClipData");
+const CONTENT_SCAN_BIN_LIMIT: usize = 600;
+
+/// Last-resort animation-BIN lookup: find the bin that actually HOLDS the clips
+/// instead of the one whose path looks right.
+///
+/// Every other branch above matches on layout (`animations/skinN.bin` under the
+/// champion folder). A repathed mod moves and renames its bins, so those all miss
+/// and the model ends up with no selectable animations even though the clips are
+/// sitting in the project. This walks the project for bins carrying
+/// `AtomicClipData` entries and takes the richest one.
+fn find_animation_bin_by_content(skn_path: &Path) -> Option<PathBuf> {
+    let root = content_scan_root(skn_path)?;
+    tracing::debug!("Scanning {} for a bin holding AtomicClipData", root.display());
+
+    let mut best: Option<(usize, PathBuf)> = None;
+    let mut scanned = 0usize;
+    for entry in walkdir::WalkDir::new(&root)
+        .max_depth(12)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if scanned >= CONTENT_SCAN_BIN_LIMIT {
+            tracing::debug!("Content scan hit the {CONTENT_SCAN_BIN_LIMIT}-bin limit");
+            break;
+        }
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        if path.extension().and_then(|e| e.to_str()).is_none_or(|e| !e.eq_ignore_ascii_case("bin")) {
+            continue;
+        }
+        if entry.metadata().map(|m| m.len() as usize > crate::bin::MAX_BIN_SIZE).unwrap_or(true) {
+            continue;
+        }
+        scanned += 1;
+        let Ok(data) = fs::read(path) else { continue };
+        let Ok(tree) = codec::read_bin(&data) else { continue };
+        let clips = tree
+            .entries
+            .iter()
+            .filter(|e| e.class_hash == ATOMIC_CLIP_DATA)
+            .count();
+        if clips > 0 && best.as_ref().is_none_or(|(most, _)| clips > *most) {
+            best = Some((clips, path.to_path_buf()));
+        }
+    }
+
+    best.map(|(clips, path)| {
+        tracing::debug!("Best animation BIN by content: {} ({clips} clips)", path.display());
+        path
+    })
+}
+
+/// Where the content scan starts: the Flint project root when the SKN is inside
+/// one, else the nearest ancestor holding a `data/` tree. Bounded on purpose —
+/// walking above the project reaches the user profile and drive root.
+fn content_scan_root(skn_path: &Path) -> Option<PathBuf> {
+    let mut current = skn_path.parent();
+    let mut data_owner = None;
+    while let Some(dir) = current {
+        if crate::mesh::texture::is_flint_project_root(dir) {
+            return Some(dir.to_path_buf());
+        }
+        if data_owner.is_none() && dir.join("data").is_dir() {
+            data_owner = Some(dir.to_path_buf());
+        }
+        current = dir.parent();
+    }
+    data_owner
 }
 
 pub fn extract_animation_list(bin_path: &Path) -> anyhow::Result<AnimationList> {
@@ -599,6 +677,94 @@ mod tests {
 
     #[test]
     fn test_find_animation_bin() {
+    }
+
+    #[test]
+    fn falls_back_to_the_bin_that_actually_holds_the_clips() {
+        use indexmap::IndexMap;
+        use ritoshark::bin::{Bin, BinEntry, BinValue};
+        use ritoshark::hash::fnv1a;
+        use ritoshark::prelude::Serialize as _;
+
+        let root = std::env::temp_dir().join(format!(
+            "flint-animfallback-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        // A repathed mod: nothing sits at `data/characters/<champ>/animations/skinN.bin`,
+        // so every layout heuristic misses and only the clip data itself can be found.
+        let mesh_dir = root.join("assets/dexal/myproject/skins/skin0");
+        let clip_dir = root.join("assets/dexal/myproject/renamed");
+        std::fs::create_dir_all(&mesh_dir).unwrap();
+        std::fs::create_dir_all(&clip_dir).unwrap();
+        std::fs::write(root.join("flint.json"), "{}").unwrap();
+
+        let skn = mesh_dir.join("mychamp.skn");
+        std::fs::write(&skn, []).unwrap();
+
+        let write_bin = |path: &Path, clips: &[&str]| {
+            let mut bin = Bin::new();
+            bin.version = 3;
+            for clip in clips {
+                let mut fields = IndexMap::new();
+                fields.insert(
+                    fnv1a("mAnimationFilePath"),
+                    BinValue::String(format!("assets/dexal/myproject/animations/{clip}.anm")),
+                );
+                bin.entries.push(BinEntry {
+                    path_hash: fnv1a(clip),
+                    class_hash: fnv1a("AtomicClipData"),
+                    fields,
+                });
+            }
+            std::fs::write(path, bin.to_bytes().unwrap()).unwrap();
+        };
+
+        // A decoy with fewer clips, and the real one with more.
+        write_bin(&clip_dir.join("extra.bin"), &["Idle1"]);
+        write_bin(&clip_dir.join("mychamp_anims.bin"), &["Idle1", "Run", "Attack1"]);
+        // A bin with no clip data at all must never win.
+        let mut empty = Bin::new();
+        empty.version = 3;
+        empty.entries.push(BinEntry {
+            path_hash: fnv1a("Something"),
+            class_hash: fnv1a("SkinCharacterDataProperties"),
+            fields: IndexMap::new(),
+        });
+        std::fs::write(clip_dir.join("skin0.bin"), empty.to_bytes().unwrap()).unwrap();
+
+        let found = find_animation_bin(&skn).expect("content fallback should find the clip bin");
+        assert_eq!(found, clip_dir.join("mychamp_anims.bin"));
+
+        let list = extract_animation_list(&found).unwrap();
+        assert_eq!(list.clips.len(), 3);
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn the_content_scan_never_climbs_above_the_project() {
+        let root = std::env::temp_dir().join(format!(
+            "flint-animscope-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let project = root.join("project");
+        let mesh_dir = project.join("assets/skins/skin0");
+        std::fs::create_dir_all(&mesh_dir).unwrap();
+        std::fs::write(project.join("flint.json"), "{}").unwrap();
+        let skn = mesh_dir.join("mychamp.skn");
+        std::fs::write(&skn, []).unwrap();
+
+        assert_eq!(content_scan_root(&skn).as_deref(), Some(project.as_path()));
+
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]
