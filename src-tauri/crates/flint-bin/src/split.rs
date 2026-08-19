@@ -588,16 +588,19 @@ pub fn organize_vfx_in_folder(
     // consolidated source paths) never matched `deleted_links`, leaving dangling
     // entries; remove them by checking the file on disk.
     //
+    // Champion-root and animation links are exempt: the GAME ships those bins,
+    // mods usually don't, so they are absent by design and must stay linked.
+    //
     // The check is CASE-INSENSITIVE: link paths are lowercased, but the
     // on-disk filename may be authored with different casing (e.g. a freshly
     // split file written under a verbatim, uppercase name). On a case-sensitive
     // FS a plain `.exists()` would wrongly prune a link to a file that is
     // genuinely present under different casing, so we fall back to a
     // case-insensitive scan of the link's parent directory.
-    sources[owner_idx]
-        .bin
-        .linked
-        .retain(|link| link_target_exists(project_root, link));
+    sources[owner_idx].bin.linked.retain(|link| {
+        crate::classify_bin(link) != crate::BinCategory::LinkedData
+            || link_target_exists(project_root, link)
+    });
 
     {
         let owner_bytes = crate::write_bin(&sources[owner_idx].bin)
@@ -807,6 +810,39 @@ mod organize_import_tests {
         let reread = crate::read_bin(&std::fs::read(&owner_path).unwrap()).unwrap();
         assert!(reread.linked.iter().any(|l| l == "data/real_sibling.bin"), "real sibling link kept");
         assert!(!reread.linked.iter().any(|l| l.contains("yone_multi_skins_root_gone")), "dangling link pruned");
+    }
+
+    #[test]
+    fn organize_keeps_game_backed_links_to_absent_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let skins = root.join("data/characters/yone/skins");
+        std::fs::create_dir_all(&skins).unwrap();
+
+        let mut owner = ritoshark::bin::Bin::new();
+        owner.entries.push(entry(1, fnv1a_lower("VfxSystemDefinitionData")));
+        owner.linked.push("DATA/Characters/Yone/Yone.bin".to_string());
+        owner.linked.push("DATA/Characters/Yone/Animations/Skin1.bin".to_string());
+        owner.linked.push("data/yone_dangling_linked_data.bin".to_string());
+        let owner_path = skins.join("skin1.bin");
+        std::fs::write(&owner_path, crate::write_bin(&owner).unwrap()).unwrap();
+
+        let sources = vec![owner_path.clone()];
+        let _ = organize_vfx_in_folder(&sources, &owner_path, root, "yone_vfx.bin").unwrap();
+
+        let reread = crate::read_bin(&std::fs::read(&owner_path).unwrap()).unwrap();
+        assert!(
+            reread.linked.iter().any(|l| l == "DATA/Characters/Yone/Yone.bin"),
+            "game-backed champion root link must be kept"
+        );
+        assert!(
+            reread.linked.iter().any(|l| l == "DATA/Characters/Yone/Animations/Skin1.bin"),
+            "game-backed animation link must be kept"
+        );
+        assert!(
+            !reread.linked.iter().any(|l| l.contains("dangling_linked_data")),
+            "dangling Type-3 link still pruned"
+        );
     }
 
     #[test]
