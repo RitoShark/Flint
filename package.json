@@ -10,6 +10,7 @@
     "build": "tsc && vite build",
     "tauri": "tauri",
     "tauri:shaders": "tauri dev --features shaderforge",
+    "dev:release": "tauri dev --release",
     "sync-version": "node scripts/sync-version.js",
     "version:patch": "npm version patch --no-git-tag-version && npm run sync-version",
     "version:minor": "npm version minor --no-git-tag-version && npm run sync-version",
