@@ -561,10 +561,17 @@ pub fn organize_vfx_in_folder(
     }
 
     let dep_count_before = sources[owner_idx].bin.linked.len();
-    sources[owner_idx]
-        .bin
-        .linked
-        .retain(|d| !deleted_links.contains(&d.to_lowercase()));
+    tracing::info!(
+        "[organize] owner linked list before prune: {:?}",
+        sources[owner_idx].bin.linked
+    );
+    sources[owner_idx].bin.linked.retain(|d| {
+        let dead = deleted_links.contains(&d.to_lowercase());
+        if dead {
+            tracing::info!("[organize]   pruning link to consolidated source: {}", d);
+        }
+        !dead
+    });
     let links_pruned = dep_count_before - sources[owner_idx].bin.linked.len();
     if vfx_count > 0
         && !sources[owner_idx]
@@ -598,9 +605,21 @@ pub fn organize_vfx_in_folder(
     // genuinely present under different casing, so we fall back to a
     // case-insensitive scan of the link's parent directory.
     sources[owner_idx].bin.linked.retain(|link| {
-        crate::classify_bin(link) != crate::BinCategory::LinkedData
-            || link_target_exists(project_root, link)
+        let cat = crate::classify_bin(link);
+        if cat != crate::BinCategory::LinkedData {
+            tracing::info!("[organize]   keeping game-backed {:?} link: {}", cat, link);
+            return true;
+        }
+        let exists = link_target_exists(project_root, link);
+        if !exists {
+            tracing::info!("[organize]   pruning dangling link (target missing): {}", link);
+        }
+        exists
     });
+    tracing::info!(
+        "[organize] owner linked list after: {:?}",
+        sources[owner_idx].bin.linked
+    );
 
     {
         let owner_bytes = crate::write_bin(&sources[owner_idx].bin)

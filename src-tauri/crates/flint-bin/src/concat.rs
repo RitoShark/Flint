@@ -290,29 +290,20 @@ where
 
 pub fn update_main_bin_links(main_bin: &mut Bin, concat_path: String) -> Result<()> {
     let current_links = get_linked_paths(main_bin);
+    tracing::info!("[concat] rebuilding linked list ({} links before)", current_links.len());
 
-    let type1_path = current_links
-        .iter()
-        .find(|path| classify_bin(path) == BinCategory::ChampionRoot)
-        .cloned();
-
-    let type2_path = current_links
-        .iter()
-        .find(|path| classify_bin(path) == BinCategory::Animation)
-        .cloned();
-
-    // concat first, then type1, then type2
     let mut new_links = vec![concat_path];
-
-    if let Some(path) = type1_path {
-        new_links.push(path);
+    for path in current_links {
+        let cat = classify_bin(&path);
+        if cat == BinCategory::LinkedData {
+            tracing::info!("[concat]   dropping merged Type-3 link: {}", path);
+        } else {
+            tracing::info!("[concat]   keeping {:?} link: {}", cat, path);
+            new_links.push(path);
+        }
     }
 
-    if let Some(path) = type2_path {
-        new_links.push(path);
-    }
-
-    tracing::debug!("Updated main BIN linked list: {:?}", new_links);
+    tracing::info!("[concat] linked list after: {:?}", new_links);
 
     set_linked_paths(main_bin, new_links);
 
@@ -337,9 +328,9 @@ pub fn concatenate_linked_bins(
         .map_err(|e| Error::InvalidInput(format!("Failed to parse main BIN: {}", e)))?;
     drop(data);
 
-    tracing::debug!("Original linked paths:");
+    tracing::info!("[concat] original linked paths of {}:", main_bin_path.display());
     for (i, path) in main_bin.linked.iter().enumerate() {
-        tracing::debug!("  [{}] {} - {:?}", i, path, classify_bin(path));
+        tracing::info!("[concat]   [{}] {} - {:?}", i, path, classify_bin(path));
     }
 
     let result = create_concat_bin(&main_bin, project_name, creator_name, champion, content_base, path_mappings)?;
