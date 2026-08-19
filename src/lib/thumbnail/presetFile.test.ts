@@ -10,6 +10,8 @@ const sampleLayers: Layer[] = [
   {
     id: 'hero', type: 'model', name: 'Hero', hidden: false, rot: 0, locked: false,
     x: 388, y: 70, w: 230, h: 270, sknPath: 'C:/x/hero.skn', animDir: 'C:/x/skin77/animations', anim: 'idle1.anm', frame: 0, maxFrame: 30, scale: 100, orbit: 0,
+    form: 1, hiddenMeshes: ['mesh_Cape'], textureDir: 'C:/x/mytextures',
+    textureOverrides: { mesh_Body: 'C:/x/mytextures/body.dds' },
   },
 ];
 
@@ -34,6 +36,20 @@ describe('buildPresetFile', () => {
     const file = buildPresetFile({ name: 'P', base: 'divine', font: 'Albiero', hue: 95, layers: sampleLayers });
     const model = file.layers.find(l => l.type === 'model');
     expect(model && 'animDir' in model ? model.animDir : undefined).toBeUndefined();
+  });
+
+  it('strips picked textures so a shared preset carries no local texture paths', () => {
+    const file = buildPresetFile({ name: 'P', base: 'divine', font: 'Albiero', hue: 95, layers: sampleLayers });
+    const model = file.layers.find(l => l.type === 'model');
+    expect(model && 'textureDir' in model ? model.textureDir : undefined).toBeUndefined();
+    expect(model && 'textureOverrides' in model ? model.textureOverrides : undefined).toBeUndefined();
+  });
+
+  it('keeps the gear form and its visibility, which are model state rather than machine state', () => {
+    const file = buildPresetFile({ name: 'P', base: 'divine', font: 'Albiero', hue: 95, layers: sampleLayers });
+    const model = file.layers.find(l => l.type === 'model');
+    expect(model && 'form' in model ? model.form : undefined).toBe(1);
+    expect(model && 'hiddenMeshes' in model ? model.hiddenMeshes : undefined).toEqual(['mesh_Cape']);
   });
 
   it('deep-clones layers (mutating the source array does not affect the built file)', () => {

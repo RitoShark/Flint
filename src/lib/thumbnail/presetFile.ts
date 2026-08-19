@@ -34,10 +34,13 @@ function clampHue(h: unknown): number {
 /** Deep-clone + strip machine-specific model paths so the preset is portable.
  *  `animDir` (a manually-picked `.anm` folder) is as machine-specific as
  *  `sknPath`, so it goes too — a shared preset must not carry one machine's
- *  animation folder. */
+ *  animation folder. The same applies to picked textures: `textureDir` and every
+ *  path in `textureOverrides` are absolute and meaningless on another machine. */
 function toPortableLayers(layers: Layer[]): Layer[] {
   const cloned = JSON.parse(JSON.stringify(layers)) as Layer[];
-  return cloned.map(l => (l.type === 'model' ? { ...l, sknPath: '', animDir: undefined } : l));
+  return cloned.map(l => (l.type === 'model'
+    ? { ...l, sknPath: '', animDir: undefined, textureDir: undefined, textureOverrides: undefined }
+    : l));
 }
 
 export interface BuildPresetArgs {

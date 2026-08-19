@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { DiscLayer, EnvLayer, Layer, ModelLayer, TextLayer, updateLayer } from '../../lib/thumbnail/layers';
 import { AnimClip, createThumbnailScene, MeshInfo, ThumbnailScene } from '../../lib/thumbnail/studioScene';
+import type { SkinForm } from '../../lib/api/mesh';
 import { createMapEnvScene, MapEnvScene } from '../../lib/thumbnail/mapEnvScene';
 import { fitFontSize, TextMeasure } from '../../lib/thumbnail/textFit';
 import { resolveBackground, resolveGlowColor, resolveTextStyle, ThumbnailPresetId } from '../../lib/thumbnail/hue';
@@ -204,7 +205,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   // reconciliation effect for the full placement-model writeup.
   const sceneRef = useRef<ThumbnailScene | null>(null);
   const mapSceneRef = useRef<MapEnvScene | null>(null);
-  const modelBindingsRef = useRef<Map<string, { sceneId: string; sknPath: string; anim: string; frame: number; scale: number; orbit: number; tiltX: number; rollZ: number; posX: number; posY: number; posZ: number; mirrored: boolean; x: number; y: number; w: number; h: number; hiddenMeshes: string; focusMode: string; hidden: boolean }>>(new Map());
+  const modelBindingsRef = useRef<Map<string, { sceneId: string; sknPath: string; anim: string; frame: number; scale: number; orbit: number; tiltX: number; rollZ: number; posX: number; posY: number; posZ: number; mirrored: boolean; x: number; y: number; w: number; h: number; hiddenMeshes: string; textures: string; focusMode: string; hidden: boolean }>>(new Map());
   // Last-synced fingerprint of the env layer so the reconcile only touches the
   // map scene when the env layer actually changed (loads/variation/transform).
   const envSyncRef = useRef<string>('');
@@ -237,6 +238,27 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     const binding = modelBindingsRef.current.get(layerId);
     if (!scene || !binding || !binding.sceneId) return [];
     return scene.listMeshes(binding.sceneId);
+  }, []);
+
+  const getModelForms = useCallback((layerId: string): SkinForm[] => {
+    const scene = sceneRef.current;
+    const binding = modelBindingsRef.current.get(layerId);
+    if (!scene || !binding || !binding.sceneId) return [];
+    return scene.listForms(binding.sceneId);
+  }, []);
+
+  const getModelFormHidden = useCallback((layerId: string, formIndex: number): string[] => {
+    const scene = sceneRef.current;
+    const binding = modelBindingsRef.current.get(layerId);
+    if (!scene || !binding || !binding.sceneId) return [];
+    return scene.formHiddenMeshes(binding.sceneId, formIndex);
+  }, []);
+
+  const getModelTextureWarning = useCallback((layerId: string): string | null => {
+    const scene = sceneRef.current;
+    const binding = modelBindingsRef.current.get(layerId);
+    if (!scene || !binding || !binding.sceneId) return null;
+    return scene.getTextureWarning(binding.sceneId);
   }, []);
 
   const faceModelToCamera = useCallback((layerId: string): { orbit: number; tiltX: number } | null => {
@@ -441,7 +463,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       // Reserve the binding immediately so a second effect run (e.g. a
       // fast prop change while the load is in flight) doesn't fire a
       // duplicate addModel for the same layer.
-      const placeholder = { sceneId: '', sknPath: layer.sknPath, anim: layer.anim, frame: layer.frame, scale: layer.scale, orbit: layer.orbit, tiltX: layer.tiltX ?? 0, rollZ: layer.rollZ ?? 0, posX: layer.posX ?? 0, posY: layer.posY ?? 0, posZ: layer.posZ ?? 0, mirrored: !!layer.mirrored, x: layer.x, y: layer.y, w: layer.w, h: layer.h, hiddenMeshes: JSON.stringify(layer.hiddenMeshes ?? []), focusMode: layer.focusMode ?? 'full', hidden: !!layer.hidden };
+      const placeholder = { sceneId: '', sknPath: layer.sknPath, anim: layer.anim, frame: layer.frame, scale: layer.scale, orbit: layer.orbit, tiltX: layer.tiltX ?? 0, rollZ: layer.rollZ ?? 0, posX: layer.posX ?? 0, posY: layer.posY ?? 0, posZ: layer.posZ ?? 0, mirrored: !!layer.mirrored, x: layer.x, y: layer.y, w: layer.w, h: layer.h, hiddenMeshes: JSON.stringify(layer.hiddenMeshes ?? []), textures: JSON.stringify(layer.textureOverrides ?? {}), focusMode: layer.focusMode ?? 'full', hidden: !!layer.hidden };
       bindings.set(layer.id, placeholder);
       scene.addModel(layer.sknPath).then(async (handle) => {
         if (modelBindingsRef.current.get(layer.id) !== placeholder) {
@@ -458,6 +480,9 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
         scene.setModelTransform(handle.id, { x: layer.x, y: layer.y, w: layer.w, h: layer.h, scale: layer.scale, orbit: layer.orbit, tiltX: layer.tiltX ?? 0, rollZ: layer.rollZ ?? 0, posX: layer.posX ?? 0, posY: layer.posY ?? 0, posZ: layer.posZ ?? 0, mirrored: !!layer.mirrored });
         if (layer.hiddenMeshes && layer.hiddenMeshes.length > 0) {
           scene.setHiddenMeshes(handle.id, layer.hiddenMeshes);
+        }
+        if (layer.textureOverrides && Object.keys(layer.textureOverrides).length > 0) {
+          void scene.setMeshTextures(handle.id, layer.textureOverrides);
         }
         if (layer.hidden) scene.setModelVisible(handle.id, false);
         if (layer.focusMode === 'head') {
@@ -563,6 +588,11 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       if (existing.hiddenMeshes !== hiddenKey) {
         existing.hiddenMeshes = hiddenKey;
         scene.setHiddenMeshes(existing.sceneId, layer.hiddenMeshes ?? []);
+      }
+      const textureKey = JSON.stringify(layer.textureOverrides ?? {});
+      if (existing.textures !== textureKey) {
+        existing.textures = textureKey;
+        void scene.setMeshTextures(existing.sceneId, layer.textureOverrides ?? {});
       }
       const focus = layer.focusMode ?? 'full';
       if (existing.focusMode !== focus) {
@@ -1081,6 +1111,9 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
           anchorRef={studioBtnRef}
           getMeshes={() => getModelMeshes(selectedModel.id)}
           getClips={() => getModelAnims(selectedModel.id)}
+          getForms={() => getModelForms(selectedModel.id)}
+          getFormHidden={(index) => getModelFormHidden(selectedModel.id, index)}
+          getTextureWarning={() => getModelTextureWarning(selectedModel.id)}
           onPickAnimFolder={(dir) => pickModelAnimFolder(selectedModel.id, dir)}
           onChange={(patch, record) => patchModelLayer(selectedModel.id, patch, record)}
           onBeginGesture={onBeginGesture}

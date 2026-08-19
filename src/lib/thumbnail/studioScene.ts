@@ -40,7 +40,9 @@ import { sknAlphaPolicy } from '../babylon/sknAlpha';
 import { buildBabylonSkeleton, type BoneData } from '../babylon/skeletonBuilder';
 import { AnimationPlayer, type BakedAnimationDTO } from '../babylon/animationPlayer';
 import { invokeCommand } from '../api/core';
-import { readSknMesh, readSklSkeleton, readAnimationList, listAnmFolder, type SknMeshData } from '../api/mesh';
+import { readSknMesh, readSklSkeleton, readAnimationList, listAnmFolder, type SknMeshData, type SkinForm } from '../api/mesh';
+import { decodeDdsToPng } from '../api/texture';
+import { fnv1a32Lower } from '../babylon/submeshVisibility';
 import { buildAnmClips } from './animFolder';
 
 // ============================================================================
@@ -57,6 +59,11 @@ export interface MeshInfo {
     /** Submesh (material) name — stable id used by setMeshHidden. */
     name: string;
     hidden: boolean;
+    /** Data/asset URL of the texture currently on this submesh, for the row
+     *  thumbnail. Null when the skin shipped none and nothing overrides it. */
+    textureUrl: string | null;
+    /** The texture came from a picked file rather than the skin. */
+    overridden: boolean;
 }
 
 export interface ModelHandle {
@@ -119,9 +126,20 @@ export interface ThumbnailScene {
      *  the folder holds no `.anm` files, which leaves the existing list alone).
      *  Used by the Clip dropdown's folder button. */
     setAnimFolder(id: string, dir: string): Promise<AnimClip[]>;
-    /** Submesh list for a model with per-submesh hidden state (drives the
-     *  mesh-visibility popup). Empty until the model has loaded. */
+    /** Submesh list for a model with per-submesh hidden state and the texture
+     *  each one wears (drives the mesh-visibility popup). Empty until the model
+     *  has loaded. */
     listMeshes(id: string): MeshInfo[];
+    /** Gear forms from the skin BIN, empty for skins without them. */
+    listForms(id: string): SkinForm[];
+    /** Why the skin's textures could not be resolved, if the backend said so. */
+    getTextureWarning(id: string): string | null;
+    /** Submeshes hidden by gear form `formIndex` (< 0 = the base look), as real
+     *  mesh names ready to store in a layer's `hiddenMeshes`. */
+    formHiddenMeshes(id: string, formIndex: number): string[];
+    /** Apply picked-file textures by submesh name. The map is the WHOLE
+     *  override set — a submesh that drops out reverts to the skin's texture. */
+    setMeshTextures(id: string, overrides: Record<string, string>): Promise<void>;
     /** Show/hide a single submesh by name. */
     setMeshHidden(id: string, meshName: string, hidden: boolean): void;
     /** Bulk-apply the hidden-submesh set (names not present are shown). */
@@ -173,6 +191,20 @@ interface ModelState {
     joints: BoneData[];
     textures: Texture[];
     clips: AnimClip[];
+    /** Gear forms from the skin BIN (`mGearSkinUpgrades`), empty for skins
+     *  without them. Their hide/show lists are DELTAS over `initialHide`. */
+    forms: SkinForm[];
+    /** Submeshes the skin BIN hides at load (`initialSubmeshToHide`), the
+     *  baseline every form layers on top of. Lowercased. */
+    initialHide: string[];
+    /** Texture the skin itself put on each submesh, by submesh name. */
+    skinTexUrl: Map<string, string>;
+    /** Picked-file textures currently applied, by submesh name. */
+    overrideTexUrl: Map<string, string>;
+    /** Babylon textures built for overrides — disposed when replaced. */
+    overrideTextures: Map<string, Texture>;
+    /** Why the skin's textures could not be resolved, if the backend said so. */
+    textureWarning: string | null;
     hiddenMeshes: Set<string>;
     /** Whole-model visibility from the Layers-panel eye toggle (true = the
      *  entire model is hidden, overriding per-submesh visibility). */
@@ -476,6 +508,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             mesh.dispose();
         }
         for (const tex of m.textures) tex.dispose();
+        for (const tex of m.overrideTextures.values()) tex.dispose();
         m.skeleton?.dispose();
         if (m.camera !== controlCamera) {
             m.camera.dispose();
@@ -604,8 +637,13 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         return boxH > 0 ? boxW / boxH : 1;
     }
 
-    function applyTexturesAndMaterials(meshes: Mesh[], meshData: SknMeshData): Texture[] {
+    function applyTexturesAndMaterials(
+        meshes: Mesh[],
+        meshData: SknMeshData,
+    ): { textures: Texture[]; urlByMesh: Map<string, string> } {
         const textureCache = new Map<string, Texture>();
+        const urlCache = new Map<string, string>();
+        const urlByMesh = new Map<string, string>();
         const matData = meshData.material_data;
         if (matData && Object.keys(matData).length > 0) {
             for (const [matName, data] of Object.entries(matData)) {
@@ -638,6 +676,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
                         texture.vOffset = 1 - (row + 1) / rows;
                     }
                     textureCache.set(matName, texture);
+                    urlCache.set(matName, dataUrl);
                 } catch (e) {
                     console.error('[studioScene] failed to decode material_data texture for', matName, e);
                 }
@@ -651,6 +690,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
                     texture.wrapV = Texture.WRAP_ADDRESSMODE;
                     texture.hasAlpha = false;
                     textureCache.set(matName, texture);
+                    urlCache.set(matName, dataUrl);
                 } catch (e) {
                     console.error('[studioScene] failed to decode embedded texture fallback for', matName, e);
                 }
@@ -659,21 +699,31 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
 
         for (const m of meshes) {
             const matName = m.name;
+            let matchedKey: string | null = null;
             let texture = textureCache.get(matName);
+            if (texture) matchedKey = matName;
             if (!texture && matName.startsWith('mesh_')) {
-                texture = textureCache.get(matName.substring(5));
+                matchedKey = matName.substring(5);
+                texture = textureCache.get(matchedKey);
             }
             if (!texture) {
-                texture = textureCache.get(`mesh_${matName}`);
+                matchedKey = `mesh_${matName}`;
+                texture = textureCache.get(matchedKey);
             }
             if (!texture) {
+                matchedKey = null;
                 const lower = matName.toLowerCase();
                 for (const [key, tex] of textureCache) {
                     if (key.toLowerCase() === lower) {
                         texture = tex;
+                        matchedKey = key;
                         break;
                     }
                 }
+            }
+            if (texture && matchedKey) {
+                const url = urlCache.get(matchedKey);
+                if (url) urlByMesh.set(matName, url);
             }
 
             const mat = new PBRMaterial(matName + '_material', scene);
@@ -706,14 +756,14 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             m.setEnabled(true);
         }
 
-        return [...textureCache.values()];
+        return { textures: [...textureCache.values()], urlByMesh };
     }
 
     async function addModel(sknPath: string): Promise<ModelHandle> {
         const [meshData, sklResult, animResult] = await Promise.all([
             readSknMesh(sknPath),
             readSklSkeleton(sknPath.replace(/\.skn$/i, '.skl')).catch(() => null),
-            readAnimationList(sknPath).catch(() => ({ clips: [] as AnimClip[] })),
+            readAnimationList(sknPath).catch(() => ({ clips: [] as AnimClip[], forms: [], initial_hide: [] })),
         ]);
 
         let skeleton: Skeleton | null = null;
@@ -746,7 +796,7 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         };
 
         const { meshes } = buildSknMeshes(meshDto, scene, skeleton ?? undefined, sklResult?.influences);
-        const textures = applyTexturesAndMaterials(meshes, meshData);
+        const { textures, urlByMesh } = applyTexturesAndMaterials(meshes, meshData);
 
         const id = `model-${++modelSeq}`;
 
@@ -801,6 +851,12 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
             joints,
             textures,
             clips: animResult.clips,
+            forms: animResult.forms ?? [],
+            initialHide: (animResult.initial_hide ?? []).map(n => n.toLowerCase()),
+            skinTexUrl: urlByMesh,
+            overrideTexUrl: new Map(),
+            overrideTextures: new Map(),
+            textureWarning: meshData.texture_warning ?? null,
             hiddenMeshes: new Set(),
             layerHidden: false,
             player: null,
@@ -1050,7 +1106,140 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
     function listMeshes(id: string): MeshInfo[] {
         const m = models.get(id);
         if (!m) return [];
-        return m.meshes.map(mesh => ({ name: mesh.name, hidden: m.hiddenMeshes.has(mesh.name) }));
+        return m.meshes.map(mesh => {
+            const override = m.overrideTexUrl.get(mesh.name);
+            return {
+                name: mesh.name,
+                hidden: m.hiddenMeshes.has(mesh.name),
+                textureUrl: override ?? m.skinTexUrl.get(mesh.name) ?? null,
+                overridden: override !== undefined,
+            };
+        });
+    }
+
+    function listForms(id: string): SkinForm[] {
+        return models.get(id)?.forms ?? [];
+    }
+
+    function getTextureWarning(id: string): string | null {
+        return models.get(id)?.textureWarning ?? null;
+    }
+
+    /**
+     * Submeshes hidden by a gear form: the skin BIN's load-time baseline with
+     * that form's hide/show lists folded in (hide first, show wins). Forms are
+     * DELTAS, not full states — the base BIN already hides every form's meshes,
+     * which is why the gears don't hide each other. `formIndex` < 0 gives the
+     * base look. Returns real mesh names, ready for `hiddenMeshes`.
+     */
+    function formHiddenMeshes(id: string, formIndex: number): string[] {
+        const m = models.get(id);
+        if (!m) return [];
+        const nameByLower = new Map<string, string>();
+        const nameByHash = new Map<number, string>();
+        for (const mesh of m.meshes) {
+            nameByLower.set(mesh.name.toLowerCase(), mesh.name);
+            nameByHash.set(fnv1a32Lower(mesh.name) >>> 0, mesh.name);
+        }
+        const hidden = new Set<string>();
+        for (const lower of m.initialHide) {
+            const real = nameByLower.get(lower);
+            if (real) hidden.add(real);
+        }
+        const form = m.forms[formIndex];
+        if (form) {
+            for (const h of form.hide_hashes) {
+                const real = nameByHash.get(h >>> 0);
+                if (real) hidden.add(real);
+            }
+            for (const h of form.show_hashes) {
+                const real = nameByHash.get(h >>> 0);
+                if (real) hidden.delete(real);
+            }
+        }
+        return [...hidden];
+    }
+
+    /**
+     * Swap in picked-file textures, keyed by submesh name. The map is the WHOLE
+     * override set: a submesh that drops out goes back to the skin's own
+     * texture. `.dds`/`.tex` decode through the backend; everything else is a
+     * browser-decodable image the asset protocol can serve directly.
+     */
+    async function setMeshTextures(id: string, overrides: Record<string, string>): Promise<void> {
+        const m = models.get(id);
+        if (!m) return;
+
+        for (const name of [...m.overrideTexUrl.keys()]) {
+            if (overrides[name] !== undefined) continue;
+            m.overrideTexUrl.delete(name);
+            m.overrideTextures.get(name)?.dispose();
+            m.overrideTextures.delete(name);
+            restoreSkinTexture(m, name);
+        }
+
+        for (const [name, filePath] of Object.entries(overrides)) {
+            if (m.overrideTexUrl.get(name) === filePath) continue;
+            let url: string;
+            try {
+                url = await textureUrlForFile(filePath);
+            } catch (e) {
+                console.error('[studioScene] failed to load override texture', filePath, e);
+                continue;
+            }
+            if (!models.has(id)) return;
+            const texture = new Texture(url, scene, false, true);
+            texture.wrapU = Texture.WRAP_ADDRESSMODE;
+            texture.wrapV = Texture.WRAP_ADDRESSMODE;
+            texture.hasAlpha = true;
+            m.overrideTextures.get(name)?.dispose();
+            m.overrideTextures.set(name, texture);
+            m.overrideTexUrl.set(name, filePath);
+            applyTextureToMesh(m, name, texture);
+        }
+    }
+
+    async function textureUrlForFile(filePath: string): Promise<string> {
+        if (/\.(dds|tex)$/i.test(filePath)) {
+            const decoded = await decodeDdsToPng(filePath);
+            return 'data:image/png;base64,' + decoded.data;
+        }
+        return convertFileSrc(filePath);
+    }
+
+    function applyTextureToMesh(m: ModelState, meshName: string, texture: Texture): void {
+        for (const mesh of m.meshes) {
+            if (mesh.name !== meshName) continue;
+            const mat = mesh.material as PBRMaterial | null;
+            if (!mat) continue;
+            mat.backFaceCulling = true;
+            mat.albedoTexture = texture;
+            mat.albedoColor = new Color3(1, 1, 1);
+            const alpha = sknAlphaPolicy(texture.hasAlpha);
+            mat.useAlphaFromAlbedoTexture = alpha.useAlphaFromAlbedoTexture;
+            mat.transparencyMode = alpha.transparencyMode;
+            mat.alphaCutOff = alpha.alphaCutOff;
+            mat.needDepthPrePass = alpha.needDepthPrePass;
+        }
+    }
+
+    function restoreSkinTexture(m: ModelState, meshName: string): void {
+        const url = m.skinTexUrl.get(meshName);
+        for (const mesh of m.meshes) {
+            if (mesh.name !== meshName) continue;
+            const mat = mesh.material as PBRMaterial | null;
+            if (!mat) continue;
+            if (!url) {
+                mat.albedoTexture = null;
+                continue;
+            }
+            const texture = new Texture(url, scene, false, true);
+            texture.wrapU = Texture.WRAP_ADDRESSMODE;
+            texture.wrapV = Texture.WRAP_ADDRESSMODE;
+            texture.hasAlpha = true;
+            m.textures.push(texture);
+            applyTextureToMesh(m, meshName, texture);
+        }
     }
 
     // Hide/show a submesh. The meshes carry `alwaysSelectAsActiveMesh = true`
@@ -1214,6 +1403,10 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         listAnims,
         setAnimFolder,
         listMeshes,
+        listForms,
+        getTextureWarning,
+        formHiddenMeshes,
+        setMeshTextures,
         setMeshHidden,
         setHiddenMeshes,
         setModelVisible,

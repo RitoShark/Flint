@@ -95,6 +95,17 @@ export interface ModelLayer extends BaseLayer {
   /** Camera framing: 'full' (whole body, default) or 'head' (auto-focus the
    *  detected head bone with a slight zoom — splash/portrait crop). */
   focusMode?: 'full' | 'head';
+  /** Selected gear form (index into the skin BIN's `mGearSkinUpgrades`), or
+   *  undefined/-1 for the base look. Persisted only so the switcher can show
+   *  which form the artist picked — the visibility it produced already lives in
+   *  `hiddenMeshes`, which stays the single source of truth. */
+  form?: number;
+  /** Folder of texture files applied across the model by name match. Individual
+   *  entries in `textureOverrides` win over it. */
+  textureDir?: string;
+  /** Submesh name → absolute texture file path. Replaces that submesh's albedo,
+   *  overriding both the skin's own texture and the folder match. */
+  textureOverrides?: Record<string, string>;
 }
 
 export interface DiscLayer extends BaseLayer {
