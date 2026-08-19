@@ -1535,7 +1535,7 @@ dependencies = [
 
 [[package]]
 name = "flint"
-version = "2.9.1"
+version = "2.9.4"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

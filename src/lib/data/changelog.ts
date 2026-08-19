@@ -45,11 +45,35 @@ export interface VersionChangelog {
  */
 export const CHANGELOG: VersionChangelog[] = [
     {
-        version: '2.9.1',
+        version: '2.9.4',
         date: 'August 2026 (Beta)',
-        headline: 'Flint 2.9.1 (Beta)',
-        subtitle: 'Multi-language localization support across 6 languages and Monaco editor autocomplete.',
+        headline: 'Flint 2.9.4 (Beta)',
+        subtitle: 'Custom asset paths survive inside the bin, a smarter animation lookup, a rebuilt thumbnail model studio, and 6-language localization.',
         entries: [
+            {
+                icon: 'link',
+                tag: 'feature',
+                title: 'Repathed asset paths now travel inside the BIN',
+                description: 'Riot is moving asset references from readable paths to hashes, and a path your mod invented exists in no hashtable anywhere — once the bin holds only the hash, it is gone. Saving in the BIN editor now records those names inside the bin itself, so opening it on any machine shows the real paths instead of 0x… hashes.',
+            },
+            {
+                icon: 'animation',
+                tag: 'improvement',
+                title: 'Animations found even in repathed projects',
+                description: 'The animation lookup only ever matched the vanilla folder layout, so a repathed or renamed project offered no clips at all. Flint now falls back to searching the project for the bin that actually holds the clip data.',
+            },
+            {
+                icon: 'layerModel',
+                tag: 'feature',
+                title: 'Thumbnail model studio: gear forms and custom textures',
+                description: 'The Meshes panel gained the SKN preview’s Base/form switcher for skins like Kayn, and each submesh row now shows the texture it wears. You can swap in your own textures per submesh or point at a whole folder and have them matched by name.',
+            },
+            {
+                icon: 'file-edit',
+                tag: 'fix',
+                title: 'BIN editor no longer suggests // comments',
+                description: 'ritobin only accepts #, but the editor greyed out // lines as if they were comments and the emitter-name hints were written that way too — text that looked safely commented would fail to parse on save.',
+            },
             {
                 icon: 'globe',
                 tag: 'feature',
