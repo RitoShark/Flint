@@ -412,6 +412,163 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
+    fn real_wad_project_creation_repro() {
+        for (champ, skin_id) in [("Aatrox", 0u32), ("Annie", 22), ("Gnar", 13), ("Kled", 1)] {
+            let wad = std::path::PathBuf::from(format!(
+                "E:/Oyunlar/Riot Games/League of Legends/Game/DATA/FINAL/Champions/{champ}.wad.client",
+            ));
+            let dir = tempfile::tempdir().unwrap();
+            let assets = dir.path().join("content/base");
+            std::fs::create_dir_all(&assets).unwrap();
+            let resolve = |_h: &[u64]| flint_hash::hash::ResolvedHashes::new();
+            let r = crate::wad::extractor::extract_skin_assets_selective(
+                &wad, &assets, champ, skin_id, &resolve, false,
+            )
+            .unwrap();
+
+            let champ_lower = champ.to_lowercase();
+            let skin = walkdir::WalkDir::new(&assets)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .find(|e| {
+                    let p = e.path().to_string_lossy().to_lowercase().replace('\\', "/");
+                    p.ends_with(&format!("characters/{champ_lower}/skins/skin{skin_id}.bin"))
+                        || p.ends_with(&format!("characters/{champ_lower}/skins/skin{skin_id:02}.bin"))
+                })
+                .unwrap()
+                .path()
+                .to_path_buf();
+            let before = crate::bin::read_bin(&std::fs::read(&skin).unwrap()).unwrap();
+            println!("[{champ} skin{skin_id}] LINKED BEFORE: {} entries", before.linked.len());
+
+            let config = OrganizerConfig {
+                enable_concat: true,
+                enable_repath: true,
+                creator_name: "SirDexal".to_string(),
+                project_name: "ReproTest".to_string(),
+                champion: champ.to_string(),
+                target_skin_id: skin_id,
+                cleanup_unused: true,
+                wad_folder_override: None,
+                skip_bin_cleanup: false,
+                delete_sources: true,
+                consolidate_vfx: false,
+                cleanup_pipeline: false,
+            };
+            organize_project(&assets, &config, &r.path_mappings).unwrap();
+
+            let after = crate::bin::read_bin(&std::fs::read(&skin).unwrap()).unwrap();
+            println!("[{champ} skin{skin_id}] LINKED AFTER: {:#?}", after.linked);
+            let root_link = format!("DATA/Characters/{champ}/{champ}.bin");
+            assert!(
+                after.linked.iter().any(|l| l == &root_link),
+                "[{champ} skin{skin_id}] champion root link kept: {:?}",
+                after.linked
+            );
+        }
+    }
+
+    #[test]
+    fn project_creation_concat_keeps_root_and_animation_links() {
+        use ritoshark::bin::{Bin, BinEntry, BinValue};
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+        let wad = base.join("aatrox.wad.client");
+        let champ_dir = wad.join("data/characters/aatrox");
+        std::fs::create_dir_all(champ_dir.join("skins")).unwrap();
+        std::fs::create_dir_all(champ_dir.join("animations")).unwrap();
+
+        let write = |path: &std::path::Path, bin: &Bin| {
+            std::fs::write(path, crate::bin::write_bin(bin).unwrap()).unwrap();
+        };
+        let entry = |ph: u32, ch: u32| BinEntry {
+            path_hash: ph,
+            class_hash: ch,
+            fields: indexmap::IndexMap::new(),
+        };
+
+        let mut root = Bin::new();
+        root.entries.push(entry(1, 100));
+        write(&champ_dir.join("aatrox.bin"), &root);
+
+        let mut anim = Bin::new();
+        anim.entries.push(entry(2, 101));
+        write(&champ_dir.join("animations/skin0.bin"), &anim);
+
+        let mut multi = Bin::new();
+        multi.entries.push(entry(3, 102));
+        write(
+            &champ_dir.join("aatrox_multi_skins_skin0_skins_skin1.bin"),
+            &multi,
+        );
+
+        let tex_dir = wad.join("assets/characters/aatrox/skins/base");
+        std::fs::create_dir_all(&tex_dir).unwrap();
+        std::fs::write(tex_dir.join("body.tex"), b"t").unwrap();
+
+        let mut skin = Bin::new();
+        skin.linked = vec![
+            "DATA/Characters/Aatrox/Aatrox_Multi_Skins_Skin0_Skins_Skin1.bin".to_string(),
+            "DATA/Characters/Aatrox/Aatrox.bin".to_string(),
+            "DATA/Characters/Aatrox/Animations/Skin0.bin".to_string(),
+        ];
+        let mut fields = indexmap::IndexMap::new();
+        fields.insert(
+            0xBBBB_u32,
+            BinValue::String("ASSETS/Characters/Aatrox/Skins/Base/Body.tex".to_string()),
+        );
+        skin.entries.push(BinEntry {
+            path_hash: 4,
+            class_hash: 103,
+            fields,
+        });
+        let skin_path = champ_dir.join("skins/skin0.bin");
+        write(&skin_path, &skin);
+
+        let config = OrganizerConfig {
+            enable_concat: true,
+            enable_repath: true,
+            creator_name: "SirDexal".to_string(),
+            project_name: "Teeest".to_string(),
+            champion: "aatrox".to_string(),
+            target_skin_id: 0,
+            cleanup_unused: true,
+            wad_folder_override: None,
+            skip_bin_cleanup: false,
+            delete_sources: true,
+            consolidate_vfx: false,
+            cleanup_pipeline: false,
+        };
+
+        organize_project(base, &config, &HashMap::new()).unwrap();
+
+        let after =
+            crate::bin::read_bin(&std::fs::read(&skin_path).unwrap()).unwrap();
+        assert!(
+            after
+                .linked
+                .iter()
+                .any(|l| l.eq_ignore_ascii_case("data/sirdexal_teeest_concat.bin")),
+            "concat link present: {:?}",
+            after.linked
+        );
+        assert!(
+            after.linked.iter().any(|l| l == "DATA/Characters/Aatrox/Aatrox.bin"),
+            "champion root link kept: {:?}",
+            after.linked
+        );
+        assert!(
+            after
+                .linked
+                .iter()
+                .any(|l| l == "DATA/Characters/Aatrox/Animations/Skin0.bin"),
+            "animation link kept: {:?}",
+            after.linked
+        );
+    }
+
+    #[test]
     fn find_sub_skin_bins_detects_companions() {
         let dir = companion_tree();
         let base = dir.path();
