@@ -414,7 +414,17 @@ mod tests {
     #[test]
     #[ignore]
     fn real_wad_project_creation_repro() {
-        for (champ, skin_id) in [("Aatrox", 0u32), ("Annie", 22), ("Gnar", 13), ("Kled", 1)] {
+        for (champ, skin_id) in [
+            ("Aatrox", 0u32),
+            ("Annie", 22),
+            ("Gnar", 13),
+            ("Kled", 1),
+            ("Sejuani", 0),
+            ("Sejuani", 4),
+            ("Evelynn", 0),
+            ("Evelynn", 1),
+            ("Evelynn", 29),
+        ] {
             let wad = std::path::PathBuf::from(format!(
                 "E:/Oyunlar/Riot Games/League of Legends/Game/DATA/FINAL/Champions/{champ}.wad.client",
             ));
