@@ -5,6 +5,7 @@ import { openWadInExtract, isWadPath } from '../../lib/openWad';
 import { getFileIcon, getExpanderIcon, getIcon } from '../../lib/ui-helpers/fileIcons';
 import { WorkspaceSearch } from './WorkspaceSearch';
 import { useSearchPanelStore } from '../../lib/stores/searchPanelStore';
+import { followRename } from '../../lib/stores/renameCoordinator';
 import { VirtualizedList, type VirtualizedListHandle } from './wad-explorer/VirtualizedList';
 import { useAction, useScope } from '../../lib/shortcuts/hooks';
 import {
@@ -630,6 +631,7 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         if (!newName || newName === currentName) return;
         try {
             const result = await api.renameFile(projectPath, path, newName);
+            followRename(projectPath, result.old_path, result.new_path);
             await refreshFileTree();
             if (result.bin_updates > 0) {
                 showToast('success', `Renamed and updated ${result.bin_updates} BIN file${result.bin_updates > 1 ? 's' : ''}`);

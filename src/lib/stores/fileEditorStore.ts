@@ -34,11 +34,23 @@ interface FileEditorState {
     switchTab: (tabId: string) => void;
     /** Set the active tab's dirty flag (back-compat). */
     setDirty: (dirty: boolean) => void;
+    /**
+     * Point any open tab at `oldFilePath` — or at a file beneath it, when a
+     * folder was renamed — to its new path, in place. The tab keeps its id,
+     * position and dirty flag, so a renamed file stays open where it was
+     * instead of the editor reloading a path that no longer exists.
+     */
+    retargetFile: (oldFilePath: string, newFilePath: string) => void;
 }
 
 let fileEditorTabCounter = 0;
 function generateFileEditorTabId(): string {
     return `fileeditor-${Date.now()}-${++fileEditorTabCounter}`;
+}
+
+/* Length-preserving on purpose: callers slice the ORIGINAL path by an offset measured here. */
+function comparablePath(p: string): string {
+    return p.replace(/\\/g, '/').toLowerCase();
 }
 
 /** Recompute the derived `target`/`dirty` from tabs + activeId. */
@@ -98,6 +110,30 @@ export const useFileEditorStore = create<FileEditorState>((set, get) => ({
             return;
         }
         const newTabs = tabs.map((t) => (t.id === activeId ? { ...t, dirty } : t));
+        set({ tabs: newTabs, ...derive(newTabs, activeId) });
+    },
+
+    retargetFile: (oldFilePath, newFilePath) => {
+        const { tabs, activeId } = get();
+        const oldKey = comparablePath(oldFilePath);
+        let changed = false;
+
+        const newTabs = tabs.map((t) => {
+            const current = comparablePath(t.target.filePath);
+            let retargeted: string | null = null;
+
+            if (current === oldKey) {
+                retargeted = newFilePath;
+            } else if (current.startsWith(`${oldKey}/`)) {
+                retargeted = newFilePath + t.target.filePath.slice(oldFilePath.length);
+            }
+
+            if (retargeted === null) return t;
+            changed = true;
+            return { ...t, target: { ...t.target, filePath: retargeted } };
+        });
+
+        if (!changed) return;
         set({ tabs: newTabs, ...derive(newTabs, activeId) });
     },
 }));

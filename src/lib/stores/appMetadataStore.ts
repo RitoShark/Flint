@@ -29,6 +29,7 @@ interface AppMetadataState {
   toggleLogPanel: () => void;
   incrementFileVersion: (filePath: string) => void;
   getFileVersion: (filePath: string) => number;
+  renameFilePath: (oldPath: string, newPath: string) => void;
   incrementFileTreeVersion: () => void;
   setFileStatus: (filePath: string, status: 'new' | 'modified' | null) => void;
   getFileStatus: (filePath: string) => 'new' | 'modified' | undefined;
@@ -108,6 +109,40 @@ export const useAppMetadataStore = create<AppMetadataState>((set) => ({
     set((state) => ({ fileVersionsRev: state.fileVersionsRev + 1 }));
   },
   getFileVersion: (filePath) => fileVersionsMap.get(normPath(filePath)) || 0,
+
+  renameFilePath: (oldPath, newPath) => {
+    const oldKey = normPath(oldPath);
+    const newKey = normPath(newPath);
+    let movedVersions = false;
+    let movedStatuses = false;
+
+    const move = <T>(map: Map<string, T>): boolean => {
+      let moved = false;
+      for (const [key, value] of [...map.entries()]) {
+        if (key === oldKey) {
+          map.delete(key);
+          map.set(newKey, value);
+          moved = true;
+        } else if (key.startsWith(`${oldKey}/`)) {
+          map.delete(key);
+          map.set(newKey + key.slice(oldKey.length), value);
+          moved = true;
+        }
+      }
+      return moved;
+    };
+
+    movedVersions = move(fileVersionsMap);
+    movedStatuses = move(fileStatusesMap);
+
+    if (!movedVersions && !movedStatuses) return;
+    set((state) => {
+      const patch: Partial<AppMetadataState> = {};
+      if (movedVersions) patch.fileVersionsRev = state.fileVersionsRev + 1;
+      if (movedStatuses) patch.fileStatusesRev = state.fileStatusesRev + 1;
+      return patch;
+    });
+  },
   incrementFileTreeVersion: () => set((state) => ({ fileTreeVersion: state.fileTreeVersion + 1 })),
 
   setFileStatus: (filePath, status) => {

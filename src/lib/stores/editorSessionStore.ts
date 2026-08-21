@@ -63,6 +63,25 @@ export const editorSessionStore = {
         sessions.delete(path);
     },
 
+    /**
+     * Move the session for `oldPath` — and every session beneath it, when a
+     * folder was renamed — onto the new path, so a rename doesn't discard the
+     * open editor's unsaved text.
+     */
+    rename(oldPath: string, newPath: string): void {
+        const oldKey = normalizePath(oldPath);
+        for (const [key, session] of [...sessions.entries()]) {
+            const norm = normalizePath(key);
+            if (norm === oldKey) {
+                sessions.delete(key);
+                sessions.set(newPath, session);
+            } else if (norm.startsWith(`${oldKey}/`)) {
+                sessions.delete(key);
+                sessions.set(newPath + key.slice(oldPath.length), session);
+            }
+        }
+    },
+
     /** Drop every session whose path is under `prefix` (e.g. a closed project root). */
     pruneByPrefix(prefix: string): void {
         const norm = normalizePath(prefix);
