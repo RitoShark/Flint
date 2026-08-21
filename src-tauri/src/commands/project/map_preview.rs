@@ -622,6 +622,7 @@ mod tests {
                 fields,
             }],
             patches: vec![],
+            trailing: vec![],
         };
 
         let tmp = std::env::temp_dir().join("flint_mp_mat.bin");
