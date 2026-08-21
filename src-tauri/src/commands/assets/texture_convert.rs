@@ -74,12 +74,12 @@ pub(crate) fn decode_full_rgba(data: &[u8]) -> Result<image::RgbaImage, String> 
         .map_err(|e| format!("Failed to decode top mipmap: {:?}", e))
 }
 
-/// Encode RGBA pixels as a DDS in `format`, falling back to BC3 for anything the
-/// writer has no encoder for. Returns the bytes and a human-readable format label.
+/// Encode RGBA pixels as a DDS in `format`, falling back to BC3 for anything a DDS
+/// can't carry. Returns the bytes and a human-readable format label.
 ///
-/// This goes through RitoShark rather than `image_dds`, whose writer always emits the
-/// DX10 extension — a FourCC and a 20-byte header the game's D3D9-era loader can't
-/// read, so such a file crashes the client.
+/// Only BC1, BC3 and BGRA8 have a legacy pixel format. BC5 and BC7 exist solely under
+/// the DX10 extension — a FourCC and a 20-byte header the game's D3D9-era loader can't
+/// read, so such a file crashes the client — and so get BC3 here instead.
 fn encode_dds(
     rgba: &image::RgbaImage,
     format: TexFormat,
@@ -89,8 +89,6 @@ fn encode_dds(
             (ritoshark::tex::write_dds_bytes_bc(rgba, TexFormat::Bc1), "BC1 (DXT1)")
         }
         TexFormat::Bc3 => (ritoshark::tex::write_dds_bytes_bc(rgba, TexFormat::Bc3), "BC3 (DXT5)"),
-        TexFormat::Bc5 => (ritoshark::tex::write_dds_bytes_bc(rgba, TexFormat::Bc5), "BC5"),
-        TexFormat::Bc7 => (ritoshark::tex::write_dds_bytes_bc(rgba, TexFormat::Bc7), "BC7"),
         TexFormat::Bgra8 => (ritoshark::tex::write_dds_bytes(rgba), "BGRA8"),
         _ => (
             ritoshark::tex::write_dds_bytes_bc(rgba, TexFormat::Bc3),
@@ -105,9 +103,9 @@ fn encode_dds(
 
 /// Convert a TEX file to a sibling .dds.
 ///
-/// Format selection: the source `Texture::format` is written back as itself.
-/// Anything the DDS writer can't encode falls through to BC3 — the output is
-/// valid and preserves alpha.
+/// Format selection: the source `Texture::format` is written back as itself when a
+/// DDS can carry it. BC5 and BC7 can't be, and fall through to BC3 — the output is
+/// valid, loadable by the client, and preserves alpha.
 #[tauri::command]
 pub async fn convert_tex_to_dds(path: String) -> Result<ConversionResult, String> {
     let _t = ipc_trace::enter("convert_tex_to_dds");

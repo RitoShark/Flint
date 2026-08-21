@@ -259,9 +259,12 @@ fn write_back(
 
     let dds_bytes = match source_format {
         TexFormat::Bgra8 => write_dds_bytes(rgba),
-        TexFormat::Bc1 | TexFormat::Bc1Alt | TexFormat::Bc3 | TexFormat::Bc5 | TexFormat::Bc7 => {
+        TexFormat::Bc1 | TexFormat::Bc1Alt | TexFormat::Bc3 => {
             write_dds_bytes_bc(rgba, source_format)
         }
+        // BC5/BC7 have no legacy DDS header, so a source in one of them came from a
+        // third-party exporter; writing it back as itself needs the DX10 extension the
+        // client can't read.
         _ => write_dds_bytes_bc(rgba, TexFormat::Bc3),
     }
     .map_err(|e| format!("Failed to encode DDS: {:?}", e))?;
