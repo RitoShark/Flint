@@ -94,6 +94,39 @@ describe('checkRitobinBrackets — valid input', () => {
         expect(checkRitobinBrackets(doc).valid).toBe(true);
     });
 
+    it('accepts a hand-typed sibling entry written flush-left inside an indented map', () => {
+        const doc = [
+            'entries: map[hash,embed] = {',
+            '    "Existing" = SkinCharacterDataProperties {',
+            '        skinClassification: u32 = 1',
+            '    }',
+            '',
+            '"houndshade" = StaticMaterialDef {',
+            '    Name: string = "a_unique_name"',
+            '    SamplerValues: list2[embed] = {',
+            '        StaticMaterialShaderSamplerDef {',
+            '            TextureName: string = "Diffuse_Texture"',
+            '            texturePath: string = "ASSETS/Characters/x.tex"',
+            '        }',
+            '    }',
+            '}',
+            '}',
+        ].join('\n');
+        expect(checkRitobinBrackets(doc).errors).toEqual([]);
+    });
+
+    it('accepts a block whose body is dedented below its own header', () => {
+        const doc = [
+            'a: embed = Outer {',
+            '    b: embed = Inner {',
+            '        rate: f32 = 1',
+            '    }',
+            'c: f32 = 2',
+            '}',
+        ].join('\n');
+        expect(checkRitobinBrackets(doc).valid).toBe(true);
+    });
+
     /*
      * rs_bin's printer emits a literal backslash as `\\`, so a string value
      * ending in a backslash prints as `"...\\"` — an escaped backslash

@@ -65,6 +65,12 @@ function isOnlyClosers(code: string): boolean {
 }
 
 export function checkRitobinBrackets(text: string): BracketCheckResult {
+    const plain = scanBrackets(text, false);
+    if (plain.valid) return plain;
+    return scanBrackets(text, true);
+}
+
+function scanBrackets(text: string, recover: boolean): BracketCheckResult {
     const lines = text.split('\n');
     const errors: BracketIssue[] = [];
     const stack: Frame[] = [];
@@ -100,7 +106,7 @@ export function checkRitobinBrackets(text: string): BracketCheckResult {
         for real (via the brace scan below), so that ONE frame must not be recovered here — but
         anything still deeper than it on the stack is still orphaned and must be.
         */
-        if (!isBlankOrComment(line)) {
+        if (recover && !isBlankOrComment(line)) {
             const ind = indentWidth(line);
             const onlyClosers = isOnlyClosers(code);
 
