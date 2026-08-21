@@ -45,6 +45,7 @@ export function buildCheatSheet(shortcuts: readonly Shortcut[]): CheatSheetGroup
 export function scopeHint(scope: ScopeId): string | null {
     switch (scope) {
         case 'file-tree': return 'when the file tree is focused';
+        case 'wad-tree': return 'when the WAD list is focused';
         case 'model-preview': return 'in the 3D preview';
         case 'zoomable': return 'in a zoomable viewer';
         case 'wad-explorer': return 'in WAD Explorer';

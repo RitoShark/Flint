@@ -2,6 +2,7 @@ import { getIcon } from '../../../lib/ui-helpers/fileIcons';
 import { PathIndex } from '../../../lib/vfs/pathIndex';
 import { UNKNOWN_DIR } from '../../../lib/vfs/types';
 import type { WadChunk, WadExplorerWad } from '../../../lib/types';
+import type { NavRow } from '../../../lib/shortcuts/treeNav';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SVG icons
@@ -403,4 +404,135 @@ export function flattenSearchResults(
         }
     }
     return rows;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Keyboard navigation model
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function categoryNavKey(cat: string): string {
+    return `cat::${cat}`;
+}
+
+export function searchWadNavKey(wadPath: string): string {
+    return `swad::${wadPath}`;
+}
+
+export function searchFolderKey(wadPath: string, folderPath: string): string {
+    return `${wadPath}::s::${folderPath}`;
+}
+
+/**
+ * One navigable row: the shape `lib/shortcuts/treeNav` works on, plus where the
+ * row sits in the flat list so the cursor can be scrolled into view.
+ *
+ * `wad-loading` / `wad-error` status lines are deliberately absent — they carry
+ * no cursor styling, so landing on one would look like the cursor vanished.
+ */
+export interface WadNavRow extends NavRow {
+    /** Where the row sits in the flat list, so the cursor can be scrolled to it. */
+    index: number;
+}
+
+export function buildTreeNavRows(
+    rows: FlatRow[],
+    collapsedCategories: Set<string>,
+    expandedWads: Set<string>,
+    expandedFolders: Set<string>,
+): WadNavRow[] {
+    const nav: WadNavRow[] = [];
+
+    rows.forEach((row, index) => {
+        switch (row.kind) {
+            case 'category':
+                nav.push({
+                    path: categoryNavKey(row.cat),
+                    name: row.cat,
+                    isDirectory: true,
+                    isExpanded: !collapsedCategories.has(row.cat),
+                    depth: 0,
+                    index,
+                });
+                break;
+            case 'wad':
+                nav.push({
+                    path: row.wad.path,
+                    name: row.wad.name,
+                    isDirectory: true,
+                    isExpanded: expandedWads.has(row.wad.path),
+                    depth: 1,
+                    index,
+                });
+                break;
+            case 'folder':
+                nav.push({
+                    path: row.effectiveNode.key,
+                    name: row.displayPath,
+                    isDirectory: true,
+                    isExpanded: expandedFolders.has(row.effectiveNode.key),
+                    depth: row.depth + 1,
+                    index,
+                });
+                break;
+            case 'file':
+                nav.push({
+                    path: makeFileKey(row.node.wadPath, row.node.chunk.hash),
+                    name: row.node.name,
+                    isDirectory: false,
+                    isExpanded: false,
+                    depth: row.depth + 1,
+                    index,
+                });
+                break;
+        }
+    });
+
+    return nav;
+}
+
+export function buildSearchNavRows(
+    rows: FlatSearchRow[],
+    collapsedSearchWads: Set<string>,
+    collapsedSearchFolders: Set<string>,
+): WadNavRow[] {
+    const nav: WadNavRow[] = [];
+
+    rows.forEach((row, index) => {
+        switch (row.kind) {
+            case 'search-wad':
+                nav.push({
+                    path: searchWadNavKey(row.wadPath),
+                    name: row.wadName,
+                    isDirectory: true,
+                    isExpanded: !collapsedSearchWads.has(row.wadPath),
+                    depth: 0,
+                    index,
+                });
+                break;
+            case 'search-folder': {
+                const key = searchFolderKey(row.wadPath, row.folderPath);
+                nav.push({
+                    path: key,
+                    name: row.folderPath,
+                    isDirectory: true,
+                    isExpanded: !collapsedSearchFolders.has(key),
+                    depth: 1,
+                    index,
+                });
+                break;
+            }
+            case 'search-file':
+                nav.push({
+                    path: makeFileKey(row.wadPath, row.chunk.hash),
+                    name: row.fileName,
+                    isDirectory: false,
+                    isExpanded: false,
+                    depth: row.folderPath ? 2 : 1,
+                    index,
+                });
+                break;
+        }
+    });
+
+    return nav;
 }

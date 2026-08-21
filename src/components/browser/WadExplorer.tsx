@@ -22,9 +22,12 @@ import {
     type FlatRow,
     collectAllVFSFolderKeys,
     flattenTree, flattenSearchResults,
+    type FlatSearchRow, type WadNavRow,
+    buildTreeNavRows, buildSearchNavRows, searchFolderKey, categoryNavKey, searchWadNavKey,
 } from './wad-explorer/helpers';
 import { VirtualizedList, type VirtualizedListHandle } from './wad-explorer/VirtualizedList';
-import { useAction } from '../../lib/shortcuts/hooks';
+import { useAction, useScope } from '../../lib/shortcuts/hooks';
+import { stepFocus, edgeFocus, arrowLeft, arrowRight } from '../../lib/shortcuts/treeNav';
 import { ChunkPreview } from './wad-explorer/ChunkPreview';
 import { QuickActionPanel, WadListSkeleton } from './wad-explorer/QuickActionPanel';
 import { ExtractOverlay } from './wad-explorer/ExtractOverlay';
@@ -64,6 +67,8 @@ export const WadExplorer: React.FC = () => {
 
     const [showCheatSheet, setShowCheatSheet] = useState(false);
     const [highlightedKey, setHighlightedKey] = useState<string | null>(null);
+    const [focusedKey, setFocusedKey] = useState<string | null>(null);
+    const [listFocused, setListFocused] = useState(false);
     const listRef = useRef<VirtualizedListHandle | null>(null);
     const pendingNavRef = useRef<{ wadPath: string; filePath?: string; phase: 'wad' | 'file' } | null>(null);
     const flatRowsRef = useRef<FlatRow[] | null>(null);
@@ -1018,6 +1023,92 @@ export const WadExplorer: React.FC = () => {
 
     const totalRows = isSearching ? (flatSearchRows?.length ?? 0) : (flatRows?.length ?? 0);
 
+    // ── Keyboard navigation ──────────────────────────────────────────────────
+    // The scope is pushed only while the list holds focus: bare arrows in the
+    // view scope would also fire over the search box and the chunk preview.
+    useScope('wad-tree', listFocused);
+
+    const { navRows, rowByNavKey } = useMemo(() => {
+        const source: Array<FlatRow | FlatSearchRow> | null = isSearching ? flatSearchRows : flatRows;
+        const nav = isSearching
+            ? buildSearchNavRows(flatSearchRows ?? [], collapsedSearchWads, collapsedSearchFolders)
+            : buildTreeNavRows(flatRows ?? [], collapsedCategories, wadExplorer.expandedWads, wadExplorer.expandedFolders);
+
+        const byKey = new Map<string, FlatRow | FlatSearchRow>();
+        if (source) for (const row of nav) byKey.set(row.path, source[row.index]);
+        return { navRows: nav, rowByNavKey: byKey };
+    }, [
+        isSearching, flatRows, flatSearchRows,
+        collapsedCategories, collapsedSearchWads, collapsedSearchFolders,
+        wadExplorer.expandedWads, wadExplorer.expandedFolders,
+    ]);
+
+    const navRowsRef = useRef<WadNavRow[]>(navRows);
+    navRowsRef.current = navRows;
+    const rowByNavKeyRef = useRef(rowByNavKey);
+    rowByNavKeyRef.current = rowByNavKey;
+    const focusedKeyRef = useRef(focusedKey);
+    focusedKeyRef.current = focusedKey;
+
+    const focusRow = useCallback((key: string | null) => {
+        if (!key) return;
+        setFocusedKey(key);
+        const row = navRowsRef.current.find(r => r.path === key);
+        if (row) listRef.current?.scrollToIndex(row.index);
+    }, []);
+
+    const toggleSearchCollapse = useCallback((which: 'wad' | 'folder', key: string) => {
+        const apply = (prev: Set<string>) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key); else next.add(key);
+            return next;
+        };
+        if (which === 'wad') setCollapsedSearchWads(apply); else setCollapsedSearchFolders(apply);
+    }, []);
+
+    const toggleNavRow = useCallback((key: string) => {
+        const row = rowByNavKeyRef.current.get(key);
+        if (!row) return;
+        switch (row.kind) {
+            case 'category': handleToggleCategory(row.cat); break;
+            case 'wad': handleToggleWad(row.wad.path); break;
+            case 'folder': handleToggleFolder(row.effectiveNode.key); break;
+            case 'search-wad': toggleSearchCollapse('wad', row.wadPath); break;
+            case 'search-folder': toggleSearchCollapse('folder', searchFolderKey(row.wadPath, row.folderPath)); break;
+        }
+    }, [handleToggleCategory, handleToggleWad, handleToggleFolder, toggleSearchCollapse]);
+
+    useAction('wadTree.moveDown', () => focusRow(stepFocus(navRowsRef.current, focusedKeyRef.current, 1)));
+    useAction('wadTree.moveUp', () => focusRow(stepFocus(navRowsRef.current, focusedKeyRef.current, -1)));
+    useAction('wadTree.first', () => focusRow(edgeFocus(navRowsRef.current, 'first')));
+    useAction('wadTree.last', () => focusRow(edgeFocus(navRowsRef.current, 'last')));
+
+    useAction('wadTree.expand', () => {
+        const outcome = arrowRight(navRowsRef.current, focusedKeyRef.current);
+        if (!outcome) return;
+        if (outcome.kind === 'expand') toggleNavRow(outcome.path);
+        else focusRow(outcome.path);
+    });
+
+    useAction('wadTree.collapse', () => {
+        const outcome = arrowLeft(navRowsRef.current, focusedKeyRef.current);
+        if (!outcome) return;
+        if (outcome.kind === 'collapse') toggleNavRow(outcome.path);
+        else focusRow(outcome.path);
+    });
+
+    /* Enter previews, the cursor alone does not: decoding a texture or a mesh on
+       every ArrowDown would stall the list. */
+    useAction('wadTree.open', () => {
+        const key = focusedKeyRef.current;
+        if (!key) return;
+        const row = rowByNavKeyRef.current.get(key);
+        if (!row) return;
+        if (row.kind === 'file') handleSelectFile(row.node.wadPath, row.node.chunk);
+        else if (row.kind === 'search-file') handleSelectFile(row.wadPath, row.chunk);
+        else toggleNavRow(key);
+    });
+
     // ── Stable renderRow ref (prevents VirtualizedList re-renders) ───────────
     const renderRowRef = useRef<(index: number) => React.ReactNode>(() => null);
     const stableRenderRow = useCallback((index: number) => renderRowRef.current(index), []);
@@ -1027,6 +1118,8 @@ export const WadExplorer: React.FC = () => {
         wadExplorer.expandedWads,
         wadExplorer.expandedFolders,
         highlightedKey,
+        focusedKey,
+        listFocused,
         collapsedCategories,
         collapsedSearchWads,
         collapsedSearchFolders,
@@ -1039,25 +1132,27 @@ export const WadExplorer: React.FC = () => {
     // Row renderers (assigned to ref so VirtualizedList never sees prop change)
     // ─────────────────────────────────────────────────────────────────────────
 
+    const cursorClass = (key: string) => (listFocused && focusedKey === key ? ' file-tree__item--focused' : '');
+
     renderRowRef.current = (index: number) => {
         if (isSearching && flatSearchRows) {
             const row = flatSearchRows[index];
             if (!row) return null;
             switch (row.kind) {
                 case 'search-wad': {
+                    const navKey = searchWadNavKey(row.wadPath);
                     const isWadCollapsed = collapsedSearchWads.has(row.wadPath);
                     const checkState = getSearchCheckStateLazy(row.wadPath, () =>
                         row.folders.flatMap(f => f.files.map(m => makeFileKey(row.wadPath, m.chunk.hash))),
                     );
                     return (
                         <div
-                            className="file-tree__item"
+                            className={`file-tree__item${cursorClass(navKey)}`}
                             style={{ padding: '4px 8px 2px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', userSelect: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                            onClick={() => setCollapsedSearchWads(prev => {
-                                const next = new Set(prev);
-                                if (next.has(row.wadPath)) next.delete(row.wadPath); else next.add(row.wadPath);
-                                return next;
-                            })}
+                            onClick={() => {
+                                setFocusedKey(navKey);
+                                toggleSearchCollapse('wad', row.wadPath);
+                            }}
                             onContextMenu={e => {
                                 e.preventDefault();
                                 const wad = wadExplorer.wads.find(w => w.path === row.wadPath);
@@ -1093,13 +1188,12 @@ export const WadExplorer: React.FC = () => {
                     });
                     return (
                         <div
-                            className="file-tree__item"
+                            className={`file-tree__item${cursorClass(folderKey)}`}
                             style={{ paddingLeft: '22px' }}
-                            onClick={() => setCollapsedSearchFolders(prev => {
-                                const next = new Set(prev);
-                                if (next.has(folderKey)) next.delete(folderKey); else next.add(folderKey);
-                                return next;
-                            })}
+                            onClick={() => {
+                                setFocusedKey(folderKey);
+                                toggleSearchCollapse('folder', folderKey);
+                            }}
                             onContextMenu={e => {
                                 e.preventDefault();
                                 const group = groupedSearchResults?.find(g => g.wadPath === row.wadPath);
@@ -1171,12 +1265,13 @@ export const WadExplorer: React.FC = () => {
                 case 'search-file': {
                     const isSelected = wadExplorer.selected?.hash === row.chunk.hash && wadExplorer.selected?.wadPath === row.wadPath;
                     const isChecked = wadExplorer.checkedFiles.has(makeFileKey(row.wadPath, row.chunk.hash));
-                    const isHighlighted = highlightedKey === `${row.wadPath}::${row.chunk.hash}`;
+                    const navKey = makeFileKey(row.wadPath, row.chunk.hash);
+                    const isHighlighted = highlightedKey === navKey;
                     return (
                         <div
-                            className={`file-tree__item${isSelected ? ' file-tree__item--selected' : ''}${isHighlighted ? ' file-tree__item--highlighted' : ''}`}
+                            className={`file-tree__item${isSelected ? ' file-tree__item--selected' : ''}${isHighlighted ? ' file-tree__item--highlighted' : ''}${cursorClass(navKey)}`}
                             style={{ paddingLeft: row.folderPath ? '44px' : '22px' }}
-                            onClick={() => { if (isHighlighted) setHighlightedKey(null); handleSelectFile(row.wadPath, row.chunk); }}
+                            onClick={() => { if (isHighlighted) setHighlightedKey(null); setFocusedKey(navKey); handleSelectFile(row.wadPath, row.chunk); }}
                             onContextMenu={e => { e.preventDefault(); handleContextMenu(row.chunk, row.wadPath, e.clientX, e.clientY); }}
                         >
                             <span
@@ -1205,12 +1300,13 @@ export const WadExplorer: React.FC = () => {
             if (!row) return null;
             switch (row.kind) {
                 case 'category': {
+                    const navKey = categoryNavKey(row.cat);
                     const isCatCollapsed = collapsedCategories.has(row.cat);
                     return (
                         <div
-                            className="file-tree__item"
+                            className={`file-tree__item${cursorClass(navKey)}`}
                             style={{ padding: '4px 8px 2px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', userSelect: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                            onClick={() => handleToggleCategory(row.cat)}
+                            onClick={() => { setFocusedKey(navKey); handleToggleCategory(row.cat); }}
                         >
                             <span dangerouslySetInnerHTML={{ __html: getIcon(isCatCollapsed ? 'chevronRight' : 'chevronDown') }} />
                             <span style={{ flex: 1 }}>{row.cat}</span>
@@ -1226,9 +1322,9 @@ export const WadExplorer: React.FC = () => {
                     const isHighlighted = highlightedKey === wad.path;
                     return (
                         <div
-                            className={`file-tree__item${isHighlighted ? ' file-tree__item--highlighted' : ''}`}
+                            className={`file-tree__item${isHighlighted ? ' file-tree__item--highlighted' : ''}${cursorClass(wad.path)}`}
                             style={{ paddingLeft: '8px' }}
-                            onClick={() => { if (isHighlighted) setHighlightedKey(null); handleToggleWad(wad.path); }}
+                            onClick={() => { if (isHighlighted) setHighlightedKey(null); setFocusedKey(wad.path); handleToggleWad(wad.path); }}
                             onContextMenu={e => { e.preventDefault(); handleWadContextMenu(wad, e.clientX, e.clientY); }}
                         >
                             <span className="file-tree__chevron" dangerouslySetInnerHTML={{ __html: getIcon(isExp ? 'chevronDown' : 'chevronRight') }} />
@@ -1273,9 +1369,10 @@ export const WadExplorer: React.FC = () => {
                         : 'none';
                     return (
                         <div
-                            className="file-tree__item"
+                            className={`file-tree__item${cursorClass(row.effectiveNode.key)}`}
                             style={{ paddingLeft: `${8 + indent}px` }}
                             onClick={(e: React.MouseEvent) => {
+                                setFocusedKey(row.effectiveNode.key);
                                 if (e.shiftKey) {
                                     const allKeys = collectAllVFSFolderKeys(row.effectiveNode);
                                     handleDeepToggleFolder(allKeys, !isExp);
@@ -1321,12 +1418,13 @@ export const WadExplorer: React.FC = () => {
                     const node = row.node;
                     const isSelected = node.chunk.hash === wadExplorer.selected?.hash && node.wadPath === wadExplorer.selected?.wadPath;
                     const isChecked = wadExplorer.checkedFiles.has(makeFileKey(node.wadPath, node.chunk.hash));
-                    const isHighlighted = highlightedKey === `${node.wadPath}::${node.chunk.hash}`;
+                    const navKey = makeFileKey(node.wadPath, node.chunk.hash);
+                    const isHighlighted = highlightedKey === navKey;
                     return (
                         <div
-                            className={`file-tree__item${isSelected ? ' file-tree__item--selected' : ''}${isHighlighted ? ' file-tree__item--highlighted' : ''}`}
+                            className={`file-tree__item${isSelected ? ' file-tree__item--selected' : ''}${isHighlighted ? ' file-tree__item--highlighted' : ''}${cursorClass(navKey)}`}
                             style={{ paddingLeft: `${8 + indent + 16}px` }}
-                            onClick={() => { if (isHighlighted) setHighlightedKey(null); handleSelectFile(node.wadPath, node.chunk); }}
+                            onClick={() => { if (isHighlighted) setHighlightedKey(null); setFocusedKey(navKey); handleSelectFile(node.wadPath, node.chunk); }}
                             onContextMenu={e => { e.preventDefault(); handleContextMenu(node.chunk, node.wadPath, e.clientX, e.clientY); }}
                         >
                             <span
@@ -1456,7 +1554,15 @@ export const WadExplorer: React.FC = () => {
                     </div>
                 )}
 
-                <div className="file-tree" style={{ flex: 1, overflow: 'hidden', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                <div
+                    className="file-tree"
+                    style={{ flex: 1, overflow: 'hidden', minHeight: 0, display: 'flex', flexDirection: 'column' }}
+                    tabIndex={0}
+                    onFocus={() => setListFocused(true)}
+                    onBlur={(e) => {
+                        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setListFocused(false);
+                    }}
+                >
                     {wadExplorer.scanStatus === 'idle' && effectiveLeagueRoot && (
                         <div className="wad-empty">
                             <span className="wad-empty__icon" dangerouslySetInnerHTML={{ __html: getIcon('refresh') }} />

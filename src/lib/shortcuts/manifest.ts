@@ -141,6 +141,17 @@ export const SHORTCUTS: readonly Shortcut[] = [
         allowInTextEntry: true,
     },
 
+    // The list navigation sits in its own focus scope, pushed only while the WAD
+    // list holds focus — bare arrows in the view scope would also fire over the
+    // chunk preview and the search box.
+    { id: 'wadTree.moveDown', keys: 'arrowdown', label: 'Move down', group: 'WAD Explorer', scope: 'wad-tree' },
+    { id: 'wadTree.moveUp', keys: 'arrowup', label: 'Move up', group: 'WAD Explorer', scope: 'wad-tree' },
+    { id: 'wadTree.expand', keys: 'arrowright', label: 'Expand / step in', group: 'WAD Explorer', scope: 'wad-tree' },
+    { id: 'wadTree.collapse', keys: 'arrowleft', label: 'Collapse / step out', group: 'WAD Explorer', scope: 'wad-tree' },
+    { id: 'wadTree.first', keys: 'home', label: 'First row', group: 'WAD Explorer', scope: 'wad-tree' },
+    { id: 'wadTree.last', keys: 'end', label: 'Last row', group: 'WAD Explorer', scope: 'wad-tree' },
+    { id: 'wadTree.open', keys: 'enter', label: 'Preview file / toggle row', group: 'WAD Explorer', scope: 'wad-tree' },
+
     // ── 3D preview ───────────────────────────────────────────────────────────
     // Orbit / wheel-zoom / pan still come from Babylon's own attachControl; these
     // only add what the camera could not previously do at all.

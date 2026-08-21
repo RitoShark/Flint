@@ -6,8 +6,8 @@ import type { ViewType } from '../types';
  * `ScopeId` splits three ways:
  *  - view scopes, derived from `navigationStore.currentView` — never pushed by hand,
  *    so they cannot desync from the visible view;
- *  - focus scopes (`file-tree`, `model-preview`, `zoomable`), pushed by the component
- *    that owns the focused surface;
+ *  - focus scopes (`file-tree`, `wad-tree`, `model-preview`, `zoomable`), pushed by the
+ *    component that owns the focused surface;
  *  - `modal`, derived from `modalStore.activeModal`, which masks lower scopes.
  */
 export type ScopeId =
@@ -19,6 +19,7 @@ export type ScopeId =
     | ViewType
     // Focus scopes, pushed by whichever component owns the focused surface.
     | 'file-tree'
+    | 'wad-tree'
     | 'model-preview'
     | 'zoomable'
     | 'cheat-sheet'
