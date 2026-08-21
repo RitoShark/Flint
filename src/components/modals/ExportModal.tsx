@@ -51,6 +51,37 @@ const noteStyle: React.CSSProperties = {
     color: 'var(--text-muted)',
 };
 
+const issueRowStyle: React.CSSProperties = {
+    padding: '5px 10px 6px 20px',
+    fontSize: 12,
+    lineHeight: 1.45,
+};
+
+const issueFileStyle: React.CSSProperties = {
+    fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+    fontSize: 11.5,
+    color: 'var(--text-secondary)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    direction: 'rtl',
+    textAlign: 'left',
+};
+
+const IssueList: React.FC<{ heading: string; issues: api.CheckIssue[]; color: string }> = ({ heading, issues, color }) => (
+    <>
+        <div style={{ ...wadHeadingStyle, color }}>
+            {heading} — {issues.length}
+        </div>
+        {issues.map((issue) => (
+            <div key={`${issue.code}:${issue.file}`} style={issueRowStyle}>
+                <div style={issueFileStyle} title={issue.file}>&#8206;{issue.file}</div>
+                <div>{issue.message}</div>
+            </div>
+        ))}
+    </>
+);
+
 export const ExportModal: React.FC = () => {
     const { t } = useTranslation();
     const closeModal = useModalStore((s) => s.closeModal);
@@ -156,7 +187,7 @@ export const ExportModal: React.FC = () => {
         setIsChecking(true);
         try {
             const report = await api.auditProjectMissingRefs(currentProjectPath);
-            if (report.total_missing > 0) {
+            if (report.total_missing > 0 || report.issues.length > 0) {
                 setMissingReport(report);
                 return;
             }
@@ -174,23 +205,33 @@ export const ExportModal: React.FC = () => {
 
     if (missingReport) {
         const single = missingReport.total_missing === 1;
+        const critical = missingReport.issues.filter((i) => i.severity === 'critical');
+        const warnings = missingReport.issues.filter((i) => i.severity === 'warning');
         return (
             <Modal open={isVisible} onClose={closeModal} modifier="modal--export">
                 {isExporting && <ModalLoading text={t('export.exporting')} progress={progress} />}
 
-                <ModalHeader title={t('export.missingRefsTitle')} />
+                <ModalHeader title={t('export.preflightTitle')} />
 
                 <ModalBody>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Icon name="warning" />
-                        <span>
-                            {single
-                                ? t('export.missingRefsWarning', { count: missingReport.total_missing })
-                                : t('export.missingRefsWarningPlural', { count: missingReport.total_missing })}
-                        </span>
-                    </div>
+                    {missingReport.total_missing > 0 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <Icon name="warning" />
+                            <span>
+                                {single
+                                    ? t('export.missingRefsWarning', { count: missingReport.total_missing })
+                                    : t('export.missingRefsWarningPlural', { count: missingReport.total_missing })}
+                            </span>
+                        </div>
+                    )}
 
                     <div style={missingListStyle}>
+                        {critical.length > 0 && (
+                            <IssueList heading={t('export.crashRisksHeading')} issues={critical} color="var(--error, #f44)" />
+                        )}
+                        {warnings.length > 0 && (
+                            <IssueList heading={t('export.crashWarningsHeading')} issues={warnings} color="var(--color-warning, #e0a030)" />
+                        )}
                         {missingReport.wads.map((wad) => (
                             <div key={wad.wad}>
                                 <div style={wadHeadingStyle}>
@@ -206,7 +247,7 @@ export const ExportModal: React.FC = () => {
                     </div>
 
                     <p style={noteStyle}>
-                        {t('export.missingRefsNote')}
+                        {critical.length > 0 ? t('export.crashRisksNote') : t('export.missingRefsNote')}
                     </p>
                 </ModalBody>
 

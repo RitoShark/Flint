@@ -5,6 +5,15 @@ export interface BloatFile {
     size: number;
 }
 
+/** One crash-risk finding from the texture / animation checks. */
+export interface CheckIssue {
+    severity: 'critical' | 'warning';
+    /** Stable rule id, e.g. `texture.block-misaligned`. */
+    code: string;
+    file: string;
+    message: string;
+}
+
 export interface AuditReport {
     /** Referenced assets/ or data/ paths with no matching file in the folder. */
     missing: string[];
@@ -14,6 +23,8 @@ export interface AuditReport {
     bins_scanned: number;
     bins_failed: number;
     bloat_bytes: number;
+    /** Files present but shaped in a way the client cannot load. */
+    issues: CheckIssue[];
 }
 
 export interface WadMissingRefs {
@@ -27,6 +38,9 @@ export interface ProjectMissingReport {
     total_missing: number;
     bins_scanned: number;
     bins_failed: number;
+    /** Crash-risk findings across every WAD, criticals first. */
+    issues: CheckIssue[];
+    total_critical: number;
 }
 
 /** Audits an unpacked `.wad.client` folder for missing references and unreferenced files. */

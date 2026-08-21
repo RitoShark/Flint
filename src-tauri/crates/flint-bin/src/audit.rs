@@ -12,6 +12,7 @@ under its unresolved `{16hex}.ext` name still matches a BIN that names its real 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use crate::checks::{check_animation_graph, check_texture, CheckIssue};
 use crate::codec::{read_bin, tree_to_text_cached, MAX_BIN_SIZE};
 use ritoshark::bin::{Bin, BinValue};
 
@@ -39,6 +40,8 @@ pub struct AuditReport {
     pub bins_failed: usize,
     /// Total bytes of `bloat` — what deleting them would save.
     pub bloat_bytes: u64,
+    /// Crash-risk findings from [`crate::checks`], newest rule set first.
+    pub issues: Vec<CheckIssue>,
 }
 
 /// `\` → `/`, no leading slash, lowercased — the form every comparison uses.
@@ -208,7 +211,14 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
     }
 
     let mut mentions: HashSet<String> = HashSet::new();
+    let bin_names = flint_hash::hash::bin_dict::get_cached_bin_hashes().read();
     for (rel, disk) in &files {
+        if rel.ends_with(".tex") || rel.ends_with(".dds") {
+            if let Ok(data) = std::fs::read(disk) {
+                report.issues.extend(check_texture(rel, &data));
+            }
+            continue;
+        }
         if !rel.ends_with(".bin") {
             continue;
         }
@@ -226,11 +236,19 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
         match read_bin(&data) {
             Ok(bin) => {
                 collect_mentions(&bin, &mut mentions);
+                report.issues.extend(check_animation_graph(&bin, rel, &bin_names));
                 report.bins_scanned += 1;
             }
             Err(_) => report.bins_failed += 1,
         }
     }
+    drop(bin_names);
+    report.issues.sort_by(|a, b| {
+        a.severity
+            .cmp(&b.severity)
+            .then_with(|| a.file.cmp(&b.file))
+            .then_with(|| a.code.cmp(b.code))
+    });
 
     let mut referenced: HashSet<usize> = HashSet::new();
     let mut missing: BTreeSet<String> = BTreeSet::new();

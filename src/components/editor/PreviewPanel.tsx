@@ -24,6 +24,7 @@ interface FileInfo {
     file_type: string;
     extension: string;
     dimensions: [number, number] | null;
+    texture_format: string | null;
 }
 
 const EmptyState: React.FC = () => (
@@ -525,6 +526,12 @@ export const PreviewPanel: React.FC = () => {
                             <span className="preview-panel__info-item">
                                 <span className="preview-panel__info-label">Dimensions: </span>
                                 {fileInfo.dimensions[0]}×{fileInfo.dimensions[1]}
+                            </span>
+                        )}
+                        {fileInfo.texture_format && (
+                            <span className="preview-panel__info-item">
+                                <span className="preview-panel__info-label">Format: </span>
+                                {fileInfo.texture_format}
                             </span>
                         )}
                         <span className="preview-panel__info-item">

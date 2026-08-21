@@ -4,12 +4,14 @@
 pub mod animask;
 pub mod audit;
 pub mod bin_json;
+pub mod checks;
 pub mod codec;
 pub mod concat;
 pub mod converter;
 pub mod paint;
 pub mod preloads;
 pub mod split;
+pub mod texture_header;
 
 pub use codec::{
     apply_trailer, capture_trailer, custom_file_names_from_text, custom_hash_names_from_text,
@@ -38,5 +40,7 @@ pub use split::{
 };
 pub use animask::{read_masks, write_masks, MaskEntry};
 pub use audit::{audit_wad_folder, AuditReport, BloatFile};
+pub use checks::{check_animation_graph, check_texture, CheckIssue, Severity};
+pub use texture_header::{read_texture_header, TextureContainer, TextureHeader};
 pub use preloads::extra_character_preloads;
 pub use paint::has_vfx_content;

@@ -162,6 +162,11 @@ export const en: TranslationDict = {
     'export.missingRefsWarning': '{count} file referenced by this mod\'s BINs is not in the project.',
     'export.missingRefsWarningPlural': '{count} files referenced by this mod\'s BINs are not in the project.',
     'export.missingRefsNote': 'These show up broken in game — usually a magenta texture or a missing effect. Exporting anyway ships the mod as it is.',
+    'export.preflightTitle': 'Before you export',
+    'export.crashRisksHeading': 'Will not load',
+    'export.crashWarningsHeading': 'Worth a look',
+    'export.missingRefsHeading': 'Missing file references',
+    'export.crashRisksNote': 'These files are shaped in a way the client cannot read. Shipping them breaks the mod for everyone who installs it.',
     'export.exportAnyway': 'Export anyway',
     'export.exportedSuccess': 'Exported to {path}',
 

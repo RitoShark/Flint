@@ -4,7 +4,7 @@ import { useModalStore, useNotificationStore } from '../../lib/stores';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import * as api from '../../lib/api';
 
-type Tab = 'missing' | 'bloat';
+type Tab = 'missing' | 'bloat' | 'risks';
 
 function formatBytes(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
@@ -105,9 +105,9 @@ export const WadAuditModal: React.FC = () => {
 
     const rows = useMemo(() => {
         if (!report) return [];
-        return tab === 'missing'
-            ? report.missing.map((p) => ({ path: p, size: null as number | null }))
-            : report.bloat.map((b) => ({ path: b.path, size: b.size }));
+        if (tab === 'missing') return report.missing.map((p) => ({ path: p, size: null as number | null }));
+        if (tab === 'risks') return report.issues.map((i) => ({ path: i.file, size: null as number | null }));
+        return report.bloat.map((b) => ({ path: b.path, size: b.size }));
     }, [report, tab]);
 
     const copyList = () => {
@@ -148,12 +148,23 @@ export const WadAuditModal: React.FC = () => {
                         >
                             Bloat{report ? ` (${report.bloat.length})` : ''}
                         </button>
+                        <button
+                            className={`dl-tab${tab === 'risks' ? ' dl-tab--active' : ''}`}
+                            role="tab"
+                            aria-selected={tab === 'risks'}
+                            onClick={() => setTab('risks')}
+                        >
+                            Crash risks{report ? ` (${report.issues.length})` : ''}
+                        </button>
                     </div>
 
                     <p style={statStyle}>
-                        {tab === 'missing'
-                            ? 'Assets a BIN references that are not present in this folder — these show up broken in game.'
-                            : 'Files present here that no BIN references. Anything under an icons2d folder is excluded, since those are referenced by hashes that often cannot be resolved.'}
+                        {tab === 'missing' &&
+                            'Assets a BIN references that are not present in this folder — these show up broken in game.'}
+                        {tab === 'bloat' &&
+                            'Files present here that no BIN references. Anything under an icons2d folder is excluded, since those are referenced by hashes that often cannot be resolved.'}
+                        {tab === 'risks' &&
+                            'Textures and animation graphs shaped in a way the client cannot load. Criticals break the mod for everyone who installs it.'}
                     </p>
 
                     <div
@@ -179,13 +190,36 @@ export const WadAuditModal: React.FC = () => {
                                     style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                     dangerouslySetInnerHTML={{ __html: getIcon('check') }}
                                 />
-                                {tab === 'missing' ? 'No missing references.' : 'No unreferenced files.'}
+                                {tab === 'missing' && 'No missing references.'}
+                                {tab === 'bloat' && 'No unreferenced files.'}
+                                {tab === 'risks' && 'Nothing here will stop the game loading.'}
                             </div>
                         )}
 
-                        {!loading &&
-                            !error &&
-                            rows.map((row) => (
+                        {!loading && !error && tab === 'risks' && report
+                            ? report.issues.map((issue) => (
+                                <div key={`${issue.code}:${issue.file}`} style={{ ...rowStyle, display: 'block' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <span
+                                            style={{
+                                                flex: 'none',
+                                                fontSize: 10,
+                                                fontWeight: 700,
+                                                textTransform: 'uppercase',
+                                                letterSpacing: '0.06em',
+                                                color: issue.severity === 'critical' ? 'var(--danger)' : 'var(--color-warning, #e0a030)',
+                                            }}
+                                        >
+                                            {issue.severity}
+                                        </span>
+                                        <span style={pathStyle} title={issue.file}>&#8206;{issue.file}</span>
+                                    </div>
+                                    <div style={{ fontSize: 12, lineHeight: 1.45, paddingTop: 2 }}>{issue.message}</div>
+                                </div>
+                            ))
+                            : !loading &&
+                              !error &&
+                              rows.map((row) => (
                                 <div key={row.path} style={rowStyle} title={row.path}>
                                     <span style={pathStyle}>&#8206;{row.path}</span>
                                     {row.size !== null && (

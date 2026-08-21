@@ -12,6 +12,8 @@ pub struct FileInfo {
     pub extension: String,
     /// For images: width x height
     pub dimensions: Option<(u32, u32)>,
+    /// Texture encoding (`Bc3`, `DXT5`, …). None for anything that isn't a texture.
+    pub texture_format: Option<String>,
 }
 
 fn detect_file_type(path: &Path, data: &[u8]) -> (String, String) {
@@ -162,7 +164,7 @@ fn read_file_info_inner(path: String, path_buf: &std::path::Path) -> Result<File
 
     let (file_type, extension) = detect_file_type(path_buf, &data);
 
-    let dimensions = if file_type == "image/dds" || file_type == "image/tex" {
+    let texture = if file_type == "image/dds" || file_type == "image/tex" {
         parse_texture_dimensions(&data).ok()
     } else {
         None
@@ -173,7 +175,8 @@ fn read_file_info_inner(path: String, path_buf: &std::path::Path) -> Result<File
         size: metadata.len(),
         file_type,
         extension,
-        dimensions,
+        dimensions: texture.as_ref().map(|(w, h, _)| (*w, *h)),
+        texture_format: texture.map(|(_, _, format)| format),
     })
 }
 
@@ -350,5 +353,20 @@ mod tests {
         let tex = [0x54u8, 0x45, 0x58, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
         let (mime, _ext) = detect_file_type(Path::new("x.tex"), &tex);
         assert_eq!(mime, "image/tex");
+    }
+
+    /// The info panel only reads a 64 KiB head, which is a fraction of any real texture —
+    /// so dimensions have to come from the header alone, not from decoding the mip chain.
+    #[test]
+    fn texture_dimensions_come_from_a_truncated_head() {
+        let mut head = vec![0x54u8, 0x45, 0x58, 0x00];
+        head.extend_from_slice(&2048u16.to_le_bytes());
+        head.extend_from_slice(&1024u16.to_le_bytes());
+        head.extend_from_slice(&[1, 12, 0, 1]);
+
+        assert_eq!(
+            parse_texture_dimensions(&head).unwrap(),
+            (2048, 1024, "Bc3".to_string())
+        );
     }
 }

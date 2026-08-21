@@ -1,4 +1,4 @@
-use flint_core::bin::AuditReport;
+use flint_core::bin::{AuditReport, CheckIssue};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
@@ -13,6 +13,9 @@ pub struct ProjectMissingReport {
     pub total_missing: usize,
     pub bins_scanned: usize,
     pub bins_failed: usize,
+    /// Crash-risk findings across every WAD, criticals first.
+    pub issues: Vec<CheckIssue>,
+    pub total_critical: usize,
 }
 
 /** Audits an unpacked `.wad.client` folder: which referenced assets are absent, and
@@ -48,6 +51,10 @@ pub async fn audit_project_missing_refs(project_path: String) -> Result<ProjectM
             report.bins_scanned += audit.bins_scanned;
             report.bins_failed += audit.bins_failed;
             report.total_missing += audit.missing.len();
+            for mut issue in audit.issues {
+                issue.file = format!("{wad}/{}", issue.file);
+                report.issues.push(issue);
+            }
             if !audit.missing.is_empty() {
                 report.wads.push(WadMissingRefs {
                     wad,
@@ -55,6 +62,19 @@ pub async fn audit_project_missing_refs(project_path: String) -> Result<ProjectM
                 });
             }
         }
+
+        report.issues.sort_by(|a, b| {
+            a.severity
+                .cmp(&b.severity)
+                .then_with(|| a.file.cmp(&b.file))
+                .then_with(|| a.code.cmp(b.code))
+        });
+        report.total_critical = report
+            .issues
+            .iter()
+            .filter(|i| i.severity == flint_core::bin::Severity::Critical)
+            .count();
+
         Ok(report)
     })
     .await

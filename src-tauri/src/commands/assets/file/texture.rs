@@ -24,9 +24,16 @@ pub(crate) fn scan_has_alpha(rgba: &[u8]) -> bool {
     rgba.chunks_exact(4).any(|p| p[3] < 255)
 }
 
-pub(super) fn parse_texture_dimensions(data: &[u8]) -> Result<(u32, u32), String> {
-    let texture = parse_texture_any(data)?;
-    Ok((texture.width, texture.height))
+/// Dimensions and format straight from the header.
+///
+/// LANDMINE: do NOT go through [`parse_texture_any`] for this. That decodes the whole mip
+/// chain, so it needs the entire file (the info panel only reads a 64 KiB head, which every
+/// texture above ~256×256 exceeds) and it fails outright on the non-square VFX ramps whose
+/// chain length `rs_tex` derives wrongly. Both together are why the panel used to show
+/// dimensions for almost nothing.
+pub(super) fn parse_texture_dimensions(data: &[u8]) -> Result<(u32, u32, String), String> {
+    let header = flint_core::bin::read_texture_header(data)?;
+    Ok((header.width, header.height, header.format))
 }
 
 /// Parse a DDS or TEX byte buffer into a RitoShark `Texture`.
