@@ -111,6 +111,86 @@ pub async fn repath_project_cmd(
     }
 }
 
+/// The `files.txt` a fantome should carry: every custom name this project is
+/// the only record of.
+///
+/// Built from TWO sources, because either alone leaves a hole:
+///
+/// - the `files.txt` sitting at each WAD folder, written when a bin was saved
+///   in the editor;
+/// - every bin's own embedded trailer, which covers a project whose bins were
+///   never edited here — imported, repathed by another tool, or simply not
+///   touched since. Without this, exporting such a project shipped no record at
+///   all even though the names were right there inside the bins.
+///
+/// `<hex> <name>` per line, sorted and deduped by name. Empty when the project
+/// invented nothing, in which case no `META/files.txt` is written.
+fn collect_project_files_txt(project_path: &Path) -> Result<String, String> {
+    use std::collections::BTreeMap;
+
+    let is_hash_hex = |s: &str| {
+        (s.len() == 8 || s.len() == 16) && s.chars().all(|c| c.is_ascii_hexdigit())
+    };
+    let mut entries: BTreeMap<String, String> = BTreeMap::new();
+
+    for wad_dir in flint_core::export::project_wad_folders(project_path)? {
+        // 1. A files.txt already written beside this WAD folder.
+        if let Ok(text) = std::fs::read_to_string(wad_dir.join("files.txt")) {
+            for line in text.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                match line.split_once(char::is_whitespace) {
+                    Some((hex, name)) if is_hash_hex(hex) => {
+                        entries.insert(name.trim().to_string(), hex.to_ascii_lowercase());
+                    }
+                    // A bare path: the older format. It can only be an asset path.
+                    _ => {
+                        entries.insert(
+                            line.to_string(),
+                            format!("{:016x}", ritoshark::hash::xxh64(line)),
+                        );
+                    }
+                }
+            }
+        }
+
+        // 2. Every bin's trailer, for the names no files.txt recorded.
+        let mut stack = vec![wad_dir];
+        while let Some(dir) = stack.pop() {
+            let Ok(read) = std::fs::read_dir(&dir) else { continue };
+            for entry in read.flatten() {
+                let path = entry.path();
+                match entry.file_type() {
+                    Ok(t) if t.is_dir() => stack.push(path),
+                    Ok(t) if t.is_file() => {
+                        if path.extension().is_none_or(|e| !e.eq_ignore_ascii_case("bin")) {
+                            continue;
+                        }
+                        let Ok(bytes) = std::fs::read(&path) else { continue };
+                        let Ok(bin) = flint_core::bin::read_bin(&bytes) else { continue };
+                        let trailer = flint_core::bin::read_trailer(&bin.trailing);
+                        for (hash, name) in &trailer.names {
+                            entries.entry(name.clone()).or_insert_with(|| format!("{hash:08x}"));
+                        }
+                        for (hash, name) in &trailer.files {
+                            entries.entry(name.clone()).or_insert_with(|| format!("{hash:016x}"));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    Ok(entries
+        .iter()
+        .map(|(name, hex)| format!("{hex} {name}"))
+        .collect::<Vec<_>>()
+        .join("\n"))
+}
+
 #[tauri::command]
 pub async fn export_fantome(
     project_path: String,
@@ -268,6 +348,28 @@ fn export_with_ltk_fantome(
             .as_bytes(),
     )
     .map_err(|e| format!("Failed to write info.json: {}", e))?;
+
+    /* `files.txt` travels with the mod, in META/ beside info.json.
+       It records the custom paths and object names this project invented —
+       things that exist in no hash dictionary by definition, so once a bin holds
+       only their hashes they are unrecoverable. A fantome is the form a mod
+       travels in, so the record has to travel too: without it the recipient gets
+       hashes and no table, and the first tool that reserializes a bin loses the
+       names for good. The in-bin trailer covers the same ground, but only for
+       bins that still carry it — this survives a tool that strips it.
+
+       Optional: a project that never repathed anything has no `files.txt`, and
+       that is not an error. */
+    match collect_project_files_txt(project_path) {
+        Ok(contents) if !contents.is_empty() => {
+            if zip.start_file("META/files.txt", meta_options).is_ok() {
+                let _ = zip.write_all(contents.as_bytes());
+                tracing::info!("Embedded META/files.txt ({} bytes)", contents.len());
+            }
+        }
+        Ok(_) => {}
+        Err(e) => tracing::warn!("Could not build files.txt: {e}"),
+    }
 
     let thumbnail_path = project_path.join("thumbnail.webp");
     if thumbnail_path.exists() {

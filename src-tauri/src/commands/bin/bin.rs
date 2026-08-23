@@ -35,10 +35,124 @@ fn apply_own_trailer(text: String, bin: &Bin) -> String {
     flint_core::bin::apply_trailer(text, &trailer)
 }
 
+/// Name the `0x…` tokens the bin's own trailer could not, from the mod folder.
+///
+/// Two fallbacks for a bin whose trailer is missing — one written by a tool that
+/// emits none, or one whose trailer a reserialize dropped:
+///
+/// 1. `files.txt` at the mod root, the deliberate record. Names a path whether or
+///    not the file is still on disk.
+/// 2. Hashing the assets actually present. Needs no sidecar at all, but can only
+///    find what exists.
+///
+/// Both only fill gaps — `apply_trailer` runs first, so a recorded name always
+/// beats an inferred one. Cheap to skip: with nothing left unresolved in the
+/// text there is no reason to touch the disk.
+fn apply_mod_root_names(text: String, bin_path: &Path) -> String {
+    // Only pay for this when the text still has unnamed hashes in it.
+    if !text.contains("0x") {
+        return text;
+    }
+    let Some(root) = mod_root(bin_path) else {
+        return text;
+    };
+
+    let mut trailer = flint_core::bin::Trailer::new();
+
+    // 1. files.txt — `<hex> <name>`, or a bare path from the older format.
+    if let Ok(list) = fs::read_to_string(root.join("files.txt")) {
+        for line in list.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            match line.split_once(char::is_whitespace) {
+                Some((hex, name)) if is_hash_hex(hex) => {
+                    let name = name.trim().to_string();
+                    if hex.len() == 8 {
+                        if let Ok(h) = u32::from_str_radix(hex, 16) {
+                            trailer.names.entry(h).or_insert(name);
+                        }
+                    } else if let Ok(h) = u64::from_str_radix(hex, 16) {
+                        trailer.files.entry(h).or_insert(name);
+                    }
+                }
+                _ => {
+                    trailer
+                        .files
+                        .entry(ritoshark::hash::xxh64(line))
+                        .or_insert_with(|| line.to_string());
+                }
+            }
+        }
+    }
+
+    // 2. Whatever is on disk. The WAD-relative path IS what was hashed, so a
+    //    file still present names itself with no table involved.
+    const ASSET_EXTS: [&str; 12] = [
+        "tex", "dds", "png", "jpg", "jpeg", "skn", "skl", "scb", "sco", "anm", "bnk", "wpk",
+    ];
+    const MAX_FILES: usize = 100_000;
+    let mut stack = vec![root.clone()];
+    let mut scanned = 0usize;
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            if scanned >= MAX_FILES {
+                tracing::warn!("mod-root scan hit the {MAX_FILES}-file cap; some hashes may stay unnamed");
+                stack.clear();
+                break;
+            }
+            let path = entry.path();
+            match entry.file_type() {
+                Ok(t) if t.is_dir() => stack.push(path),
+                Ok(t) if t.is_file() => {
+                    let ext = path
+                        .extension()
+                        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+                        .unwrap_or_default();
+                    if !ASSET_EXTS.contains(&ext.as_str()) {
+                        continue;
+                    }
+                    scanned += 1;
+                    let Ok(rel) = path.strip_prefix(&root) else { continue };
+                    let rel = rel.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+                    trailer
+                        .files
+                        .entry(ritoshark::hash::xxh64(&rel))
+                        .or_insert(rel);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if trailer.is_empty() {
+        return text;
+    }
+    tracing::info!(
+        "Mod folder names {} more hash(es) the trailer did not",
+        trailer.names.len() + trailer.files.len()
+    );
+    flint_core::bin::apply_trailer(text, &trailer)
+}
+
 /// Compile edited ritobin text, embedding the names the text is the only record
 /// of. A repathed asset exists in no dictionary, so once the editor writes the
 /// hash the path is unrecoverable unless it travels inside the bin.
 fn encode_with_trailer(text: &str) -> Result<Vec<u8>, String> {
+    encode_capturing_trailer(text).map(|(bytes, _)| bytes)
+}
+
+/// As [`encode_with_trailer`], but hands the captured names back to the caller.
+///
+/// A caller that knows where the bin lives mirrors them into `files.txt` at the
+/// mod root. The trailer alone is enough right up until a tool reserializes the
+/// bin from its parsed tree — that writes a fresh body with no trailing bytes,
+/// and the names are then gone with nothing on disk to recover them from.
+fn encode_capturing_trailer(
+    text: &str,
+) -> Result<(Vec<u8>, flint_core::bin::Trailer), String> {
     let mut bin = flint_core::bin::text_to_tree(text)
         .map_err(|e| format!("Failed to parse text content: {}", e))?;
     remember_hash_names(text, &bin);
@@ -47,7 +161,86 @@ fn encode_with_trailer(text: &str) -> Result<Vec<u8>, String> {
         tracing::info!("Embedding {} hash name(s) in the BIN", trailer.len());
         bin.trailing = flint_core::bin::append_trailer(&bin.trailing, &trailer);
     }
-    flint_core::bin::write_bin(&bin).map_err(|e| format!("Failed to convert to binary: {}", e))
+    let bytes = flint_core::bin::write_bin(&bin)
+        .map_err(|e| format!("Failed to convert to binary: {}", e))?;
+    Ok((bytes, trailer))
+}
+
+/// The mod folder a bin sits in: the directory holding `data/` or `assets/`.
+fn mod_root(bin_path: &Path) -> Option<std::path::PathBuf> {
+    let mut dir = bin_path.parent();
+    while let Some(d) = dir {
+        if d.join("data").is_dir() || d.join("assets").is_dir() {
+            return Some(d.to_path_buf());
+        }
+        dir = d.parent();
+    }
+    None
+}
+
+/// 8 hex digits (fnv1a32) or 16 (xxh64) — the two hash widths a bin uses.
+fn is_hash_hex(s: &str) -> bool {
+    (s.len() == 8 || s.len() == 16) && s.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// Mirror the trailer into `files.txt` at the mod root, keeping what is there.
+///
+/// The second of the two records described in
+/// `BIN-TRAILER-hashpath-preservation.md`. The trailer lives inside the bin and
+/// dies with any reserialize; this sits beside the mod and survives that, and it
+/// is what travels in `META/files.txt` when the mod is packed.
+///
+/// `<hex> <name>` per line, because a name alone cannot say which keyspace it
+/// belongs to — an object name and an asset path are both just text. Merged by
+/// NAME (never overwritten) so saving one bin cannot drop another's entries, and
+/// sorted so re-saving produces no diff.
+fn merge_into_files_txt(bin_path: &Path, trailer: &flint_core::bin::Trailer) {
+    if trailer.is_empty() {
+        return;
+    }
+    let Some(root) = mod_root(bin_path) else {
+        return;
+    };
+    let list = root.join("files.txt");
+
+    let mut entries: std::collections::BTreeMap<String, String> = Default::default();
+    for line in fs::read_to_string(&list).unwrap_or_default().lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        match line.split_once(char::is_whitespace) {
+            Some((hex, name)) if is_hash_hex(hex) => {
+                entries.insert(name.trim().to_string(), hex.to_ascii_lowercase());
+            }
+            // A bare path: the older format, or a hand-written line. It can only
+            // be an asset path, so hash it as one.
+            _ => {
+                entries.insert(line.to_string(), format!("{:016x}", ritoshark::hash::xxh64(line)));
+            }
+        }
+    }
+
+    let before = entries.len();
+    for (hash, name) in &trailer.names {
+        entries.insert(name.clone(), format!("{hash:08x}"));
+    }
+    for (hash, name) in &trailer.files {
+        entries.insert(name.clone(), format!("{hash:016x}"));
+    }
+    if entries.len() == before {
+        return;
+    }
+
+    let contents = entries
+        .iter()
+        .map(|(name, hex)| format!("{hex} {name}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    match fs::write(&list, contents) {
+        Ok(()) => tracing::info!("Recorded {} name(s) in {}", entries.len(), list.display()),
+        Err(e) => tracing::warn!("Could not write {}: {e}", list.display()),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -374,6 +567,8 @@ pub async fn parse_bin_file_to_text(
     let text = flint_core::bin::tree_to_text_cached(&bin)
         .map_err(|e| format!("Failed to convert to text: {}", e))?;
     let text = apply_own_trailer(text, &bin);
+    // Then the mod folder, for anything the bin's own trailer could not name.
+    let text = apply_mod_root_names(text, input);
 
     tracing::info!("Successfully parsed BIN file to text ({} chars)", text.len());
 
@@ -464,7 +659,9 @@ async fn read_or_convert_bin_inner(
             .map_err(|e| format!("Failed to parse bin file: {}", e))?;
         let text = flint_core::bin::tree_to_text_cached(&bin)
             .map_err(|e| format!("Failed to convert to text: {}", e))?;
-        apply_own_trailer(text, &bin)
+        let text = apply_own_trailer(text, &bin);
+        // Then the mod folder, for anything the bin's own trailer could not name.
+        apply_mod_root_names(text, bin_file)
     };
 
     tracing::info!("[BIN_READ] Converted {} to {} chars of text", bin_path, text.len());
@@ -494,9 +691,10 @@ pub async fn save_ritobin_to_bin(
     // Parse + encode is CPU-bound (ritobin text → tree → bytes). Run it on the
     // blocking pool so a large BIN save doesn't stall the async runtime / UI.
     let content_for_encode = content.clone();
-    let binary_data = tokio::task::spawn_blocking(move || encode_with_trailer(&content_for_encode))
-        .await
-        .map_err(|e| format!("encode task join error: {}", e))??;
+    let (binary_data, trailer) =
+        tokio::task::spawn_blocking(move || encode_capturing_trailer(&content_for_encode))
+            .await
+            .map_err(|e| format!("encode task join error: {}", e))??;
 
     // Mark the path as an expected self-write so the watcher doesn't bounce it
     // back into the editor as an external modification.
@@ -513,6 +711,11 @@ pub async fn save_ritobin_to_bin(
         .map_err(|e| format!("Failed to write .bin file: {}", e))?;
 
     tracing::info!("Saved .bin file: {} ({} bytes)", bin_path, binary_data.len());
+
+    // Mirror the same names beside the mod. The trailer above is lost the moment
+    // any tool reserializes this bin; this copy is not, and it is what gets
+    // packed into `META/files.txt`.
+    merge_into_files_txt(Path::new(&bin_path), &trailer);
 
     // No `.ritobin` sidecar is written — see the fn doc. A stale sidecar left
     // over from an older build would now be OLDER than the just-saved .bin, so

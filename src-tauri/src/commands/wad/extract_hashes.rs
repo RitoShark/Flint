@@ -262,15 +262,28 @@ pub(crate) fn extract_and_merge_hashes(
     let (added_game, added_bin) = write_merged(hash_dir, game, bin)?;
 
     let hash_dir_str = hash_dir.to_string_lossy().to_string();
+    let mut written = 0usize;
     if !game_for_lmdb.is_empty() {
-        if let Err(e) = merge_into_wad_lmdb(&hash_dir_str, &game_for_lmdb) {
-            tracing::warn!("Failed to merge extracted game hashes into LMDB: {}", e);
+        match merge_into_wad_lmdb(&hash_dir_str, &game_for_lmdb) {
+            Ok(n) => written += n,
+            Err(e) => tracing::warn!("Failed to merge extracted game hashes into LMDB: {}", e),
         }
     }
     if !bin_for_lmdb.is_empty() {
-        if let Err(e) = merge_into_bin_lmdb(&hash_dir_str, &bin_for_lmdb) {
-            tracing::warn!("Failed to merge extracted bin hashes into LMDB: {}", e);
+        match merge_into_bin_lmdb(&hash_dir_str, &bin_for_lmdb) {
+            Ok(n) => written += n,
+            Err(e) => tracing::warn!("Failed to merge extracted bin hashes into LMDB: {}", e),
         }
+    }
+
+    /* The in-memory mapper is a SNAPSHOT, taken the first time anything resolved
+       a hash. Writing new names to the LMDBs above does not touch it, so without
+       this the bin editor kept rendering `0x…` for paths that were now on disk —
+       extraction appeared to work, editing a bin did not, and restarting the app
+       "fixed" it. Reload so the names are live for the next render. */
+    if written > 0 {
+        tracing::info!("Extraction added {written} hash name(s); reloading the resolver cache");
+        flint_core::bin::reload_bin_hash_cache();
     }
 
     Ok((added_game, added_bin))

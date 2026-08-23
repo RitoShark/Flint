@@ -43,6 +43,72 @@ fn find_companions_wad(league_path: &Path) -> Option<PathBuf> {
 }
 
 /// Create a new project.
+/// Write `files.txt` beside a project's WAD folders, from the bins' trailers.
+///
+/// Called once after a project is created and repathed — the moment custom
+/// paths come into existence. Every bin the repath touched carries a trailer
+/// naming what it invented; this collects those into the plain-text record that
+/// survives a reserialize and travels in `META/files.txt` on export.
+///
+/// `<hex> <name>` per line: 8 hex digits is an fnv1a32 object name, 16 is an
+/// xxh64 asset path, and a name alone cannot say which. Returns how many names
+/// were written. Best-effort — a project with nothing custom writes no file.
+fn write_project_files_txt(assets_root: &Path) -> Result<usize, String> {
+    use std::collections::BTreeMap;
+
+    let mut per_wad: BTreeMap<PathBuf, BTreeMap<String, String>> = BTreeMap::new();
+
+    for wad_dir in flint_core::export::project_wad_folders(
+        assets_root.parent().unwrap_or(assets_root),
+    )
+    .unwrap_or_default()
+    {
+        let entries = per_wad.entry(wad_dir.clone()).or_default();
+        let mut stack = vec![wad_dir];
+        while let Some(dir) = stack.pop() {
+            let Ok(read) = std::fs::read_dir(&dir) else { continue };
+            for entry in read.flatten() {
+                let path = entry.path();
+                match entry.file_type() {
+                    Ok(t) if t.is_dir() => stack.push(path),
+                    Ok(t) if t.is_file() => {
+                        if path.extension().is_none_or(|e| !e.eq_ignore_ascii_case("bin")) {
+                            continue;
+                        }
+                        let Ok(bytes) = std::fs::read(&path) else { continue };
+                        let Ok(bin) = flint_core::bin::read_bin(&bytes) else { continue };
+                        let trailer = flint_core::bin::read_trailer(&bin.trailing);
+                        for (hash, name) in &trailer.names {
+                            entries.entry(name.clone()).or_insert_with(|| format!("{hash:08x}"));
+                        }
+                        for (hash, name) in &trailer.files {
+                            entries.entry(name.clone()).or_insert_with(|| format!("{hash:016x}"));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    let mut written = 0usize;
+    for (wad_dir, entries) in per_wad {
+        if entries.is_empty() {
+            continue;
+        }
+        let contents = entries
+            .iter()
+            .map(|(name, hex)| format!("{hex} {name}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let target = wad_dir.join("files.txt");
+        match std::fs::write(&target, contents) {
+            Ok(()) => written += entries.len(),
+            Err(e) => tracing::warn!("Could not write {}: {e}", target.display()),
+        }
+    }
+    Ok(written)
+}
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn create_project(
@@ -336,6 +402,23 @@ pub async fn create_project(
                         files_relocated,
                         bins_combined
                     );
+
+                    /* Record the names the repath just invented.
+                       Repathing rewrites asset paths to `assets/<creator>/<project>/…`,
+                       which exists in no hash dictionary — so the moment a bin holds
+                       only the hash, the path is unrecoverable. The bins carry a
+                       trailer, but that dies with any reserialize; this writes the
+                       same names beside the mod, where they survive it and where
+                       export picks them up for `META/files.txt`.
+
+                       A fresh project therefore ships a complete record without the
+                       user having to open a single bin in the editor. */
+                    let assets_root = project.assets_path();
+                    match write_project_files_txt(&assets_root) {
+                        Ok(0) => {}
+                        Ok(n) => tracing::info!("Recorded {n} custom name(s) in files.txt"),
+                        Err(e) => tracing::warn!("Could not write files.txt: {e}"),
+                    }
                 }
                 Ok(Err(e)) => {
                     tracing::warn!("Repathing failed (project still usable): {}", e);

@@ -11,13 +11,17 @@
         /* Fallback only — the inline bootstrap below overwrites this with the user's
            saved accent. Keep in sync with --accent-primary in themes/default.css. */
         --flint-accent: #DD8515;
+        /* The glow behind the logo only. Neutral rather than the accent: the
+           orange wash tinted the whole panel and fought the logo's own colour.
+           Everything else here still uses --flint-accent. */
+        --flint-glow: #8b93a1;
       }
       * { box-sizing: border-box; }
       html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #0b0d10; user-select: none; }
       button { font: inherit; }
       .startup {
         position: relative; width: 100%; height: 100%; overflow: hidden; border: 1px solid #2d2527;
-        background: radial-gradient(circle at 50% 30%, color-mix(in oklab, var(--flint-accent) 17%, transparent), transparent 34%), linear-gradient(180deg, #101014 0%, #0a0b0e 100%);
+        background: radial-gradient(circle at 50% 30%, color-mix(in oklab, var(--flint-glow) 17%, transparent), transparent 34%), linear-gradient(180deg, #101014 0%, #0a0b0e 100%);
       }
       .startup::before {
         content: ""; position: absolute; inset: 0; opacity: .22; pointer-events: none;
@@ -27,13 +31,13 @@
       .visual { position: absolute; inset: 0 0 142px; display: grid; place-items: end center; padding-bottom: 44px; transform: translateY(52px); }
       .visual__aura {
         position: absolute; width: 320px; height: 260px; border-radius: 50%;
-        background: radial-gradient(circle, color-mix(in oklab, var(--flint-accent) 27%, transparent), color-mix(in oklab, var(--flint-accent) 5%, transparent) 46%, transparent 72%);
+        background: radial-gradient(circle, color-mix(in oklab, var(--flint-glow) 27%, transparent), color-mix(in oklab, var(--flint-glow) 5%, transparent) 46%, transparent 72%);
         filter: blur(10px); animation: aura 3.6s ease-in-out infinite;
       }
       .brand { position: relative; display: flex; flex-direction: column; align-items: center; gap: 13px; width: 100%; }
       .brand__logo {
         width: 166px; height: 166px; display: block; margin-inline: auto;
-        filter: drop-shadow(0 12px 24px rgba(0,0,0,.42)) drop-shadow(0 0 18px color-mix(in oklab, var(--flint-accent) 15%, transparent));
+        filter: drop-shadow(0 12px 24px rgba(0,0,0,.42)) drop-shadow(0 0 18px color-mix(in oklab, var(--flint-glow) 15%, transparent));
         transform-origin: center; animation: logo-pop .6s cubic-bezier(.34,1.56,.64,1) both;
       }
       .brand__name { display: flex; align-items: baseline; justify-content: center; width: 100%; color: #f1f3f6; font-size: 30px; font-weight: 650; letter-spacing: .035em; }
