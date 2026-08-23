@@ -435,10 +435,7 @@ pub async fn get_export_preview(project_path: String) -> Result<Vec<String>, Str
     let files: Vec<String> = walkdir::WalkDir::new(&content_base)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            let path_str = e.path().to_string_lossy().to_lowercase();
-            !path_str.contains("testcuberenderer") && e.path().is_file()
-        })
+        .filter(|e| e.path().is_file() && flint_core::export::is_shippable(e.path()))
         .filter_map(|e| {
             e.path()
                 .strip_prefix(&content_base)
@@ -537,12 +534,7 @@ fn export_with_ltk_modpkg(
     for entry in walkdir::WalkDir::new(&content_base)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            let p = e.path().to_string_lossy().to_lowercase();
-            !p.contains("testcuberenderer")
-                && !p.ends_with(".ritobin")
-                && e.path().is_file()
-        })
+        .filter(|e| e.path().is_file() && flint_core::export::is_shippable(e.path()))
     {
         let file_path = entry.path();
         let relative_path = file_path

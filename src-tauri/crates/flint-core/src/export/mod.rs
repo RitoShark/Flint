@@ -14,23 +14,95 @@ fn is_unresolved_hash(path: &str) -> bool {
 
 use crate::hash::wad_chunk_hash;
 
+/// Extensions that are authoring input or tooling output, never game content.
+///
+/// League loads textures as `.tex` / `.dds` only, so an image in any editable format is a
+/// source file someone left in the folder. Everything else here is a DCC scene, an archive,
+/// or an editor's own text form of a bin.
+const UNSHIPPABLE_EXTENSIONS: &[&str] = &[
+    // Editor text forms of a bin.
+    "ritobin", "rito", "py",
+    // Image sources. The game reads none of these.
+    "psd", "psb", "xcf", "kra", "clip", "png", "jpg", "jpeg", "gif", "webp", "bmp", "tif",
+    "tiff", "svg", "ai", "tga",
+    // DCC scenes and interchange.
+    "ma", "mb", "fbx", "obj", "blend", "blend1", "dae", "3ds", "max", "ztl", "spp", "sbs",
+    "sbsar",
+    // Archives, packaged mods, and scratch.
+    "zip", "rar", "7z", "tar", "gz", "fantome", "modpkg", "wad", "bak", "tmp", "log", "md",
+    "lnk", "url",
+];
+
+/// Files that are Flint's or the OS's own bookkeeping, matched by name.
+///
+/// `files.txt` is the hash→path record kept beside a mod; it travels as `META/files.txt`
+/// in a fantome, so packing it as a WAD chunk as well would put a loose text file in the
+/// game's WAD.
+const UNSHIPPABLE_NAMES: &[&str] = &[
+    "files.txt",
+    "hashed_files.json",
+    "thumbs.db",
+    "desktop.ini",
+    ".ds_store",
+];
+
+/** Whether a file inside a project's content tree belongs in a distributed mod.
+
+Extension-only, deliberately: a `.png` a BIN somehow referenced still would not load, so
+there is nothing to be gained by checking references, and plenty to lose in a rule nobody
+can predict. Anything the game actually reads keeps its own extension (`.tex`, `.dds`,
+`.bin`, `.anm`, `.skn`, `.skl`, `.scb`, `.sco`, `.bnk`, `.wpk`), and a chunk whose path
+never resolved keeps its `{16hex}.dat` name — none of which appear here.
+
+LANDMINE: do not add `.txt` or `.json` wholesale. Riot ships both inside WADs; only the
+specific bookkeeping names in [`UNSHIPPABLE_NAMES`] are excluded. */
+pub fn is_shippable(path: &Path) -> bool {
+    if path
+        .components()
+        .any(|c| c.as_os_str().to_string_lossy().eq_ignore_ascii_case("testcuberenderer"))
+    {
+        return false;
+    }
+
+    let Some(name) = path.file_name().map(|n| n.to_string_lossy().to_lowercase()) else {
+        return false;
+    };
+
+    // A dotfile is a tool's, never the game's.
+    if name.starts_with('.') && !UNSHIPPABLE_NAMES.contains(&name.as_str()) {
+        return false;
+    }
+    if UNSHIPPABLE_NAMES.contains(&name.as_str()) {
+        return false;
+    }
+
+    match path.extension().map(|e| e.to_string_lossy().to_lowercase()) {
+        Some(ext) => !UNSHIPPABLE_EXTENSIONS.contains(&ext.as_str()),
+        None => true,
+    }
+}
+
+
 /** The shippable files inside a `.wad.client` directory, as (WAD-internal path, disk
-path) pairs. Excludes `testcuberenderer` scratch content and `.ritobin` editor sidecars,
-neither of which belongs in a distributed mod.
+path) pairs. See [`is_shippable`] for what is left out.
 
 Both export shapes go through this: packing into a WAD binary and emitting the folder
 verbatim into a `.fantome`. Keeping one walk means the two can never ship different
 content. */
 pub fn wad_directory_files(wad_dir: &Path) -> Result<HashMap<String, PathBuf>, String> {
     let mut wad_files: HashMap<String, PathBuf> = HashMap::new();
+    let mut skipped = 0usize;
     for entry in walkdir::WalkDir::new(wad_dir)
         .into_iter()
         .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_file())
         .filter(|e| {
-            let p = e.path().to_string_lossy().to_lowercase();
-            !p.contains("testcuberenderer")
-                && !p.ends_with(".ritobin")
-                && e.path().is_file()
+            let keep = is_shippable(e.path());
+            if !keep {
+                tracing::debug!("Not shipping {}", e.path().display());
+                skipped += 1;
+            }
+            keep
         })
     {
         let relative = entry
@@ -39,6 +111,13 @@ pub fn wad_directory_files(wad_dir: &Path) -> Result<HashMap<String, PathBuf>, S
             .map_err(|e| format!("Failed to strip prefix: {}", e))?;
         let wad_path = relative.to_string_lossy().replace('\\', "/");
         wad_files.insert(wad_path, entry.path().to_path_buf());
+    }
+    if skipped > 0 {
+        tracing::info!(
+            "Left {} source/working file(s) out of {}",
+            skipped,
+            wad_dir.display()
+        );
     }
     Ok(wad_files)
 }
@@ -159,6 +238,84 @@ mod tests {
         let root = std::env::temp_dir().join(format!("flint-nowads-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         assert!(project_wad_folders(&root).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+    #[test]
+    fn game_content_ships() {
+        for name in [
+            "assets/characters/yone/skins/base/yone_tx_cm.tex",
+            "assets/characters/yone/particles/trail.dds",
+            "data/characters/yone/skins/skin0.bin",
+            "assets/characters/yone/animations/attack1.anm",
+            "assets/characters/yone/yone.skn",
+            "assets/characters/yone/yone.skl",
+            "assets/shared/x.scb",
+            "assets/shared/x.sco",
+            "assets/sounds/x.bnk",
+            "assets/sounds/x.wpk",
+            // A chunk whose path never resolved keeps its hash name — real content.
+            "49c1928a75b65dbf.dat",
+        ] {
+            assert!(is_shippable(Path::new(name)), "{name} should ship");
+        }
+    }
+
+    #[test]
+    fn authoring_sources_do_not_ship() {
+        for name in [
+            "data/characters/yone/skins/skin0.bin.ritobin",
+            "data/characters/yone/skins/skin9.py",
+            "assets/sirdexal/mod/source.psd",
+            "assets/sirdexal/mod/steve.png",
+            "assets/sirdexal/mod/ref.jpg",
+            "assets/sirdexal/mod/rig.ma",
+            "assets/sirdexal/mod/rig.mb",
+            "assets/sirdexal/mod/model.fbx",
+            "assets/sirdexal/mod/model.blend",
+            "assets/sirdexal/mod/backup.zip",
+            "assets/sirdexal/mod/old.fantome",
+            "notes.md",
+        ] {
+            assert!(!is_shippable(Path::new(name)), "{name} should not ship");
+        }
+    }
+
+    /// `files.txt` is the hash→path record beside a mod; a fantome carries it as
+    /// META/files.txt, so packing it as a WAD chunk too would put a loose text file in the
+    /// game's WAD.
+    #[test]
+    fn bookkeeping_files_do_not_ship_but_other_text_does() {
+        assert!(!is_shippable(Path::new("files.txt")));
+        assert!(!is_shippable(Path::new("hashed_files.json")));
+        assert!(!is_shippable(Path::new("Thumbs.db")));
+        assert!(!is_shippable(Path::new(".gitignore")));
+
+        assert!(is_shippable(Path::new("data/menu/fontconfig_en_us.txt")));
+        assert!(is_shippable(Path::new("data/x.json")));
+    }
+
+    #[test]
+    fn testcuberenderer_scratch_never_ships() {
+        assert!(!is_shippable(Path::new(
+            "assets/maps/testcuberenderer/x.tex"
+        )));
+        assert!(!is_shippable(Path::new("TestCubeRenderer/x.bin")));
+    }
+
+    #[test]
+    fn the_walk_leaves_sources_out() {
+        let root = std::env::temp_dir().join(format!("flint-ship-{}", std::process::id()));
+        let wad = root.join("Yone.wad.client");
+        std::fs::create_dir_all(wad.join("assets")).unwrap();
+        std::fs::write(wad.join("assets/a.tex"), b"x").unwrap();
+        std::fs::write(wad.join("assets/a.psd"), b"x").unwrap();
+        std::fs::write(wad.join("files.txt"), b"x").unwrap();
+
+        let files = wad_directory_files(&wad).unwrap();
+        let mut names: Vec<&String> = files.keys().collect();
+        names.sort();
+        assert_eq!(names, vec!["assets/a.tex"]);
+
         let _ = std::fs::remove_dir_all(&root);
     }
 }
