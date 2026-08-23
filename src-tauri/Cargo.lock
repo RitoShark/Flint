@@ -1591,6 +1591,7 @@ dependencies = [
 name = "flint-bin"
 version = "0.1.0"
 dependencies = [
+ "dashmap",
  "flint-hash",
  "indexmap 2.13.0",
  "parking_lot",

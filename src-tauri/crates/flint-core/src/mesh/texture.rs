@@ -4,8 +4,42 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use std::sync::LazyLock;
+
 use serde::Serialize;
 use regex::Regex;
+
+/*
+Riot retyped every asset-path field from `string` to `file` (an xxh64 of the path). ritobin
+renders both the same way once the hash is named — `texturePath: file = "assets/…"` — so the
+only difference on the text these patterns read is the type token. Matching only `string`
+is why a skin built on the current game resolved no textures at all.
+*/
+const PATH_TYPE: &str = r"(?:string|file)";
+
+macro_rules! re {
+    ($name:ident, $pattern:expr) => {
+        static $name: LazyLock<Regex> = LazyLock::new(|| Regex::new($pattern).unwrap());
+    };
+    ($name:ident, fmt $pattern:expr) => {
+        static $name: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(&format!($pattern, t = PATH_TYPE)).unwrap());
+    };
+}
+
+re!(SKIN_MESH_HEADER, r"skinMeshProperties:\s*embed\s*=\s*(?:SkinMeshDataProperties\s*)?");
+re!(MATERIAL_OVERRIDE_HEADER, r"materialOverride:\s*list\[embed\]\s*=\s*");
+re!(SAMPLER_VALUES_HEADER, r"(?i)samplerValues:\s*list2?\[embed\]\s*=\s*");
+re!(PARAM_VALUES_HEADER, r"(?i)paramValues:\s*list2?\[embed\]\s*=\s*");
+re!(STATIC_MATERIAL_DEF, r#""([^"]+)"\s*=\s*StaticMaterialDef\s*"#);
+re!(MATERIAL_LINK, r#"(?i)material:\s*link\s*=\s*"([^"]+)""#);
+re!(MATERIAL_LINK_HASH, r#"(?i)material:\s*link\s*=\s*(0x[0-9a-fA-F]+)"#);
+re!(SUBMESH_NAME, r#"(?i)submesh:\s*string\s*=\s*"([^"]+)""#);
+re!(PARAM_NAME, r#"name:\s*string\s*=\s*"([^"]+)""#);
+re!(PARAM_VEC4, r"value:\s*vec4\s*=\s*\{\s*([^}]+)\s*\}");
+re!(SKIN_FOLDER, r"/skin\d+/");
+re!(TEXTURE_VALUE, fmt r#"texture:\s*{t}\s*=\s*"([^"]+)""#);
+re!(TEXTURE_PATH_VALUE, fmt r#"texturePath:\s*{t}\s*=\s*"([^"]+)""#);
 
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct MaterialProperties {
@@ -353,13 +387,11 @@ fn search_skins_dir(skins_dir: &Path, skin_folder: Option<&str>) -> Option<PathB
 ///     Some("ASSETS/Characters/Aatrox/Skins/Skin0/Body.tex"),
 /// );
 /// ```
-#[allow(clippy::regex_creation_in_loops)]
 pub fn extract_texture_mapping_from_text(content: &str) -> anyhow::Result<TextureMapping> {
     let mut mapping = TextureMapping::default();
 
-    let skin_mesh_header_regex = Regex::new(r"skinMeshProperties:\s*embed\s*=\s*(?:SkinMeshDataProperties\s*)?").unwrap();
 
-    if let Some(header_match) = skin_mesh_header_regex.find(content) {
+    if let Some(header_match) = (*SKIN_MESH_HEADER).find(content) {
         if let Some(properties_block) = extract_braced_block(content, header_match.end() - 1) {
             tracing::debug!("Found skinMeshProperties block ({} chars)", properties_block.len());
 
@@ -370,51 +402,41 @@ pub fn extract_texture_mapping_from_text(content: &str) -> anyhow::Result<Textur
                 &properties_block
             };
 
-            let texture_regex = Regex::new(r#"texture:\s*string\s*=\s*"([^"]+)""#).unwrap();
-            if let Some(tex_captures) = texture_regex.captures(core_props) {
+            if let Some(tex_captures) = (*TEXTURE_VALUE).captures(core_props) {
                 let tex_path = tex_captures.get(1).unwrap().as_str().to_string();
                 if !tex_path.is_empty() {
                     tracing::debug!("Default texture: {}", tex_path);
                     mapping.default_texture = Some(tex_path);
                 }
-            } else {
-                let mat_link_regex = Regex::new(r#"(?i)material:\s*link\s*=\s*"([^"]+)""#).unwrap();
-                if let Some(mat_captures) = mat_link_regex.captures(core_props) {
-                    let mat_path = mat_captures.get(1).unwrap().as_str().to_string();
-                    tracing::debug!("Found global material link: {}", mat_path);
-                    if let Some(props) = resolve_material_texture(content, &mat_path) {
-                        tracing::debug!("Resolved global material to: {}", props.texture_path);
-                        mapping.default_texture = Some(props.texture_path);
-                    }
-                } else {
-                    let mat_hash_regex = Regex::new(r#"(?i)material:\s*link\s*=\s*(0x[0-9a-fA-F]+)"#).unwrap();
-                    if let Some(hash_match) = mat_hash_regex.captures(core_props) {
-                        let mat_hash = hash_match.get(1).unwrap().as_str();
-                        tracing::debug!("Found global material hash: {}", mat_hash);
-                        if let Some(props) = resolve_material_texture_by_hash(content, mat_hash) {
-                            tracing::debug!("Resolved global material hash to: {}", props.texture_path);
-                            mapping.default_texture = Some(props.texture_path);
-                        }
-                    }
+            } else if let Some(mat_captures) = (*MATERIAL_LINK).captures(core_props) {
+                let mat_path = mat_captures.get(1).unwrap().as_str().to_string();
+                tracing::debug!("Found global material link: {}", mat_path);
+                if let Some(props) = resolve_material_texture(content, &mat_path) {
+                    tracing::debug!("Resolved global material to: {}", props.texture_path);
+                    mapping.default_texture = Some(props.texture_path);
+                }
+            } else if let Some(hash_match) = (*MATERIAL_LINK_HASH).captures(core_props) {
+                let mat_hash = hash_match.get(1).unwrap().as_str();
+                tracing::debug!("Found global material hash: {}", mat_hash);
+                if let Some(props) = resolve_material_texture_by_hash(content, mat_hash) {
+                    tracing::debug!("Resolved global material hash to: {}", props.texture_path);
+                    mapping.default_texture = Some(props.texture_path);
                 }
             }
             
-            let override_header_regex = Regex::new(r"materialOverride:\s*list\[embed\]\s*=\s*").unwrap();
-
-            if let Some(override_match) = override_header_regex.find(&properties_block) {
+            
+            if let Some(override_match) = (*MATERIAL_OVERRIDE_HEADER).find(&properties_block) {
                 if let Some(list_content) = extract_braced_block(&properties_block, override_match.end() - 1) {
                     tracing::debug!("Found materialOverride list ({} chars)", list_content.len());
 
                     let parts: Vec<&str> = list_content.split("SkinMeshDataProperties_MaterialOverride").collect();
 
                     for (idx, part) in parts.iter().enumerate() {
-                        let submesh_regex = Regex::new(r#"(?i)submesh:\s*string\s*=\s*"([^"]+)""#).unwrap();
-                        if let Some(sub_captures) = submesh_regex.captures(part) {
+                                                if let Some(sub_captures) = (*SUBMESH_NAME).captures(part) {
                             let submesh_name = sub_captures.get(1).unwrap().as_str().to_string();
                             tracing::debug!("Found materialOverride[{}]: submesh='{}'", idx, submesh_name);
 
-                            let tex_regex = Regex::new(r#"texture:\s*string\s*=\s*"([^"]+)""#).unwrap();
-                            if let Some(tex_match) = tex_regex.captures(part) {
+                                                        if let Some(tex_match) = (*TEXTURE_VALUE).captures(part) {
                                 let tex_path = tex_match.get(1).unwrap().as_str().to_string();
                                 tracing::debug!("  -> Direct texture: {}", tex_path);
                                 let props = MaterialProperties {
@@ -425,8 +447,7 @@ pub fn extract_texture_mapping_from_text(content: &str) -> anyhow::Result<Textur
                                 continue;
                             }
 
-                            let mat_link_regex = Regex::new(r#"(?i)material:\s*link\s*=\s*"([^"]+)""#).unwrap();
-                            if let Some(mat_match) = mat_link_regex.captures(part) {
+                                                        if let Some(mat_match) = (*MATERIAL_LINK).captures(part) {
                                 let mat_path = mat_match.get(1).unwrap().as_str().to_string();
                                 tracing::debug!("  -> Material link (string): {}", mat_path);
 
@@ -439,9 +460,7 @@ pub fn extract_texture_mapping_from_text(content: &str) -> anyhow::Result<Textur
                                 }
                                 continue;
                             }
-
-                            let mat_hash_regex = Regex::new(r#"(?i)material:\s*link\s*=\s*(0x[0-9a-fA-F]+)"#).unwrap();
-                            if let Some(hash_match) = mat_hash_regex.captures(part) {
+                                                        if let Some(hash_match) = (*MATERIAL_LINK_HASH).captures(part) {
                                 let mat_hash = hash_match.get(1).unwrap().as_str();
                                 tracing::debug!("  -> Material link (hash): {}", mat_hash);
 
@@ -575,10 +594,7 @@ fn extract_param_values(material_block: &str) -> (Option<[f32; 2]>, Option<[f32;
     let mut flipbook_size: Option<[u32; 2]> = None;
     let mut flipbook_frame: Option<f32> = None;
 
-    let param_regex = match Regex::new(r"(?i)paramValues:\s*list2?\[embed\]\s*=\s*") {
-        Ok(r) => r,
-        Err(_) => return (None, None, None, None),
-    };
+    let param_regex = &*PARAM_VALUES_HEADER;
 
     let param_match = match param_regex.find(material_block) {
         Some(m) => m,
@@ -589,10 +605,7 @@ fn extract_param_values(material_block: &str) -> (Option<[f32; 2]>, Option<[f32;
         let params: Vec<&str> = param_block.split("StaticMaterialShaderParamDef").collect();
 
         for param in params {
-            let name_regex = match Regex::new(r#"name:\s*string\s*=\s*"([^"]+)""#) {
-                Ok(r) => r,
-                Err(_) => continue,
-            };
+            let name_regex = &*PARAM_NAME;
 
             if let Some(name_match) = name_regex.captures(param) {
                 let param_name = match name_match.get(1) {
@@ -600,10 +613,7 @@ fn extract_param_values(material_block: &str) -> (Option<[f32; 2]>, Option<[f32;
                     None => continue,
                 };
 
-                let value_regex = match Regex::new(r"value:\s*vec4\s*=\s*\{\s*([^}]+)\s*\}") {
-                    Ok(r) => r,
-                    Err(_) => continue,
-                };
+                let value_regex = &*PARAM_VEC4;
                 
                 if let Some(value_match) = value_regex.captures(param) {
                     let values_str = match value_match.get(1) {
@@ -641,26 +651,20 @@ fn extract_param_values(material_block: &str) -> (Option<[f32; 2]>, Option<[f32;
     (uv_scale, uv_offset, flipbook_size, flipbook_frame)
 }
 
-fn resolve_material_texture(content: &str, material_path: &str) -> Option<MaterialProperties> {
-    tracing::debug!("🔍 Resolving material link: '{}'", material_path);
 
-    let material_name_lower = material_path.to_lowercase();
-    if content.to_lowercase().contains(&material_name_lower) {
-        tracing::debug!("  ✓ Material name FOUND in content (case-insensitive)");
-    } else {
-        tracing::warn!("  ✗ Material name NOT FOUND anywhere in content");
-        if let Some(last_part) = material_path.split('/').next_back() {
-            if content.to_lowercase().contains(&last_part.to_lowercase()) {
-                tracing::debug!("  ✓ Last part '{}' found in content", last_part);
-            } else {
-                tracing::warn!("  ✗ Even last part '{}' not found", last_part);
-            }
-        }
+fn resolve_material_texture(content: &str, material_path: &str) -> Option<MaterialProperties> {
+    tracing::debug!("Resolving material link: '{}'", material_path);
+
+    /* LANDMINE: never `content.to_lowercase()` here. `content` is every bin the mesh can
+    reach rendered to text — 9.5 MB on a real skin — and this runs once per material. Two
+    such allocations per call was eleven of the twelve seconds a Seraphine load took. The
+    patterns below already carry a case-insensitive variant, so the check this replaced
+    bought a log line and nothing else. */
+    let needle = material_path.to_ascii_lowercase();
+    if !contains_ignore_ascii_case(content.as_bytes(), needle.as_bytes()) {
+        tracing::debug!("Material name is not in the content at all: {material_path}");
         return None;
     }
-
-    let material_def_count = content.matches("StaticMaterialDef").count();
-    tracing::debug!("  📊 Total StaticMaterialDef blocks in content: {}", material_def_count);
 
     let escaped_path = regex::escape(material_path);
 
@@ -791,7 +795,7 @@ fn material_props_from_block(block: &str) -> Option<MaterialProperties> {
 /// `MaterialProperties` of the one whose lowercased name hashes (FNV1a-32)
 /// to `target`. Bridges a hash-form material link to a name-form definition.
 fn resolve_material_by_name_hash(content: &str, target: u32) -> Option<MaterialProperties> {
-    let header_regex = Regex::new(r#""([^"]+)"\s*=\s*StaticMaterialDef\s*"#).ok()?;
+    let header_regex = &*STATIC_MATERIAL_DEF;
     for cap in header_regex.captures_iter(content) {
         let name = cap.get(1)?.as_str();
         if fnv1a32_lower(name) != target {
@@ -843,7 +847,7 @@ pub(crate) fn extract_braced_block(content: &str, start_after: usize) -> Option<
 fn is_project_specific_texture(path: &str) -> bool {
     let lower = path.to_lowercase();
 
-    let skin_folder_regex = Regex::new(r"/skin\d+/").unwrap();
+    let skin_folder_regex = &*SKIN_FOLDER;
     if !skin_folder_regex.is_match(&lower) {
         return false;
     }
@@ -857,11 +861,10 @@ fn is_project_specific_texture(path: &str) -> bool {
 
 /// Looks for common diffuse texture names in samplerValues, with fallback to
 /// the first sampler. Prefers project-specific (`/skin{digit}/`) paths.
-#[allow(clippy::regex_creation_in_loops)]
 fn extract_diffuse_texture_from_block(block: &str) -> Option<String> {
     tracing::debug!("  📝 Extracting diffuse texture from block ({} chars)", block.len());
 
-    let sampler_regex = Regex::new(r"(?i)samplerValues:\s*list2?\[embed\]\s*=\s*").ok()?;
+    let sampler_regex = &*SAMPLER_VALUES_HEADER;
     let sampler_match = sampler_regex.find(block);
 
     if sampler_match.is_none() {
@@ -887,7 +890,7 @@ fn extract_diffuse_texture_from_block(block: &str) -> Option<String> {
             if lower_sampler.contains("texturename") && lower_sampler.contains("main_texture") {
                 tracing::debug!("  ✓ Found Main_Texture sampler #{}", i);
 
-                let path_regex = Regex::new(r#"texturePath:\s*string\s*=\s*"([^"]+)""#).ok()?;
+                let path_regex = &*TEXTURE_PATH_VALUE;
                 if let Some(path_match) = path_regex.captures(sampler) {
                     let texture_path = path_match.get(1).unwrap().as_str().to_string();
 
@@ -910,7 +913,7 @@ fn extract_diffuse_texture_from_block(block: &str) -> Option<String> {
             if lower_sampler.contains("texturename") && lower_sampler.contains("diffuse") {
                 tracing::debug!("  ✓ Found Diffuse_Texture sampler #{}", i);
 
-                let path_regex = Regex::new(r#"texturePath:\s*string\s*=\s*"([^"]+)""#).ok()?;
+                let path_regex = &*TEXTURE_PATH_VALUE;
                 if let Some(path_match) = path_regex.captures(sampler) {
                     let texture_path = path_match.get(1).unwrap().as_str().to_string();
 
@@ -929,7 +932,7 @@ fn extract_diffuse_texture_from_block(block: &str) -> Option<String> {
         for (i, sampler) in samplers.iter().enumerate() {
             if i == 0 { continue; }
 
-            let path_regex = Regex::new(r#"texturePath:\s*string\s*=\s*"([^"]+)""#).ok()?;
+            let path_regex = &*TEXTURE_PATH_VALUE;
             if let Some(path_match) = path_regex.captures(sampler) {
                 let texture_path = path_match.get(1).unwrap().as_str().to_string();
                 let lower_path = texture_path.to_lowercase();
@@ -955,7 +958,7 @@ fn extract_diffuse_texture_from_block(block: &str) -> Option<String> {
 
             let lower_sampler = sampler.to_lowercase();
             if lower_sampler.contains("texturename") && lower_sampler.contains("main_texture") {
-                let path_regex = Regex::new(r#"texturePath:\s*string\s*=\s*"([^"]+)""#).ok()?;
+                let path_regex = &*TEXTURE_PATH_VALUE;
                 if let Some(path_match) = path_regex.captures(sampler) {
                     let texture_path = path_match.get(1).unwrap().as_str().to_string();
                     tracing::debug!("  ⚠️ Using Main_Texture as fallback: {}", texture_path);
@@ -971,7 +974,7 @@ fn extract_diffuse_texture_from_block(block: &str) -> Option<String> {
 
             let lower_sampler = sampler.to_lowercase();
             if lower_sampler.contains("texturename") && lower_sampler.contains("diffuse") {
-                let path_regex = Regex::new(r#"texturePath:\s*string\s*=\s*"([^"]+)""#).ok()?;
+                let path_regex = &*TEXTURE_PATH_VALUE;
                 if let Some(path_match) = path_regex.captures(sampler) {
                     let texture_path = path_match.get(1).unwrap().as_str().to_string();
                     tracing::debug!("  ⚠️ Using Diffuse_Texture as fallback: {}", texture_path);
@@ -985,7 +988,7 @@ fn extract_diffuse_texture_from_block(block: &str) -> Option<String> {
         for (i, sampler) in samplers.iter().enumerate() {
             if i == 0 { continue; }
 
-            let path_regex = Regex::new(r#"texturePath:\s*string\s*=\s*"([^"]+)""#).ok()?;
+            let path_regex = &*TEXTURE_PATH_VALUE;
             if let Some(path_match) = path_regex.captures(sampler) {
                 let texture_path = path_match.get(1).unwrap().as_str().to_string();
                 let lower_path = texture_path.to_lowercase();
@@ -1200,3 +1203,69 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod migration_tests {
+    use super::*;
+
+    fn skin_bin_text(value_type: &str) -> String {
+        format!(
+            r#"entries: map[hash,embed] = {{
+    "Characters/Seraphine/Skins/Skin69" = SkinCharacterDataProperties {{
+        skinMeshProperties: embed = SkinMeshDataProperties {{
+            skeleton: {t} = "assets/x.skl"
+            simpleSkin: {t} = "assets/x.skn"
+            texture: {t} = "assets/body_tx_cm.tex"
+            materialOverride: list[embed] = {{
+                SkinMeshDataProperties_MaterialOverride {{
+                    texture: {t} = "assets/hair_tx_cm.tex"
+                    submesh: string = "Hair"
+                }}
+            }}
+        }}
+    }}
+}}"#,
+            t = value_type
+        )
+    }
+
+    /// Riot retyped these fields from `string` to `file`; matching only `string` is why a
+    /// skin built on the current game resolved no textures at all.
+    #[test]
+    fn a_file_typed_texture_resolves_the_same_as_a_string_one() {
+        for value_type in ["string", "file"] {
+            let mapping = extract_texture_mapping_from_text(&skin_bin_text(value_type)).unwrap();
+            assert_eq!(
+                mapping.default_texture.as_deref(),
+                Some("assets/body_tx_cm.tex"),
+                "default texture, {value_type}-typed"
+            );
+            assert_eq!(
+                mapping.material_properties.get("Hair").map(|p| p.texture_path.as_str()),
+                Some("assets/hair_tx_cm.tex"),
+                "submesh override, {value_type}-typed"
+            );
+        }
+    }
+
+    #[test]
+    fn a_file_typed_sampler_path_resolves() {
+        for value_type in ["string", "file"] {
+            let block = format!(
+                r#"{{
+    samplerValues: list2[embed] = {{
+        StaticMaterialShaderSamplerDef {{
+            samplerName: string = "DiffuseTexture"
+            texturePath: {t} = "assets/diffuse.tex"
+        }}
+    }}
+}}"#,
+                t = value_type
+            );
+            assert_eq!(
+                extract_diffuse_texture_from_block(&block).as_deref(),
+                Some("assets/diffuse.tex"),
+                "{value_type}-typed sampler"
+            );
+        }
+    }
+}

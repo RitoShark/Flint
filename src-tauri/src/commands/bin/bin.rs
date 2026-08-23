@@ -581,6 +581,7 @@ pub async fn save_ritobin_to_bin(
     // any tool reserializes this bin; this copy is not, and it is what gets
     // packed into `META/files.txt`.
     merge_into_files_txt(Path::new(&bin_path), &trailer);
+    flint_core::bin::forget_mod_root(Path::new(&bin_path));
 
     // No `.ritobin` sidecar is written — see the fn doc. A stale sidecar left
     // over from an older build would now be OLDER than the just-saved .bin, so

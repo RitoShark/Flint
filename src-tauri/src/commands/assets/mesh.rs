@@ -2,6 +2,7 @@
 
 use std::path::Path;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::core::ipc_trace;
 use flint_core::mesh::discovery::find_project_root;
@@ -202,6 +203,7 @@ async fn read_scb_mesh_inner(path: String) -> Result<ScbMeshData, String> {
 /// packed binary wire format (see `flint_core::mesh::wire`).
 #[tauri::command]
 pub async fn read_skn_mesh(path: String) -> Result<tauri::ipc::Response, String> {
+    let _guard = skn_lock(&path).await;
     let mesh = read_skn_mesh_inner(path).await?;
     tracing::debug!(
         "[mesh-wire] SKN: {} verts, {} idx, {} mats, {} bone_idx, {} bone_wt, bbox={:?}",
@@ -214,6 +216,26 @@ pub async fn read_skn_mesh(path: String) -> Result<tauri::ipc::Response, String>
     );
     let buf = flint_core::mesh::wire::encode_skn_binary(&mesh)?;
     Ok(tauri::ipc::Response::new(buf))
+}
+
+/// Per-path lock so two viewers opening the same mesh at once do the work once.
+///
+/// The preview panel and the thumbnail studio can both mount on the same selection, and
+/// every bin the mesh reaches gets rendered and scanned per call. Serialised, the second
+/// caller finds the render caches warm instead of repeating a few hundred milliseconds of
+/// text work.
+static SKN_INFLIGHT: std::sync::OnceLock<dashmap::DashMap<String, Arc<tokio::sync::Mutex<()>>>> =
+    std::sync::OnceLock::new();
+
+async fn skn_lock(path: &str) -> tokio::sync::OwnedMutexGuard<()> {
+    let map = SKN_INFLIGHT.get_or_init(dashmap::DashMap::new);
+    let lock = {
+        let entry = map
+            .entry(path.to_string())
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())));
+        Arc::clone(&*entry)
+    };
+    lock.lock_owned().await
 }
 
 async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {

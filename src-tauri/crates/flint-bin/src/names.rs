@@ -16,9 +16,36 @@ reader. The model preview parses the same rendered text to find its textures, an
 */
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
+use dashmap::DashMap;
 use ritoshark::bin::Bin;
+
+/// How long a mod root's name table is trusted before the folder is walked again.
+///
+/// The walk is the expensive half of naming — up to `MAX_FILES` stat calls — and loading one
+/// mesh renders six or more bins, each of which would otherwise redo it. A few seconds is
+/// long enough to collapse that into one walk and short enough that a file the user just
+/// dropped in shows up without restarting.
+const MOD_ROOT_TTL: Duration = Duration::from_secs(5);
+
+type ModRootCache = DashMap<PathBuf, (Instant, crate::Trailer)>;
+
+fn mod_root_cache() -> &'static ModRootCache {
+    static CACHE: OnceLock<ModRootCache> = OnceLock::new();
+    CACHE.get_or_init(DashMap::new)
+}
+
+/// Drop the cached name table for the mod root `path` belongs to.
+///
+/// Call after writing a bin or an asset into a project, so the next render sees it.
+pub fn forget_mod_root(path: &Path) {
+    if let Some(root) = mod_root(path) {
+        mod_root_cache().remove(&root);
+    }
+}
 
 /// Render a bin to ritobin text with every name source applied.
 ///
@@ -61,6 +88,33 @@ pub fn apply_mod_root_names(text: String, bin_path: &Path) -> String {
         return text;
     };
 
+    let trailer = mod_root_names(&root);
+    if trailer.is_empty() {
+        return text;
+    }
+    crate::apply_trailer(text, &trailer)
+}
+
+/// The name table for one mod root, walked at most once per [`MOD_ROOT_TTL`].
+fn mod_root_names(root: &Path) -> crate::Trailer {
+    if let Some(hit) = mod_root_cache().get(root) {
+        if hit.0.elapsed() < MOD_ROOT_TTL {
+            return hit.1.clone();
+        }
+    }
+
+    let trailer = build_mod_root_names(root);
+    tracing::info!(
+        "Mod folder {} names {} hash(es) the trailer did not",
+        root.display(),
+        trailer.len()
+    );
+    mod_root_cache().insert(root.to_path_buf(), (Instant::now(), trailer.clone()));
+    trailer
+}
+
+fn build_mod_root_names(root: &Path) -> crate::Trailer {
+    let root = root.to_path_buf();
     let mut trailer = crate::Trailer::new();
 
     // 1. files.txt — `<hex> <name>`, or a bare path from the older format.
@@ -131,14 +185,7 @@ pub fn apply_mod_root_names(text: String, bin_path: &Path) -> String {
         }
     }
 
-    if trailer.is_empty() {
-        return text;
-    }
-    tracing::info!(
-        "Mod folder names {} more hash(es) the trailer did not",
-        trailer.names.len() + trailer.files.len()
-    );
-    crate::apply_trailer(text, &trailer)
+    trailer
 }
 
 /// The mod folder a bin sits in: the directory holding `data/` or `assets/`.
