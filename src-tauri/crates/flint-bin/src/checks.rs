@@ -10,8 +10,9 @@ false CRITICAL stops an author shipping, so anything uncertain is a WARNING and 
 unverified is left out.
 */
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
+use indexmap::IndexMap;
 use ritoshark::bin::{Bin, BinValue};
 use ritoshark::hash::fnv1a;
 
@@ -296,6 +297,115 @@ pub fn check_animation_graph(bin: &Bin, rel: &str, names: &HashMapper) -> Vec<Ch
     out
 }
 
+// ─── Asset-reference type migration ──────────────────────────────────────────
+
+/// The `(class, field)` pairs Riot retyped from `string` to `file` (an xxh64 of the path).
+///
+/// Taken from Hematite's `file_ref_migration` rule, which is the list that matters for
+/// skins. LeagueToolkit publishes a far broader table (395 pairs for build 16.17) covering
+/// UI and non-champion content — worth pulling in if Flint ever audits those.
+const MIGRATED_REFS: &[(&str, &str)] = &[
+    ("AnimationResourceData", "mAnimationFilePath"),
+    ("CensoredImage", "image"),
+    ("SkinCharacterDataProperties", "iconCircle"),
+    ("SkinCharacterDataProperties", "iconSquare"),
+    ("SkinMeshDataProperties", "texture"),
+    ("SkinMeshDataProperties_MaterialOverride", "texture"),
+    ("StaticMaterialShaderSamplerDef", "texturePath"),
+];
+
+/// [`MIGRATED_REFS`] pre-hashed. Hashing the names inside the walk instead costs a string
+/// hash per struct per pair, which is most of the audit's runtime on a real project.
+const MIGRATED_HASHES: [(u32, u32); MIGRATED_REFS.len()] = {
+    let mut out = [(0u32, 0u32); MIGRATED_REFS.len()];
+    let mut i = 0;
+    while i < MIGRATED_REFS.len() {
+        out[i] = (fnv1a(MIGRATED_REFS[i].0), fnv1a(MIGRATED_REFS[i].1));
+        i += 1;
+    }
+    out
+};
+
+/**
+Counts `string`-typed values on fields the client now reads as `file`.
+
+Tallied across a whole WAD folder rather than reported per occurrence: a mod authored
+before the migration has thousands of them, and one line per value would bury every other
+finding. One row per `(class, field)` says the same thing.
+*/
+#[derive(Debug, Default)]
+pub struct MigrationTally {
+    /// pair index → (count, first file it was seen in)
+    hits: BTreeMap<usize, (usize, String)>,
+}
+
+impl MigrationTally {
+    pub fn add_bin(&mut self, bin: &Bin, rel: &str) {
+        for entry in &bin.entries {
+            self.scan(entry.class_hash, &entry.fields, rel);
+        }
+    }
+
+    fn scan(&mut self, class: u32, fields: &IndexMap<u32, BinValue>, rel: &str) {
+        for (index, (class_hash, field_hash)) in MIGRATED_HASHES.iter().enumerate() {
+            if *class_hash != class {
+                continue;
+            }
+            if let Some(BinValue::String(_)) = fields.get(field_hash) {
+                let hit = self
+                    .hits
+                    .entry(index)
+                    .or_insert_with(|| (0, rel.to_string()));
+                hit.0 += 1;
+            }
+        }
+        for value in fields.values() {
+            self.walk(value, rel);
+        }
+    }
+
+    fn walk(&mut self, value: &BinValue, rel: &str) {
+        match value {
+            BinValue::Pointer { class, fields } | BinValue::Embed { class, fields } => {
+                self.scan(*class, fields, rel)
+            }
+            BinValue::List { items, .. } => {
+                for item in items {
+                    self.walk(item, rel);
+                }
+            }
+            BinValue::Map { entries, .. } => {
+                for (k, v) in entries {
+                    self.walk(k, rel);
+                    self.walk(v, rel);
+                }
+            }
+            BinValue::Option {
+                value: Some(inner), ..
+            } => self.walk(inner, rel),
+            _ => {}
+        }
+    }
+
+    pub fn into_issues(self) -> Vec<CheckIssue> {
+        self.hits
+            .into_iter()
+            .map(|(index, (count, file))| {
+                let (class_name, field_name) = MIGRATED_REFS[index];
+                CheckIssue::new(
+                    Severity::Critical,
+                    "bin.string-ref-not-migrated",
+                    &file,
+                    format!(
+                        "{count} {class_name}.{field_name} value{} still typed as `string`. Riot retyped this field to `file`, so the client no longer reads the path and the asset silently does not load. Hematite's Skin Fixer converts them (`file_ref_migration`).",
+                        if count == 1 { "" } else { "s" },
+                    ),
+                )
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -503,6 +613,91 @@ mod tests {
             check_animation_graph(&bin, "a.bin", &HashMapper::new()).len(),
             1
         );
+    }
+
+    fn skin_bin(texture: BinValue) -> Bin {
+        let override_struct = BinValue::Embed {
+            class: fnv1a("SkinMeshDataProperties_MaterialOverride"),
+            fields: [(fnv1a("texture"), texture)].into_iter().collect(),
+        };
+        let mut fields = IndexMap::new();
+        fields.insert(
+            fnv1a("skinMeshProperties"),
+            BinValue::Embed {
+                class: fnv1a("SkinMeshDataProperties"),
+                fields: [(
+                    fnv1a("materialOverride"),
+                    BinValue::List {
+                        is_list2: false,
+                        item: BinType::Embed,
+                        items: vec![override_struct],
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            },
+        );
+        Bin {
+            entries: vec![BinEntry {
+                path_hash: fnv1a("Characters/Yone/Skins/Skin0"),
+                class_hash: fnv1a("SkinCharacterDataProperties"),
+                fields,
+            }],
+            ..Bin::new()
+        }
+    }
+
+    #[test]
+    fn a_string_on_a_migrated_field_is_critical() {
+        let mut tally = MigrationTally::default();
+        tally.add_bin(&skin_bin(BinValue::String("assets/x.tex".into())), "skins/skin0.bin");
+        let issues = tally.into_issues();
+
+        assert_eq!(codes(&issues), vec!["bin.string-ref-not-migrated"]);
+        assert_eq!(issues[0].severity, Severity::Critical);
+        assert_eq!(issues[0].file, "skins/skin0.bin");
+        assert!(
+            issues[0].message.starts_with("1 SkinMeshDataProperties_MaterialOverride.texture value "),
+            "{}",
+            issues[0].message
+        );
+    }
+
+    #[test]
+    fn a_file_typed_value_is_already_migrated() {
+        let mut tally = MigrationTally::default();
+        tally.add_bin(&skin_bin(BinValue::File(0x1234)), "skins/skin0.bin");
+        assert!(tally.into_issues().is_empty());
+    }
+
+    /// One row per field, not per value — a pre-migration mod has thousands.
+    #[test]
+    fn occurrences_are_tallied_into_one_row_naming_the_first_file() {
+        let mut tally = MigrationTally::default();
+        tally.add_bin(&skin_bin(BinValue::String("a.tex".into())), "skins/skin0.bin");
+        tally.add_bin(&skin_bin(BinValue::String("b.tex".into())), "skins/skin1.bin");
+
+        let issues = tally.into_issues();
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].file, "skins/skin0.bin");
+        assert!(issues[0].message.starts_with("2 "), "{}", issues[0].message);
+    }
+
+    #[test]
+    fn a_field_riot_did_not_retype_is_left_alone() {
+        let mut fields = IndexMap::new();
+        fields.insert(fnv1a("championSkinName"), BinValue::String("Yone".into()));
+        let bin = Bin {
+            entries: vec![BinEntry {
+                path_hash: fnv1a("Characters/Yone/Skins/Skin0"),
+                class_hash: fnv1a("SkinCharacterDataProperties"),
+                fields,
+            }],
+            ..Bin::new()
+        };
+        let mut tally = MigrationTally::default();
+        tally.add_bin(&bin, "skins/skin0.bin");
+        assert!(tally.into_issues().is_empty());
     }
 
     /// A bin with no clip map is not an animation graph and must never be reported on.
