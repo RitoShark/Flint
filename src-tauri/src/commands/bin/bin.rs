@@ -1,7 +1,7 @@
 use flint_core::bin::{
-    bin_to_json, json_to_bin, read_bin, remember_custom_hash_names, text_to_bin, write_bin, Bin,
+    bin_to_json, is_hash_hex, json_to_bin, mod_root, read_bin, remember_custom_hash_names,
+    text_to_bin, tree_to_text_cached, write_bin, Bin,
 };
-use flint_core::bin::tree_to_text_cached;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -23,118 +23,6 @@ fn remember_hash_names(text: &str, bin: &Bin) {
         Ok(_) => {}
         Err(e) => tracing::warn!("Could not save custom BIN hash names: {}", e),
     }
-}
-
-/// Resolve the `0x…` tokens only this bin's own trailer can name.
-fn apply_own_trailer(text: String, bin: &Bin) -> String {
-    let trailer = flint_core::bin::read_trailer(&bin.trailing);
-    if trailer.is_empty() {
-        return text;
-    }
-    tracing::info!("BIN carries {} embedded hash name(s)", trailer.len());
-    flint_core::bin::apply_trailer(text, &trailer)
-}
-
-/// Name the `0x…` tokens the bin's own trailer could not, from the mod folder.
-///
-/// Two fallbacks for a bin whose trailer is missing — one written by a tool that
-/// emits none, or one whose trailer a reserialize dropped:
-///
-/// 1. `files.txt` at the mod root, the deliberate record. Names a path whether or
-///    not the file is still on disk.
-/// 2. Hashing the assets actually present. Needs no sidecar at all, but can only
-///    find what exists.
-///
-/// Both only fill gaps — `apply_trailer` runs first, so a recorded name always
-/// beats an inferred one. Cheap to skip: with nothing left unresolved in the
-/// text there is no reason to touch the disk.
-fn apply_mod_root_names(text: String, bin_path: &Path) -> String {
-    // Only pay for this when the text still has unnamed hashes in it.
-    if !text.contains("0x") {
-        return text;
-    }
-    let Some(root) = mod_root(bin_path) else {
-        return text;
-    };
-
-    let mut trailer = flint_core::bin::Trailer::new();
-
-    // 1. files.txt — `<hex> <name>`, or a bare path from the older format.
-    if let Ok(list) = fs::read_to_string(root.join("files.txt")) {
-        for line in list.lines() {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-            match line.split_once(char::is_whitespace) {
-                Some((hex, name)) if is_hash_hex(hex) => {
-                    let name = name.trim().to_string();
-                    if hex.len() == 8 {
-                        if let Ok(h) = u32::from_str_radix(hex, 16) {
-                            trailer.names.entry(h).or_insert(name);
-                        }
-                    } else if let Ok(h) = u64::from_str_radix(hex, 16) {
-                        trailer.files.entry(h).or_insert(name);
-                    }
-                }
-                _ => {
-                    trailer
-                        .files
-                        .entry(ritoshark::hash::xxh64(line))
-                        .or_insert_with(|| line.to_string());
-                }
-            }
-        }
-    }
-
-    // 2. Whatever is on disk. The WAD-relative path IS what was hashed, so a
-    //    file still present names itself with no table involved.
-    const ASSET_EXTS: [&str; 12] = [
-        "tex", "dds", "png", "jpg", "jpeg", "skn", "skl", "scb", "sco", "anm", "bnk", "wpk",
-    ];
-    const MAX_FILES: usize = 100_000;
-    let mut stack = vec![root.clone()];
-    let mut scanned = 0usize;
-    while let Some(dir) = stack.pop() {
-        let Ok(entries) = fs::read_dir(&dir) else { continue };
-        for entry in entries.flatten() {
-            if scanned >= MAX_FILES {
-                tracing::warn!("mod-root scan hit the {MAX_FILES}-file cap; some hashes may stay unnamed");
-                stack.clear();
-                break;
-            }
-            let path = entry.path();
-            match entry.file_type() {
-                Ok(t) if t.is_dir() => stack.push(path),
-                Ok(t) if t.is_file() => {
-                    let ext = path
-                        .extension()
-                        .map(|e| e.to_string_lossy().to_ascii_lowercase())
-                        .unwrap_or_default();
-                    if !ASSET_EXTS.contains(&ext.as_str()) {
-                        continue;
-                    }
-                    scanned += 1;
-                    let Ok(rel) = path.strip_prefix(&root) else { continue };
-                    let rel = rel.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
-                    trailer
-                        .files
-                        .entry(ritoshark::hash::xxh64(&rel))
-                        .or_insert(rel);
-                }
-                _ => {}
-            }
-        }
-    }
-
-    if trailer.is_empty() {
-        return text;
-    }
-    tracing::info!(
-        "Mod folder names {} more hash(es) the trailer did not",
-        trailer.names.len() + trailer.files.len()
-    );
-    flint_core::bin::apply_trailer(text, &trailer)
 }
 
 /// Compile edited ritobin text, embedding the names the text is the only record
@@ -164,23 +52,6 @@ fn encode_capturing_trailer(
     let bytes = flint_core::bin::write_bin(&bin)
         .map_err(|e| format!("Failed to convert to binary: {}", e))?;
     Ok((bytes, trailer))
-}
-
-/// The mod folder a bin sits in: the directory holding `data/` or `assets/`.
-fn mod_root(bin_path: &Path) -> Option<std::path::PathBuf> {
-    let mut dir = bin_path.parent();
-    while let Some(d) = dir {
-        if d.join("data").is_dir() || d.join("assets").is_dir() {
-            return Some(d.to_path_buf());
-        }
-        dir = d.parent();
-    }
-    None
-}
-
-/// 8 hex digits (fnv1a32) or 16 (xxh64) — the two hash widths a bin uses.
-fn is_hash_hex(s: &str) -> bool {
-    (s.len() == 8 || s.len() == 16) && s.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 /// Mirror the trailer into `files.txt` at the mod root, keeping what is there.
@@ -564,11 +435,8 @@ pub async fn parse_bin_file_to_text(
 
     tracing::debug!("Parsed bin file with {} objects", bin.entries.len());
 
-    let text = flint_core::bin::tree_to_text_cached(&bin)
+    let text = flint_core::bin::render_bin_text(&bin, input)
         .map_err(|e| format!("Failed to convert to text: {}", e))?;
-    let text = apply_own_trailer(text, &bin);
-    // Then the mod folder, for anything the bin's own trailer could not name.
-    let text = apply_mod_root_names(text, input);
 
     tracing::info!("Successfully parsed BIN file to text ({} chars)", text.len());
 
@@ -657,11 +525,8 @@ async fn read_or_convert_bin_inner(
     let text = {
         let bin = flint_core::bin::read_bin(&data)
             .map_err(|e| format!("Failed to parse bin file: {}", e))?;
-        let text = flint_core::bin::tree_to_text_cached(&bin)
-            .map_err(|e| format!("Failed to convert to text: {}", e))?;
-        let text = apply_own_trailer(text, &bin);
-        // Then the mod folder, for anything the bin's own trailer could not name.
-        apply_mod_root_names(text, bin_file)
+        flint_core::bin::render_bin_text(&bin, bin_file)
+            .map_err(|e| format!("Failed to convert to text: {}", e))?
     };
 
     tracing::info!("[BIN_READ] Converted {} to {} chars of text", bin_path, text.len());

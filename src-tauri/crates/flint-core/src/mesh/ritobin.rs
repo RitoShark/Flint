@@ -1,18 +1,39 @@
-//! Locating a mesh's ritobin text, and caching a BIN's text form beside it.
+//! Locating a mesh's ritobin text.
 //!
-//! A mesh's material data lives in a companion BIN. The text form may already
-//! sit next to the mesh, in a concatenated bin, or behind a link from the skin
-//! bin — each is tried in turn.
+//! A mesh's material data lives in a companion BIN, which may sit next to the mesh, be a
+//! concatenated bin, or hang off the skin bin's `linked` header — each is tried in turn.
+//! The text is rendered in memory; nothing is written into the project.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+use std::time::SystemTime;
 
+use dashmap::DashMap;
 use ritoshark::bin::Bin;
+
+/// What makes a cached render stale: the bin's size and mtime.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Stamp {
+    len: u64,
+    modified: Option<SystemTime>,
+}
+
+/// Rendered bin text, in memory for the life of the process.
+///
+/// This used to be a `<bin>.ritobin` file written into the project. That left a second copy
+/// of every bin on disk with nothing to invalidate it, so editing the bin left the model
+/// preview reading the old text forever. Keyed on size+mtime here, it cannot go stale, and
+/// the project folder stays as the author left it.
+fn rendered() -> &'static DashMap<PathBuf, (Stamp, String)> {
+    static CACHE: OnceLock<DashMap<PathBuf, (Stamp, String)>> = OnceLock::new();
+    CACHE.get_or_init(DashMap::new)
+}
 
 use crate::mesh::discovery::{extract_character_folder, find_project_root, find_scb_bin};
 use crate::mesh::texture::find_skin_bin;
 
 pub fn find_ritobin_text(mesh_path: &Path) -> Option<String> {
-    // Strategy 1: Find .bin via standard lookups, then check .ritobin cache
+    // Strategy 1: find the companion .bin and render it.
     let bin_finders: [fn(&Path) -> Option<std::path::PathBuf>; 2] = [
         |p| find_skin_bin(p),
         |p| find_scb_bin(p),
@@ -20,24 +41,9 @@ pub fn find_ritobin_text(mesh_path: &Path) -> Option<String> {
 
     for finder in &bin_finders {
         if let Some(bin_path) = finder(mesh_path) {
-            let ritobin_path = std::path::PathBuf::from(format!("{}.ritobin", bin_path.display()));
-
-            if ritobin_path.exists() {
-                if let Ok(text) = std::fs::read_to_string(&ritobin_path) {
-                    tracing::debug!("✓ Found .ritobin cache next to BIN: {}", ritobin_path.display());
-                    return Some(text);
-                }
-            }
-
-            tracing::debug!("Creating .ritobin cache from BIN: {}", bin_path.display());
-            match create_ritobin_cache(&bin_path, &ritobin_path) {
-                Ok(text) => {
-                    tracing::debug!("Created .ritobin cache: {}", ritobin_path.display());
-                    return Some(text);
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to create .ritobin cache: {}", e);
-                }
+            match render_bin(&bin_path) {
+                Ok(text) => return Some(text),
+                Err(e) => tracing::warn!("Failed to render {}: {}", bin_path.display(), e),
             }
         }
     }
@@ -97,20 +103,9 @@ pub fn find_concat_ritobin_text(mesh_path: &Path) -> Option<String> {
                 if name.contains("concat") && name.ends_with(".bin") {
                     tracing::debug!("  ✓ Found concat BIN: {}", path.display());
 
-                    let ritobin_path = std::path::PathBuf::from(format!("{}.ritobin", path.display()));
-                    if ritobin_path.exists() {
-                        if let Ok(text) = std::fs::read_to_string(&ritobin_path) {
-                            tracing::debug!("  ✓ Loaded concat ritobin cache: {}", ritobin_path.display());
-                            return Some(text);
-                        }
-                    }
-
-                    tracing::debug!("  Creating ritobin cache for concat BIN...");
-                    if let Ok(text) = create_ritobin_cache(&path, &ritobin_path) {
-                        tracing::debug!("  ✓ Created concat ritobin cache: {}", ritobin_path.display());
-                        return Some(text);
-                    } else {
-                        tracing::debug!("  ✗ Failed to create concat ritobin cache");
+                    match render_bin(&path) {
+                        Ok(text) => return Some(text),
+                        Err(e) => tracing::debug!("  ✗ Failed to render concat BIN: {e}"),
                     }
                 }
             }
@@ -154,14 +149,7 @@ pub fn find_linked_bin_ritobin_text(mesh_path: &Path) -> Option<String> {
             continue;
         }
 
-        let ritobin_path = std::path::PathBuf::from(format!("{}.ritobin", bin_path.display()));
-        let text = if ritobin_path.exists() {
-            std::fs::read_to_string(&ritobin_path).ok()
-        } else {
-            create_ritobin_cache(&bin_path, &ritobin_path).ok()
-        };
-
-        if let Some(text) = text {
+        if let Ok(text) = render_bin(&bin_path) {
             tracing::debug!("  ✓ Merged linked BIN: {} ({} bytes)", bin_path.display(), text.len());
             merged.push_str("\n\n");
             merged.push_str(&text);
@@ -258,25 +246,31 @@ pub fn resolve_linked_bin_path(
 
 /// Read a BIN file, convert it to text using cached hashes, and write a
 /// `.ritobin` cache file.
-pub fn create_ritobin_cache(bin_path: &Path, ritobin_path: &Path) -> anyhow::Result<String> {
-    use crate::bin::codec;
+pub fn render_bin(bin_path: &Path) -> anyhow::Result<String> {
+    let meta = std::fs::metadata(bin_path)?;
+    let stamp = Stamp {
+        len: meta.len(),
+        modified: meta.modified().ok(),
+    };
 
-    tracing::debug!("Reading BIN file: {}", bin_path.display());
+    if let Some(hit) = rendered().get(bin_path) {
+        if hit.0 == stamp {
+            return Ok(hit.1.clone());
+        }
+    }
 
     let data = std::fs::read(bin_path)
         .map_err(|e| anyhow::anyhow!("Failed to read BIN file: {}", e))?;
-
-    let tree = codec::read_bin(&data)
+    let tree = crate::bin::codec::read_bin(&data)
         .map_err(|e| anyhow::anyhow!("Failed to parse BIN file: {}", e))?;
 
-    let text = codec::tree_to_text_cached(&tree)
+    /* Through the shared renderer, not a bare `tree_to_text_cached`: after Riot's
+    string->file migration a texture reference is an xxh64, and only the trailer /
+    files.txt / on-disk records can turn it back into the path the mapper matches on. */
+    let text = crate::bin::render_bin_text(&tree, bin_path)
         .map_err(|e| anyhow::anyhow!("Failed to convert BIN to text: {}", e))?;
 
-    std::fs::write(ritobin_path, &text)
-        .map_err(|e| anyhow::anyhow!("Failed to write .ritobin cache: {}", e))?;
-
-    tracing::debug!("Wrote {} bytes to {}", text.len(), ritobin_path.display());
-
+    rendered().insert(bin_path.to_path_buf(), (stamp, text.clone()));
     Ok(text)
 }
 

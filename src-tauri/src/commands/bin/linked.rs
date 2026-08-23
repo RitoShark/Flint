@@ -1,5 +1,5 @@
 use flint_core::bin::read_bin;
-use flint_core::mesh::ritobin::{create_ritobin_cache, resolve_linked_bin_path};
+use flint_core::mesh::ritobin::{render_bin, resolve_linked_bin_path};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
@@ -10,13 +10,7 @@ pub struct LinkedBinText {
 }
 
 fn ritobin_text(bin_path: &Path) -> Option<String> {
-    let sidecar = PathBuf::from(format!("{}.ritobin", bin_path.display()));
-    if sidecar.exists() {
-        if let Ok(text) = std::fs::read_to_string(&sidecar) {
-            return Some(text);
-        }
-    }
-    create_ritobin_cache(bin_path, &sidecar).ok()
+    render_bin(bin_path).ok()
 }
 
 /// The ritobin text of every BIN in `bin_path`'s direct `linked` header.

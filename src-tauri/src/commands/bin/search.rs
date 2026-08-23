@@ -1,5 +1,5 @@
 use flint_core::bin::{read_bin, text_to_bin, write_bin};
-use flint_core::mesh::ritobin::{create_ritobin_cache, resolve_linked_bin_path};
+use flint_core::mesh::ritobin::resolve_linked_bin_path;
 use rayon::prelude::*;
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
@@ -142,20 +142,15 @@ fn replace_in_text(
     (out, count)
 }
 
-/// Ritobin text for a BIN, preferring an existing `.ritobin` sidecar.
+/// Ritobin text for a BIN, rendered in memory.
 ///
-/// A search must not litter the project with sidecars it was never asked to
-/// create, so a missing one is converted IN MEMORY and not written.
+/// Never reads a `.ritobin` sidecar: a leftover one has nothing invalidating it, so a search
+/// would report hits against text the bin no longer holds. Goes through the shared renderer
+/// so a repathed `file = 0x…` is searchable by its path.
 fn ritobin_text(bin_path: &Path) -> Option<String> {
-    let sidecar = PathBuf::from(format!("{}.ritobin", bin_path.display()));
-    if sidecar.exists() {
-        if let Ok(text) = std::fs::read_to_string(&sidecar) {
-            return Some(text);
-        }
-    }
     let bytes = std::fs::read(bin_path).ok()?;
     let tree = read_bin(&bytes).ok()?;
-    flint_core::bin::bin_to_text(&tree).ok()
+    flint_core::bin::render_bin_text(&tree, bin_path).ok()
 }
 
 fn is_bin(path: &Path) -> bool {
@@ -309,13 +304,6 @@ pub async fn replace_in_bins(
                     if let Err(e) = std::fs::write(&bin_path, bytes) {
                         result.failed.push(format!("{path}: {e}"));
                         continue;
-                    }
-                    // The sidecar is now stale; refresh it when one exists so
-                    // the editor does not show pre-replace text.
-                    let sidecar = PathBuf::from(format!("{}.ritobin", bin_path.display()));
-                    if sidecar.exists() {
-                        crate::core::write_echo::mark(&sidecar);
-                        let _ = create_ritobin_cache(&bin_path, &sidecar);
                     }
                     result.files_changed += 1;
                     result.replacements += count;

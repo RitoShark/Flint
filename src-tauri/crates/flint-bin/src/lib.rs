@@ -7,6 +7,7 @@ pub mod bin_json;
 pub mod checks;
 pub mod codec;
 pub mod concat;
+pub mod names;
 pub mod converter;
 pub mod paint;
 pub mod preloads;
@@ -41,6 +42,7 @@ pub use split::{
 pub use animask::{read_masks, write_masks, MaskEntry};
 pub use audit::{audit_wad_folder, AuditReport, BloatFile};
 pub use checks::{check_animation_graph, check_texture, CheckIssue, Severity};
+pub use names::{apply_mod_root_names, apply_own_trailer, is_hash_hex, mod_root, render_bin_text};
 pub use texture_header::{read_texture_header, TextureContainer, TextureHeader};
 pub use preloads::extra_character_preloads;
 pub use paint::has_vfx_content;
