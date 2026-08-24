@@ -8,5 +8,6 @@ pub mod submesh_visibility;
 pub mod scb;
 pub mod wire;
 pub mod discovery;
+pub mod materials;
 pub mod ritobin;
 

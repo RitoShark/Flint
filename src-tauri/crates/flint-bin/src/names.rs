@@ -95,6 +95,24 @@ pub fn apply_mod_root_names(text: String, bin_path: &Path) -> String {
     crate::apply_trailer(text, &trailer)
 }
 
+/// Every name source for one bin, merged into a single lookup table.
+///
+/// The same three records [`render_bin_text`] applies to text, for callers that walk the
+/// parsed tree instead and only need to name the handful of hashes they actually reach.
+pub fn name_table(bin: &Bin, bin_path: &Path) -> crate::Trailer {
+    let mut table = crate::read_trailer(&bin.trailing);
+    if let Some(root) = mod_root(bin_path) {
+        let from_root = mod_root_names(&root);
+        for (hash, name) in from_root.names {
+            table.names.entry(hash).or_insert(name);
+        }
+        for (hash, name) in from_root.files {
+            table.files.entry(hash).or_insert(name);
+        }
+    }
+    table
+}
+
 /// The name table for one mod root, walked at most once per [`MOD_ROOT_TTL`].
 fn mod_root_names(root: &Path) -> crate::Trailer {
     if let Some(hit) = mod_root_cache().get(root) {

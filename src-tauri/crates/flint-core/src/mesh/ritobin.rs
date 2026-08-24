@@ -29,6 +29,103 @@ fn rendered() -> &'static DashMap<PathBuf, (Stamp, String)> {
     CACHE.get_or_init(DashMap::new)
 }
 
+/// Parsed bins, cached the same way [`rendered`] caches text.
+type ParsedCache = DashMap<PathBuf, (Stamp, std::sync::Arc<(Bin, crate::bin::Trailer)>)>;
+
+fn parsed() -> &'static ParsedCache {
+    static CACHE: OnceLock<ParsedCache> = OnceLock::new();
+    CACHE.get_or_init(DashMap::new)
+}
+
+fn stamp_of(path: &Path) -> Option<Stamp> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some(Stamp {
+        len: meta.len(),
+        modified: meta.modified().ok(),
+    })
+}
+
+/// One bin, parsed, with the name table its own location supplies.
+///
+/// The AST counterpart of [`render_bin`]: the tree is what the caller wants, and the names are
+/// looked up per value reached instead of substituted across the printed text.
+pub fn load_bin(bin_path: &Path) -> Option<std::sync::Arc<(Bin, crate::bin::Trailer)>> {
+    let stamp = stamp_of(bin_path)?;
+    if let Some(hit) = parsed().get(bin_path) {
+        if hit.0 == stamp {
+            return Some(hit.1.clone());
+        }
+    }
+
+    let data = std::fs::read(bin_path).ok()?;
+    let tree = crate::bin::codec::read_bin(&data).ok()?;
+    let names = crate::bin::name_table(&tree, bin_path);
+    let entry = std::sync::Arc::new((tree, names));
+    parsed().insert(bin_path.to_path_buf(), (stamp, entry.clone()));
+    Some(entry)
+}
+
+/// Every bin a mesh's materials can live in: its companion skin/SCB bin, the project's concat
+/// bin, and every bin in the skin bin's direct `linked` header that resolves on disk.
+///
+/// Riot's build hoists entries shared between skins out of `skinN.bin` into a
+/// `<Champ>_Skins_*.bin`, so a material a mesh uses is frequently in none of the obvious files.
+pub fn mesh_bins(mesh_path: &Path) -> Vec<std::sync::Arc<(Bin, crate::bin::Trailer)>> {
+    let mut paths: Vec<PathBuf> = Vec::new();
+    let push = |p: Option<PathBuf>, paths: &mut Vec<PathBuf>| {
+        if let Some(p) = p {
+            if !paths.contains(&p) {
+                paths.push(p);
+            }
+        }
+    };
+
+    let companion = find_skin_bin(mesh_path).or_else(|| find_scb_bin(mesh_path));
+    push(companion.clone(), &mut paths);
+    push(find_concat_bin_path(mesh_path), &mut paths);
+
+    if let Some(skin_bin) = companion {
+        if let Some(entry) = load_bin(&skin_bin) {
+            let project_root = find_project_root(mesh_path);
+            for linked in &entry.0.linked {
+                let normalized = linked.replace(char::from(92), "/");
+                if !normalized.to_lowercase().ends_with(".bin") {
+                    continue;
+                }
+                push(
+                    resolve_linked_bin_path(mesh_path, project_root.as_deref(), &normalized),
+                    &mut paths,
+                );
+            }
+        }
+    }
+
+    paths.iter().filter_map(|p| load_bin(p)).collect()
+}
+
+/// The project's concat bin, by the same search [`find_concat_ritobin_text`] uses.
+pub fn find_concat_bin_path(mesh_path: &Path) -> Option<PathBuf> {
+    let root = find_project_root(mesh_path)?;
+    let character_folder = extract_character_folder(mesh_path)?;
+
+    for search_dir in [
+        root.join("data").join("characters").join(&character_folder).join("skins"),
+        root.join("data"),
+    ] {
+        let Ok(entries) = std::fs::read_dir(&search_dir) else { continue };
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            let Some(name) = path.file_name().map(|n| n.to_string_lossy().to_lowercase()) else {
+                continue;
+            };
+            if name.contains("concat") && name.ends_with(".bin") {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
 use crate::mesh::discovery::{extract_character_folder, find_project_root, find_scb_bin};
 use crate::mesh::texture::find_skin_bin;
 

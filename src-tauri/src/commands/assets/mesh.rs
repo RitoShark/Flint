@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use crate::core::ipc_trace;
 use flint_core::mesh::discovery::find_project_root;
-use flint_core::mesh::ritobin::{find_concat_ritobin_text, find_linked_bin_ritobin_text, find_ritobin_text};
+use flint_core::mesh::materials::{extract_texture_mapping, lookup_material_by_name, BinIndex};
+use flint_core::mesh::ritobin::mesh_bins;
 use flint_core::mesh::skn::{parse_skn_file, SknMeshData};
 use flint_core::mesh::scb::{parse_scb_file, ScbMeshData};
 use flint_core::mesh::texture::MaterialProperties;
@@ -52,51 +53,13 @@ async fn read_scb_mesh_inner(path: String) -> Result<ScbMeshData, String> {
 
     tracing::debug!("✓ SCB parsed successfully. Materials: {:?}", mesh_data.materials);
 
-    let ritobin_text = find_ritobin_text(scb_path);
+    let bins = mesh_bins(scb_path);
 
-    if let Some(bin_text) = ritobin_text {
-        tracing::debug!("📄 Loaded ritobin text ({} bytes) for SCB texture lookup", bin_text.len());
+    if !bins.is_empty() {
+        tracing::debug!("Loaded {} bin(s) for SCB texture lookup", bins.len());
 
-        let concat_text = find_concat_ritobin_text(scb_path);
-        let combined_text = if let Some(concat) = concat_text {
-            tracing::debug!("📄 Also loaded concat ritobin ({} bytes)", concat.len());
-
-            let material_def_pattern = regex::Regex::new(r#""([^"]+)"\s*=\s*StaticMaterialDef"#).unwrap();
-            let concat_materials: Vec<String> = material_def_pattern
-                .captures_iter(&concat)
-                .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string()))
-                .collect();
-            tracing::debug!("📋 Concat BIN contains {} StaticMaterialDef definitions:", concat_materials.len());
-            for (i, mat) in concat_materials.iter().enumerate() {
-                tracing::debug!("  {}. {}", i + 1, mat);
-            }
-
-            format!("{}\n\n{}", bin_text, concat)
-        } else {
-            tracing::warn!("No concat BIN found - using main BIN only");
-            bin_text
-        };
-
-        // Also fold in any bins referenced through the skin BIN's `linked` header — shared
-        // material defs frequently live there rather than in the skin/concat BIN.
-        let combined_text = match find_linked_bin_ritobin_text(scb_path) {
-            Some(linked) => {
-                tracing::debug!("📄 Also merged linked-bin ritobin ({} bytes)", linked.len());
-                format!("{}{}", combined_text, linked)
-            }
-            None => combined_text,
-        };
-
-        use flint_core::mesh::texture::extract_texture_mapping_from_text;
-
-        let texture_mapping = match extract_texture_mapping_from_text(&combined_text) {
-            Ok(mapping) => mapping,
-            Err(e) => {
-                tracing::warn!("Failed to extract texture mapping from ritobin: {}", e);
-                mesh_data.texture_warning = Some(format!("Failed to parse texture mapping: {}", e));
-                return Ok(mesh_data);
-            }
-        };
+        let index = BinIndex::new(bins.iter().map(|b| (&b.0, b.1.clone())));
+        let texture_mapping = extract_texture_mapping(&index);
 
         let material_props = &texture_mapping.material_properties;
         let default_tex = &texture_mapping.default_texture;
@@ -253,51 +216,13 @@ async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {
     tracing::debug!("✓ SKN parsed successfully. Materials: {:?}",
         mesh_data.materials.iter().map(|m| &m.name).collect::<Vec<_>>());
 
-    let ritobin_text = find_ritobin_text(skn_path);
+    let bins = mesh_bins(skn_path);
 
-    if let Some(bin_text) = ritobin_text {
-        tracing::debug!("📄 Loaded ritobin text ({} bytes) for SKN texture lookup", bin_text.len());
+    if !bins.is_empty() {
+        tracing::debug!("Loaded {} bin(s) for SKN texture lookup", bins.len());
 
-        let concat_text = find_concat_ritobin_text(skn_path);
-        let combined_text = if let Some(concat) = concat_text {
-            tracing::debug!("📄 Also loaded concat ritobin ({} bytes)", concat.len());
-
-            let material_def_pattern = regex::Regex::new(r#""([^"]+)"\s*=\s*StaticMaterialDef"#).unwrap();
-            let concat_materials: Vec<String> = material_def_pattern
-                .captures_iter(&concat)
-                .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string()))
-                .collect();
-            tracing::debug!("📋 Concat BIN contains {} StaticMaterialDef definitions:", concat_materials.len());
-            for (i, mat) in concat_materials.iter().enumerate() {
-                tracing::debug!("  {}. {}", i + 1, mat);
-            }
-
-            format!("{}\n\n{}", bin_text, concat)
-        } else {
-            tracing::warn!("No concat BIN found - using main BIN only");
-            bin_text
-        };
-
-        // Also fold in any bins referenced through the skin BIN's `linked` header — shared
-        // material defs frequently live there rather than in the skin/concat BIN.
-        let combined_text = match find_linked_bin_ritobin_text(skn_path) {
-            Some(linked) => {
-                tracing::debug!("📄 Also merged linked-bin ritobin ({} bytes)", linked.len());
-                format!("{}{}", combined_text, linked)
-            }
-            None => combined_text,
-        };
-
-        use flint_core::mesh::texture::extract_texture_mapping_from_text;
-
-        let texture_mapping = match extract_texture_mapping_from_text(&combined_text) {
-            Ok(mapping) => mapping,
-            Err(e) => {
-                tracing::warn!("Failed to extract texture mapping from ritobin: {}", e);
-                mesh_data.texture_warning = Some(format!("Failed to parse texture mapping: {}", e));
-                return Ok(mesh_data);
-            }
-        };
+        let index = BinIndex::new(bins.iter().map(|b| (&b.0, b.1.clone())));
+        let texture_mapping = extract_texture_mapping(&index);
 
         let material_props = &texture_mapping.material_properties;
         let default_tex = &texture_mapping.default_texture;
@@ -316,8 +241,7 @@ async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {
             let mat_props = material_props.get(material_name).cloned()
                 .or_else(|| {
                     tracing::debug!("  Material '{}' not in override list, searching for StaticMaterialDef...", material_name);
-                    use flint_core::mesh::texture::lookup_material_texture_by_name;
-                    lookup_material_texture_by_name(&combined_text, material_name)
+                    lookup_material_by_name(&index, material_name)
                 })
                 .or_else(|| {
                     tracing::warn!("  Material '{}' not found anywhere, using default texture", material_name);

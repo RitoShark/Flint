@@ -844,7 +844,7 @@ pub(crate) fn extract_braced_block(content: &str, start_after: usize) -> Option<
 }
 
 /// True if the path has a `/skin{digit}/` component and is not in a shared folder.
-fn is_project_specific_texture(path: &str) -> bool {
+pub(crate) fn is_project_specific_texture(path: &str) -> bool {
     let lower = path.to_lowercase();
 
     let skin_folder_regex = &*SKIN_FOLDER;
