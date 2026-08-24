@@ -199,6 +199,16 @@ fn main() {
                 };
 
                 let _ = app_handle.emit("hashes-ready", ready);
+
+                /* Build the in-RAM name mapper NOW, off the critical path. It is ~2.8M
+                entries and takes ~3s, and it is built lazily on first use — which used to
+                be whatever the user clicked first, so opening one mesh reported 3.6s when
+                the mesh itself cost 157ms. */
+                std::thread::spawn(|| {
+                    let t = std::time::Instant::now();
+                    let n = flint_core::bin::get_cached_bin_hashes().read().len();
+                    tracing::info!("[startup] name mapper warm: {n} entries in {:?}", t.elapsed());
+                });
             });
 
             // CLI arg passthrough: when Windows hands us a file via "Open with"

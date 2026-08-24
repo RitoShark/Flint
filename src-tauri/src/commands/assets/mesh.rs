@@ -71,6 +71,7 @@ async fn read_scb_mesh_inner(path: String) -> Result<ScbMeshData, String> {
         let base_dir = scb_path.parent().unwrap_or(Path::new("."));
         let mut material_props_map: HashMap<String, MaterialProperties> = HashMap::new();
         let mut texture_tasks: Vec<(String, std::path::PathBuf)> = Vec::new();
+        let mut unresolved: Vec<String> = Vec::new();
 
         for material_name in &mesh_data.materials {
             let mat_props = material_props.get(material_name).cloned()
@@ -94,8 +95,12 @@ async fn read_scb_mesh_inner(path: String) -> Result<ScbMeshData, String> {
                             tracing::warn!("Texture file not found: {}", props.texture_path);
                         }
                     } else {
-                        tracing::warn!("✗ No texture resolved for SCB material: {}", material_name);
+                        unresolved.push(material_name.clone());
                     }
+                }
+
+                if !unresolved.is_empty() {
+                    tracing::warn!("No texture for SCB material(s): {}", unresolved.join(", "));
                 }
 
                 tracing::debug!("⬇ Loading {} unique textures for SCB...", texture_tasks.len());
@@ -234,6 +239,8 @@ async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {
         let base_dir = skn_path.parent().unwrap_or(Path::new("."));
         let mut material_props_map: HashMap<String, MaterialProperties> = HashMap::new();
         let mut texture_tasks: Vec<(String, std::path::PathBuf)> = Vec::new();
+        let mut fell_back: Vec<String> = Vec::new();
+        let mut unresolved: Vec<String> = Vec::new();
 
         for material in &mesh_data.materials {
             let material_name = &material.name;
@@ -244,7 +251,7 @@ async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {
                     lookup_material_by_name(&index, material_name)
                 })
                 .or_else(|| {
-                    tracing::warn!("  Material '{}' not found anywhere, using default texture", material_name);
+                    fell_back.push(material_name.clone());
                     default_tex.as_ref().map(|tex| MaterialProperties {
                         texture_path: tex.clone(),
                         ..Default::default()
@@ -266,8 +273,19 @@ async fn read_skn_mesh_inner(path: String) -> Result<SknMeshData, String> {
                             tracing::warn!("Texture file not found: {}", props.texture_path);
                         }
                     } else {
-                        tracing::warn!("✗ No texture resolved for material: {}", material_name);
+                        unresolved.push(material_name.clone());
                     }
+                }
+
+                if !fell_back.is_empty() {
+                    tracing::debug!(
+                        "{} material(s) have no material def and use the default texture: {}",
+                        fell_back.len(),
+                        fell_back.join(", ")
+                    );
+                }
+                if !unresolved.is_empty() {
+                    tracing::warn!("No texture for material(s): {}", unresolved.join(", "));
                 }
 
                 tracing::debug!("⬇ Loading {} unique textures...", texture_tasks.len());
