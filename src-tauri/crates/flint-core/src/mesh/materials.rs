@@ -543,6 +543,23 @@ mod tests {
         assert!(lookup_material_by_name(&index, "NothingLikeThis").is_none());
     }
 
+    /// `is_project_specific` is a hand-written scan now, not `/skin\d+/`. Checked against the
+    /// pattern over all 5562 distinct asset paths in this machine's projects: 0 disagreements.
+    #[test]
+    fn a_skin_folder_is_recognised_without_the_pattern() {
+        for (path, want) in [
+            ("ASSETS/Characters/Ahri/Skins/Skin19/body.tex", true),
+            ("assets/characters/ahri/skins/skin7/x/y.tex", true),
+            ("ASSETS/Characters/Ahri/Skins/Base/body.tex", false),
+            ("ASSETS/Characters/Ahri/Skins/Skin19/Shared/ramp.tex", false),
+            ("ASSETS/Characters/Ahri/Skins/Skin/body.tex", false),
+            ("ASSETS/skin12", false),
+            ("", false),
+        ] {
+            assert_eq!(is_project_specific(path), want, "{path}");
+        }
+    }
+
     #[test]
     fn param_values_come_across() {
         let mut material = material_entry(

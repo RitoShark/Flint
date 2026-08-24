@@ -5,7 +5,7 @@ use crate::error::{Error, Result};
 use ritoshark::bin::BinValue;
 use std::fs;
 use std::path::Path;
-use super::refather::{AssetPath, RepathConfig, SKIN_FOLDER_RE, BASE_MIDDLE_RE};
+use super::refather::{AssetPath, RepathConfig};
 pub(crate) fn scan_bin_for_paths(bin_path: &Path) -> Result<Vec<String>> {
     let data = fs::read(bin_path).map_err(|e| Error::io_with_path(e, bin_path))?;
 
@@ -103,24 +103,47 @@ pub(crate) fn apply_prefix_to_path(path: &str, _prefix: &str, config: &RepathCon
 
 pub(crate) fn strip_skin_layout(subpath: &str, target_skin_id: u32) -> String {
     let after_skins = AssetPath::strip_prefix_ignore_case(subpath, "skins/").unwrap_or(subpath);
-    let without_skin_folder = SKIN_FOLDER_RE.replace(after_skins, "").into_owned();
-    let without_base = strip_base_folder(&without_skin_folder);
+    let without_skin_folder = strip_skin_folder(after_skins);
+    let without_base = strip_base_folder(without_skin_folder);
     remap_animation_bin_filename(&without_base, target_skin_id)
 }
 
-/// Strips a leading or mid-path "base/" folder. Case-insensitive.
-pub(crate) fn strip_base_folder(path: &str) -> String {
-    let lower = path.to_lowercase();
+/// Strips a leading `skin<digits>/`. Case-insensitive; League writes both spellings.
+fn strip_skin_folder(path: &str) -> &str {
+    let bytes = path.as_bytes();
+    if bytes.len() <= 4 || !bytes[..4].eq_ignore_ascii_case(b"skin") {
+        return path;
+    }
+    let end = 4 + bytes[4..].iter().take_while(|b| b.is_ascii_digit()).count();
+    if end > 4 && bytes.get(end) == Some(&b'/') {
+        &path[end + 1..]
+    } else {
+        path
+    }
+}
 
-    if lower.starts_with("base/") {
+/// Strips a leading or mid-path `base/` folder. Case-insensitive.
+pub(crate) fn strip_base_folder(path: &str) -> String {
+    if path.len() >= 5 && path.as_bytes()[..5].eq_ignore_ascii_case(b"base/") {
         return path[5..].to_string();
     }
 
-    if lower.contains("/base/") {
-        return BASE_MIDDLE_RE.replace_all(path, "/").into_owned();
+    let bytes = path.as_bytes();
+    let mut out = String::with_capacity(path.len());
+    let mut at = 0;
+    while let Some(hit) = bytes[at..]
+        .windows(6)
+        .position(|w| w.eq_ignore_ascii_case(b"/base/"))
+    {
+        out.push_str(&path[at..at + hit]);
+        out.push('/');
+        at += hit + 6;
     }
-
-    path.to_string()
+    if at == 0 {
+        return path.to_string();
+    }
+    out.push_str(&path[at..]);
+    out
 }
 
 /// Remaps `animations/skinN.bin` → `animations/skin{target}.bin`; other paths unchanged.
@@ -151,3 +174,37 @@ pub(crate) fn replace_base_folder_in_animation_path(path: &str, _target_skin_id:
     strip_base_folder(path)
 }
 
+
+#[cfg(test)]
+mod scan_tests {
+    use super::*;
+
+    // These two replaced `(?i)^(skin)(\d+)(/)` and `(?i)/base/`. The cases below are the
+    // ones where a hand-written scan and a pattern are easy to make disagree.
+
+    #[test]
+    fn strips_a_leading_skin_folder_in_either_spelling() {
+        assert_eq!(strip_skin_folder("skin19/body.tex"), "body.tex");
+        assert_eq!(strip_skin_folder("Skin19/body.tex"), "body.tex");
+        assert_eq!(strip_skin_folder("SKIN0/x/y.tex"), "x/y.tex");
+        assert_eq!(strip_skin_folder("skin7/"), "");
+    }
+
+    #[test]
+    fn leaves_anything_that_is_not_a_skin_folder() {
+        assert_eq!(strip_skin_folder("skins/skin19/body.tex"), "skins/skin19/body.tex");
+        assert_eq!(strip_skin_folder("skin/body.tex"), "skin/body.tex");
+        assert_eq!(strip_skin_folder("skin19body.tex"), "skin19body.tex");
+        assert_eq!(strip_skin_folder("a/skin19/body.tex"), "a/skin19/body.tex");
+        assert_eq!(strip_skin_folder("skin"), "skin");
+        assert_eq!(strip_skin_folder(""), "");
+    }
+
+    #[test]
+    fn strips_every_base_segment_not_just_the_first() {
+        assert_eq!(strip_base_folder("a/base/b/Base/c.tex"), "a/b/c.tex");
+        assert_eq!(strip_base_folder("base/"), "");
+        assert_eq!(strip_base_folder("basement/x.tex"), "basement/x.tex");
+        assert_eq!(strip_base_folder("a/basement/x.tex"), "a/basement/x.tex");
+    }
+}

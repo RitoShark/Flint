@@ -12,7 +12,6 @@ use std::sync::LazyLock;
 use walkdir::WalkDir;
 use rayon::prelude::*;
 use dashmap::DashSet;
-use regex::Regex;
 pub(crate) use super::paths::*;
 pub(crate) use super::prune::*;
 
@@ -27,15 +26,6 @@ fn fnv1a_hash(s: &str) -> u32 {
 
 static CHAMPION_SKIN_NAME_HASH: LazyLock<u32> = LazyLock::new(|| {
     fnv1a_hash("championSkinName")
-});
-
-/// Case-insensitive: League uses mixed case ("skin19/" / "Skin19/") internally.
-pub(crate) static SKIN_FOLDER_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)^(skin)(\d+)(/)").expect("Invalid skin folder regex")
-});
-
-pub(crate) static BASE_MIDDLE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)/base/").expect("Invalid base folder regex")
 });
 
 #[derive(Debug, Clone, PartialEq, Eq)]

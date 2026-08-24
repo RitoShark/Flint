@@ -103,7 +103,7 @@ pub fn mesh_bins(mesh_path: &Path) -> Vec<std::sync::Arc<(Bin, crate::bin::Trail
     paths.iter().filter_map(|p| load_bin(p)).collect()
 }
 
-/// The project's concat bin, by the same search [`find_concat_ritobin_text`] uses.
+/// The project's concat bin: the first `*concat*.bin` beside the skin bins, else under `data/`.
 pub fn find_concat_bin_path(mesh_path: &Path) -> Option<PathBuf> {
     let root = find_project_root(mesh_path)?;
     let character_folder = extract_character_folder(mesh_path)?;
@@ -129,141 +129,9 @@ pub fn find_concat_bin_path(mesh_path: &Path) -> Option<PathBuf> {
 use crate::mesh::discovery::{extract_character_folder, find_project_root, find_scb_bin};
 use crate::mesh::texture::find_skin_bin;
 
-pub fn find_ritobin_text(mesh_path: &Path) -> Option<String> {
-    // Strategy 1: find the companion .bin and render it.
-    let bin_finders: [fn(&Path) -> Option<std::path::PathBuf>; 2] = [
-        |p| find_skin_bin(p),
-        |p| find_scb_bin(p),
-    ];
-
-    for finder in &bin_finders {
-        if let Some(bin_path) = finder(mesh_path) {
-            match render_bin(&bin_path) {
-                Ok(text) => return Some(text),
-                Err(e) => tracing::warn!("Failed to render {}: {}", bin_path.display(), e),
-            }
-        }
-    }
-
-    // Strategy 2: Search for .ritobin files directly in the data/ tree
-    if let Some(character_folder) = extract_character_folder(mesh_path) {
-        if let Some(root) = find_project_root(mesh_path) {
-            let skins_dir = root
-                .join("data")
-                .join("characters")
-                .join(&character_folder)
-                .join("skins");
-
-            if skins_dir.exists() {
-                if let Some(text) = find_ritobin_in_dir(&skins_dir) {
-                    return Some(text);
-                }
-            }
-        }
-    }
-
-    None
-}
-
-/// Find concat BIN ritobin text — concat BINs hold merged material
-/// definitions that may not be in the main skin BIN.
-pub fn find_concat_ritobin_text(mesh_path: &Path) -> Option<String> {
-    tracing::debug!("🔎 Looking for concat BIN for: {}", mesh_path.display());
-
-    let root = find_project_root(mesh_path)?;
-    tracing::debug!("  Project root: {}", root.display());
-
-    let character_folder = extract_character_folder(mesh_path)?;
-    tracing::debug!("  Character folder: {}", character_folder);
-
-    let search_dirs = vec![
-        root.join("data").join("characters").join(&character_folder).join("skins"),
-        root.join("data"),
-    ];
-
-    for search_dir in search_dirs {
-        tracing::debug!("  Searching in: {}", search_dir.display());
-
-        if !search_dir.exists() {
-            tracing::debug!("    Directory doesn't exist, skipping");
-            continue;
-        }
-
-        if let Ok(entries) = std::fs::read_dir(&search_dir) {
-            let files: Vec<_> = entries.filter_map(|e| e.ok()).collect();
-            tracing::debug!("    Found {} files", files.len());
-
-            for entry in &files {
-                let path = entry.path();
-                let name = path.file_name()?.to_string_lossy().to_lowercase();
-
-                if name.contains("concat") && name.ends_with(".bin") {
-                    tracing::debug!("  ✓ Found concat BIN: {}", path.display());
-
-                    match render_bin(&path) {
-                        Ok(text) => return Some(text),
-                        Err(e) => tracing::debug!("  ✗ Failed to render concat BIN: {e}"),
-                    }
-                }
-            }
-        }
-    }
-
-    tracing::debug!("  ✗ No concat BIN found in any location");
-    None
-}
-
-/// Follow the skin BIN's `linked` header and return the concatenated ritobin text of every
-/// linked `.bin` that resolves to a file on disk. Material/`StaticMaterialDef` defs often live
-/// in these shared/linked bins rather than in the skin BIN itself.
-///
-/// Only the skin BIN's *direct* linked list is followed (no recursion, no project-wide scan).
-pub fn find_linked_bin_ritobin_text(mesh_path: &Path) -> Option<String> {
-    let skin_bin = find_skin_bin(mesh_path)?;
-    let data = std::fs::read(&skin_bin).ok()?;
-    let tree = crate::bin::codec::read_bin(&data).ok()?;
-    if tree.linked.is_empty() {
-        return None;
-    }
-
-    let project_root = find_project_root(mesh_path);
-    let mut merged = String::new();
-
-    for linked in &tree.linked {
-        let normalized = linked.replace('\\', "/");
-        if !normalized.to_lowercase().ends_with(".bin") {
-            continue;
-        }
-
-        let Some(bin_path) = resolve_linked_bin_path(mesh_path, project_root.as_deref(), &normalized)
-        else {
-            tracing::debug!("  Linked BIN not found on disk: {}", linked);
-            continue;
-        };
-
-        // Skip the skin BIN itself if it links back to its own concat, etc. — already merged.
-        if bin_path == skin_bin {
-            continue;
-        }
-
-        if let Ok(text) = render_bin(&bin_path) {
-            tracing::debug!("  ✓ Merged linked BIN: {} ({} bytes)", bin_path.display(), text.len());
-            merged.push_str("\n\n");
-            merged.push_str(&text);
-        }
-    }
-
-    if merged.is_empty() {
-        None
-    } else {
-        Some(merged)
-    }
-}
-
 /// Read and parse every `.bin` in a skin BIN's direct `linked` header that resolves on disk.
 ///
-/// Same resolution as [`find_linked_bin_ritobin_text`] (direct list only, no recursion, no
-/// project-wide scan) but returns parsed trees instead of text — entries Riot's build hoisted
+/// Direct list only — no recursion, no project-wide scan — entries Riot's build hoisted
 /// out of `skinN.bin` into a shared `<Champ>_Skins_*.bin` are reachable only this way.
 /// Unreadable/unparseable links are skipped; the caller treats a short list as "not found".
 pub fn read_linked_bin_trees(mesh_path: &Path, skin_bin: &Path, tree: &Bin) -> Vec<Bin> {
@@ -370,39 +238,3 @@ pub fn render_bin(bin_path: &Path) -> anyhow::Result<String> {
     rendered().insert(bin_path.to_path_buf(), (stamp, text.clone()));
     Ok(text)
 }
-
-/// Recursively search a directory for .ritobin files, preferring Concat.bin.ritobin
-pub fn find_ritobin_in_dir(dir: &Path) -> Option<String> {
-    let entries = std::fs::read_dir(dir).ok()?;
-    let mut fallback: Option<std::path::PathBuf> = None;
-
-    for entry in entries.filter_map(|e| e.ok()) {
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().to_lowercase();
-
-        if path.is_dir() {
-            if let Some(text) = find_ritobin_in_dir(&path) {
-                return Some(text);
-            }
-        } else if name.ends_with(".bin.ritobin") {
-            if name.contains("concat") {
-                if let Ok(text) = std::fs::read_to_string(&path) {
-                    tracing::debug!("✓ Found concat .ritobin directly: {}", path.display());
-                    return Some(text);
-                }
-            } else if fallback.is_none() {
-                fallback = Some(path);
-            }
-        }
-    }
-
-    if let Some(fb_path) = fallback {
-        if let Ok(text) = std::fs::read_to_string(&fb_path) {
-            tracing::debug!("✓ Found .ritobin directly: {}", fb_path.display());
-            return Some(text);
-        }
-    }
-
-    None
-}
-

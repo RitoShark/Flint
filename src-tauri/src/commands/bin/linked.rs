@@ -15,7 +15,7 @@ fn ritobin_text(bin_path: &Path) -> Option<String> {
 
 /// The ritobin text of every BIN in `bin_path`'s direct `linked` header.
 ///
-/// Direct list only, no recursion — mirrors `find_linked_bin_ritobin_text`, but
+/// Direct list only, no recursion — mirrors `read_linked_bin_trees`, but
 /// keeps the files separate so a search can report which one a hit came from.
 /// Unreadable links are skipped rather than failing the whole call.
 #[tauri::command]
