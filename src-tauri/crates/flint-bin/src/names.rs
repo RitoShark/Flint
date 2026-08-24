@@ -165,8 +165,8 @@ fn build_mod_root_names(root: &Path) -> crate::Trailer {
 
     // 2. Whatever is on disk. The WAD-relative path IS what was hashed, so a
     //    file still present names itself with no table involved.
-    const ASSET_EXTS: [&str; 12] = [
-        "tex", "dds", "png", "jpg", "jpeg", "skn", "skl", "scb", "sco", "anm", "bnk", "wpk",
+    const ASSET_EXTS: [&str; 13] = [
+        "tex", "dds", "png", "jpg", "jpeg", "skn", "skl", "scb", "sco", "anm", "bnk", "wpk", "bin",
     ];
     const MAX_FILES: usize = 100_000;
     let mut stack = vec![root.clone()];

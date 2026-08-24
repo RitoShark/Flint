@@ -1,15 +1,69 @@
 //! Animation BIN parsing and ANM file loading
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::bin::codec;
-use ritoshark::bin::BinValue;
+use indexmap::IndexMap;
 use ritoshark::anim::Animation;
+use ritoshark::bin::{Bin, BinValue};
+use ritoshark::hash::fnv1a;
 use ritoshark::prelude::Parse;
 use serde::Serialize;
 
+use crate::mesh::materials::{self, BinIndex};
 use crate::mesh::submesh_visibility::SubmeshVisEvent;
+
+const ANIMATION_FILE_PATH: u32 = fnv1a("mAnimationFilePath");
+const ANIMATION_GRAPH_DATA: u32 = fnv1a("animationGraphData");
+const SKIN_MESH_PROPERTIES: u32 = fnv1a("skinMeshProperties");
+const SIMPLE_SKIN: u32 = fnv1a("simpleSkin");
+const SKELETON: u32 = fnv1a("skeleton");
+
+/// The first value under `field`, anywhere in the tree, that `pick` accepts.
+///
+/// Depth-first because these fields nest: `skinMeshProperties` sits on the skin entry,
+/// `animationGraphData` inside `skinAnimationProperties`, and a repathed bin is free to
+/// wrap either in something else again.
+fn find_field<T>(tree: &Bin, field: u32, pick: &dyn Fn(&BinValue) -> Option<T>) -> Option<T> {
+    tree.entries
+        .iter()
+        .find_map(|entry| find_field_in(&entry.fields, field, pick))
+}
+
+fn find_field_in<T>(
+    fields: &IndexMap<u32, BinValue>,
+    field: u32,
+    pick: &dyn Fn(&BinValue) -> Option<T>,
+) -> Option<T> {
+    if let Some(found) = fields.get(&field).and_then(pick) {
+        return Some(found);
+    }
+    fields
+        .values()
+        .find_map(|value| find_field_in_value(value, field, pick))
+}
+
+fn find_field_in_value<T>(
+    value: &BinValue,
+    field: u32,
+    pick: &dyn Fn(&BinValue) -> Option<T>,
+) -> Option<T> {
+    match value {
+        BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
+            find_field_in(fields, field, pick)
+        }
+        BinValue::List { items, .. } => items
+            .iter()
+            .find_map(|item| find_field_in_value(item, field, pick)),
+        BinValue::Option { value: Some(inner), .. } => find_field_in_value(inner, field, pick),
+        BinValue::Map { entries, .. } => entries
+            .iter()
+            .find_map(|(_, val)| find_field_in_value(val, field, pick)),
+        _ => None,
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AnimationClipInfo {
@@ -38,26 +92,54 @@ pub struct AnimationList {
     pub forms: Vec<crate::mesh::submesh_visibility::SkinForm>,
 }
 
+/// The animation graph a skin BIN points at, from whichever of the two records carries it.
+///
+/// The `linked` header names the graph bin by path and is checked first. It is a header,
+/// not a field, so the retype left it alone — but a repathed or hand-built bin often has
+/// no usable entry there, and then the reference inside `skinAnimationProperties` is all
+/// there is. That one moved: it used to be a `link` to the graph entry's name and is now
+/// a `file` holding the xxh64 of the graph bin's WAD path.
 pub fn extract_animation_graph_path(skin_bin_path: &Path) -> Option<PathBuf> {
-    tracing::debug!("Extracting animation BIN from dependencies: {}", skin_bin_path.display());
-
-    let data = fs::read(skin_bin_path).ok()?;
-    let tree = codec::read_bin(&data).ok()?;
-
-    tracing::debug!("Skin BIN has {} linked files", tree.linked.len());
+    let loaded = crate::mesh::ritobin::load_bin(skin_bin_path)?;
+    let (tree, names) = &*loaded;
 
     for dep_path in &tree.linked {
-        let normalized = dep_path.to_lowercase().replace('\\', "/");
-        tracing::debug!("  Checking dependency: {}", dep_path);
-
+        let normalized = dep_path.to_lowercase().replace(char::from(92), "/");
         if normalized.contains("/animations/") && normalized.ends_with(".bin") {
-            tracing::debug!("Found animation BIN in dependencies: {}", dep_path);
-            return resolve_animation_bin_from_reference(skin_bin_path, dep_path);
+            if let Some(found) = resolve_animation_bin_from_reference(skin_bin_path, dep_path) {
+                tracing::debug!("Animation BIN from the linked header: {}", found.display());
+                return Some(found);
+            }
         }
     }
-    
-    tracing::debug!("No animation BIN found in skin BIN dependencies");
-    None
+
+    let index = BinIndex::new([(tree, names.clone())]);
+    let reference = find_field(tree, ANIMATION_GRAPH_DATA, &|value| index.asset_path(value))?;
+    tracing::debug!("animationGraphData names {reference}");
+    resolve_graph_reference(skin_bin_path, &reference)
+}
+
+/// Turn an `animationGraphData` reference into a bin on disk.
+///
+/// A `file` resolves to the graph bin's WAD-relative path, which is what the mod folder is
+/// laid out as. A `link` resolves to the graph ENTRY's name
+/// (`Characters/Kayn/Animations/Skin20`) — the same path without `DATA/` and without the
+/// extension — so both land in the same place once `.bin` is appended.
+fn resolve_graph_reference(skin_bin_path: &Path, reference: &str) -> Option<PathBuf> {
+    let mut rel = reference.replace(char::from(92), "/");
+    if !rel.to_lowercase().ends_with(".bin") {
+        rel.push_str(".bin");
+    }
+
+    if let Some(root) = crate::bin::names::mod_root(skin_bin_path) {
+        for candidate in [root.join(&rel), root.join("data").join(&rel)] {
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+
+    resolve_animation_bin_from_reference(skin_bin_path, &rel)
 }
 
 fn resolve_animation_bin_from_reference(skin_bin_path: &Path, reference_path: &str) -> Option<PathBuf> {
@@ -306,21 +388,53 @@ fn content_scan_root(skn_path: &Path) -> Option<PathBuf> {
     data_owner
 }
 
+/**
+Every animation clip an animation-graph BIN plays, deduped.
+
+Two things the printed-text path could not do:
+
+- A clip path is read from the value's TYPE. `mAnimationFilePath` used to be a `string` and
+  is now a `file` holding the xxh64 of the `.anm`'s WAD path; both are arms of one match
+  here, so neither form can silently stop matching.
+- The hash is named from the bin's own records first — its trailer, the mod root's
+  `files.txt`, and the `.anm` files actually on disk — before the global dictionary. A
+  repathed mod invents paths that are in no dictionary anywhere, and its clips were
+  invisible until this looked there.
+
+Deduped by path because one clip is reached from many places: an `AtomicClipData` names the
+`.anm`, and every selector, sequencer and conditional that plays it names it again.
+*/
 pub fn extract_animation_list(bin_path: &Path) -> anyhow::Result<AnimationList> {
-    let data = fs::read(bin_path)?;
-    let tree = codec::read_bin(&data)
-        .map_err(|e| anyhow::anyhow!("Failed to parse animation BIN: {}", e))?;
+    let loaded = crate::mesh::ritobin::load_bin(bin_path)
+        .ok_or_else(|| anyhow::anyhow!("Failed to parse animation BIN: {}", bin_path.display()))?;
+    let (tree, names) = &*loaded;
+    let index = BinIndex::new([(tree, names.clone())]);
 
-    let mut clips = Vec::new();
-
+    let mut found = ClipSet::default();
     for entry in &tree.entries {
-        for value in entry.fields.values() {
-            extract_animation_paths_from_value(value, &mut clips);
+        for (field, value) in &entry.fields {
+            collect_clips(&index, *field, value, &mut found);
         }
     }
 
+    if found.unresolved > 0 {
+        tracing::warn!(
+            "{} names {} animation file hash(es) that resolve to no path — those clips cannot be listed",
+            bin_path.display(),
+            found.unresolved,
+        );
+    }
+    tracing::debug!(
+        "{} yields {} clip(s) from {} reference(s)",
+        bin_path.display(),
+        found.clips.len(),
+        found.seen.len() + found.duplicates,
+    );
+
+    let mut clips = found.clips;
+
     // Attach per-clip submesh-visibility events, keyed by clip name (the `.anm` stem).
-    let mut events = crate::mesh::submesh_visibility::parse_clip_visibility_events(&tree);
+    let mut events = crate::mesh::submesh_visibility::parse_clip_visibility_events(tree);
     for clip in &mut clips {
         if let Some(ev) = events.remove(&clip.name) {
             clip.events = ev;
@@ -335,65 +449,73 @@ pub fn extract_animation_list(bin_path: &Path) -> anyhow::Result<AnimationList> 
     })
 }
 
-fn extract_animation_paths_from_value(value: &BinValue, clips: &mut Vec<AnimationClipInfo>) {
+/// Clips in the order first reached, with each `.anm` kept once.
+#[derive(Default)]
+struct ClipSet {
+    clips: Vec<AnimationClipInfo>,
+    seen: HashSet<String>,
+    duplicates: usize,
+    /// `mAnimationFilePath` hashes no record could name — a clip whose `.anm` is gone.
+    unresolved: usize,
+}
+
+impl ClipSet {
+    fn push(&mut self, path: String) {
+        let key = path.replace(char::from(92), "/").to_ascii_lowercase();
+        if !self.seen.insert(key) {
+            self.duplicates += 1;
+            return;
+        }
+        let name = Path::new(&path)
+            .file_stem()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "Unknown".to_string());
+        self.clips.push(AnimationClipInfo {
+            name,
+            track_name: None,
+            animation_path: path,
+            events: Vec::new(),
+        });
+    }
+}
+
+fn is_anm(path: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("anm"))
+}
+
+/// Walk one value for `.anm` references, carrying the field it sits under.
+///
+/// The field only matters for the failure case: an unnamed hash anywhere else is ordinary
+/// (a link to another entry, a colour name), but one under `mAnimationFilePath` is an
+/// animation the graph plays and nothing on disk answers to.
+fn collect_clips(index: &BinIndex, field: u32, value: &BinValue, out: &mut ClipSet) {
     match value {
-        BinValue::String(s) => {
-            if s.to_lowercase().ends_with(".anm") {
-                let name = Path::new(s)
-                    .file_stem()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "Unknown".to_string());
-
-                clips.push(AnimationClipInfo {
-                    name,
-                    track_name: None,
-                    animation_path: s.clone(),
-                    events: Vec::new(),
-                });
+        BinValue::String(_) | BinValue::File(_) | BinValue::Hash(_) | BinValue::Link(_) => {
+            match index.asset_path(value) {
+                Some(path) if is_anm(&path) => out.push(path),
+                None if field == ANIMATION_FILE_PATH => out.unresolved += 1,
+                _ => {}
             }
         }
-        BinValue::File(h) => {
-            let known = flint_hash::hash::get_cached_bin_hashes().read();
-            if let Some(s) = known.get(*h) {
-                if s.to_lowercase().ends_with(".anm") {
-                    let name = Path::new(s)
-                        .file_stem()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_else(|| "Unknown".to_string());
-
-                    clips.push(AnimationClipInfo {
-                        name,
-                        track_name: None,
-                        animation_path: s.to_string(),
-                        events: Vec::new(),
-                    });
-                }
-            }
-        }
-
         BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
-            for val in fields.values() {
-                extract_animation_paths_from_value(val, clips);
+            for (f, val) in fields {
+                collect_clips(index, *f, val, out);
             }
         }
-
         BinValue::List { items, .. } => {
             for item in items {
-                extract_animation_paths_from_value(item, clips);
+                collect_clips(index, field, item, out);
             }
         }
-
-        BinValue::Option { value: Some(inner), .. } => {
-            extract_animation_paths_from_value(inner, clips);
-        }
-
+        BinValue::Option { value: Some(inner), .. } => collect_clips(index, field, inner, out),
         BinValue::Map { entries, .. } => {
             for (key, val) in entries {
-                extract_animation_paths_from_value(key, clips);
-                extract_animation_paths_from_value(val, clips);
+                collect_clips(index, field, key, out);
+                collect_clips(index, field, val, out);
             }
         }
-
         _ => {}
     }
 }
@@ -448,36 +570,57 @@ pub fn resolve_animation_path(base_dir: &Path, anim_path: &str) -> Option<PathBu
     None
 }
 
-/// Pull the `simpleSkin` asset path out of a skin BIN's ritobin text, if present.
-pub fn extract_simple_skin_from_text(content: &str) -> Option<String> {
-    let re = regex::Regex::new(r#"(?i)simpleSkin:\s*string\s*=\s*"([^"]+)""#).ok()?;
-    re.captures(content)
-        .and_then(|c| c.get(1))
-        .map(|m| m.as_str().to_string())
-        .filter(|s| !s.is_empty())
+/// The mesh and rig a skin BIN's `skinMeshProperties` names.
+pub struct SkinMeshRefs {
+    pub simple_skin: Option<String>,
+    pub skeleton: Option<String>,
+}
+
+/**
+`simpleSkin` and `skeleton` from the ONE `skinMeshProperties` embed that owns them both.
+
+A skin BIN commonly embeds particle definitions that carry their own `skeleton` for a
+different rig; pairing a mesh against one of those silently weights it to the wrong
+skeleton. Reading both out of the same field map is what rules that out — the particle's
+skeleton lives under `particleSkin`, which is a different field, so it is never reachable
+from here. The embed is still required to own `simpleSkin`: if it does not, it is not the
+embed this assumes, and guessing is worse than failing.
+*/
+pub fn skin_mesh_refs(skin_bin_path: &Path) -> anyhow::Result<SkinMeshRefs> {
+    let loaded = crate::mesh::ritobin::load_bin(skin_bin_path).ok_or_else(|| {
+        anyhow::anyhow!("Failed to read skin BIN {}", skin_bin_path.display())
+    })?;
+    let (tree, names) = &*loaded;
+    let index = BinIndex::new([(tree, names.clone())]);
+
+    let refs = find_field(tree, SKIN_MESH_PROPERTIES, &|value| {
+        let fields = materials::fields_of(value)?;
+        let simple_skin = index.asset_path(fields.get(&SIMPLE_SKIN)?)?;
+        Some(SkinMeshRefs {
+            simple_skin: Some(simple_skin),
+            skeleton: fields.get(&SKELETON).and_then(|v| index.asset_path(v)),
+        })
+    });
+
+    refs.ok_or_else(|| {
+        anyhow::anyhow!(
+            "Skin BIN {} has no skinMeshProperties embed carrying simpleSkin",
+            skin_bin_path.display()
+        )
+    })
 }
 
 /// Given a standalone `.anm` path, find the skin BIN that references it, read its
 /// `simpleSkin`, and resolve that to a `.skn` file on disk.
 pub fn resolve_skn_for_anm(anm_path: &Path) -> anyhow::Result<PathBuf> {
-    // 1. Locate the skin BIN near the ANM. `find_animation_bin` walks the same
-    //    directory structure; the skin BIN is found first via find_skin_bin.
     let bin_path = crate::mesh::texture::find_skin_bin(anm_path)
         .or_else(|| find_animation_bin(anm_path))
         .ok_or_else(|| anyhow::anyhow!("No skin BIN found near {}", anm_path.display()))?;
 
-    // 2. Parse the BIN to a tree, render ritobin text, and pull simpleSkin.
-    //    `codec::read_bin` -> `Bin`; `converter::bin_to_text(&Bin)` -> text.
-    let data = fs::read(&bin_path)
-        .map_err(|e| anyhow::anyhow!("Failed to read BIN {}: {}", bin_path.display(), e))?;
-    let tree = codec::read_bin(&data)
-        .map_err(|e| anyhow::anyhow!("Failed to parse BIN: {}", e))?;
-    let text = crate::bin::converter::bin_to_text(&tree)
-        .map_err(|e| anyhow::anyhow!("Failed to convert BIN to text: {}", e))?;
-    let simple_skin = extract_simple_skin_from_text(&text)
+    let simple_skin = skin_mesh_refs(&bin_path)?
+        .simple_skin
         .ok_or_else(|| anyhow::anyhow!("BIN {} has no simpleSkin field", bin_path.display()))?;
 
-    // 3. Resolve the asset path to a real .skn on disk (generic asset resolver).
     let base_dir = anm_path.parent().unwrap_or_else(|| Path::new("."));
     resolve_animation_path(base_dir, &simple_skin)
         .filter(|p| p.exists())
@@ -511,37 +654,6 @@ fn skin_bin_sibling_path(anim_bin: &Path) -> Option<PathBuf> {
     Some(out)
 }
 
-/// Pull `skeleton` out of a skin BIN's ritobin text — but only from the SAME
-/// `skinMeshProperties` embed that `simpleSkin` lives in, not the first
-/// `skeleton:` occurrence anywhere in the file.
-///
-/// A skin BIN commonly embeds particle definitions elsewhere (for attached
-/// VFX) that carry their own `skeleton` field for a *different* rig. Scanning
-/// the whole file for the first `skeleton:` match would silently pick one of
-/// those instead of the character's own skeleton — exactly the mis-pairing
-/// the mask editor's mismatch handling exists to catch, so this must not
-/// guess. Isolating the `skinMeshProperties` embed first, then requiring that
-/// same block to also contain `simpleSkin`, is what guarantees `skeleton` and
-/// `simpleSkin` come from the same embed.
-fn extract_skeleton_from_skin_mesh_properties(content: &str) -> Option<String> {
-    let header_re =
-        regex::Regex::new(r"skinMeshProperties:\s*embed\s*=\s*(?:SkinMeshDataProperties\s*)?").ok()?;
-    let header_match = header_re.find(content)?;
-    let block = crate::mesh::texture::extract_braced_block(content, header_match.end().saturating_sub(1))?;
-
-    // Sanity check: this embed must be the one that owns simpleSkin. If it
-    // isn't, the assumption this function relies on doesn't hold here, and
-    // returning a skeleton anyway would risk pairing against the wrong rig.
-    extract_simple_skin_from_text(&block)?;
-
-    let skeleton_re = regex::Regex::new(r#"(?i)skeleton:\s*string\s*=\s*"([^"]+)""#).ok()?;
-    skeleton_re
-        .captures(&block)
-        .and_then(|c| c.get(1))
-        .map(|m| m.as_str().to_string())
-        .filter(|s| !s.is_empty())
-}
-
 /// Given an animation-graph BIN (`…/animations/skin<N>.bin`), find its sibling
 /// skin BIN and resolve that skin's `skeleton` to a `.skl` on disk.
 ///
@@ -552,7 +664,7 @@ fn extract_skeleton_from_skin_mesh_properties(content: &str) -> Option<String> {
 ///         ↓ deterministic sibling swap: animations/ → skins/
 /// data/characters/<champ>/skins/skin<N>.bin        (the skin BIN)
 ///         ↓ skinMeshProperties (same embed as simpleSkin)
-/// skeleton: "ASSETS/…/Smolder_Base.skl"
+/// skeleton -> "ASSETS/…/Smolder_Base.skl"
 ///         ↓ resolve_animation_path
 /// a real .skl on disk
 /// ```
@@ -571,13 +683,7 @@ pub fn resolve_skl_for_animation_bin(anim_bin: &Path) -> anyhow::Result<PathBuf>
         ));
     }
 
-    let data = fs::read(&skin_bin_path)
-        .map_err(|e| anyhow::anyhow!("Failed to read skin BIN {}: {}", skin_bin_path.display(), e))?;
-    let tree = codec::read_bin(&data).map_err(|e| anyhow::anyhow!("Failed to parse skin BIN: {}", e))?;
-    let text = crate::bin::converter::bin_to_text(&tree)
-        .map_err(|e| anyhow::anyhow!("Failed to convert skin BIN to text: {}", e))?;
-
-    let skeleton = extract_skeleton_from_skin_mesh_properties(&text).ok_or_else(|| {
+    let skeleton = skin_mesh_refs(&skin_bin_path)?.skeleton.ok_or_else(|| {
         anyhow::anyhow!(
             "Skin BIN {} has no skeleton field in its skinMeshProperties embed",
             skin_bin_path.display()
@@ -767,26 +873,6 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
-    #[test]
-    fn reads_simple_skin_from_bin_text() {
-        let text = r#"
-        skinMeshProperties: embed = SkinMeshDataProperties {
-            simpleSkin: string = "ASSETS/Characters/Test/Skins/Skin0/Test.skn"
-            texture: string = "ASSETS/Characters/Test/Skins/Skin0/Test.tex"
-        }
-        "#;
-        assert_eq!(
-            extract_simple_skin_from_text(text).as_deref(),
-            Some("ASSETS/Characters/Test/Skins/Skin0/Test.skn"),
-        );
-    }
-
-    #[test]
-    fn missing_simple_skin_returns_none() {
-        let text = r#"skinMeshProperties: embed = SkinMeshDataProperties { }"#;
-        assert!(extract_simple_skin_from_text(text).is_none());
-    }
-
     // ── skin_bin_sibling_path: the animations/ -> skins/ path derivation ──────
     //
     // Pure path math, no fixtures needed — exactly where an off-by-one in the
@@ -823,73 +909,320 @@ mod tests {
         assert_eq!(skin_bin_sibling_path(bin), None);
     }
 
-    // ── extract_skeleton_from_skin_mesh_properties: same-embed guarantee ────
+    // ── skinMeshProperties and the clip list, read off the tree ──────────────
+    //
+    // Every reference below is written the way the current client stores it: `file`
+    // holding an xxh64 of the asset's WAD path. Nothing in these fixtures is a string
+    // path, which is exactly what the old text scans required.
+
+    use indexmap::IndexMap;
+    use ritoshark::bin::{Bin, BinEntry, BinType, BinValue};
+    use ritoshark::hash::{fnv1a, xxh64};
+    use ritoshark::prelude::Serialize as _;
+
+    struct ModRoot(PathBuf);
+
+    impl ModRoot {
+        /// A mod folder with an `assets/` tree, so `mod_root` finds it from any bin inside.
+        fn new(tag: &str) -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "flint-anim-{tag}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(root.join("assets")).unwrap();
+            Self(root)
+        }
+
+        /// Put an empty asset at `rel`, which is also what its xxh64 is taken over.
+        fn asset(&self, rel: &str) -> &Self {
+            let path = self.0.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, []).unwrap();
+            self
+        }
+
+        fn write_bin(&self, rel: &str, bin: &Bin) -> PathBuf {
+            let path = self.0.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, bin.to_bytes().unwrap()).unwrap();
+            crate::bin::names::forget_mod_root(&path);
+            path
+        }
+    }
+
+    impl Drop for ModRoot {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).ok();
+        }
+    }
+
+    fn entry(name: &str, class: &str, fields: Vec<(u32, BinValue)>) -> BinEntry {
+        BinEntry {
+            path_hash: fnv1a(name),
+            class_hash: fnv1a(class),
+            fields: fields.into_iter().collect::<IndexMap<_, _>>(),
+        }
+    }
+
+    fn bin_of(entries: Vec<BinEntry>) -> Bin {
+        Bin {
+            version: 3,
+            entries,
+            ..Bin::new()
+        }
+    }
+
+    fn embed(class: &str, fields: Vec<(u32, BinValue)>) -> BinValue {
+        BinValue::Embed {
+            class: fnv1a(class),
+            fields: fields.into_iter().collect::<IndexMap<_, _>>(),
+        }
+    }
+
+    fn clip(anm: BinValue) -> BinValue {
+        embed(
+            "AnimationResourceData",
+            vec![(fnv1a("mAnimationFilePath"), anm)],
+        )
+    }
 
     #[test]
-    fn reads_skeleton_from_the_skin_mesh_properties_embed() {
-        let text = r#"
-        skinMeshProperties: embed = SkinMeshDataProperties {
-            skeleton: string = "ASSETS/Characters/Test/Skins/Skin0/Test.skl"
-            simpleSkin: string = "ASSETS/Characters/Test/Skins/Skin0/Test.skn"
-            texture: string = "ASSETS/Characters/Test/Skins/Skin0/Test.tex"
-        }
-        "#;
-        assert_eq!(
-            extract_skeleton_from_skin_mesh_properties(text).as_deref(),
-            Some("ASSETS/Characters/Test/Skins/Skin0/Test.skl"),
+    fn reads_a_file_typed_simple_skin_and_skeleton_from_the_same_embed() {
+        let root = ModRoot::new("refs");
+        root.asset("assets/test/test.skn").asset("assets/test/test.skl");
+
+        let skin = root.write_bin(
+            "data/characters/test/skins/skin0.bin",
+            &bin_of(vec![entry(
+                "Characters/Test/Skins/Skin0",
+                "SkinCharacterDataProperties",
+                vec![(
+                    fnv1a("skinMeshProperties"),
+                    embed(
+                        "SkinMeshDataProperties",
+                        vec![
+                            (fnv1a("simpleSkin"), BinValue::File(xxh64("assets/test/test.skn"))),
+                            (fnv1a("skeleton"), BinValue::File(xxh64("assets/test/test.skl"))),
+                        ],
+                    ),
+                )],
+            )]),
         );
+
+        let refs = skin_mesh_refs(&skin).unwrap();
+        assert_eq!(refs.simple_skin.as_deref(), Some("assets/test/test.skn"));
+        assert_eq!(refs.skeleton.as_deref(), Some("assets/test/test.skl"));
     }
 
     #[test]
     fn ignores_a_particle_skeleton_that_lives_outside_skin_mesh_properties() {
-        // Mirrors the real smolder skin BIN: the character's own skeleton
-        // sits in skinMeshProperties alongside simpleSkin, but a VFX particle
-        // definition elsewhere in the same file embeds its OWN skeleton for a
-        // different rig. Only the skinMeshProperties one may be returned —
-        // picking the particle's would silently pair weights against the
-        // wrong skeleton.
-        // Ordering is load-bearing: the particle entry deliberately comes FIRST so
-        // that a "take the first skeleton: in the file" implementation would return
-        // the particle's skeleton and fail this test. BIN entries are emitted in
-        // stored hash order, so particle-before-skin is a realistic layout.
-        let text = r#"
-        "Characters/Smolder/Skins/Skin0/Particles/Q_ball" = VfxSystemDefinitionData {
-            complexEmitterDefinitionData: list[embed] = {
-                VfxEmitterDefinitionData {
-                    particleSkin: embed = ParticleSkinDataProperties {
-                        skeleton: string = "ASSETS/skin0_smolder_particles/Smolder_Base_Q_ball.skl"
-                    }
-                }
-            }
-        }
-        skinMeshProperties: embed = SkinMeshDataProperties {
-            simpleSkin: string = "ASSETS/Characters/Smolder/Skins/Base/Smolder_Base.skn"
-            skeleton: string = "ASSETS/Characters/Smolder/Skins/Base/Smolder_Base.skl"
-        }
-        "#;
+        // The particle entry comes FIRST so a "take the first skeleton anywhere" reader
+        // would return its rig and fail here. BIN entries are emitted in stored hash
+        // order, so particle-before-skin is a realistic layout.
+        let root = ModRoot::new("particle");
+        root.asset("assets/test/test.skn")
+            .asset("assets/test/test.skl")
+            .asset("assets/test/particle.skl");
+
+        let skin = root.write_bin(
+            "data/characters/test/skins/skin0.bin",
+            &bin_of(vec![
+                entry(
+                    "Characters/Test/Skins/Skin0/Particles/Q",
+                    "VfxSystemDefinitionData",
+                    vec![(
+                        fnv1a("particleSkin"),
+                        embed(
+                            "ParticleSkinDataProperties",
+                            vec![(
+                                fnv1a("skeleton"),
+                                BinValue::File(xxh64("assets/test/particle.skl")),
+                            )],
+                        ),
+                    )],
+                ),
+                entry(
+                    "Characters/Test/Skins/Skin0",
+                    "SkinCharacterDataProperties",
+                    vec![(
+                        fnv1a("skinMeshProperties"),
+                        embed(
+                            "SkinMeshDataProperties",
+                            vec![
+                                (fnv1a("simpleSkin"), BinValue::File(xxh64("assets/test/test.skn"))),
+                                (fnv1a("skeleton"), BinValue::File(xxh64("assets/test/test.skl"))),
+                            ],
+                        ),
+                    )],
+                ),
+            ]),
+        );
+
         assert_eq!(
-            extract_skeleton_from_skin_mesh_properties(text).as_deref(),
-            Some("ASSETS/Characters/Smolder/Skins/Base/Smolder_Base.skl"),
+            skin_mesh_refs(&skin).unwrap().skeleton.as_deref(),
+            Some("assets/test/test.skl"),
             "must pick the skinMeshProperties skeleton, not the particle's",
         );
     }
 
     #[test]
-    fn no_skin_mesh_properties_embed_returns_none() {
-        let text = r#""SomeVfx" = VfxSystemDefinitionData { skeleton: string = "ASSETS/Whatever.skl" }"#;
-        assert!(extract_skeleton_from_skin_mesh_properties(text).is_none());
+    fn an_embed_without_simple_skin_is_not_trusted() {
+        let root = ModRoot::new("nosimpleskin");
+        root.asset("assets/test/test.skl");
+
+        let skin = root.write_bin(
+            "data/characters/test/skins/skin0.bin",
+            &bin_of(vec![entry(
+                "Characters/Test/Skins/Skin0",
+                "SkinCharacterDataProperties",
+                vec![(
+                    fnv1a("skinMeshProperties"),
+                    embed(
+                        "SkinMeshDataProperties",
+                        vec![(fnv1a("skeleton"), BinValue::File(xxh64("assets/test/test.skl")))],
+                    ),
+                )],
+            )]),
+        );
+
+        assert!(skin_mesh_refs(&skin).is_err());
     }
 
     #[test]
-    fn skin_mesh_properties_without_simple_skin_is_not_trusted() {
-        // If the block we found doesn't even own simpleSkin, it isn't the
-        // embed we think it is — refuse rather than guess.
-        let text = r#"
-        skinMeshProperties: embed = SkinMeshDataProperties {
-            skeleton: string = "ASSETS/Characters/Test/Skins/Skin0/Test.skl"
-        }
-        "#;
-        assert!(extract_skeleton_from_skin_mesh_properties(text).is_none());
+    fn file_typed_clip_paths_resolve_and_the_same_anm_is_listed_once() {
+        let root = ModRoot::new("clips");
+        root.asset("assets/test/animations/idle.anm")
+            .asset("assets/test/animations/run.anm");
+
+        let graph = root.write_bin(
+            "data/characters/test/animations/skin0.bin",
+            &bin_of(vec![entry(
+                "Characters/Test/Animations/Skin0",
+                "animationGraphData",
+                vec![(
+                    fnv1a("mClipDataMap"),
+                    BinValue::Map {
+                        key: BinType::Hash,
+                        value: BinType::Pointer,
+                        entries: vec![
+                            (
+                                BinValue::Hash(fnv1a("Idle1")),
+                                clip(BinValue::File(xxh64("assets/test/animations/idle.anm"))),
+                            ),
+                            (
+                                BinValue::Hash(fnv1a("Idle2")),
+                                clip(BinValue::File(xxh64("ASSETS/Test/Animations/Idle.anm"))),
+                            ),
+                            (
+                                BinValue::Hash(fnv1a("Run")),
+                                clip(BinValue::File(xxh64("assets/test/animations/run.anm"))),
+                            ),
+                        ],
+                    },
+                )],
+            )]),
+        );
+
+        let clips = extract_animation_list(&graph).unwrap().clips;
+        let names: Vec<&str> = clips.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["idle", "run"]);
+    }
+
+    #[test]
+    fn a_clip_whose_anm_is_gone_is_left_out_rather_than_listed_unplayable() {
+        let root = ModRoot::new("missinganm");
+        root.asset("assets/test/animations/idle.anm");
+
+        let graph = root.write_bin(
+            "data/characters/test/animations/skin0.bin",
+            &bin_of(vec![
+                entry(
+                    "Idle1",
+                    "AtomicClipData",
+                    vec![(
+                        fnv1a("mAnimationResourceData"),
+                        clip(BinValue::File(xxh64("assets/test/animations/idle.anm"))),
+                    )],
+                ),
+                entry(
+                    "Deleted",
+                    "AtomicClipData",
+                    vec![(
+                        fnv1a("mAnimationResourceData"),
+                        clip(BinValue::File(xxh64("assets/test/animations/deleted.anm"))),
+                    )],
+                ),
+            ]),
+        );
+
+        let clips = extract_animation_list(&graph).unwrap().clips;
+        assert_eq!(clips.len(), 1);
+        assert_eq!(clips[0].animation_path, "assets/test/animations/idle.anm");
+    }
+
+    #[test]
+    fn finds_the_animation_graph_bin_from_a_file_typed_reference() {
+        let root = ModRoot::new("graphref");
+        let graph_rel = "data/characters/test/animations/skin0.bin";
+        root.write_bin(graph_rel, &bin_of(vec![]));
+
+        let skin = root.write_bin(
+            "data/characters/test/skins/skin0.bin",
+            &bin_of(vec![entry(
+                "Characters/Test/Skins/Skin0",
+                "SkinCharacterDataProperties",
+                vec![(
+                    fnv1a("skinAnimationProperties"),
+                    embed(
+                        "SkinAnimationProperties",
+                        vec![(
+                            fnv1a("animationGraphData"),
+                            BinValue::File(xxh64(graph_rel)),
+                        )],
+                    ),
+                )],
+            )]),
+        );
+
+        assert_eq!(
+            extract_animation_graph_path(&skin),
+            Some(root.0.join(graph_rel)),
+        );
+    }
+
+    #[test]
+    fn a_link_typed_graph_reference_still_resolves() {
+        let root = ModRoot::new("graphlink");
+        let graph_rel = "data/characters/test/animations/skin0.bin";
+        root.write_bin(graph_rel, &bin_of(vec![]));
+
+        let name = "Characters/Test/Animations/Skin0";
+        let mut trailer = crate::bin::Trailer::new();
+        trailer.names.insert(fnv1a(name), name.to_string());
+
+        let mut bin = bin_of(vec![entry(
+            "Characters/Test/Skins/Skin0",
+            "SkinCharacterDataProperties",
+            vec![(
+                fnv1a("skinAnimationProperties"),
+                embed(
+                    "SkinAnimationProperties",
+                    vec![(fnv1a("animationGraphData"), BinValue::Link(fnv1a(name)))],
+                ),
+            )],
+        )]);
+        bin.trailing = crate::bin::append_trailer(&bin.trailing, &trailer);
+
+        let skin = root.write_bin("data/characters/test/skins/skin0.bin", &bin);
+
+        let found = extract_animation_graph_path(&skin).expect("link reference should resolve");
+        assert_eq!(
+            std::fs::canonicalize(found).unwrap(),
+            std::fs::canonicalize(root.0.join(graph_rel)).unwrap(),
+        );
     }
 }
-

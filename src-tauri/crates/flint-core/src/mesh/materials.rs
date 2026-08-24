@@ -109,7 +109,7 @@ impl<'a> BinIndex<'a> {
     ///
     /// `String` is the pre-migration form and `File` the current one; a `Link`/`Hash` in a
     /// path position is a name that was hashed. All three end at the same place.
-    fn path(&self, value: &BinValue) -> Option<String> {
+    pub fn asset_path(&self, value: &BinValue) -> Option<String> {
         match value {
             BinValue::String(s) if !s.is_empty() => Some(s.clone()),
             BinValue::File(hash) if *hash != 0 => self.name_of_file(*hash),
@@ -144,14 +144,14 @@ impl<'a> BinIndex<'a> {
     }
 }
 
-fn fields_of(value: &BinValue) -> Option<&indexmap::IndexMap<u32, BinValue>> {
+pub(crate) fn fields_of(value: &BinValue) -> Option<&indexmap::IndexMap<u32, BinValue>> {
     match value {
         BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => Some(fields),
         _ => None,
     }
 }
 
-fn items_of(value: &BinValue) -> &[BinValue] {
+pub(crate) fn items_of(value: &BinValue) -> &[BinValue] {
     match value {
         BinValue::List { items, .. } => items,
         _ => &[],
@@ -209,7 +209,7 @@ fn diffuse_of(index: &BinIndex, material: &BinEntry) -> Option<String> {
                 .and_then(as_str)
                 .unwrap_or_default()
                 .to_ascii_lowercase();
-            let path = index.path(fields.get(&TEXTURE_PATH)?)?;
+            let path = index.asset_path(fields.get(&TEXTURE_PATH)?)?;
             Some(Sampler { name, path })
         })
         .collect();
@@ -271,7 +271,7 @@ fn props_from_slot(
     index: &BinIndex,
     fields: &indexmap::IndexMap<u32, BinValue>,
 ) -> Option<MaterialProperties> {
-    if let Some(path) = fields.get(&TEXTURE).and_then(|v| index.path(v)) {
+    if let Some(path) = fields.get(&TEXTURE).and_then(|v| index.asset_path(v)) {
         return Some(MaterialProperties {
             texture_path: path,
             ..Default::default()
