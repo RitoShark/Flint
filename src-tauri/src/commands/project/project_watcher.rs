@@ -129,8 +129,8 @@ pub async fn start_project_watcher(
                 Some(_) = rx.recv() => {
                     tracing::info!("Debounce complete! Starting auto-sync...");
 
-                    // Celestial reads the project folder directly via a deep
-                    // link; LTK Manager gets a packaged fantome install.
+                    // Celestial reads the project folder directly via a deep link; LTK Manager
+                    // mirrors it into its workshop, or installs a fantome when it has none.
                     let sync_result = if is_celestial {
                         crate::commands::ltk_manager::sync_project_to_celestial(
                             project_path_clone.clone(),
@@ -142,6 +142,7 @@ pub async fn start_project_watcher(
                             ltk_storage_clone.clone(),
                         )
                         .await
+                        .map(|result| result.location)
                     };
 
                     match sync_result {

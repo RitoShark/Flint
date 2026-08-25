@@ -16,13 +16,27 @@ export async function getCelestialModPath(): Promise<string | null> {
     return invokeCommand('get_celestial_mod_path', {});
 }
 
+export interface LauncherSyncResult {
+    /** Where it landed. */
+    target: 'workshop' | 'library';
+    /** The workshop project directory, or the library mod id. */
+    location: string;
+    filesCopied: number;
+    filesRemoved: number;
+}
+
 /**
  * Sync a Flint project to LTK Manager.
- * Packages the project as .modpkg and installs it to the launcher.
  *
- * @returns The installed mod ID in LTK Manager
+ * A project open in Flint is being authored, so it goes to LTK Manager's **workshop** — the
+ * authoring side, whose projects are the same `mod.config.json` + `content/<layer>/` folders
+ * Flint already writes. The **library** (installed mods) is only the fallback, for a user who
+ * has never set a workshop path.
  */
-export async function syncProjectToLauncher(projectPath: string, ltkStoragePath: string): Promise<string> {
+export async function syncProjectToLauncher(
+    projectPath: string,
+    ltkStoragePath: string,
+): Promise<LauncherSyncResult> {
     return invokeCommand('sync_project_to_launcher', { projectPath, ltkStoragePath });
 }
 
@@ -41,8 +55,8 @@ export async function syncProjectToCelestial(projectPath: string): Promise<strin
  * Start watching a project directory for changes (auto-sync).
  *
  * `launcherKind` selects the sync path on change: 'celestial' fires a
- * `celestial://import-flint` deep link; 'ltk' (default) packages and installs a
- * fantome into LTK Manager. `ltkStoragePath` is only used by the LTK path.
+ * `celestial://import-flint` deep link; 'ltk' (default) mirrors the project into LTK
+ * Manager's workshop. `ltkStoragePath` is only used by the LTK library fallback.
  */
 export async function startProjectWatcher(
     projectPath: string,

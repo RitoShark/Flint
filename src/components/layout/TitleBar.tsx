@@ -378,8 +378,10 @@ export const TitleBar: React.FC = () => {
                 await api.syncProjectToCelestial(currentProjectPath);
                 showToast('success', 'Sent to Celestial — check its Creator Hub.');
             } else {
-                const modId = await api.syncProjectToLauncher(currentProjectPath, launcherTarget.path);
-                showToast('success', `Synced to ${launcherTarget.name}! Mod ID: ${modId}`);
+                const result = await api.syncProjectToLauncher(currentProjectPath, launcherTarget.path);
+                showToast('success', result.target === 'workshop'
+                    ? `Synced to the ${launcherTarget.name} workshop (${result.filesCopied} file${result.filesCopied === 1 ? '' : 's'} updated).`
+                    : `Installed into the ${launcherTarget.name} library as ${result.location}.`);
             }
 
             api.createCheckpoint(currentProjectPath, `Auto-checkpoint: Synced to ${launcherTarget.name}`).catch(e => {

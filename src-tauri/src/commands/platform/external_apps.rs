@@ -172,7 +172,7 @@ pub async fn detect_external_apps(app: tauri::AppHandle) -> ExternalAppsDetectio
     let (jade, quartz, ltk, celestial) = tokio::join!(
         detect_jade_installation(),
         detect_quartz_installation(),
-        get_ltk_manager_mod_path(app.clone()),
+        get_ltk_manager_mod_path(),
         get_celestial_mod_path(app),
     );
 
