@@ -5,7 +5,7 @@ A repath invents asset paths and object names that exist in no hash dictionary, 
 that stores only their hash cannot be read back without a record of what was hashed. Three
 records are consulted, each filling only what the ones before it could not:
 
-1. the bin's own trailer (`rs_bin::Trailer`), written at authoring time;
+1. the bin's own `ritobinmap` record (`rs_bin::PathMap`), written at authoring time;
 2. `files.txt` at the mod root, which survives a reserialize the trailer does not;
 3. the assets actually on disk — the WAD-relative path IS what was hashed, so a file still
    present names itself with no table involved.
@@ -52,31 +52,31 @@ pub fn forget_mod_root(path: &Path) {
 /// `bin_path` is where the bin lives on disk; the mod-root records are found relative to it.
 pub fn render_bin_text(bin: &Bin, bin_path: &Path) -> crate::codec::Result<String> {
     let text = crate::codec::tree_to_text_cached(bin)?;
-    let text = apply_own_trailer(text, bin);
+    let text = apply_own_names(text, bin);
     Ok(apply_mod_root_names(text, bin_path))
 }
 
-/// Resolve the `0x…` tokens only this bin's own trailer can name.
-pub fn apply_own_trailer(text: String, bin: &Bin) -> String {
-    let trailer = crate::read_trailer(&bin.trailing);
-    if trailer.is_empty() {
+/// Resolve the `0x…` tokens only this bin's own record can name.
+pub fn apply_own_names(text: String, bin: &Bin) -> String {
+    let carried = crate::codec::embedded_names(bin);
+    if carried.is_empty() {
         return text;
     }
-    tracing::info!("BIN carries {} embedded hash name(s)", trailer.len());
-    crate::apply_trailer(text, &trailer)
+    tracing::info!("BIN carries {} embedded hash name(s)", carried.len());
+    crate::apply_names(text, &carried)
 }
 
 /// Name the `0x…` tokens the bin's own trailer could not, from the mod folder.
 ///
-/// Two fallbacks for a bin whose trailer is missing — one written by a tool that
-/// emits none, or one whose trailer a reserialize dropped:
+/// Two fallbacks for a bin whose record is missing — one written by a tool that
+/// emits none, or one whose record a reserialize dropped:
 ///
 /// 1. `files.txt` at the mod root, the deliberate record. Names a path whether or
 ///    not the file is still on disk.
 /// 2. Hashing the assets actually present. Needs no sidecar at all, but can only
 ///    find what exists.
 ///
-/// Both only fill gaps — `apply_trailer` runs first, so a recorded name always
+/// Both only fill gaps — `apply_own_names` runs first, so a recorded name always
 /// beats an inferred one. Cheap to skip: with nothing left unresolved in the
 /// text there is no reason to touch the disk.
 pub fn apply_mod_root_names(text: String, bin_path: &Path) -> String {
@@ -92,7 +92,7 @@ pub fn apply_mod_root_names(text: String, bin_path: &Path) -> String {
     if trailer.is_empty() {
         return text;
     }
-    crate::apply_trailer(text, &trailer)
+    crate::apply_names(text, &trailer)
 }
 
 /// Every name source for one bin, merged into a single lookup table.
@@ -100,7 +100,7 @@ pub fn apply_mod_root_names(text: String, bin_path: &Path) -> String {
 /// The same three records [`render_bin_text`] applies to text, for callers that walk the
 /// parsed tree instead and only need to name the handful of hashes they actually reach.
 pub fn name_table(bin: &Bin, bin_path: &Path) -> crate::Trailer {
-    let mut table = crate::read_trailer(&bin.trailing);
+    let mut table = crate::codec::embedded_names(bin);
     if let Some(root) = mod_root(bin_path) {
         let from_root = mod_root_names(&root);
         for (hash, name) in from_root.names {

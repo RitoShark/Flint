@@ -15,15 +15,16 @@ pub mod split;
 pub mod texture_header;
 
 pub use codec::{
-    apply_trailer, capture_trailer, custom_file_names_from_text, custom_hash_names_from_text,
-    read_bin, remember_custom_hash_names, text_to_tree, tree_to_text_cached, unhash_text_cached,
-    write_bin, MAX_BIN_SIZE,
+    apply_names, custom_file_names_from_text, custom_hash_names_from_text, embed_names,
+    embedded_names, name_lookup, read_bin, remember_custom_hash_names, text_to_tree,
+    tree_to_text_cached, unhash_text_cached, write_bin, MAX_BIN_SIZE,
 };
 pub use ritoshark::bin::{Bin, BinEntry, BinType, BinValue};
 
-/// The hash-to-path side table a bin carries after its declared body. Owned by
-/// the library so every tool reads the same layout.
-pub use ritoshark::bin::{append_trailer, read_trailer, Trailer};
+/// The `ritobinmap` record: the names a bin is its own dictionary for, kept as a
+/// normal entry. Owned by the library so every tool reads the same layout, with
+/// `Trailer` left as the flattened lookup and the reader for the legacy footer.
+pub use ritoshark::bin::{read_path_map, read_trailer, write_path_map, PathMap, Trailer};
 
 /// `mBlendDataTable`'s `u64` keys pack two FNV1a clip hashes; the library owns
 /// that layout, re-exported here so callers reach it alongside the value model.
@@ -43,7 +44,7 @@ pub use animask::{read_masks, write_masks, MaskEntry};
 pub use audit::{audit_wad_folder, AuditReport, BloatFile};
 pub use checks::{check_animation_graph, check_texture, CheckIssue, MigrationTally, Severity};
 pub use names::{
-    apply_mod_root_names, apply_own_trailer, forget_mod_root, is_hash_hex, mod_root, name_table,
+    apply_mod_root_names, apply_own_names, forget_mod_root, is_hash_hex, mod_root, name_table,
     render_bin_text,
 };
 pub use texture_header::{read_texture_header, TextureContainer, TextureHeader};

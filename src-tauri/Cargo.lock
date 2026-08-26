@@ -2351,8 +2351,8 @@ dependencies = [
 
 [[package]]
 name = "hematite-core"
-version = "0.5.0"
-source = "git+https://github.com/RitoShark/Hematite?rev=a3c4e78#a3c4e786a3ddbab3b2e98bb7028df83575257d59"
+version = "0.6.1"
+source = "git+https://github.com/RitoShark/Hematite?rev=e1039d4#e1039d42717599eba9cfd7439d0dc695d51eaa9d"
 dependencies = [
  "anyhow",
  "hematite-types",
@@ -2363,12 +2363,13 @@ dependencies = [
  "serde_json",
  "strsim",
  "tracing",
+ "xxhash-rust",
 ]
 
 [[package]]
 name = "hematite-file"
-version = "0.5.0"
-source = "git+https://github.com/RitoShark/Hematite?rev=a3c4e78#a3c4e786a3ddbab3b2e98bb7028df83575257d59"
+version = "0.6.1"
+source = "git+https://github.com/RitoShark/Hematite?rev=e1039d4#e1039d42717599eba9cfd7439d0dc695d51eaa9d"
 dependencies = [
  "anyhow",
  "heed",
@@ -2404,8 +2405,8 @@ dependencies = [
 
 [[package]]
 name = "hematite-live"
-version = "0.5.0"
-source = "git+https://github.com/RitoShark/Hematite?rev=a3c4e78#a3c4e786a3ddbab3b2e98bb7028df83575257d59"
+version = "0.6.1"
+source = "git+https://github.com/RitoShark/Hematite?rev=e1039d4#e1039d42717599eba9cfd7439d0dc695d51eaa9d"
 dependencies = [
  "flate2",
  "serde_json",
@@ -2419,8 +2420,8 @@ dependencies = [
 
 [[package]]
 name = "hematite-orchestrate"
-version = "0.5.0"
-source = "git+https://github.com/RitoShark/Hematite?rev=a3c4e78#a3c4e786a3ddbab3b2e98bb7028df83575257d59"
+version = "0.6.1"
+source = "git+https://github.com/RitoShark/Hematite?rev=e1039d4#e1039d42717599eba9cfd7439d0dc695d51eaa9d"
 dependencies = [
  "anyhow",
  "hematite-core",
@@ -2433,8 +2434,8 @@ dependencies = [
 
 [[package]]
 name = "hematite-types"
-version = "0.5.0"
-source = "git+https://github.com/RitoShark/Hematite?rev=a3c4e78#a3c4e786a3ddbab3b2e98bb7028df83575257d59"
+version = "0.6.1"
+source = "git+https://github.com/RitoShark/Hematite?rev=e1039d4#e1039d42717599eba9cfd7439d0dc695d51eaa9d"
 dependencies = [
  "indexmap 2.13.0",
  "serde",
@@ -5024,7 +5025,7 @@ dependencies = [
 [[package]]
 name = "ritoshark"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=75c9473#75c94737d2dcf79b772012ef3b7ebe5c8a29505b"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=edcc717#edcc717703aab3a1199d3cf091f4c16255daf42d"
 dependencies = [
  "rs_anim",
  "rs_audio",
@@ -5065,7 +5066,7 @@ dependencies = [
 [[package]]
 name = "rs_anim"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=75c9473#75c94737d2dcf79b772012ef3b7ebe5c8a29505b"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=edcc717#edcc717703aab3a1199d3cf091f4c16255daf42d"
 dependencies = [
  "rs_hash",
  "rs_io",
@@ -5076,7 +5077,7 @@ dependencies = [
 [[package]]
 name = "rs_audio"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=75c9473#75c94737d2dcf79b772012ef3b7ebe5c8a29505b"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=edcc717#edcc717703aab3a1199d3cf091f4c16255daf42d"
 dependencies = [
  "lewton",
  "ogg",
@@ -5088,7 +5089,7 @@ dependencies = [
 [[package]]
 name = "rs_bin"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=75c9473#75c94737d2dcf79b772012ef3b7ebe5c8a29505b"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=edcc717#edcc717703aab3a1199d3cf091f4c16255daf42d"
 dependencies = [
  "indexmap 2.13.0",
  "rs_hash",
@@ -5101,12 +5102,12 @@ dependencies = [
 [[package]]
 name = "rs_file"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=75c9473#75c94737d2dcf79b772012ef3b7ebe5c8a29505b"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=edcc717#edcc717703aab3a1199d3cf091f4c16255daf42d"
 
 [[package]]
 name = "rs_hash"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=75c9473#75c94737d2dcf79b772012ef3b7ebe5c8a29505b"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=edcc717#edcc717703aab3a1199d3cf091f4c16255daf42d"
 dependencies = [
  "thiserror 2.0.18",
  "xxhash-rust",
@@ -5115,7 +5116,7 @@ dependencies = [
 [[package]]
 name = "rs_io"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=75c9473#75c94737d2dcf79b772012ef3b7ebe5c8a29505b"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=edcc717#edcc717703aab3a1199d3cf091f4c16255daf42d"
 dependencies = [
  "memmap2",
  "rs_math",
@@ -5125,7 +5126,7 @@ dependencies = [
 [[package]]
 name = "rs_luabin"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=75c9473#75c94737d2dcf79b772012ef3b7ebe5c8a29505b"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=edcc717#edcc717703aab3a1199d3cf091f4c16255daf42d"
 dependencies = [
  "rs_io",
  "thiserror 2.0.18",
@@ -5134,7 +5135,7 @@ dependencies = [
 [[package]]
 name = "rs_mapgeo"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=75c9473#75c94737d2dcf79b772012ef3b7ebe5c8a29505b"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=edcc717#edcc717703aab3a1199d3cf091f4c16255daf42d"
 dependencies = [
  "rs_hash",
  "rs_io",
@@ -5145,7 +5146,7 @@ dependencies = [
 [[package]]
 name = "rs_math"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=75c9473#75c94737d2dcf79b772012ef3b7ebe5c8a29505b"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=edcc717#edcc717703aab3a1199d3cf091f4c16255daf42d"
 dependencies = [
  "glam 0.29.3",
 ]
@@ -5153,7 +5154,7 @@ dependencies = [
 [[package]]
 name = "rs_mesh"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=75c9473#75c94737d2dcf79b772012ef3b7ebe5c8a29505b"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=edcc717#edcc717703aab3a1199d3cf091f4c16255daf42d"
 dependencies = [
  "rs_io",
  "rs_math",
@@ -5163,7 +5164,7 @@ dependencies = [
 [[package]]
 name = "rs_rman"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=75c9473#75c94737d2dcf79b772012ef3b7ebe5c8a29505b"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=edcc717#edcc717703aab3a1199d3cf091f4c16255daf42d"
 dependencies = [
  "blake3",
  "rs_io",
@@ -5175,7 +5176,7 @@ dependencies = [
 [[package]]
 name = "rs_rst"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=75c9473#75c94737d2dcf79b772012ef3b7ebe5c8a29505b"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=edcc717#edcc717703aab3a1199d3cf091f4c16255daf42d"
 dependencies = [
  "indexmap 2.13.0",
  "rs_hash",
@@ -5186,7 +5187,7 @@ dependencies = [
 [[package]]
 name = "rs_tex"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=75c9473#75c94737d2dcf79b772012ef3b7ebe5c8a29505b"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=edcc717#edcc717703aab3a1199d3cf091f4c16255daf42d"
 dependencies = [
  "ddsfile",
  "image",
@@ -5201,7 +5202,7 @@ dependencies = [
 [[package]]
 name = "rs_troybin"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=75c9473#75c94737d2dcf79b772012ef3b7ebe5c8a29505b"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=edcc717#edcc717703aab3a1199d3cf091f4c16255daf42d"
 dependencies = [
  "rs_hash",
  "rs_io",
@@ -5211,7 +5212,7 @@ dependencies = [
 [[package]]
 name = "rs_wad"
 version = "0.1.0"
-source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=75c9473#75c94737d2dcf79b772012ef3b7ebe5c8a29505b"
+source = "git+https://github.com/RitoShark/RitoShark-Crates?rev=edcc717#edcc717703aab3a1199d3cf091f4c16255daf42d"
 dependencies = [
  "flate2",
  "rs_hash",
@@ -7485,7 +7486,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

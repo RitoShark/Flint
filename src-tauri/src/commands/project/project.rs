@@ -77,7 +77,7 @@ fn write_project_files_txt(assets_root: &Path) -> Result<usize, String> {
                         }
                         let Ok(bytes) = std::fs::read(&path) else { continue };
                         let Ok(bin) = flint_core::bin::read_bin(&bytes) else { continue };
-                        let trailer = flint_core::bin::read_trailer(&bin.trailing);
+                        let trailer = flint_core::bin::embedded_names(&bin);
                         for (hash, name) in &trailer.names {
                             entries.entry(name.clone()).or_insert_with(|| format!("{hash:08x}"));
                         }

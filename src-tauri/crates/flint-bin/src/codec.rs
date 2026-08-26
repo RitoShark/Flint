@@ -6,10 +6,10 @@
 //! cached `HashMapper` populated from the `hashes-bin.lmdb` dictionary.
 
 use flint_hash::hash::bin_dict::get_cached_bin_hashes;
-use ritoshark::bin::{Bin, Trailer};
+use ritoshark::bin::{Bin, PathMap, Trailer};
 use ritoshark::hash::HashMapper;
 use ritoshark::prelude::{Parse as _, Serialize as _};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
 /// Maximum allowed BIN file size (50MB - no legitimate BIN should be larger)
 pub const MAX_BIN_SIZE: usize = 50 * 1024 * 1024;
@@ -137,68 +137,6 @@ pub fn text_to_tree(text: &str) -> Result<Bin> {
 
 // ── Unhash-in-place for the editor ─────────────────────────────────────────────
 
-#[derive(Default)]
-struct TreeHashes {
-    names: HashSet<u32>,
-    files: HashSet<u64>,
-}
-
-fn collect_value_hashes(value: &ritoshark::bin::BinValue, field: u32, out: &mut TreeHashes) {
-    use ritoshark::bin::BinValue;
-    match value {
-        BinValue::Hash(hash) | BinValue::Link(hash) => {
-            out.names.insert(*hash);
-        }
-        BinValue::File(hash) if *hash != 0 => {
-            out.files.insert(*hash);
-        }
-        BinValue::U64(value) if ritoshark::bin::is_blend_key_field(field) => {
-            out.names.insert((value >> 32) as u32);
-            out.names.insert(*value as u32);
-        }
-        BinValue::Pointer { class, fields } | BinValue::Embed { class, fields } => {
-            out.names.insert(*class);
-            collect_field_hashes(fields, out);
-        }
-        BinValue::List { items, .. } => {
-            for item in items {
-                collect_value_hashes(item, field, out);
-            }
-        }
-        BinValue::Map { entries, .. } => {
-            for (key, value) in entries {
-                collect_value_hashes(key, field, out);
-                collect_value_hashes(value, field, out);
-            }
-        }
-        BinValue::Option {
-            value: Some(value),
-            ..
-        } => collect_value_hashes(value, field, out),
-        _ => {}
-    }
-}
-
-fn collect_field_hashes(
-    fields: &indexmap::IndexMap<u32, ritoshark::bin::BinValue>,
-    out: &mut TreeHashes,
-) {
-    for (field, value) in fields {
-        out.names.insert(*field);
-        collect_value_hashes(value, *field, out);
-    }
-}
-
-fn tree_hashes(tree: &Bin) -> TreeHashes {
-    let mut hashes = TreeHashes::default();
-    for entry in &tree.entries {
-        hashes.names.insert(entry.path_hash);
-        hashes.names.insert(entry.class_hash);
-        collect_field_hashes(&entry.fields, &mut hashes);
-    }
-    hashes
-}
-
 fn text_name_candidates(text: &str) -> Vec<String> {
     let bytes = text.as_bytes();
     let mut names = Vec::new();
@@ -253,10 +191,8 @@ fn text_name_candidates(text: &str) -> Vec<String> {
     names
 }
 
-fn custom_names_from_candidates(
-    candidates: &[String],
-    hashes: &TreeHashes,
-) -> (BTreeMap<u32, String>, BTreeMap<u64, String>) {
+fn custom_names(tree: &Bin, candidates: Vec<String>) -> PathMap {
+    let mut map = ritoshark::bin::capture(tree, candidates);
     let known = get_cached_bin_hashes().read();
     let local = flint_hash::hash::local_custom_hashes().read();
     // A name this machine invented earlier is in the cache but in no dictionary
@@ -265,60 +201,91 @@ fn custom_names_from_candidates(
     let shared_knows = |hash: u64, name: &str| {
         !local.contains(&hash) && known.get(hash).is_some_and(|known_name| known_name == name)
     };
-    let mut names = BTreeMap::new();
-    let mut files = BTreeMap::new();
-    for name in candidates {
-        let hash = ritoshark::hash::fnv1a(name);
-        if hashes.names.contains(&hash) && !shared_knows(hash as u64, name) {
-            names.entry(hash).or_insert_with(|| name.clone());
-        }
-        if hashes.files.is_empty() {
-            continue;
-        }
-        let file_hash = ritoshark::hash::xxh64(name);
-        if hashes.files.contains(&file_hash) && !shared_knows(file_hash, name) {
-            files.entry(file_hash).or_insert_with(|| name.clone());
-        }
+    for set in [
+        &mut map.bin_entries,
+        &mut map.bin_types,
+        &mut map.bin_fields,
+        &mut map.bin_hashes,
+    ] {
+        set.retain(|name| !shared_knows(ritoshark::hash::fnv1a(name) as u64, name));
     }
-    (names, files)
+    map.game
+        .retain(|name| !shared_knows(ritoshark::hash::xxh64(name), name));
+    map
+}
+
+/// Every category flattened into one lookup, for naming the `0x…` tokens in
+/// rendered text — which carries no position to resolve against.
+pub fn name_lookup(map: &PathMap) -> Trailer {
+    let tables = map.tables();
+    let mut lookup = Trailer::new();
+    for names in [
+        tables.bin_entries,
+        tables.bin_types,
+        tables.bin_fields,
+        tables.bin_hashes,
+    ] {
+        lookup.names.extend(names);
+    }
+    lookup.files = tables.game;
+    lookup
+}
+
+/// The names a bin is its own record of: the `ritobinmap` entry, plus the legacy
+/// `CELMAP` footer for a bin written before the record moved into the body.
+pub fn embedded_names(bin: &Bin) -> Trailer {
+    let mut lookup = name_lookup(&ritoshark::bin::read_path_map(bin));
+    let legacy = ritoshark::bin::read_trailer(&bin.trailing);
+    for (hash, name) in legacy.names {
+        lookup.names.entry(hash).or_insert(name);
+    }
+    for (hash, name) in legacy.files {
+        lookup.files.entry(hash).or_insert(name);
+    }
+    lookup
 }
 
 pub fn custom_hash_names_from_text(text: &str, tree: &Bin) -> BTreeMap<u32, String> {
-    custom_names_from_candidates(&text_name_candidates(text), &tree_hashes(tree)).0
+    name_lookup(&custom_names(tree, text_name_candidates(text))).names
 }
 
 pub fn custom_file_names_from_text(text: &str, tree: &Bin) -> BTreeMap<u64, String> {
-    custom_names_from_candidates(&text_name_candidates(text), &tree_hashes(tree)).1
+    name_lookup(&custom_names(tree, text_name_candidates(text))).files
 }
 
-/// The hash-to-name pairs this text is the only record of, ready to travel inside
-/// the bin. Captured while both halves are still on the page: once the value is a
-/// bare hash the name is gone, and a repath exists in no dictionary to look up.
-pub fn capture_trailer(text: &str, tree: &Bin) -> Trailer {
-    let (names, files) =
-        custom_names_from_candidates(&text_name_candidates(text), &tree_hashes(tree));
-    Trailer { names, files }
+/// Writes the `ritobinmap` record into `tree` and hands back what it names.
+///
+/// Captured while both halves are still on the page: once the value is a bare
+/// hash the name is gone, and a repath exists in no dictionary to look up. What
+/// the bin already carried is offered back as a candidate, so a name the edited
+/// text no longer spells out survives as long as the tree still uses its hash.
+pub fn embed_names(tree: &mut Bin, text: &str) -> Trailer {
+    let mut candidates = text_name_candidates(text);
+    candidates.extend(embedded_names(tree).all_names().map(str::to_string));
+    let map = custom_names(tree, candidates);
+    ritoshark::bin::write_path_map(tree, &map);
+    name_lookup(&map)
 }
 
-/// Rewrites the `0x…` tokens a bin's own trailer can name, so a repath reads back
-/// as the path the author typed rather than a hash.
-pub fn apply_trailer(text: String, trailer: &Trailer) -> String {
-    if trailer.is_empty() {
+/// Rewrites the `0x…` tokens `lookup` can name, so a repath reads back as the
+/// path the author typed rather than a hash.
+pub fn apply_names(text: String, lookup: &Trailer) -> String {
+    if lookup.is_empty() {
         return text;
     }
     let mut hashes = HashMapper::new();
-    for (hash, name) in &trailer.names {
+    for (hash, name) in &lookup.names {
         hashes.insert(*hash as u64, name.clone());
     }
-    for (hash, name) in &trailer.files {
+    for (hash, name) in &lookup.files {
         hashes.insert(*hash, name.clone());
     }
     unhash_text(&text, &hashes).0
 }
 
 pub fn remember_custom_hash_names(text: &str, tree: &Bin) -> Result<usize> {
-    let (names, files) =
-        custom_names_from_candidates(&text_name_candidates(text), &tree_hashes(tree));
+    let lookup = name_lookup(&custom_names(tree, text_name_candidates(text)));
+    let (names, files) = (lookup.names, lookup.files);
     let saved_names = flint_hash::hash::save_custom_bin_hashes(&names)
         .map_err(|e| BinError(format!("Failed to save custom hashes: {e}")))?;
     let saved_files = flint_hash::hash::save_custom_file_hashes(&files)
@@ -418,20 +385,25 @@ mod custom_hash_tests {
 }}"
         );
 
-        let trailer = capture_trailer(&text, &tree);
-        assert_eq!(trailer.files.get(&ritoshark::hash::xxh64(path)), Some(&path.to_string()));
-        assert_eq!(trailer.names.get(&fnv1a(emitter)), Some(&emitter.to_string()));
-
         let mut written = tree.clone();
-        written.trailing = crate::append_trailer(&written.trailing, &trailer);
+        let recorded = embed_names(&mut written, &text);
+        assert_eq!(recorded.files.get(&ritoshark::hash::xxh64(path)), Some(&path.to_string()));
+        assert_eq!(recorded.names.get(&fnv1a(emitter)), Some(&emitter.to_string()));
+
         let bytes = write_bin(&written).expect("write");
         let reread = read_bin(&bytes).expect("read");
-        assert_eq!(reread.entries, tree.entries);
+        assert!(reread.trailing.is_empty(), "the record belongs inside the body");
+        let mut carried = reread.clone();
+        assert_eq!(
+            ritoshark::bin::strip_path_map(&mut carried),
+            ritoshark::bin::read_path_map(&written)
+        );
+        assert_eq!(carried.entries, tree.entries);
 
         // Another machine: nothing in its dictionary names either hash.
         let bare = tree_to_text_with_hashes(&reread, &HashMapper::new()).expect("text");
         assert!(!bare.contains(path));
-        let recovered = apply_trailer(bare, &crate::read_trailer(&reread.trailing));
+        let recovered = apply_names(bare, &embedded_names(&reread));
         assert!(recovered.contains(path), "{recovered}");
         assert!(recovered.contains(emitter), "{recovered}");
     }
@@ -457,8 +429,9 @@ mod custom_hash_tests {
         get_cached_bin_hashes().write().insert(hash, path.to_string());
         flint_hash::hash::local_custom_hashes().write().insert(hash);
 
-        let trailer = capture_trailer(&text, &tree);
-        assert_eq!(trailer.files.get(&hash), Some(&path.to_string()));
+        let mut written = tree.clone();
+        let recorded = embed_names(&mut written, &text);
+        assert_eq!(recorded.files.get(&hash), Some(&path.to_string()));
     }
 
     #[test]

@@ -68,6 +68,7 @@ fn options<'a>(
         // Fix the project's OWN WADs in place, not a `.fixed.wad.client` sibling
         // copy. Irrelevant on a scan (detect_only writes nothing regardless).
         in_place: !detect_only,
+        output: None,
     }
 }
 

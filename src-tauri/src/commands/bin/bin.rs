@@ -28,38 +28,38 @@ fn remember_hash_names(text: &str, bin: &Bin) {
 /// Compile edited ritobin text, embedding the names the text is the only record
 /// of. A repathed asset exists in no dictionary, so once the editor writes the
 /// hash the path is unrecoverable unless it travels inside the bin.
-fn encode_with_trailer(text: &str) -> Result<Vec<u8>, String> {
-    encode_capturing_trailer(text).map(|(bytes, _)| bytes)
+fn encode_with_names(text: &str) -> Result<Vec<u8>, String> {
+    encode_capturing_names(text).map(|(bytes, _)| bytes)
 }
 
-/// As [`encode_with_trailer`], but hands the captured names back to the caller.
+/// As [`encode_with_names`], but hands the captured names back to the caller.
 ///
 /// A caller that knows where the bin lives mirrors them into `files.txt` at the
-/// mod root. The trailer alone is enough right up until a tool reserializes the
-/// bin from its parsed tree — that writes a fresh body with no trailing bytes,
-/// and the names are then gone with nothing on disk to recover them from.
-fn encode_capturing_trailer(
+/// mod root. The record alone is enough right up until a tool reserializes the
+/// bin from a tree it built without the entry, and the names are then gone with
+/// nothing on disk to recover them from.
+fn encode_capturing_names(
     text: &str,
 ) -> Result<(Vec<u8>, flint_core::bin::Trailer), String> {
     let mut bin = flint_core::bin::text_to_tree(text)
         .map_err(|e| format!("Failed to parse text content: {}", e))?;
     remember_hash_names(text, &bin);
-    let trailer = flint_core::bin::capture_trailer(text, &bin);
-    if !trailer.is_empty() {
-        tracing::info!("Embedding {} hash name(s) in the BIN", trailer.len());
-        bin.trailing = flint_core::bin::append_trailer(&bin.trailing, &trailer);
+    let recorded = flint_core::bin::embed_names(&mut bin, text);
+    if !recorded.is_empty() {
+        tracing::info!("Embedding {} hash name(s) in the BIN", recorded.len());
     }
     let bytes = flint_core::bin::write_bin(&bin)
         .map_err(|e| format!("Failed to convert to binary: {}", e))?;
-    Ok((bytes, trailer))
+    Ok((bytes, recorded))
 }
 
-/// Mirror the trailer into `files.txt` at the mod root, keeping what is there.
+/// Mirror the captured names into `files.txt` at the mod root, keeping what is
+/// there.
 ///
-/// The second of the two records described in
-/// `BIN-TRAILER-hashpath-preservation.md`. The trailer lives inside the bin and
-/// dies with any reserialize; this sits beside the mod and survives that, and it
-/// is what travels in `META/files.txt` when the mod is packed.
+/// The second of the two records described in `docs/ritobinmap.md`. The record
+/// lives inside the bin and dies with any reserialize that drops its entry; this
+/// sits beside the mod and survives that, and it is what travels in
+/// `META/files.txt` when the mod is packed.
 ///
 /// `<hex> <name>` per line, because a name alone cannot say which keyspace it
 /// belongs to — an object name and an asset path are both just text. Merged by
@@ -557,7 +557,7 @@ pub async fn save_ritobin_to_bin(
     // blocking pool so a large BIN save doesn't stall the async runtime / UI.
     let content_for_encode = content.clone();
     let (binary_data, trailer) =
-        tokio::task::spawn_blocking(move || encode_capturing_trailer(&content_for_encode))
+        tokio::task::spawn_blocking(move || encode_capturing_names(&content_for_encode))
             .await
             .map_err(|e| format!("encode task join error: {}", e))??;
 
@@ -596,7 +596,7 @@ pub async fn compile_ritobin_text_to_bytes(
 ) -> Result<tauri::ipc::Response, String> {
     let _t = ipc_trace::enter("compile_ritobin_text_to_bytes");
     // CPU-bound parse + encode — off the async runtime (see save_ritobin_to_bin).
-    let binary_data = tokio::task::spawn_blocking(move || encode_with_trailer(&content))
+    let binary_data = tokio::task::spawn_blocking(move || encode_with_names(&content))
         .await
         .map_err(|e| format!("encode task join error: {}", e))??;
     Ok(tauri::ipc::Response::new(binary_data))
