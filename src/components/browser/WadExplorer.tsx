@@ -274,7 +274,9 @@ export const WadExplorer: React.FC = () => {
         const idlePaths = wadExplorer.wads.filter(w => w.status === 'idle').map(w => w.path);
         if (idlePaths.length === 0) return;
 
-        const BATCH_SIZE = 24;
+        // Every batch resolve triggers the full derived-state cascade (a new
+        // `wads` array identity), so fewer, larger batches beat many small ones.
+        const BATCH_SIZE = 64;
         let cancelled = false;
         const inFlight = new Set<string>();
 
