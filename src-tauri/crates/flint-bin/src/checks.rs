@@ -13,9 +13,10 @@ unverified is left out.
 use std::collections::{BTreeMap, HashSet};
 
 use indexmap::IndexMap;
-use ritoshark::bin::{Bin, BinValue};
+use ritoshark::bin::{Bin, BinType, BinValue};
 use ritoshark::hash::fnv1a;
 
+use crate::migration::{table as migration_table, table_key, Conversion, Migration};
 use crate::texture_header::{read_texture_header, TextureContainer};
 
 use flint_hash::hash::HashMapper;
@@ -299,44 +300,93 @@ pub fn check_animation_graph(bin: &Bin, rel: &str, names: &HashMapper) -> Vec<Ch
 
 // ─── Asset-reference type migration ──────────────────────────────────────────
 
-/// The `(class, field)` pairs Riot retyped from `string` to `file` (an xxh64 of the path).
+/// Whether `value` still declares the type the table's row migrated away from.
 ///
-/// Taken from Hematite's `file_ref_migration` rule, which is the list that matters for
-/// skins. LeagueToolkit publishes a far broader table (395 pairs for build 16.17) covering
-/// UI and non-champion content — worth pulling in if Flint ever audits those.
-const MIGRATED_REFS: &[(&str, &str)] = &[
-    ("AnimationResourceData", "mAnimationFilePath"),
-    ("CensoredImage", "image"),
-    ("SkinCharacterDataProperties", "iconCircle"),
-    ("SkinCharacterDataProperties", "iconSquare"),
-    ("SkinMeshDataProperties", "texture"),
-    ("SkinMeshDataProperties_MaterialOverride", "texture"),
-    ("StaticMaterialShaderSamplerDef", "texturePath"),
-];
-
-/// [`MIGRATED_REFS`] pre-hashed. Hashing the names inside the walk instead costs a string
-/// hash per struct per pair, which is most of the audit's runtime on a real project.
-const MIGRATED_HASHES: [(u32, u32); MIGRATED_REFS.len()] = {
-    let mut out = [(0u32, 0u32); MIGRATED_REFS.len()];
-    let mut i = 0;
-    while i < MIGRATED_REFS.len() {
-        out[i] = (fnv1a(MIGRATED_REFS[i].0), fnv1a(MIGRATED_REFS[i].1));
-        i += 1;
+/// Matching is on the DECLARED type, not the held value — an empty `list[string]` or an
+/// unset `option[string]` is rejected by the client exactly like a populated one.
+fn declares_old_type(m: &Migration, value: &BinValue) -> bool {
+    match m.conversion {
+        Conversion::HashValue => matches!(
+            value,
+            BinValue::String(_)
+                | BinValue::List {
+                    item: BinType::String,
+                    ..
+                }
+                | BinValue::Option {
+                    item: BinType::String,
+                    ..
+                }
+                | BinValue::Map {
+                    value: BinType::String,
+                    ..
+                }
+        ),
+        Conversion::Rehash => matches!(value, BinValue::Hash(_)),
+        Conversion::HashKey => matches!(
+            value,
+            BinValue::Map {
+                key: BinType::Hash,
+                ..
+            }
+        ),
+        Conversion::Retag => match value {
+            BinValue::Embed { class, .. } => Some(*class) == m.from_class,
+            BinValue::List { items, .. } => items
+                .iter()
+                .any(|it| matches!(it, BinValue::Embed { class, .. } if Some(*class) == m.from_class)),
+            _ => false,
+        },
     }
-    out
-};
+}
+
+fn migration_issue(m: &Migration, file: &str, count: usize) -> CheckIssue {
+    let plural = if count == 1 { "" } else { "s" };
+    let (code, message) = match m.conversion {
+        Conversion::HashValue => (
+            "bin.string-ref-not-migrated",
+            format!(
+                "{count} {} value{plural} still typed as `string`. Riot retyped this field to `file`, so the client no longer reads the path and the asset silently does not load. Hematite's Skin Fixer converts them (`file_ref_migration`).",
+                m.label,
+            ),
+        ),
+        Conversion::Rehash => (
+            "bin.hash-ref-not-migrated",
+            format!(
+                "{count} {} value{plural} still typed as `hash`. The client reads a `file` (xxh64 of the path) here now, and an fnv1a `hash` cannot be converted mechanically — repoint the field at its path.",
+                m.label,
+            ),
+        ),
+        Conversion::HashKey => (
+            "bin.hash-ref-not-migrated",
+            format!(
+                "{count} {} map{plural} still keyed by `hash`. The client keys this map by `file` (xxh64 of the path) now, and an fnv1a `hash` key cannot be converted mechanically — re-key the map by path.",
+                m.label,
+            ),
+        ),
+        Conversion::Retag => (
+            "bin.embed-retagged",
+            format!(
+                "{count} {} value{plural} still carry the retired embed layout. Riot changed this type's tag/class, so the client no longer reads it.",
+                m.label,
+            ),
+        ),
+    };
+    CheckIssue::new(Severity::Critical, code, file, message)
+}
 
 /**
-Counts `string`-typed values on fields the client now reads as `file`.
+Counts values whose declared type Riot has migrated away from, per `(class, field)` and
+per file — one row per pair per file, so a finding can be pinned to the BIN that carries
+it without one line per value burying every other finding.
 
-Tallied across a whole WAD folder rather than reported per occurrence: a mod authored
-before the migration has thousands of them, and one line per value would bury every other
-finding. One row per `(class, field)` says the same thing.
+Driven by [`crate::migration`]'s 395-row table rather than a hand-kept list, so it also
+covers the UI/TFT/map content the old seven-pair list missed.
 */
 #[derive(Debug, Default)]
 pub struct MigrationTally {
-    /// pair index → (count, first file it was seen in)
-    hits: BTreeMap<usize, (usize, String)>,
+    /// (file, table key) → occurrence count
+    hits: BTreeMap<(String, u64), usize>,
 }
 
 impl MigrationTally {
@@ -347,19 +397,16 @@ impl MigrationTally {
     }
 
     fn scan(&mut self, class: u32, fields: &IndexMap<u32, BinValue>, rel: &str) {
-        for (index, (class_hash, field_hash)) in MIGRATED_HASHES.iter().enumerate() {
-            if *class_hash != class {
-                continue;
+        let table = migration_table();
+        for (field, value) in fields {
+            if let Some(m) = table.get(&table_key(class, *field)) {
+                if declares_old_type(m, value) {
+                    *self
+                        .hits
+                        .entry((rel.to_string(), table_key(class, *field)))
+                        .or_insert(0) += 1;
+                }
             }
-            if let Some(BinValue::String(_)) = fields.get(field_hash) {
-                let hit = self
-                    .hits
-                    .entry(index)
-                    .or_insert_with(|| (0, rel.to_string()));
-                hit.0 += 1;
-            }
-        }
-        for value in fields.values() {
             self.walk(value, rel);
         }
     }
@@ -388,20 +435,10 @@ impl MigrationTally {
     }
 
     pub fn into_issues(self) -> Vec<CheckIssue> {
+        let table = migration_table();
         self.hits
             .into_iter()
-            .map(|(index, (count, file))| {
-                let (class_name, field_name) = MIGRATED_REFS[index];
-                CheckIssue::new(
-                    Severity::Critical,
-                    "bin.string-ref-not-migrated",
-                    &file,
-                    format!(
-                        "{count} {class_name}.{field_name} value{} still typed as `string`. Riot retyped this field to `file`, so the client no longer reads the path and the asset silently does not load. Hematite's Skin Fixer converts them (`file_ref_migration`).",
-                        if count == 1 { "" } else { "s" },
-                    ),
-                )
-            })
+            .map(|((file, key), count)| migration_issue(&table[&key], &file, count))
             .collect()
     }
 }
@@ -670,17 +707,72 @@ mod tests {
         assert!(tally.into_issues().is_empty());
     }
 
-    /// One row per field, not per value — a pre-migration mod has thousands.
+    /// One row per field per FILE, not per value — a pre-migration mod has thousands of
+    /// values, but a finding still has to pin the exact BIN that carries it.
     #[test]
-    fn occurrences_are_tallied_into_one_row_naming_the_first_file() {
+    fn occurrences_are_tallied_per_field_per_file() {
         let mut tally = MigrationTally::default();
         tally.add_bin(&skin_bin(BinValue::String("a.tex".into())), "skins/skin0.bin");
         tally.add_bin(&skin_bin(BinValue::String("b.tex".into())), "skins/skin1.bin");
 
         let issues = tally.into_issues();
-        assert_eq!(issues.len(), 1);
+        assert_eq!(issues.len(), 2);
         assert_eq!(issues[0].file, "skins/skin0.bin");
-        assert!(issues[0].message.starts_with("2 "), "{}", issues[0].message);
+        assert_eq!(issues[1].file, "skins/skin1.bin");
+        assert!(issues[0].message.starts_with("1 "), "{}", issues[0].message);
+    }
+
+    /// The declared type is what the client rejects — an unset `option[string]` or an
+    /// empty `list[string]` is as broken as a populated one.
+    #[test]
+    fn a_declared_string_container_counts_even_when_empty() {
+        let mut fields = IndexMap::new();
+        fields.insert(
+            fnv1a("iconCircle"),
+            BinValue::Option {
+                item: BinType::String,
+                value: None,
+            },
+        );
+        fields.insert(
+            fnv1a("alternateIconsSquare"),
+            BinValue::List {
+                is_list2: false,
+                item: BinType::String,
+                items: vec![],
+            },
+        );
+        let bin = Bin {
+            entries: vec![BinEntry {
+                path_hash: fnv1a("Characters/Yone/Skins/Skin0"),
+                class_hash: fnv1a("SkinCharacterDataProperties"),
+                fields,
+            }],
+            ..Bin::new()
+        };
+        let mut tally = MigrationTally::default();
+        tally.add_bin(&bin, "skins/skin0.bin");
+        assert_eq!(tally.into_issues().len(), 2);
+    }
+
+    /// A `hash` on a rehashed field has no mechanical fix, so its row must say so.
+    #[test]
+    fn a_hash_on_a_rehashed_field_is_reported_without_a_fix() {
+        let mut fields = IndexMap::new();
+        fields.insert(fnv1a("oldAsset"), BinValue::Hash(0xdeadbeef));
+        let bin = Bin {
+            entries: vec![BinEntry {
+                path_hash: fnv1a("Whatever/Path"),
+                class_hash: fnv1a("VfxAssetRemap"),
+                fields,
+            }],
+            ..Bin::new()
+        };
+        let mut tally = MigrationTally::default();
+        tally.add_bin(&bin, "data/remap.bin");
+        let issues = tally.into_issues();
+        assert_eq!(codes(&issues), vec!["bin.hash-ref-not-migrated"]);
+        assert!(issues[0].message.contains("VfxAssetRemap.oldAsset"), "{}", issues[0].message);
     }
 
     #[test]

@@ -7,6 +7,7 @@ pub mod bin_json;
 pub mod checks;
 pub mod codec;
 pub mod concat;
+pub mod migration;
 pub mod names;
 pub mod converter;
 pub mod paint;
