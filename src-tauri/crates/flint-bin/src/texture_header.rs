@@ -37,6 +37,8 @@ pub struct TextureHeader {
     /// Set when this build has no name for the declared format at all.
     pub unknown_format: bool,
     pub has_mipmaps: bool,
+    /// DDS only: the payload sits behind a `DX10` extension header (BC7/BC5-class formats).
+    pub dx10: bool,
 }
 
 fn le_u16(data: &[u8], at: usize) -> u32 {
@@ -82,6 +84,7 @@ pub fn read_texture_header(data: &[u8]) -> Result<TextureHeader, String> {
             block_compressed,
             unknown_format: false,
             has_mipmaps: le_u32(data, 28) > 1,
+            dx10: &four_cc == b"DX10",
         });
     }
 
@@ -102,6 +105,7 @@ pub fn read_texture_header(data: &[u8]) -> Result<TextureHeader, String> {
         block_compressed: format.is_some_and(|f| f.block_size() == 4),
         unknown_format: format.is_none(),
         has_mipmaps: data[11] != 0,
+        dx10: false,
     })
 }
 

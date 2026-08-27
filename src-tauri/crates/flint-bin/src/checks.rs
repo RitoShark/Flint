@@ -119,6 +119,19 @@ pub fn check_texture(rel: &str, data: &[u8]) -> Vec<CheckIssue> {
         ));
     }
 
+    /* Neither BC5 nor BC7 has a legacy D3D9 pixel format, so writers emit them behind a
+    DX10 extension header — 20 extra bytes League's D3D9-era .dds loader knows nothing
+    about. It reads the pixels 20 bytes short and the client crashes. Every Riot-shipped
+    .dds is DXT1/DXT5; BC7/BC5 belong in a .tex, which carries them natively. */
+    if header.container == TextureContainer::Dds && header.dx10 {
+        out.push(CheckIssue::new(
+            Severity::Critical,
+            "texture.dx10-dds",
+            rel,
+            "Uses a DX10 extension header (a BC7/BC5-class format). League's .dds loader predates DX10 and crashes on it — convert to .tex (BC7 is native there) or re-encode as DXT1/DXT5.".to_string(),
+        ));
+    }
+
     let (w, h) = (header.width, header.height);
     if w == 0 || h == 0 {
         out.push(CheckIssue::new(
@@ -293,6 +306,182 @@ pub fn check_animation_graph(bin: &Bin, rel: &str, names: &HashMapper) -> Vec<Ch
                 ),
             ));
         }
+    }
+
+    out
+}
+
+// ─── BIN content hazards ─────────────────────────────────────────────────────
+
+/// Entry classes that belong to the champion's base gameplay data, never to a skin mod.
+/// Hematite's `champion_bin_remover` deletes files carrying them: they go stale on every
+/// patch and are what breaks "worked yesterday" mods after an update.
+const GAMEPLAY_CLASSES: &[&str] = &[
+    "SpellObject",
+    "StatStoneData",
+    "SkinCharacterMetaDataProperties",
+    "CharacterRecord",
+    "ChampionRuneRecommendationsContext",
+    "RecSpellRankUpInfoList",
+    "ItemRecommendationOverrideSet",
+    "ItemRecommendationContextList",
+    "StatStoneSet",
+    "AbilityObject",
+];
+
+const GAMEPLAY_HASHES: [u32; GAMEPLAY_CLASSES.len()] = {
+    let mut out = [0u32; GAMEPLAY_CLASSES.len()];
+    let mut i = 0;
+    while i < GAMEPLAY_CLASSES.len() {
+        out[i] = fnv1a(GAMEPLAY_CLASSES[i]);
+        i += 1;
+    }
+    out
+};
+
+const VFX_SYSTEM_CLASS: u32 = fnv1a("VfxSystemDefinitionData");
+const OLD_SHAPE_FIELD: u32 = fnv1a("shape");
+const OLD_SHAPE_INNER: [u32; 4] = [
+    fnv1a("birthTranslation"),
+    fnv1a("emitOffset"),
+    fnv1a("emitRotationAngles"),
+    fnv1a("emitRotationAxes"),
+];
+
+const SAMPLER_DEF_CLASS: u32 = fnv1a("StaticMaterialShaderSamplerDef");
+const SAMPLER_NAME_FIELD: u32 = fnv1a("samplerName");
+const TEXTURE_NAME_FIELD: u32 = fnv1a("textureName");
+
+fn old_vfx_shape(value: &BinValue, count: &mut usize) {
+    if let BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } = value {
+        if let Some(BinValue::Pointer { fields: shape, .. } | BinValue::Embed { fields: shape, .. }) =
+            fields.get(&OLD_SHAPE_FIELD)
+        {
+            if OLD_SHAPE_INNER.iter().any(|h| shape.contains_key(h)) {
+                *count += 1;
+            }
+        }
+    }
+    match value {
+        BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
+            for inner in fields.values() {
+                old_vfx_shape(inner, count);
+            }
+        }
+        BinValue::List { items, .. } => {
+            for item in items {
+                old_vfx_shape(item, count);
+            }
+        }
+        BinValue::Map { entries, .. } => {
+            for (k, v) in entries {
+                old_vfx_shape(k, count);
+                old_vfx_shape(v, count);
+            }
+        }
+        BinValue::Option {
+            value: Some(inner), ..
+        } => old_vfx_shape(inner, count),
+        _ => {}
+    }
+}
+
+fn stale_samplers(value: &BinValue, count: &mut usize) {
+    match value {
+        BinValue::Pointer { class, fields } | BinValue::Embed { class, fields } => {
+            if *class == SAMPLER_DEF_CLASS {
+                if fields.contains_key(&SAMPLER_NAME_FIELD) {
+                    *count += 1;
+                }
+                if let Some(BinValue::String(s)) = fields.get(&TEXTURE_NAME_FIELD) {
+                    if s.contains('.') {
+                        *count += 1;
+                    }
+                }
+            }
+            for inner in fields.values() {
+                stale_samplers(inner, count);
+            }
+        }
+        BinValue::List { items, .. } => {
+            for item in items {
+                stale_samplers(item, count);
+            }
+        }
+        BinValue::Map { entries, .. } => {
+            for (k, v) in entries {
+                stale_samplers(k, count);
+                stale_samplers(v, count);
+            }
+        }
+        BinValue::Option {
+            value: Some(inner), ..
+        } => stale_samplers(inner, count),
+        _ => {}
+    }
+}
+
+/**
+Checks one BIN for content the client rejects or misreads: shipped gameplay entries,
+pre-14.1 VFX emitter shapes, and pre-rename `StaticMaterialShaderSamplerDef` fields.
+All three come straight out of Hematite/Topaz's fix rules — see each message.
+*/
+pub fn check_bin_hazards(bin: &Bin, rel: &str) -> Vec<CheckIssue> {
+    let mut out = Vec::new();
+
+    let mut gameplay: Vec<&str> = Vec::new();
+    for entry in &bin.entries {
+        if let Some(pos) = GAMEPLAY_HASHES.iter().position(|h| *h == entry.class_hash) {
+            if !gameplay.contains(&GAMEPLAY_CLASSES[pos]) {
+                gameplay.push(GAMEPLAY_CLASSES[pos]);
+            }
+        }
+    }
+    if !gameplay.is_empty() {
+        out.push(CheckIssue::new(
+            Severity::Warning,
+            "bin.gameplay-entry",
+            rel,
+            format!(
+                "Ships gameplay entries ({}). These duplicate the champion's base data and go stale on every patch — the usual cause of a mod that crashes or misbehaves right after an update. Hematite's `champion_bin_remover` deletes files like this.",
+                gameplay.join(", "),
+            ),
+        ));
+    }
+
+    let mut old_shapes = 0usize;
+    let mut samplers = 0usize;
+    for entry in &bin.entries {
+        if entry.class_hash == VFX_SYSTEM_CLASS {
+            for value in entry.fields.values() {
+                old_vfx_shape(value, &mut old_shapes);
+            }
+        }
+        for value in entry.fields.values() {
+            stale_samplers(value, &mut samplers);
+        }
+    }
+    if old_shapes > 0 {
+        out.push(CheckIssue::new(
+            Severity::Warning,
+            "bin.old-vfx-shape",
+            rel,
+            format!(
+                "{old_shapes} VFX emitter{} still use the pre-14.1 shape layout (birthTranslation/emitOffset/emitRotation inside `shape`). The client ignores them, so those particles emit wrongly or not at all. Hematite's `vfx_shape_fix` converts them.",
+                if old_shapes == 1 { "" } else { "s" },
+            ),
+        ));
+    }
+    if samplers > 0 {
+        out.push(CheckIssue::new(
+            Severity::Warning,
+            "bin.stale-sampler-field",
+            rel,
+            format!(
+                "{samplers} material sampler{} use retired field names (samplerName, or a path in textureName). The client reads texturePath now, so the model renders white/chrome. Hematite's staticmat fixes rename them.",
+                if samplers == 1 { "" } else { "s" },
+            ),
+        ));
     }
 
     out
@@ -519,6 +708,31 @@ mod tests {
     fn a_file_that_is_neither_tex_nor_dds_is_critical() {
         let issues = check_texture("assets/a.tex", &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
         assert_eq!(codes(&issues), vec!["texture.unreadable"]);
+    }
+
+    fn dds_bytes(four_cc: &[u8; 4], dxgi: Option<u32>) -> Vec<u8> {
+        let mut out = vec![0u8; 128];
+        out[..4].copy_from_slice(&crate::texture_header::DDS_MAGIC);
+        out[12..16].copy_from_slice(&64u32.to_le_bytes());
+        out[16..20].copy_from_slice(&64u32.to_le_bytes());
+        out[84..88].copy_from_slice(four_cc);
+        if let Some(format) = dxgi {
+            out.extend_from_slice(&format.to_le_bytes());
+        }
+        out
+    }
+
+    #[test]
+    fn a_dx10_dds_is_critical() {
+        let issues = check_texture("assets/a.dds", &dds_bytes(b"DX10", Some(98)));
+        assert_eq!(codes(&issues), vec!["texture.dx10-dds"]);
+        assert_eq!(issues[0].severity, Severity::Critical);
+    }
+
+    #[test]
+    fn a_legacy_dxt5_dds_is_clean() {
+        let issues = check_texture("assets/a.dds", &dds_bytes(b"DXT5", None));
+        assert_eq!(codes(&issues), Vec::<&str>::new());
     }
 
     fn clip(class: &str, fields: Vec<(u32, BinValue)>) -> BinValue {
@@ -790,6 +1004,154 @@ mod tests {
         let mut tally = MigrationTally::default();
         tally.add_bin(&bin, "skins/skin0.bin");
         assert!(tally.into_issues().is_empty());
+    }
+
+    /// Topaz's raw shape hashes, so a name drift in this file would be caught here.
+    #[test]
+    fn vfx_shape_hashes_match_topaz() {
+        assert_eq!(OLD_SHAPE_FIELD, 0x9dc3d926);
+        assert_eq!(OLD_SHAPE_INNER[0], 0xff7d0e41);
+        assert_eq!(OLD_SHAPE_INNER[1], 0xe5f268dd);
+        assert_eq!(OLD_SHAPE_INNER[2], 0x07f41838);
+        assert_eq!(OLD_SHAPE_INNER[3], 0xd1789c65);
+    }
+
+    fn entry(class: &str, fields: Vec<(u32, BinValue)>) -> Bin {
+        Bin {
+            entries: vec![BinEntry {
+                path_hash: fnv1a("Some/Path"),
+                class_hash: fnv1a(class),
+                fields: fields.into_iter().collect(),
+            }],
+            ..Bin::new()
+        }
+    }
+
+    #[test]
+    fn a_gameplay_entry_is_flagged_once_per_class() {
+        let bin = Bin {
+            entries: vec![
+                BinEntry {
+                    path_hash: 1,
+                    class_hash: fnv1a("SpellObject"),
+                    fields: IndexMap::new(),
+                },
+                BinEntry {
+                    path_hash: 2,
+                    class_hash: fnv1a("SpellObject"),
+                    fields: IndexMap::new(),
+                },
+                BinEntry {
+                    path_hash: 3,
+                    class_hash: fnv1a("CharacterRecord"),
+                    fields: IndexMap::new(),
+                },
+            ],
+            ..Bin::new()
+        };
+        let issues = check_bin_hazards(&bin, "data/x.bin");
+        assert_eq!(codes(&issues), vec!["bin.gameplay-entry"]);
+        assert_eq!(issues[0].severity, Severity::Warning);
+        assert!(
+            issues[0].message.contains("SpellObject, CharacterRecord"),
+            "{}",
+            issues[0].message
+        );
+    }
+
+    #[test]
+    fn an_old_vfx_shape_is_flagged() {
+        let emitter = BinValue::Embed {
+            class: fnv1a("VfxEmitterDefinitionData"),
+            fields: [(
+                OLD_SHAPE_FIELD,
+                BinValue::Embed {
+                    class: 0,
+                    fields: [(OLD_SHAPE_INNER[1], BinValue::Vec3([0.0, 0.0, 0.0]))]
+                        .into_iter()
+                        .collect(),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let bin = entry(
+            "VfxSystemDefinitionData",
+            vec![(
+                fnv1a("complexEmitterDefinitionData"),
+                BinValue::List {
+                    is_list2: false,
+                    item: BinType::Embed,
+                    items: vec![emitter],
+                },
+            )],
+        );
+        assert_eq!(codes(&check_bin_hazards(&bin, "a.bin")), vec!["bin.old-vfx-shape"]);
+    }
+
+    #[test]
+    fn a_modern_vfx_shape_is_clean() {
+        let bin = entry(
+            "VfxSystemDefinitionData",
+            vec![(fnv1a("particleName"), BinValue::String("x".into()))],
+        );
+        assert!(check_bin_hazards(&bin, "a.bin").is_empty());
+    }
+
+    #[test]
+    fn a_sampler_with_a_path_in_texture_name_is_flagged() {
+        let sampler = BinValue::Embed {
+            class: fnv1a("StaticMaterialShaderSamplerDef"),
+            fields: [(
+                TEXTURE_NAME_FIELD,
+                BinValue::String("ASSETS/Characters/Foo/skin.tex".into()),
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let bin = entry(
+            "StaticMaterialDef",
+            vec![(
+                fnv1a("samplerValues"),
+                BinValue::List {
+                    is_list2: false,
+                    item: BinType::Embed,
+                    items: vec![sampler],
+                },
+            )],
+        );
+        assert_eq!(
+            codes(&check_bin_hazards(&bin, "a.bin")),
+            vec!["bin.stale-sampler-field"]
+        );
+    }
+
+    #[test]
+    fn a_sampler_holding_a_real_sampler_name_is_clean() {
+        let sampler = BinValue::Embed {
+            class: fnv1a("StaticMaterialShaderSamplerDef"),
+            fields: [
+                (TEXTURE_NAME_FIELD, BinValue::String("Diffuse_Texture".into())),
+                (
+                    fnv1a("texturePath"),
+                    BinValue::String("ASSETS/Characters/Foo/skin.tex".into()),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        };
+        let bin = entry(
+            "StaticMaterialDef",
+            vec![(
+                fnv1a("samplerValues"),
+                BinValue::List {
+                    is_list2: false,
+                    item: BinType::Embed,
+                    items: vec![sampler],
+                },
+            )],
+        );
+        assert!(check_bin_hazards(&bin, "a.bin").is_empty());
     }
 
     /// A bin with no clip map is not an animation graph and must never be reported on.

@@ -12,7 +12,9 @@ under its unresolved `{16hex}.ext` name still matches a BIN that names its real 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::checks::{check_animation_graph, check_texture, CheckIssue, MigrationTally};
+use crate::checks::{
+    check_animation_graph, check_bin_hazards, check_texture, CheckIssue, MigrationTally,
+};
 use crate::codec::{read_bin, tree_to_text_cached, MAX_BIN_SIZE};
 use ritoshark::bin::{Bin, BinValue};
 
@@ -238,6 +240,7 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
             Ok(bin) => {
                 collect_mentions(&bin, &mut mentions);
                 report.issues.extend(check_animation_graph(&bin, rel, &bin_names));
+                report.issues.extend(check_bin_hazards(&bin, rel));
                 migration.add_bin(&bin, rel);
                 report.bins_scanned += 1;
             }
