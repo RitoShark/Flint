@@ -24,6 +24,8 @@ import { copyablePath } from '../../lib/wadPath';
 import { useTransferStore } from '../../lib/stores/transferStore';
 import type { TreeDragPayload, TreeDragItem } from '../../lib/dnd';
 import type { FileTreeNode, ProjectTab } from '../../lib/types';
+import { scheduleProjectAudit } from '../../lib/audit/projectAudit';
+import type { FileIssueTag } from '../../lib/stores/appMetadataStore';
 
 const ROW_HEIGHT = 22;
 const ROW_OVERSCAN = 8;
@@ -120,6 +122,7 @@ interface TreeRowData {
     isExpanded: boolean;
     isRenaming: boolean;
     status?: 'new' | 'modified';
+    issue?: FileIssueTag;
 }
 
 function compactNode(node: FileTreeNode): { displayPath: string; effectiveNode: FileTreeNode } {
@@ -173,6 +176,7 @@ function flattenTree(
     expandedFolders: Set<string>,
     renamingPath: string | null,
     statusByRelPath: Map<string, 'new' | 'modified'>,
+    issueByRelPath: Map<string, FileIssueTag>,
 ): TreeRowData[] {
     const rows: TreeRowData[] = [];
     const stack: Array<{ node: FileTreeNode; depth: number }> = [
@@ -193,6 +197,7 @@ function flattenTree(
             isExpanded,
             isRenaming: renamingPath === effectiveNode.path,
             status: statusByRelPath.get(effectiveNode.path),
+            issue: issueByRelPath.get(effectiveNode.path.toLowerCase()),
         });
 
         if (effectiveNode.isDirectory && isExpanded && effectiveNode.children) {
@@ -245,6 +250,25 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         }
         return map;
     }, [fileStatusesRev, projectPathForStatus]);
+
+    const fileIssuesRev = useAppMetadataStore((s) => s.fileIssuesRev);
+    const issueByRelPath = useMemo(() => {
+        const map = new Map<string, FileIssueTag>();
+        if (!projectPathForStatus) return map;
+        const prefix = `${projectPathForStatus.replaceAll('\\', '/').toLowerCase()}/`;
+        const store = useAppMetadataStore.getState();
+        for (const fullKey of store.getFileIssueKeys()) {
+            if (!fullKey.startsWith(prefix)) continue;
+            const issue = store.getFileIssue(fullKey);
+            if (issue) map.set(fullKey.slice(prefix.length), issue);
+        }
+        return map;
+    }, [fileIssuesRev, projectPathForStatus]);
+
+    useEffect(() => {
+        if (!projectPathForStatus) return;
+        scheduleProjectAudit(projectPathForStatus, 1500);
+    }, [projectPathForStatus]);
 
     const [renamingPath, setRenamingPath] = useState<string | null>(null);
     const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
@@ -346,8 +370,8 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
 
     const rows = useMemo(() => {
         if (!filteredTree) return [];
-        return flattenTree(filteredTree, expandedFolders, renamingPath, statusByRelPath);
-    }, [filteredTree, expandedFolders, renamingPath, statusByRelPath]);
+        return flattenTree(filteredTree, expandedFolders, renamingPath, statusByRelPath, issueByRelPath);
+    }, [filteredTree, expandedFolders, renamingPath, statusByRelPath, issueByRelPath]);
 
     const projectPath = activeTab?.projectPath || '';
 
@@ -673,9 +697,11 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         );
     }
 
-    // focusedPath is part of the epoch so the focus ring repaints as it moves.
+    // focusedPath is part of the epoch so the focus ring repaints as it moves; the
+    // status/issue revs are too, or badge changes on already-visible rows never repaint.
     const renderEpoch = rows.length + (selectedFile?.length ?? 0) + (dropTargetPath?.length ?? 0)
-        + selectedPaths.size + (focusedPath?.length ?? 0) + (treeFocused ? 1 : 0);
+        + selectedPaths.size + (focusedPath?.length ?? 0) + (treeFocused ? 1 : 0)
+        + fileStatusesRev + fileIssuesRev;
 
     return (
         <div
@@ -876,7 +902,7 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
     onRenameCancel,
     onContextMenu,
 }) => {
-    const { node, displayPath, depth, isExpanded, isRenaming, status } = row;
+    const { node, displayPath, depth, isExpanded, isRenaming, status, issue } = row;
     const renameInputRef = useRef<HTMLInputElement>(null);
 
     void projectPath;
@@ -979,6 +1005,14 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
                         {status && (
                             <span className={`file-tree__status-badge file-tree__status-badge--${status}`}>
                                 {status === 'new' ? 'N' : 'M'}
+                            </span>
+                        )}
+                        {issue && (
+                            <span
+                                className={`file-tree__status-badge file-tree__status-badge--${issue.severity}`}
+                                title={issue.message}
+                            >
+                                {issue.severity === 'critical' ? 'E' : 'W'}
                             </span>
                         )}
                     </>

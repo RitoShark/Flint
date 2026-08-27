@@ -1,7 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useModalStore, useNotificationStore } from '../../lib/stores';
+import { useModalStore, useNotificationStore, useProjectTabStore } from '../../lib/stores';
+import { useAppMetadataStore } from '../../lib/stores/appMetadataStore';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
+import { issueTagsFromIssues } from '../../lib/audit/projectAudit';
+import { revealInTree } from '../../lib/editor/revealInTree';
 import * as api from '../../lib/api';
 
 type Tab = 'missing' | 'bloat' | 'risks';
@@ -82,6 +85,9 @@ export const WadAuditModal: React.FC = () => {
         api.auditWadFolder(folderPath)
             .then((result) => {
                 if (!cancelled) setReport(result);
+                useAppMetadataStore
+                    .getState()
+                    .replaceFileIssues(folderPath, issueTagsFromIssues(result.issues, folderPath.replaceAll('\\', '/')));
             })
             .catch((e) => {
                 if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -115,6 +121,23 @@ export const WadAuditModal: React.FC = () => {
         void navigator.clipboard.writeText(rows.map((r) => r.path).join('\n'));
         showToast('success', `${rows.length} path${rows.length === 1 ? '' : 's'} copied`);
     };
+
+    const projectPath = useProjectTabStore((s) => {
+        const tab = s.openTabs.find((t) => t.id === s.activeTabId);
+        return tab?.projectPath || '';
+    });
+
+    const revealRow = useCallback(
+        (relInFolder: string) => {
+            if (!projectPath) return;
+            const folderNorm = folderPath.replaceAll('\\', '/');
+            const projectNorm = projectPath.replaceAll('\\', '/');
+            if (!folderNorm.toLowerCase().startsWith(`${projectNorm.toLowerCase()}/`)) return;
+            const folderRel = folderNorm.slice(projectNorm.length + 1);
+            if (revealInTree(`${folderRel.toLowerCase()}/${relInFolder}`)) closeModal();
+        },
+        [projectPath, folderPath, closeModal],
+    );
 
     if (!isVisible) return null;
 
@@ -164,7 +187,7 @@ export const WadAuditModal: React.FC = () => {
                         {tab === 'bloat' &&
                             'Files present here that no BIN references. Anything under an icons2d folder is excluded, since those are referenced by hashes that often cannot be resolved.'}
                         {tab === 'risks' &&
-                            'Textures and animation graphs shaped in a way the client cannot load. Criticals break the mod for everyone who installs it.'}
+                            'Files shaped in a way the client cannot load — textures, animation graphs, BIN references. Criticals break the mod for everyone who installs it.'}
                     </p>
 
                     <div
@@ -198,7 +221,12 @@ export const WadAuditModal: React.FC = () => {
 
                         {!loading && !error && tab === 'risks' && report
                             ? report.issues.map((issue) => (
-                                <div key={`${issue.code}:${issue.file}`} style={{ ...rowStyle, display: 'block' }}>
+                                <div
+                                    key={`${issue.code}:${issue.file}`}
+                                    style={{ ...rowStyle, display: 'block', cursor: 'pointer' }}
+                                    title="Click to reveal in the file tree"
+                                    onClick={() => revealRow(issue.file)}
+                                >
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                         <span
                                             style={{
@@ -220,7 +248,12 @@ export const WadAuditModal: React.FC = () => {
                             : !loading &&
                               !error &&
                               rows.map((row) => (
-                                <div key={row.path} style={rowStyle} title={row.path}>
+                                <div
+                                    key={row.path}
+                                    style={tab === 'bloat' ? { ...rowStyle, cursor: 'pointer' } : rowStyle}
+                                    title={tab === 'bloat' ? 'Click to reveal in the file tree' : row.path}
+                                    onClick={tab === 'bloat' ? () => revealRow(row.path) : undefined}
+                                >
                                     <span style={pathStyle}>&#8206;{row.path}</span>
                                     {row.size !== null && (
                                         <span style={{ ...statStyle, flex: 'none' }}>{formatBytes(row.size)}</span>

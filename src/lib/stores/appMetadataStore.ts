@@ -5,6 +5,14 @@ import { setVerboseCapture, VERBOSE_STORAGE_KEY } from '../util/logger';
 const fileVersionsMap = new Map<string, number>();
 const fileStatusesMap = new Map<string, 'new' | 'modified'>();
 
+export interface FileIssueTag {
+  severity: 'critical' | 'warning';
+  message: string;
+}
+
+/** Keys are lowercased absolute paths — audit reports lowercase every relative path. */
+const fileIssuesMap = new Map<string, FileIssueTag>();
+
 interface AppMetadataState {
   status: 'ready' | 'working' | 'error';
   statusMessage: string;
@@ -16,6 +24,7 @@ interface AppMetadataState {
   fileVersionsRev: number;
   fileTreeVersion: number;
   fileStatusesRev: number;
+  fileIssuesRev: number;
 
   setStatus: (status: AppMetadataState['status'], message: string) => void;
   setWorking: (message?: string) => void;
@@ -35,6 +44,9 @@ interface AppMetadataState {
   getFileStatus: (filePath: string) => 'new' | 'modified' | undefined;
   getFileStatusKeys: () => string[];
   clearFileStatuses: () => void;
+  replaceFileIssues: (prefix: string, entries: Array<[string, FileIssueTag]>) => void;
+  getFileIssue: (filePath: string) => FileIssueTag | undefined;
+  getFileIssueKeys: () => string[];
   applyFileEvent: (input: {
     versionBumps?: string[];
     statusSets?: Array<{ key: string; status: 'new' | 'modified' }>;
@@ -69,6 +81,7 @@ export const useAppMetadataStore = create<AppMetadataState>((set) => ({
   fileVersionsRev: 0,
   fileTreeVersion: 0,
   fileStatusesRev: 0,
+  fileIssuesRev: 0,
 
   setStatus: (status, message) => set({ status, statusMessage: message }),
   setWorking: (message = 'Working...') => set({ status: 'working', statusMessage: message }),
@@ -135,11 +148,27 @@ export const useAppMetadataStore = create<AppMetadataState>((set) => ({
     movedVersions = move(fileVersionsMap);
     movedStatuses = move(fileStatusesMap);
 
-    if (!movedVersions && !movedStatuses) return;
+    const lowerOld = oldKey.toLowerCase();
+    const lowerNew = newKey.toLowerCase();
+    let movedIssues = false;
+    for (const [key, value] of [...fileIssuesMap.entries()]) {
+      if (key === lowerOld) {
+        fileIssuesMap.delete(key);
+        fileIssuesMap.set(lowerNew, value);
+        movedIssues = true;
+      } else if (key.startsWith(`${lowerOld}/`)) {
+        fileIssuesMap.delete(key);
+        fileIssuesMap.set(lowerNew + key.slice(lowerOld.length), value);
+        movedIssues = true;
+      }
+    }
+
+    if (!movedVersions && !movedStatuses && !movedIssues) return;
     set((state) => {
       const patch: Partial<AppMetadataState> = {};
       if (movedVersions) patch.fileVersionsRev = state.fileVersionsRev + 1;
       if (movedStatuses) patch.fileStatusesRev = state.fileStatusesRev + 1;
+      if (movedIssues) patch.fileIssuesRev = state.fileIssuesRev + 1;
       return patch;
     });
   },
@@ -163,6 +192,25 @@ export const useAppMetadataStore = create<AppMetadataState>((set) => ({
     fileStatusesMap.clear();
     set((state) => ({ fileStatusesRev: state.fileStatusesRev + 1 }));
   },
+
+  replaceFileIssues: (prefix, entries) => {
+    const lowerPrefix = normPath(prefix).toLowerCase();
+    let changed = false;
+    for (const key of [...fileIssuesMap.keys()]) {
+      if (key.startsWith(lowerPrefix)) {
+        fileIssuesMap.delete(key);
+        changed = true;
+      }
+    }
+    for (const [rawKey, tag] of entries) {
+      fileIssuesMap.set(normPath(rawKey).toLowerCase(), tag);
+      changed = true;
+    }
+    if (!changed) return;
+    set((state) => ({ fileIssuesRev: state.fileIssuesRev + 1 }));
+  },
+  getFileIssue: (filePath) => fileIssuesMap.get(normPath(filePath).toLowerCase()),
+  getFileIssueKeys: () => Array.from(fileIssuesMap.keys()),
 
   applyFileEvent: ({ versionBumps, statusSets, statusDeletes, bumpFileTree }) => {
     let changedVersions = false;

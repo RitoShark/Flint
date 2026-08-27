@@ -1271,9 +1271,11 @@ input.search-box__input {
   justify-content: center;
   width: 14px;
   height: 14px;
-  margin-left: 4px;
-  font-size: 9px;
-  font-weight: 700;
+  margin-left: 6px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
   border-radius: 2px;
   flex-shrink: 0;
   letter-spacing: 0;
@@ -1289,6 +1291,18 @@ input.search-box__input {
   background-color: rgba(229, 192, 123, 0.2);
   color: #E5C07B;
   border: 1px solid rgba(229, 192, 123, 0.4);
+}
+
+.file-tree__status-badge--critical {
+  background-color: rgba(220, 80, 80, 0.2);
+  color: #dc5050;
+  border: 1px solid rgba(220, 80, 80, 0.4);
+}
+
+.file-tree__status-badge--warning {
+  background-color: rgba(224, 160, 48, 0.2);
+  color: #e0a030;
+  border: 1px solid rgba(224, 160, 48, 0.4);
 }
 
 .file-tree__expander {
@@ -1331,32 +1345,6 @@ input.search-box__input {
   font-size: 13px;
   color: var(--text-primary);
   font-weight: 400;
-}
-
-/* File status badges (M, N, D) */
-.file-tree__status-badge {
-  margin-left: 6px;
-  padding: 0 4px;
-  border-radius: 2px;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 16px;
-  flex-shrink: 0;
-}
-
-.file-tree__status-badge--m {
-  background-color: rgba(255, 183, 0, 0.2);
-  color: #ffb700;
-}
-
-.file-tree__status-badge--n {
-  background-color: rgba(0, 200, 100, 0.2);
-  color: #00c864;
-}
-
-.file-tree__status-badge--d {
-  background-color: rgba(220, 80, 80, 0.2);
-  color: #dc5050;
 }
 
 /* Compact folder styling (VSCode-like) */

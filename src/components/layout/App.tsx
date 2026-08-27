@@ -11,6 +11,7 @@ import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invalidateCachedImage } from '../../lib/ui-helpers/imageCache';
 import { isSidecarFile } from '../../lib/editor/sidecarFiles';
+import { scheduleProjectAudit } from '../../lib/audit/projectAudit';
 
 import { TitleBar } from './TitleBar';
 import { LeftPanel } from '../browser/FileTree';
@@ -511,6 +512,11 @@ export const App: React.FC = () => {
                 statusDeletes,
                 bumpFileTree: kind === 'create' || kind === 'remove',
             });
+
+            const activeTab = getActiveTab(stateRef.current);
+            if (activeTab && key.startsWith(`${activeTab.projectPath.replaceAll('\\', '/')}/content/`)) {
+                scheduleProjectAudit(activeTab.projectPath, 5000);
+            }
         });
 
         return () => {
