@@ -32,6 +32,9 @@ function nameOf(path: string): string {
 export class PathIndex {
     /** dir path → entries directly inside it. */
     private readonly children = new Map<string, VfsEntry[]>();
+    /** Directories already materialised — a Set lookup instead of scanning the
+     * parent's (ever-growing) child list per ancestor, which was O(n²) on wide dirs. */
+    private readonly dirs = new Set<string>();
     /** Every file entry, for search. */
     private readonly files: VfsEntry[] = [];
     private sorted = false;
@@ -59,18 +62,15 @@ export class PathIndex {
     /** Create every ancestor directory entry so intermediate levels resolve. */
     private ensureDirChain(dir: string): void {
         let current = dir;
-        while (current !== '') {
-            const parent = parentOf(current);
-            const siblings = this.children.get(parent);
-            if (!siblings?.some((e) => e.isDirectory && e.path === current)) {
-                this.push(parent, {
-                    path: current,
-                    name: nameOf(current),
-                    isDirectory: true,
-                    key: current,
-                });
-            }
-            current = parent;
+        while (current !== '' && !this.dirs.has(current)) {
+            this.dirs.add(current);
+            this.push(parentOf(current), {
+                path: current,
+                name: nameOf(current),
+                isDirectory: true,
+                key: current,
+            });
+            current = parentOf(current);
         }
     }
 

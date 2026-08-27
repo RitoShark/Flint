@@ -1,5 +1,5 @@
 import React, {
-    useState, useCallback, useEffect, useRef, useMemo,
+    useState, useCallback, useDeferredValue, useEffect, useRef, useMemo,
 } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useConfigStore, useWadExplorerStore, useModalStore, useNotificationStore } from '../../lib/stores';
@@ -43,7 +43,6 @@ export const WadExplorer: React.FC = () => {
         selected: s.selected,
         expandedWads: s.expandedWads,
         expandedFolders: s.expandedFolders,
-        searchQuery: s.searchQuery,
         checkedFiles: s.checkedFiles,
         checkedCountPerWad: s.checkedCountPerWad,
     })));
@@ -73,16 +72,22 @@ export const WadExplorer: React.FC = () => {
     const pendingNavRef = useRef<{ wadPath: string; filePath?: string; phase: 'wad' | 'file' } | null>(null);
     const flatRowsRef = useRef<FlatRow[] | null>(null);
 
-    const [inputValue, setInputValue] = useState(wadExplorer.searchQuery);
+    const [inputValue, setInputValue] = useState(() => useWadExplorerStore.getState().searchQuery);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const searchRef = useRef<HTMLInputElement>(null);
 
     // ── Derived search state (Quartz-style smart matching) ──────────────────
     // One input, no mode toggles: the query is tried as a case-insensitive
     // regex and silently falls back to substring matching if it won't compile.
-    const trimmed = inputValue.trim();
-    const searchRe = compileSearch(trimmed);
-    const plainLower = trimmed.toLowerCase();
+    // Deferred so a keystroke repaints the input immediately and the full-game
+    // scan runs at deferred priority; memoised so consumers see one stable
+    // RegExp per query instead of a fresh object every render.
+    const deferredQuery = useDeferredValue(inputValue);
+    const trimmed = deferredQuery.trim();
+    const { searchRe, plainLower } = useMemo(
+        () => ({ searchRe: compileSearch(trimmed), plainLower: trimmed.toLowerCase() }),
+        [trimmed],
+    );
     const hasQuery = trimmed.length > 0;
 
     // ── PBE / Live branch toggle ────────────────────────────────────────────
@@ -815,12 +820,18 @@ export const WadExplorer: React.FC = () => {
     }, []);
 
     // ── Current selection ────────────────────────────────────────────────────
-    const selectedWad = wadExplorer.selected
-        ? wadExplorer.wads.find(w => w.path === wadExplorer.selected!.wadPath)
-        : null;
-    const selectedChunk = selectedWad?.status === 'loaded'
-        ? selectedWad.chunks.find(c => c.hash === wadExplorer.selected!.hash) ?? null
-        : null;
+    const selectedWad = useMemo(
+        () => (wadExplorer.selected
+            ? wadExplorer.wads.find(w => w.path === wadExplorer.selected!.wadPath) ?? null
+            : null),
+        [wadExplorer.wads, wadExplorer.selected],
+    );
+    const selectedChunk = useMemo(
+        () => (selectedWad?.status === 'loaded'
+            ? selectedWad.chunks.find(c => c.hash === wadExplorer.selected!.hash) ?? null
+            : null),
+        [selectedWad, wadExplorer.selected],
+    );
 
     // ── Search results (grouped by WAD → folder) ──────────────────────────
     const [collapsedSearchWads, setCollapsedSearchWads] = useState<Set<string>>(new Set());
@@ -872,7 +883,7 @@ export const WadExplorer: React.FC = () => {
         }
 
         return wadGroups;
-    }, [wadExplorer.wads, trimmed, inputValue]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [wadExplorer.wads, trimmed, searchRe, plainLower]);
 
     const searchResultCount = useMemo(() => {
         if (!groupedSearchResults) return 0;
