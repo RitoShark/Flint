@@ -213,6 +213,7 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
     }
 
     let mut mentions: HashSet<String> = HashSet::new();
+    let mut bin_mentions: Vec<(String, HashSet<String>)> = Vec::new();
     let mut migration = MigrationTally::default();
     let bin_names = flint_hash::hash::bin_dict::get_cached_bin_hashes().read();
     for (rel, disk) in &files {
@@ -238,7 +239,10 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
         }
         match read_bin(&data) {
             Ok(bin) => {
-                collect_mentions(&bin, &mut mentions);
+                let mut own = HashSet::new();
+                collect_mentions(&bin, &mut own);
+                mentions.extend(own.iter().cloned());
+                bin_mentions.push((rel.clone(), own));
                 report.issues.extend(check_animation_graph(&bin, rel, &bin_names));
                 report.issues.extend(check_bin_hazards(&bin, rel));
                 migration.add_bin(&bin, rel);
@@ -249,12 +253,6 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
     }
     drop(bin_names);
     report.issues.extend(migration.into_issues());
-    report.issues.sort_by(|a, b| {
-        a.severity
-            .cmp(&b.severity)
-            .then_with(|| a.file.cmp(&b.file))
-            .then_with(|| a.code.cmp(b.code))
-    });
 
     let mut referenced: HashSet<usize> = HashSet::new();
     let mut missing: BTreeSet<String> = BTreeSet::new();
@@ -288,6 +286,41 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
             return has_any_variant;
         }
         true
+    });
+
+    for (rel, own) in &bin_mentions {
+        let mut absent: Vec<&str> = own
+            .iter()
+            .filter(|m| missing.contains(*m))
+            .map(String::as_str)
+            .collect();
+        if absent.is_empty() {
+            continue;
+        }
+        absent.sort_unstable();
+        let shown = absent[..absent.len().min(3)].join(", ");
+        let rest = absent.len().saturating_sub(3);
+        report.issues.push(CheckIssue {
+            severity: crate::checks::Severity::Warning,
+            code: "bin.missing-ref",
+            file: rel.clone(),
+            message: format!(
+                "References {} file{} the folder does not ship ({shown}{}). Unless the game itself provides them, they load magenta or not at all.",
+                absent.len(),
+                if absent.len() == 1 { "" } else { "s" },
+                if rest > 0 {
+                    format!(", and {rest} more")
+                } else {
+                    String::new()
+                },
+            ),
+        });
+    }
+    report.issues.sort_by(|a, b| {
+        a.severity
+            .cmp(&b.severity)
+            .then_with(|| a.file.cmp(&b.file))
+            .then_with(|| a.code.cmp(b.code))
     });
 
     let mut bloat: Vec<BloatFile> = Vec::new();
@@ -446,6 +479,42 @@ mod tests {
         assert!(bloat.contains(&"assets/characters/foo/orphan.tex"));
         assert!(!bloat.iter().any(|p| p.contains("icons2d")));
         assert!(!bloat.iter().any(|p| p.ends_with(".bin")));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_reference_is_pinned_on_the_bin_that_makes_it() {
+        use ritoshark::bin::{BinEntry, BinValue};
+
+        let dir = std::env::temp_dir().join(format!("flint-audit-refs-{}", std::process::id()));
+        let data_dir = dir.join("data");
+        std::fs::create_dir_all(&data_dir).unwrap();
+
+        let mut fields = indexmap::IndexMap::new();
+        fields.insert(
+            ritoshark::hash::fnv1a("someField"),
+            BinValue::String("assets/characters/foo/gone.skn".into()),
+        );
+        let bin = Bin {
+            entries: vec![BinEntry {
+                path_hash: 1,
+                class_hash: 2,
+                fields,
+            }],
+            ..Bin::new()
+        };
+        std::fs::write(data_dir.join("skin0.bin"), crate::codec::write_bin(&bin).unwrap()).unwrap();
+
+        let report = audit_wad_folder(&dir).unwrap();
+        assert!(report.missing.contains(&"assets/characters/foo/gone.skn".to_string()));
+        let issue = report
+            .issues
+            .iter()
+            .find(|i| i.code == "bin.missing-ref")
+            .expect("a missing-ref issue");
+        assert_eq!(issue.file, "data/skin0.bin");
+        assert!(issue.message.contains("gone.skn"), "{}", issue.message);
 
         let _ = std::fs::remove_dir_all(&dir);
     }
