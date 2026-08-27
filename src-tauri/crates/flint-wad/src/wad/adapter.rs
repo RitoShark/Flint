@@ -6,12 +6,13 @@ use flint_hash::error::{Error, Result};
 use flint_hash::hash::ResolvedHashes;
 use crate::wad::chunk_io::read_chunk_decompressed_bytes;
 use crate::wad::format::WadChunk;
-use crate::wad::reader::{read_wad_toc, WadToc};
+use crate::wad::reader::read_wad_toc;
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 pub use crate::wad::format::WadChunk as Chunk;
 
@@ -22,13 +23,25 @@ type ExtractPlanEntry = (WadChunk, PathBuf, Option<(String, String)>);
 
 pub struct WadChunks {
     chunks: Vec<WadChunk>,
-    by_hash: HashMap<u64, usize>,
+    /// Built on first `get` — the bulk list commands never look anything up,
+    /// and hashing every chunk of every WAD up front was most of open's cost.
+    by_hash: OnceLock<HashMap<u64, usize>>,
 }
 
 impl WadChunks {
+    fn index(&self) -> &HashMap<u64, usize> {
+        self.by_hash.get_or_init(|| {
+            self.chunks
+                .iter()
+                .enumerate()
+                .map(|(i, c)| (c.path_hash, i))
+                .collect()
+        })
+    }
+
     pub fn iter(&self) -> std::slice::Iter<'_, WadChunk> { self.chunks.iter() }
     pub fn get(&self, path_hash: u64) -> Option<&WadChunk> {
-        self.by_hash.get(&path_hash).map(|&i| &self.chunks[i])
+        self.index().get(&path_hash).map(|&i| &self.chunks[i])
     }
     pub fn len(&self) -> usize { self.chunks.len() }
     pub fn is_empty(&self) -> bool { self.chunks.is_empty() }
@@ -41,7 +54,7 @@ impl<'a> IntoIterator for &'a WadChunks {
 }
 
 pub struct WadHandle {
-    toc: WadToc,
+    path: PathBuf,
     chunks: WadChunks,
 }
 
@@ -50,32 +63,28 @@ impl WadHandle {
         let path = path.as_ref();
         tracing::debug!("Opening WAD: {}", path.display());
         let toc = read_wad_toc(path)?;
-        let chunks_vec = toc.chunks.clone();
-        let by_hash: HashMap<u64, usize> = chunks_vec
-            .iter()
-            .enumerate()
-            .map(|(i, c)| (c.path_hash, i))
-            .collect();
         Ok(Self {
-            toc,
-            chunks: WadChunks { chunks: chunks_vec, by_hash },
+            path: toc.path,
+            chunks: WadChunks { chunks: toc.chunks, by_hash: OnceLock::new() },
         })
     }
 
     pub fn chunks(&self) -> &WadChunks { &self.chunks }
+    /// The chunk list itself, with no copy — for callers that only list.
+    pub fn into_chunks(self) -> Vec<WadChunk> { self.chunks.chunks }
     pub fn get_chunk(&self, path_hash: u64) -> Option<&WadChunk> { self.chunks.get(path_hash) }
     pub fn chunk_count(&self) -> usize { self.chunks.len() }
 
-    pub fn wad_mut(&mut self) -> WadDecoder<'_> { WadDecoder { toc: &self.toc } }
+    pub fn wad_mut(&mut self) -> WadDecoder<'_> { WadDecoder { path: &self.path } }
 }
 
 pub struct WadDecoder<'a> {
-    toc: &'a WadToc,
+    path: &'a Path,
 }
 
 impl WadDecoder<'_> {
     pub fn load_chunk_decompressed(&mut self, chunk: &WadChunk) -> Result<Vec<u8>> {
-        read_chunk_decompressed_bytes(&self.toc.path, chunk)
+        read_chunk_decompressed_bytes(self.path, chunk)
     }
 }
 

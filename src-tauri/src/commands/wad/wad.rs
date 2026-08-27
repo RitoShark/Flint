@@ -1,7 +1,7 @@
 use flint_core::overlay::HashResolver;
 use flint_core::hash::ResolvedHashes;
 use flint_core::wad::adapter::WadHandle as WadReader;
-use crate::state::{HashOverlayState, LmdbCacheState, WadCacheState};
+use crate::state::{HashOverlayState, WadCacheState};
 use crate::core::ipc_trace;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -18,13 +18,6 @@ pub struct WadInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChunkInfo {
-    pub hash: String,
-    pub path: Option<String>,
-    pub size: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractionResult {
     pub extracted_count: usize,
     pub failed_count: usize,
@@ -37,85 +30,6 @@ pub async fn read_wad(path: String) -> Result<WadInfo, String> {
         path,
         chunk_count: reader.chunk_count(),
     })
-}
-
-/// Returns a list of all chunks in a WAD archive with resolved paths.
-#[tauri::command]
-pub async fn get_wad_chunks(
-    path: String,
-    _lmdb: State<'_, LmdbCacheState>,
-    wad_cache_state: State<'_, WadCacheState>,
-    overlay_state: State<'_, HashOverlayState>,
-) -> Result<Vec<ChunkInfo>, String> {
-    let _t = ipc_trace::enter("get_wad_chunks");
-    let total_start = Instant::now();
-    let cache = wad_cache_state.get();
-
-    let cache_hit;
-    let t_open = Instant::now();
-    let chunks = if let Some(cached) = cache.get(&path) {
-        cache_hit = true;
-        cached
-    } else {
-        cache_hit = false;
-        let reader = WadReader::open(&path)?;
-        let chunks: Vec<_> = reader.chunks().iter().cloned().collect();
-        let chunks = Arc::new(chunks);
-        let _ = cache.insert(&path, Arc::clone(&chunks));
-        chunks
-    };
-    let d_open = t_open.elapsed();
-
-    let t_hashes = Instant::now();
-    let hash_u64s: Vec<u64> = chunks.iter().map(|c| c.path_hash).collect();
-    let d_hash_collect = t_hashes.elapsed();
-
-    let t_resolve = Instant::now();
-    let hash_dir = flint_core::hash::get_hash_dir()
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let overlay = overlay_state.get();
-    let resolver = HashResolver::new(&hash_dir, overlay.as_ref());
-    let resolved: Vec<String> = resolver.resolve_wad(&hash_u64s);
-    let d_resolve = t_resolve.elapsed();
-
-    let t_build = Instant::now();
-    let chunk_infos = chunks
-        .iter()
-        .zip(resolved.into_iter())
-        .map(|(chunk, resolved_path)| {
-            let path_hash = chunk.path_hash;
-            // Hex-only 16-char strings are unresolved hashes — treat as None.
-            let path = if resolved_path.len() == 16
-                && resolved_path.bytes().all(|b| b.is_ascii_hexdigit())
-            {
-                None
-            } else {
-                Some(resolved_path)
-            };
-            ChunkInfo {
-                hash: format!("{:016x}", path_hash),
-                path,
-                size: chunk.uncompressed_size as u32,
-            }
-        })
-        .collect::<Vec<_>>();
-    let d_build = t_build.elapsed();
-    let total = total_start.elapsed();
-
-    tracing::debug!(
-        "[TIMING] get_wad_chunks {} chunks ({}, total {:?}): \
-         open/parse {:?}, hash_collect {:?}, lmdb_resolve {:?}, build_response {:?}",
-        chunks.len(),
-        if cache_hit { "cache_hit" } else { "cache_miss" },
-        total,
-        d_open,
-        d_hash_collect,
-        d_resolve,
-        d_build,
-    );
-
-    Ok(chunk_infos)
 }
 
 /// Loads chunk metadata for multiple WAD files in one call, returning a compact
@@ -140,18 +54,28 @@ pub async fn get_wad_chunks(
 #[tauri::command]
 pub async fn load_all_wad_chunks(
     paths: Vec<String>,
-    _lmdb: State<'_, LmdbCacheState>,
     wad_cache_state: State<'_, WadCacheState>,
     overlay_state: State<'_, HashOverlayState>,
 ) -> Result<tauri::ipc::Response, String> {
     let _t = ipc_trace::enter("load_all_wad_chunks");
-    let total_start = Instant::now();
     let cache = wad_cache_state.get();
+    let overlay = overlay_state.get();
+
+    tokio::task::spawn_blocking(move || load_all_wad_chunks_blocking(paths, cache, overlay))
+        .await
+        .map_err(|e| format!("Task panic: {}", e))?
+}
+
+fn load_all_wad_chunks_blocking(
+    paths: Vec<String>,
+    cache: Arc<flint_core::wad::cache::WadCache>,
+    overlay: Option<Arc<flint_core::overlay::ProjectHashOverlay>>,
+) -> Result<tauri::ipc::Response, String> {
+    let total_start = Instant::now();
 
     let hash_dir = flint_core::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let overlay = overlay_state.get();
     let resolver = HashResolver::new(&hash_dir, overlay.as_ref());
 
     // Phase 1: parallel WAD header reads (rayon).
@@ -164,8 +88,7 @@ pub async fn load_all_wad_chunks(
                     return Ok(cached);
                 }
                 let reader = WadReader::open(wad_path).map_err(|e| e.to_string())?;
-                let chunks: Vec<_> = reader.chunks().iter().cloned().collect();
-                let chunks = Arc::new(chunks);
+                let chunks = Arc::new(reader.into_chunks());
                 let _ = cache.insert(wad_path, Arc::clone(&chunks));
                 Ok(chunks)
             })();
@@ -265,14 +188,15 @@ fn encode_one_wad<C: WadChunkMeta>(
     };
     let chunk_count = chunks_opt.map(|c| c.len()).unwrap_or(0);
 
-    let mut resolved_total: usize = 0;
-    if let Some(chunks) = chunks_opt {
-        for c in chunks.iter() {
-            if let Some(s) = resolved.get(&c.path_hash_le()) {
-                resolved_total += s.len().min(0xFFFE);
-            }
-        }
-    }
+    let resolved_strs: Vec<Option<&str>> = match chunks_opt {
+        Some(chunks) => chunks.iter().map(|c| resolved.get(&c.path_hash_le())).collect(),
+        None => Vec::new(),
+    };
+    let resolved_total: usize = resolved_strs
+        .iter()
+        .flatten()
+        .map(|s| s.len().min(0xFFFE))
+        .sum();
 
     let cap = 4 + path_bytes.len()
         + 4 + err_bytes.len()
@@ -300,8 +224,8 @@ fn encode_one_wad<C: WadChunkMeta>(
         for _ in 0..chunk_count {
             buf.extend_from_slice(&[0u8, 0u8]);
         }
-        for (i, c) in chunks.iter().enumerate() {
-            let len_u16 = match resolved.get(&c.path_hash_le()) {
+        for (i, s) in resolved_strs.iter().enumerate() {
+            let len_u16 = match s {
                 None => 0xFFFFu16,
                 Some(s) => {
                     let n = s.len().min(0xFFFE);
@@ -328,7 +252,6 @@ pub async fn extract_wad(
     wad_path: String,
     output_dir: String,
     chunk_hashes: Option<Vec<String>>,
-    _lmdb: State<'_, LmdbCacheState>,
     overlay_state: State<'_, HashOverlayState>,
 ) -> Result<ExtractionResult, String> {
     let _t = ipc_trace::enter("extract_wad");
@@ -405,7 +328,6 @@ pub struct WadModelPreviewResult {
 pub async fn extract_wad_model_preview(
     wad_path: String,
     skn_hash: String,
-    _lmdb: State<'_, LmdbCacheState>,
     wad_cache_state: State<'_, WadCacheState>,
     overlay_state: State<'_, HashOverlayState>,
 ) -> Result<WadModelPreviewResult, String> {
@@ -418,8 +340,7 @@ pub async fn extract_wad_model_preview(
         cached
     } else {
         let reader = WadReader::open(&wad_path)?;
-        let chunks: Vec<_> = reader.chunks().iter().cloned().collect();
-        let chunks = Arc::new(chunks);
+        let chunks = Arc::new(reader.into_chunks());
         let _ = cache.insert(&wad_path, Arc::clone(&chunks));
         chunks
     };

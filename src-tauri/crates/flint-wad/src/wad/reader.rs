@@ -61,22 +61,23 @@ pub fn read_wad_toc(path: impl AsRef<Path>) -> Result<WadToc> {
     }
     let chunk_count = chunk_count as usize;
 
-    let mut chunks = Vec::with_capacity(chunk_count);
+    // Both entry layouts are exactly 32 bytes, so the whole TOC is one read and
+    // plain slice parsing — per-field reader calls cost ~10 virtual calls per
+    // chunk, which dominated whole-game indexing.
+    const ENTRY_SIZE: usize = 32;
+    let mut buf = vec![0u8; chunk_count * ENTRY_SIZE];
+    reader
+        .read_exact(&mut buf)
+        .map_err(|e| Error::wad_with_path(format!("Truncated TOC ({} chunks): {}", chunk_count, e), path))?;
+
     let version = WadVersion { major, minor };
-    for i in 0..chunk_count {
-        let chunk = if version.is_v3_4_plus() {
-            read_chunk_v3_4(&mut reader)
-        } else {
-            read_chunk_v3_1(&mut reader)
-        }
-        .map_err(|e| match e {
-            Error::Io { source, .. } => Error::wad_with_path(
-                format!("Failed reading chunk {}/{}: {}", i + 1, chunk_count, source),
-                path,
-            ),
+    let v3_4 = version.is_v3_4_plus();
+    let mut chunks = Vec::with_capacity(chunk_count);
+    for entry in buf.chunks_exact(ENTRY_SIZE) {
+        chunks.push(parse_chunk(entry, v3_4).map_err(|e| match e {
+            Error::Wad { message, .. } => Error::wad_with_path(message, path),
             other => other,
-        })?;
-        chunks.push(chunk);
+        })?);
     }
 
     Ok(WadToc {
@@ -86,55 +87,25 @@ pub fn read_wad_toc(path: impl AsRef<Path>) -> Result<WadToc> {
     })
 }
 
-fn read_chunk_v3_1<R: Read>(reader: &mut R) -> Result<WadChunk> {
-    let path_hash = reader.read_u64::<LittleEndian>()?;
-    let data_offset = reader.read_u32::<LittleEndian>()? as u64;
-    let compressed_size = reader.read_i32::<LittleEndian>()?.max(0) as u64;
-    let uncompressed_size = reader.read_i32::<LittleEndian>()?.max(0) as u64;
+fn parse_chunk(entry: &[u8], v3_4: bool) -> Result<WadChunk> {
+    let u32_at = |at: usize| u32::from_le_bytes(entry[at..at + 4].try_into().unwrap());
 
-    let type_frame_count = reader.read_u8()?;
-    let compression_byte = type_frame_count & 0x0F;
-    let compression = WadCompression::from_u8(compression_byte).ok_or_else(|| {
-        Error::Wad {
-            message: format!("Unknown compression type {}", compression_byte),
-            path: None,
-        }
+    let path_hash = u64::from_le_bytes(entry[..8].try_into().unwrap());
+    let data_offset = u32_at(8) as u64;
+    let (compressed_size, uncompressed_size) = if v3_4 {
+        (u32_at(12) as u64, u32_at(16) as u64)
+    } else {
+        (
+            (u32_at(12) as i32).max(0) as u64,
+            (u32_at(16) as i32).max(0) as u64,
+        )
+    };
+
+    let compression_byte = entry[20] & 0x0F;
+    let compression = WadCompression::from_u8(compression_byte).ok_or_else(|| Error::Wad {
+        message: format!("Unknown compression type {}", compression_byte),
+        path: None,
     })?;
-
-    // Advance past is_duplicated (u8), start_frame (u16), checksum (u64).
-    reader.read_u8()?;
-    reader.read_u16::<LittleEndian>()?;
-    reader.read_u64::<LittleEndian>()?;
-
-    Ok(WadChunk {
-        path_hash,
-        data_offset,
-        compressed_size,
-        uncompressed_size,
-        compression,
-    })
-}
-
-fn read_chunk_v3_4<R: Read>(reader: &mut R) -> Result<WadChunk> {
-    let path_hash = reader.read_u64::<LittleEndian>()?;
-    let data_offset = reader.read_u32::<LittleEndian>()? as u64;
-    let compressed_size = reader.read_u32::<LittleEndian>()? as u64;
-    let uncompressed_size = reader.read_u32::<LittleEndian>()? as u64;
-
-    let type_frame_count = reader.read_u8()?;
-    let compression_byte = type_frame_count & 0x0F;
-    let compression = WadCompression::from_u8(compression_byte).ok_or_else(|| {
-        Error::Wad {
-            message: format!("Unknown compression type {}", compression_byte),
-            path: None,
-        }
-    })?;
-
-    // Advance past the 24-bit start_frame (3 bytes) and checksum (u64).
-    reader.read_u8()?;
-    reader.read_u8()?;
-    reader.read_u8()?;
-    reader.read_u64::<LittleEndian>()?;
 
     Ok(WadChunk {
         path_hash,

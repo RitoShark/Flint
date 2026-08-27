@@ -260,7 +260,6 @@ fn main() {
             commands::hash::reload_hashes,
             commands::hash::force_rebuild_hashes,
             commands::wad::read_wad,
-            commands::wad::get_wad_chunks,
             commands::wad::load_all_wad_chunks,
             commands::wad::extract_wad,
             commands::wad::read_wad_chunk_data,
