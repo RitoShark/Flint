@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useModalStore, useConfigStore, useProjectTabStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import type { OriginalFileMeta } from '../../lib/api';
-import { simpleLineDiff } from '../../lib/util/lineDiff';
+import { diffLines, type DiffHunk, type LineDiffResult } from '../../lib/util/lineDiff';
 import '../../styles/design-lab.css';
 
 interface FileCompareOptions {
@@ -81,11 +81,7 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
     return true;
 }
 
-const CloseIcon: React.FC = () => (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M4 4l8 8M12 4l-8 8" />
-    </svg>
-);
+type CompareView = 'diff' | 'panes';
 
 export const FileCompareModal: React.FC = () => {
     const closeModal = useModalStore((s) => s.closeModal);
@@ -110,6 +106,7 @@ export const FileCompareModal: React.FC = () => {
     const [reference, setReference] = useState<RenderableContent | null>(null);
     const [identical, setIdentical] = useState<boolean | null>(null);
     const [sizes, setSizes] = useState<{ current: number; reference: number } | null>(null);
+    const [view, setView] = useState<CompareView>('diff');
 
     useEffect(() => {
         if (!isVisible) return;
@@ -141,6 +138,7 @@ export const FileCompareModal: React.FC = () => {
         setReference(null);
         setIdentical(null);
         setSizes(null);
+        setView('diff');
 
         (async () => {
             try {
@@ -201,10 +199,12 @@ export const FileCompareModal: React.FC = () => {
         return () => { cancelled = true; };
     }, [isVisible, options, projectPath, leaguePath]);
 
-    const diff = useMemo(() => {
-        if (identical !== false || current?.kind !== 'text' || reference?.kind !== 'text') return null;
-        return simpleLineDiff(reference.text, current.text);
-    }, [identical, current, reference]);
+    const diff = useMemo<LineDiffResult | null>(() => {
+        if (current?.kind !== 'text' || reference?.kind !== 'text') return null;
+        return diffLines(reference.text, current.text);
+    }, [current, reference]);
+
+    const isTextPair = current?.kind === 'text' && reference?.kind === 'text';
 
     if (!isVisible || !options) return null;
 
@@ -236,9 +236,12 @@ export const FileCompareModal: React.FC = () => {
                             {identical ? 'Identical' : 'Different'}
                         </span>
                     )}
-                    <button className="dl-modal__close" onClick={closeModal} aria-label="Close">
-                        <CloseIcon />
-                    </button>
+                    {diff && (
+                        <span className="dl-fc__stat">
+                            <span className="dl-fc__stat-add">+{diff.added}</span>
+                            <span className="dl-fc__stat-del">−{diff.removed}</span>
+                        </span>
+                    )}
                 </div>
 
                 <div className="dl-modal__body dl-fc__body">
@@ -283,45 +286,36 @@ export const FileCompareModal: React.FC = () => {
                                             </span>
                                         </>
                                     )}
+                                    {isTextPair && !identical && (
+                                        <div className="dl-fc__views">
+                                            <button
+                                                className={`dl-fc__view-btn${view === 'diff' ? ' is-active' : ''}`}
+                                                onClick={() => setView('diff')}
+                                            >
+                                                Diff
+                                            </button>
+                                            <button
+                                                className={`dl-fc__view-btn${view === 'panes' ? ' is-active' : ''}`}
+                                                onClick={() => setView('panes')}
+                                            >
+                                                Side by side
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
-                            {diff && (
-                                <div className="dl-card dl-fc__pane dl-fc__diff">
-                                    <div className="dl-fc__pane-head">
-                                        <span className="dl-fc__pane-label">Difference — line {diff.line}</span>
-                                    </div>
-                                    <pre className="dl-fc__text dl-fc__diff-body">
-                                        {diff.context_before.map((l, i) => (
-                                            <div key={`cb${i}`} className="dl-fc__diff-ctx">{`  ${l}`}</div>
-                                        ))}
-                                        {diff.removed.map((l, i) => (
-                                            <React.Fragment key={`r${i}`}>
-                                                {diff.truncated_removed > 0 && i === diff.removed.length / 2 && (
-                                                    <div className="dl-fc__diff-ctx">{`  … ${diff.truncated_removed} more removed lines`}</div>
-                                                )}
-                                                <div className="dl-fc__diff-del">{`- ${l}`}</div>
-                                            </React.Fragment>
-                                        ))}
-                                        {diff.added.map((l, i) => (
-                                            <React.Fragment key={`a${i}`}>
-                                                {diff.truncated_added > 0 && i === diff.added.length / 2 && (
-                                                    <div className="dl-fc__diff-ctx">{`  … ${diff.truncated_added} more added lines`}</div>
-                                                )}
-                                                <div className="dl-fc__diff-add">{`+ ${l}`}</div>
-                                            </React.Fragment>
-                                        ))}
-                                        {diff.context_after.map((l, i) => (
-                                            <div key={`ca${i}`} className="dl-fc__diff-ctx">{`  ${l}`}</div>
-                                        ))}
-                                    </pre>
+                            {isTextPair && view === 'diff' && !identical ? (
+                                <DiffView
+                                    diff={diff}
+                                    referenceLabel={referenceLabel}
+                                />
+                            ) : (
+                                <div className="dl-fc__grid">
+                                    <ComparePane label="Current (project)" tone="current" content={current} />
+                                    <ComparePane label={referenceLabel} tone="reference" content={reference} />
                                 </div>
                             )}
-
-                            <div className="dl-fc__grid">
-                                <ComparePane label="Current (project)" tone="current" content={current} />
-                                <ComparePane label={referenceLabel} tone="reference" content={reference} />
-                            </div>
                         </>
                     )}
                 </div>
@@ -336,6 +330,62 @@ export const FileCompareModal: React.FC = () => {
         document.body,
     );
 };
+
+const DiffView: React.FC<{ diff: LineDiffResult | null; referenceLabel: string }> = ({ diff, referenceLabel }) => {
+    if (!diff) {
+        return (
+            <div className="dl-card dl-fc__pane dl-fc__diff">
+                <div className="dl-fc__placeholder">
+                    The bytes differ but the text renders the same — the change is in formatting or in data the text form drops.
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="dl-card dl-fc__pane dl-fc__diff">
+            <div className="dl-fc__pane-head">
+                <span className="dl-fc__pane-label">
+                    {referenceLabel} → Current
+                </span>
+                <span className="dl-fc__hunk-count">
+                    {diff.hunks.length} {diff.hunks.length === 1 ? 'change' : 'changes'}
+                </span>
+            </div>
+            {diff.coarse && (
+                <div className="dl-fc__diff-note">
+                    Too many differences to align line by line — showing the whole changed block.
+                </div>
+            )}
+            <div className="dl-fc__diff-body">
+                {diff.hunks.map((hunk, i) => (
+                    <Hunk key={`${hunk.aStart}:${hunk.bStart}:${i}`} hunk={hunk} />
+                ))}
+                {diff.truncatedHunks > 0 && (
+                    <div className="dl-fc__diff-note">
+                        … {diff.truncatedHunks} more {diff.truncatedHunks === 1 ? 'change' : 'changes'} not shown
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+const Hunk: React.FC<{ hunk: DiffHunk }> = ({ hunk }) => (
+    <div className="dl-fc__hunk">
+        <div className="dl-fc__hunk-head">
+            @@ −{hunk.aStart},{hunk.aCount} +{hunk.bStart},{hunk.bCount} @@
+        </div>
+        {hunk.rows.map((row, i) => (
+            <div key={i} className={`dl-fc__row dl-fc__row--${row.op}`}>
+                <span className="dl-fc__ln">{row.a ?? ''}</span>
+                <span className="dl-fc__ln">{row.b ?? ''}</span>
+                <span className="dl-fc__sign">{row.op === 'add' ? '+' : row.op === 'del' ? '−' : ' '}</span>
+                <span className="dl-fc__code">{row.text || ' '}</span>
+            </div>
+        ))}
+    </div>
+);
 
 const ComparePane: React.FC<{
     label: string;
@@ -403,6 +453,8 @@ const LOCAL_CSS = `
 }
 
 .dl-fc__body {
+    display: flex !important;
+    flex-direction: column;
     gap: 14px !important;
     padding: 20px 22px 22px !important;
 }
@@ -499,6 +551,7 @@ const LOCAL_CSS = `
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 14px;
+    flex: 1;
     min-height: 360px;
 }
 
@@ -581,24 +634,113 @@ const LOCAL_CSS = `
     padding: 24px;
 }
 
+.dl-fc__stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+}
+.dl-fc__stat-add { color: #73C991; }
+.dl-fc__stat-del { color: #dc5050; }
+
+.dl-fc__views {
+    display: inline-flex;
+    align-items: center;
+    margin-left: auto;
+    padding: 2px;
+    gap: 2px;
+    border: 1px solid var(--border);
+    border-radius: var(--dl-radius-sm, 6px);
+    background: var(--bg-secondary);
+}
+.dl-fc__view-btn {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 11px;
+    line-height: 1;
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.dl-fc__view-btn:hover { color: var(--text-primary); }
+.dl-fc__view-btn.is-active {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    box-shadow: inset 0 0 0 1px var(--border);
+}
+
 .dl-fc__diff {
-    max-height: 260px;
+    min-height: 360px;
+    flex: 1;
 }
-.dl-fc__diff-body {
-    overflow: auto;
-    padding: 12px;
-    margin: 0;
-}
-.dl-fc__diff-ctx {
+.dl-fc__hunk-count {
+    margin-left: auto;
+    font-size: 11px;
     color: var(--text-muted);
 }
-.dl-fc__diff-del {
-    color: #dc5050;
-    background: rgba(220, 80, 80, 0.08);
+.dl-fc__diff-body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 0;
+    margin: 0;
+    background: var(--bg-primary);
 }
-.dl-fc__diff-add {
+.dl-fc__diff-note {
+    padding: 8px 14px;
+    font-size: 11px;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+}
+.dl-fc__hunk + .dl-fc__hunk { border-top: 1px solid var(--border); }
+.dl-fc__hunk-head {
+    padding: 5px 12px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    background: color-mix(in oklab, var(--bg-secondary) 60%, transparent);
+}
+.dl-fc__row {
+    display: flex;
+    align-items: flex-start;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.6;
+    white-space: pre;
+}
+.dl-fc__ln {
+    flex: 0 0 46px;
+    text-align: right;
+    padding-right: 8px;
+    color: var(--text-muted);
+    opacity: 0.7;
+    user-select: none;
+}
+.dl-fc__sign {
+    flex: 0 0 16px;
+    text-align: center;
+    user-select: none;
+}
+.dl-fc__code {
+    flex: 1;
+    min-width: 0;
+    padding-right: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.dl-fc__row--ctx { color: var(--text-secondary); }
+.dl-fc__row--del {
+    color: #dc5050;
+    background: rgba(220, 80, 80, 0.09);
+}
+.dl-fc__row--add {
     color: #73C991;
-    background: rgba(115, 201, 145, 0.08);
+    background: rgba(115, 201, 145, 0.09);
 }
 
 @media (max-width: 720px) {
