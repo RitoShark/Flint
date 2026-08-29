@@ -106,15 +106,17 @@ export const ExportModal: React.FC = () => {
                     <span>.modpkg</span>{' '}
                     <span
                         style={{
-                            fontSize: 10,
-                            fontWeight: 700,
+                            fontSize: 9,
+                            fontWeight: 600,
                             textTransform: 'uppercase',
                             letterSpacing: '0.05em',
                             padding: '1px 6px',
-                            borderRadius: 3,
+                            borderRadius: 999,
+                            lineHeight: '14px',
+                            whiteSpace: 'nowrap',
                             color: 'var(--color-success, #10b981)',
-                            border: '1px solid color-mix(in oklab, var(--color-success, #10b981) 45%, transparent)',
-                            background: 'color-mix(in oklab, var(--color-success, #10b981) 12%, transparent)',
+                            border: '1px solid color-mix(in oklab, var(--color-success, #10b981) 35%, transparent)',
+                            background: 'color-mix(in oklab, var(--color-success, #10b981) 10%, transparent)',
                         }}
                     >
                         {t('export.recommended')}

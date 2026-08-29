@@ -765,7 +765,7 @@ export const TitleBar: React.FC = () => {
                                 border: '1px solid var(--border)',
                                 borderRadius: '4px',
                                 padding: '4px',
-                                minWidth: '180px',
+                                minWidth: 'max-content',
                                 zIndex: 1000,
                                 boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
                             }}>
@@ -783,23 +783,25 @@ export const TitleBar: React.FC = () => {
                                         fontSize: '13px',
                                         display: 'flex',
                                         alignItems: 'center',
-                                        justifyContent: 'space-between',
-                                        gap: '8px'
+                                        gap: '12px'
                                     }}
                                     onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                                     onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                                 >
-                                    <span>{t('titlebar.exportModpkg')}</span>
+                                    <span style={{ whiteSpace: 'nowrap', flex: 1 }}>{t('titlebar.exportModpkg')}</span>
                                     <span style={{
-                                        fontSize: '10px',
-                                        fontWeight: 700,
+                                        flexShrink: 0,
+                                        whiteSpace: 'nowrap',
+                                        fontSize: '9px',
+                                        fontWeight: 600,
                                         textTransform: 'uppercase',
                                         letterSpacing: '0.05em',
                                         padding: '1px 6px',
-                                        borderRadius: '3px',
+                                        borderRadius: '999px',
+                                        lineHeight: '14px',
                                         color: 'var(--color-success, #10b981)',
-                                        border: '1px solid color-mix(in oklab, var(--color-success, #10b981) 45%, transparent)',
-                                        background: 'color-mix(in oklab, var(--color-success, #10b981) 12%, transparent)'
+                                        border: '1px solid color-mix(in oklab, var(--color-success, #10b981) 35%, transparent)',
+                                        background: 'color-mix(in oklab, var(--color-success, #10b981) 10%, transparent)'
                                     }}>
                                         {t('export.recommended')}
                                     </span>
