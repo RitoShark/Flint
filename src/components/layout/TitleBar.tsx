@@ -788,17 +788,19 @@ export const TitleBar: React.FC = () => {
                                     onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                                     onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                                 >
-                                    <span style={{ whiteSpace: 'nowrap', flex: 1 }}>{t('titlebar.exportModpkg')}</span>
+                                    <span style={{ whiteSpace: 'nowrap' }}>{t('titlebar.exportModpkg')}</span>
                                     <span style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
                                         flexShrink: 0,
                                         whiteSpace: 'nowrap',
                                         fontSize: '9px',
                                         fontWeight: 600,
+                                        lineHeight: 1,
                                         textTransform: 'uppercase',
                                         letterSpacing: '0.05em',
-                                        padding: '1px 6px',
+                                        padding: '3px 6px',
                                         borderRadius: '999px',
-                                        lineHeight: '14px',
                                         color: 'var(--color-success, #10b981)',
                                         border: '1px solid color-mix(in oklab, var(--color-success, #10b981) 35%, transparent)',
                                         background: 'color-mix(in oklab, var(--color-success, #10b981) 10%, transparent)'

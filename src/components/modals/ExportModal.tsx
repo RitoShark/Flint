@@ -106,13 +106,16 @@ export const ExportModal: React.FC = () => {
                     <span>.modpkg</span>{' '}
                     <span
                         style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            verticalAlign: 'middle',
                             fontSize: 9,
                             fontWeight: 600,
+                            lineHeight: 1,
                             textTransform: 'uppercase',
                             letterSpacing: '0.05em',
-                            padding: '1px 6px',
+                            padding: '3px 6px',
                             borderRadius: 999,
-                            lineHeight: '14px',
                             whiteSpace: 'nowrap',
                             color: 'var(--color-success, #10b981)',
                             border: '1px solid color-mix(in oklab, var(--color-success, #10b981) 35%, transparent)',
