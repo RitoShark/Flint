@@ -1595,6 +1595,7 @@ dependencies = [
  "flint-hash",
  "indexmap 2.13.0",
  "parking_lot",
+ "rayon",
  "ritoshark",
  "serde",
  "serde_json",

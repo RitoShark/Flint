@@ -39,14 +39,22 @@ pub async fn audit_project_missing_refs(project_path: String) -> Result<ProjectM
         let folders =
             flint_core::export::project_wad_folders(std::path::Path::new(&project_path))?;
 
+        use rayon::prelude::*;
+        let audits: Vec<(String, Result<AuditReport, String>)> = folders
+            .par_iter()
+            .map(|folder| {
+                let wad = folder
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                (wad, flint_core::bin::audit_wad_folder(folder))
+            })
+            .collect();
+
         let mut report = ProjectMissingReport::default();
-        for folder in folders {
-            let wad = folder
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string();
-            let audit = flint_core::bin::audit_wad_folder(&folder)?;
+        for (wad, audit) in audits {
+            let audit = audit?;
 
             report.bins_scanned += audit.bins_scanned;
             report.bins_failed += audit.bins_failed;

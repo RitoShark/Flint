@@ -16,6 +16,7 @@ use crate::checks::{
     check_animation_graph, check_bin_hazards, check_texture, CheckIssue, MigrationTally,
 };
 use crate::codec::{read_bin, tree_to_text_cached, MAX_BIN_SIZE};
+use rayon::prelude::*;
 use ritoshark::bin::{Bin, BinValue};
 
 /// Folder segments whose contents are never reported as bloat. Champion icons are
@@ -212,46 +213,75 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
         by_hash.entry(unified_hash(rel)).or_default().push(idx);
     }
 
+    enum FileScan {
+        Skip,
+        Texture(Vec<CheckIssue>),
+        BinOk {
+            issues: Vec<CheckIssue>,
+            mentions: HashSet<String>,
+            tally: MigrationTally,
+        },
+        BinFailed,
+    }
+
+    let bin_names = flint_hash::hash::bin_dict::get_cached_bin_hashes().read();
+    let names_ref = &*bin_names;
+    let scans: Vec<(usize, FileScan)> = files
+        .par_iter()
+        .enumerate()
+        .map(|(idx, (rel, disk))| {
+            let scan = if rel.ends_with(".tex") || rel.ends_with(".dds") {
+                match std::fs::read(disk) {
+                    Ok(data) => FileScan::Texture(check_texture(rel, &data)),
+                    Err(_) => FileScan::Skip,
+                }
+            } else if !rel.ends_with(".bin") {
+                FileScan::Skip
+            } else {
+                match std::fs::read(disk) {
+                    Ok(data) if data.len() >= 4 && data.len() <= MAX_BIN_SIZE => {
+                        match read_bin(&data) {
+                            Ok(bin) => {
+                                let mut mentions = HashSet::new();
+                                collect_mentions(&bin, &mut mentions);
+                                let mut issues = check_animation_graph(&bin, rel, names_ref);
+                                issues.extend(check_bin_hazards(&bin, rel));
+                                let mut tally = MigrationTally::default();
+                                tally.add_bin(&bin, rel);
+                                FileScan::BinOk { issues, mentions, tally }
+                            }
+                            Err(_) => FileScan::BinFailed,
+                        }
+                    }
+                    _ => FileScan::BinFailed,
+                }
+            };
+            (idx, scan)
+        })
+        .collect();
+    drop(bin_names);
+
     let mut mentions: HashSet<String> = HashSet::new();
     let mut bin_mentions: Vec<(String, HashSet<String>)> = Vec::new();
     let mut migration = MigrationTally::default();
-    let bin_names = flint_hash::hash::bin_dict::get_cached_bin_hashes().read();
-    for (rel, disk) in &files {
-        if rel.ends_with(".tex") || rel.ends_with(".dds") {
-            if let Ok(data) = std::fs::read(disk) {
-                report.issues.extend(check_texture(rel, &data));
-            }
-            continue;
-        }
-        if !rel.ends_with(".bin") {
-            continue;
-        }
-        let data = match std::fs::read(disk) {
-            Ok(d) => d,
-            Err(_) => {
-                report.bins_failed += 1;
-                continue;
-            }
-        };
-        if data.len() < 4 || data.len() > MAX_BIN_SIZE {
-            report.bins_failed += 1;
-            continue;
-        }
-        match read_bin(&data) {
-            Ok(bin) => {
-                let mut own = HashSet::new();
-                collect_mentions(&bin, &mut own);
+    for (idx, scan) in scans {
+        match scan {
+            FileScan::Skip => {}
+            FileScan::Texture(issues) => report.issues.extend(issues),
+            FileScan::BinFailed => report.bins_failed += 1,
+            FileScan::BinOk {
+                issues,
+                mentions: own,
+                tally,
+            } => {
                 mentions.extend(own.iter().cloned());
-                bin_mentions.push((rel.clone(), own));
-                report.issues.extend(check_animation_graph(&bin, rel, &bin_names));
-                report.issues.extend(check_bin_hazards(&bin, rel));
-                migration.add_bin(&bin, rel);
+                bin_mentions.push((files[idx].0.clone(), own));
+                report.issues.extend(issues);
+                migration.merge(tally);
                 report.bins_scanned += 1;
             }
-            Err(_) => report.bins_failed += 1,
         }
     }
-    drop(bin_names);
     report.issues.extend(migration.into_issues());
 
     let mut referenced: HashSet<usize> = HashSet::new();

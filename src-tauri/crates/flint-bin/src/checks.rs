@@ -623,6 +623,12 @@ impl MigrationTally {
         }
     }
 
+    pub fn merge(&mut self, other: MigrationTally) {
+        for (key, count) in other.hits {
+            *self.hits.entry(key).or_insert(0) += count;
+        }
+    }
+
     pub fn into_issues(self) -> Vec<CheckIssue> {
         let table = migration_table();
         self.hits
