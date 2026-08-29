@@ -644,20 +644,24 @@ async fn save_modpkg_archive(
         };
 
         // Collect content chunk bytes keyed by path; collapse multi-layer onto base.
-        let entries: Vec<(u64, u64, String)> = modpkg
+        // `_meta_/` chunks other than the two the builder regenerates are carried
+        // verbatim — hashtables and readme from other tools must survive a re-save.
+        let entries: Vec<(u64, u64, String, flint_core::export::ModpkgCompression)> = modpkg
             .chunks
-            .keys()
-            .filter_map(|(path_hash, layer_hash)| {
+            .iter()
+            .filter_map(|((path_hash, layer_hash), chunk)| {
                 let path = modpkg.chunk_paths.get(path_hash)?;
-                if path.starts_with("_meta_/") {
+                if flint_core::export::REGENERATED_META.contains(&path.as_str()) {
                     return None;
                 }
-                Some((*path_hash, *layer_hash, path.clone()))
+                Some((*path_hash, *layer_hash, path.clone(), chunk.compression))
             })
             .collect();
 
         let mut chunk_bytes: HashMap<String, Vec<u8>> = HashMap::new();
-        for (path_hash, layer_hash, path) in &entries {
+        let mut preserved_compression: HashMap<String, flint_core::export::ModpkgCompression> =
+            HashMap::new();
+        for (path_hash, layer_hash, path, compression) in &entries {
             if chunk_bytes.contains_key(path) {
                 continue;
             }
@@ -665,6 +669,9 @@ async fn save_modpkg_archive(
                 .load_chunk_decompressed_by_hash(*path_hash, *layer_hash)
                 .map_err(|e| format!("Failed to decompress '{}': {}", path, e))?;
             chunk_bytes.insert(path.clone(), data.to_vec());
+            if path.starts_with("_meta_/") {
+                preserved_compression.insert(path.clone(), *compression);
+            }
         }
 
         let thumbnail = modpkg.load_thumbnail().ok();
@@ -695,10 +702,13 @@ async fn save_modpkg_archive(
         }
 
         for path in chunk_bytes.keys() {
-            let chunk = ModpkgChunkBuilder::new()
+            let mut chunk = ModpkgChunkBuilder::new()
                 .with_path(path)
                 .map_err(|e| format!("Failed to set chunk path '{}': {}", path, e))?
-                .with_layer("base");
+                .with_layer(if path.starts_with("_meta_/") { "" } else { "base" });
+            if let Some(compression) = preserved_compression.get(path) {
+                chunk = chunk.with_compression(*compression);
+            }
             builder = builder.with_chunk(chunk);
         }
 

@@ -21,7 +21,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use flint_core::export::{
-    Modpkg, ModpkgAuthor, ModpkgBuilder, ModpkgChunkBuilder, ModpkgLayerBuilder, ModpkgMetadata,
+    Modpkg, ModpkgAuthor, ModpkgBuilder, ModpkgChunkBuilder, ModpkgCompression,
+    ModpkgLayerBuilder, ModpkgMetadata, REGENERATED_META,
 };
 
 /// One staged change to a chunk. Held until save, mirroring `WadEditDelta`.
@@ -492,30 +493,39 @@ fn save_modpkg(
         .collect();
 
     // Content chunks keyed by (path, layer): the same path can legitimately
-    // appear on several layers, and each is its own chunk.
-    let entries: Vec<(u64, u64, ChunkKey)> = modpkg
+    // appear on several layers, and each is its own chunk. `_meta_/` chunks other
+    // than the two the builder regenerates (info.msgpack, thumbnail.webp) are
+    // carried verbatim on their no-layer slot — hashtables and readme from other
+    // tools must survive a re-save even though Flint doesn't read them yet.
+    let entries: Vec<(u64, u64, ChunkKey, ModpkgCompression)> = modpkg
         .chunks
-        .keys()
-        .filter_map(|(path_hash, layer_hash)| {
+        .iter()
+        .filter_map(|((path_hash, layer_hash), chunk)| {
             let path = modpkg.chunk_paths.get(path_hash)?;
-            if path.starts_with("_meta_/") {
+            if REGENERATED_META.contains(&path.as_str()) {
                 return None;
             }
-            let layer = modpkg
-                .layers
-                .get(layer_hash)
-                .map(|l| l.name.clone())
-                .unwrap_or_else(|| DEFAULT_LAYER.to_string());
+            let layer = if path.starts_with("_meta_/") {
+                String::new()
+            } else {
+                modpkg
+                    .layers
+                    .get(layer_hash)
+                    .map(|l| l.name.clone())
+                    .unwrap_or_else(|| DEFAULT_LAYER.to_string())
+            };
             Some((
                 *path_hash,
                 *layer_hash,
                 ChunkKey { path: path.clone(), layer },
+                chunk.compression,
             ))
         })
         .collect();
 
     let mut chunk_bytes: HashMap<ChunkKey, Vec<u8>> = HashMap::new();
-    for (path_hash, layer_hash, key) in &entries {
+    let mut preserved_compression: HashMap<ChunkKey, ModpkgCompression> = HashMap::new();
+    for (path_hash, layer_hash, key, compression) in &entries {
         if chunk_bytes.contains_key(key) {
             continue;
         }
@@ -523,6 +533,9 @@ fn save_modpkg(
             .load_chunk_decompressed_by_hash(*path_hash, *layer_hash)
             .map_err(|e| format!("Failed to decompress '{}': {}", key.path, e))?;
         chunk_bytes.insert(key.clone(), data.to_vec());
+        if key.path.starts_with("_meta_/") {
+            preserved_compression.insert(key.clone(), *compression);
+        }
     }
 
     // Apply staged edits over the chunks read from disk: a Write replaces or adds,
@@ -587,10 +600,13 @@ fn save_modpkg(
     }
 
     for key in chunk_bytes.keys() {
-        let chunk = ModpkgChunkBuilder::new()
+        let mut chunk = ModpkgChunkBuilder::new()
             .with_path(&key.path)
             .map_err(|e| format!("Failed to set chunk path '{}': {}", key.path, e))?
             .with_layer(&key.layer);
+        if let Some(compression) = preserved_compression.get(key) {
+            chunk = chunk.with_compression(*compression);
+        }
         builder = builder.with_chunk(chunk);
     }
 

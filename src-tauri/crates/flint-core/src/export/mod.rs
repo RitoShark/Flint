@@ -4,7 +4,12 @@ use std::path::{Path, PathBuf};
 /// Mod-package container types, re-exported so callers build archives through
 /// this module rather than depending on the packaging crate directly.
 pub use ltk_modpkg::builder::{ModpkgBuilder, ModpkgChunkBuilder, ModpkgLayerBuilder};
-pub use ltk_modpkg::{Modpkg, ModpkgAuthor, ModpkgMetadata};
+pub use ltk_modpkg::{Modpkg, ModpkgAuthor, ModpkgCompression, ModpkgMetadata};
+
+/// `_meta_/` chunks the modpkg builder rewrites itself; every OTHER `_meta_/`
+/// chunk (embedded hashtables, readme, future standard additions) must be
+/// carried verbatim through a re-save — unknown is not the same as disposable.
+pub const REGENERATED_META: &[&str] = &["_meta_/info.msgpack", "_meta_/thumbnail.webp"];
 
 fn is_unresolved_hash(path: &str) -> bool {
     let p = path.to_lowercase();

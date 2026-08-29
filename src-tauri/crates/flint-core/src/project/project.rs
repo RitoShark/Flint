@@ -92,6 +92,11 @@ pub struct Project {
     #[serde(default, deserialize_with = "deserialize_authors")]
     pub authors: Vec<String>,
 
+    /// mod.config.json keys Flint doesn't model (hashtables, license, transformers,
+    /// thumbnail, …), carried verbatim so a save never deletes another tool's data.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
+
     // ===== Flint-specific fields (from flint.json, populated at runtime) =====
 
     /// Stable project id (UUID v4), persisting across moves.
@@ -178,6 +183,7 @@ impl Project {
             description: format!("Mod for {} skin {}", champion_str, skin_id),
             layers: default_layers(),
             authors,
+            extra: serde_json::Map::new(),
             pid: uuid::Uuid::new_v4().to_string(),
             kind: ProjectKind::Skin,
             champion: champion_str,
@@ -449,10 +455,17 @@ pub fn save_project(project: &Project) -> Result<()> {
     tracing::debug!("Saving project to: {}", config_path.display());
 
     let mod_project = project.to_mod_project();
+    let mut config = serde_json::to_value(&mod_project)
+        .map_err(|e| Error::InvalidInput(format!("Failed to serialize project: {}", e)))?;
+    if let serde_json::Value::Object(map) = &mut config {
+        for (key, value) in &project.extra {
+            map.entry(key.clone()).or_insert_with(|| value.clone());
+        }
+    }
     let file = File::create(&config_path)
         .map_err(|e| Error::io_with_path(e, &config_path))?;
     let writer = BufWriter::new(file);
-    serde_json::to_writer_pretty(writer, &mod_project)
+    serde_json::to_writer_pretty(writer, &config)
         .map_err(|e| Error::InvalidInput(format!("Failed to write project file: {}", e)))?;
 
     let flint_path = project.flint_path();
@@ -534,6 +547,42 @@ mod tests {
         assert_eq!(project.flint_path(), PathBuf::from("C:\\Projects\\test\\flint.json"));
         assert_eq!(project.assets_path(), PathBuf::from("C:\\Projects\\test\\content\\base"));
         assert_eq!(project.output_path(), PathBuf::from("C:\\Projects\\test\\output"));
+    }
+
+    /// mod.config.json is a shared format — a `hashtables` array (or any field a
+    /// newer league-mod writes) must survive Flint's open→save round trip.
+    #[test]
+    fn unknown_config_fields_survive_a_save_round_trip() {
+        let dir = tempdir().unwrap();
+        let config = serde_json::json!({
+            "name": "test-mod",
+            "display_name": "Test Mod",
+            "version": "1.0.0",
+            "description": "d",
+            "authors": ["someone"],
+            "layers": [{ "name": "base", "priority": 0 }],
+            "hashtables": [
+                { "path": "hashes/game.hashes.txt", "category": "game", "algorithm": "xxh64", "bits": 64 }
+            ],
+            "license": "MIT",
+        });
+        std::fs::write(
+            dir.path().join(PROJECT_FILE),
+            serde_json::to_string_pretty(&config).unwrap(),
+        )
+        .unwrap();
+
+        let project = open_project(dir.path()).unwrap();
+        assert!(project.extra.contains_key("hashtables"));
+        save_project(&project).unwrap();
+
+        let rewritten: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join(PROJECT_FILE)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(rewritten["hashtables"][0]["category"], "game");
+        assert_eq!(rewritten["license"], "MIT");
+        assert_eq!(rewritten["name"], "test-mod");
     }
 
     #[test]
