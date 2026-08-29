@@ -8,6 +8,7 @@ import { useTranslation } from '../../../lib/i18n';
 const TOOLS_SECTIONS = [
     'Skin Scale',
     'Material Override',
+    'Toon Shading',
     'Idle Particles',
     'Persistent VFX',
     'VFX Emitters',
@@ -17,6 +18,7 @@ const TOOLS_SECTIONS = [
 const DEFAULT_EXPANDED: Record<string, boolean> = {
     'Skin Scale': true,
     'Material Override': true,
+    'Toon Shading': false,
     'Idle Particles': false,
     'Persistent VFX': false,
     'VFX Emitters': true,

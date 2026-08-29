@@ -401,6 +401,7 @@ fn main() {
             commands::paint::paint_redo,
             commands::paint::paint_is_dirty,
             commands::paint::paint_save,
+            commands::toon::install_toon_ramps,
             // CDN manifest browser commands
             commands::cdn::cdn_list_manifests,
             commands::cdn::cdn_list_versions,

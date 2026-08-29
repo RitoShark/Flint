@@ -1242,6 +1242,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 {sidePanelOpen && (
                     <BinToolsPanel
                         content={content}
+                        filePath={filePath}
                         onContentChange={(newContent) => {
                             setContent(newContent);
                             runBracketCheck(newContent);

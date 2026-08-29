@@ -120,3 +120,12 @@ export async function replaceInBins(
 ): Promise<BinReplaceResult> {
     return invokeCommand('replace_in_bins', { paths, query, replacement, options });
 }
+
+export interface ToonRampInstall {
+    texture_paths: string[];
+    written: string[];
+}
+
+export async function installToonRamps(binPath: string): Promise<ToonRampInstall> {
+    return invokeCommand('install_toon_ramps', { binPath });
+}
