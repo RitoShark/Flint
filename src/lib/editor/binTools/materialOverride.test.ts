@@ -23,7 +23,7 @@ describe('ensureMaterialOverride', () => {
 describe('insertMaterialOverrideEntry', () => {
     it('writes a texture entry as a string property', () => {
         const out = insertMaterialOverrideEntry(BASE, 'assets/a/b.tex', 'Body', 'texture');
-        expect(out).toContain('texture: string = "assets/a/b.tex"');
+        expect(out).toContain('texture: file = "assets/a/b.tex"');
         expect(out).toContain('Submesh: string = "Body"');
     });
 

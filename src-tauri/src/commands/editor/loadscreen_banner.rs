@@ -127,7 +127,7 @@ fn resolve(project_path: &str) -> Result<Resolved, String> {
     let bin = flint_core::bin::read_bin(&data)
         .map_err(|e| format!("Failed to parse main BIN: {e}"))?;
 
-    let loadscreen_asset = banner::read_loadscreen_image(&bin)
+    let loadscreen_asset = banner::read_loadscreen_image(&bin, &main_bin)
         .ok_or_else(|| "This skin has no loadscreen image (loadScreen.image) to build a banner on.".to_string())?;
 
     let mask_asset = banner::mask_path_from_loadscreen(&loadscreen_asset);
@@ -155,7 +155,7 @@ pub async fn get_loadscreen_banner_info(
     project_path: String,
 ) -> Result<LoadscreenBannerInfo, String> {
     let r = resolve(&project_path)?;
-    let status = banner::banner_status(&r.bin);
+    let status = banner::banner_status(&r.bin, &r.main_bin);
     let _ = r.loadscreen_asset;
     Ok(LoadscreenBannerInfo {
         loadscreen_exists: r.loadscreen_disk.exists(),

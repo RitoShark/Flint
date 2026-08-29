@@ -44,7 +44,9 @@ export function insertMaterialOverrideEntry(
     if (matIdx + 1 < lines.length && lines[matIdx + 1].trim()) {
         const m = lines[matIdx + 1].match(/^(\s*)/); if (m) indent = m[1];
     }
-    const propType = kind === 'texture' ? 'string' : 'link';
+    // `texture` is one of the fields Riot retyped to `file`; a string here is a
+    // reference the current client no longer resolves.
+    const propType = kind === 'texture' ? 'file' : 'link';
     const propName = kind === 'texture' ? 'texture' : 'material';
     const entry = [
         `${indent}SkinMeshDataProperties_MaterialOverride {`,

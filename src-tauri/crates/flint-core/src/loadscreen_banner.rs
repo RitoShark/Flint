@@ -117,12 +117,19 @@ fn switch_on(name: &str) -> BinValue {
 }
 
 /// The single sampler entry — points at the painted mask `.tex`.
+///
+/// LANDMINE: `texturePath` is `file` (xxh64 of the path), NOT `string`. Riot
+/// retyped the asset-reference fields; a string here is a texture the current
+/// client silently never loads.
 fn sampler(mask_asset_path: &str) -> BinValue {
     BinValue::Embed {
         class: fnv1a_32("StaticMaterialShaderSamplerDef"),
         fields: vec![
             prop("TextureName", BinValue::String("UI_Secondary_Texture".to_string())),
-            prop("texturePath", BinValue::String(mask_asset_path.to_string())),
+            prop(
+                "texturePath",
+                BinValue::File(ritoshark::hash::xxh64(mask_asset_path)),
+            ),
             prop("addressW", BinValue::U32(1)),
         ]
         .into_iter()
@@ -340,10 +347,12 @@ fn find_skin_entry_index(bin: &Bin) -> Option<usize> {
     bin.entries.iter().position(|e| e.class_hash == class)
 }
 
-/// Read the `loadScreen.image` string from the skin entry, if present.
+/// Read the `loadScreen.image` path from the skin entry, if present.
 ///
-/// Layout: `loadScreen: embed = CensoredImage { image: string = "..." }`.
-pub fn read_loadscreen_image(bin: &Bin) -> Option<String> {
+/// Layout: `loadScreen: embed = CensoredImage { image: file = "..." }`. Older
+/// bins carry it as a `string`; a `file` is resolved back to its path through
+/// the bin's own record plus the files on disk beside it.
+pub fn read_loadscreen_image(bin: &Bin, bin_path: &std::path::Path) -> Option<String> {
     let idx = find_skin_entry_index(bin)?;
     let entry = &bin.entries[idx];
     let ls = entry.fields.get(&fnv1a_32("loadScreen"))?;
@@ -353,12 +362,37 @@ pub fn read_loadscreen_image(bin: &Bin) -> Option<String> {
     };
     match fields.get(&fnv1a_32("image")) {
         Some(BinValue::String(s)) => Some(s.clone()),
+        Some(BinValue::File(h)) => name_of_file(bin, bin_path, *h),
         _ => None,
     }
 }
 
+fn name_of_file(bin: &Bin, bin_path: &std::path::Path, hash: u64) -> Option<String> {
+    flint_bin::name_table(bin, bin_path).files.get(&hash).cloned()
+}
+
+/// Re-file the bin's `ritobinmap` record against what the bin now references,
+/// plus `extra`. The mask path is stored as an xxh64 and no dictionary anywhere
+/// knows a path this tool invented, so it has to be captured here; re-filing
+/// (rather than merging) is also what drops it again when the banner is removed.
+fn reindex_path_map(bin: &mut Bin, extra: &[&str]) {
+    let existing = ritoshark::bin::read_path_map(bin);
+    let names: Vec<&str> = existing
+        .bin_entries
+        .iter()
+        .chain(existing.bin_types.iter())
+        .chain(existing.bin_fields.iter())
+        .chain(existing.bin_hashes.iter())
+        .chain(existing.game.iter())
+        .map(String::as_str)
+        .chain(extra.iter().copied())
+        .collect();
+    let map = ritoshark::bin::capture(bin, &names);
+    ritoshark::bin::write_path_map(bin, &map);
+}
+
 /// Inspect a BIN for an already-applied banner.
-pub fn banner_status(bin: &Bin) -> BannerStatus {
+pub fn banner_status(bin: &Bin, bin_path: &std::path::Path) -> BannerStatus {
     let material_hash = find_skin_entry_index(bin)
         .and_then(|idx| bin.entries[idx].fields.get(&LOADSCREEN_MATERIAL_FIELD))
         .and_then(|v| match v {
@@ -370,7 +404,7 @@ pub fn banner_status(bin: &Bin) -> BannerStatus {
         bin.entries
             .iter()
             .find(|e| e.path_hash == h && e.class_hash == fnv1a_32("StaticMaterialDef"))
-            .and_then(read_sampler_mask_path)
+            .and_then(|entry| read_sampler_mask_path(bin, bin_path, entry))
     });
 
     BannerStatus {
@@ -400,7 +434,11 @@ fn last_loadscreen_field_index(fields: &IndexMap<u32, BinValue>) -> Option<usize
 }
 
 /// Read `samplerValues[0].texturePath` out of a `StaticMaterialDef` entry.
-fn read_sampler_mask_path(entry: &BinEntry) -> Option<String> {
+fn read_sampler_mask_path(
+    bin: &Bin,
+    bin_path: &std::path::Path,
+    entry: &BinEntry,
+) -> Option<String> {
     let samplers = entry.fields.get(&fnv1a_32("samplerValues"))?;
     let items = match samplers {
         BinValue::List { items, .. } => items,
@@ -408,8 +446,10 @@ fn read_sampler_mask_path(entry: &BinEntry) -> Option<String> {
     };
     for item in items {
         if let BinValue::Embed { fields, .. } = item {
-            if let Some(BinValue::String(s)) = fields.get(&fnv1a_32("texturePath")) {
-                return Some(s.clone());
+            match fields.get(&fnv1a_32("texturePath")) {
+                Some(BinValue::String(s)) => return Some(s.clone()),
+                Some(BinValue::File(h)) => return name_of_file(bin, bin_path, *h),
+                _ => {}
             }
         }
     }
@@ -465,6 +505,8 @@ pub fn apply_banner_to_bin(
         bin.entries.push(new_entry);
     }
 
+    reindex_path_map(bin, &[mask_asset_path, material_name]);
+
     Ok(ApplyOutcome {
         material_hash,
         changed: true,
@@ -501,6 +543,7 @@ pub fn remove_banner_from_bin(bin: &mut Bin) -> bool {
     let material_class = fnv1a_32("StaticMaterialDef");
     bin.entries
         .retain(|e| !(e.path_hash == hash && e.class_hash == material_class));
+    reindex_path_map(bin, &[]);
     true
 }
 
@@ -637,6 +680,11 @@ mod tests {
 
     /// Build a minimal skin BIN with a SkinCharacterDataProperties entry that
     /// carries a loadScreen embed, then exercise apply + status + read.
+    /// No mod root on disk, so every name has to come from the bin's own record.
+    fn test_bin_path() -> &'static std::path::Path {
+        std::path::Path::new("skin0.bin")
+    }
+
     fn skin_bin_with_loadscreen(image: &str) -> Bin {
         let loadscreen = BinValue::Embed {
             class: fnv1a_32("CensoredImage"),
@@ -663,7 +711,7 @@ mod tests {
     fn read_loadscreen_image_works() {
         let bin = skin_bin_with_loadscreen("ASSETS/X/p/load.tex");
         assert_eq!(
-            read_loadscreen_image(&bin).as_deref(),
+            read_loadscreen_image(&bin, test_bin_path()).as_deref(),
             Some("ASSETS/X/p/load.tex")
         );
     }
@@ -675,15 +723,16 @@ mod tests {
         let mask = mask_path_from_loadscreen("ASSETS/X/p/load.tex");
         let params = BannerParams::default();
 
-        assert!(!banner_status(&bin).applied);
+        assert!(!banner_status(&bin, test_bin_path()).applied);
 
         let out1 = apply_banner_to_bin(&mut bin, &name, &mask, &params).unwrap();
         let entries_after_first = bin.entries.len();
 
-        // Skin entry + one material entry.
-        assert_eq!(entries_after_first, 2);
+        // Skin entry, the material entry, and the name record naming the mask.
+        assert_eq!(entries_after_first, 3);
+        assert!(ritoshark::bin::read_path_map(&bin).game.contains(&mask));
 
-        let status = banner_status(&bin);
+        let status = banner_status(&bin, test_bin_path());
         assert!(status.applied);
         assert_eq!(status.material_hash, Some(out1.material_hash));
         assert_eq!(status.mask_asset_path.as_deref(), Some(mask.as_str()));
@@ -720,14 +769,14 @@ mod tests {
         let mask = mask_path_from_loadscreen("ASSETS/X/p/load.tex");
 
         apply_banner_to_bin(&mut bin, &name, &mask, &BannerParams::default()).unwrap();
-        assert!(banner_status(&bin).applied);
-        assert_eq!(bin.entries.len(), 2);
+        assert!(banner_status(&bin, test_bin_path()).applied);
+        assert_eq!(bin.entries.len(), 3);
 
         assert!(remove_banner_from_bin(&mut bin));
 
         // Cancelling has to leave the skin exactly as it was found — the
         // material entry gone, the link field gone, everything else untouched.
-        assert!(!banner_status(&bin).applied);
+        assert!(!banner_status(&bin, test_bin_path()).applied);
         assert_eq!(bin.entries.len(), original.entries.len());
         let skin = bin
             .entries
@@ -769,7 +818,7 @@ mod tests {
         let name = material_name("Test", "Proj");
         let mask = mask_path_from_loadscreen("ASSETS/X/p/load.tex");
         apply_banner_to_bin(&mut bin, &name, &mask, &BannerParams::default()).unwrap();
-        assert_eq!(bin.entries.len(), 3);
+        assert_eq!(bin.entries.len(), 4);
 
         assert!(remove_banner_from_bin(&mut bin));
         assert_eq!(bin.entries.len(), 2);
@@ -842,7 +891,7 @@ mod tests {
         let bytes = crate::bin::write_bin(&bin).expect("write");
         let reparsed = crate::bin::read_bin(&bytes).expect("read");
 
-        let status = banner_status(&reparsed);
+        let status = banner_status(&reparsed, test_bin_path());
         assert!(status.applied);
         assert_eq!(status.mask_asset_path.as_deref(), Some(mask.as_str()));
     }
