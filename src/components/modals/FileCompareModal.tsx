@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useModalStore, useConfigStore, useProjectTabStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import type { OriginalFileMeta } from '../../lib/api';
+import { simpleLineDiff } from '../../lib/util/lineDiff';
 import '../../styles/design-lab.css';
 
 interface FileCompareOptions {
@@ -52,6 +53,14 @@ async function decodeForRender(bytes: Uint8Array, fileName: string): Promise<Ren
         }
         const blob = new Blob([bytes as BlobPart]);
         return { kind: 'image', url: URL.createObjectURL(blob) };
+    }
+    if (ext === 'bin') {
+        try {
+            const text = await api.convertBinToText(bytes);
+            return { kind: 'text', text };
+        } catch {
+            return { kind: 'binary', size: bytes.byteLength };
+        }
     }
     if (TEXT_EXTS.has(ext)) {
         try {
@@ -192,6 +201,11 @@ export const FileCompareModal: React.FC = () => {
         return () => { cancelled = true; };
     }, [isVisible, options, projectPath, leaguePath]);
 
+    const diff = useMemo(() => {
+        if (identical !== false || current?.kind !== 'text' || reference?.kind !== 'text') return null;
+        return simpleLineDiff(reference.text, current.text);
+    }, [identical, current, reference]);
+
     if (!isVisible || !options) return null;
 
     const referenceLabel = options.mode === 'original' ? 'Original (League)' : 'Backup';
@@ -269,6 +283,38 @@ export const FileCompareModal: React.FC = () => {
                                             </span>
                                         </>
                                     )}
+                                </div>
+                            )}
+
+                            {diff && (
+                                <div className="dl-card dl-fc__pane dl-fc__diff">
+                                    <div className="dl-fc__pane-head">
+                                        <span className="dl-fc__pane-label">Difference — line {diff.line}</span>
+                                    </div>
+                                    <pre className="dl-fc__text dl-fc__diff-body">
+                                        {diff.context_before.map((l, i) => (
+                                            <div key={`cb${i}`} className="dl-fc__diff-ctx">{`  ${l}`}</div>
+                                        ))}
+                                        {diff.removed.map((l, i) => (
+                                            <React.Fragment key={`r${i}`}>
+                                                {diff.truncated_removed > 0 && i === diff.removed.length / 2 && (
+                                                    <div className="dl-fc__diff-ctx">{`  … ${diff.truncated_removed} more removed lines`}</div>
+                                                )}
+                                                <div className="dl-fc__diff-del">{`- ${l}`}</div>
+                                            </React.Fragment>
+                                        ))}
+                                        {diff.added.map((l, i) => (
+                                            <React.Fragment key={`a${i}`}>
+                                                {diff.truncated_added > 0 && i === diff.added.length / 2 && (
+                                                    <div className="dl-fc__diff-ctx">{`  … ${diff.truncated_added} more added lines`}</div>
+                                                )}
+                                                <div className="dl-fc__diff-add">{`+ ${l}`}</div>
+                                            </React.Fragment>
+                                        ))}
+                                        {diff.context_after.map((l, i) => (
+                                            <div key={`ca${i}`} className="dl-fc__diff-ctx">{`  ${l}`}</div>
+                                        ))}
+                                    </pre>
                                 </div>
                             )}
 
@@ -533,6 +579,26 @@ const LOCAL_CSS = `
     font-size: 12px;
     text-align: center;
     padding: 24px;
+}
+
+.dl-fc__diff {
+    max-height: 260px;
+}
+.dl-fc__diff-body {
+    overflow: auto;
+    padding: 12px;
+    margin: 0;
+}
+.dl-fc__diff-ctx {
+    color: var(--text-muted);
+}
+.dl-fc__diff-del {
+    color: #dc5050;
+    background: rgba(220, 80, 80, 0.08);
+}
+.dl-fc__diff-add {
+    color: #73C991;
+    background: rgba(115, 201, 145, 0.08);
 }
 
 @media (max-width: 720px) {
