@@ -1,8 +1,19 @@
 import * as api from '../api';
 import { useAppMetadataStore, type FileIssueTag } from '../stores/appMetadataStore';
+import { useProjectTabStore } from '../stores/projectTabStore';
 
 const timers = new Map<string, number>();
 const running = new Set<string>();
+
+/** Periodic re-check while a project stays open — files change under Flint too
+ * (external editors, Hematite runs, git), and tags must not go stale. */
+const PERIODIC_MS = 5 * 60_000;
+
+function isActiveProject(projectPath: string): boolean {
+    const s = useProjectTabStore.getState();
+    const tab = s.openTabs.find((t) => t.id === s.activeTabId);
+    return tab?.projectPath === projectPath;
+}
 
 export function issueTagsFromIssues(issues: api.CheckIssue[], basePath: string): Array<[string, FileIssueTag]> {
     const byPath = new Map<string, FileIssueTag>();
@@ -36,6 +47,7 @@ async function run(projectPath: string): Promise<void> {
         console.debug('[audit] project audit failed:', e);
     } finally {
         running.delete(projectPath);
+        if (isActiveProject(projectPath)) scheduleProjectAudit(projectPath, PERIODIC_MS);
     }
 }
 
@@ -48,6 +60,9 @@ export function scheduleProjectAudit(projectPath: string, delayMs = 800): void {
         projectPath,
         window.setTimeout(() => {
             timers.delete(projectPath);
+            // The tab may have been switched or closed since this was scheduled;
+            // switching back reschedules via FileTree's project effect.
+            if (!isActiveProject(projectPath)) return;
             void run(projectPath);
         }, delayMs),
     );
