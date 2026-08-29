@@ -76,3 +76,24 @@ describe('diffLines', () => {
         expect(diff.hunks.reduce((n, h) => n + h.rows.length, 0)).toBeLessThanOrEqual(40 + 8);
     });
 });
+
+describe('diffLines whole', () => {
+    it('returns one hunk covering every line', () => {
+        const a = Array.from({ length: 50 }, (_, i) => `line${i}`).join('\n');
+        const b = a.split('\n').map((l, i) => (i === 7 ? `${l}!` : l)).join('\n');
+        const diff = diffLines(a, b, { whole: true })!;
+        expect(diff.hunks).toHaveLength(1);
+        expect(diff.hunks[0].rows).toHaveLength(51);
+        expect(diff.hunks[0].aStart).toBe(1);
+        expect(diff.truncatedHunks).toBe(0);
+        expect(diff.added).toBe(1);
+        expect(diff.removed).toBe(1);
+    });
+
+    it('ignores the row cap — everything means everything', () => {
+        const a = Array.from({ length: 500 }, (_, i) => `line${i}`).join('\n');
+        const b = a.split('\n').map((l, i) => (i % 10 === 0 ? `${l}!` : l)).join('\n');
+        const diff = diffLines(a, b, { whole: true, maxRows: 40 })!;
+        expect(diff.hunks[0].rows.length).toBe(550);
+    });
+});

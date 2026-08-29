@@ -34,6 +34,8 @@ export interface DiffOptions {
     maxRows?: number;
     /** Myers edit-distance ceiling; beyond it the diff falls back to coarse. */
     maxDistance?: number;
+    /** Emit the whole file as one hunk instead of grouping changed regions. */
+    whole?: boolean;
 }
 
 const DEFAULT_CONTEXT = 3;
@@ -163,6 +165,10 @@ export function diffLines(a: string, b: string, opts: DiffOptions = {}): LineDif
     const removed = rows.reduce((n, r) => (r.op === 'del' ? n + 1 : n), 0);
     if (added === 0 && removed === 0) return null;
 
+    if (opts.whole) {
+        return { hunks: [hunkOf(rows)], added, removed, coarse, truncatedHunks: 0 };
+    }
+
     const all = groupHunks(rows, context);
     const hunks: DiffHunk[] = [];
     let shown = 0;
@@ -173,6 +179,16 @@ export function diffLines(a: string, b: string, opts: DiffOptions = {}): LineDif
     }
 
     return { hunks, added, removed, coarse, truncatedHunks: all.length - hunks.length };
+}
+
+function hunkOf(rows: DiffRow[]): DiffHunk {
+    return {
+        aStart: rows.find((r) => r.a !== null)?.a ?? 1,
+        aCount: rows.reduce((n, r) => (r.a !== null ? n + 1 : n), 0),
+        bStart: rows.find((r) => r.b !== null)?.b ?? 1,
+        bCount: rows.reduce((n, r) => (r.b !== null ? n + 1 : n), 0),
+        rows,
+    };
 }
 
 function groupHunks(rows: DiffRow[], context: number): DiffHunk[] {
@@ -189,16 +205,5 @@ function groupHunks(rows: DiffRow[], context: number): DiffHunk[] {
         else spans.push([start, end]);
     }
 
-    return spans.map(([start, end]) => {
-        const slice = rows.slice(start, end + 1);
-        const firstA = slice.find((r) => r.a !== null)?.a ?? 1;
-        const firstB = slice.find((r) => r.b !== null)?.b ?? 1;
-        return {
-            aStart: firstA,
-            aCount: slice.reduce((n, r) => (r.a !== null ? n + 1 : n), 0),
-            bStart: firstB,
-            bCount: slice.reduce((n, r) => (r.b !== null ? n + 1 : n), 0),
-            rows: slice,
-        };
-    });
+    return spans.map(([start, end]) => hunkOf(rows.slice(start, end + 1)));
 }

@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom';
 import { useModalStore, useConfigStore, useProjectTabStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import type { OriginalFileMeta } from '../../lib/api';
-import { diffLines, type DiffHunk, type LineDiffResult } from '../../lib/util/lineDiff';
+import { diffLines, type LineDiffResult } from '../../lib/util/lineDiff';
+import { VirtualList } from '../preview/VirtualList';
 import '../../styles/design-lab.css';
 
 interface FileCompareOptions {
@@ -81,8 +82,6 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
     return true;
 }
 
-type CompareView = 'diff' | 'panes';
-
 export const FileCompareModal: React.FC = () => {
     const closeModal = useModalStore((s) => s.closeModal);
     const activeModal = useModalStore((s) => s.activeModal);
@@ -106,7 +105,6 @@ export const FileCompareModal: React.FC = () => {
     const [reference, setReference] = useState<RenderableContent | null>(null);
     const [identical, setIdentical] = useState<boolean | null>(null);
     const [sizes, setSizes] = useState<{ current: number; reference: number } | null>(null);
-    const [view, setView] = useState<CompareView>('diff');
 
     useEffect(() => {
         if (!isVisible) return;
@@ -138,7 +136,6 @@ export const FileCompareModal: React.FC = () => {
         setReference(null);
         setIdentical(null);
         setSizes(null);
-        setView('diff');
 
         (async () => {
             try {
@@ -201,7 +198,7 @@ export const FileCompareModal: React.FC = () => {
 
     const diff = useMemo<LineDiffResult | null>(() => {
         if (current?.kind !== 'text' || reference?.kind !== 'text') return null;
-        return diffLines(reference.text, current.text);
+        return diffLines(reference.text, current.text, { whole: true });
     }, [current, reference]);
 
     const isTextPair = current?.kind === 'text' && reference?.kind === 'text';
@@ -286,26 +283,10 @@ export const FileCompareModal: React.FC = () => {
                                             </span>
                                         </>
                                     )}
-                                    {isTextPair && !identical && (
-                                        <div className="dl-fc__views">
-                                            <button
-                                                className={`dl-fc__view-btn${view === 'diff' ? ' is-active' : ''}`}
-                                                onClick={() => setView('diff')}
-                                            >
-                                                Diff
-                                            </button>
-                                            <button
-                                                className={`dl-fc__view-btn${view === 'panes' ? ' is-active' : ''}`}
-                                                onClick={() => setView('panes')}
-                                            >
-                                                Side by side
-                                            </button>
-                                        </div>
-                                    )}
                                 </div>
                             )}
 
-                            {isTextPair && view === 'diff' && !identical ? (
+                            {isTextPair && !identical ? (
                                 <DiffView
                                     diff={diff}
                                     referenceLabel={referenceLabel}
@@ -331,7 +312,12 @@ export const FileCompareModal: React.FC = () => {
     );
 };
 
+/** Must match `.dl-fc__row`'s line-height — the rows are windowed by it. */
+const DIFF_ROW_HEIGHT = 18;
+
 const DiffView: React.FC<{ diff: LineDiffResult | null; referenceLabel: string }> = ({ diff, referenceLabel }) => {
+    const rows = useMemo(() => diff?.hunks.flatMap((h) => h.rows) ?? [], [diff]);
+
     if (!diff) {
         return (
             <div className="dl-card dl-fc__pane dl-fc__diff">
@@ -348,44 +334,29 @@ const DiffView: React.FC<{ diff: LineDiffResult | null; referenceLabel: string }
                 <span className="dl-fc__pane-label">
                     {referenceLabel} → Current
                 </span>
-                <span className="dl-fc__hunk-count">
-                    {diff.hunks.length} {diff.hunks.length === 1 ? 'change' : 'changes'}
-                </span>
+                <span className="dl-fc__hunk-count">{rows.length} lines</span>
             </div>
             {diff.coarse && (
                 <div className="dl-fc__diff-note">
                     Too many differences to align line by line — showing the whole changed block.
                 </div>
             )}
-            <div className="dl-fc__diff-body">
-                {diff.hunks.map((hunk, i) => (
-                    <Hunk key={`${hunk.aStart}:${hunk.bStart}:${i}`} hunk={hunk} />
-                ))}
-                {diff.truncatedHunks > 0 && (
-                    <div className="dl-fc__diff-note">
-                        … {diff.truncatedHunks} more {diff.truncatedHunks === 1 ? 'change' : 'changes'} not shown
+            <VirtualList
+                className="dl-fc__diff-body"
+                items={rows}
+                rowHeight={DIFF_ROW_HEIGHT}
+                renderRow={(row) => (
+                    <div className={`dl-fc__row dl-fc__row--${row.op}`}>
+                        <span className="dl-fc__ln">{row.a ?? ''}</span>
+                        <span className="dl-fc__ln">{row.b ?? ''}</span>
+                        <span className="dl-fc__sign">{row.op === 'add' ? '+' : row.op === 'del' ? '−' : ' '}</span>
+                        <span className="dl-fc__code">{row.text || ' '}</span>
                     </div>
                 )}
-            </div>
+            />
         </div>
     );
 };
-
-const Hunk: React.FC<{ hunk: DiffHunk }> = ({ hunk }) => (
-    <div className="dl-fc__hunk">
-        <div className="dl-fc__hunk-head">
-            @@ −{hunk.aStart},{hunk.aCount} +{hunk.bStart},{hunk.bCount} @@
-        </div>
-        {hunk.rows.map((row, i) => (
-            <div key={i} className={`dl-fc__row dl-fc__row--${row.op}`}>
-                <span className="dl-fc__ln">{row.a ?? ''}</span>
-                <span className="dl-fc__ln">{row.b ?? ''}</span>
-                <span className="dl-fc__sign">{row.op === 'add' ? '+' : row.op === 'del' ? '−' : ' '}</span>
-                <span className="dl-fc__code">{row.text || ' '}</span>
-            </div>
-        ))}
-    </div>
-);
 
 const ComparePane: React.FC<{
     label: string;
@@ -645,34 +616,6 @@ const LOCAL_CSS = `
 .dl-fc__stat-add { color: #73C991; }
 .dl-fc__stat-del { color: #dc5050; }
 
-.dl-fc__views {
-    display: inline-flex;
-    align-items: center;
-    margin-left: auto;
-    padding: 2px;
-    gap: 2px;
-    border: 1px solid var(--border);
-    border-radius: var(--dl-radius-sm, 6px);
-    background: var(--bg-secondary);
-}
-.dl-fc__view-btn {
-    appearance: none;
-    border: 0;
-    background: transparent;
-    color: var(--text-secondary);
-    font: inherit;
-    font-size: 11px;
-    line-height: 1;
-    padding: 5px 10px;
-    border-radius: 4px;
-    cursor: pointer;
-}
-.dl-fc__view-btn:hover { color: var(--text-primary); }
-.dl-fc__view-btn.is-active {
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    box-shadow: inset 0 0 0 1px var(--border);
-}
 
 .dl-fc__diff {
     min-height: 360px;
@@ -686,9 +629,6 @@ const LOCAL_CSS = `
 .dl-fc__diff-body {
     flex: 1;
     min-height: 0;
-    overflow: auto;
-    padding: 0;
-    margin: 0;
     background: var(--bg-primary);
 }
 .dl-fc__diff-note {
@@ -697,20 +637,14 @@ const LOCAL_CSS = `
     color: var(--text-muted);
     border-bottom: 1px solid var(--border);
 }
-.dl-fc__hunk + .dl-fc__hunk { border-top: 1px solid var(--border); }
-.dl-fc__hunk-head {
-    padding: 5px 12px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text-muted);
-    background: color-mix(in oklab, var(--bg-secondary) 60%, transparent);
-}
 .dl-fc__row {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
+    min-width: max-content;
+    height: 18px;
     font-family: var(--font-mono);
     font-size: 11px;
-    line-height: 1.6;
+    line-height: 18px;
     white-space: pre;
 }
 .dl-fc__ln {
@@ -727,11 +661,7 @@ const LOCAL_CSS = `
     user-select: none;
 }
 .dl-fc__code {
-    flex: 1;
-    min-width: 0;
     padding-right: 12px;
-    white-space: pre-wrap;
-    word-break: break-word;
 }
 .dl-fc__row--ctx { color: var(--text-secondary); }
 .dl-fc__row--del {
