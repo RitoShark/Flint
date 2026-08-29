@@ -1253,15 +1253,27 @@ input.search-box__input {
   }
 }
 
-/* File status indicators (VSCode-style) */
-.file-tree__item--new .file-tree__name {
+/* File status indicators (VSCode-style). Folders carry the strongest tag of
+   their subtree, so the row modifier must also tint compacted segments —
+   the WAD folder renders as a compacted content/base/x.wad.client row. */
+.file-tree__item--new .file-tree__name,
+.file-tree__item--new .file-tree__compact-segment {
   color: #73C991;
-  /* Green for new files */
 }
 
-.file-tree__item--modified .file-tree__name {
+.file-tree__item--modified .file-tree__name,
+.file-tree__item--modified .file-tree__compact-segment {
   color: #E5C07B;
-  /* Orange/yellow for modified files */
+}
+
+.file-tree__item--warning .file-tree__name,
+.file-tree__item--warning .file-tree__compact-segment {
+  color: #e0a030;
+}
+
+.file-tree__item--critical .file-tree__name,
+.file-tree__item--critical .file-tree__compact-segment {
+  color: #dc5050;
 }
 
 /* File status badges */

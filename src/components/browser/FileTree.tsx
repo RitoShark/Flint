@@ -26,6 +26,13 @@ import type { TreeDragPayload, TreeDragItem } from '../../lib/dnd';
 import type { FileTreeNode, ProjectTab } from '../../lib/types';
 import { scheduleProjectAudit } from '../../lib/audit/projectAudit';
 import type { FileIssueTag } from '../../lib/stores/appMetadataStore';
+import {
+    buildTreeDecorations,
+    strongerTag,
+    TAG_LETTER,
+    type TreeDecorations,
+    type TreeTag,
+} from '../../lib/editor/treeDecorations';
 
 const ROW_HEIGHT = 22;
 const ROW_OVERSCAN = 8;
@@ -123,6 +130,8 @@ interface TreeRowData {
     isRenaming: boolean;
     status?: 'new' | 'modified';
     issue?: FileIssueTag;
+    /** Folders only: strongest tag rolled up from the subtree. */
+    rollup?: TreeTag;
 }
 
 function compactNode(node: FileTreeNode): { displayPath: string; effectiveNode: FileTreeNode } {
@@ -175,8 +184,7 @@ function flattenTree(
     root: FileTreeNode,
     expandedFolders: Set<string>,
     renamingPath: string | null,
-    statusByRelPath: Map<string, 'new' | 'modified'>,
-    issueByRelPath: Map<string, FileIssueTag>,
+    decorations: TreeDecorations,
 ): TreeRowData[] {
     const rows: TreeRowData[] = [];
     const stack: Array<{ node: FileTreeNode; depth: number }> = [
@@ -190,14 +198,16 @@ function flattenTree(
             : { displayPath: node.name, effectiveNode: node };
 
         const isExpanded = expandedFolders.has(effectiveNode.path);
+        const pathLower = effectiveNode.path.toLowerCase();
         rows.push({
             node: effectiveNode,
             displayPath,
             depth,
             isExpanded,
             isRenaming: renamingPath === effectiveNode.path,
-            status: statusByRelPath.get(effectiveNode.path),
-            issue: issueByRelPath.get(effectiveNode.path.toLowerCase()),
+            status: effectiveNode.isDirectory ? undefined : decorations.fileStatus.get(effectiveNode.path),
+            issue: effectiveNode.isDirectory ? undefined : decorations.fileIssue.get(pathLower),
+            rollup: effectiveNode.isDirectory ? decorations.folderTag.get(pathLower) : undefined,
         });
 
         if (effectiveNode.isDirectory && isExpanded && effectiveNode.children) {
@@ -237,33 +247,17 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
     }, [fileTreeVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const fileStatusesRev = useAppMetadataStore((s) => s.fileStatusesRev);
-    const projectPathForStatus = activeTab?.projectPath || '';
-    const statusByRelPath = useMemo(() => {
-        const map = new Map<string, 'new' | 'modified'>();
-        if (!projectPathForStatus) return map;
-        const prefix = `${projectPathForStatus.replaceAll('\\', '/')}/`;
-        const store = useAppMetadataStore.getState();
-        for (const fullKey of store.getFileStatusKeys()) {
-            if (!fullKey.startsWith(prefix)) continue;
-            const status = store.getFileStatus(fullKey);
-            if (status) map.set(fullKey.slice(prefix.length), status);
-        }
-        return map;
-    }, [fileStatusesRev, projectPathForStatus]);
-
     const fileIssuesRev = useAppMetadataStore((s) => s.fileIssuesRev);
-    const issueByRelPath = useMemo(() => {
-        const map = new Map<string, FileIssueTag>();
-        if (!projectPathForStatus) return map;
-        const prefix = `${projectPathForStatus.replaceAll('\\', '/').toLowerCase()}/`;
+    const projectPathForStatus = activeTab?.projectPath || '';
+    const decorations = useMemo(() => {
+        if (!projectPathForStatus) return buildTreeDecorations('', [], []);
         const store = useAppMetadataStore.getState();
-        for (const fullKey of store.getFileIssueKeys()) {
-            if (!fullKey.startsWith(prefix)) continue;
-            const issue = store.getFileIssue(fullKey);
-            if (issue) map.set(fullKey.slice(prefix.length), issue);
-        }
-        return map;
-    }, [fileIssuesRev, projectPathForStatus]);
+        return buildTreeDecorations(
+            projectPathForStatus,
+            store.getFileStatusKeys().map((k) => [k, store.getFileStatus(k)!] as [string, 'new' | 'modified']),
+            store.getFileIssueKeys().map((k) => [k, store.getFileIssue(k)!] as [string, FileIssueTag]),
+        );
+    }, [fileStatusesRev, fileIssuesRev, projectPathForStatus]);
 
     useEffect(() => {
         if (!projectPathForStatus) return;
@@ -370,8 +364,8 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
 
     const rows = useMemo(() => {
         if (!filteredTree) return [];
-        return flattenTree(filteredTree, expandedFolders, renamingPath, statusByRelPath, issueByRelPath);
-    }, [filteredTree, expandedFolders, renamingPath, statusByRelPath, issueByRelPath]);
+        return flattenTree(filteredTree, expandedFolders, renamingPath, decorations);
+    }, [filteredTree, expandedFolders, renamingPath, decorations]);
 
     const projectPath = activeTab?.projectPath || '';
 
@@ -902,7 +896,7 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
     onRenameCancel,
     onContextMenu,
 }) => {
-    const { node, displayPath, depth, isExpanded, isRenaming, status, issue } = row;
+    const { node, displayPath, depth, isExpanded, isRenaming, status, issue, rollup } = row;
     const renameInputRef = useRef<HTMLInputElement>(null);
 
     void projectPath;
@@ -946,7 +940,8 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
 
     const icon = getFileIcon(node.name, node.isDirectory, isExpanded);
     const expanderIcon = getExpanderIcon(isExpanded);
-    const statusClass = status ? `file-tree__item--${status}` : '';
+    const nameTag = node.isDirectory ? rollup : strongerTag(issue?.severity, status);
+    const statusClass = nameTag ? `file-tree__item--${nameTag}` : '';
 
     return (
         <div
@@ -1004,7 +999,7 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
                         </span>
                         {status && (
                             <span className={`file-tree__status-badge file-tree__status-badge--${status}`}>
-                                {status === 'new' ? 'N' : 'M'}
+                                {TAG_LETTER[status]}
                             </span>
                         )}
                         {issue && (
@@ -1012,7 +1007,12 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
                                 className={`file-tree__status-badge file-tree__status-badge--${issue.severity}`}
                                 title={issue.message}
                             >
-                                {issue.severity === 'critical' ? 'E' : 'W'}
+                                {TAG_LETTER[issue.severity]}
+                            </span>
+                        )}
+                        {rollup && (
+                            <span className={`file-tree__status-badge file-tree__status-badge--${rollup}`}>
+                                {TAG_LETTER[rollup]}
                             </span>
                         )}
                     </>
