@@ -92,7 +92,7 @@ export const ExportModal: React.FC = () => {
     const openTabs = useProjectTabStore((s) => s.openTabs);
     const creatorName = useConfigStore((s) => s.creatorName);
 
-    const [format, setFormat] = useState<ExportFormat>('fantome');
+    const [format, setFormat] = useState<ExportFormat>('modpkg');
     const [isExporting, setIsExporting] = useState(false);
     const [isChecking, setIsChecking] = useState(false);
     const [progress, setProgress] = useState('');
@@ -100,21 +100,36 @@ export const ExportModal: React.FC = () => {
 
     const formatOptions = React.useMemo(() => [
         {
-            value: 'fantome' as const,
+            value: 'modpkg' as const,
             label: (
                 <>
-                    <span>.fantome</span>{' '}
-                    <span style={{ color: 'var(--text-secondary)' }}>{t('export.fantomeDesc')}</span>
+                    <span>.modpkg</span>{' '}
+                    <span
+                        style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
+                            padding: '1px 6px',
+                            borderRadius: 3,
+                            color: 'var(--color-success, #10b981)',
+                            border: '1px solid color-mix(in oklab, var(--color-success, #10b981) 45%, transparent)',
+                            background: 'color-mix(in oklab, var(--color-success, #10b981) 12%, transparent)',
+                        }}
+                    >
+                        {t('export.recommended')}
+                    </span>{' '}
+                    <span style={{ color: 'var(--text-secondary)' }}>{t('export.modpkgDesc')}</span>
                 </>
             ),
             icon: <Icon name="package" />,
         },
         {
-            value: 'modpkg' as const,
+            value: 'fantome' as const,
             label: (
                 <>
-                    <span>.modpkg</span>{' '}
-                    <span style={{ color: 'var(--text-secondary)' }}>{t('export.modpkgDesc')}</span>
+                    <span>.fantome</span>{' '}
+                    <span style={{ color: 'var(--text-secondary)' }}>{t('export.fantomeDesc')}</span>
                 </>
             ),
             icon: <Icon name="package" />,

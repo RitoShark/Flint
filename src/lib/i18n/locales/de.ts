@@ -154,6 +154,7 @@ export const de: TranslationDict = {
     'export.format': 'Exportformat',
     'export.fantomeDesc': '(Fantome Mod Manager)',
     'export.modpkgDesc': '(League Mod Tools)',
+    'export.recommended': 'Empfohlen',
     'export.project': 'Projekt',
     'export.exporting': 'Mod wird exportiert',
     'export.packaging': 'Mod wird verpackt...',
