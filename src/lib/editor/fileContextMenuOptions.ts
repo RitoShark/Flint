@@ -165,14 +165,15 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                 separator: true,
                 submenu: [
                     {
+                        label: t('contextMenu.exportModpkg'),
+                        icon: getIcon('package'),
+                        shortcut: t('export.recommended'),
+                        onClick: () => openModal('export', { format: 'modpkg' }),
+                    },
+                    {
                         label: t('contextMenu.exportFantome'),
                         icon: getIcon('package'),
                         onClick: () => openModal('export', { format: 'fantome' }),
-                    },
-                    {
-                        label: t('contextMenu.exportModpkg'),
-                        icon: getIcon('package'),
-                        onClick: () => openModal('export', { format: 'modpkg' }),
                     },
                 ],
             });

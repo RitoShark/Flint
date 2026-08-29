@@ -770,6 +770,41 @@ export const TitleBar: React.FC = () => {
                                 boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
                             }}>
                                 <button
+                                    onClick={() => handleExportAs('modpkg')}
+                                    style={{
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        background: 'transparent',
+                                        border: 'none',
+                                        color: 'var(--text-primary)',
+                                        textAlign: 'left',
+                                        cursor: 'pointer',
+                                        borderRadius: '2px',
+                                        fontSize: '13px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        gap: '8px'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                                >
+                                    <span>{t('titlebar.exportModpkg')}</span>
+                                    <span style={{
+                                        fontSize: '10px',
+                                        fontWeight: 700,
+                                        textTransform: 'uppercase',
+                                        letterSpacing: '0.05em',
+                                        padding: '1px 6px',
+                                        borderRadius: '3px',
+                                        color: 'var(--color-success, #10b981)',
+                                        border: '1px solid color-mix(in oklab, var(--color-success, #10b981) 45%, transparent)',
+                                        background: 'color-mix(in oklab, var(--color-success, #10b981) 12%, transparent)'
+                                    }}>
+                                        {t('export.recommended')}
+                                    </span>
+                                </button>
+                                <button
                                     onClick={() => handleExportAs('fantome')}
                                     style={{
                                         width: '100%',
@@ -786,24 +821,6 @@ export const TitleBar: React.FC = () => {
                                     onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                                 >
                                     {t('titlebar.exportFantome')}
-                                </button>
-                                <button
-                                    onClick={() => handleExportAs('modpkg')}
-                                    style={{
-                                        width: '100%',
-                                        padding: '8px 12px',
-                                        background: 'transparent',
-                                        border: 'none',
-                                        color: 'var(--text-primary)',
-                                        textAlign: 'left',
-                                        cursor: 'pointer',
-                                        borderRadius: '2px',
-                                        fontSize: '13px'
-                                    }}
-                                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                                >
-                                    {t('titlebar.exportModpkg')}
                                 </button>
                             </div>
                         )}
