@@ -649,6 +649,26 @@ fn import_fantome_internal(
 
     let (resolved_wad_path, _is_temp) = resolve_wad_path(wad_path)?;
 
+    // Embedded hashtables register BEFORE the first resolve, so a repathed
+    // mod's custom chunks land on their real names in one pass instead of the
+    // rename dance after hash extraction.
+    let imported_tables = if wad_path.ends_with(".fantome") || wad_path.ends_with(".zip") {
+        let tables = super::hashtables::read_fantome_hashtables(wad_path);
+        if !tables.game.is_empty() || !tables.bin.is_empty() {
+            let _ = app.emit("fantome-import-progress", serde_json::json!({
+                "status": "progress",
+                "message": format!(
+                    "Registering {} embedded name(s)...",
+                    tables.game.len() + tables.bin.len()
+                )
+            }));
+            super::hashtables::register_names(Path::new(hash_dir), &tables);
+        }
+        tables
+    } else {
+        Default::default()
+    };
+
     let mut reader = WadReader::open(resolved_wad_path.to_str().unwrap())
         .map_err(|e| format!("Failed to open WAD file: {}", e))?;
 
@@ -972,6 +992,8 @@ fn import_fantome_internal(
         "status": "progress",
         "message": "Saving project metadata..."
     }));
+
+    super::hashtables::recover_into_project(project_path, &mut project, &imported_tables);
 
     core_save_project(&project)
         .map_err(|e| format!("Failed to save project: {}", e))?;

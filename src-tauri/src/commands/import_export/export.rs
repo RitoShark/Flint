@@ -331,12 +331,23 @@ fn export_with_ltk_fantome(
         );
     }
 
-    let info = serde_json::json!({
+    /* The Embedded Hashtables standard: name-only tables under META/hashes/,
+       declared by a `Hashtables` array in info.json, so any compliant tool can
+       resolve this mod's invented paths without Flint's own files.txt. */
+    let tables = super::hashtables::fantome_tables(&super::hashtables::collect_project_tables(
+        project_path,
+    ));
+
+    let mut info = serde_json::json!({
         "Name": mod_project.display_name,
         "Author": format_authors(&mod_project.authors),
         "Version": mod_project.version,
         "Description": mod_project.description,
     });
+    if !tables.is_empty() {
+        info["Hashtables"] =
+            serde_json::Value::Array(tables.iter().map(|t| t.manifest.clone()).collect());
+    }
 
     let meta_options = SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
@@ -348,6 +359,13 @@ fn export_with_ltk_fantome(
             .as_bytes(),
     )
     .map_err(|e| format!("Failed to write info.json: {}", e))?;
+
+    for table in &tables {
+        if zip.start_file(table.zip_path.as_str(), meta_options).is_ok() {
+            let _ = zip.write_all(table.contents.as_bytes());
+            tracing::info!("Embedded {} ({} bytes)", table.zip_path, table.contents.len());
+        }
+    }
 
     /* `files.txt` travels with the mod, in META/ beside info.json.
        It records the custom paths and object names this project invented —
