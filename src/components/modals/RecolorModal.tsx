@@ -146,9 +146,9 @@ export const RecolorModal: React.FC = () => {
     const [presetsOpen, setPresetsOpen] = useState(false);
     const [hoverTab, setHoverTab] = useState<RecolorMode | null>(null);
 
-    const [imageData, setImageData] = useState<string | null>(null);
-    const [imgLoaded, setImgLoaded] = useState(false);
+    const [image, setImage] = useState<HTMLImageElement | null>(null);
     const [loading, setLoading] = useState(false);
+    const [decodeError, setDecodeError] = useState<string | null>(null);
     const [showOriginal, setShowOriginal] = useState(false);
 
     const [createCheckpoint, setCreateCheckpoint] = useState(true);
@@ -159,9 +159,8 @@ export const RecolorModal: React.FC = () => {
     const [previewIndex, setPreviewIndex] = useState(0);
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
-    const imgElRef = useRef<HTMLImageElement | null>(null);
     // Decode cache so cycling back to an already-seen texture is instant.
-    const decodeCacheRef = useRef<Map<string, string>>(new Map());
+    const decodeCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
 
     // Zoom / pan on the preview.
     const [zoom, setZoom] = useState(1);
@@ -170,33 +169,36 @@ export const RecolorModal: React.FC = () => {
 
     const resetView = useCallback(() => { setZoom(1); setPan({ x: 0, y: 0 }); }, []);
 
-    // The <img> must reload whenever the source changes before we can redraw.
-    useEffect(() => { setImgLoaded(false); resetView(); }, [imageData, resetView]);
-
     const isVisible = activeModal === 'recolor';
     const options = modalOptions as RecolorModalOptions | null;
     const isFolder = options?.filePath ? (options?.isFolder || false) : false;
 
-    const decodeToDataUrl = useCallback(async (relPath: string): Promise<string> => {
+    /* Decode to a READY <img>. `img.decode()` resolves only once the bitmap can
+       be drawn, so the canvas effect never races a half-loaded element — the
+       old hidden-<img> + onLoad handshake could land either way round and left
+       the preview blank. */
+    const decodeToImage = useCallback(async (relPath: string): Promise<HTMLImageElement> => {
         const cached = decodeCacheRef.current.get(relPath);
         if (cached) return cached;
         const absPath = currentProjectPath ? `${currentProjectPath}/${relPath}` : relPath;
         const result = await api.decodeDdsToPng(absPath);
-        const url = `data:image/png;base64,${result.data}`;
-        decodeCacheRef.current.set(relPath, url);
-        return url;
+        const img = new Image();
+        img.src = `data:image/png;base64,${result.data}`;
+        await img.decode();
+        decodeCacheRef.current.set(relPath, img);
+        return img;
     }, [currentProjectPath]);
 
     useEffect(() => {
         if (isVisible && options?.filePath) {
-            if (isFolder) loadFolderTextures();
-            else loadImage();
+            if (isFolder) void loadFolderTextures();
         } else {
             setHue(0);
             setSaturation(1);
             setBrightness(1);
             setTargetHue(0);
-            setImageData(null);
+            setImage(null);
+            setDecodeError(null);
             setTexturePaths([]);
             setPreviewIndex(0);
             setShowOriginal(false);
@@ -206,18 +208,26 @@ export const RecolorModal: React.FC = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isVisible, options?.filePath, isFolder]);
 
-    // Decode the currently-selected folder texture on demand.
+    // One owner for "which texture is on screen" — single file or folder alike.
     useEffect(() => {
-        if (!isFolder || texturePaths.length === 0) return;
+        if (!isVisible) return;
+        const relPath = isFolder ? texturePaths[previewIndex] : options?.filePath;
+        if (!relPath) return;
         let cancelled = false;
         setLoading(true);
-        decodeToDataUrl(texturePaths[previewIndex])
-            .then((url) => { if (!cancelled) setImageData(url); })
-            .catch((err) => console.error('[RecolorModal] decode failed:', err))
+        setDecodeError(null);
+        decodeToImage(relPath)
+            .then((img) => { if (!cancelled) { setImage(img); resetView(); } })
+            .catch((err) => {
+                if (cancelled) return;
+                console.error('[RecolorModal] decode failed:', relPath, err);
+                setImage(null);
+                setDecodeError(err instanceof Error ? err.message : String(err));
+            })
             .finally(() => { if (!cancelled) setLoading(false); });
         return () => { cancelled = true; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isFolder, texturePaths, previewIndex]);
+    }, [isVisible, isFolder, options?.filePath, texturePaths, previewIndex, decodeToImage]);
 
     const loadFolderTextures = async () => {
         if (!options?.filePath || !fileTree) return;
@@ -265,24 +275,12 @@ export const RecolorModal: React.FC = () => {
         }
     };
 
-    const loadImage = async () => {
-        if (!options?.filePath) return;
-        setLoading(true);
-        try {
-            setImageData(await decodeToDataUrl(options.filePath));
-        } catch (err) {
-            console.error('[RecolorModal] Failed to load image:', err);
-        } finally {
-            setLoading(false);
-        }
-    };
-
     /* Render the current image to the canvas, applying the active recolor op
        (unless showing the original). Runs live on any control change. */
     useEffect(() => {
         const canvas = canvasRef.current;
-        const img = imgElRef.current;
-        if (!canvas || !img || !imageData || !imgLoaded || img.naturalWidth === 0) return;
+        const img = image;
+        if (!canvas || !img || img.naturalWidth === 0) return;
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
@@ -302,7 +300,7 @@ export const RecolorModal: React.FC = () => {
             applyGrayscaleTint(frame.data, targetHue);
         }
         ctx.putImageData(frame, 0, 0);
-    }, [imageData, imgLoaded, mode, hue, saturation, brightness, targetHue, preserveSaturation, showOriginal]);
+    }, [image, mode, hue, saturation, brightness, targetHue, preserveSaturation, showOriginal]);
 
     const handleSave = async () => {
         if (!options?.filePath) return;
@@ -374,7 +372,7 @@ export const RecolorModal: React.FC = () => {
     const MAX_ZOOM = 8;
 
     const handleWheel = (e: React.WheelEvent) => {
-        if (!imageData) return;
+        if (!image) return;
         e.preventDefault();
         setZoom((z) => {
             const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
@@ -384,7 +382,7 @@ export const RecolorModal: React.FC = () => {
     };
 
     const handlePreviewPointerDown = (e: React.PointerEvent) => {
-        if (!imageData || zoom <= MIN_ZOOM) return; // only pan when zoomed in
+        if (!image || zoom <= MIN_ZOOM) return; // only pan when zoomed in
         panDragRef.current = { x: e.clientX, y: e.clientY, ox: pan.x, oy: pan.y, moved: false };
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     };
@@ -403,8 +401,8 @@ export const RecolorModal: React.FC = () => {
         panDragRef.current = null;
         try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* noop */ }
         // A real drag shouldn't also toggle original/preview.
-        if (d && !d.moved && imageData) setShowOriginal((v) => !v);
-        else if (!d && imageData) setShowOriginal((v) => !v); // plain click when not zoomed
+        if (d && !d.moved && image) setShowOriginal((v) => !v);
+        else if (!d && image) setShowOriginal((v) => !v); // plain click when not zoomed
     };
 
     const hasSwap = isFolder && texturePaths.length > 1;
@@ -453,18 +451,7 @@ export const RecolorModal: React.FC = () => {
                         >
                             {loading && <Spinner />}
 
-                            {/* Hidden source image feeding the canvas. */}
-                            {imageData && (
-                                <img
-                                    ref={imgElRef}
-                                    src={imageData}
-                                    alt=""
-                                    style={{ display: 'none' }}
-                                    onLoad={() => setImgLoaded(true)}
-                                />
-                            )}
-
-                            {imageData ? (
+                            {image ? (
                                 <>
                                     <canvas
                                         ref={canvasRef}
@@ -490,13 +477,22 @@ export const RecolorModal: React.FC = () => {
                                     )}
                                     <div className="recolor-modal__zoom-hint">Scroll to zoom</div>
                                 </>
-                            ) : !isFolder ? (
+                            ) : decodeError ? (
+                                <div className="recolor-modal__placeholder">
+                                    <Icon name="warning" />
+                                    <p>Couldn&apos;t decode {currentTexName}</p>
+                                    <p className="text-muted">{decodeError}</p>
+                                    {hasSwap && <p className="text-muted">Use the arrows to preview another texture.</p>}
+                                </div>
+                            ) : loading ? (
                                 <div className="recolor-modal__placeholder">Loading preview…</div>
-                            ) : (
+                            ) : isFolder ? (
                                 <div className="recolor-modal__placeholder">
                                     <Icon name="folder" />
                                     <p>No textures found in this folder</p>
                                 </div>
+                            ) : (
+                                <div className="recolor-modal__placeholder">Loading preview…</div>
                             )}
                         </div>
 
