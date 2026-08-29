@@ -16,6 +16,7 @@ use crate::checks::{
     check_animation_graph, check_bin_hazards, check_texture, CheckIssue, MigrationTally,
 };
 use crate::codec::{read_bin, tree_to_text_cached, MAX_BIN_SIZE};
+use flint_hash::hash::HashMapper;
 use rayon::prelude::*;
 use ritoshark::bin::{Bin, BinValue};
 
@@ -119,11 +120,24 @@ fn add_mention(raw: &str, out: &mut HashSet<String>) {
     out.insert(rel);
 }
 
-/// Harvests string leaves. Hash/link/file values carry no text here — they come back
-/// through the resolved-text pass instead.
-fn collect_from_value(value: &BinValue, out: &mut HashSet<String>) {
+/// What one BIN references: paths it names outright, and `file` values, which are an
+/// xxh64 and nothing else until something can name them.
+#[derive(Debug, Clone, Default)]
+struct Mentions {
+    paths: HashSet<String>,
+    /// `file` hashes no record could name. Still checkable — the hash IS the path hash
+    /// the folder index is keyed by.
+    unnamed_files: HashSet<u64>,
+}
+
+/// Harvests string leaves and `file` references. Hash/link values carry no text here —
+/// they come back through the resolved-text pass instead.
+fn collect_from_value(value: &BinValue, out: &mut Mentions) {
     match value {
-        BinValue::String(s) => add_mention(s, out),
+        BinValue::String(s) => add_mention(s, &mut out.paths),
+        BinValue::File(hash) if *hash != 0 => {
+            out.unnamed_files.insert(*hash);
+        }
         BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
             for v in fields.values() {
                 collect_from_value(v, out);
@@ -164,9 +178,9 @@ fn collect_from_text(text: &str, out: &mut HashSet<String>) {
     }
 }
 
-fn collect_mentions(bin: &Bin, out: &mut HashSet<String>) {
+fn collect_mentions(bin: &Bin, names: &HashMapper, out: &mut Mentions) {
     for dep in &bin.linked {
-        add_mention(dep, out);
+        add_mention(dep, &mut out.paths);
     }
     for entry in &bin.entries {
         for value in entry.fields.values() {
@@ -174,7 +188,31 @@ fn collect_mentions(bin: &Bin, out: &mut HashSet<String>) {
         }
     }
     if let Ok(text) = tree_to_text_cached(bin) {
-        collect_from_text(&text, out);
+        collect_from_text(&text, &mut out.paths);
+    }
+    name_file_mentions(bin, names, out);
+}
+
+/** Give every `file` hash a path if anything can.
+The bin's own `ritobinmap` record comes first: a repathed asset's path was invented by a
+tool and is in no global dictionary, so the bin is the only thing that knows it. The
+printer never sees that record — it resolves against the global table only — which is why
+these references were invisible to the audit before, and they are exactly the mod's OWN
+assets. Whatever stays unnamed is still checked, just by hash. */
+fn name_file_mentions(bin: &Bin, names: &HashMapper, out: &mut Mentions) {
+    let own = ritoshark::bin::read_path_map(bin).tables().game;
+    let hashes = std::mem::take(&mut out.unnamed_files);
+    for hash in hashes {
+        match own
+            .get(&hash)
+            .map(String::as_str)
+            .or_else(|| names.get(hash))
+        {
+            Some(name) => add_mention(name, &mut out.paths),
+            None => {
+                out.unnamed_files.insert(hash);
+            }
+        }
     }
 }
 
@@ -218,7 +256,7 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
         Texture(Vec<CheckIssue>),
         BinOk {
             issues: Vec<CheckIssue>,
-            mentions: HashSet<String>,
+            mentions: Mentions,
             tally: MigrationTally,
         },
         BinFailed,
@@ -242,8 +280,8 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
                     Ok(data) if data.len() >= 4 && data.len() <= MAX_BIN_SIZE => {
                         match read_bin(&data) {
                             Ok(bin) => {
-                                let mut mentions = HashSet::new();
-                                collect_mentions(&bin, &mut mentions);
+                                let mut mentions = Mentions::default();
+                                collect_mentions(&bin, names_ref, &mut mentions);
                                 let mut issues = check_animation_graph(&bin, rel, names_ref);
                                 issues.extend(check_bin_hazards(&bin, rel));
                                 let mut tally = MigrationTally::default();
@@ -262,7 +300,8 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
     drop(bin_names);
 
     let mut mentions: HashSet<String> = HashSet::new();
-    let mut bin_mentions: Vec<(String, HashSet<String>)> = Vec::new();
+    let mut unnamed_files: HashSet<u64> = HashSet::new();
+    let mut bin_mentions: Vec<(String, Mentions)> = Vec::new();
     let mut migration = MigrationTally::default();
     for (idx, scan) in scans {
         match scan {
@@ -274,7 +313,8 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
                 mentions: own,
                 tally,
             } => {
-                mentions.extend(own.iter().cloned());
+                mentions.extend(own.paths.iter().cloned());
+                unnamed_files.extend(own.unnamed_files.iter().copied());
                 bin_mentions.push((files[idx].0.clone(), own));
                 report.issues.extend(issues);
                 migration.merge(tally);
@@ -291,6 +331,18 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
             Some(indices) => referenced.extend(indices.iter().copied()),
             None => {
                 missing.insert(mention.clone());
+            }
+        }
+    }
+
+    // A `file` value nothing could name is still a reference: its hash is the same
+    // xxh64 the folder index is keyed by, so it either lands on a file or it dangles.
+    let mut missing_hashes: BTreeSet<u64> = BTreeSet::new();
+    for hash in &unnamed_files {
+        match by_hash.get(hash) {
+            Some(indices) => referenced.extend(indices.iter().copied()),
+            None => {
+                missing_hashes.insert(*hash);
             }
         }
     }
@@ -319,11 +371,18 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
     });
 
     for (rel, own) in &bin_mentions {
-        let mut absent: Vec<&str> = own
+        let mut absent: Vec<String> = own
+            .paths
             .iter()
             .filter(|m| missing.contains(*m))
-            .map(String::as_str)
+            .cloned()
             .collect();
+        absent.extend(
+            own.unnamed_files
+                .iter()
+                .filter(|h| missing_hashes.contains(*h))
+                .map(|h| format!("0x{h:016x}")),
+        );
         if absent.is_empty() {
             continue;
         }
@@ -374,7 +433,10 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
     }
     bloat.sort_by(|a, b| b.size.cmp(&a.size).then_with(|| a.path.cmp(&b.path)));
 
-    report.missing = missing.into_iter().collect();
+    report.missing = missing
+        .into_iter()
+        .chain(missing_hashes.iter().map(|h| format!("0x{h:016x}")))
+        .collect();
     report.bloat = bloat;
     Ok(report)
 }
@@ -509,6 +571,94 @@ mod tests {
         assert!(bloat.contains(&"assets/characters/foo/orphan.tex"));
         assert!(!bloat.iter().any(|p| p.contains("icons2d")));
         assert!(!bloat.iter().any(|p| p.ends_with(".bin")));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_file_reference_counts_even_when_nothing_can_name_it() {
+        use ritoshark::bin::{BinEntry, BinValue};
+
+        let dir = std::env::temp_dir().join(format!("flint-audit-file-{}", std::process::id()));
+        let assets = dir.join("assets").join("modders").join("flint7d9f");
+        std::fs::create_dir_all(&assets).unwrap();
+        std::fs::write(assets.join("invented_7d9f.tex"), b"xxxx").unwrap();
+        std::fs::create_dir_all(dir.join("data")).unwrap();
+
+        let shipped = "assets/modders/flint7d9f/invented_7d9f.tex";
+        let gone = "assets/modders/flint7d9f/deleted_7d9f.tex";
+        let mut fields = indexmap::IndexMap::new();
+        fields.insert(
+            ritoshark::hash::fnv1a("texturePath"),
+            BinValue::File(ritoshark::hash::xxh64(shipped)),
+        );
+        fields.insert(
+            ritoshark::hash::fnv1a("otherTexture"),
+            BinValue::File(ritoshark::hash::xxh64(gone)),
+        );
+        let bin = Bin {
+            entries: vec![BinEntry {
+                path_hash: 1,
+                class_hash: 2,
+                fields,
+            }],
+            ..Bin::new()
+        };
+        std::fs::write(
+            dir.join("data").join("skin0.bin"),
+            crate::codec::write_bin(&bin).unwrap(),
+        )
+        .unwrap();
+
+        let report = audit_wad_folder(&dir).unwrap();
+        // The shipped one is referenced by hash alone — not bloat.
+        assert!(
+            !report.bloat.iter().any(|b| b.path == shipped),
+            "a file-typed reference must count as a reference: {:?}",
+            report.bloat
+        );
+        // The other one dangles, and says so by hash since no name exists.
+        let hex = format!("0x{:016x}", ritoshark::hash::xxh64(gone));
+        assert!(report.missing.contains(&hex), "{:?}", report.missing);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_bins_own_record_names_its_file_references() {
+        use ritoshark::bin::{BinEntry, BinValue};
+
+        let dir = std::env::temp_dir().join(format!("flint-audit-record-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("data")).unwrap();
+
+        let gone = "assets/modders/flint7d9f/named_7d9f.tex";
+        let mut fields = indexmap::IndexMap::new();
+        fields.insert(
+            ritoshark::hash::fnv1a("texturePath"),
+            BinValue::File(ritoshark::hash::xxh64(gone)),
+        );
+        let mut bin = Bin {
+            entries: vec![BinEntry {
+                path_hash: 1,
+                class_hash: 2,
+                fields,
+            }],
+            ..Bin::new()
+        };
+        let map = ritoshark::bin::capture(&bin, [gone]);
+        ritoshark::bin::write_path_map(&mut bin, &map);
+        std::fs::write(
+            dir.join("data").join("skin0.bin"),
+            crate::codec::write_bin(&bin).unwrap(),
+        )
+        .unwrap();
+
+        let report = audit_wad_folder(&dir).unwrap();
+        assert!(
+            report.missing.contains(&gone.to_string()),
+            "the record is the only thing that knows this path: {:?}",
+            report.missing
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
