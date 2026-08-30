@@ -35,12 +35,6 @@ export function requestUnhash(filePath: string): void {
     );
 }
 
-export function requestRevealText(filePath: string, needle: string): void {
-    window.dispatchEvent(
-        new CustomEvent<RevealTextDetail>(REVEAL_TEXT_EVENT, { detail: { filePath, needle } }),
-    );
-}
-
 /* Revealing a line in a BIN that is not open yet cannot go through an event:
    the editor's listener does not exist until it has mounted and decoded the
    file, which is well after the caller navigates. So the line is STASHED and
@@ -50,6 +44,25 @@ const pendingReveals = new Map<string, number>();
 
 function revealKey(filePath: string): string {
     return filePath.replace(/\\/g, '/').toLowerCase();
+}
+
+/* Same pull handshake as the line stash, and for the same reason: the audit report
+   NAVIGATES to the file, so it fires this before that editor exists. */
+const pendingTextReveals = new Map<string, string>();
+
+export function takeRevealText(filePath: string): string | null {
+    const key = revealKey(filePath);
+    const needle = pendingTextReveals.get(key);
+    if (needle === undefined) return null;
+    pendingTextReveals.delete(key);
+    return needle;
+}
+
+export function requestRevealText(filePath: string, needle: string): void {
+    pendingTextReveals.set(revealKey(filePath), needle);
+    window.dispatchEvent(
+        new CustomEvent<RevealTextDetail>(REVEAL_TEXT_EVENT, { detail: { filePath, needle } }),
+    );
 }
 
 export function stashRevealLine(filePath: string, line: number): void {

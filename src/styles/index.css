@@ -5668,6 +5668,19 @@ input.np-search:focus {
   background: color-mix(in oklab, var(--color-danger) 26%, transparent);
 }
 
+/* Flash for a line jumped to from the audit report or a search hit. Fades on its
+   own so it reads as "here", not as a persistent state the reader has to dismiss. */
+.flint-reveal-line {
+  background: color-mix(in oklab, var(--accent-primary) 22%, transparent) !important;
+  animation: flint-reveal-fade 2.6s ease-out forwards;
+}
+
+@keyframes flint-reveal-fade {
+  0%   { background-color: color-mix(in oklab, var(--accent-primary) 40%, transparent); }
+  25%  { background-color: color-mix(in oklab, var(--accent-primary) 30%, transparent); }
+  100% { background-color: transparent; }
+}
+
 /* Monaco decoration for bracket error lines */
 .bracket-error-line {
   background: rgba(255, 68, 68, 0.08) !important;

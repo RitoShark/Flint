@@ -4,7 +4,7 @@ import { useModalStore, useNavigationStore, useNotificationStore, useProjectTabS
 import { useAppMetadataStore } from '../../lib/stores/appMetadataStore';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { issueTagsFromIssues } from '../../lib/audit/projectAudit';
-import { requestRevealLine } from '../../lib/editor/binEditorEvents';
+import { requestRevealLine, requestRevealText } from '../../lib/editor/binEditorEvents';
 import { revealInTree } from '../../lib/editor/revealInTree';
 import { VirtualList } from '../preview/VirtualList';
 import * as api from '../../lib/api';
@@ -34,6 +34,15 @@ const VIEW_EMPTY: Record<View, string> = {
     missing: 'Every referenced asset is present.',
     bloat: 'Every file here is referenced.',
 };
+
+/* A finding with no line still names what it is about, in its message. Pulling the
+   asset path back out lets the editor select the reference itself rather than just
+   opening the file and leaving the reader to search for it. */
+const ASSET_PATH_IN_MESSAGE = /((?:assets|data)\/[^\s,)"']+\.[a-z0-9]{2,5})/i;
+
+function issueNeedle(issue: api.CheckIssue): string | null {
+    return ASSET_PATH_IN_MESSAGE.exec(issue.message)?.[1] ?? null;
+}
 
 const Icon: React.FC<{ name: Parameters<typeof getIcon>[0]; className?: string }> = ({ name, className }) => (
     <span className={className} dangerouslySetInnerHTML={{ __html: getIcon(name) }} />
@@ -162,12 +171,14 @@ export const WadAuditModal: React.FC = () => {
 
     const revealRow = useCallback(
         (relInFolder: string) => {
-            if (!projectPath) return;
+            if (!projectPath) return false;
             const folderNorm = folderPath.replaceAll('\\', '/');
             const projectNorm = projectPath.replaceAll('\\', '/');
-            if (!folderNorm.toLowerCase().startsWith(`${projectNorm.toLowerCase()}/`)) return;
+            if (!folderNorm.toLowerCase().startsWith(`${projectNorm.toLowerCase()}/`)) return false;
             const folderRel = folderNorm.slice(projectNorm.length + 1);
-            if (revealInTree(`${folderRel.toLowerCase()}/${relInFolder}`)) closeModal();
+            if (!revealInTree(`${folderRel.toLowerCase()}/${relInFolder}`)) return false;
+            closeModal();
+            return true;
         },
         [projectPath, folderPath, closeModal],
     );
@@ -179,17 +190,22 @@ export const WadAuditModal: React.FC = () => {
         [folderPath],
     );
 
-    /* A finding on a BIN carries the line it sits on, so the useful destination is the
-       editor at that line, not the tree row. Everything else — textures, meshes — has
-       nothing to open a line in, so those still reveal in the tree. */
+    /* Selecting the file in the tree is what opens it IN THE PROJECT — the preview
+       panel mounts the BIN editor for whatever the tree has selected. The standalone
+       editor tab is the fallback for a folder that is not under the open project,
+       never the first choice. The jump is queued BEFORE either, so it is already
+       stashed by the time that editor mounts. */
     const openIssue = useCallback(
         (issue: api.CheckIssue) => {
-            if (!issue.file.toLowerCase().endsWith('.bin')) {
-                revealRow(issue.file);
-                return;
-            }
             const target = absPath(issue.file);
-            if (issue.line) requestRevealLine(target, issue.line);
+            const isBin = issue.file.toLowerCase().endsWith('.bin');
+            if (isBin) {
+                const needle = issueNeedle(issue);
+                if (issue.line) requestRevealLine(target, issue.line);
+                else if (needle) requestRevealText(target, needle);
+            }
+            if (revealRow(issue.file)) return;
+            if (!isBin) return;
             navigateToFileEditor({ filePath: target, kind: 'binText', projectPath });
             closeModal();
         },

@@ -36,6 +36,7 @@ import {
     UNHASH_REQUEST_EVENT,
     isSameRevealTarget,
     takeRevealLine,
+    takeRevealText,
     type RevealLineDetail,
     type RevealTextDetail,
 } from '../../lib/editor/binEditorEvents';
@@ -269,7 +270,65 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const [bracketErrorIndex, setBracketErrorIndex] = useState(0);
     const bracketCheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const decorationsRef = useRef<string[]>([]);
+    const revealDecorationsRef = useRef<string[]>([]);
+    const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const emitterDecorationsRef = useRef<string[]>([]);
+
+    /* Land on a reference and make it obvious: select the QUOTED value on the line
+       when there is one — that is the path or name the finding is about, not the
+       whole `field: type = "..."` row — and flash the line so the jump reads as a
+       jump. Monaco's own reveal moves the viewport silently otherwise. */
+    const revealAndFlash = useCallback((range: monaco.IRange) => {
+        const ed = editorRef.current;
+        const model = ed?.getModel();
+        if (!ed || !model) return;
+        ed.revealRangeInCenter(range);
+        ed.setSelection(range);
+        ed.focus();
+        revealDecorationsRef.current = ed.deltaDecorations(revealDecorationsRef.current, [
+            {
+                range: new monaco.Range(range.startLineNumber, 1, range.startLineNumber, 1),
+                options: {
+                    isWholeLine: true,
+                    className: 'flint-reveal-line',
+                    overviewRuler: {
+                        color: '#4d9de0',
+                        position: monaco.editor.OverviewRulerLane.Full,
+                    },
+                },
+            },
+        ]);
+        if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+        revealTimerRef.current = setTimeout(() => {
+            const live = editorRef.current;
+            if (live) revealDecorationsRef.current = live.deltaDecorations(revealDecorationsRef.current, []);
+        }, 2600);
+    }, []);
+
+    const revealLineWithFlash = useCallback((line: number) => {
+        const model = editorRef.current?.getModel();
+        if (!model || line < 1 || line > model.getLineCount()) return;
+        const text = model.getLineContent(line);
+        const open = text.indexOf('"');
+        const close = open >= 0 ? text.indexOf('"', open + 1) : -1;
+        const range = open >= 0 && close > open
+            ? new monaco.Range(line, open + 1, line, close + 2)
+            : new monaco.Range(line, 1, line, model.getLineMaxColumn(line));
+        revealAndFlash(range);
+    }, [revealAndFlash]);
+
+    /* Quoted first: a path or emitter name is a string VALUE in ritobin, so the
+       quoted form pins the reference rather than a stray mention. */
+    const revealNeedleWithFlash = useCallback((needle: string): boolean => {
+        const model = editorRef.current?.getModel();
+        if (!model || !needle) return false;
+        const match =
+            model.findMatches(`"${needle}"`, true, false, false, null, false, 1)[0] ??
+            model.findMatches(needle, true, false, false, null, false, 1)[0];
+        if (!match) return false;
+        revealAndFlash(match.range);
+        return true;
+    }, [revealAndFlash]);
 
     const fileVersion = useAppMetadataStore((state) => {
         void state.fileVersionsRev;
@@ -500,13 +559,16 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             ed.focus();
         }
 
-        // A search hit in a linked BIN navigates here and stashes its line;
-        // the restored view state above would otherwise win.
+        /* A search hit in a linked BIN, or an audit finding, navigates here and stashes
+           where to land; the restored view state above would otherwise win. Deferred a
+           frame because the flash decoration needs the model attached and laid out. */
         const pendingLine = takeRevealLine(filePath);
-        if (pendingLine !== null) {
-            ed.revealLineInCenter(pendingLine);
-            ed.setPosition({ lineNumber: pendingLine, column: 1 });
-            ed.focus();
+        const pendingText = takeRevealText(filePath);
+        if (pendingLine !== null || pendingText !== null) {
+            requestAnimationFrame(() => {
+                if (pendingLine !== null) revealLineWithFlash(pendingLine);
+                else if (pendingText !== null) revealNeedleWithFlash(pendingText);
+            });
         }
 
 
@@ -676,7 +738,10 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     }, [syntaxThemePref]);
 
     useEffect(() => {
-        return () => { if (bracketCheckTimerRef.current) clearTimeout(bracketCheckTimerRef.current); };
+        return () => {
+            if (bracketCheckTimerRef.current) clearTimeout(bracketCheckTimerRef.current);
+            if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+        };
     }, []);
 
     useEffect(() => {
@@ -1045,27 +1110,15 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     useEffect(() => {
         const onReveal = (e: Event) => {
             const detail = (e as CustomEvent<RevealTextDetail>).detail;
-            if (detail?.filePath !== filePath) return;
-            const ed = editorRef.current;
-            const model = ed?.getModel();
-            if (!ed || !model || !detail.needle) return;
-
-            // Quoted first: emitter/particle names are string VALUES in ritobin,
-            // so the quoted form pins the definition rather than a stray mention.
-            const match =
-                model.findMatches(`"${detail.needle}"`, true, false, true, null, false, 1)[0] ??
-                model.findMatches(detail.needle, true, false, true, null, false, 1)[0];
-            if (!match) {
+            if (!detail || !isSameRevealTarget(detail.filePath, filePath)) return;
+            takeRevealText(filePath);
+            if (!revealNeedleWithFlash(detail.needle)) {
                 showToast('info', `"${detail.needle}" not found in the text`);
-                return;
             }
-            ed.revealRangeInCenter(match.range);
-            ed.setSelection(match.range);
-            ed.focus();
         };
         window.addEventListener(REVEAL_TEXT_EVENT, onReveal);
         return () => window.removeEventListener(REVEAL_TEXT_EVENT, onReveal);
-    }, [filePath, showToast]);
+    }, [filePath, showToast, revealNeedleWithFlash]);
 
     useEffect(() => {
         const onRevealLine = (e: Event) => {
@@ -1074,13 +1127,11 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             const ed = editorRef.current;
             if (!ed) return;
             takeRevealLine(filePath);
-            ed.revealLineInCenter(detail.line);
-            ed.setPosition({ lineNumber: detail.line, column: 1 });
-            ed.focus();
+            revealLineWithFlash(detail.line);
         };
         window.addEventListener(REVEAL_LINE_EVENT, onRevealLine);
         return () => window.removeEventListener(REVEAL_LINE_EVENT, onRevealLine);
-    }, [filePath]);
+    }, [filePath, revealLineWithFlash]);
 
     // Split on BOTH separators in one pass. Chaining `split('\\') || split('/')`
     // never reaches the second branch: on a forward-slash path the first split
