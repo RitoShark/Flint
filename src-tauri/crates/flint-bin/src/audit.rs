@@ -92,6 +92,15 @@ fn is_missing_exempt(rel: &str) -> bool {
             .is_some_and(|stem| stem == parts[2])
 }
 
+/// Records about the folder rather than content shipped in it. Nothing references
+/// them by design — `files.txt` is the name table the whole ecosystem reads back.
+fn is_folder_metadata(rel: &str) -> bool {
+    matches!(
+        rel,
+        "files.txt" | "hashed_files.json" | "hashes.txt" | ".gitkeep"
+    )
+}
+
 fn is_bloat_exempt(rel: &str) -> bool {
     rel.split('/').any(|seg| {
         BLOAT_EXEMPT_DIRS
@@ -421,7 +430,7 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
         if rel.ends_with(".bin") || rel.ends_with(".ritobin") {
             continue;
         }
-        if rel == "hashed_files.json" || is_bloat_exempt(rel) {
+        if is_folder_metadata(rel) || is_bloat_exempt(rel) {
             continue;
         }
         let size = std::fs::metadata(disk).map(|m| m.len()).unwrap_or(0);
@@ -571,6 +580,19 @@ mod tests {
         assert!(bloat.contains(&"assets/characters/foo/orphan.tex"));
         assert!(!bloat.iter().any(|p| p.contains("icons2d")));
         assert!(!bloat.iter().any(|p| p.ends_with(".bin")));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn folder_records_are_never_bloat() {
+        let dir = std::env::temp_dir().join(format!("flint-audit-meta-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("files.txt"), b"assets/foo.tex\n").unwrap();
+        std::fs::write(dir.join("hashed_files.json"), b"{}").unwrap();
+
+        let report = audit_wad_folder(&dir).unwrap();
+        assert!(report.bloat.is_empty(), "{:?}", report.bloat);
 
         let _ = std::fs::remove_dir_all(&dir);
     }
