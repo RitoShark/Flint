@@ -110,24 +110,31 @@ fn is_bloat_exempt(rel: &str) -> bool {
     })
 }
 
-/** Records a mention, plus the `2x_`/`4x_` HD siblings League ships alongside a texture.
-Those variants are loaded by the engine deriving the name, never by an explicit BIN
-reference, so without this they'd every one read as bloat. */
+/// Records a referenced path, if it is one worth tracking.
 fn add_mention(raw: &str, out: &mut HashSet<String>) {
     let rel = normalize_rel(raw);
-    if !is_game_path(&rel) {
-        return;
+    if is_game_path(&rel) {
+        out.insert(rel);
     }
+}
 
-    if rel.ends_with(".dds") || rel.ends_with(".tex") {
-        if let Some(slash) = rel.rfind('/') {
-            let (dir, file) = rel.split_at(slash + 1);
-            for prefix in ["2x_", "4x_"] {
-                out.insert(format!("{}{}{}", dir, prefix, file));
-            }
+/** The `2x_`/`4x_` HD siblings League ships alongside a texture.
+
+The engine derives those names rather than referencing them, so a shipped one would read as
+bloat without this. **They are NOT missing-check material**: nothing referenced them, so
+reporting the ones a mod does not ship invents a reference the author never made — on a
+skin bin that is hundreds of phantom rows burying the real findings. */
+fn add_derived_variants(mentions: &HashSet<String>, out: &mut HashSet<String>) {
+    for rel in mentions {
+        if !rel.ends_with(".dds") && !rel.ends_with(".tex") {
+            continue;
+        }
+        let Some(slash) = rel.rfind('/') else { continue };
+        let (dir, file) = rel.split_at(slash + 1);
+        for prefix in ["2x_", "4x_"] {
+            out.insert(format!("{dir}{prefix}{file}"));
         }
     }
-    out.insert(rel);
 }
 
 /// What one BIN references: paths it names outright, and `file` values, which are an
@@ -138,6 +145,9 @@ struct Mentions {
     /// `file` hashes no record could name. Still checkable — the hash IS the path hash
     /// the folder index is keyed by.
     unnamed_files: HashSet<u64>,
+    /// HD twins derived from the paths above. They keep a shipped `2x_`/`4x_` file out of
+    /// the bloat report and are never reported as missing.
+    derived: HashSet<String>,
 }
 
 /// Harvests string leaves and `file` references. Hash/link values carry no text here —
@@ -201,6 +211,7 @@ fn collect_mentions(bin: &Bin, names: &HashMapper, text: Option<&str>, out: &mut
         collect_from_text(text, &mut out.paths);
     }
     name_file_mentions(bin, names, out);
+    add_derived_variants(&out.paths, &mut out.derived);
 }
 
 /// Everything one BIN contributes to a folder audit. `present` is the folder's file
@@ -327,14 +338,14 @@ pub fn check_one_file(dir: &Path, rel: &str) -> Result<Vec<CheckIssue>, String> 
     drop(bin_names);
     issues.extend(tally.into_issues());
 
+    let clips_reported = issues
+        .iter()
+        .any(|i| i.code == "animation.missing-clip-file");
     let mut absent: Vec<String> = mentions
         .paths
         .iter()
         .filter(|m| !present.contains(&unified_hash(m)) && !is_missing_exempt(m))
-        .filter(|m| {
-            let base = m.rsplit('/').next().unwrap_or(m);
-            !base.starts_with("2x_") && !base.starts_with("4x_")
-        })
+        .filter(|m| !(clips_reported && m.ends_with(".anm")))
         .cloned()
         .collect();
     absent.extend(
@@ -422,6 +433,7 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
     drop(bin_names);
 
     let mut mentions: HashSet<String> = HashSet::new();
+    let mut derived: HashSet<String> = HashSet::new();
     let mut unnamed_files: HashSet<u64> = HashSet::new();
     let mut bin_mentions: Vec<(String, Mentions)> = Vec::new();
     let mut migration = MigrationTally::default();
@@ -436,6 +448,7 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
                 tally,
             } => {
                 mentions.extend(own.paths.iter().cloned());
+                derived.extend(own.derived.iter().cloned());
                 unnamed_files.extend(own.unnamed_files.iter().copied());
                 bin_mentions.push((files[idx].0.clone(), own));
                 report.issues.extend(issues);
@@ -469,34 +482,28 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
         }
     }
 
-    // An HD twin is synthesised for every texture mention, so a mod that simply
-    // doesn't ship one would drown the report. Only flag a 2x_/4x_ path as missing
-    // when a sibling variant IS present — that's a genuinely incomplete set.
-    let present_variants: HashSet<&String> = files
-        .iter()
-        .map(|(rel, _)| rel)
-        .filter(|rel| {
-            let base = rel.rsplit('/').next().unwrap_or(rel);
-            base.starts_with("2x_") || base.starts_with("4x_")
-        })
-        .collect();
-    let has_any_variant = !present_variants.is_empty();
-    missing.retain(|m| {
-        if is_missing_exempt(m) {
-            return false;
+    // A derived twin only ever marks a shipped file as referenced; one that is absent was
+    // never referenced by anything, so it is not missing.
+    for twin in &derived {
+        if let Some(indices) = by_hash.get(&unified_hash(twin)) {
+            referenced.extend(indices.iter().copied());
         }
-        let base = m.rsplit('/').next().unwrap_or(m);
-        if base.starts_with("2x_") || base.starts_with("4x_") {
-            return has_any_variant;
-        }
-        true
-    });
+    }
+
+    missing.retain(|m| !is_missing_exempt(m));
 
     for (rel, own) in &bin_mentions {
+        // The animation check names the clip as well as the file, so letting the generic
+        // list repeat those paths just says the same thing twice about one bin.
+        let clips_reported = report
+            .issues
+            .iter()
+            .any(|i| i.code == "animation.missing-clip-file" && i.file == *rel);
         let mut absent: Vec<String> = own
             .paths
             .iter()
             .filter(|m| missing.contains(*m))
+            .filter(|m| !(clips_reported && m.ends_with(".anm")))
             .cloned()
             .collect();
         absent.extend(
@@ -587,19 +594,24 @@ mod tests {
     }
 
     #[test]
-    fn textures_pull_in_their_hd_twins() {
-        let mut out = HashSet::new();
-        add_mention("ASSETS/Characters/Foo/skin.dds", &mut out);
-        assert!(out.contains("assets/characters/foo/skin.dds"));
-        assert!(out.contains("assets/characters/foo/2x_skin.dds"));
-        assert!(out.contains("assets/characters/foo/4x_skin.dds"));
+    fn textures_derive_their_hd_twins_separately() {
+        let mut mentions = HashSet::new();
+        add_mention("ASSETS/Characters/Foo/skin.dds", &mut mentions);
+        assert_eq!(mentions.len(), 1, "a twin is not a mention");
+
+        let mut derived = HashSet::new();
+        add_derived_variants(&mentions, &mut derived);
+        assert!(derived.contains("assets/characters/foo/2x_skin.dds"));
+        assert!(derived.contains("assets/characters/foo/4x_skin.dds"));
     }
 
     #[test]
     fn non_textures_get_no_twins() {
-        let mut out = HashSet::new();
-        add_mention("assets/characters/foo/anim.anm", &mut out);
-        assert_eq!(out.len(), 1);
+        let mut mentions = HashSet::new();
+        add_mention("assets/characters/foo/anim.anm", &mut mentions);
+        let mut derived = HashSet::new();
+        add_derived_variants(&mentions, &mut derived);
+        assert!(derived.is_empty());
     }
 
     #[test]
@@ -644,11 +656,8 @@ mod tests {
         collect_from_text(text, &mut out);
         assert!(out.contains("assets/characters/foo/anim.anm"));
         assert!(out.contains("assets/characters/foo/tex.tex"));
-        // The unresolved `0xdeadbeef` is unquoted, so it contributes nothing —
-        // the only extra entries are the texture's synthesised HD twins.
-        assert!(out.contains("assets/characters/foo/2x_tex.tex"));
-        assert!(out.contains("assets/characters/foo/4x_tex.tex"));
-        assert_eq!(out.len(), 4);
+        // The unresolved `0xdeadbeef` is unquoted, so it contributes nothing.
+        assert_eq!(out.len(), 2);
     }
 
     #[test]
@@ -739,6 +748,43 @@ mod tests {
         // The other one dangles, and says so by hash since no name exists.
         let hex = format!("0x{:016x}", ritoshark::hash::xxh64(gone));
         assert!(report.missing.contains(&hex), "{:?}", report.missing);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_hd_twin_the_mod_does_not_ship_is_not_missing() {
+        use ritoshark::bin::{BinEntry, BinValue};
+
+        let dir = std::env::temp_dir().join(format!("flint-audit-twin-{}", std::process::id()));
+        let assets = dir.join("assets").join("characters").join("foo");
+        std::fs::create_dir_all(&assets).unwrap();
+        std::fs::write(assets.join("skin.dds"), b"xxxx").unwrap();
+        // One real 2x_ file present, which used to switch every synthesised twin on.
+        std::fs::write(assets.join("2x_other.dds"), b"xxxx").unwrap();
+        std::fs::create_dir_all(dir.join("data")).unwrap();
+
+        let mut fields = indexmap::IndexMap::new();
+        fields.insert(
+            ritoshark::hash::fnv1a("texture"),
+            BinValue::String("assets/characters/foo/skin.dds".into()),
+        );
+        let bin = Bin {
+            entries: vec![BinEntry { path_hash: 1, class_hash: 2, fields }],
+            ..Bin::new()
+        };
+        std::fs::write(
+            dir.join("data").join("skin0.bin"),
+            crate::codec::write_bin(&bin).unwrap(),
+        )
+        .unwrap();
+
+        let report = audit_wad_folder(&dir).unwrap();
+        assert!(
+            report.missing.is_empty(),
+            "nothing references a twin, so an absent one is not missing: {:?}",
+            report.missing,
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
