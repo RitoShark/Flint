@@ -26,9 +26,15 @@ pub enum Conversion {
 pub struct Migration {
     /// `Class.field` as the table spells it — names where it has them, `0x` hex otherwise.
     pub label: String,
+    /// Just the field half of `label`, for finding the line that declares it.
+    pub field: String,
     pub conversion: Conversion,
     /// The retired class an embed retag matches on.
     pub from_class: Option<u32>,
+    /// Ritobin spelling of the type the field carried before, e.g. `string`.
+    pub from_type: String,
+    /// Ritobin spelling of the type the client reads now, e.g. `file`.
+    pub to_type: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -36,12 +42,32 @@ struct Row {
     class: String,
     field: String,
     from: RowType,
+    to: RowType,
     conversion: String,
 }
 
 #[derive(serde::Deserialize)]
 struct RowType {
+    #[serde(rename = "type")]
+    kind: Option<String>,
     class: Option<String>,
+    key: Option<String>,
+    value: Option<String>,
+}
+
+/// The table names types in Rust-ish PascalCase (`String`, `File`, `Map`); ritobin
+/// prints them lowercase, which is what the editor shows and what a search matches.
+fn ritobin_type(t: &RowType) -> String {
+    let base = t.kind.as_deref().unwrap_or_default().to_ascii_lowercase();
+    match (base.as_str(), t.key.as_deref(), t.value.as_deref()) {
+        ("map", Some(k), Some(v)) => {
+            format!("map[{},{}]", k.to_ascii_lowercase(), v.to_ascii_lowercase())
+        }
+        ("list" | "list2" | "option", _, Some(v)) => {
+            format!("{base}[{}]", v.to_ascii_lowercase())
+        }
+        _ => base,
+    }
 }
 
 fn token(written: &str) -> Option<u32> {
@@ -84,8 +110,11 @@ fn parse() -> HashMap<u64, Migration> {
             table_key(class, field),
             Migration {
                 label: format!("{}.{}", row.class, row.field),
+                field: row.field.clone(),
                 conversion,
                 from_class: row.from.class.as_deref().and_then(token),
+                from_type: ritobin_type(&row.from),
+                to_type: ritobin_type(&row.to),
             },
         );
     }

@@ -240,9 +240,16 @@ export const WadAuditModal: React.FC = () => {
                                         >
                                             {issue.severity}
                                         </span>
-                                        <span style={pathStyle} title={issue.file}>&#8206;{issue.file}</span>
+                                        <span style={pathStyle} title={issue.file}>
+                                            &#8206;{issue.file}{issue.line ? ` · line ${issue.line}` : ''}
+                                        </span>
                                     </div>
                                     <div style={{ fontSize: 12, lineHeight: 1.45, paddingTop: 2 }}>{issue.message}</div>
+                                    {issue.expected && (
+                                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--color-success, #10b981)' }}>
+                                            expected {issue.expected}
+                                        </div>
+                                    )}
                                 </div>
                             ))
                             : !loading &&

@@ -68,6 +68,12 @@ const issueFileStyle: React.CSSProperties = {
     textAlign: 'left',
 };
 
+const expectedStyle: React.CSSProperties = {
+    fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+    fontSize: 11.5,
+    color: 'var(--color-success, #10b981)',
+};
+
 const IssueList: React.FC<{ heading: string; issues: api.CheckIssue[]; color: string }> = ({ heading, issues, color }) => (
     <>
         <div style={{ ...wadHeadingStyle, color }}>
@@ -75,8 +81,11 @@ const IssueList: React.FC<{ heading: string; issues: api.CheckIssue[]; color: st
         </div>
         {issues.map((issue) => (
             <div key={`${issue.code}:${issue.file}`} style={issueRowStyle}>
-                <div style={issueFileStyle} title={issue.file}>&#8206;{issue.file}</div>
+                <div style={issueFileStyle} title={issue.file}>
+                    &#8206;{issue.file}{issue.line ? ` · line ${issue.line}` : ''}
+                </div>
                 <div>{issue.message}</div>
+                {issue.expected && <div style={expectedStyle}>expected {issue.expected}</div>}
             </div>
         ))}
     </>

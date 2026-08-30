@@ -45,6 +45,7 @@ interface AppMetadataState {
   getFileStatusKeys: () => string[];
   clearFileStatuses: () => void;
   replaceFileIssues: (prefix: string, entries: Array<[string, FileIssueTag]>) => void;
+  setFileIssue: (filePath: string, tag: FileIssueTag | null) => void;
   getFileIssue: (filePath: string) => FileIssueTag | undefined;
   getFileIssueKeys: () => string[];
   applyFileEvent: (input: {
@@ -207,6 +208,14 @@ export const useAppMetadataStore = create<AppMetadataState>((set) => ({
       changed = true;
     }
     if (!changed) return;
+    set((state) => ({ fileIssuesRev: state.fileIssuesRev + 1 }));
+  },
+  setFileIssue: (filePath, tag) => {
+    const key = normPath(filePath).toLowerCase();
+    const had = fileIssuesMap.has(key);
+    if (tag) fileIssuesMap.set(key, tag);
+    else if (had) fileIssuesMap.delete(key);
+    else return;
     set((state) => ({ fileIssuesRev: state.fileIssuesRev + 1 }));
   },
   getFileIssue: (filePath) => fileIssuesMap.get(normPath(filePath).toLowerCase()),

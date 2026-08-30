@@ -42,7 +42,7 @@ pub use split::{
     split_bin_multi, MultiAnalysis, MultiSourceInfo, OrganizeResult, SplitResult, VFX_CLASS_NAMES,
 };
 pub use animask::{read_masks, write_masks, MaskEntry};
-pub use audit::{audit_wad_folder, AuditReport, BloatFile};
+pub use audit::{audit_wad_folder, check_one_file, AuditReport, BloatFile};
 pub use checks::{
     check_animation_graph, check_bin_hazards, check_texture, CheckIssue, MigrationTally, Severity,
 };

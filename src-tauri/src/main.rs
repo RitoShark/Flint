@@ -358,6 +358,7 @@ fn main() {
             commands::file::list_folder_contents,
             commands::audit::audit_wad_folder,
             commands::audit::audit_project_missing_refs,
+            commands::audit::recheck_project_file,
             commands::bin_split::analyze_bin_for_split,
             commands::bin_split::split_bin_entries,
             commands::bin_split::analyze_folder_for_split,

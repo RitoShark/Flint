@@ -38,6 +38,12 @@ pub struct CheckIssue {
     /// Folder-relative path of the offending file.
     pub file: String,
     pub message: String,
+    /// 1-based line in the bin's ritobin text, when the finding sits on one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    /// The form the client actually reads, e.g. `texturePath: file`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected: Option<String>,
 }
 
 impl CheckIssue {
@@ -47,8 +53,38 @@ impl CheckIssue {
             code,
             file: file.to_string(),
             message,
+            line: None,
+            expected: None,
         }
     }
+
+    fn at(mut self, line: Option<u32>) -> Self {
+        self.line = line;
+        self
+    }
+
+    fn expecting(mut self, expected: impl Into<String>) -> Self {
+        self.expected = Some(expected.into());
+        self
+    }
+}
+
+/// 1-based line of the first `<field>: <ty>` declaration in rendered ritobin text.
+///
+/// The printer emits exactly `name: type = value`, so a plain match is enough; a field
+/// whose hash no dictionary names prints as `0x…` and simply is not found.
+pub(crate) fn declaration_line(text: &str, field: &str, ty: &str) -> Option<u32> {
+    if field.starts_with("0x") || ty.is_empty() {
+        return None;
+    }
+    let needle = format!("{field}: {ty}");
+    text.lines()
+        .position(|line| {
+            let trimmed = line.trim_start();
+            trimmed.len() >= needle.len()
+                && trimmed[..needle.len()].eq_ignore_ascii_case(&needle)
+        })
+        .map(|idx| idx as u32 + 1)
 }
 
 // ─── Textures ─────────────────────────────────────────────────────────────────────
@@ -311,6 +347,112 @@ pub fn check_animation_graph(bin: &Bin, rel: &str, names: &HashMapper) -> Vec<Ch
     out
 }
 
+// ─── Animation clip files ────────────────────────────────────────────────────
+
+const ANIMATION_FILE_PATH: u32 = fnv1a("mAnimationFilePath");
+
+fn collect_clip_files(
+    value: &BinValue,
+    owner: Option<u32>,
+    out: &mut Vec<(Option<u32>, String, u64)>,
+) {
+    match value {
+        BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
+            for (field, inner) in fields {
+                if *field == ANIMATION_FILE_PATH {
+                    match inner {
+                        BinValue::String(path) if !path.is_empty() => {
+                            out.push((owner, path.clone(), flint_hash::hash::wad_chunk_hash(path)))
+                        }
+                        BinValue::File(hash) if *hash != 0 => {
+                            out.push((owner, String::new(), *hash))
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+                collect_clip_files(inner, owner, out);
+            }
+        }
+        BinValue::List { items, .. } => {
+            for item in items {
+                collect_clip_files(item, owner, out);
+            }
+        }
+        BinValue::Map { entries, .. } => {
+            for (key, inner) in entries {
+                let owner = match key {
+                    BinValue::Hash(h) => Some(*h),
+                    _ => owner,
+                };
+                collect_clip_files(inner, owner, out);
+            }
+        }
+        BinValue::Option {
+            value: Some(inner), ..
+        } => collect_clip_files(inner, owner, out),
+        _ => {}
+    }
+}
+
+/**
+Clips whose `.anm` the mod does not ship.
+
+An animation bin names its clip files by path (older bins) or by xxh64 (`file`, current);
+either way the client needs the file to be in the WAD. `present` is the folder's file
+index, so a clip pointing at a base-game path the mod deliberately does not carry reads
+the same as one pointing at a file the author deleted — hence WARNING, with the clip named
+so the author can tell those apart at a glance.
+*/
+pub fn check_animation_assets(
+    bin: &Bin,
+    rel: &str,
+    names: &HashMapper,
+    present: &HashSet<u64>,
+) -> Vec<CheckIssue> {
+    let mut found = Vec::new();
+    for entry in &bin.entries {
+        for value in entry.fields.values() {
+            collect_clip_files(value, None, &mut found);
+        }
+    }
+
+    let mut missing: Vec<String> = Vec::new();
+    let mut seen: HashSet<u64> = HashSet::new();
+    for (clip, path, hash) in found {
+        if present.contains(&hash) || !seen.insert(hash) {
+            continue;
+        }
+        let file = if path.is_empty() {
+            names.get(hash).map(str::to_string).unwrap_or_else(|| format!("0x{hash:016x}"))
+        } else {
+            path
+        };
+        missing.push(match clip {
+            Some(clip) => format!("{} → {file}", clip_label(clip, names)),
+            None => file,
+        });
+    }
+    if missing.is_empty() {
+        return Vec::new();
+    }
+
+    missing.sort();
+    let shown = missing[..missing.len().min(3)].join(", ");
+    let rest = missing.len().saturating_sub(3);
+    vec![CheckIssue::new(
+        Severity::Warning,
+        "animation.missing-clip-file",
+        rel,
+        format!(
+            "{} animation clip{} point at an `.anm` this mod does not ship ({shown}{}). Unless the game provides it, the animation does not play.",
+            missing.len(),
+            if missing.len() == 1 { "" } else { "s" },
+            if rest > 0 { format!(", and {rest} more") } else { String::new() },
+        ),
+    )]
+}
+
 // ─── BIN content hazards ─────────────────────────────────────────────────────
 
 /// Entry classes that belong to the champion's base gameplay data, never to a skin mod.
@@ -426,7 +568,7 @@ Checks one BIN for content the client rejects or misreads: shipped gameplay entr
 pre-14.1 VFX emitter shapes, and pre-rename `StaticMaterialShaderSamplerDef` fields.
 All three come straight out of Hematite/Topaz's fix rules — see each message.
 */
-pub fn check_bin_hazards(bin: &Bin, rel: &str) -> Vec<CheckIssue> {
+pub fn check_bin_hazards(bin: &Bin, rel: &str, text: Option<&str>) -> Vec<CheckIssue> {
     let mut out = Vec::new();
 
     let mut gameplay: Vec<&str> = Vec::new();
@@ -481,7 +623,12 @@ pub fn check_bin_hazards(bin: &Bin, rel: &str) -> Vec<CheckIssue> {
                 "{samplers} material sampler{} use retired field names (samplerName, or a path in textureName). The client reads texturePath now, so the model renders white/chrome. Hematite's staticmat fixes rename them.",
                 if samplers == 1 { "" } else { "s" },
             ),
-        ));
+        )
+        .at(text.and_then(|t| {
+            declaration_line(t, "samplerName", "string")
+                .or_else(|| declaration_line(t, "textureName", "string"))
+        }))
+        .expecting("texturePath: file"));
     }
 
     out
@@ -529,7 +676,8 @@ fn declares_old_type(m: &Migration, value: &BinValue) -> bool {
     }
 }
 
-fn migration_issue(m: &Migration, file: &str, count: usize) -> CheckIssue {
+fn migration_issue(m: &Migration, file: &str, hit: &MigrationHit) -> CheckIssue {
+    let count = hit.count;
     let plural = if count == 1 { "" } else { "s" };
     let (code, message) = match m.conversion {
         Conversion::HashValue => (
@@ -562,6 +710,8 @@ fn migration_issue(m: &Migration, file: &str, count: usize) -> CheckIssue {
         ),
     };
     CheckIssue::new(Severity::Critical, code, file, message)
+        .at(hit.line)
+        .expecting(format!("{}: {}", m.field, m.to_type))
 }
 
 /**
@@ -572,60 +722,82 @@ it without one line per value burying every other finding.
 Driven by [`crate::migration`]'s 395-row table rather than a hand-kept list, so it also
 covers the UI/TFT/map content the old seven-pair list missed.
 */
+#[derive(Debug, Default, Clone)]
+struct MigrationHit {
+    count: usize,
+    /// Line of the first declaration in the bin's text, when the text was available.
+    line: Option<u32>,
+}
+
 #[derive(Debug, Default)]
 pub struct MigrationTally {
-    /// (file, table key) → occurrence count
-    hits: BTreeMap<(String, u64), usize>,
+    /// (file, table key) → what was found
+    hits: BTreeMap<(String, u64), MigrationHit>,
 }
 
 impl MigrationTally {
-    pub fn add_bin(&mut self, bin: &Bin, rel: &str) {
+    /// `text` is the bin's rendered ritobin, when the caller already has it — it is
+    /// what turns a finding into a line number the editor can jump to.
+    pub fn add_bin(&mut self, bin: &Bin, rel: &str, text: Option<&str>) {
         for entry in &bin.entries {
-            self.scan(entry.class_hash, &entry.fields, rel);
+            self.scan(entry.class_hash, &entry.fields, rel, text);
         }
     }
 
-    fn scan(&mut self, class: u32, fields: &IndexMap<u32, BinValue>, rel: &str) {
+    fn scan(
+        &mut self,
+        class: u32,
+        fields: &IndexMap<u32, BinValue>,
+        rel: &str,
+        text: Option<&str>,
+    ) {
         let table = migration_table();
         for (field, value) in fields {
             if let Some(m) = table.get(&table_key(class, *field)) {
                 if declares_old_type(m, value) {
-                    *self
+                    let hit = self
                         .hits
                         .entry((rel.to_string(), table_key(class, *field)))
-                        .or_insert(0) += 1;
+                        .or_default();
+                    hit.count += 1;
+                    if hit.line.is_none() {
+                        hit.line = text
+                            .and_then(|t| declaration_line(t, &m.field, &m.from_type));
+                    }
                 }
             }
-            self.walk(value, rel);
+            self.walk(value, rel, text);
         }
     }
 
-    fn walk(&mut self, value: &BinValue, rel: &str) {
+    fn walk(&mut self, value: &BinValue, rel: &str, text: Option<&str>) {
         match value {
             BinValue::Pointer { class, fields } | BinValue::Embed { class, fields } => {
-                self.scan(*class, fields, rel)
+                self.scan(*class, fields, rel, text)
             }
             BinValue::List { items, .. } => {
                 for item in items {
-                    self.walk(item, rel);
+                    self.walk(item, rel, text);
                 }
             }
             BinValue::Map { entries, .. } => {
                 for (k, v) in entries {
-                    self.walk(k, rel);
-                    self.walk(v, rel);
+                    self.walk(k, rel, text);
+                    self.walk(v, rel, text);
                 }
             }
             BinValue::Option {
                 value: Some(inner), ..
-            } => self.walk(inner, rel),
+            } => self.walk(inner, rel, text),
             _ => {}
         }
     }
 
     pub fn merge(&mut self, other: MigrationTally) {
-        for (key, count) in other.hits {
-            *self.hits.entry(key).or_insert(0) += count;
+        for (key, hit) in other.hits {
+            let mine = self.hits.entry(key).or_default();
+            mine.count += hit.count;
+            mine.line = mine.line.or(hit.line);
         }
     }
 
@@ -633,7 +805,7 @@ impl MigrationTally {
         let table = migration_table();
         self.hits
             .into_iter()
-            .map(|((file, key), count)| migration_issue(&table[&key], &file, count))
+            .map(|((file, key), hit)| migration_issue(&table[&key], &file, &hit))
             .collect()
     }
 }
@@ -907,7 +1079,7 @@ mod tests {
     #[test]
     fn a_string_on_a_migrated_field_is_critical() {
         let mut tally = MigrationTally::default();
-        tally.add_bin(&skin_bin(BinValue::String("assets/x.tex".into())), "skins/skin0.bin");
+        tally.add_bin(&skin_bin(BinValue::String("assets/x.tex".into())), "skins/skin0.bin", None);
         let issues = tally.into_issues();
 
         assert_eq!(codes(&issues), vec!["bin.string-ref-not-migrated"]);
@@ -920,10 +1092,116 @@ mod tests {
         );
     }
 
+    fn animation_bin(path_value: BinValue) -> Bin {
+        let clip = BinValue::Pointer {
+            class: fnv1a("AtomicClipData"),
+            fields: [(
+                fnv1a("mAnimationResourceData"),
+                BinValue::Embed {
+                    class: fnv1a("AnimationResourceData"),
+                    fields: [(fnv1a("mAnimationFilePath"), path_value)]
+                        .into_iter()
+                        .collect(),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let map = BinValue::Map {
+            key: BinType::Hash,
+            value: BinType::Pointer,
+            entries: vec![(BinValue::Hash(fnv1a("Dance")), clip)],
+        };
+        Bin {
+            entries: vec![BinEntry {
+                path_hash: fnv1a("Characters/Yone/Animations/Skin0"),
+                class_hash: fnv1a("AnimationGraphData"),
+                fields: [(fnv1a("mClipDataMap"), map)].into_iter().collect(),
+            }],
+            ..Bin::new()
+        }
+    }
+
+    #[test]
+    fn a_clip_whose_anm_is_missing_is_reported_with_its_name() {
+        let anm = "assets/characters/yone/skins/skin0/animations/dance.anm";
+        let bin = animation_bin(BinValue::String(anm.to_string()));
+        let mut names = HashMapper::new();
+        names.insert(fnv1a("Dance") as u64, "Dance".to_string());
+
+        let issues = check_animation_assets(&bin, "anim.bin", &names, &HashSet::new());
+        assert_eq!(codes(&issues), vec!["animation.missing-clip-file"]);
+        assert!(issues[0].message.contains("Dance"), "{}", issues[0].message);
+        assert!(issues[0].message.contains("dance.anm"), "{}", issues[0].message);
+    }
+
+    #[test]
+    fn a_clip_whose_anm_is_shipped_is_clean() {
+        let anm = "assets/characters/yone/skins/skin0/animations/dance.anm";
+        let bin = animation_bin(BinValue::String(anm.to_string()));
+        let present = HashSet::from([flint_hash::hash::wad_chunk_hash(anm)]);
+        assert!(check_animation_assets(&bin, "anim.bin", &HashMapper::new(), &present).is_empty());
+    }
+
+    /// The current form: the path is only an xxh64, and the folder index is keyed by it.
+    #[test]
+    fn a_file_typed_clip_path_is_checked_by_hash() {
+        let anm = "assets/characters/yone/skins/skin0/animations/dance.anm";
+        let hash = flint_hash::hash::wad_chunk_hash(anm);
+        let bin = animation_bin(BinValue::File(hash));
+
+        assert!(check_animation_assets(&bin, "anim.bin", &HashMapper::new(), &HashSet::from([hash]))
+            .is_empty());
+        let missing =
+            check_animation_assets(&bin, "anim.bin", &HashMapper::new(), &HashSet::new());
+        assert_eq!(codes(&missing), vec!["animation.missing-clip-file"]);
+    }
+
+    #[test]
+    fn a_migration_issue_points_at_the_line_and_says_what_is_expected() {
+        let text = "#PROP_text
+entries: map[hash,embed] = {
+    \"x\" = SkinMeshDataProperties_MaterialOverride {
+        texture: string = \"assets/x.tex\"
+    }
+}";
+        let mut tally = MigrationTally::default();
+        tally.add_bin(
+            &skin_bin(BinValue::String("assets/x.tex".into())),
+            "skins/skin0.bin",
+            Some(text),
+        );
+        let issues = tally.into_issues();
+
+        assert_eq!(issues[0].line, Some(4), "the line that declares the old type");
+        assert_eq!(issues[0].expected.as_deref(), Some("texture: file"));
+    }
+
+    #[test]
+    fn a_line_is_only_reported_when_the_text_actually_declares_it() {
+        let mut tally = MigrationTally::default();
+        tally.add_bin(
+            &skin_bin(BinValue::String("assets/x.tex".into())),
+            "skins/skin0.bin",
+            Some("#PROP_text
+nothing to see"),
+        );
+        let issues = tally.into_issues();
+        assert_eq!(issues[0].line, None);
+        assert_eq!(issues[0].expected.as_deref(), Some("texture: file"));
+    }
+
+    #[test]
+    fn declaration_line_ignores_a_mention_that_is_not_a_declaration() {
+        let text = "  someOther: string = \"texture: string\"
+  texture: string = \"a\"";
+        assert_eq!(declaration_line(text, "texture", "string"), Some(2));
+    }
+
     #[test]
     fn a_file_typed_value_is_already_migrated() {
         let mut tally = MigrationTally::default();
-        tally.add_bin(&skin_bin(BinValue::File(0x1234)), "skins/skin0.bin");
+        tally.add_bin(&skin_bin(BinValue::File(0x1234)), "skins/skin0.bin", None);
         assert!(tally.into_issues().is_empty());
     }
 
@@ -932,8 +1210,8 @@ mod tests {
     #[test]
     fn occurrences_are_tallied_per_field_per_file() {
         let mut tally = MigrationTally::default();
-        tally.add_bin(&skin_bin(BinValue::String("a.tex".into())), "skins/skin0.bin");
-        tally.add_bin(&skin_bin(BinValue::String("b.tex".into())), "skins/skin1.bin");
+        tally.add_bin(&skin_bin(BinValue::String("a.tex".into())), "skins/skin0.bin", None);
+        tally.add_bin(&skin_bin(BinValue::String("b.tex".into())), "skins/skin1.bin", None);
 
         let issues = tally.into_issues();
         assert_eq!(issues.len(), 2);
@@ -971,7 +1249,7 @@ mod tests {
             ..Bin::new()
         };
         let mut tally = MigrationTally::default();
-        tally.add_bin(&bin, "skins/skin0.bin");
+        tally.add_bin(&bin, "skins/skin0.bin", None);
         assert_eq!(tally.into_issues().len(), 2);
     }
 
@@ -989,7 +1267,7 @@ mod tests {
             ..Bin::new()
         };
         let mut tally = MigrationTally::default();
-        tally.add_bin(&bin, "data/remap.bin");
+        tally.add_bin(&bin, "data/remap.bin", None);
         let issues = tally.into_issues();
         assert_eq!(codes(&issues), vec!["bin.hash-ref-not-migrated"]);
         assert!(issues[0].message.contains("VfxAssetRemap.oldAsset"), "{}", issues[0].message);
@@ -1008,7 +1286,7 @@ mod tests {
             ..Bin::new()
         };
         let mut tally = MigrationTally::default();
-        tally.add_bin(&bin, "skins/skin0.bin");
+        tally.add_bin(&bin, "skins/skin0.bin", None);
         assert!(tally.into_issues().is_empty());
     }
 
@@ -1055,7 +1333,7 @@ mod tests {
             ],
             ..Bin::new()
         };
-        let issues = check_bin_hazards(&bin, "data/x.bin");
+        let issues = check_bin_hazards(&bin, "data/x.bin", None);
         assert_eq!(codes(&issues), vec!["bin.gameplay-entry"]);
         assert_eq!(issues[0].severity, Severity::Warning);
         assert!(
@@ -1092,7 +1370,7 @@ mod tests {
                 },
             )],
         );
-        assert_eq!(codes(&check_bin_hazards(&bin, "a.bin")), vec!["bin.old-vfx-shape"]);
+        assert_eq!(codes(&check_bin_hazards(&bin, "a.bin", None)), vec!["bin.old-vfx-shape"]);
     }
 
     #[test]
@@ -1101,7 +1379,7 @@ mod tests {
             "VfxSystemDefinitionData",
             vec![(fnv1a("particleName"), BinValue::String("x".into()))],
         );
-        assert!(check_bin_hazards(&bin, "a.bin").is_empty());
+        assert!(check_bin_hazards(&bin, "a.bin", None).is_empty());
     }
 
     #[test]
@@ -1127,7 +1405,7 @@ mod tests {
             )],
         );
         assert_eq!(
-            codes(&check_bin_hazards(&bin, "a.bin")),
+            codes(&check_bin_hazards(&bin, "a.bin", None)),
             vec!["bin.stale-sampler-field"]
         );
     }
@@ -1157,7 +1435,7 @@ mod tests {
                 },
             )],
         );
-        assert!(check_bin_hazards(&bin, "a.bin").is_empty());
+        assert!(check_bin_hazards(&bin, "a.bin", None).is_empty());
     }
 
     /// A bin with no clip map is not an animation graph and must never be reported on.

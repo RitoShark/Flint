@@ -12,6 +12,10 @@ export interface CheckIssue {
     code: string;
     file: string;
     message: string;
+    /** 1-based line in the bin's ritobin text, when the finding sits on one. */
+    line?: number;
+    /** The form the client actually reads, e.g. `texturePath: file`. */
+    expected?: string;
 }
 
 export interface AuditReport {
@@ -51,4 +55,9 @@ export async function auditWadFolder(folderPath: string): Promise<AuditReport> {
 /** Missing references across every WAD folder an export would ship. */
 export async function auditProjectMissingRefs(projectPath: string): Promise<ProjectMissingReport> {
     return invokeCommand('audit_project_missing_refs', { projectPath });
+}
+
+/** Re-checks one file (`<wad>/<path>`) after an edit. */
+export async function recheckProjectFile(projectPath: string, rel: string): Promise<CheckIssue[]> {
+    return invokeCommand('recheck_project_file', { projectPath, rel });
 }

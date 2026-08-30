@@ -20,6 +20,7 @@ import { MaskEditor } from './MaskEditor';
 import { PaintPanel } from './paint/PaintPanel';
 import { BinToolsPanel } from './bintools/BinToolsPanel';
 import { applyContentToEditor } from '../../lib/editor/applyContent';
+import { recheckFile } from '../../lib/audit/projectAudit';
 import { indexNavigable, nextSystem, previousSystem } from '../../lib/editor/binTools/vfxIndex';
 import { SubmeshPicker, type SubmeshPickerRequest } from './SubmeshPicker';
 import { Icon } from '../ui/Icon';
@@ -691,6 +692,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
 
             const tabStore = useProjectTabStore.getState();
             const tab = tabStore.activeTabId ? tabStore.openTabs.find((t) => t.id === tabStore.activeTabId) : null;
+            if (tab?.projectPath) recheckFile(tab.projectPath, filePath);
             if (tab?.project && tab.projectPath) {
                 const projPath = tab.projectPath.replace(/\\/g, '/');
                 const normalizedFile = filePath.replace(/\\/g, '/');

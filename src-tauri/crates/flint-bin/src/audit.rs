@@ -13,7 +13,8 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::checks::{
-    check_animation_graph, check_bin_hazards, check_texture, CheckIssue, MigrationTally,
+    check_animation_assets, check_animation_graph, check_bin_hazards, check_texture, CheckIssue,
+    MigrationTally,
 };
 use crate::codec::{read_bin, tree_to_text_cached, MAX_BIN_SIZE};
 use flint_hash::hash::HashMapper;
@@ -187,7 +188,7 @@ fn collect_from_text(text: &str, out: &mut HashSet<String>) {
     }
 }
 
-fn collect_mentions(bin: &Bin, names: &HashMapper, out: &mut Mentions) {
+fn collect_mentions(bin: &Bin, names: &HashMapper, text: Option<&str>, out: &mut Mentions) {
     for dep in &bin.linked {
         add_mention(dep, &mut out.paths);
     }
@@ -196,10 +197,32 @@ fn collect_mentions(bin: &Bin, names: &HashMapper, out: &mut Mentions) {
             collect_from_value(value, out);
         }
     }
-    if let Ok(text) = tree_to_text_cached(bin) {
-        collect_from_text(&text, &mut out.paths);
+    if let Some(text) = text {
+        collect_from_text(text, &mut out.paths);
     }
     name_file_mentions(bin, names, out);
+}
+
+/// Everything one BIN contributes to a folder audit. `present` is the folder's file
+/// index — a check that asks "does the mod ship this?" needs it.
+fn scan_bin(
+    bin: &Bin,
+    rel: &str,
+    names: &HashMapper,
+    present: &HashSet<u64>,
+) -> (Vec<CheckIssue>, Mentions, MigrationTally) {
+    let text = tree_to_text_cached(bin).ok();
+    let mut mentions = Mentions::default();
+    collect_mentions(bin, names, text.as_deref(), &mut mentions);
+
+    let mut issues = check_animation_graph(bin, rel, names);
+    issues.extend(check_animation_assets(bin, rel, names, present));
+    issues.extend(check_bin_hazards(bin, rel, text.as_deref()));
+
+    let mut tally = MigrationTally::default();
+    tally.add_bin(bin, rel, text.as_deref());
+
+    (issues, mentions, tally)
 }
 
 /** Give every `file` hash a path if anything can.
@@ -225,6 +248,28 @@ fn name_file_mentions(bin: &Bin, names: &HashMapper, out: &mut Mentions) {
     }
 }
 
+fn missing_ref_issue(rel: &str, absent: &[String]) -> CheckIssue {
+    let shown = absent[..absent.len().min(3)].join(", ");
+    let rest = absent.len().saturating_sub(3);
+    CheckIssue {
+        severity: crate::checks::Severity::Warning,
+        code: "bin.missing-ref",
+        file: rel.to_string(),
+        message: format!(
+            "References {} file{} the folder does not ship ({shown}{}). Unless the game itself provides them, they load magenta or not at all.",
+            absent.len(),
+            if absent.len() == 1 { "" } else { "s" },
+            if rest > 0 {
+                format!(", and {rest} more")
+            } else {
+                String::new()
+            },
+        ),
+        line: None,
+        expected: None,
+    }
+}
+
 /// Every regular file under `dir`, as normalized relative paths → absolute paths.
 fn walk_files(dir: &Path) -> Vec<(String, PathBuf)> {
     walkdir::WalkDir::new(dir)
@@ -239,6 +284,77 @@ fn walk_files(dir: &Path) -> Vec<(String, PathBuf)> {
             ))
         })
         .collect()
+}
+
+/**
+Re-checks ONE file in a WAD folder, for after the user edits it.
+
+The full folder audit is the source of truth; this answers the narrower question "is this
+file still a problem?" so a fix clears its tag immediately instead of at the next sweep.
+Bloat is deliberately not reported — whether a file is referenced is a property of the
+folder, not of the file, and answering it needs every other BIN parsed.
+*/
+pub fn check_one_file(dir: &Path, rel: &str) -> Result<Vec<CheckIssue>, String> {
+    let rel = normalize_rel(rel);
+    let disk = dir.join(&rel);
+    if !disk.is_file() {
+        return Ok(Vec::new());
+    }
+
+    if rel.ends_with(".tex") || rel.ends_with(".dds") {
+        let data = std::fs::read(&disk).map_err(|e| format!("read {}: {e}", disk.display()))?;
+        return Ok(check_texture(&rel, &data));
+    }
+    if !rel.ends_with(".bin") {
+        return Ok(Vec::new());
+    }
+
+    let data = std::fs::read(&disk).map_err(|e| format!("read {}: {e}", disk.display()))?;
+    if data.len() < 4 || data.len() > MAX_BIN_SIZE {
+        return Ok(Vec::new());
+    }
+    let Ok(bin) = read_bin(&data) else {
+        return Ok(Vec::new());
+    };
+
+    let present: HashSet<u64> = walk_files(dir)
+        .iter()
+        .map(|(rel, _)| unified_hash(rel))
+        .collect();
+
+    let bin_names = flint_hash::hash::bin_dict::get_cached_bin_hashes().read();
+    let (mut issues, mentions, tally) = scan_bin(&bin, &rel, &bin_names, &present);
+    drop(bin_names);
+    issues.extend(tally.into_issues());
+
+    let mut absent: Vec<String> = mentions
+        .paths
+        .iter()
+        .filter(|m| !present.contains(&unified_hash(m)) && !is_missing_exempt(m))
+        .filter(|m| {
+            let base = m.rsplit('/').next().unwrap_or(m);
+            !base.starts_with("2x_") && !base.starts_with("4x_")
+        })
+        .cloned()
+        .collect();
+    absent.extend(
+        mentions
+            .unnamed_files
+            .iter()
+            .filter(|h| !present.contains(*h))
+            .map(|h| format!("0x{h:016x}")),
+    );
+    if !absent.is_empty() {
+        absent.sort_unstable();
+        issues.push(missing_ref_issue(&rel, &absent));
+    }
+
+    issues.sort_by(|a, b| {
+        a.severity
+            .cmp(&b.severity)
+            .then_with(|| a.code.cmp(b.code))
+    });
+    Ok(issues)
 }
 
 /// Audits an unpacked `.wad.client` folder.
@@ -259,6 +375,7 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
     for (idx, (rel, _)) in files.iter().enumerate() {
         by_hash.entry(unified_hash(rel)).or_default().push(idx);
     }
+    let present: HashSet<u64> = by_hash.keys().copied().collect();
 
     enum FileScan {
         Skip,
@@ -289,12 +406,8 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
                     Ok(data) if data.len() >= 4 && data.len() <= MAX_BIN_SIZE => {
                         match read_bin(&data) {
                             Ok(bin) => {
-                                let mut mentions = Mentions::default();
-                                collect_mentions(&bin, names_ref, &mut mentions);
-                                let mut issues = check_animation_graph(&bin, rel, names_ref);
-                                issues.extend(check_bin_hazards(&bin, rel));
-                                let mut tally = MigrationTally::default();
-                                tally.add_bin(&bin, rel);
+                                let (issues, mentions, tally) =
+                                    scan_bin(&bin, rel, names_ref, &present);
                                 FileScan::BinOk { issues, mentions, tally }
                             }
                             Err(_) => FileScan::BinFailed,
@@ -396,23 +509,7 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
             continue;
         }
         absent.sort_unstable();
-        let shown = absent[..absent.len().min(3)].join(", ");
-        let rest = absent.len().saturating_sub(3);
-        report.issues.push(CheckIssue {
-            severity: crate::checks::Severity::Warning,
-            code: "bin.missing-ref",
-            file: rel.clone(),
-            message: format!(
-                "References {} file{} the folder does not ship ({shown}{}). Unless the game itself provides them, they load magenta or not at all.",
-                absent.len(),
-                if absent.len() == 1 { "" } else { "s" },
-                if rest > 0 {
-                    format!(", and {rest} more")
-                } else {
-                    String::new()
-                },
-            ),
-        });
+        report.issues.push(missing_ref_issue(rel, &absent));
     }
     report.issues.sort_by(|a, b| {
         a.severity
