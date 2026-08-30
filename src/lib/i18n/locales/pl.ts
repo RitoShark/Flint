@@ -242,8 +242,6 @@ export const pl: TranslationDict = {
     'contextMenu.splitBin': 'Rozdziel BIN według klas…',
     'contextMenu.organizeVfx': 'Uporządkuj VFX (auto-scalanie)…',
     'contextMenu.checkFiles': 'Sprawdź pliki',
-    'contextMenu.missingFiles': 'Brakujące pliki…',
-    'contextMenu.bloatFiles': 'Zbędne pliki…',
     'contextMenu.fileTransform': 'Konwersja pliku',
     'contextMenu.convertToDds': 'Konwertuj do .dds',
     'contextMenu.convertToTex': 'Konwertuj do .tex',

@@ -1,0 +1,490 @@
+/* ============================================================================
+   Flint — Check files (WAD audit)
+   ----------------------------------------------------------------------------
+   Glass idiom, shared with the first-run wizard (.fwiz in flint-2.css) and the
+   cheat sheet (.cs-modal): translucent surfaces built with
+   color-mix(... transparent), accent-tinted hairlines instead of solid borders,
+   10px radii, --ux-* motion tokens.
+
+   Sits on the .dl-modal shell, so every rule is scoped .wa-modal to outrank
+   design-lab.css.
+   ============================================================================ */
+
+.dl-modal.wa-modal {
+    max-width: 940px;
+    width: 100%;
+    height: 78vh;
+    max-height: 760px;
+    border-radius: 14px;
+    border: none;
+    background:
+        radial-gradient(120% 80% at 100% 0%,
+            color-mix(in oklab, var(--accent-primary) 9%, transparent) 0%,
+            transparent 55%),
+        color-mix(in oklab, var(--bg-secondary) 88%, transparent);
+    box-shadow:
+        0 24px 48px -16px rgba(0, 0, 0, .55),
+        0 0 0 1px color-mix(in oklab, var(--accent-primary) 14%, var(--border));
+}
+
+/* --------------------------------------------------------------------------
+   Header
+   -------------------------------------------------------------------------- */
+.wa-modal .dl-modal__head {
+    gap: 10px;
+    padding: 12px 16px;
+    background: transparent;
+    border-bottom: 1px solid color-mix(in oklab, var(--accent-primary) 14%, transparent);
+}
+
+.wa-modal .wa-mark {
+    flex: none;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    color: var(--accent-primary);
+    background: color-mix(in oklab, var(--accent-primary) 12%, transparent);
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 26%, transparent);
+}
+.wa-modal .wa-mark svg { width: 14px; height: 14px; display: block; }
+
+.wa-modal .wa-title {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text-primary);
+}
+.wa-modal .wa-title__folder {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wa-modal .wa-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: none;
+    width: 240px;
+    max-width: 38%;
+}
+.wa-modal .wa-search__icon {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    pointer-events: none;
+}
+.wa-modal .wa-search__icon svg { width: 13px; height: 13px; display: block; }
+.wa-modal .wa-search__input {
+    box-sizing: border-box;
+    width: 100%;
+    height: 30px;
+    padding: 0 30px 0 32px;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    color: var(--text-primary);
+    background: color-mix(in oklab, var(--bg-primary) 32%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+    border-radius: 10px;
+    transition: border-color var(--ux-fast), background var(--ux-fast), box-shadow var(--ux-fast);
+}
+.wa-modal .wa-search__input::placeholder { color: color-mix(in oklab, var(--text-muted) 80%, transparent); }
+.wa-modal .wa-search__input:hover { border-color: color-mix(in oklab, var(--accent-primary) 30%, var(--border)); }
+.wa-modal .wa-search__input:focus {
+    outline: none;
+    border-color: color-mix(in oklab, var(--accent-primary) 55%, var(--border));
+    background: color-mix(in oklab, var(--bg-primary) 40%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-primary) 16%, transparent);
+}
+.wa-modal .wa-search__clear {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background var(--ux-fast), color var(--ux-fast);
+}
+.wa-modal .wa-search__clear:hover {
+    background: color-mix(in oklab, var(--accent-primary) 12%, transparent);
+    color: var(--text-primary);
+}
+.wa-modal .wa-search__clear svg { width: 11px; height: 11px; display: block; }
+
+/* --------------------------------------------------------------------------
+   Body — nav rail + one list pane, no card inside the card
+   -------------------------------------------------------------------------- */
+.wa-modal .dl-modal__body {
+    display: grid;
+    grid-template-columns: 194px minmax(0, 1fr);
+    gap: 0;
+    padding: 0;
+    overflow: hidden;
+    background: transparent;
+}
+
+.wa-modal .wa-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 10px;
+    min-width: 0;
+    border-right: 1px solid color-mix(in oklab, var(--border) 45%, transparent);
+}
+
+.wa-modal .wa-nav__item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 11px;
+    line-height: 1;
+    text-align: left;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition:
+        background var(--ux-fast),
+        color var(--ux-fast),
+        border-color var(--ux-fast),
+        transform var(--ux-fast);
+}
+.wa-modal .wa-nav__item:hover {
+    background: color-mix(in oklab, var(--accent-primary) 8%, transparent);
+    border-color: color-mix(in oklab, var(--accent-primary) 22%, transparent);
+    color: var(--text-primary);
+}
+.wa-modal .wa-nav__item:active { transform: scale(0.985); }
+.wa-modal .wa-nav__item:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-primary) 20%, transparent);
+}
+.wa-modal .wa-nav__item.is-active {
+    background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+    border-color: color-mix(in oklab, var(--accent-primary) 35%, transparent);
+    color: var(--text-primary);
+}
+.wa-modal .wa-nav__item.is-active::before {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 18px;
+    border-radius: 2px;
+    background: var(--accent-primary);
+    box-shadow: 0 0 8px color-mix(in oklab, var(--accent-primary) 50%, transparent);
+    animation: wa-bar-slide 360ms cubic-bezier(.34, 1.56, .64, 1);
+}
+@keyframes wa-bar-slide {
+    from { transform: translateY(-50%) translateX(-8px) scaleY(0.4); opacity: 0; }
+    to   { transform: translateY(-50%) translateX(0)    scaleY(1);   opacity: 1; }
+}
+
+.wa-modal .wa-nav__icon {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+}
+.wa-modal .wa-nav__icon svg { width: 15px; height: 15px; display: block; }
+.wa-modal .wa-nav__item--danger .wa-nav__icon { color: var(--color-danger); }
+.wa-modal .wa-nav__item--warn .wa-nav__icon { color: var(--color-warning); }
+.wa-modal .wa-nav__item--clean .wa-nav__icon { color: color-mix(in oklab, var(--color-success) 70%, var(--text-muted)); }
+
+.wa-modal .wa-nav__label {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wa-modal .wa-count {
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1;
+    letter-spacing: 0.04em;
+    padding: 3px 7px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+    background: color-mix(in oklab, var(--bg-primary) 35%, transparent);
+    color: var(--text-muted);
+}
+.wa-modal .wa-count--danger {
+    color: var(--color-danger);
+    border-color: color-mix(in oklab, var(--color-danger) 32%, transparent);
+    background: color-mix(in oklab, var(--color-danger) 12%, transparent);
+}
+.wa-modal .wa-count--warn {
+    color: var(--color-warning);
+    border-color: color-mix(in oklab, var(--color-warning) 32%, transparent);
+    background: color-mix(in oklab, var(--color-warning) 12%, transparent);
+}
+
+.wa-modal .wa-nav__spacer { flex: 1; min-height: 8px; }
+.wa-modal .wa-nav__stats {
+    display: grid;
+    gap: 3px;
+    padding: 10px 11px 2px;
+    border-top: 1px solid color-mix(in oklab, var(--border) 40%, transparent);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   Pane
+   -------------------------------------------------------------------------- */
+.wa-modal .wa-pane {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+.wa-modal .wa-pane__hint {
+    flex: none;
+    margin: 0;
+    padding: 12px 18px;
+    font-size: 11.5px;
+    line-height: 1.55;
+    color: var(--text-secondary);
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 40%, transparent);
+}
+.wa-modal .wa-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+/* The windowed list scrolls itself and sizes to height:100%, so the wrapper
+   must be a plain sized box or the two scrollers fight. */
+.wa-modal .wa-list--virtual { overflow: hidden; }
+
+/* --------------------------------------------------------------------------
+   Rows — an icon carries the severity, so nothing shouts in uppercase
+   -------------------------------------------------------------------------- */
+.wa-modal .wa-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 18px;
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 32%, transparent);
+}
+.wa-modal .wa-row--flat {
+    align-items: center;
+    height: 30px;
+    box-sizing: border-box;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+.wa-modal .wa-row--click { cursor: pointer; }
+.wa-modal .wa-row--click:hover { background: color-mix(in oklab, var(--accent-primary) 7%, transparent); }
+.wa-modal .wa-row--click:focus-visible {
+    outline: none;
+    background: color-mix(in oklab, var(--accent-primary) 10%, transparent);
+    box-shadow: inset 3px 0 0 var(--accent-primary);
+}
+
+.wa-modal .wa-row__icon {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 7px;
+    border: 1px solid transparent;
+}
+.wa-modal .wa-row__icon svg { width: 11px; height: 11px; display: block; }
+.wa-modal .wa-row--flat .wa-row__icon { width: 18px; height: 18px; }
+
+.wa-modal .wa-row--critical .wa-row__icon {
+    color: var(--color-danger);
+    background: color-mix(in oklab, var(--color-danger) 14%, transparent);
+    border-color: color-mix(in oklab, var(--color-danger) 28%, transparent);
+}
+.wa-modal .wa-row--warning .wa-row__icon {
+    color: var(--color-warning);
+    background: color-mix(in oklab, var(--color-warning) 14%, transparent);
+    border-color: color-mix(in oklab, var(--color-warning) 28%, transparent);
+}
+.wa-modal .wa-row--muted .wa-row__icon {
+    color: var(--text-muted);
+    background: color-mix(in oklab, var(--bg-primary) 40%, transparent);
+    border-color: color-mix(in oklab, var(--border) 60%, transparent);
+}
+
+.wa-modal .wa-row__main {
+    display: grid;
+    gap: 3px;
+    flex: 1;
+    min-width: 0;
+}
+.wa-modal .wa-row--flat .wa-row__main { display: flex; align-items: center; gap: 10px; }
+.wa-modal .wa-row__head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+.wa-modal .wa-row__path {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    line-height: 1.5;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    direction: rtl;
+    text-align: left;
+    color: var(--text-primary);
+}
+.wa-modal .wa-row--critical .wa-row__path { color: color-mix(in oklab, var(--color-danger) 34%, var(--text-primary)); }
+.wa-modal .wa-row--warning .wa-row__path { color: color-mix(in oklab, var(--color-warning) 34%, var(--text-primary)); }
+.wa-modal .wa-row--muted .wa-row__path { color: var(--text-secondary); }
+
+.wa-modal .wa-row__line,
+.wa-modal .wa-row__size {
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    line-height: 1;
+    color: var(--text-muted);
+}
+.wa-modal .wa-row__line {
+    padding: 3px 7px;
+    border-radius: 6px;
+    color: color-mix(in oklab, var(--accent-primary) 30%, var(--text-muted));
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 22%, transparent);
+    background: color-mix(in oklab, var(--accent-primary) 8%, transparent);
+}
+
+.wa-modal .wa-row__msg {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+.wa-modal .wa-row__expected {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--color-success);
+}
+.wa-modal .wa-row__expected b {
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: color-mix(in oklab, var(--color-success) 55%, var(--text-muted));
+}
+
+/* --------------------------------------------------------------------------
+   Empty / loading / error
+   -------------------------------------------------------------------------- */
+.wa-modal .wa-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    flex: 1;
+    min-height: 0;
+    padding: 48px 24px;
+    text-align: center;
+    font-size: 12.5px;
+    color: var(--text-muted);
+}
+.wa-modal .wa-state__mark {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 11px;
+    color: var(--color-success);
+    background: color-mix(in oklab, var(--color-success) 12%, transparent);
+    border: 1px solid color-mix(in oklab, var(--color-success) 26%, transparent);
+}
+.wa-modal .wa-state__mark svg { width: 16px; height: 16px; display: block; }
+.wa-modal .wa-state--error { color: var(--color-danger); }
+.wa-modal .wa-state--error .wa-state__mark {
+    color: var(--color-danger);
+    background: color-mix(in oklab, var(--color-danger) 12%, transparent);
+    border-color: color-mix(in oklab, var(--color-danger) 26%, transparent);
+}
+.wa-modal .wa-state--neutral .wa-state__mark {
+    color: var(--accent-primary);
+    background: color-mix(in oklab, var(--accent-primary) 12%, transparent);
+    border-color: color-mix(in oklab, var(--accent-primary) 26%, transparent);
+}
+.wa-modal .wa-spin {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: wa-spin 900ms linear infinite;
+}
+@keyframes wa-spin { to { transform: rotate(360deg); } }
+
+/* --------------------------------------------------------------------------
+   Footer
+   -------------------------------------------------------------------------- */
+.wa-modal .dl-modal__foot {
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: transparent;
+    border-top: 1px solid color-mix(in oklab, var(--border) 40%, transparent);
+}
+
+@media (max-width: 760px) {
+    .wa-modal .dl-modal__body { grid-template-columns: 56px minmax(0, 1fr); }
+    .wa-modal .wa-nav__label,
+    .wa-modal .wa-nav__stats { display: none; }
+    .wa-modal .wa-nav__item { justify-content: center; padding: 9px 6px; }
+    .wa-modal .wa-search { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .wa-modal .wa-nav__item.is-active::before { animation: none; }
+    .wa-modal .wa-spin { animation: none; }
+}

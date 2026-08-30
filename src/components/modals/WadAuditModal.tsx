@@ -1,13 +1,39 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useModalStore, useNotificationStore, useProjectTabStore } from '../../lib/stores';
 import { useAppMetadataStore } from '../../lib/stores/appMetadataStore';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { issueTagsFromIssues } from '../../lib/audit/projectAudit';
 import { revealInTree } from '../../lib/editor/revealInTree';
+import { VirtualList } from '../preview/VirtualList';
 import * as api from '../../lib/api';
 
-type Tab = 'missing' | 'bloat' | 'risks';
+type View = 'risks' | 'missing' | 'bloat';
+
+interface FlatRow {
+    path: string;
+    size: number | null;
+    tone: 'warning' | 'muted';
+    reveal: boolean;
+}
+
+const FLAT_ROW_HEIGHT = 30;
+
+const VIEW_HINT: Record<View, string> = {
+    risks: 'Files the client cannot load — textures, animation clips, BIN references. A critical breaks the mod for everyone who installs it.',
+    missing: 'Assets a BIN points at that are not in this folder. They render broken in game.',
+    bloat: 'Files here that no BIN points at. Anything under an icons2d folder is left out, since those are referenced by hashes that often cannot be resolved.',
+};
+
+const VIEW_EMPTY: Record<View, string> = {
+    risks: 'Nothing here will stop the game loading.',
+    missing: 'Every referenced asset is present.',
+    bloat: 'Every file here is referenced.',
+};
+
+const Icon: React.FC<{ name: Parameters<typeof getIcon>[0]; className?: string }> = ({ name, className }) => (
+    <span className={className} dangerouslySetInnerHTML={{ __html: getIcon(name) }} />
+);
 
 function formatBytes(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
@@ -21,43 +47,6 @@ function formatBytes(bytes: number): string {
     return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
 }
 
-const rowStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    padding: '6px 10px',
-    borderBottom: '1px solid var(--border)',
-    fontSize: 12,
-    fontFamily: 'var(--font-mono, ui-monospace, monospace)',
-    minWidth: 0,
-};
-
-const pathStyle: React.CSSProperties = {
-    flex: 1,
-    minWidth: 0,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-    direction: 'rtl',
-    textAlign: 'left',
-};
-
-const emptyStyle: React.CSSProperties = {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    padding: '48px 16px',
-    color: 'var(--text-muted)',
-    fontSize: 13,
-};
-
-const statStyle: React.CSSProperties = {
-    fontSize: 11.5,
-    color: 'var(--text-muted)',
-};
-
 export const WadAuditModal: React.FC = () => {
     const activeModal = useModalStore((s) => s.activeModal);
     const modalOptions = useModalStore((s) => s.modalOptions);
@@ -66,12 +55,13 @@ export const WadAuditModal: React.FC = () => {
 
     const folderPath = (modalOptions?.folderPath as string) || '';
     const folderName = (modalOptions?.folderName as string) || 'WAD folder';
-    const initialTab = (modalOptions?.tab as Tab) || 'missing';
 
-    const [tab, setTab] = useState<Tab>(initialTab);
+    const [view, setView] = useState<View>('risks');
+    const [query, setQuery] = useState('');
     const [report, setReport] = useState<api.AuditReport | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const searchRef = useRef<HTMLInputElement | null>(null);
 
     const isVisible = activeModal === 'wadAudit';
 
@@ -81,10 +71,12 @@ export const WadAuditModal: React.FC = () => {
         setLoading(true);
         setError(null);
         setReport(null);
-        setTab(initialTab);
+        setQuery('');
         api.auditWadFolder(folderPath)
             .then((result) => {
-                if (!cancelled) setReport(result);
+                if (cancelled) return;
+                setReport(result);
+                setView(result.issues.length ? 'risks' : result.missing.length ? 'missing' : 'bloat');
                 useAppMetadataStore
                     .getState()
                     .replaceFileIssues(folderPath, issueTagsFromIssues(result.issues, folderPath.replaceAll('\\', '/')));
@@ -98,28 +90,56 @@ export const WadAuditModal: React.FC = () => {
         return () => {
             cancelled = true;
         };
-    }, [isVisible, folderPath, initialTab]);
+    }, [isVisible, folderPath]);
 
     useEffect(() => {
         if (!isVisible) return;
         const onKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape') closeModal();
+            if (e.key === 'f' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                searchRef.current?.focus();
+            }
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, [isVisible, closeModal]);
 
-    const rows = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+
+    const issues = useMemo(() => {
         if (!report) return [];
-        if (tab === 'missing') return report.missing.map((p) => ({ path: p, size: null as number | null }));
-        if (tab === 'risks') return report.issues.map((i) => ({ path: i.file, size: null as number | null }));
-        return report.bloat.map((b) => ({ path: b.path, size: b.size }));
-    }, [report, tab]);
+        if (!needle) return report.issues;
+        return report.issues.filter(
+            (i) =>
+                i.file.toLowerCase().includes(needle) ||
+                i.message.toLowerCase().includes(needle) ||
+                i.code.toLowerCase().includes(needle),
+        );
+    }, [report, needle]);
+
+    const missing = useMemo(() => {
+        if (!report) return [];
+        return needle ? report.missing.filter((p) => p.toLowerCase().includes(needle)) : report.missing;
+    }, [report, needle]);
+
+    const bloat = useMemo(() => {
+        if (!report) return [];
+        return needle ? report.bloat.filter((b) => b.path.toLowerCase().includes(needle)) : report.bloat;
+    }, [report, needle]);
+
+    const criticalCount = useMemo(() => issues.filter((i) => i.severity === 'critical').length, [issues]);
+
+    const shownPaths = useMemo(() => {
+        if (view === 'risks') return issues.map((i) => i.file);
+        if (view === 'missing') return missing;
+        return bloat.map((b) => b.path);
+    }, [view, issues, missing, bloat]);
 
     const copyList = () => {
-        if (!rows.length) return;
-        void navigator.clipboard.writeText(rows.map((r) => r.path).join('\n'));
-        showToast('success', `${rows.length} path${rows.length === 1 ? '' : 's'} copied`);
+        if (!shownPaths.length) return;
+        void navigator.clipboard.writeText(shownPaths.join('\n'));
+        showToast('success', `${shownPaths.length} path${shownPaths.length === 1 ? '' : 's'} copied`);
     };
 
     const projectPath = useProjectTabStore((s) => {
@@ -141,6 +161,150 @@ export const WadAuditModal: React.FC = () => {
 
     if (!isVisible) return null;
 
+    const navItem = (
+        id: View,
+        icon: Parameters<typeof getIcon>[0],
+        label: string,
+        count: number,
+        tone: 'danger' | 'warn' | null,
+    ) => {
+        const clean = count === 0;
+        const toneClass = clean ? 'clean' : tone ?? '';
+        return (
+            <button
+                key={id}
+                className={`wa-nav__item${toneClass ? ` wa-nav__item--${toneClass}` : ''}${view === id ? ' is-active' : ''}`}
+                role="tab"
+                aria-selected={view === id}
+                onClick={() => setView(id)}
+            >
+                <Icon name={clean ? 'check' : icon} className="wa-nav__icon" />
+                <span className="wa-nav__label">{label}</span>
+                <span className={`wa-count${clean || !tone ? '' : ` wa-count--${tone}`}`}>{count}</span>
+            </button>
+        );
+    };
+
+    const flatRow = (row: FlatRow) => (
+        <div
+            className={`wa-row wa-row--flat wa-row--${row.tone}${row.reveal ? ' wa-row--click' : ''}`}
+            title={row.reveal ? `${row.path} — click to reveal in the file tree` : row.path}
+            role={row.reveal ? 'button' : undefined}
+            tabIndex={row.reveal ? 0 : undefined}
+            onClick={row.reveal ? () => revealRow(row.path) : undefined}
+            onKeyDown={
+                row.reveal
+                    ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            revealRow(row.path);
+                        }
+                    }
+                    : undefined
+            }
+        >
+            <Icon name={row.tone === 'warning' ? 'warning' : 'trash'} className="wa-row__icon" />
+            <div className="wa-row__main">
+                <span className="wa-row__path">&#8206;{row.path}</span>
+                {row.size !== null && <span className="wa-row__size">{formatBytes(row.size)}</span>}
+            </div>
+        </div>
+    );
+
+    const body = () => {
+        if (loading) {
+            return (
+                <div className="wa-state wa-state--neutral">
+                    <span className="wa-state__mark">
+                        <Icon name="refresh" className="wa-spin" />
+                    </span>
+                    Scanning {folderName}…
+                </div>
+            );
+        }
+        if (error) {
+            return (
+                <div className="wa-state wa-state--error">
+                    <span className="wa-state__mark">
+                        <Icon name="error" />
+                    </span>
+                    {error}
+                </div>
+            );
+        }
+
+        if (view === 'risks') {
+            if (!issues.length) {
+                return (
+                    <div className="wa-state">
+                        <span className="wa-state__mark">
+                            <Icon name="check" />
+                        </span>
+                        {needle ? 'No finding matches that search.' : VIEW_EMPTY.risks}
+                    </div>
+                );
+            }
+            return (
+                <div className="wa-list">
+                    {issues.map((issue) => (
+                        <div
+                            key={`${issue.code}:${issue.file}`}
+                            className={`wa-row wa-row--${issue.severity} wa-row--click`}
+                            role="button"
+                            tabIndex={0}
+                            title={`${issue.code} — click to reveal in the file tree`}
+                            onClick={() => revealRow(issue.file)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    revealRow(issue.file);
+                                }
+                            }}
+                        >
+                            <Icon
+                                name={issue.severity === 'critical' ? 'error' : 'warning'}
+                                className="wa-row__icon"
+                            />
+                            <div className="wa-row__main">
+                                <div className="wa-row__head">
+                                    <span className="wa-row__path">&#8206;{issue.file}</span>
+                                    {issue.line ? <span className="wa-row__line">line {issue.line}</span> : null}
+                                </div>
+                                <div className="wa-row__msg">{issue.message}</div>
+                                {issue.expected && (
+                                    <div className="wa-row__expected">
+                                        <b>expected</b>
+                                        {issue.expected}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            );
+        }
+
+        const rows: FlatRow[] =
+            view === 'missing'
+                ? missing.map((path) => ({ path, size: null, tone: 'warning' as const, reveal: false }))
+                : bloat.map((b) => ({ path: b.path, size: b.size, tone: 'muted' as const, reveal: true }));
+        if (!rows.length) {
+            return (
+                <div className="wa-state">
+                    <span className="wa-state__mark">
+                        <Icon name="check" />
+                    </span>
+                    {needle ? 'No path matches that search.' : VIEW_EMPTY[view]}
+                </div>
+            );
+        }
+        return (
+            <div className="wa-list wa-list--virtual">
+                <VirtualList items={rows} rowHeight={FLAT_ROW_HEIGHT} renderRow={flatRow} />
+            </div>
+        );
+    };
+
     return createPortal(
         <div
             className="dl-modal-backdrop"
@@ -148,139 +312,61 @@ export const WadAuditModal: React.FC = () => {
                 if (e.target === e.currentTarget) closeModal();
             }}
         >
-            <div className="dl-modal dl-modal--wide" role="dialog" aria-modal="true">
+            <div className="dl-modal wa-modal" role="dialog" aria-modal="true" aria-label="Check files">
                 <div className="dl-modal__head">
-                    <h3 className="dl-modal__title">Check files — {folderName}</h3>
+                    <span className="wa-mark">
+                        <Icon name="search" />
+                    </span>
+                    <h3 className="wa-title">
+                        Check files
+                        <span className="wa-title__folder">{folderName}</span>
+                    </h3>
+                    <div className="wa-search">
+                        <span className="wa-search__icon">
+                            <Icon name="search" />
+                        </span>
+                        <input
+                            ref={searchRef}
+                            className="wa-search__input"
+                            placeholder="Filter paths"
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                            spellCheck={false}
+                        />
+                        {query && (
+                            <button className="wa-search__clear" onClick={() => setQuery('')} title="Clear filter">
+                                <Icon name="close" />
+                            </button>
+                        )}
+                    </div>
                 </div>
 
-                <div className="dl-modal__body" style={{ gap: 10, minHeight: 340 }}>
-                    <div className="dl-tabs" role="tablist">
-                        <button
-                            className={`dl-tab${tab === 'missing' ? ' dl-tab--active' : ''}`}
-                            role="tab"
-                            aria-selected={tab === 'missing'}
-                            onClick={() => setTab('missing')}
-                        >
-                            Missing{report ? ` (${report.missing.length})` : ''}
-                        </button>
-                        <button
-                            className={`dl-tab${tab === 'bloat' ? ' dl-tab--active' : ''}`}
-                            role="tab"
-                            aria-selected={tab === 'bloat'}
-                            onClick={() => setTab('bloat')}
-                        >
-                            Bloat{report ? ` (${report.bloat.length})` : ''}
-                        </button>
-                        <button
-                            className={`dl-tab${tab === 'risks' ? ' dl-tab--active' : ''}`}
-                            role="tab"
-                            aria-selected={tab === 'risks'}
-                            onClick={() => setTab('risks')}
-                        >
-                            Crash risks{report ? ` (${report.issues.length})` : ''}
-                        </button>
-                    </div>
-
-                    <p style={statStyle}>
-                        {tab === 'missing' &&
-                            'Assets a BIN references that are not present in this folder — these show up broken in game.'}
-                        {tab === 'bloat' &&
-                            'Files present here that no BIN references. Anything under an icons2d folder is excluded, since those are referenced by hashes that often cannot be resolved.'}
-                        {tab === 'risks' &&
-                            'Files shaped in a way the client cannot load — textures, animation graphs, BIN references. Criticals break the mod for everyone who installs it.'}
-                    </p>
-
-                    <div
-                        style={{
-                            flex: 1,
-                            minHeight: 200,
-                            maxHeight: 380,
-                            overflowY: 'auto',
-                            border: '1px solid var(--border)',
-                            borderRadius: 'var(--dl-radius, 10px)',
-                            background: 'var(--bg-tertiary)',
-                        }}
-                    >
-                        {loading && <div style={emptyStyle}>Scanning {folderName}…</div>}
-
-                        {!loading && error && (
-                            <div style={{ ...emptyStyle, color: 'var(--danger)' }}>{error}</div>
-                        )}
-
-                        {!loading && !error && rows.length === 0 && (
-                            <div style={emptyStyle}>
-                                <span
-                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                    dangerouslySetInnerHTML={{ __html: getIcon('check') }}
-                                />
-                                {tab === 'missing' && 'No missing references.'}
-                                {tab === 'bloat' && 'No unreferenced files.'}
-                                {tab === 'risks' && 'Nothing here will stop the game loading.'}
+                <div className="dl-modal__body">
+                    <nav className="wa-nav" role="tablist" aria-orientation="vertical">
+                        {navItem('risks', 'error', 'Crash risks', issues.length, criticalCount ? 'danger' : 'warn')}
+                        {navItem('missing', 'warning', 'Missing', missing.length, 'warn')}
+                        {navItem('bloat', 'trash', 'Unreferenced', bloat.length, null)}
+                        <span className="wa-nav__spacer" />
+                        {report && !loading && !error && (
+                            <div className="wa-nav__stats">
+                                <span>{report.files_scanned.toLocaleString()} files</span>
+                                <span>
+                                    {report.bins_scanned.toLocaleString()} BINs
+                                    {report.bins_failed > 0 && ` · ${report.bins_failed} unreadable`}
+                                </span>
+                                {report.bloat_bytes > 0 && <span>{formatBytes(report.bloat_bytes)} unreferenced</span>}
                             </div>
                         )}
+                    </nav>
 
-                        {!loading && !error && tab === 'risks' && report
-                            ? report.issues.map((issue) => (
-                                <div
-                                    key={`${issue.code}:${issue.file}`}
-                                    style={{ ...rowStyle, display: 'block', cursor: 'pointer' }}
-                                    title="Click to reveal in the file tree"
-                                    onClick={() => revealRow(issue.file)}
-                                >
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                        <span
-                                            style={{
-                                                flex: 'none',
-                                                fontSize: 10,
-                                                fontWeight: 700,
-                                                textTransform: 'uppercase',
-                                                letterSpacing: '0.06em',
-                                                color: issue.severity === 'critical' ? 'var(--danger)' : 'var(--color-warning, #e0a030)',
-                                            }}
-                                        >
-                                            {issue.severity}
-                                        </span>
-                                        <span style={pathStyle} title={issue.file}>
-                                            &#8206;{issue.file}{issue.line ? ` · line ${issue.line}` : ''}
-                                        </span>
-                                    </div>
-                                    <div style={{ fontSize: 12, lineHeight: 1.45, paddingTop: 2 }}>{issue.message}</div>
-                                    {issue.expected && (
-                                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--color-success, #10b981)' }}>
-                                            expected {issue.expected}
-                                        </div>
-                                    )}
-                                </div>
-                            ))
-                            : !loading &&
-                              !error &&
-                              rows.map((row) => (
-                                <div
-                                    key={row.path}
-                                    style={tab === 'bloat' ? { ...rowStyle, cursor: 'pointer' } : rowStyle}
-                                    title={tab === 'bloat' ? 'Click to reveal in the file tree' : row.path}
-                                    onClick={tab === 'bloat' ? () => revealRow(row.path) : undefined}
-                                >
-                                    <span style={pathStyle}>&#8206;{row.path}</span>
-                                    {row.size !== null && (
-                                        <span style={{ ...statStyle, flex: 'none' }}>{formatBytes(row.size)}</span>
-                                    )}
-                                </div>
-                            ))}
+                    <div className="wa-pane" role="tabpanel">
+                        <p className="wa-pane__hint">{VIEW_HINT[view]}</p>
+                        {body()}
                     </div>
-
-                    {report && !loading && !error && (
-                        <p style={statStyle}>
-                            {report.files_scanned.toLocaleString()} files, {report.bins_scanned.toLocaleString()} BINs
-                            scanned
-                            {report.bins_failed > 0 && ` (${report.bins_failed} unreadable)`}
-                            {tab === 'bloat' && report.bloat_bytes > 0 && ` — ${formatBytes(report.bloat_bytes)} unreferenced`}
-                        </p>
-                    )}
                 </div>
 
-                <div className="dl-modal__foot" style={{ justifyContent: 'space-between' }}>
-                    <button className="dl-btn dl-btn--ghost" onClick={copyList} disabled={!rows.length}>
+                <div className="dl-modal__foot">
+                    <button className="dl-btn dl-btn--ghost" onClick={copyList} disabled={!shownPaths.length}>
                         Copy list
                     </button>
                     <button className="dl-btn dl-btn--primary" onClick={closeModal}>
@@ -289,6 +375,6 @@ export const WadAuditModal: React.FC = () => {
                 </div>
             </div>
         </div>,
-        document.body
+        document.body,
     );
 };

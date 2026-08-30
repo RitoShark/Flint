@@ -300,28 +300,15 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
         // `.wad.client` folder itself — a subfolder would report everything outside
         // it as missing.
         if (node.name.toLowerCase().endsWith('.wad.client')) {
-            const openAudit = (tab: 'missing' | 'bloat') =>
-                openModal('wadAudit', {
-                    folderPath: fullPath.replace(/\//g, '\\'),
-                    folderName: node.name,
-                    tab,
-                });
             options.push({
                 label: t('contextMenu.checkFiles'),
                 icon: getIcon('search'),
                 separator: true,
-                submenu: [
-                    {
-                        label: t('contextMenu.missingFiles'),
-                        icon: getIcon('warning'),
-                        onClick: () => openAudit('missing'),
-                    },
-                    {
-                        label: t('contextMenu.bloatFiles'),
-                        icon: getIcon('trash'),
-                        onClick: () => openAudit('bloat'),
-                    },
-                ],
+                onClick: () =>
+                    openModal('wadAudit', {
+                        folderPath: fullPath.replace(/\//g, '\\'),
+                        folderName: node.name,
+                    }),
             });
         }
 

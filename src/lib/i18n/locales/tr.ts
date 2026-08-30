@@ -242,8 +242,6 @@ export const tr: TranslationDict = {
     'contextMenu.splitBin': 'BIN\'i Sınıfa Göre Ayır…',
     'contextMenu.organizeVfx': 'VFX Düzenle (Otomatik Birleştir)…',
     'contextMenu.checkFiles': 'Dosyaları Kontrol Et',
-    'contextMenu.missingFiles': 'Eksik Dosyalar…',
-    'contextMenu.bloatFiles': 'Gereksiz / Şişkin Dosyalar…',
     'contextMenu.fileTransform': 'Dosya Dönüştürme',
     'contextMenu.convertToDds': '.dds Formatına Dönüştür',
     'contextMenu.convertToTex': '.tex Formatına Dönüştür',
