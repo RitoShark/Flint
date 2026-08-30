@@ -16,16 +16,16 @@ pub mod split;
 pub mod texture_header;
 
 pub use codec::{
-    apply_names, custom_file_names_from_text, custom_hash_names_from_text, embed_names,
-    embedded_names, name_lookup, read_bin, remember_custom_hash_names, text_to_tree,
-    tree_to_text_cached, unhash_text_cached, write_bin, MAX_BIN_SIZE,
+    apply_names, capture_names, custom_file_names_from_text, custom_hash_names_from_text,
+    embedded_names, read_bin, remember_custom_hash_names, text_to_tree, tree_to_text_cached,
+    unhash_text_cached, write_bin, MAX_BIN_SIZE,
 };
 pub use ritoshark::bin::{Bin, BinEntry, BinType, BinValue};
 
-/// The `ritobinmap` record: the names a bin is its own dictionary for, kept as a
-/// normal entry. Owned by the library so every tool reads the same layout, with
-/// `Trailer` left as the flattened lookup and the reader for the legacy footer.
-pub use ritoshark::bin::{read_path_map, read_trailer, write_path_map, PathMap, Trailer};
+/// The hash-to-path side table another tool may have captured. Flint READS it so
+/// a repathed asset resolves back to its path, and never writes one — see
+/// `codec::capture_names`.
+pub use ritoshark::bin::{read_trailer, Trailer};
 
 /// `mBlendDataTable`'s `u64` keys pack two FNV1a clip hashes; the library owns
 /// that layout, re-exported here so callers reach it alongside the value model.

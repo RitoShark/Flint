@@ -25,9 +25,9 @@ fn remember_hash_names(text: &str, bin: &Bin) {
     }
 }
 
-/// Compile edited ritobin text, embedding the names the text is the only record
+/// Compile edited ritobin text, capturing the names the text is the only record
 /// of. A repathed asset exists in no dictionary, so once the editor writes the
-/// hash the path is unrecoverable unless it travels inside the bin.
+/// hash the path is unrecoverable unless something records it.
 fn encode_with_names(text: &str) -> Result<Vec<u8>, String> {
     encode_capturing_names(text).map(|(bytes, _)| bytes)
 }
@@ -35,18 +35,17 @@ fn encode_with_names(text: &str) -> Result<Vec<u8>, String> {
 /// As [`encode_with_names`], but hands the captured names back to the caller.
 ///
 /// A caller that knows where the bin lives mirrors them into `files.txt` at the
-/// mod root. The record alone is enough right up until a tool reserializes the
-/// bin from a tree it built without the entry, and the names are then gone with
-/// nothing on disk to recover them from.
+/// mod root. Nothing is written INTO the bin: Flint ships bins a stock parser
+/// can read byte for byte, so `files.txt` is the record.
 fn encode_capturing_names(
     text: &str,
 ) -> Result<(Vec<u8>, flint_core::bin::Trailer), String> {
-    let mut bin = flint_core::bin::text_to_tree(text)
+    let bin = flint_core::bin::text_to_tree(text)
         .map_err(|e| format!("Failed to parse text content: {}", e))?;
     remember_hash_names(text, &bin);
-    let recorded = flint_core::bin::embed_names(&mut bin, text);
+    let recorded = flint_core::bin::capture_names(&bin, text);
     if !recorded.is_empty() {
-        tracing::info!("Embedding {} hash name(s) in the BIN", recorded.len());
+        tracing::info!("Captured {} hash name(s) for files.txt", recorded.len());
     }
     let bytes = flint_core::bin::write_bin(&bin)
         .map_err(|e| format!("Failed to convert to binary: {}", e))?;
@@ -56,9 +55,8 @@ fn encode_capturing_names(
 /// Mirror the captured names into `files.txt` at the mod root, keeping what is
 /// there.
 ///
-/// The second of the two records described in `docs/ritobinmap.md`. The record
-/// lives inside the bin and dies with any reserialize that drops its entry; this
-/// sits beside the mod and survives that, and it is what travels in
+/// Flint's ONLY record of a name it invented: nothing goes inside the bin. It
+/// sits beside the mod, survives any reserialize, and travels in
 /// `META/files.txt` when the mod is packed.
 ///
 /// `<hex> <name>` per line, because a name alone cannot say which keyspace it

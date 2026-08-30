@@ -1201,8 +1201,8 @@ mod tests {
         root.write_bin(graph_rel, &bin_of(vec![]));
 
         let name = "Characters/Test/Animations/Skin0";
-        let mut recorded = crate::bin::PathMap::new();
-        recorded.bin_entries.insert(name.to_string());
+        let mut recorded = crate::bin::Trailer::new();
+        recorded.names.insert(fnv1a(name), name.to_string());
 
         let mut bin = bin_of(vec![entry(
             "Characters/Test/Skins/Skin0",
@@ -1215,7 +1215,7 @@ mod tests {
                 ),
             )],
         )]);
-        crate::bin::write_path_map(&mut bin, &recorded);
+        bin.trailing = ritoshark::bin::append_trailer(&bin.trailing, &recorded);
 
         let skin = root.write_bin("data/characters/test/skins/skin0.bin", &bin);
 

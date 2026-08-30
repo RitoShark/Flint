@@ -371,25 +371,6 @@ fn name_of_file(bin: &Bin, bin_path: &std::path::Path, hash: u64) -> Option<Stri
     flint_bin::name_table(bin, bin_path).files.get(&hash).cloned()
 }
 
-/// Re-file the bin's `ritobinmap` record against what the bin now references,
-/// plus `extra`. The mask path is stored as an xxh64 and no dictionary anywhere
-/// knows a path this tool invented, so it has to be captured here; re-filing
-/// (rather than merging) is also what drops it again when the banner is removed.
-fn reindex_path_map(bin: &mut Bin, extra: &[&str]) {
-    let existing = ritoshark::bin::read_path_map(bin);
-    let names: Vec<&str> = existing
-        .bin_entries
-        .iter()
-        .chain(existing.bin_types.iter())
-        .chain(existing.bin_fields.iter())
-        .chain(existing.bin_hashes.iter())
-        .chain(existing.game.iter())
-        .map(String::as_str)
-        .chain(extra.iter().copied())
-        .collect();
-    let map = ritoshark::bin::capture(bin, &names);
-    ritoshark::bin::write_path_map(bin, &map);
-}
 
 /// Inspect a BIN for an already-applied banner.
 pub fn banner_status(bin: &Bin, bin_path: &std::path::Path) -> BannerStatus {
@@ -505,8 +486,6 @@ pub fn apply_banner_to_bin(
         bin.entries.push(new_entry);
     }
 
-    reindex_path_map(bin, &[mask_asset_path, material_name]);
-
     Ok(ApplyOutcome {
         material_hash,
         changed: true,
@@ -543,7 +522,6 @@ pub fn remove_banner_from_bin(bin: &mut Bin) -> bool {
     let material_class = fnv1a_32("StaticMaterialDef");
     bin.entries
         .retain(|e| !(e.path_hash == hash && e.class_hash == material_class));
-    reindex_path_map(bin, &[]);
     true
 }
 
@@ -680,9 +658,34 @@ mod tests {
 
     /// Build a minimal skin BIN with a SkinCharacterDataProperties entry that
     /// carries a loadScreen embed, then exercise apply + status + read.
-    /// No mod root on disk, so every name has to come from the bin's own record.
+    /// Nothing on disk beside it, so no `file` hash can be given a name back.
     fn test_bin_path() -> &'static std::path::Path {
         std::path::Path::new("skin0.bin")
+    }
+
+    /// A mod root holding the mask `.tex` the banner points at, which is what
+    /// names the sampler's `file` hash back — Flint records nothing in the bin.
+    struct MaskRoot(std::path::PathBuf);
+
+    impl MaskRoot {
+        fn new(tag: &str, mask_asset: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("flint-banner-{tag}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            let file = dir.join(mask_asset.to_ascii_lowercase());
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(&file, b"TEX\0").unwrap();
+            Self(dir)
+        }
+
+        fn bin_path(&self) -> std::path::PathBuf {
+            self.0.join("data").join("skin0.bin")
+        }
+    }
+
+    impl Drop for MaskRoot {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
     }
 
     fn skin_bin_with_loadscreen(image: &str) -> Bin {
@@ -728,14 +731,18 @@ mod tests {
         let out1 = apply_banner_to_bin(&mut bin, &name, &mask, &params).unwrap();
         let entries_after_first = bin.entries.len();
 
-        // Skin entry, the material entry, and the name record naming the mask.
-        assert_eq!(entries_after_first, 3);
-        assert!(ritoshark::bin::read_path_map(&bin).game.contains(&mask));
+        // Skin entry + one material entry. Flint writes no name record.
+        assert_eq!(entries_after_first, 2);
 
-        let status = banner_status(&bin, test_bin_path());
+        let root = MaskRoot::new("idempotent", &mask);
+        let status = banner_status(&bin, &root.bin_path());
         assert!(status.applied);
         assert_eq!(status.material_hash, Some(out1.material_hash));
-        assert_eq!(status.mask_asset_path.as_deref(), Some(mask.as_str()));
+        assert_eq!(
+            status.mask_asset_path.as_deref().map(str::to_ascii_lowercase),
+            Some(mask.to_ascii_lowercase()),
+            "the mask on disk is what names the sampler's file hash",
+        );
 
         apply_banner_to_bin(&mut bin, &name, &mask, &params).unwrap();
         assert_eq!(bin.entries.len(), entries_after_first);
@@ -770,7 +777,7 @@ mod tests {
 
         apply_banner_to_bin(&mut bin, &name, &mask, &BannerParams::default()).unwrap();
         assert!(banner_status(&bin, test_bin_path()).applied);
-        assert_eq!(bin.entries.len(), 3);
+        assert_eq!(bin.entries.len(), 2);
 
         assert!(remove_banner_from_bin(&mut bin));
 
@@ -818,7 +825,7 @@ mod tests {
         let name = material_name("Test", "Proj");
         let mask = mask_path_from_loadscreen("ASSETS/X/p/load.tex");
         apply_banner_to_bin(&mut bin, &name, &mask, &BannerParams::default()).unwrap();
-        assert_eq!(bin.entries.len(), 4);
+        assert_eq!(bin.entries.len(), 3);
 
         assert!(remove_banner_from_bin(&mut bin));
         assert_eq!(bin.entries.len(), 2);
@@ -889,10 +896,19 @@ mod tests {
         apply_banner_to_bin(&mut bin, &name, &mask, &BannerParams::default()).unwrap();
 
         let bytes = crate::bin::write_bin(&bin).expect("write");
+        assert!(
+            crate::bin::read_trailer(&crate::bin::read_bin(&bytes).expect("read").trailing)
+                .is_empty(),
+            "Flint must ship bins with no hash-to-path record of its own",
+        );
         let reparsed = crate::bin::read_bin(&bytes).expect("read");
 
-        let status = banner_status(&reparsed, test_bin_path());
+        let root = MaskRoot::new("roundtrip", &mask);
+        let status = banner_status(&reparsed, &root.bin_path());
         assert!(status.applied);
-        assert_eq!(status.mask_asset_path.as_deref(), Some(mask.as_str()));
+        assert_eq!(
+            status.mask_asset_path.as_deref().map(str::to_ascii_lowercase),
+            Some(mask.to_ascii_lowercase()),
+        );
     }
 }

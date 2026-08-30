@@ -5,8 +5,9 @@ A repath invents asset paths and object names that exist in no hash dictionary, 
 that stores only their hash cannot be read back without a record of what was hashed. Three
 records are consulted, each filling only what the ones before it could not:
 
-1. the bin's own `ritobinmap` record (`rs_bin::PathMap`), written at authoring time;
-2. `files.txt` at the mod root, which survives a reserialize the trailer does not;
+1. a hash-to-path side table the bin carries, if the tool that wrote it captured one —
+   Flint READS these and writes none of its own;
+2. `files.txt` at the mod root, which is where Flint records what it invented;
 3. the assets actually on disk — the WAD-relative path IS what was hashed, so a file still
    present names itself with no table involved.
 

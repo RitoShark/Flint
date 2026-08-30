@@ -203,13 +203,13 @@ fn collect_mentions(bin: &Bin, names: &HashMapper, out: &mut Mentions) {
 }
 
 /** Give every `file` hash a path if anything can.
-The bin's own `ritobinmap` record comes first: a repathed asset's path was invented by a
-tool and is in no global dictionary, so the bin is the only thing that knows it. The
-printer never sees that record — it resolves against the global table only — which is why
-these references were invisible to the audit before, and they are exactly the mod's OWN
-assets. Whatever stays unnamed is still checked, just by hash. */
+Any side table the bin carries comes first: a repathed asset's path was invented by a
+tool and is in no global dictionary. The printer never sees that record — it resolves
+against the global table only — which is why these references were invisible to the audit
+before, and they are exactly the mod's OWN assets. Whatever stays unnamed is still
+checked, just by hash. */
 fn name_file_mentions(bin: &Bin, names: &HashMapper, out: &mut Mentions) {
-    let own = ritoshark::bin::read_path_map(bin).tables().game;
+    let own = ritoshark::bin::read_trailer(&bin.trailing).files;
     let hashes = std::mem::take(&mut out.unnamed_files);
     for hash in hashes {
         match own
@@ -647,7 +647,7 @@ mod tests {
     }
 
     #[test]
-    fn the_bins_own_record_names_its_file_references() {
+    fn a_side_table_names_the_bins_file_references() {
         use ritoshark::bin::{BinEntry, BinValue};
 
         let dir = std::env::temp_dir().join(format!("flint-audit-record-{}", std::process::id()));
@@ -667,8 +667,9 @@ mod tests {
             }],
             ..Bin::new()
         };
-        let map = ritoshark::bin::capture(&bin, [gone]);
-        ritoshark::bin::write_path_map(&mut bin, &map);
+        let mut trailer = crate::Trailer::new();
+        trailer.files.insert(ritoshark::hash::xxh64(gone), gone.to_string());
+        bin.trailing = ritoshark::bin::append_trailer(&bin.trailing, &trailer);
         std::fs::write(
             dir.join("data").join("skin0.bin"),
             crate::codec::write_bin(&bin).unwrap(),

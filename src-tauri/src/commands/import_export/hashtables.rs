@@ -57,8 +57,8 @@ pub struct ProjectTables {
 
 /// Everything the project knows about its invented names, categorized: the
 /// project's own declared `hashes/` tables, every WAD folder's `files.txt`
-/// (16-hex = game path, 8-hex = bin object name), and every bin's `ritobinmap`
-/// record (which keeps the bin categories separate).
+/// (16-hex = game path, 8-hex = bin object name), and any side table a bin
+/// carries from another tool.
 pub fn collect_project_tables(project_path: &Path) -> ProjectTables {
     let mut out = ProjectTables::default();
 
@@ -146,12 +146,23 @@ pub fn collect_project_tables(project_path: &Path) -> ProjectTables {
                         }
                         let Ok(bytes) = std::fs::read(&path) else { continue };
                         let Ok(bin) = flint_core::bin::read_bin(&bytes) else { continue };
-                        let map = flint_core::bin::read_path_map(&bin);
-                        out.game.extend(map.game.iter().filter(|n| is_valid_name(n)).cloned());
-                        out.binentries
-                            .extend(map.bin_entries.iter().filter(|n| is_valid_name(n)).cloned());
-                        out.binhashes
-                            .extend(map.bin_hashes.iter().filter(|n| is_valid_name(n)).cloned());
+                        // A flat side table doesn't say which keyspace a name came
+                        // from; an entry's own path hash does.
+                        let entries: std::collections::HashSet<u32> =
+                            bin.entries.iter().map(|e| e.path_hash).collect();
+                        let trailer = flint_core::bin::read_trailer(&bin.trailing);
+                        out.game
+                            .extend(trailer.files.values().filter(|n| is_valid_name(n)).cloned());
+                        for (hash, name) in &trailer.names {
+                            if !is_valid_name(name) {
+                                continue;
+                            }
+                            if entries.contains(hash) {
+                                out.binentries.insert(name.clone());
+                            } else {
+                                out.binhashes.insert(name.clone());
+                            }
+                        }
                     }
                     _ => {}
                 }
@@ -322,7 +333,7 @@ pub fn read_fantome_hashtables(fantome_path: &str) -> ImportedHashtables {
 
 /// Feeds the imported names into the global and custom dictionaries. The custom
 /// LMDB write is what marks them machine-invented, so a later bin save re-captures
-/// them into the `ritobinmap` record and they keep travelling.
+/// them into `files.txt` and they keep travelling.
 pub fn register_names(hash_dir: &Path, imported: &ImportedHashtables) {
     let game: BTreeMap<u64, String> = imported
         .game
