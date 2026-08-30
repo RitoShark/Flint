@@ -11,7 +11,7 @@
    ============================================================================ */
 
 .dl-modal.wa-modal {
-    max-width: 940px;
+    max-width: 1140px;
     width: 100%;
     height: 78vh;
     max-height: 760px;
@@ -395,6 +395,32 @@
     border: 1px solid color-mix(in oklab, var(--accent-primary) 22%, transparent);
     background: color-mix(in oklab, var(--accent-primary) 8%, transparent);
 }
+
+.wa-modal .wa-fix {
+    flex: none;
+    height: 20px;
+    padding: 0 9px;
+    font-family: var(--font-sans);
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    color: var(--color-success);
+    background: color-mix(in oklab, var(--color-success) 12%, transparent);
+    border: 1px solid color-mix(in oklab, var(--color-success) 32%, transparent);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background var(--ux-fast), color var(--ux-fast), border-color var(--ux-fast);
+}
+.wa-modal .wa-fix:hover:not(:disabled) {
+    background: var(--color-success);
+    border-color: var(--color-success);
+    color: #0b1e10;
+}
+.wa-modal .wa-fix:disabled { opacity: 0.5; cursor: default; }
+
+.wa-modal .wa-foot__actions { display: flex; align-items: center; gap: 8px; }
 
 .wa-modal .wa-row__msg {
     font-size: 12px;

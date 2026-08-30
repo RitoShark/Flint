@@ -68,6 +68,26 @@ export async function convertTextureToPng(path: string): Promise<TextureConversi
     return invokeCommand('convert_texture_to_png', { path });
 }
 
+export interface AlignmentFixResult {
+    path: string;
+    old_width: number;
+    old_height: number;
+    width: number;
+    height: number;
+    format: string;
+    /** The source shipped a mip chain the re-encode did not reproduce. */
+    mipmaps_dropped: boolean;
+}
+
+/**
+ * Resize a block-compressed texture up to the next multiple of 4 on both axes and
+ * rewrite it in place, keeping its own container and format. Rejects a texture that
+ * is already aligned.
+ */
+export async function fixTextureAlignment(path: string): Promise<AlignmentFixResult> {
+    return invokeCommand('fix_texture_alignment', { path });
+}
+
 /** Encode format for a PNG going back into a texture. */
 export type TextureEncodeFormat = 'bc1' | 'bc3' | 'rgba8';
 

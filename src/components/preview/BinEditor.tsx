@@ -20,7 +20,7 @@ import { MaskEditor } from './MaskEditor';
 import { PaintPanel } from './paint/PaintPanel';
 import { BinToolsPanel } from './bintools/BinToolsPanel';
 import { applyContentToEditor } from '../../lib/editor/applyContent';
-import { recheckFile } from '../../lib/audit/projectAudit';
+import { fileIssues, recheckFile } from '../../lib/audit/projectAudit';
 import { indexNavigable, nextSystem, previousSystem } from '../../lib/editor/binTools/vfxIndex';
 import { SubmeshPicker, type SubmeshPickerRequest } from './SubmeshPicker';
 import { Icon } from '../ui/Icon';
@@ -62,6 +62,9 @@ registerRitobinTheme(monaco as any);
 const HOVER_DELAY_MS = 3000;
 
 const BRACKET_CHECK_DEBOUNCE_MS = 300;
+
+/** Marker owner for the audit findings, kept apart from any other producer. */
+const AUDIT_MARKER_OWNER = 'flint-audit';
 
 const PREVIEWABLE_EXTENSIONS = ['tex', 'dds', 'scb', 'sco', 'skn'];
 
@@ -256,6 +259,11 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
        CodeLens was clicked on; `names` empty with a `note` means the SKN could
        not be read, in which case the field stays free text. */
     const [submeshPicker, setSubmeshPicker] = useState<SubmeshPickerRequest | null>(null);
+
+    /* Audit findings for this BIN — the same checks the WAD audit runs, surfaced on the
+       lines they sit on so a crash risk is visible where it is authored. */
+    const [auditIssues, setAuditIssues] = useState<api.CheckIssue[]>([]);
+    const [auditIndex, setAuditIndex] = useState(0);
 
     const [bracketStatus, setBracketStatus] = useState<BracketCheckResult>({ valid: true, errors: [] });
     const [bracketErrorIndex, setBracketErrorIndex] = useState(0);
@@ -670,6 +678,47 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     useEffect(() => {
         return () => { if (bracketCheckTimerRef.current) clearTimeout(bracketCheckTimerRef.current); };
     }, []);
+
+    useEffect(() => {
+        if (!searchRoot || loading || error) { setAuditIssues([]); return; }
+        let cancelled = false;
+        fileIssues(searchRoot, filePath)
+            .then((found) => { if (!cancelled) { setAuditIssues(found); setAuditIndex(0); } })
+            .catch((e) => { console.debug('[bin-editor] audit failed:', e); });
+        return () => { cancelled = true; };
+    }, [searchRoot, filePath, fileVersion, loading, error]);
+
+    /* Markers, not decorations: they carry the message in the hover and paint the
+       overview ruler for free, and they live under their own owner so the bracket
+       decorations above cannot clobber them. A finding with no line is reported by
+       the toolbar chip instead of being parked on line 1. */
+    useEffect(() => {
+        const model = editorRef.current?.getModel();
+        if (!model) return;
+        monaco.editor.setModelMarkers(
+            model,
+            AUDIT_MARKER_OWNER,
+            auditIssues
+                .filter((issue) => issue.line && issue.line <= model.getLineCount())
+                .map((issue) => ({
+                    severity: issue.severity === 'critical'
+                        ? monaco.MarkerSeverity.Error
+                        : monaco.MarkerSeverity.Warning,
+                    message: issue.expected
+                        ? `${issue.message}\n\nExpected: ${issue.expected}`
+                        : issue.message,
+                    source: issue.code,
+                    startLineNumber: issue.line!,
+                    startColumn: 1,
+                    endLineNumber: issue.line!,
+                    endColumn: model.getLineMaxColumn(issue.line!),
+                })),
+        );
+        return () => {
+            const m = editorRef.current?.getModel();
+            if (m) monaco.editor.setModelMarkers(m, AUDIT_MARKER_OWNER, []);
+        };
+    }, [auditIssues, loading, error]);
 
     const handleSave = useCallback(async () => {
         if (!bracketStatus.valid) {
@@ -1120,6 +1169,26 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                     )}
                     {!bracketLabel && isDirty && (
                         <span className="bin-editor__bracket-ok">Brackets OK</span>
+                    )}
+                    {auditIssues.length > 0 && (
+                        <span
+                            className={`bin-editor__audit${auditIssues.some((i) => i.severity === 'critical') ? ' bin-editor__audit--critical' : ''}`}
+                            title={auditIssues
+                                .map((i, n) => `${n + 1}. ${i.line ? `Line ${i.line}: ` : ''}${i.message}${i.expected ? ` (expected ${i.expected})` : ''}`)
+                                .join('\n')}
+                            onClick={() => {
+                                const placed = auditIssues.filter((i) => i.line);
+                                if (!placed.length || !editorRef.current) return;
+                                const idx = auditIndex % placed.length;
+                                const line = placed[idx].line!;
+                                editorRef.current.revealLineInCenter(line);
+                                editorRef.current.setPosition({ lineNumber: line, column: 1 });
+                                editorRef.current.focus();
+                                setAuditIndex((idx + 1) % placed.length);
+                            }}
+                        >
+                            {auditIssues.length} {auditIssues.length === 1 ? 'issue' : 'issues'}
+                        </span>
                     )}
                 </span>
                 <div className="bin-editor__toolbar-actions">

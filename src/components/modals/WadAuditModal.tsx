@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useModalStore, useNotificationStore, useProjectTabStore } from '../../lib/stores';
+import { useModalStore, useNavigationStore, useNotificationStore, useProjectTabStore } from '../../lib/stores';
 import { useAppMetadataStore } from '../../lib/stores/appMetadataStore';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { issueTagsFromIssues } from '../../lib/audit/projectAudit';
+import { requestRevealLine } from '../../lib/editor/binEditorEvents';
 import { revealInTree } from '../../lib/editor/revealInTree';
 import { VirtualList } from '../preview/VirtualList';
 import * as api from '../../lib/api';
@@ -18,6 +19,9 @@ interface FlatRow {
 }
 
 const FLAT_ROW_HEIGHT = 30;
+
+/** The one finding a one-click resize actually resolves. */
+const ALIGNMENT_CODE = 'texture.block-misaligned';
 
 const VIEW_HINT: Record<View, string> = {
     risks: 'Files the client cannot load — textures, animation clips, BIN references. A critical breaks the mod for everyone who installs it.',
@@ -60,37 +64,46 @@ export const WadAuditModal: React.FC = () => {
     const [query, setQuery] = useState('');
     const [report, setReport] = useState<api.AuditReport | null>(null);
     const [loading, setLoading] = useState(true);
+    const [fixing, setFixing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const searchRef = useRef<HTMLInputElement | null>(null);
 
     const isVisible = activeModal === 'wadAudit';
 
-    useEffect(() => {
-        if (!isVisible || !folderPath) return;
-        let cancelled = false;
-        setLoading(true);
-        setError(null);
-        setReport(null);
-        setQuery('');
-        api.auditWadFolder(folderPath)
-            .then((result) => {
-                if (cancelled) return;
+    /* `pickView` is only true for the first scan of a folder — a rescan after a fix must
+       leave the user on the view they are working in. */
+    const scan = useCallback(
+        async (pickView: boolean) => {
+            if (!folderPath) return;
+            setLoading(true);
+            setError(null);
+            try {
+                const result = await api.auditWadFolder(folderPath);
                 setReport(result);
-                setView(result.issues.length ? 'risks' : result.missing.length ? 'missing' : 'bloat');
+                if (pickView) {
+                    setView(result.issues.length ? 'risks' : result.missing.length ? 'missing' : 'bloat');
+                }
                 useAppMetadataStore
                     .getState()
-                    .replaceFileIssues(folderPath, issueTagsFromIssues(result.issues, folderPath.replaceAll('\\', '/')));
-            })
-            .catch((e) => {
-                if (!cancelled) setError(e instanceof Error ? e.message : String(e));
-            })
-            .finally(() => {
-                if (!cancelled) setLoading(false);
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [isVisible, folderPath]);
+                    .replaceFileIssues(
+                        folderPath,
+                        issueTagsFromIssues(result.issues, folderPath.replaceAll('\\', '/')),
+                    );
+            } catch (e) {
+                setError(e instanceof Error ? e.message : String(e));
+            } finally {
+                setLoading(false);
+            }
+        },
+        [folderPath],
+    );
+
+    useEffect(() => {
+        if (!isVisible || !folderPath) return;
+        setReport(null);
+        setQuery('');
+        void scan(true);
+    }, [isVisible, folderPath, scan]);
 
     useEffect(() => {
         if (!isVisible) return;
@@ -157,6 +170,58 @@ export const WadAuditModal: React.FC = () => {
             if (revealInTree(`${folderRel.toLowerCase()}/${relInFolder}`)) closeModal();
         },
         [projectPath, folderPath, closeModal],
+    );
+
+    const navigateToFileEditor = useNavigationStore((s) => s.navigateToFileEditor);
+
+    const absPath = useCallback(
+        (rel: string) => `${folderPath}\\${rel.replaceAll('/', '\\')}`,
+        [folderPath],
+    );
+
+    /* A finding on a BIN carries the line it sits on, so the useful destination is the
+       editor at that line, not the tree row. Everything else — textures, meshes — has
+       nothing to open a line in, so those still reveal in the tree. */
+    const openIssue = useCallback(
+        (issue: api.CheckIssue) => {
+            if (!issue.file.toLowerCase().endsWith('.bin')) {
+                revealRow(issue.file);
+                return;
+            }
+            const target = absPath(issue.file);
+            if (issue.line) requestRevealLine(target, issue.line);
+            navigateToFileEditor({ filePath: target, kind: 'binText', projectPath });
+            closeModal();
+        },
+        [absPath, revealRow, navigateToFileEditor, projectPath, closeModal],
+    );
+
+    const fixable = useMemo(
+        () => issues.filter((i) => i.code === ALIGNMENT_CODE).map((i) => i.file),
+        [issues],
+    );
+
+    const fixAlignment = useCallback(
+        async (files: string[]) => {
+            if (!files.length || fixing) return;
+            setFixing(true);
+            const failures: string[] = [];
+            for (const file of files) {
+                try {
+                    await api.fixTextureAlignment(absPath(file));
+                } catch (e) {
+                    failures.push(`${file}: ${e instanceof Error ? e.message : String(e)}`);
+                }
+            }
+            setFixing(false);
+            const fixed = files.length - failures.length;
+            if (fixed) showToast('success', `Resized ${fixed} texture${fixed === 1 ? '' : 's'} to the block grid`);
+            if (failures.length) {
+                showToast('error', `${failures.length} could not be resized — ${failures[0]}`);
+            }
+            if (fixed) await scan(false);
+        },
+        [absPath, fixing, showToast, scan],
     );
 
     if (!isVisible) return null;
@@ -252,12 +317,16 @@ export const WadAuditModal: React.FC = () => {
                             className={`wa-row wa-row--${issue.severity} wa-row--click`}
                             role="button"
                             tabIndex={0}
-                            title={`${issue.code} — click to reveal in the file tree`}
-                            onClick={() => revealRow(issue.file)}
+                            title={
+                                issue.file.toLowerCase().endsWith('.bin')
+                                    ? `${issue.code} — click to open the BIN${issue.line ? ` at line ${issue.line}` : ''}`
+                                    : `${issue.code} — click to reveal in the file tree`
+                            }
+                            onClick={() => openIssue(issue)}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter' || e.key === ' ') {
                                     e.preventDefault();
-                                    revealRow(issue.file);
+                                    openIssue(issue);
                                 }
                             }}
                         >
@@ -269,6 +338,19 @@ export const WadAuditModal: React.FC = () => {
                                 <div className="wa-row__head">
                                     <span className="wa-row__path">&#8206;{issue.file}</span>
                                     {issue.line ? <span className="wa-row__line">line {issue.line}</span> : null}
+                                    {issue.code === ALIGNMENT_CODE && (
+                                        <button
+                                            className="wa-fix"
+                                            disabled={fixing}
+                                            title="Resize up to the next multiple of 4 and rewrite this file"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                void fixAlignment([issue.file]);
+                                            }}
+                                        >
+                                            Resize to fit
+                                        </button>
+                                    )}
                                 </div>
                                 <div className="wa-row__msg">{issue.message}</div>
                                 {issue.expected && (
@@ -366,9 +448,20 @@ export const WadAuditModal: React.FC = () => {
                 </div>
 
                 <div className="dl-modal__foot">
-                    <button className="dl-btn dl-btn--ghost" onClick={copyList} disabled={!shownPaths.length}>
-                        Copy list
-                    </button>
+                    <div className="wa-foot__actions">
+                        <button className="dl-btn dl-btn--ghost" onClick={copyList} disabled={!shownPaths.length}>
+                            Copy list
+                        </button>
+                        {view === 'risks' && fixable.length > 1 && (
+                            <button
+                                className="dl-btn dl-btn--secondary"
+                                disabled={fixing || loading}
+                                onClick={() => void fixAlignment(fixable)}
+                            >
+                                {fixing ? 'Resizing…' : `Resize ${fixable.length} textures to fit`}
+                            </button>
+                        )}
+                    </div>
                     <button className="dl-btn dl-btn--primary" onClick={closeModal}>
                         Close
                     </button>

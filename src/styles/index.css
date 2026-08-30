@@ -5644,6 +5644,30 @@ input.np-search:focus {
   flex-shrink: 0;
 }
 
+.bin-editor__audit {
+  font-size: var(--text-xs);
+  color: var(--color-warning);
+  font-weight: 500;
+  cursor: pointer;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--color-warning) 14%, transparent);
+  flex-shrink: 0;
+}
+
+.bin-editor__audit:hover {
+  background: color-mix(in oklab, var(--color-warning) 26%, transparent);
+}
+
+.bin-editor__audit--critical {
+  color: var(--color-danger);
+  background: color-mix(in oklab, var(--color-danger) 14%, transparent);
+}
+
+.bin-editor__audit--critical:hover {
+  background: color-mix(in oklab, var(--color-danger) 26%, transparent);
+}
+
 /* Monaco decoration for bracket error lines */
 .bracket-error-line {
   background: rgba(255, 68, 68, 0.08) !important;

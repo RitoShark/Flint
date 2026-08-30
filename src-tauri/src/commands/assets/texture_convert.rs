@@ -476,3 +476,103 @@ pub async fn convert_dds_bytes_to_tex(
 
     Ok(tauri::ipc::Response::new(buf))
 }
+
+/// What `fix_texture_alignment` did to one file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AlignmentFixResult {
+    pub path: String,
+    pub old_width: u32,
+    pub old_height: u32,
+    pub width: u32,
+    pub height: u32,
+    pub format: String,
+    /// True when the source shipped a mip chain the re-encode did not reproduce.
+    pub mipmaps_dropped: bool,
+}
+
+/// Round up to the next multiple of 4, never below one whole block.
+fn fit_to_block(value: u32) -> u32 {
+    value.div_ceil(4).max(1) * 4
+}
+
+/// Resize a block-compressed texture up to the next multiple of 4 on both axes,
+/// rewriting it in place in its own container and format.
+///
+/// Rounding UP resamples the whole image; rounding down would crop up to three
+/// pixel rows off the edge, and the BIN's UVs know nothing about either. Upscaling
+/// is the one that keeps every pixel the author drew.
+#[tauri::command]
+pub async fn fix_texture_alignment(path: String) -> Result<AlignmentFixResult, String> {
+    let _t = ipc_trace::enter("fix_texture_alignment");
+    let src = PathBuf::from(&path);
+    let data = fs::read(&src).map_err(|e| format!("Failed to read file: {}", e))?;
+    let is_dds = data.len() >= 4 && &data[0..4] == b"DDS ";
+
+    let (rgba, texture) = decode_texture_rgba(&data)?;
+    let (w, h) = rgba.dimensions();
+    let (tw, th) = (fit_to_block(w), fit_to_block(h));
+    if (tw, th) == (w, h) {
+        return Err(format!("{w}×{h} is already a multiple of 4."));
+    }
+
+    let resized = image::imageops::resize(&rgba, tw, th, image::imageops::FilterType::Lanczos3);
+    let mipmaps_dropped = flint_core::bin::texture_header::read_texture_header(&data)
+        .map(|h| h.has_mipmaps)
+        .unwrap_or(false);
+
+    let (bytes, format) = if is_dds {
+        let (b, label) = encode_dds(&resized, texture.format)?;
+        (b, label.to_string())
+    } else {
+        let new_tex = match texture.format {
+            TexFormat::Bgra8 => Texture::from_rgba_bgra8(&resized),
+            fmt => Texture::encode(&resized, fmt, false)
+                .map_err(|e| format!("Failed to encode TEX: {:?}", e))?,
+        };
+        let mut buf = new_tex
+            .to_bytes()
+            .map_err(|e| format!("Failed to serialize TEX: {:?}", e))?;
+        if buf.len() >= 9 {
+            buf[8] = match texture.format {
+                TexFormat::Bgra8 => 0x00,
+                _ => 0x01,
+            };
+        }
+        (buf, format!("{:?}", texture.format))
+    };
+
+    fs::write(&src, &bytes).map_err(|e| format!("Failed to write texture: {}", e))?;
+
+    Ok(AlignmentFixResult {
+        path,
+        old_width: w,
+        old_height: h,
+        width: tw,
+        height: th,
+        format,
+        mipmaps_dropped,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn alignment_rounds_up_and_never_below_one_block() {
+        // Rounding UP is the product decision: down would crop pixels the BIN's UVs
+        // still expect. 4 is the floor because a block is 4x4.
+        assert_eq!(fit_to_block(1), 4);
+        assert_eq!(fit_to_block(4), 4);
+        assert_eq!(fit_to_block(5), 8);
+        assert_eq!(fit_to_block(126), 128);
+        assert_eq!(fit_to_block(1023), 1024);
+    }
+
+    #[test]
+    fn an_aligned_texture_is_left_alone() {
+        for size in [4u32, 64, 256, 1024] {
+            assert_eq!(fit_to_block(size), size);
+        }
+    }
+}
