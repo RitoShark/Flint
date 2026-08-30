@@ -231,7 +231,7 @@ fn scan_bin(
     collect_mentions(bin, names, text.as_deref(), &mut mentions);
 
     let mut issues = check_animation_graph(bin, rel, names);
-    issues.extend(check_animation_assets(bin, rel, names, present));
+    issues.extend(check_animation_assets(bin, rel, names, present, text.as_deref()));
     issues.extend(check_bin_hazards(bin, rel, text.as_deref()));
 
     let mut tally = MigrationTally::default();

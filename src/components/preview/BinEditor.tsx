@@ -20,7 +20,7 @@ import { MaskEditor } from './MaskEditor';
 import { PaintPanel } from './paint/PaintPanel';
 import { BinToolsPanel } from './bintools/BinToolsPanel';
 import { applyContentToEditor } from '../../lib/editor/applyContent';
-import { fileIssues, recheckFile } from '../../lib/audit/projectAudit';
+import { fileIssues, issueNeedle, recheckFile } from '../../lib/audit/projectAudit';
 import { indexNavigable, nextSystem, previousSystem } from '../../lib/editor/binTools/vfxIndex';
 import { SubmeshPicker, type SubmeshPickerRequest } from './SubmeshPicker';
 import { Icon } from '../ui/Icon';
@@ -265,12 +265,17 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
        lines they sit on so a crash risk is visible where it is authored. */
     const [auditIssues, setAuditIssues] = useState<api.CheckIssue[]>([]);
     const [auditIndex, setAuditIndex] = useState(0);
+    /* Bumped when the editor instance is (re)created. The finding ranges are computed
+       during render against the live model, which does not exist yet on the render that
+       first clears `loading` — without this signal they are silently computed as empty. */
+    const [editorEpoch, setEditorEpoch] = useState(0);
 
     const [bracketStatus, setBracketStatus] = useState<BracketCheckResult>({ valid: true, errors: [] });
     const [bracketErrorIndex, setBracketErrorIndex] = useState(0);
     const bracketCheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const decorationsRef = useRef<string[]>([]);
     const revealDecorationsRef = useRef<string[]>([]);
+    const issueDecorationsRef = useRef<string[]>([]);
     const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const emitterDecorationsRef = useRef<string[]>([]);
 
@@ -653,6 +658,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         });
 
         const model = ed.getModel();
+        setEditorEpoch((n) => n + 1);
         if (model) {
             setLineCount(model.getLineCount());
             model.onDidChangeContent(() => {
@@ -753,37 +759,85 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         return () => { cancelled = true; };
     }, [searchRoot, filePath, fileVersion, loading, error]);
 
-    /* Markers, not decorations: they carry the message in the hover and paint the
-       overview ruler for free, and they live under their own owner so the bracket
-       decorations above cannot clobber them. A finding with no line is reported by
-       the toolbar chip instead of being parked on line 1. */
-    useEffect(() => {
+    /* Where each finding sits in THIS text. A reported line is used as given; a finding
+       with no line still names its asset path in the message, and searching the live
+       model for that path both places it and survives unsaved edits above it — a line
+       number computed against the on-disk render would not. */
+    const issueRanges = useMemo(() => {
         const model = editorRef.current?.getModel();
-        if (!model) return;
+        if (!model) return [];
+        return auditIssues.flatMap((issue) => {
+            if (issue.line && issue.line <= model.getLineCount()) {
+                return [{
+                    issue,
+                    range: new monaco.Range(issue.line, 1, issue.line, model.getLineMaxColumn(issue.line)),
+                }];
+            }
+            const needle = issueNeedle(issue);
+            if (!needle) return [];
+            const match =
+                model.findMatches(`"${needle}"`, true, false, false, null, false, 1)[0] ??
+                model.findMatches(needle, true, false, false, null, false, 1)[0];
+            return match ? [{ issue, range: match.range }] : [];
+        });
+        /* Deliberately NOT keyed on `content`: recomputing per keystroke would snap each
+           mark back to the line the audit reported, undoing the tracking the decorations
+           give for free. Markers do go stale on edit; the next save re-runs the audit. */
+    }, [auditIssues, editorEpoch]);
+
+    /* Markers carry the message in the hover and paint the overview ruler, under their
+       own owner so the bracket decorations cannot clobber them — but a squiggle alone is
+       invisible in a 5000-line BIN you have not scrolled to. The decorations are what
+       make it findable: a tinted line and a glyph in the margin. They also TRACK edits,
+       which markers do not, so the mark stays on the reference as the file is typed in. */
+    useEffect(() => {
+        const ed = editorRef.current;
+        const model = ed?.getModel();
+        if (!ed || !model) return;
         monaco.editor.setModelMarkers(
             model,
             AUDIT_MARKER_OWNER,
-            auditIssues
-                .filter((issue) => issue.line && issue.line <= model.getLineCount())
-                .map((issue) => ({
-                    severity: issue.severity === 'critical'
-                        ? monaco.MarkerSeverity.Error
-                        : monaco.MarkerSeverity.Warning,
-                    message: issue.expected
-                        ? `${issue.message}\n\nExpected: ${issue.expected}`
-                        : issue.message,
-                    source: issue.code,
-                    startLineNumber: issue.line!,
-                    startColumn: 1,
-                    endLineNumber: issue.line!,
-                    endColumn: model.getLineMaxColumn(issue.line!),
-                })),
+            issueRanges.map(({ issue, range }) => ({
+                severity: issue.severity === 'critical'
+                    ? monaco.MarkerSeverity.Error
+                    : monaco.MarkerSeverity.Warning,
+                message: issue.expected
+                    ? `${issue.message}\n\nExpected: ${issue.expected}`
+                    : issue.message,
+                source: issue.code,
+                startLineNumber: range.startLineNumber,
+                startColumn: range.startColumn,
+                endLineNumber: range.endLineNumber,
+                endColumn: range.endColumn,
+            })),
+        );
+        issueDecorationsRef.current = ed.deltaDecorations(
+            issueDecorationsRef.current,
+            issueRanges.map(({ issue, range }) => ({
+                range: new monaco.Range(range.startLineNumber, 1, range.startLineNumber, 1),
+                options: {
+                    isWholeLine: true,
+                    className: `flint-issue-line flint-issue-line--${issue.severity}`,
+                    glyphMarginClassName: `flint-issue-glyph flint-issue-glyph--${issue.severity}`,
+                    glyphMarginHoverMessage: { value: issue.message },
+                    overviewRuler: {
+                        color: issue.severity === 'critical' ? '#f85149' : '#d29922',
+                        position: monaco.editor.OverviewRulerLane.Right,
+                    },
+                    minimap: {
+                        color: issue.severity === 'critical' ? '#f85149' : '#d29922',
+                        position: monaco.editor.MinimapPosition.Inline,
+                    },
+                },
+            })),
         );
         return () => {
-            const m = editorRef.current?.getModel();
+            const live = editorRef.current;
+            const m = live?.getModel();
             if (m) monaco.editor.setModelMarkers(m, AUDIT_MARKER_OWNER, []);
+            if (live) issueDecorationsRef.current = live.deltaDecorations(issueDecorationsRef.current, []);
         };
-    }, [auditIssues, loading, error]);
+    }, [issueRanges]);
 
     const handleSave = useCallback(async () => {
         if (!bracketStatus.valid) {
@@ -1226,16 +1280,13 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                             className={`bin-editor__audit${auditIssues.some((i) => i.severity === 'critical') ? ' bin-editor__audit--critical' : ''}`}
                             title={auditIssues
                                 .map((i, n) => `${n + 1}. ${i.line ? `Line ${i.line}: ` : ''}${i.message}${i.expected ? ` (expected ${i.expected})` : ''}`)
+                                .concat(issueRanges.length ? ['', 'Click to step through them.'] : [])
                                 .join('\n')}
                             onClick={() => {
-                                const placed = auditIssues.filter((i) => i.line);
-                                if (!placed.length || !editorRef.current) return;
-                                const idx = auditIndex % placed.length;
-                                const line = placed[idx].line!;
-                                editorRef.current.revealLineInCenter(line);
-                                editorRef.current.setPosition({ lineNumber: line, column: 1 });
-                                editorRef.current.focus();
-                                setAuditIndex((idx + 1) % placed.length);
+                                if (!issueRanges.length) return;
+                                const idx = auditIndex % issueRanges.length;
+                                revealAndFlash(issueRanges[idx].range);
+                                setAuditIndex((idx + 1) % issueRanges.length);
                             }}
                         >
                             {auditIssues.length} {auditIssues.length === 1 ? 'issue' : 'issues'}

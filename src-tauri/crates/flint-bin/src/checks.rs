@@ -87,6 +87,21 @@ pub(crate) fn declaration_line(text: &str, field: &str, ty: &str) -> Option<u32>
         .map(|idx| idx as u32 + 1)
 }
 
+/// 1-based line of the first line containing `needle`, matched case-insensitively.
+///
+/// For a finding about a VALUE rather than a declaration: the printer renders a `file`
+/// as its quoted path when a name resolves and as `0x…` when none does, so the caller
+/// hands over whichever form it has and both land on the same line.
+pub(crate) fn line_containing(text: &str, needle: &str) -> Option<u32> {
+    if needle.is_empty() {
+        return None;
+    }
+    let needle = needle.to_ascii_lowercase();
+    text.lines()
+        .position(|line| line.to_ascii_lowercase().contains(&needle))
+        .map(|idx| idx as u32 + 1)
+}
+
 // ─── Textures ─────────────────────────────────────────────────────────────────────
 
 fn is_power_of_two(value: u32) -> bool {
@@ -409,6 +424,7 @@ pub fn check_animation_assets(
     rel: &str,
     names: &HashMapper,
     present: &HashSet<u64>,
+    text: Option<&str>,
 ) -> Vec<CheckIssue> {
     let mut found = Vec::new();
     for entry in &bin.entries {
@@ -418,8 +434,10 @@ pub fn check_animation_assets(
     }
 
     let local = flint_hash::hash::local_custom_hashes().read();
-    let mut invented: Vec<String> = Vec::new();
-    let mut from_game: Vec<String> = Vec::new();
+    /* `(label, reference)` — the label reads in the message, the reference is what the
+       printer actually put in the text, which is what a line lookup can match on. */
+    let mut invented: Vec<(String, String)> = Vec::new();
+    let mut from_game: Vec<(String, String)> = Vec::new();
     let mut seen: HashSet<u64> = HashSet::new();
 
     for (clip, path, hash) in found {
@@ -433,15 +451,15 @@ pub fn check_animation_assets(
         };
         let label = match clip {
             Some(clip) => format!("{} → {file}", clip_label(clip, names)),
-            None => file,
+            None => file.clone(),
         };
         // A path the shared dictionary knows is a real game asset, and the client loads it
         // from the game's own WADs. Anything else was invented by a tool — this machine
         // is the only reason it even has a name — so nothing can supply it.
         if !local.contains(&hash) && names.contains(hash) {
-            from_game.push(label);
+            from_game.push((label, file));
         } else {
-            invented.push(label);
+            invented.push((label, file));
         }
     }
     drop(local);
@@ -449,33 +467,52 @@ pub fn check_animation_assets(
     let mut out = Vec::new();
     if !invented.is_empty() {
         invented.sort();
-        out.push(CheckIssue::new(
-            Severity::Critical,
-            "animation.missing-clip-file",
-            rel,
-            format!(
-                "{} animation clip{} point at an `.anm` that is not in this mod and is not a game path ({}). The client has nothing to load and crashes when the clip plays.",
-                invented.len(),
-                if invented.len() == 1 { "" } else { "s" },
-                summarize(&invented),
-            ),
-        ));
+        out.push(
+            CheckIssue::new(
+                Severity::Critical,
+                "animation.missing-clip-file",
+                rel,
+                format!(
+                    "{} animation clip{} point at an `.anm` that is not in this mod and is not a game path ({}). The client has nothing to load and crashes when the clip plays.",
+                    invented.len(),
+                    if invented.len() == 1 { "" } else { "s" },
+                    summarize(&labels(&invented)),
+                ),
+            )
+            .at(first_reference_line(text, &invented)),
+        );
     }
     if !from_game.is_empty() {
         from_game.sort();
-        out.push(CheckIssue::new(
-            Severity::Warning,
-            "animation.clip-from-game",
-            rel,
-            format!(
-                "{} animation clip{} point at a game `.anm` this mod does not ship ({}). That plays the base animation — intended for a partial mod, wrong if it was meant to be replaced.",
-                from_game.len(),
-                if from_game.len() == 1 { "" } else { "s" },
-                summarize(&from_game),
-            ),
-        ));
+        out.push(
+            CheckIssue::new(
+                Severity::Warning,
+                "animation.clip-from-game",
+                rel,
+                format!(
+                    "{} animation clip{} point at a game `.anm` this mod does not ship ({}). That plays the base animation — intended for a partial mod, wrong if it was meant to be replaced.",
+                    from_game.len(),
+                    if from_game.len() == 1 { "" } else { "s" },
+                    summarize(&labels(&from_game)),
+                ),
+            )
+            .at(first_reference_line(text, &from_game)),
+        );
     }
     out
+}
+
+fn labels(items: &[(String, String)]) -> Vec<String> {
+    items.iter().map(|(label, _)| label.clone()).collect()
+}
+
+/// The line of the reference the message names FIRST, so the reported line and the
+/// reported clip agree. Same convention `MigrationTally` uses for its own tallies.
+fn first_reference_line(text: Option<&str>, items: &[(String, String)]) -> Option<u32> {
+    let text = text?;
+    items
+        .first()
+        .and_then(|(_, reference)| line_containing(text, reference))
 }
 
 /// First three, then "and N more" — the shape every list-carrying message uses.
@@ -1164,12 +1201,50 @@ mod tests {
         let mut names = HashMapper::new();
         names.insert(fnv1a("Dance") as u64, "Dance".to_string());
 
-        let issues = check_animation_assets(&bin, "anim.bin", &names, &HashSet::new());
+        let issues = check_animation_assets(&bin, "anim.bin", &names, &HashSet::new(), None);
         assert_eq!(codes(&issues), vec!["animation.missing-clip-file"]);
         assert_eq!(issues[0].severity, Severity::Critical);
         assert!(issues[0].message.contains("Dance"), "{}", issues[0].message);
         assert!(issues[0].message.contains("dance.anm"), "{}", issues[0].message);
         assert!(issues[0].message.contains("crashes"), "{}", issues[0].message);
+    }
+
+    /// Without a line the finding is invisible in the editor — the marker has nowhere to
+    /// go — so the reference is located in the rendered text the audit already has.
+    #[test]
+    fn a_missing_clip_reports_the_line_its_reference_sits_on() {
+        let anm = "assets/characters/yone/skins/base/rayquaza_animations/dance.anm";
+        let bin = animation_bin(BinValue::String(anm.to_string()));
+        let text = format!(
+            "entries: map[hash,embed] = {{
+    0x1 = AnimationGraphData {{
+        mAnimationFilePath: string = \"{anm}\"
+    }}
+}}
+"
+        );
+
+        let issues =
+            check_animation_assets(&bin, "anim.bin", &HashMapper::new(), &HashSet::new(), Some(&text));
+        assert_eq!(codes(&issues), vec!["animation.missing-clip-file"]);
+        assert_eq!(issues[0].line, Some(3));
+    }
+
+    /// The printer writes `0x…` when nothing names the hash, so that is what a line
+    /// lookup has to match on for a `file` reference the dictionary cannot resolve.
+    #[test]
+    fn an_unresolved_clip_hash_still_finds_its_line() {
+        let anm = "assets/characters/yone/skins/base/invented/dance.anm";
+        let hash = flint_hash::hash::wad_chunk_hash(anm);
+        let bin = animation_bin(BinValue::File(hash));
+        let text = format!("a
+b
+    mAnimationFilePath: file = 0x{hash:016x}
+");
+
+        let issues =
+            check_animation_assets(&bin, "anim.bin", &HashMapper::new(), &HashSet::new(), Some(&text));
+        assert_eq!(issues[0].line, Some(3));
     }
 
     /// A real game path is a different finding: the client loads it from its own WADs.
@@ -1180,7 +1255,7 @@ mod tests {
         let mut names = HashMapper::new();
         names.insert(flint_hash::hash::wad_chunk_hash(anm), anm.to_string());
 
-        let issues = check_animation_assets(&bin, "anim.bin", &names, &HashSet::new());
+        let issues = check_animation_assets(&bin, "anim.bin", &names, &HashSet::new(), None);
         assert_eq!(codes(&issues), vec!["animation.clip-from-game"]);
         assert_eq!(issues[0].severity, Severity::Warning);
     }
@@ -1195,7 +1270,7 @@ mod tests {
         names.insert(hash, anm.to_string());
         flint_hash::hash::local_custom_hashes().write().insert(hash);
 
-        let issues = check_animation_assets(&bin, "anim.bin", &names, &HashSet::new());
+        let issues = check_animation_assets(&bin, "anim.bin", &names, &HashSet::new(), None);
         assert_eq!(codes(&issues), vec!["animation.missing-clip-file"]);
         assert_eq!(issues[0].severity, Severity::Critical);
 
@@ -1207,7 +1282,7 @@ mod tests {
         let anm = "assets/characters/yone/skins/skin0/animations/dance.anm";
         let bin = animation_bin(BinValue::String(anm.to_string()));
         let present = HashSet::from([flint_hash::hash::wad_chunk_hash(anm)]);
-        assert!(check_animation_assets(&bin, "anim.bin", &HashMapper::new(), &present).is_empty());
+        assert!(check_animation_assets(&bin, "anim.bin", &HashMapper::new(), &present, None).is_empty());
     }
 
     /// The current form: the path is only an xxh64, and the folder index is keyed by it.
@@ -1217,10 +1292,10 @@ mod tests {
         let hash = flint_hash::hash::wad_chunk_hash(anm);
         let bin = animation_bin(BinValue::File(hash));
 
-        assert!(check_animation_assets(&bin, "anim.bin", &HashMapper::new(), &HashSet::from([hash]))
+        assert!(check_animation_assets(&bin, "anim.bin", &HashMapper::new(), &HashSet::from([hash]), None)
             .is_empty());
         let missing =
-            check_animation_assets(&bin, "anim.bin", &HashMapper::new(), &HashSet::new());
+            check_animation_assets(&bin, "anim.bin", &HashMapper::new(), &HashSet::new(), None);
         assert_eq!(codes(&missing), vec!["animation.missing-clip-file"]);
         assert_eq!(missing[0].severity, Severity::Critical);
     }

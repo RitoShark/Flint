@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useModalStore, useNavigationStore, useNotificationStore, useProjectTabStore } from '../../lib/stores';
 import { useAppMetadataStore } from '../../lib/stores/appMetadataStore';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
-import { issueTagsFromIssues } from '../../lib/audit/projectAudit';
+import { issueNeedle, issueTagsFromIssues } from '../../lib/audit/projectAudit';
 import { requestRevealLine, requestRevealText } from '../../lib/editor/binEditorEvents';
 import { revealInTree } from '../../lib/editor/revealInTree';
 import { VirtualList } from '../preview/VirtualList';
@@ -34,15 +34,6 @@ const VIEW_EMPTY: Record<View, string> = {
     missing: 'Every referenced asset is present.',
     bloat: 'Every file here is referenced.',
 };
-
-/* A finding with no line still names what it is about, in its message. Pulling the
-   asset path back out lets the editor select the reference itself rather than just
-   opening the file and leaving the reader to search for it. */
-const ASSET_PATH_IN_MESSAGE = /((?:assets|data)\/[^\s,)"']+\.[a-z0-9]{2,5})/i;
-
-function issueNeedle(issue: api.CheckIssue): string | null {
-    return ASSET_PATH_IN_MESSAGE.exec(issue.message)?.[1] ?? null;
-}
 
 const Icon: React.FC<{ name: Parameters<typeof getIcon>[0]; className?: string }> = ({ name, className }) => (
     <span className={className} dangerouslySetInnerHTML={{ __html: getIcon(name) }} />

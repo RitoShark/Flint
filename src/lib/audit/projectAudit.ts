@@ -16,6 +16,15 @@ function isActiveProject(projectPath: string): boolean {
     return tab?.projectPath === projectPath;
 }
 
+/* A finding that could not be pinned to a line still NAMES what it is about, in its
+   message. Pulling the asset path back out lets a reader land on the reference itself
+   instead of being handed the file and left to search it. */
+const ASSET_PATH_IN_MESSAGE = /((?:assets|data)\/[^\s,)"']+\.[a-z0-9]{2,5})/i;
+
+export function issueNeedle(issue: api.CheckIssue): string | null {
+    return ASSET_PATH_IN_MESSAGE.exec(issue.message)?.[1] ?? null;
+}
+
 /** `Line 12 · expected texturePath: file — <message>` when the check pinned it down. */
 export function issueText(issue: api.CheckIssue): string {
     const where = [

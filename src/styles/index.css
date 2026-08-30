@@ -5668,6 +5668,27 @@ input.np-search:focus {
   background: color-mix(in oklab, var(--color-danger) 26%, transparent);
 }
 
+/* Audit findings, marked where they sit. The marker squiggle alone is invisible in a
+   5000-line BIN you have not scrolled to; the line tint and the margin glyph are what
+   make one findable, and the ruler/minimap colours put it on the scrollbar. */
+.flint-issue-line--critical {
+  background: color-mix(in oklab, var(--color-danger) 10%, transparent) !important;
+}
+
+.flint-issue-line--warning {
+  background: color-mix(in oklab, var(--color-warning) 10%, transparent) !important;
+}
+
+.flint-issue-glyph {
+  border-radius: 50%;
+  margin-left: 3px;
+  width: 8px !important;
+  height: 8px !important;
+}
+
+.flint-issue-glyph--critical { background: var(--color-danger); }
+.flint-issue-glyph--warning { background: var(--color-warning); }
+
 /* Flash for a line jumped to from the audit report or a search hit. Fades on its
    own so it reads as "here", not as a persistent state the reader has to dismiss. */
 .flint-reveal-line {
