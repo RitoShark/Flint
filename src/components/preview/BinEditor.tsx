@@ -809,7 +809,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         if (!model) return;
 
         const current = model.getLineContent(line).match(/"([^"]*)"/)?.[1] ?? '';
-        const simpleSkin = model.getValue().match(/simpleSkin:\s*string\s*=\s*"([^"]+)"/i)?.[1];
+        const simpleSkin = model.getValue().match(/simpleSkin:\s*(?:string|file)\s*=\s*"([^"]+)"/i)?.[1];
 
         if (!simpleSkin) {
             setSubmeshPicker({ line, current, names: [], note: 'This BIN has no simpleSkin field, so no mesh could be located.' });

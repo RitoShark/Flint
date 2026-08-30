@@ -10102,6 +10102,41 @@ input.np-search:focus {
   white-space: nowrap;
 }
 
+.bin-tools__mesh {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+}
+
+.bin-tools__mesh-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bin-tools__mesh-tex {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bin-tools__color {
+  flex: none;
+  width: 34px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
 /* Design-lab inputs are page-scale (36px); match the 28px .dl-btn--sm used
    beside them so panel rows line up on one baseline. */
 .bin-tools .dl-input {

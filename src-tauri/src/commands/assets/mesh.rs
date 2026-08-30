@@ -678,6 +678,65 @@ pub async fn resolve_anm_skin(anm_path: String) -> Result<AnmSkinResolution, Str
 }
 
 
+#[derive(serde::Serialize)]
+pub struct SkinMeshEntry {
+    pub submesh: String,
+    /// In-WAD path of the diffuse this submesh renders with today, if the bins name one.
+    pub texture: Option<String>,
+}
+
+/// Every submesh of the mesh a skin BIN drives, with the diffuse texture each one
+/// currently uses — the two things a new material has to be told.
+///
+/// Goes through `skin_mesh_refs` rather than a regex over the text: `simpleSkin` is a
+/// `file` on current builds and a `string` on older ones, and the index reads both.
+#[tauri::command]
+pub async fn list_skin_meshes(bin_path: String) -> Result<Vec<SkinMeshEntry>, String> {
+    tokio::task::spawn_blocking(move || {
+        use ritoshark::prelude::Parse;
+
+        let bin = Path::new(&bin_path);
+        let refs = flint_core::mesh::animation::skin_mesh_refs(bin).map_err(|e| e.to_string())?;
+        let simple_skin = refs
+            .simple_skin
+            .ok_or_else(|| "This BIN has no simpleSkin field, so no mesh could be located.".to_string())?;
+
+        let base_dir = bin.parent().unwrap_or(Path::new("."));
+        let skn_path = flint_core::mesh::animation::resolve_animation_path(base_dir, &simple_skin)
+            .filter(|p| p.exists())
+            .ok_or_else(|| format!("Could not find the mesh at \"{simple_skin}\"."))?;
+
+        let data = std::fs::read(&skn_path)
+            .map_err(|e| format!("Failed to read '{}': {}", skn_path.display(), e))?;
+        let mesh = ritoshark::mesh::SkinnedMesh::from_bytes(&data)
+            .map_err(|e| format!("Failed to parse SKN '{}': {:?}", skn_path.display(), e))?;
+
+        let bins = mesh_bins(&skn_path);
+        let mapping = if bins.is_empty() {
+            None
+        } else {
+            let index = BinIndex::new(bins.iter().map(|b| (&b.0, b.1.clone())));
+            Some(extract_texture_mapping(&index))
+        };
+
+        Ok(mesh
+            .ranges()
+            .iter()
+            .map(|range| SkinMeshEntry {
+                texture: mapping.as_ref().and_then(|m| {
+                    m.material_properties
+                        .get(&range.name)
+                        .map(|p| p.texture_path.clone())
+                        .or_else(|| m.default_texture.clone())
+                }),
+                submesh: range.name.clone(),
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| format!("Skin mesh task failed: {}", e))?
+}
+
 /// Submesh (material-range) names of a `.skn`, for the BIN editor's
 /// `Submesh: string = "..."` picker.
 ///

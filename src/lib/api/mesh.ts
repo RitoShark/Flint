@@ -286,3 +286,12 @@ export async function resolveAnmSkin(anmPath: string): Promise<AnmSkinResolution
 export async function readSknSubmeshNames(sknPath: string): Promise<string[]> {
     return invokeCommand('read_skn_submesh_names', { sknPath });
 }
+
+export interface SkinMeshEntry {
+    submesh: string;
+    texture: string | null;
+}
+
+export async function listSkinMeshes(binPath: string): Promise<SkinMeshEntry[]> {
+    return invokeCommand('list_skin_meshes', { binPath });
+}

@@ -7,13 +7,15 @@ import {
     insertMaterialOverrideEntry,
     type MaterialOverrideKind,
 } from '../../../lib/editor/binTools/materialOverride';
+import { ToonShadingForm } from './ToonShadingForm';
 
 interface MaterialOverrideSectionProps {
     content: string;
+    filePath: string;
     onApply: (text: string) => void;
 }
 
-export const MaterialOverrideSection: React.FC<MaterialOverrideSectionProps> = ({ content, onApply }) => {
+export const MaterialOverrideSection: React.FC<MaterialOverrideSectionProps> = ({ content, filePath, onApply }) => {
     const [collapsed, setCollapsed] = useState(!useSectionDefault('Material Override'));
     const [exists, setExists] = useState(false);
     const [status, setStatus] = useState('');
@@ -21,6 +23,7 @@ export const MaterialOverrideSection: React.FC<MaterialOverrideSectionProps> = (
     const [submesh, setSubmesh] = useState('');
     const [kind, setKind] = useState<MaterialOverrideKind>('texture');
     const [formOpen, setFormOpen] = useState(false);
+    const [toonOpen, setToonOpen] = useState(false);
 
     useEffect(() => {
         setExists(content.includes('materialOverride:'));
@@ -55,25 +58,43 @@ export const MaterialOverrideSection: React.FC<MaterialOverrideSectionProps> = (
                     </button>
                 ) : (
                     <>
-                        {!formOpen && (
-                            <div className="bin-tools__row">
+                        {!formOpen && !toonOpen && (
+                            <>
+                                <div className="bin-tools__row">
+                                    <button
+                                        className="dl-btn dl-btn--sm"
+                                        style={{ flex: 1 }}
+                                        onClick={() => { setKind('texture'); setFormOpen(true); }}
+                                    >
+                                        <Icon className="bin-tools__glyph" name="texture" />
+                                        Texture
+                                    </button>
+                                    <button
+                                        className="dl-btn dl-btn--sm"
+                                        style={{ flex: 1 }}
+                                        onClick={() => { setKind('material'); setFormOpen(true); }}
+                                    >
+                                        <Icon className="bin-tools__glyph" name="contrast" />
+                                        Material
+                                    </button>
+                                </div>
                                 <button
                                     className="dl-btn dl-btn--sm"
-                                    style={{ flex: 1 }}
-                                    onClick={() => { setKind('texture'); setFormOpen(true); }}
+                                    style={{ width: '100%' }}
+                                    onClick={() => setToonOpen(true)}
                                 >
-                                    <Icon className="bin-tools__glyph" name="texture" />
-                                    Texture
+                                    <Icon className="bin-tools__glyph" name="color-palette" />
+                                    Toon shading
                                 </button>
-                                <button
-                                    className="dl-btn dl-btn--sm"
-                                    style={{ flex: 1 }}
-                                    onClick={() => { setKind('material'); setFormOpen(true); }}
-                                >
-                                    <Icon className="bin-tools__glyph" name="contrast" />
-                                    Material
-                                </button>
-                            </div>
+                            </>
+                        )}
+                        {toonOpen && (
+                            <ToonShadingForm
+                                content={content}
+                                filePath={filePath}
+                                onApply={onApply}
+                                onDone={() => setToonOpen(false)}
+                            />
                         )}
                         {formOpen && (
                             <div className="bin-tools__body">

@@ -5,12 +5,12 @@ import {
     buildToonMaterial,
     hasToonMaterial,
     insertToonMaterial,
-    uniqueToonName,
+    toonMaterialName,
 } from './toonShading';
 
 const opts = (over: Partial<Parameters<typeof buildToonMaterial>[1]> = {}) => ({
     ...TOON_DEFAULTS,
-    name: 'flint_toon_shading_1',
+    name: 'Aurora/Proj/Materials/Proj_Toon_Shading_Body',
     diffusePath: 'assets/characters/aurora/skins/skin01/aurora_skin01_tx_cm.dds',
     ...over,
 });
@@ -84,13 +84,21 @@ describe('insertToonMaterial', () => {
     });
 });
 
-describe('uniqueToonName', () => {
-    it('stamps the base name with the second', () => {
-        expect(uniqueToonName('', 'toon', 1_700_000_000_000)).toBe('toon_1700000000');
+describe('toonMaterialName', () => {
+    it('namespaces by champion, project and submesh like the banner does', () => {
+        expect(toonMaterialName('Aurora', 'My Skin', 'Body')).toBe(
+            'Aurora/MySkin/Materials/MySkin_Toon_Shading_Body',
+        );
+    });
+
+    it('falls back to Skin when the project has no champion', () => {
+        expect(toonMaterialName('', 'Proj', 'Cape')).toBe('Skin/Proj/Materials/Proj_Toon_Shading_Cape');
     });
 
     it('bumps a suffix when that name is already in the bin', () => {
-        const text = '"toon_1700000000" = StaticMaterialDef {}';
-        expect(uniqueToonName(text, 'toon', 1_700_000_000_000)).toBe('toon_1700000000_2');
+        const name = toonMaterialName('Aurora', 'Proj', 'Body');
+        expect(toonMaterialName('Aurora', 'Proj', 'Body', `"${name}" = StaticMaterialDef {}`)).toBe(
+            `${name}_2`,
+        );
     });
 });

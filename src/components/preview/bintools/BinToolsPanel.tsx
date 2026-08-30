@@ -3,7 +3,6 @@ import type * as monacoNs from 'monaco-editor';
 import { Icon } from '../../ui';
 import { SkinScaleSection } from './SkinScaleSection';
 import { MaterialOverrideSection } from './MaterialOverrideSection';
-import { ToonShadingSection } from './ToonShadingSection';
 import { VfxSection } from './VfxSection';
 import { VfxIndexSection } from './VfxIndexSection';
 import { IdleParticlesSection } from './IdleParticlesSection';
@@ -53,8 +52,7 @@ export const BinToolsPanel: React.FC<BinToolsPanelProps> = ({
             </div>
 
             <SkinScaleSection content={settled} onApply={apply} />
-            <MaterialOverrideSection content={settled} onApply={apply} />
-            <ToonShadingSection content={settled} filePath={filePath} onApply={apply} />
+            <MaterialOverrideSection content={settled} filePath={filePath} onApply={apply} />
             {isSkin && <IdleParticlesSection content={settled} onApply={apply} />}
             {isSkin && <PersistentVfxSection content={settled} onApply={apply} />}
             {hasVfxEmitters(settled) && <VfxSection editorRef={editorRef} />}

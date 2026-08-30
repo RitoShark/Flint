@@ -4,7 +4,7 @@ import { appendToList } from './blockInsert';
 export const TOON_RAMP_PATH = 'assets/jadelib/toon-shading/ToonShading.tex';
 export const TOON_OUTLINE_PATH = 'assets/jadelib/toon-shading/OutlineToneMap.tex';
 
-export const TOON_BASE_NAME = 'flint_toon_shading';
+export const TOON_BASE_NAME = 'Toon_Shading';
 
 /** The toon pass' shader object. Same link the League toon materials carry. */
 const TOON_SHADER_LINK = '0x54d82cba';
@@ -46,14 +46,29 @@ function vec4(a: number, b: number, c: number, d: number): string {
     return `{ ${num(a)}, ${num(b)}, ${num(c)}, ${num(d)} }`;
 }
 
-/** Timestamped so the same material inserted from two mods never collides —
- *  the game merges StaticMaterialDefs by name across every enabled mod. */
-export function uniqueToonName(text: string, base = TOON_BASE_NAME, now = Date.now()): string {
-    const stamped = `${base}_${Math.floor(now / 1000)}`;
-    if (!text.includes(`"${stamped}"`)) return stamped;
+/**
+ * Namespaced the way the animated loadscreen banner names its material:
+ * `<Champion>/<Project>/Materials/<Project>_Toon_<Submesh>`.
+ *
+ * The game merges `StaticMaterialDef`s by name across every enabled mod, so two
+ * mods sharing a name means one of them silently loses its material. Scoping by
+ * champion + project makes that collision impossible between mods, and the
+ * submesh keeps a project's own toon materials apart.
+ */
+export function toonMaterialName(
+    champion: string,
+    project: string,
+    submesh: string,
+    text = '',
+): string {
+    const proj = project.replace(/\s+/g, '') || 'Mod';
+    const champ = champion.trim() || 'Skin';
+    const mesh = submesh.replace(/[^A-Za-z0-9_]/g, '');
+    const base = `${champ}/${proj}/Materials/${proj}_${TOON_BASE_NAME}${mesh ? `_${mesh}` : ''}`;
+    if (!text.includes(`"${base}"`)) return base;
     let n = 2;
-    while (text.includes(`"${stamped}_${n}"`)) n++;
-    return `${stamped}_${n}`;
+    while (text.includes(`"${base}_${n}"`)) n++;
+    return `${base}_${n}`;
 }
 
 function sampler(indent: string, textureName: string, path: string): string[] {
