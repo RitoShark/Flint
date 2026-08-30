@@ -16,7 +16,7 @@ use crate::checks::{
     check_animation_assets, check_animation_graph, check_bin_hazards, check_texture, CheckIssue,
     MigrationTally,
 };
-use crate::codec::{read_bin, tree_to_text_cached, MAX_BIN_SIZE};
+use crate::codec::{read_bin, MAX_BIN_SIZE};
 use flint_hash::hash::HashMapper;
 use rayon::prelude::*;
 use ritoshark::bin::{Bin, BinValue};
@@ -222,7 +222,11 @@ fn scan_bin(
     names: &HashMapper,
     present: &HashSet<u64>,
 ) -> (Vec<CheckIssue>, Mentions, MigrationTally) {
-    let text = tree_to_text_cached(bin).ok();
+    // LANDMINE: render through the guard the caller already holds. `tree_to_text_cached`
+    // takes the hash-mapper read lock itself, and a second read while one is held
+    // deadlocks the moment another thread queues a write — parking_lot's RwLock is not
+    // reentrant, and the audit fans this out across rayon.
+    let text = crate::codec::tree_to_text_with_hashes(bin, names).ok();
     let mut mentions = Mentions::default();
     collect_mentions(bin, names, text.as_deref(), &mut mentions);
 
@@ -257,6 +261,12 @@ fn name_file_mentions(bin: &Bin, names: &HashMapper, out: &mut Mentions) {
             }
         }
     }
+}
+
+/// The animation checks that already name a `.anm` — NOT `animation.dangling-clip`, which
+/// is about a clip name with no entry in the map and says nothing about a file.
+fn names_a_clip_file(code: &str) -> bool {
+    matches!(code, "animation.missing-clip-file" | "animation.clip-from-game")
 }
 
 fn missing_ref_issue(rel: &str, absent: &[String]) -> CheckIssue {
@@ -338,9 +348,7 @@ pub fn check_one_file(dir: &Path, rel: &str) -> Result<Vec<CheckIssue>, String> 
     drop(bin_names);
     issues.extend(tally.into_issues());
 
-    let clips_reported = issues
-        .iter()
-        .any(|i| i.code == "animation.missing-clip-file");
+    let clips_reported = issues.iter().any(|i| names_a_clip_file(i.code));
     let mut absent: Vec<String> = mentions
         .paths
         .iter()
@@ -498,7 +506,7 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
         let clips_reported = report
             .issues
             .iter()
-            .any(|i| i.code == "animation.missing-clip-file" && i.file == *rel);
+            .any(|i| names_a_clip_file(i.code) && i.file == *rel);
         let mut absent: Vec<String> = own
             .paths
             .iter()

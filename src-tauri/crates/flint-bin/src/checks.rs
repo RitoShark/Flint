@@ -417,8 +417,11 @@ pub fn check_animation_assets(
         }
     }
 
-    let mut missing: Vec<String> = Vec::new();
+    let local = flint_hash::hash::local_custom_hashes().read();
+    let mut invented: Vec<String> = Vec::new();
+    let mut from_game: Vec<String> = Vec::new();
     let mut seen: HashSet<u64> = HashSet::new();
+
     for (clip, path, hash) in found {
         if present.contains(&hash) || !seen.insert(hash) {
             continue;
@@ -428,29 +431,60 @@ pub fn check_animation_assets(
         } else {
             path
         };
-        missing.push(match clip {
+        let label = match clip {
             Some(clip) => format!("{} → {file}", clip_label(clip, names)),
             None => file,
-        });
+        };
+        // A path the shared dictionary knows is a real game asset, and the client loads it
+        // from the game's own WADs. Anything else was invented by a tool — this machine
+        // is the only reason it even has a name — so nothing can supply it.
+        if !local.contains(&hash) && names.contains(hash) {
+            from_game.push(label);
+        } else {
+            invented.push(label);
+        }
     }
-    if missing.is_empty() {
-        return Vec::new();
-    }
+    drop(local);
 
-    missing.sort();
-    let shown = missing[..missing.len().min(3)].join(", ");
-    let rest = missing.len().saturating_sub(3);
-    vec![CheckIssue::new(
-        Severity::Warning,
-        "animation.missing-clip-file",
-        rel,
-        format!(
-            "{} animation clip{} point at an `.anm` this mod does not ship ({shown}{}). Unless the game provides it, the animation does not play.",
-            missing.len(),
-            if missing.len() == 1 { "" } else { "s" },
-            if rest > 0 { format!(", and {rest} more") } else { String::new() },
-        ),
-    )]
+    let mut out = Vec::new();
+    if !invented.is_empty() {
+        invented.sort();
+        out.push(CheckIssue::new(
+            Severity::Critical,
+            "animation.missing-clip-file",
+            rel,
+            format!(
+                "{} animation clip{} point at an `.anm` that is not in this mod and is not a game path ({}). The client has nothing to load and crashes when the clip plays.",
+                invented.len(),
+                if invented.len() == 1 { "" } else { "s" },
+                summarize(&invented),
+            ),
+        ));
+    }
+    if !from_game.is_empty() {
+        from_game.sort();
+        out.push(CheckIssue::new(
+            Severity::Warning,
+            "animation.clip-from-game",
+            rel,
+            format!(
+                "{} animation clip{} point at a game `.anm` this mod does not ship ({}). That plays the base animation — intended for a partial mod, wrong if it was meant to be replaced.",
+                from_game.len(),
+                if from_game.len() == 1 { "" } else { "s" },
+                summarize(&from_game),
+            ),
+        ));
+    }
+    out
+}
+
+/// First three, then "and N more" — the shape every list-carrying message uses.
+fn summarize(items: &[String]) -> String {
+    let shown = items[..items.len().min(3)].join(", ");
+    match items.len().saturating_sub(3) {
+        0 => shown,
+        rest => format!("{shown}, and {rest} more"),
+    }
 }
 
 // ─── BIN content hazards ─────────────────────────────────────────────────────
@@ -1122,17 +1156,50 @@ mod tests {
         }
     }
 
+    /// A path no shared dictionary knows was invented by a tool, so nothing can supply it.
     #[test]
-    fn a_clip_whose_anm_is_missing_is_reported_with_its_name() {
-        let anm = "assets/characters/yone/skins/skin0/animations/dance.anm";
+    fn a_clip_pointing_at_an_invented_path_is_critical() {
+        let anm = "assets/characters/yone/skins/base/rayquaza_animations/dance.anm";
         let bin = animation_bin(BinValue::String(anm.to_string()));
         let mut names = HashMapper::new();
         names.insert(fnv1a("Dance") as u64, "Dance".to_string());
 
         let issues = check_animation_assets(&bin, "anim.bin", &names, &HashSet::new());
         assert_eq!(codes(&issues), vec!["animation.missing-clip-file"]);
+        assert_eq!(issues[0].severity, Severity::Critical);
         assert!(issues[0].message.contains("Dance"), "{}", issues[0].message);
         assert!(issues[0].message.contains("dance.anm"), "{}", issues[0].message);
+        assert!(issues[0].message.contains("crashes"), "{}", issues[0].message);
+    }
+
+    /// A real game path is a different finding: the client loads it from its own WADs.
+    #[test]
+    fn a_clip_pointing_at_a_game_path_is_only_a_warning() {
+        let anm = "assets/characters/yone/skins/skin0/animations/dance.anm";
+        let bin = animation_bin(BinValue::String(anm.to_string()));
+        let mut names = HashMapper::new();
+        names.insert(flint_hash::hash::wad_chunk_hash(anm), anm.to_string());
+
+        let issues = check_animation_assets(&bin, "anim.bin", &names, &HashSet::new());
+        assert_eq!(codes(&issues), vec!["animation.clip-from-game"]);
+        assert_eq!(issues[0].severity, Severity::Warning);
+    }
+
+    /// The same path, but this machine is the only reason it has a name at all.
+    #[test]
+    fn a_locally_invented_name_does_not_make_a_path_a_game_asset() {
+        let anm = "assets/characters/yone/skins/base/invented_7d9f/dance.anm";
+        let hash = flint_hash::hash::wad_chunk_hash(anm);
+        let bin = animation_bin(BinValue::String(anm.to_string()));
+        let mut names = HashMapper::new();
+        names.insert(hash, anm.to_string());
+        flint_hash::hash::local_custom_hashes().write().insert(hash);
+
+        let issues = check_animation_assets(&bin, "anim.bin", &names, &HashSet::new());
+        assert_eq!(codes(&issues), vec!["animation.missing-clip-file"]);
+        assert_eq!(issues[0].severity, Severity::Critical);
+
+        flint_hash::hash::local_custom_hashes().write().remove(&hash);
     }
 
     #[test]
@@ -1155,6 +1222,7 @@ mod tests {
         let missing =
             check_animation_assets(&bin, "anim.bin", &HashMapper::new(), &HashSet::new());
         assert_eq!(codes(&missing), vec!["animation.missing-clip-file"]);
+        assert_eq!(missing[0].severity, Severity::Critical);
     }
 
     #[test]
