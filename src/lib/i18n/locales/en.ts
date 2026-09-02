@@ -253,6 +253,7 @@ export const en: TranslationDict = {
     'contextMenu.exportPng': 'Export as .png',
     'contextMenu.recolor': 'Recolor',
     'contextMenu.createThumbnail': 'Create Thumbnail…',
+    'contextMenu.uvLayers': 'Cut Textures by UV…',
     'contextMenu.compareWith': 'Compare with…',
     'contextMenu.compareOriginal': 'Original (from WAD)',
     'contextMenu.compareBackup': 'Backup',

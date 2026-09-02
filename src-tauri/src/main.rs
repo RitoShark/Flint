@@ -536,6 +536,7 @@ fn main() {
             commands::texture_convert::convert_png_to_tex,
             commands::texture_convert::convert_png_to_dds,
             commands::texture_convert::fix_texture_alignment,
+            commands::uv_layers::export_uv_layers,
             commands::texture_convert::convert_png_bytes_to_tex,
             commands::texture_convert::convert_tex_bytes_to_dds,
             commands::texture_convert::convert_dds_bytes_to_tex,

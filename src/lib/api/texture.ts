@@ -134,3 +134,32 @@ export async function convertDdsBytesToTex(data: Uint8Array): Promise<Uint8Array
     const buf = await invokeRaw<ArrayBuffer>('convert_dds_bytes_to_tex', data);
     return new Uint8Array(buf);
 }
+
+// =============================================================================
+// UV-cut Photoshop layers
+// =============================================================================
+
+export interface UvLayerExport {
+    /** Absolute path of every PSD written, one per texture. */
+    files: string[];
+    layers: number;
+    /** Submeshes that produced no layer, with why. */
+    skipped: string[];
+}
+
+/**
+ * Cut every texture a `.skn` uses into one Photoshop layer per submesh, stencilled
+ * by that submesh's UV shells. Writes one PSD per texture beside the mesh unless
+ * `outDir` says otherwise; `bleed` grows each mask outwards (default 2px).
+ */
+export async function exportUvLayers(
+    sknPath: string,
+    outDir?: string,
+    bleed?: number,
+): Promise<UvLayerExport> {
+    return invokeCommand('export_uv_layers', {
+        sknPath,
+        outDir: outDir ?? null,
+        bleed: bleed ?? null,
+    });
+}

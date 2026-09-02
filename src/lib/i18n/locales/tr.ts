@@ -248,6 +248,7 @@ export const tr: TranslationDict = {
     'contextMenu.exportPng': '.png Olarak Dışa Aktar',
     'contextMenu.recolor': 'Renk Değiştir',
     'contextMenu.createThumbnail': 'Kapak Resmi Oluştur…',
+    'contextMenu.uvLayers': 'Dokuları UV ile Kes…',
     'contextMenu.compareWith': 'Karşılaştır…',
     'contextMenu.compareOriginal': 'Orijinal (WAD Dosyasından)',
     'contextMenu.compareBackup': 'Yedek',

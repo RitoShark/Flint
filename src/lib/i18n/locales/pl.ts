@@ -248,6 +248,7 @@ export const pl: TranslationDict = {
     'contextMenu.exportPng': 'Eksportuj jako .png',
     'contextMenu.recolor': 'Zmień kolor',
     'contextMenu.createThumbnail': 'Stwórz miniaturkę…',
+    'contextMenu.uvLayers': 'Tnij tekstury wg UV…',
     'contextMenu.compareWith': 'Porównaj z…',
     'contextMenu.compareOriginal': 'Oryginał (z WAD)',
     'contextMenu.compareBackup': 'Kopia zapasowa',

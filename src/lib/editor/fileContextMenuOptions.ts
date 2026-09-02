@@ -598,6 +598,27 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             separator: true,
             onClick: () => openThumbnailWindow(projectPath, fullPath.replace(/\//g, '\\')),
         });
+        options.push({
+            label: t('contextMenu.uvLayers'),
+            icon: getIcon('layerModel'),
+            onClick: async () => {
+                const abs = fullPath.replace(/\//g, '\\');
+                try {
+                    showToast('info', 'Cutting textures by UV…');
+                    const result = await api.exportUvLayers(abs);
+                    const files = result.files.length;
+                    showToast(
+                        'success',
+                        `${result.layers} layer${result.layers === 1 ? '' : 's'} across ${files} PSD${files === 1 ? '' : 's'}`
+                        + (result.skipped.length ? ` (${result.skipped.length} skipped)` : ''),
+                    );
+                    await refreshFileTree();
+                } catch (e) {
+                    const m = (e as { message?: string })?.message ?? String(e);
+                    showToast('error', `UV layers failed: ${m}`);
+                }
+            },
+        });
     }
 
     // ── Compare / Backup ──────────────────────────────────────────────
