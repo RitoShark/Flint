@@ -181,7 +181,7 @@ interface ModelState {
     /** Unique renderingGroup/layerMask bit so this model's camera renders
      *  only this model's meshes. */
     layerMask: number;
-    /** Model-space bounding box (X-mirrored on load, same as the meshes) —
+    /** Model-space bounding box, same space as the meshes —
      *  used to (re)frame this model's own camera. */
     bbox: [[number, number, number], [number, number, number]];
     meshes: Mesh[];

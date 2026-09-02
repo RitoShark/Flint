@@ -744,18 +744,18 @@ pub fn bake_animation_file<P: AsRef<Path>>(path: P) -> anyhow::Result<BakedAnima
                 .frames
                 .iter()
                 .map(|frame| {
-                    /* X-mirror to match skl.rs joint transforms (translation [-x,y,z],
-                       rotation [x,-y,-z,w]); skeleton bind pose is in mirrored space. */
+                    /* Authored transforms, matching skl.rs — the bind pose is no
+                       longer mirrored, so neither is the animation on top of it. */
                     BakedFrame {
                         translation: [
-                            -frame.translation.x,
+                            frame.translation.x,
                             frame.translation.y,
                             frame.translation.z,
                         ],
                         rotation: [
                             frame.rotation.x,
-                            -frame.rotation.y,
-                            -frame.rotation.z,
+                            frame.rotation.y,
+                            frame.rotation.z,
                             frame.rotation.w,
                         ],
                         scale: [frame.scale.x, frame.scale.y, frame.scale.z],

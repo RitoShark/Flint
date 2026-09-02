@@ -86,18 +86,21 @@ pub fn parse_skn_file<P: AsRef<Path>>(path: P) -> anyhow::Result<SknMeshData> {
         .map(MaterialRange::from)
         .collect();
 
-    /* mirrorX: negate X (League's left-hand coords); normals negate Y and Z;
-       UVs kept raw (top-left origin). */
+    /* Vertex data passes through UNTRANSFORMED. Babylon's default scene is
+       left-handed, the same as League, so there is no handedness conversion to
+       do here — the only mismatch is triangle winding, and the mesh builder
+       reverses that. Negating an axis instead renders a mirrored champion.
+       UVs are raw (top-left origin); the builder flips V. */
     let vertices = mesh.vertices();
 
     let positions: Vec<[f32; 3]> = vertices
         .iter()
-        .map(|v| [-v.position.x, v.position.y, v.position.z])
+        .map(|v| [v.position.x, v.position.y, v.position.z])
         .collect();
 
     let normals: Vec<[f32; 3]> = vertices
         .iter()
-        .map(|v| [v.normal.x, -v.normal.y, -v.normal.z])
+        .map(|v| [v.normal.x, v.normal.y, v.normal.z])
         .collect();
 
     let uvs: Vec<[f32; 2]> = vertices
@@ -107,12 +110,10 @@ pub fn parse_skn_file<P: AsRef<Path>>(path: P) -> anyhow::Result<SknMeshData> {
 
     let indices: Vec<u16> = mesh.indices().to_vec();
 
-    /* Recompute the AABB from the TRANSFORMED positions (X negated above) rather
-       than trusting `mesh.bounding_box`. The stored box is in League's
-       un-mirrored space, so reusing it puts the camera target on the wrong side
-       of the mesh; worse, Blender-exported SKNs (e.g. via the Aventurine tool)
-       frequently carry a zeroed/garbage box, which collapses camera framing so
-       you can't zoom or pan out. Mirrors scb.rs. */
+    /* Recompute the AABB rather than trusting `mesh.bounding_box`:
+       Blender-exported SKNs (e.g. via the Aventurine tool) frequently carry a
+       zeroed/garbage box, which collapses camera framing so you can't zoom or
+       pan out. Mirrors scb.rs. */
     let mut bb_min = [f32::MAX; 3];
     let mut bb_max = [f32::MIN; 3];
     for p in &positions {

@@ -65,18 +65,21 @@ export function buildSknMeshes(
             }
         }
 
-        // Rebase the global indices into [0, vCount) range. Do NOT swap winding
-        // order: the backend already negates the X axis, which reverses triangle
-        // winding, so swapping here would double-invert and leave normals inward.
+        /* Rebase the global indices into [0, vCount) so each Babylon mesh has
+           self-contained buffers, AND swap each triangle's last two indices.
+           League stores the opposite winding from Babylon's convention, so left
+           as-is the computed normals point inward and the model renders
+           inside-out. Reversing the winding is the WHOLE fix — Babylon's default
+           scene is left-handed, same as League, so no axis conversion is wanted
+           and negating one would mirror the champion. */
         const indices = new Uint32Array(iCount);
         for (let i = 0; i < iCount; i += 3) {
             indices[i]     = skn.indices[iStart + i]     - vStart;
-            indices[i + 1] = skn.indices[iStart + i + 1] - vStart;
-            indices[i + 2] = skn.indices[iStart + i + 2] - vStart;
+            indices[i + 1] = skn.indices[iStart + i + 2] - vStart;
+            indices[i + 2] = skn.indices[iStart + i + 1] - vStart;
         }
 
-        // Compute normals rather than trusting the source file's. DO NOT negate
-        // afterwards — that would flip them inward.
+        // Computed from the rewound indices, so they point outward.
         const normals = new Float32Array(vCount * 3);
         VertexData.ComputeNormals(positions, indices, normals);
 

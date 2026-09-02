@@ -3,7 +3,6 @@
 use std::path::Path;
 
 use ritoshark::anim::Skeleton;
-use ritoshark::math::{Mat4, Vec3};
 use ritoshark::prelude::Parse;
 use serde::Serialize;
 
@@ -54,27 +53,24 @@ pub fn parse_skl_file<P: AsRef<Path>>(path: P) -> anyhow::Result<SklData> {
 
             let world_pos = bind_transform.w_axis.truncate();
 
-            /* mirrorX the inverse bind matrix. Use RitoShark's glam re-export so
-               every Mat4 here matches inv_bind's glam version (mixing 0.27/0.29
-               is a type error). */
-            let mirror = Mat4::from_scale(Vec3::new(-1.0, 1.0, 1.0));
-            let mirrored_inv_bind = mirror * inv_bind * mirror;
-
+            /* Bind pose passes through as authored — the mesh is no longer
+               mirrored, so mirroring the skeleton to match would put every joint
+               on the wrong side of it. */
             let inv_bind_arr = [
-                [mirrored_inv_bind.x_axis.x, mirrored_inv_bind.x_axis.y, mirrored_inv_bind.x_axis.z, mirrored_inv_bind.x_axis.w],
-                [mirrored_inv_bind.y_axis.x, mirrored_inv_bind.y_axis.y, mirrored_inv_bind.y_axis.z, mirrored_inv_bind.y_axis.w],
-                [mirrored_inv_bind.z_axis.x, mirrored_inv_bind.z_axis.y, mirrored_inv_bind.z_axis.z, mirrored_inv_bind.z_axis.w],
-                [mirrored_inv_bind.w_axis.x, mirrored_inv_bind.w_axis.y, mirrored_inv_bind.w_axis.z, mirrored_inv_bind.w_axis.w],
+                [inv_bind.x_axis.x, inv_bind.x_axis.y, inv_bind.x_axis.z, inv_bind.x_axis.w],
+                [inv_bind.y_axis.x, inv_bind.y_axis.y, inv_bind.y_axis.z, inv_bind.y_axis.w],
+                [inv_bind.z_axis.x, inv_bind.z_axis.y, inv_bind.z_axis.z, inv_bind.z_axis.w],
+                [inv_bind.w_axis.x, inv_bind.w_axis.y, inv_bind.w_axis.z, inv_bind.w_axis.w],
             ];
 
             BoneData {
                 name: joint.name.clone(),
                 id: joint.id,
                 parent_id: joint.parent_id,
-                local_translation: [-translation.x, translation.y, translation.z],
-                local_rotation: [rotation.x, -rotation.y, -rotation.z, rotation.w],
+                local_translation: [translation.x, translation.y, translation.z],
+                local_rotation: [rotation.x, rotation.y, rotation.z, rotation.w],
                 local_scale: [scale.x, scale.y, scale.z],
-                world_position: [-world_pos.x, world_pos.y, world_pos.z],
+                world_position: [world_pos.x, world_pos.y, world_pos.z],
                 inverse_bind_matrix: inv_bind_arr,
             }
         })

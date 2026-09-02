@@ -53,12 +53,14 @@ pub fn parse_scb_file<P: AsRef<Path>>(path: P) -> anyhow::Result<ScbMeshData> {
 
     tracing::debug!("Static mesh parsed: {} vertices, {} faces", mesh.positions().len(), mesh.faces().len());
 
-    /* mirrorX (negate X) to convert League's left-handed coords to Babylon's
-       right-handed, matching skn.rs; buildSknMeshes does NOT swap winding. */
+    /* Positions pass through UNTRANSFORMED — Babylon's default scene is
+       left-handed, same as League, so there is nothing to convert. SCB goes
+       through `buildSknMeshes` like SKN does, so the winding is reversed there;
+       do NOT also swap it here or the two cancel out. */
     let vertices: Vec<Vec3> = mesh
         .positions()
         .iter()
-        .map(|v| Vec3::new(-v.x, v.y, v.z))
+        .map(|v| Vec3::new(v.x, v.y, v.z))
         .collect();
     let faces = mesh.faces();
 
