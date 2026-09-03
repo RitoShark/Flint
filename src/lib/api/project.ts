@@ -279,19 +279,38 @@ export interface CreateLayerResult {
     bytes_copied: number;
 }
 
+export type LayerCategory = 'animation' | 'model' | 'particle' | 'audio' | 'data' | 'other';
+
+export interface LayerFile {
+    path: string;
+    size: number;
+    category: LayerCategory;
+}
+
 export async function createProjectLayer(args: {
     projectPath: string;
     layerName: string;
     sourceLayer: string;
     categories: string[];
+    files?: string[];
     description?: string;
     priority?: number;
 }): Promise<CreateLayerResult> {
     return invokeCommand('create_project_layer', args);
 }
 
-export async function listProjectLayers(projectPath: string): Promise<string[]> {
+export interface ProjectLayer {
+    name: string;
+    priority: number;
+    description: string | null;
+}
+
+export async function listProjectLayers(projectPath: string): Promise<ProjectLayer[]> {
     return invokeCommand('list_project_layers', { projectPath });
+}
+
+export async function listLayerFiles(projectPath: string, layerName: string): Promise<LayerFile[]> {
+    return invokeCommand('list_layer_files', { projectPath, layerName });
 }
 
 export interface OpenProjectWithTreeResult {

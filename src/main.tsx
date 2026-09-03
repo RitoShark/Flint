@@ -38,6 +38,7 @@ import './styles/cdn.css';
 import './styles/importMod.css';
 import './styles/whats-new-polish.css';
 import './styles/wad-audit-polish.css';
+import './styles/add-layer-polish.css';
 // Loaded LAST so its rules win cleanly.
 import './styles/flint-2.css';
 import './themes/default.css';
