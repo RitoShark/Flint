@@ -21,18 +21,16 @@ const SLUG_RE = /^[a-zA-Z0-9_-]+$/;
 
 interface CategoryChip {
     id: api.LayerCategory;
-    label: string;
     icon: Parameters<typeof getIcon>[0];
-    hint: string;
 }
 
 const CHIPS: CategoryChip[] = [
-    { id: 'model',     label: 'Models',    icon: 'model',     hint: 'Meshes and the textures next to them' },
-    { id: 'animation', label: 'Animation', icon: 'animation', hint: 'Clips and anything under animations/' },
-    { id: 'particle',  label: 'Particles', icon: 'target',    hint: 'particles/ and vfx/ trees plus their BINs' },
-    { id: 'audio',     label: 'Audio',     icon: 'audio',     hint: 'Banks, packs and sounds/ trees' },
-    { id: 'data',      label: 'Data',      icon: 'bin',       hint: 'Everything under data/ — skin BINs, records' },
-    { id: 'other',     label: 'Other',     icon: 'file',      hint: 'Loose textures, UI art, anything left over' },
+    { id: 'model',     icon: 'model' },
+    { id: 'animation', icon: 'animation' },
+    { id: 'particle',  icon: 'target' },
+    { id: 'audio',     icon: 'audio' },
+    { id: 'data',      icon: 'bin' },
+    { id: 'other',     icon: 'file' },
 ];
 
 const Icon: React.FC<{ name: Parameters<typeof getIcon>[0]; className?: string }> = ({ name, className }) => (

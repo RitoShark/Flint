@@ -292,7 +292,6 @@ export const tr: TranslationDict = {
     'contextMenu.deleteFolderMsg': '"{name}" klasörünü ve içindeki her şeyi silmek istediğine emin misin? Bu işlem geri alınamaz.',
     'contextMenu.deleteFileTitle': 'Dosyayı Sil',
     'contextMenu.deleteFileMsg': '"{name}" dosyasını silmek istediğine emin misin? Bu işlem geri alınamaz.',
-    'contextMenu.addContributor': 'Katkıda Bulunan Ekle',
 
     // Settings Modal
     'settings.title': 'Ayarlar',

@@ -11,63 +11,8 @@ import { LuaBin64Editor } from '../preview/LuaBin64Editor';
 import { TroybinViewer } from '../preview/TroybinViewer';
 import { Button, Textarea } from '../ui';
 import { SearchSidebar } from '../browser/SearchSidebar';
-import { MOD_INFO_SECTIONS, ModInfoForm, type ModInfoSection } from '../modals/modinfo/ModInfoForm';
-import { useModInfo } from '../modals/modinfo/useModInfo';
-import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { projectRootFromFilePath } from '../../lib/wadPath';
 import { useSearchPanelStore } from '../../lib/stores/searchPanelStore';
-
-const ModConfigEditor: React.FC<{ target: FileEditorTarget }> = ({ target }) => {
-    const setDirty = useFileEditorStore((s) => s.setDirty);
-    const [section, setSection] = useState<ModInfoSection>('details');
-    const close = useCallback(() => navigationCoordinator.closeFileEditorWithFallback(), []);
-    const { draft, slug, dirty, saving, update, save } = useModInfo(target.filePath, true, close);
-
-    useEffect(() => {
-        setDirty(dirty);
-    }, [dirty, setDirty]);
-
-    if (!draft) {
-        return <div className="mi-page__loading">Loading project info…</div>;
-    }
-
-    return (
-        <div className="mi-page">
-            <nav className="mi-nav" role="tablist" aria-orientation="vertical">
-                {MOD_INFO_SECTIONS.map((entry) => (
-                    <button
-                        key={entry.id}
-                        role="tab"
-                        aria-selected={section === entry.id}
-                        className={`mi-nav__item${section === entry.id ? ' is-active' : ''}`}
-                        onClick={() => setSection(entry.id)}
-                    >
-                        <span
-                            className="mi-nav__icon"
-                            dangerouslySetInnerHTML={{ __html: getIcon(entry.icon) }}
-                        />
-                        <span className="mi-nav__label">{entry.label}</span>
-                    </button>
-                ))}
-            </nav>
-
-            <div className="mi-page__main">
-                <div className="mi-body" role="tabpanel">
-                    <ModInfoForm section={section} draft={draft} slug={slug} onChange={update} />
-                </div>
-                <div className="mi-page__foot">
-                    <span className="mi-foot__path">mod.config.json</span>
-                    <button className="dl-btn dl-btn--secondary" onClick={close} disabled={saving}>
-                        {dirty ? 'Discard' : 'Close'}
-                    </button>
-                    <button className="dl-btn dl-btn--primary" onClick={() => void save()} disabled={!dirty || saving}>
-                        {saving ? 'Saving…' : 'Save'}
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
 
 // ─── Raw text fallback ─────────────────────────────────────────────────
 
@@ -149,7 +94,6 @@ export const FileEditorPage: React.FC = () => {
     }
 
     const isBin = target.kind === 'binText';
-    const ownsScroll = isBin || target.kind === 'modConfig';
     const searchRoot = isBin
         ? (target.projectPath ?? projectRootFromFilePath(target.filePath))
         : null;
@@ -167,12 +111,11 @@ export const FileEditorPage: React.FC = () => {
                     display: 'flex',
                     flexDirection: 'column',
                     height: '100%',
-                    overflowY: ownsScroll ? 'hidden' : 'auto',
+                    overflowY: isBin ? 'hidden' : 'auto',
                     backgroundColor: 'var(--bg-primary)',
                 }}
             >
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                    {target.kind === 'modConfig' && <ModConfigEditor key={target.filePath} target={target} />}
                     {target.kind === 'raw' && <RawTextEditor key={target.filePath} target={target} />}
                     {isBin && (
                         <BinEditor key={target.filePath} filePath={target.filePath} hideFilename />

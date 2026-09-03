@@ -139,11 +139,16 @@
 /* --------------------------------------------------------------------------
    Body — the layer's identity on the left, what goes into it on the right
    -------------------------------------------------------------------------- */
+/* min-height: 0 everywhere down this chain, or the form column's content sets
+   the body's height, the footer is pushed past the modal's bottom edge, and
+   .dl-modal's overflow:hidden clips the buttons off. */
 .al-modal .dl-modal__body {
     display: grid;
     grid-template-columns: 260px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     gap: 0;
     padding: 0;
+    min-height: 0;
     overflow: hidden;
     background: transparent;
 }
@@ -154,12 +159,14 @@
     gap: 14px;
     padding: 16px 14px;
     min-width: 0;
+    min-height: 0;
     overflow-y: auto;
     border-right: 1px solid color-mix(in oklab, var(--border) 45%, transparent);
 }
 
 .al-modal .al-field {
     display: flex;
+    flex: none;
     flex-direction: column;
     gap: 5px;
     min-width: 0;
@@ -214,6 +221,7 @@
     display: flex;
     flex-direction: column;
     gap: 3px;
+    flex: none;
     margin-top: auto;
     padding-top: 12px;
     border-top: 1px solid color-mix(in oklab, var(--border) 40%, transparent);
@@ -501,6 +509,8 @@
    Footer
    -------------------------------------------------------------------------- */
 .al-modal .dl-modal__foot {
+    flex: none;
+    align-items: center;
     gap: 8px;
     padding: 12px 16px;
     background: transparent;

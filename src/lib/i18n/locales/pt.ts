@@ -292,7 +292,6 @@ export const pt: TranslationDict = {
     'contextMenu.deleteFolderMsg': 'Tem certeza que deseja excluir “{name}” e todo o seu conteúdo? Isso não pode ser desfeito.',
     'contextMenu.deleteFileTitle': 'Excluir Arquivo',
     'contextMenu.deleteFileMsg': 'Tem certeza que deseja excluir “{name}”? Isso não pode ser desfeito.',
-    'contextMenu.addContributor': 'Adicionar Colaborador',
 
     // Settings Modal
     'settings.title': 'Configurações',

@@ -17,7 +17,6 @@ import type { ProjectTab, ExtractSession, FileEditorKind } from '../../lib/types
  *  from the kind rather than the extension — every one used to show a BIN icon,
  *  including `mod.config.json` and `.troybin`. */
 const FILE_EDITOR_TAB_ICON: Record<FileEditorKind, Parameters<typeof getIcon>[0]> = {
-    modConfig: 'settings',
     binText: 'bin',
     troybin: 'config',
     luaBin64: 'code',

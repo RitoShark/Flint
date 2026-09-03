@@ -292,7 +292,6 @@ export const pl: TranslationDict = {
     'contextMenu.deleteFolderMsg': 'Czy na pewno chcesz usunąć „{name}” wraz z całą zawartością? Tej operacji nie można cofnąć.',
     'contextMenu.deleteFileTitle': 'Usuń plik',
     'contextMenu.deleteFileMsg': 'Czy na pewno chcesz usunąć „{name}”? Tej operacji nie można cofnąć.',
-    'contextMenu.addContributor': 'Dodaj współtwórcę',
 
     // Settings Modal
     'settings.title': 'Ustawienia',

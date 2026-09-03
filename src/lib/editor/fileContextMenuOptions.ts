@@ -63,14 +63,10 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                     {
                         label: t('contextMenu.editProjectInfo'),
                         icon: getIcon('settings'),
-                        onClick: () => {
-                            const configPath = `${projectPath.replace(/\\/g, '/')}/mod.config.json`;
-                            useNavigationStore.getState().navigateToFileEditor({
-                                filePath: configPath,
-                                kind: 'modConfig',
-                                projectPath,
-                            });
-                        },
+                        onClick: () =>
+                            openModal('modConfig', {
+                                filePath: `${projectPath.replace(/\\/g, '/')}/mod.config.json`,
+                            }),
                     },
                     {
                         label: t('contextMenu.setThumbnail'),
@@ -374,35 +370,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
         options.push({
             label: t('contextMenu.editProjectInfo'),
             icon: getIcon('settings'),
-            onClick: () => {
-                useNavigationStore.getState().navigateToFileEditor({
-                    filePath: fullPath,
-                    kind: 'modConfig',
-                    projectPath,
-                });
-            },
-        });
-        options.push({
-            label: t('contextMenu.addContributor'),
-            icon: getIcon('user'),
-            onClick: async () => {
-                try {
-                    const text = await api.readTextFile(fullPath);
-                    const config = JSON.parse(text);
-                    const name = prompt('Contributor name:');
-                    if (!name?.trim()) return;
-                    const role = prompt('Role (optional):');
-                    const author = role?.trim()
-                        ? { NameAndRole: { name: name.trim(), role: role.trim() } }
-                        : { Name: name.trim() };
-                    config.authors = [...(config.authors || []), author];
-                    await api.writeTextFile(fullPath, JSON.stringify(config, null, 2));
-                    showToast('success', `Added contributor: ${name.trim()}`);
-                } catch {
-                    showToast('error', 'Failed to add contributor');
-                }
-            },
-            separator: true,
+            onClick: () => openModal('modConfig', { filePath: fullPath }),
         });
     } else {
         const BIN_TEXT_EXTS = ['.bin', '.ritobin', '.py'];

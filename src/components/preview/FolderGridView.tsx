@@ -219,11 +219,7 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
                                     fileName: entry.name,
                                 });
                             } else if (entry.name === 'mod.config.json') {
-                                useNavigationStore.getState().navigateToFileEditor({
-                                    filePath: entry.absolute_path,
-                                    kind: 'modConfig',
-                                    projectPath,
-                                });
+                                openModal('modConfig', { filePath: entry.absolute_path });
                             } else if (isBinText) {
                                 useNavigationStore.getState().navigateToFileEditor({
                                     filePath: entry.absolute_path,

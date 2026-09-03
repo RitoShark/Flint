@@ -297,7 +297,6 @@ export const en: TranslationDict = {
     'contextMenu.deleteFolderMsg': 'Are you sure you want to delete "{name}" and all its contents? This cannot be undone.',
     'contextMenu.deleteFileTitle': 'Delete File',
     'contextMenu.deleteFileMsg': 'Are you sure you want to delete "{name}"? This cannot be undone.',
-    'contextMenu.addContributor': 'Add Contributor',
 
     // Settings Modal
     'settings.title': 'Settings',

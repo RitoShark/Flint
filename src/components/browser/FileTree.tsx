@@ -630,7 +630,7 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         } else if (lower.endsWith('.fantome') || lower.endsWith('.modpkg')) {
             nav.navigateToArchiveEditor(fullFilePath);
         } else if (node.name === 'mod.config.json') {
-            nav.navigateToFileEditor({ filePath: fullFilePath, kind: 'modConfig', projectPath });
+            openModal('modConfig', { filePath: fullFilePath });
         } else if (lower.endsWith('.troybin')) {
             // .troybin is a binary League config with a read-only viewer, NOT ritobin text.
             nav.navigateToFileEditor({ filePath: fullFilePath, kind: 'troybin', projectPath });

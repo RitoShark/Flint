@@ -292,7 +292,6 @@ export const de: TranslationDict = {
     'contextMenu.deleteFolderMsg': 'Möchtest du „{name}“ und den gesamten Inhalt wirklich löschen? Dies kann nicht rückgängig gemacht werden.',
     'contextMenu.deleteFileTitle': 'Datei löschen',
     'contextMenu.deleteFileMsg': 'Möchtest du „{name}“ wirklich löschen? Dies kann nicht rückgängig gemacht werden.',
-    'contextMenu.addContributor': 'Mitwirkenden hinzufügen',
 
     // Settings Modal
     'settings.title': 'Einstellungen',
