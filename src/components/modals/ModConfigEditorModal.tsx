@@ -1,259 +1,86 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useModalStore, useNotificationStore } from '../../lib/stores';
-import * as api from '../../lib/api';
-import {
-    Button,
-    Field,
-    FormGroup,
-    FormLabel,
-    Input,
-    Modal,
-    ModalBody,
-    ModalFooter,
-    ModalHeader,
-    Textarea,
-} from '../ui';
+import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useModalStore } from '../../lib/stores';
+import { getIcon } from '../../lib/ui-helpers/fileIcons';
+import { MOD_INFO_SECTIONS, ModInfoForm, type ModInfoSection } from './modinfo/ModInfoForm';
+import { useModInfo } from './modinfo/useModInfo';
 
-interface ModConfig {
-    name: string;
-    display_name: string;
-    version: string;
-    description: string;
-    authors: ModConfigAuthor[];
-    license: unknown;
-    transformers: unknown[];
-    layers: unknown[];
-    thumbnail: string | null;
-    [key: string]: unknown;
-}
-
-// ModProjectAuthor is serde(untagged):
-//   Name(String)    → serialized as plain "Author"
-//   Role {name,role} → serialized as {"name":"...","role":"..."}
-type ModConfigAuthor = string | { name: string; role: string };
-
-function getAuthorName(author: ModConfigAuthor): string {
-    if (typeof author === 'string') return author;
-    if (author && typeof author === 'object') {
-        if ('name' in author) return author.name;
-        if ('Name' in author) return (author as Record<string, unknown>).Name as string;
-        if ('NameAndRole' in author) {
-            const inner = (author as Record<string, unknown>).NameAndRole as { name: string };
-            return inner.name;
-        }
-    }
-    return '';
-}
-
-function getAuthorRole(author: ModConfigAuthor): string {
-    if (typeof author === 'string') return '';
-    if (author && typeof author === 'object') {
-        if ('role' in author) return author.role;
-        if ('NameAndRole' in author) {
-            const inner = (author as Record<string, unknown>).NameAndRole as { role: string };
-            return inner.role;
-        }
-    }
-    return '';
-}
-
-function buildAuthor(name: string, role: string): ModConfigAuthor {
-    return role.trim() ? { name, role } : name;
-}
-
-interface AuthorRow {
-    name: string;
-    role: string;
-}
-
-const AuthorEditor: React.FC<{
-    authors: AuthorRow[];
-    onAdd: () => void;
-    onRemove: (i: number) => void;
-    onUpdate: (i: number, field: 'name' | 'role', value: string) => void;
-}> = ({ authors, onAdd, onRemove, onUpdate }) => (
-    <FormGroup>
-        <div
-            style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: 6,
-            }}
-        >
-            <FormLabel>Contributors</FormLabel>
-            <Button size="sm" onClick={onAdd}>
-                + Add
-            </Button>
-        </div>
-        {authors.length === 0 && (
-            <div style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)', padding: '8px 0' }}>
-                No contributors added yet
-            </div>
-        )}
-        {authors.map((author, i) => (
-            <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
-                <Input
-                    value={author.name}
-                    onChange={(e) => onUpdate(i, 'name', e.target.value)}
-                    placeholder="Name"
-                    style={{ flex: 2 }}
-                />
-                <Input
-                    value={author.role}
-                    onChange={(e) => onUpdate(i, 'role', e.target.value)}
-                    placeholder="Role (optional)"
-                    style={{ flex: 1 }}
-                />
-                <Button
-                    size="sm"
-                    onClick={() => onRemove(i)}
-                    title="Remove contributor"
-                    style={{ color: 'var(--error)', flexShrink: 0 }}
-                >
-                    ×
-                </Button>
-            </div>
-        ))}
-    </FormGroup>
+const Icon: React.FC<{ name: Parameters<typeof getIcon>[0]; className?: string }> = ({ name, className }) => (
+    <span className={className} dangerouslySetInnerHTML={{ __html: getIcon(name) }} />
 );
 
 export const ModConfigEditorModal: React.FC = () => {
     const closeModal = useModalStore((s) => s.closeModal);
     const activeModal = useModalStore((s) => s.activeModal);
     const modalOptions = useModalStore((s) => s.modalOptions);
-    const showToast = useNotificationStore((s) => s.showToast);
 
     const isVisible = activeModal === 'modConfig';
-    const options = modalOptions as { filePath: string } | null;
+    const filePath = (modalOptions as { filePath?: string } | null)?.filePath ?? null;
 
-    const [config, setConfig] = useState<ModConfig | null>(null);
-    const [displayName, setDisplayName] = useState('');
-    const [version, setVersion] = useState('');
-    const [description, setDescription] = useState('');
-    const [authors, setAuthors] = useState<AuthorRow[]>([]);
-    const [dirty, setDirty] = useState(false);
+    const [section, setSection] = useState<ModInfoSection>('details');
+    const { draft, slug, dirty, saving, update, save } = useModInfo(filePath, isVisible, closeModal);
 
-    useEffect(() => {
-        if (!isVisible || !options?.filePath) return;
+    if (!isVisible) return null;
 
-        (async () => {
-            try {
-                const text = await api.readTextFile(options.filePath);
-                const parsed = JSON.parse(text) as ModConfig;
-                setConfig(parsed);
-                setDisplayName(parsed.display_name || '');
-                setVersion(parsed.version || '');
-                setDescription(parsed.description || '');
-                setAuthors(
-                    (parsed.authors || []).map((a) => ({
-                        name: getAuthorName(a),
-                        role: getAuthorRole(a),
-                    })),
-                );
-                setDirty(false);
-            } catch (err) {
-                console.error('Failed to load mod.config.json:', err);
-                showToast('error', 'Failed to load mod.config.json');
-                closeModal();
-            }
-        })();
-    }, [isVisible, options?.filePath, showToast, closeModal]);
+    return createPortal(
+        <div
+            className="dl-modal-backdrop"
+            onMouseDown={(e) => {
+                if (e.target === e.currentTarget && !saving) closeModal();
+            }}
+        >
+            <div className="dl-modal mi-modal" role="dialog" aria-modal="true" aria-label="Project info">
+                <div className="dl-modal__head">
+                    <span className="mi-mark">
+                        <Icon name="settings" />
+                    </span>
+                    <h3 className="mi-title">
+                        Project info
+                        <span className="mi-title__slug">{draft?.displayName || slug}</span>
+                    </h3>
+                    {dirty && <span className="mi-dirty">Unsaved</span>}
+                </div>
 
-    const handleSave = useCallback(async () => {
-        if (!config || !options?.filePath) return;
+                <div className="dl-modal__body">
+                    <nav className="mi-nav" role="tablist" aria-orientation="vertical">
+                        {MOD_INFO_SECTIONS.map((entry) => (
+                            <button
+                                key={entry.id}
+                                role="tab"
+                                aria-selected={section === entry.id}
+                                className={`mi-nav__item${section === entry.id ? ' is-active' : ''}`}
+                                onClick={() => setSection(entry.id)}
+                            >
+                                <Icon name={entry.icon} className="mi-nav__icon" />
+                                <span className="mi-nav__label">{entry.label}</span>
+                            </button>
+                        ))}
+                    </nav>
 
-        try {
-            const updated: ModConfig = {
-                ...config,
-                display_name: displayName,
-                version,
-                description,
-                authors: authors
-                    .filter((a) => a.name.trim())
-                    .map((a) => buildAuthor(a.name.trim(), a.role.trim())),
-            };
+                    <div className="mi-body" role="tabpanel">
+                        {draft ? (
+                            <ModInfoForm section={section} draft={draft} slug={slug} onChange={update} />
+                        ) : (
+                            <div className="mi-empty">Loading project info…</div>
+                        )}
+                    </div>
+                </div>
 
-            await api.writeTextFile(options.filePath, JSON.stringify(updated, null, 2));
-            showToast('success', 'Project config saved');
-            setDirty(false);
-            closeModal();
-        } catch (err) {
-            console.error('Failed to save mod.config.json:', err);
-            showToast('error', 'Failed to save project config');
-        }
-    }, [config, options?.filePath, displayName, version, description, authors, showToast, closeModal]);
-
-    const addAuthor = useCallback(() => {
-        setAuthors((prev) => [...prev, { name: '', role: '' }]);
-        setDirty(true);
-    }, []);
-
-    const removeAuthor = useCallback((index: number) => {
-        setAuthors((prev) => prev.filter((_, i) => i !== index));
-        setDirty(true);
-    }, []);
-
-    const updateAuthor = useCallback((index: number, field: 'name' | 'role', value: string) => {
-        setAuthors((prev) => prev.map((a, i) => (i === index ? { ...a, [field]: value } : a)));
-        setDirty(true);
-    }, []);
-
-    return (
-        <Modal open={isVisible} onClose={closeModal}>
-            <ModalHeader title="Edit Project Info" onClose={closeModal} />
-
-            <ModalBody className="mod-config-editor">
-                <Field
-                    label="Display Name"
-                    placeholder="My Awesome Mod"
-                    value={displayName}
-                    onChange={(e) => {
-                        setDisplayName(e.target.value);
-                        setDirty(true);
-                    }}
-                />
-
-                <Field
-                    label="Version"
-                    placeholder="1.0.0"
-                    value={version}
-                    onChange={(e) => {
-                        setVersion(e.target.value);
-                        setDirty(true);
-                    }}
-                />
-
-                <FormGroup>
-                    <FormLabel>Description</FormLabel>
-                    <Textarea
-                        value={description}
-                        onChange={(e) => {
-                            setDescription(e.target.value);
-                            setDirty(true);
-                        }}
-                        placeholder="A brief description of your mod"
-                        rows={3}
-                        style={{ resize: 'vertical' }}
-                    />
-                </FormGroup>
-
-                <AuthorEditor
-                    authors={authors}
-                    onAdd={addAuthor}
-                    onRemove={removeAuthor}
-                    onUpdate={updateAuthor}
-                />
-            </ModalBody>
-
-            <ModalFooter>
-                <Button variant="secondary" onClick={closeModal}>
-                    Cancel
-                </Button>
-                <Button variant="primary" onClick={handleSave} disabled={!dirty}>
-                    Save
-                </Button>
-            </ModalFooter>
-        </Modal>
+                <div className="dl-modal__foot">
+                    <span className="mi-foot__path">mod.config.json</span>
+                    <button className="dl-btn dl-btn--secondary" onClick={closeModal} disabled={saving}>
+                        {dirty ? 'Discard' : 'Close'}
+                    </button>
+                    <button
+                        className="dl-btn dl-btn--primary"
+                        onClick={() => void save().then((ok) => ok && closeModal())}
+                        disabled={!dirty || saving}
+                    >
+                        {saving ? 'Saving…' : 'Save'}
+                    </button>
+                </div>
+            </div>
+        </div>,
+        document.body,
     );
 };

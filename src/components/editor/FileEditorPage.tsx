@@ -9,221 +9,61 @@ import type { FileEditorTarget } from '../../lib/types';
 import { BinEditor } from '../preview/BinEditor';
 import { LuaBin64Editor } from '../preview/LuaBin64Editor';
 import { TroybinViewer } from '../preview/TroybinViewer';
-import { Button, Field, FormGroup, FormLabel, Input, Textarea } from '../ui';
+import { Button, Textarea } from '../ui';
 import { SearchSidebar } from '../browser/SearchSidebar';
+import { MOD_INFO_SECTIONS, ModInfoForm, type ModInfoSection } from '../modals/modinfo/ModInfoForm';
+import { useModInfo } from '../modals/modinfo/useModInfo';
+import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { projectRootFromFilePath } from '../../lib/wadPath';
 import { useSearchPanelStore } from '../../lib/stores/searchPanelStore';
 
-// ─── mod.config.json structured editor ──────────────────────────────────
-
-interface ModConfig {
-    name: string;
-    display_name: string;
-    version: string;
-    description: string;
-    authors: ModConfigAuthor[];
-    [key: string]: unknown;
-}
-
-type ModConfigAuthor = string | { name: string; role: string };
-
-function getAuthorName(author: ModConfigAuthor): string {
-    if (typeof author === 'string') return author;
-    if (author && typeof author === 'object') {
-        if ('name' in author) return author.name;
-        if ('Name' in author) return (author as Record<string, unknown>).Name as string;
-        if ('NameAndRole' in author) {
-            const inner = (author as Record<string, unknown>).NameAndRole as { name: string };
-            return inner.name;
-        }
-    }
-    return '';
-}
-
-function getAuthorRole(author: ModConfigAuthor): string {
-    if (typeof author === 'string') return '';
-    if (author && typeof author === 'object') {
-        if ('role' in author) return author.role;
-        if ('NameAndRole' in author) {
-            const inner = (author as Record<string, unknown>).NameAndRole as { role: string };
-            return inner.role;
-        }
-    }
-    return '';
-}
-
-function buildAuthor(name: string, role: string): ModConfigAuthor {
-    return role.trim() ? { name, role } : name;
-}
-
-interface AuthorRow {
-    name: string;
-    role: string;
-}
-
 const ModConfigEditor: React.FC<{ target: FileEditorTarget }> = ({ target }) => {
-    const showToast = useNotificationStore((s) => s.showToast);
     const setDirty = useFileEditorStore((s) => s.setDirty);
-
-    const [config, setConfig] = useState<ModConfig | null>(null);
-    const [displayName, setDisplayName] = useState('');
-    const [version, setVersion] = useState('');
-    const [description, setDescription] = useState('');
-    const [authors, setAuthors] = useState<AuthorRow[]>([]);
-    const [localDirty, setLocalDirty] = useState(false);
-    const [saving, setSaving] = useState(false);
+    const [section, setSection] = useState<ModInfoSection>('details');
+    const close = useCallback(() => navigationCoordinator.closeFileEditorWithFallback(), []);
+    const { draft, slug, dirty, saving, update, save } = useModInfo(target.filePath, true, close);
 
     useEffect(() => {
-        (async () => {
-            try {
-                const text = await api.readTextFile(target.filePath);
-                const parsed = JSON.parse(text) as ModConfig;
-                setConfig(parsed);
-                setDisplayName(parsed.display_name || '');
-                setVersion(parsed.version || '');
-                setDescription(parsed.description || '');
-                setAuthors(
-                    (parsed.authors || []).map((a) => ({
-                        name: getAuthorName(a),
-                        role: getAuthorRole(a),
-                    })),
-                );
-                setLocalDirty(false);
-                setDirty(false);
-            } catch (err) {
-                console.error('Failed to load mod.config.json:', err);
-                showToast('error', 'Failed to load mod.config.json');
-                navigationCoordinator.closeFileEditorWithFallback();
-            }
-        })();
-    }, [target.filePath, showToast, setDirty]);
+        setDirty(dirty);
+    }, [dirty, setDirty]);
 
-    const markDirty = useCallback(() => {
-        setLocalDirty(true);
-        setDirty(true);
-    }, [setDirty]);
-
-    const handleSave = useCallback(async () => {
-        if (!config) return;
-        setSaving(true);
-        try {
-            const updated: ModConfig = {
-                ...config,
-                display_name: displayName,
-                version,
-                description,
-                authors: authors
-                    .filter((a) => a.name.trim())
-                    .map((a) => buildAuthor(a.name.trim(), a.role.trim())),
-            };
-            await api.writeTextFile(target.filePath, JSON.stringify(updated, null, 2));
-            setLocalDirty(false);
-            setDirty(false);
-            showToast('success', 'Project config saved');
-        } catch (err) {
-            console.error('Failed to save mod.config.json:', err);
-            showToast('error', 'Failed to save project config');
-        } finally {
-            setSaving(false);
-        }
-    }, [config, target.filePath, displayName, version, description, authors, showToast, setDirty]);
-
-    if (!config) {
-        return (
-            <div style={{ padding: '32px', color: 'var(--text-secondary)' }}>Loading project config…</div>
-        );
+    if (!draft) {
+        return <div className="mi-page__loading">Loading project info…</div>;
     }
 
     return (
-        <div style={{ padding: '16px 24px 24px', maxWidth: 720 }}>
-            <Field
-                label="Display Name"
-                placeholder="My Awesome Mod"
-                value={displayName}
-                onChange={(e) => { setDisplayName(e.target.value); markDirty(); }}
-            />
-            <Field
-                label="Version"
-                placeholder="1.0.0"
-                value={version}
-                onChange={(e) => { setVersion(e.target.value); markDirty(); }}
-            />
-            <FormGroup>
-                <FormLabel>Description</FormLabel>
-                <Textarea
-                    value={description}
-                    onChange={(e) => { setDescription(e.target.value); markDirty(); }}
-                    placeholder="A brief description of your mod"
-                    rows={4}
-                    style={{ resize: 'vertical' }}
-                />
-            </FormGroup>
-
-            <FormGroup>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <FormLabel>Contributors</FormLabel>
-                    <Button size="sm" onClick={() => { setAuthors((p) => [...p, { name: '', role: '' }]); markDirty(); }}>
-                        + Add
-                    </Button>
-                </div>
-                {authors.length === 0 && (
-                    <div style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)', padding: '8px 0' }}>
-                        No contributors added yet
-                    </div>
-                )}
-                {authors.map((author, i) => (
-                    <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
-                        <Input
-                            value={author.name}
-                            onChange={(e) => {
-                                setAuthors((p) => p.map((a, idx) => (idx === i ? { ...a, name: e.target.value } : a)));
-                                markDirty();
-                            }}
-                            placeholder="Name"
-                            style={{ flex: 2 }}
+        <div className="mi-page">
+            <nav className="mi-nav" role="tablist" aria-orientation="vertical">
+                {MOD_INFO_SECTIONS.map((entry) => (
+                    <button
+                        key={entry.id}
+                        role="tab"
+                        aria-selected={section === entry.id}
+                        className={`mi-nav__item${section === entry.id ? ' is-active' : ''}`}
+                        onClick={() => setSection(entry.id)}
+                    >
+                        <span
+                            className="mi-nav__icon"
+                            dangerouslySetInnerHTML={{ __html: getIcon(entry.icon) }}
                         />
-                        <Input
-                            value={author.role}
-                            onChange={(e) => {
-                                setAuthors((p) => p.map((a, idx) => (idx === i ? { ...a, role: e.target.value } : a)));
-                                markDirty();
-                            }}
-                            placeholder="Role (optional)"
-                            style={{ flex: 1 }}
-                        />
-                        <Button
-                            size="sm"
-                            onClick={() => {
-                                setAuthors((p) => p.filter((_, idx) => idx !== i));
-                                markDirty();
-                            }}
-                            title="Remove contributor"
-                            style={{ color: 'var(--error)', flexShrink: 0 }}
-                        >
-                            ×
-                        </Button>
-                    </div>
+                        <span className="mi-nav__label">{entry.label}</span>
+                    </button>
                 ))}
-            </FormGroup>
+            </nav>
 
-            <div style={{
-                display: 'flex',
-                justifyContent: 'flex-end',
-                gap: 8,
-                marginTop: 24,
-                paddingTop: 16,
-                borderTop: '1px solid var(--border)',
-            }}>
-                <Button
-                    variant="secondary"
-                    onClick={() => navigationCoordinator.closeFileEditorWithFallback()}
-                    disabled={saving}
-                >
-                    {localDirty ? 'Discard' : 'Close'}
-                </Button>
-                <Button variant="primary" onClick={handleSave} disabled={!localDirty || saving}>
-                    {saving ? 'Saving…' : 'Save'}
-                </Button>
+            <div className="mi-page__main">
+                <div className="mi-body" role="tabpanel">
+                    <ModInfoForm section={section} draft={draft} slug={slug} onChange={update} />
+                </div>
+                <div className="mi-page__foot">
+                    <span className="mi-foot__path">mod.config.json</span>
+                    <button className="dl-btn dl-btn--secondary" onClick={close} disabled={saving}>
+                        {dirty ? 'Discard' : 'Close'}
+                    </button>
+                    <button className="dl-btn dl-btn--primary" onClick={() => void save()} disabled={!dirty || saving}>
+                        {saving ? 'Saving…' : 'Save'}
+                    </button>
+                </div>
             </div>
         </div>
     );
@@ -309,6 +149,7 @@ export const FileEditorPage: React.FC = () => {
     }
 
     const isBin = target.kind === 'binText';
+    const ownsScroll = isBin || target.kind === 'modConfig';
     const searchRoot = isBin
         ? (target.projectPath ?? projectRootFromFilePath(target.filePath))
         : null;
@@ -326,7 +167,7 @@ export const FileEditorPage: React.FC = () => {
                     display: 'flex',
                     flexDirection: 'column',
                     height: '100%',
-                    overflowY: isBin ? 'hidden' : 'auto',
+                    overflowY: ownsScroll ? 'hidden' : 'auto',
                     backgroundColor: 'var(--bg-primary)',
                 }}
             >

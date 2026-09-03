@@ -1,0 +1,445 @@
+/* ============================================================================
+   Flint — Project info (mod.config.json)
+   ----------------------------------------------------------------------------
+   Same glass idiom as Check files (.wa-modal) and Add layer (.al-modal).
+
+   The `.mi-nav` / `.mi-body` / `.mi-field` / `.mi-chip` rules are shared by the
+   MODAL and the full-page file editor, so they are not scoped to .mi-modal —
+   only the modal shell itself is.
+   ============================================================================ */
+
+.dl-modal.mi-modal {
+    max-width: 900px;
+    width: 100%;
+    height: 74vh;
+    max-height: 700px;
+    border-radius: 14px;
+    border: none;
+    background:
+        radial-gradient(120% 80% at 100% 0%,
+            color-mix(in oklab, var(--accent-primary) 9%, transparent) 0%,
+            transparent 55%),
+        color-mix(in oklab, var(--bg-secondary) 88%, transparent);
+    box-shadow:
+        0 24px 48px -16px rgba(0, 0, 0, .55),
+        0 0 0 1px color-mix(in oklab, var(--accent-primary) 14%, var(--border));
+}
+
+.mi-modal .dl-modal__head {
+    gap: 10px;
+    padding: 12px 16px;
+    background: transparent;
+    border-bottom: 1px solid color-mix(in oklab, var(--accent-primary) 14%, transparent);
+}
+
+.mi-modal .mi-mark {
+    flex: none;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    color: var(--accent-primary);
+    background: color-mix(in oklab, var(--accent-primary) 12%, transparent);
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 26%, transparent);
+}
+.mi-modal .mi-mark svg { width: 14px; height: 14px; display: block; }
+
+.mi-modal .mi-title {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text-primary);
+}
+.mi-modal .mi-title__slug {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mi-modal .mi-dirty {
+    flex: none;
+    padding: 3px 8px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-warning);
+    background: color-mix(in oklab, var(--color-warning) 12%, transparent);
+    border: 1px solid color-mix(in oklab, var(--color-warning) 32%, transparent);
+    border-radius: 999px;
+}
+
+.mi-modal .dl-modal__body {
+    display: grid;
+    grid-template-columns: 186px minmax(0, 1fr);
+    gap: 0;
+    padding: 0;
+    overflow: hidden;
+    background: transparent;
+}
+
+.mi-modal .dl-modal__foot {
+    gap: 8px;
+    padding: 12px 16px;
+    background: transparent;
+    border-top: 1px solid color-mix(in oklab, var(--accent-primary) 12%, transparent);
+}
+
+.mi-foot__path {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   Nav rail — shared with the full-page editor
+   -------------------------------------------------------------------------- */
+.mi-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 10px;
+    min-width: 0;
+    border-right: 1px solid color-mix(in oklab, var(--border) 45%, transparent);
+}
+
+.mi-nav__item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 11px;
+    line-height: 1;
+    text-align: left;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition:
+        background var(--ux-fast),
+        color var(--ux-fast),
+        border-color var(--ux-fast),
+        transform var(--ux-fast);
+}
+.mi-nav__item:hover {
+    background: color-mix(in oklab, var(--accent-primary) 8%, transparent);
+    border-color: color-mix(in oklab, var(--accent-primary) 22%, transparent);
+    color: var(--text-primary);
+}
+.mi-nav__item:active { transform: scale(0.985); }
+.mi-nav__item:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-primary) 20%, transparent);
+}
+.mi-nav__item.is-active {
+    background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+    border-color: color-mix(in oklab, var(--accent-primary) 35%, transparent);
+    color: var(--text-primary);
+}
+.mi-nav__item.is-active::before {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 18px;
+    border-radius: 2px;
+    background: var(--accent-primary);
+    box-shadow: 0 0 8px color-mix(in oklab, var(--accent-primary) 50%, transparent);
+}
+
+.mi-nav__icon {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+}
+.mi-nav__icon svg { width: 15px; height: 15px; display: block; }
+.mi-nav__item.is-active .mi-nav__icon { color: var(--accent-primary); }
+
+.mi-nav__label {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------------
+   Panes and fields
+   -------------------------------------------------------------------------- */
+.mi-body {
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.mi-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 18px 22px 24px;
+    max-width: 560px;
+}
+
+.mi-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+.mi-field__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+.mi-field__label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+.mi-field__hint {
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-muted);
+}
+
+.mi-input {
+    box-sizing: border-box;
+    width: 100%;
+    height: 32px;
+    padding: 0 10px;
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    color: var(--text-primary);
+    background: color-mix(in oklab, var(--bg-primary) 32%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+    border-radius: 10px;
+    transition: border-color var(--ux-fast), background var(--ux-fast), box-shadow var(--ux-fast);
+}
+.mi-input--short { max-width: 200px; }
+.mi-input::placeholder { color: color-mix(in oklab, var(--text-muted) 80%, transparent); }
+.mi-input:hover:not(:disabled) { border-color: color-mix(in oklab, var(--accent-primary) 30%, var(--border)); }
+.mi-input:focus {
+    outline: none;
+    border-color: color-mix(in oklab, var(--accent-primary) 55%, var(--border));
+    background: color-mix(in oklab, var(--bg-primary) 40%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-primary) 16%, transparent);
+}
+.mi-textarea {
+    height: auto;
+    padding: 8px 10px;
+    line-height: 1.55;
+    resize: vertical;
+}
+
+.mi-static {
+    display: flex;
+    align-items: center;
+    height: 32px;
+    padding: 0 10px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: color-mix(in oklab, var(--bg-primary) 22%, transparent);
+    border: 1px dashed color-mix(in oklab, var(--border) 70%, transparent);
+    border-radius: 10px;
+}
+
+.mi-empty {
+    padding: 10px 0;
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   Contributors
+   -------------------------------------------------------------------------- */
+.mi-author {
+    display: grid;
+    grid-template-columns: 2fr 1fr 30px;
+    gap: 6px;
+    align-items: center;
+}
+.mi-author__drop {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background var(--ux-fast), color var(--ux-fast), border-color var(--ux-fast);
+}
+.mi-author__drop:hover {
+    color: var(--color-danger);
+    background: color-mix(in oklab, var(--color-danger) 12%, transparent);
+    border-color: color-mix(in oklab, var(--color-danger) 30%, transparent);
+}
+.mi-author__drop svg { width: 13px; height: 13px; display: block; }
+.mi-icon { display: flex; align-items: center; justify-content: center; }
+.mi-icon svg { display: block; }
+
+/* --------------------------------------------------------------------------
+   Chips and tokens
+   -------------------------------------------------------------------------- */
+.mi-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.mi-chip {
+    height: 26px;
+    padding: 0 11px;
+    font-family: var(--font-sans);
+    font-size: 11.5px;
+    line-height: 1;
+    color: var(--text-secondary);
+    background: color-mix(in oklab, var(--bg-primary) 30%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+    border-radius: 999px;
+    cursor: pointer;
+    transition:
+        background var(--ux-fast),
+        color var(--ux-fast),
+        border-color var(--ux-fast),
+        transform var(--ux-fast);
+}
+.mi-chip:hover {
+    color: var(--text-primary);
+    border-color: color-mix(in oklab, var(--accent-primary) 34%, var(--border));
+}
+.mi-chip:active { transform: scale(0.97); }
+.mi-chip:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-primary) 20%, transparent);
+}
+.mi-chip--on {
+    color: var(--text-primary);
+    background: color-mix(in oklab, var(--accent-primary) 18%, transparent);
+    border-color: color-mix(in oklab, var(--accent-primary) 45%, transparent);
+}
+
+.mi-tokens {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 4px 6px;
+    background: color-mix(in oklab, var(--bg-primary) 32%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+    border-radius: 10px;
+    transition: border-color var(--ux-fast);
+}
+.mi-tokens:focus-within {
+    border-color: color-mix(in oklab, var(--accent-primary) 55%, var(--border));
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-primary) 16%, transparent);
+}
+
+.mi-token {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 22px;
+    padding: 0 4px 0 9px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-primary);
+    background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 32%, transparent);
+    border-radius: 999px;
+}
+.mi-token__drop {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 50%;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background var(--ux-fast), color var(--ux-fast);
+}
+.mi-token__drop:hover {
+    color: var(--text-primary);
+    background: color-mix(in oklab, var(--accent-primary) 26%, transparent);
+}
+.mi-token__drop svg { width: 9px; height: 9px; display: block; }
+
+.mi-token__input {
+    flex: 1;
+    min-width: 110px;
+    height: 22px;
+    padding: 0 4px;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    color: var(--text-primary);
+    background: transparent;
+    border: none;
+}
+.mi-token__input:focus { outline: none; }
+.mi-token__input::placeholder { color: color-mix(in oklab, var(--text-muted) 80%, transparent); }
+
+/* --------------------------------------------------------------------------
+   Full-page editor — no modal shell, so it draws its own frame
+   -------------------------------------------------------------------------- */
+.mi-page {
+    display: grid;
+    grid-template-columns: 186px minmax(0, 1fr);
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+.mi-page__main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+.mi-page__foot {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 22px;
+    border-top: 1px solid color-mix(in oklab, var(--border) 45%, transparent);
+}
+.mi-page__loading {
+    padding: 32px;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+}
