@@ -1,3 +1,4 @@
+import { Button } from '../../ui/Button';
 import React, { useEffect, useMemo, useState } from 'react';
 import * as api from '../../../lib/api';
 import { useProjectTabStore } from '../../../lib/stores';
@@ -126,15 +127,15 @@ export const ToonShadingForm: React.FC<ToonShadingFormProps> = ({ content, fileP
                 {!meshes && !meshError && <div className="bin-tools__hint">Reading the mesh…</div>}
                 {meshes?.length === 0 && <div className="bin-tools__hint">The mesh reported no submeshes.</div>}
                 {meshes?.map((m) => (
-                    <button
+                    <Button
                         key={m.submesh}
-                        className="dl-btn dl-btn--sm bin-tools__mesh"
+                        className="bin-tools__mesh" size="sm"
                         onClick={() => pickMesh(m)}
                         title={m.texture ?? 'No texture resolved for this submesh'}
                     >
                         <span className="bin-tools__mesh-name">{m.submesh}</span>
                         <span className="bin-tools__mesh-tex">{m.texture ? tail(m.texture) : 'no texture'}</span>
-                    </button>
+                    </Button>
                 ))}
                 {(meshError || meshes?.length === 0) && (
                     <>
@@ -144,16 +145,16 @@ export const ToonShadingForm: React.FC<ToonShadingFormProps> = ({ content, fileP
                             value={submesh}
                             onChange={(e) => setSubmesh(e.target.value)}
                         />
-                        <button
-                            className="dl-btn dl-btn--sm"
+                        <Button
+                            size="sm"
                             disabled={!submesh.trim()}
                             onClick={() => setStep('texture')}
                         >
                             Continue
-                        </button>
+                        </Button>
                     </>
                 )}
-                <button className="dl-btn dl-btn--sm" onClick={onDone}>Cancel</button>
+                <Button size="sm" onClick={onDone}>Cancel</Button>
             </div>
         );
     }
@@ -173,15 +174,15 @@ export const ToonShadingForm: React.FC<ToonShadingFormProps> = ({ content, fileP
                     {otherTextures.map((t) => <option key={t} value={t} />)}
                 </datalist>
                 <div className="bin-tools__row">
-                    <button className="dl-btn dl-btn--sm" style={{ flex: 1 }} onClick={() => setStep('mesh')}>Back</button>
-                    <button
-                        className="dl-btn dl-btn--sm dl-btn--primary"
+                    <Button size="sm" style={{ flex: 1 }} onClick={() => setStep('mesh')}>Back</Button>
+                    <Button
+                        size="sm" variant="primary"
                         style={{ flex: 1 }}
                         disabled={!texture.trim()}
                         onClick={() => setStep('settings')}
                     >
                         Next
-                    </button>
+                    </Button>
                 </div>
             </div>
         );
@@ -256,15 +257,15 @@ export const ToonShadingForm: React.FC<ToonShadingFormProps> = ({ content, fileP
             )}
 
             <div className="bin-tools__row">
-                <button className="dl-btn dl-btn--sm" style={{ flex: 1 }} onClick={() => setStep('texture')}>Back</button>
-                <button
-                    className="dl-btn dl-btn--sm dl-btn--primary"
+                <Button size="sm" style={{ flex: 1 }} onClick={() => setStep('texture')}>Back</Button>
+                <Button
+                    size="sm" variant="primary"
                     style={{ flex: 1 }}
                     onClick={handleInsert}
                     disabled={busy}
                 >
                     {busy ? 'Adding…' : 'Add material'}
-                </button>
+                </Button>
             </div>
 
             {status && <div className="bin-tools__status" title={status}>{status}</div>}

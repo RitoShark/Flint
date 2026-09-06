@@ -1,0 +1,180 @@
+.np-video-editor-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  border-radius: inherit;
+}
+
+.np-video-editor {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  width: calc(100% - 32px);
+  max-height: calc(100% - 32px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.np-ve-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.np-ve-header__title { font-size: var(--text-base); font-weight: 600; color: var(--text-primary); }
+
+.np-ve-content { display: flex; gap: 0; overflow: hidden; flex: 1; min-height: 0; }
+
+.np-ve-player {
+  flex-shrink: 0;
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: #000;
+}
+
+.np-ve-player__viewport {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.np-ve-video { max-width: 100%; max-height: 100%; display: block; object-fit: contain; }
+
+.np-ve-player__controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.np-ve-play-btn { flex-shrink: 0; }
+
+.np-ve-player__time {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.np-ve-player__dims { font-size: var(--text-xs); color: var(--text-muted); margin-left: auto; white-space: nowrap; }
+
+.np-ve-controls {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  min-width: 0;
+}
+
+.np-ve-section { display: flex; flex-direction: column; gap: var(--space-sm); }
+
+.np-ve-row { display: flex; gap: var(--space-md); }
+
+.np-ve-timeline {
+  position: relative;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  user-select: none;
+}
+
+.np-ve-timeline__bg {
+  position: absolute;
+  inset: 50% 0 auto;
+  transform: translateY(-50%);
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+}
+
+.np-ve-timeline__range {
+  position: absolute;
+  top: 50%;
+  height: 6px;
+  transform: translateY(-50%);
+  background: var(--accent-primary);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.np-ve-timeline__playhead {
+  position: absolute;
+  top: 50%;
+  width: 2px;
+  height: 20px;
+  background: #fff;
+  border-radius: 1px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+.np-ve-timeline__handle {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 24px;
+  border-radius: 4px;
+  transform: translate(-50%, -50%);
+  cursor: ew-resize;
+  z-index: 2;
+}
+
+.np-ve-timeline__handle--start { background: var(--accent-primary); border: 2px solid rgba(255, 255, 255, 0.4); }
+
+.np-ve-timeline__handle--end { background: var(--accent-primary); border: 2px solid rgba(255, 255, 255, 0.4); }
+
+.np-ve-timeline__handle:hover { background: var(--accent-hover); }
+
+.np-ve-timeline__labels {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.np-ve-timeline__duration { font-weight: 600; color: var(--text-secondary); }
+
+.np-ve-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--surface-3);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
+}
+
+.spinner--lg { width: 28px; height: 28px; border-width: 3px; }

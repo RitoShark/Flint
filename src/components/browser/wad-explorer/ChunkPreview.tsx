@@ -1,3 +1,4 @@
+import { Button } from '../../ui/Button';
 /*
  * SVG icons are inlined via dangerouslySetInnerHTML. The string source is
  * always `getIcon()` from our local fileIcons module — never untrusted input.
@@ -168,15 +169,15 @@ export const ChunkPreview: React.FC<{
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             <div className="preview-panel__toolbar" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-                <button className="btn btn--sm" onClick={onClose} title="Close preview" style={{ padding: '2px 6px' }}>
+                <Button size="sm" onClick={onClose} title="Close preview" >
                     <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
-                </button>
+                </Button>
                 {(data?.imageUrl || data?.bitmap) && (
                     <>
                         {(['fit', 1, 2] as const).map(z => (
-                            <button key={String(z)} className={`btn btn--sm ${zoom === z ? 'btn--active' : ''}`} onClick={() => setZoom(z)}>
+                            <Button key={String(z)} size="sm" active={zoom === z} onClick={() => setZoom(z)}>
                                 {z === 'fit' ? 'Fit' : `${(z as number) * 100}%`}
-                            </button>
+                            </Button>
                         ))}
                         <div style={{ width: '1px', height: '14px', background: 'var(--border)', margin: '0 2px' }} />
                     </>
@@ -185,10 +186,10 @@ export const ChunkPreview: React.FC<{
                     {fileName}
                 </span>
                 {isLocal && (
-                    <button className="btn btn--sm btn--primary" onClick={handleExtract} disabled={extracting} title="Extract file to folder">
+                    <Button size="sm" variant="primary" onClick={handleExtract} disabled={extracting} title="Extract file to folder">
                         <span dangerouslySetInnerHTML={{ __html: getIcon('export') }} />
                         <span>{extracting ? 'Extracting…' : 'Extract'}</span>
-                    </button>
+                    </Button>
                 )}
             </div>
 
@@ -258,7 +259,7 @@ export const ChunkPreview: React.FC<{
                         else if (fileName.endsWith('.js')) lang = 'javascript';
                         else if (fileName.endsWith('.py')) lang = 'python';
                         else if (fileName.endsWith('.ini')) lang = 'ini';
-                        
+
                         return <MonacoTextViewer text={text} language={lang} />;
                     }
 
@@ -293,10 +294,10 @@ export const ChunkPreview: React.FC<{
                             <div className="preview-panel__empty">
                                 <div style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center' }}>
                                     <div style={{ marginBottom: '12px', opacity: 0.6 }}>{fileType}</div>
-                                    <button className="btn btn--primary btn--sm" onClick={handleExtract} disabled={extracting}>
+                                    <Button variant="primary" size="sm" onClick={handleExtract} disabled={extracting}>
                                         <span dangerouslySetInnerHTML={{ __html: getIcon('export') }} />
                                         <span>Extract to preview</span>
-                                    </button>
+                                    </Button>
                                 </div>
                             </div>
                         );
@@ -309,8 +310,8 @@ export const ChunkPreview: React.FC<{
                                 <div style={{ fontSize: '14px', fontWeight: 500 }}>Unknown File Format</div>
                                 <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>How would you like to view this file?</div>
                                 <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                                    <button className="btn btn--primary" onClick={() => setUnknownView('text')}>Open in Text Editor</button>
-                                    <button className="btn btn--secondary" onClick={() => setUnknownView('hex')}>Open in Hex View</button>
+                                    <Button variant="primary" onClick={() => setUnknownView('text')}>Open in Text Editor</Button>
+                                    <Button variant="secondary" onClick={() => setUnknownView('hex')}>Open in Hex View</Button>
                                 </div>
                             </div>
                         );

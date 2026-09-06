@@ -1,0 +1,153 @@
+.np-search-wrap { position: relative; width: 100%; }
+
+.np-search-wrap--picker { width: 100%; }
+
+.np-search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+input.np-search {
+  width: 100%;
+  font-size: 12px;
+  color: var(--text-primary);
+  border: 1px solid #222;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  font-family: var(--font-sans);
+}
+
+input.np-search::placeholder { color: var(--text-muted); opacity: 0.5; }
+
+.np-champion-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(68px, 1fr));
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.np-champ-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  animation: npChampIn 0.3s ease both;
+}
+
+.np-champ-card:hover { background: #1a1a1a; border-color: #2a2a2a; transform: translateY(-1px); }
+
+.np-champ-card--active .np-champ-card__name { color: var(--text-primary); }
+
+.np-champ-card__icon { width: 42px; height: 42px; border-radius: 10px; object-fit: cover; border: 2px solid #222; }
+
+.np-champ-card__name {
+  font-size: 10px;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 62px;
+}
+
+.np-search-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  line-height: 0;
+}
+
+.np-search-icon svg, .np-search-icon>span, .np-search-icon>span svg {
+  width: 14px !important;
+  height: 14px !important;
+  display: block;
+}
+
+input.np-search {
+  height: 30px;
+  padding: 0 12px 0 32px;
+  border-radius: 9px;
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+}
+
+input.np-search:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent-primary) 35%, transparent);
+}
+
+.np-champion-grid {
+  background: color-mix(in oklab, var(--bg-primary) 60%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px;
+}
+
+.np-champ-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding: 8px 6px !important;
+  border-radius: 10px !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: var(--text-secondary) !important;
+  transition: background var(--motion-fast),
+        border-color var(--motion-fast),
+        color var(--motion-fast),
+        transform var(--motion-fast) !important;
+}
+
+.np-champ-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(140px circle at var(--mx, 50%) var(--my, 50%),
+            color-mix(in oklab, var(--accent-primary) 22%, transparent) 0%,
+            transparent 60%);
+  opacity: 0;
+  transition: opacity var(--motion-base);
+  border-radius: inherit;
+  z-index: -1;
+}
+
+.np-champ-card:hover:not(.np-champ-card--active) {
+  background: color-mix(in oklab, var(--accent-primary) 8%, transparent) !important;
+  border-color: color-mix(in oklab, var(--accent-primary) 25%, transparent) !important;
+  color: var(--text-primary) !important;
+  transform: translateY(-1px) !important;
+}
+
+[data-button-glow="on"] .np-champ-card:hover::after { opacity: 1; }
+
+.np-champ-card:active { transform: scale(0.97) !important; }
+
+.np-champ-card--active {
+  background: color-mix(in oklab, var(--accent-primary) 16%, transparent) !important;
+  border-color: color-mix(in oklab, var(--accent-primary) 50%, transparent) !important;
+  color: color-mix(in oklab, var(--accent-primary) 12%, var(--text-primary)) !important;
+  box-shadow: 0 0 12px color-mix(in oklab, var(--accent-primary) 25%, transparent);
+}
+
+.np-champ-card__icon {
+  border-color: color-mix(in oklab, var(--border) 80%, transparent) !important;
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast) !important;
+}
+
+.np-champ-card:hover .np-champ-card__icon {
+  border-color: color-mix(in oklab, var(--accent-primary) 50%, var(--border)) !important;
+}
+
+.np-champ-card--active .np-champ-card__icon {
+  border-color: var(--accent-primary) !important;
+  box-shadow: 0 0 10px color-mix(in oklab, var(--accent-primary) 45%, transparent) !important;
+}

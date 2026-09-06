@@ -1,8 +1,7 @@
+import { Button, IconButton } from '../ui/Button';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { readTextFile, writeTextFile } from '../../lib/api/file';
-import '../../styles/design-lab.css';
-import '../../styles/thumbnail.css';
 import { createHistory } from '../../lib/thumbnail/history';
 import { Layer, ModelLayer, makeDefaultEnvLayer, removeLayer, reorderGroup, reorderLayer, toggleLock, updateLayer } from '../../lib/thumbnail/layers';
 import { loadPreset, presetToLayers, PresetId } from '../../lib/thumbnail/preset';
@@ -18,7 +17,7 @@ import { LayersPanel } from './LayersPanel';
 import { PropertiesPanel } from './PropertiesPanel';
 import { HuePopover } from './HuePopover';
 import { SavePresetModal } from './SavePresetModal';
-import { DlButton, DlIconButton, DlMenu, DlSelect } from '../ui/design-lab';
+import { DlMenu, DlSelect } from '../ui/design-lab';
 
 type ExportFormatId = 'webp' | 'png' | 'jpg';
 type ExportRatioId = '16:9' | '16:10' | '4:3' | '1:1';
@@ -579,7 +578,7 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
               ...userPresets.map(p => ({ value: p.id, label: p.file.name, icon: 'save' as const })),
             ]}
           />
-          <DlButton icon="save" variant="secondary" title="Save the current layout as a local preset" onClick={() => setShowSavePreset(true)}>Save</DlButton>
+          <Button icon="save" variant="secondary" title="Save the current layout as a local preset" onClick={() => setShowSavePreset(true)}>Save</Button>
           <DlMenu
             title="Import / export / manage presets"
             menuWidth={240}
@@ -613,9 +612,9 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
               { value: 'jpg', label: 'JPG' },
             ]}
           />
-          <DlButton variant="primary" icon="picture" loading={exporting} onClick={handleExport} title="Export composited poster">
+          <Button variant="primary" icon="picture" loading={exporting} onClick={handleExport} title="Export composited poster">
             {exporting ? 'Exporting…' : 'Export'}
-          </DlButton>
+          </Button>
         </div>
       </div>
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
@@ -642,13 +641,13 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
           {/* Floating zoom + history controls, anchored bottom-left of the canvas. */}
           <div className="tb-floatbar">
             <div className="tb-floatbar__group">
-              <DlButton size="sm" variant="ghost" onClick={() => artboardControlsRef.current?.fitView()} title="Fit artboard (Ctrl+0)">Fit</DlButton>
-              <DlButton size="sm" variant="ghost" onClick={() => artboardControlsRef.current?.fullView()} title="Zoom to 100% (Ctrl+1)">100%</DlButton>
-              <DlButton size="sm" variant="ghost" onClick={() => artboardControlsRef.current?.fitSelection()} title="Fit selection (Ctrl+9)">Fit sel</DlButton>
+              <Button size="sm" variant="ghost" onClick={() => artboardControlsRef.current?.fitView()} title="Fit artboard (Ctrl+0)">Fit</Button>
+              <Button size="sm" variant="ghost" onClick={() => artboardControlsRef.current?.fullView()} title="Zoom to 100% (Ctrl+1)">100%</Button>
+              <Button size="sm" variant="ghost" onClick={() => artboardControlsRef.current?.fitSelection()} title="Fit selection (Ctrl+9)">Fit sel</Button>
             </div>
             <div className="tb-floatbar__group">
-              <DlIconButton size="sm" icon="history" title="Redo (Ctrl+Shift+Z)" disabled={!history.canRedo()} onClick={redo} className="tb-redo" />
-              <DlIconButton size="sm" icon="history" title="Undo (Ctrl+Z)" disabled={!history.canUndo()} onClick={undo} />
+              <IconButton size="sm" icon="history" title="Redo (Ctrl+Shift+Z)" disabled={!history.canRedo()} onClick={redo} className="tb-redo" />
+              <IconButton size="sm" icon="history" title="Undo (Ctrl+Z)" disabled={!history.canUndo()} onClick={undo} />
             </div>
           </div>
         </div>

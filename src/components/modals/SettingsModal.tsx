@@ -724,16 +724,16 @@ export const SettingsModal: React.FC = () => {
                                         {SUPPORTED_LANGUAGES.map((langInfo) => {
                                             const isSelected = (ux.language || 'en') === langInfo.code;
                                             return (
-                                                <button
+                                                <Button
                                                     key={langInfo.code}
                                                     type="button"
-                                                    className={`dl-btn dl-btn--sm ${isSelected ? 'dl-btn--primary' : 'dl-btn--ghost'}`}
+                                                    size="sm" variant={isSelected ? "primary" : "ghost"}
                                                     onClick={() => ux.setLanguage(langInfo.code)}
                                                     style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                                                 >
                                                     <span style={{ fontSize: '14px' }}>{langInfo.flag}</span>
                                                     <span>{langInfo.nativeName}</span>
-                                                </button>
+                                                </Button>
                                             );
                                         })}
                                     </div>
@@ -772,8 +772,8 @@ export const SettingsModal: React.FC = () => {
                                     {t('settings.general.fileAssocSub')}
                                 </span>}
                                 actions={<>
-                                    <button
-                                        className="dl-btn dl-btn--primary dl-btn--sm"
+                                    <Button
+                                        variant="primary" size="sm"
                                         disabled={isRegisteringAssoc}
                                         onClick={async () => {
                                             setIsRegisteringAssoc(true);
@@ -794,10 +794,10 @@ export const SettingsModal: React.FC = () => {
                                         }}
                                     >
                                         {isRegisteringAssoc ? 'Registering…' : (assocStatus && assocStatus.registered.length > 0 ? 'Re-register' : 'Register')}
-                                    </button>
+                                    </Button>
                                     {assocStatus && assocStatus.registered.length > 0 && (
-                                        <button
-                                            className="dl-btn dl-btn--ghost dl-btn--sm"
+                                        <Button
+                                            variant="ghost" size="sm"
                                             disabled={isRegisteringAssoc}
                                             onClick={async () => {
                                                 setIsRegisteringAssoc(true);
@@ -814,7 +814,7 @@ export const SettingsModal: React.FC = () => {
                                             }}
                                         >
                                             Unregister
-                                        </button>
+                                        </Button>
                                     )}
                                 </>}
                             />
@@ -834,11 +834,11 @@ export const SettingsModal: React.FC = () => {
                                         {updateAvailable && latestVersion ? t('settings.general.updateAvailable') : t('settings.general.latestRelease')}
                                     </p>
                                     <div className="settings-fcard__actions">
-                                        <button className="dl-btn dl-btn--sm" onClick={handleCheckForUpdates} disabled={isCheckingUpdate}>
+                                        <Button size="sm" onClick={handleCheckForUpdates} disabled={isCheckingUpdate}>
                                             {isCheckingUpdate ? t('settings.general.checking') : t('settings.general.checkUpdates')}
-                                        </button>
+                                        </Button>
                                         {updateAvailable && latestVersion && (
-                                            <button className="dl-btn dl-btn--primary dl-btn--sm" onClick={handleUpdateNow}>{t('settings.general.updateNow')}</button>
+                                            <Button variant="primary" size="sm" onClick={handleUpdateNow}>{t('settings.general.updateNow')}</Button>
                                         )}
                                     </div>
                                 </div>
@@ -859,9 +859,9 @@ export const SettingsModal: React.FC = () => {
                                         {t('settings.general.hashDbSub')}
                                     </p>
                                     <div className="settings-fcard__actions">
-                                        <button className="dl-btn dl-btn--sm" onClick={handleForceRebuildHashes} disabled={isRebuildingHashes}>
+                                        <Button size="sm" onClick={handleForceRebuildHashes} disabled={isRebuildingHashes}>
                                             {isRebuildingHashes ? t('settings.general.rebuilding') : t('settings.general.forceRebuild')}
-                                        </button>
+                                        </Button>
                                     </div>
                                 </div>
                             </div>

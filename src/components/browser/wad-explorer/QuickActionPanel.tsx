@@ -1,3 +1,4 @@
+import { Button } from '../../ui/Button';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useWadExplorerStore } from '../../../lib/stores';
 import type { WadChunk, WadExplorerWad } from '../../../lib/types';
@@ -131,21 +132,12 @@ export const QuickActionPanel: React.FC<QuickActionPanelProps> = ({ wads, onSetF
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: `${ROW_GAP}px` }}>
                         {recentEntries.map((wad) => (
-                            <button
+                            <Button
                                 key={wad.path}
-                                className="btn btn--ghost"
+                                variant="ghost"
                                 onClick={() => onOpenRecent(wad.path)}
                                 title={wad.path}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    gap: '12px',
-                                    padding: '8px 12px',
-                                    height: `${ROW_HEIGHT}px`,
-                                    width: '100%',
-                                    textAlign: 'left',
-                                }}
+                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', width: '100%', textAlign: 'left' }}
                             >
                                 <span style={{ fontSize: '13px', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                     {wad.name}
@@ -153,7 +145,7 @@ export const QuickActionPanel: React.FC<QuickActionPanelProps> = ({ wads, onSetF
                                 <span style={{ fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0 }}>
                                     {wad.category}
                                 </span>
-                            </button>
+                            </Button>
                         ))}
                     </div>
                 </div>
@@ -161,12 +153,12 @@ export const QuickActionPanel: React.FC<QuickActionPanelProps> = ({ wads, onSetF
 
             <div ref={filtersRef} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', width: '100%', maxWidth: '480px' }}>
                 {counts.map(qa => (
-                    <button
+                    <Button
                         key={qa.label}
-                        className="btn btn--secondary"
+                        variant="secondary"
                         onClick={() => onSetFilter(qa.regex.source)}
                         title={`Filter to ${qa.label} (${qa.count.toLocaleString()} in loaded WADs)`}
-                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '20px 12px', height: 'auto' }}
+                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}
                     >
                         <span dangerouslySetInnerHTML={{ __html: qa.iconHtml }} />
                         <span style={{ fontSize: '13px', fontWeight: 500 }}>{qa.label}</span>
@@ -175,7 +167,7 @@ export const QuickActionPanel: React.FC<QuickActionPanelProps> = ({ wads, onSetF
                                 {qa.count.toLocaleString()}
                             </span>
                         )}
-                    </button>
+                    </Button>
                 ))}
             </div>
         </div>

@@ -212,9 +212,9 @@ export const LogPanel: React.FC = () => {
                             <Button size="sm" variant="danger" icon="trash" onClick={clearLogs} disabled={logs.length === 0}>
                                 Clear
                             </Button>
-                            <button className="modal__close" onClick={toggleLogPanel} aria-label="Close">
+                            <Button className="modal__close" variant="ghost" size="sm" iconOnly onClick={toggleLogPanel} aria-label="Close">
                                 <Icon name="close" />
-                            </button>
+                            </Button>
                         </div>
                     </div>
 
@@ -229,14 +229,14 @@ export const LogPanel: React.FC = () => {
                                 onChange={(e) => setFilter(e.target.value)}
                             />
                             {filter && (
-                                <button
-                                    className="log-panel__search-clear"
+                                <Button
+                                    className="log-panel__search-clear" variant="ghost" size="sm" iconOnly
                                     onClick={() => setFilter('')}
                                     aria-label="Clear filter"
                                     title="Clear filter"
                                 >
                                     <Icon name="close" />
-                                </button>
+                                </Button>
                             )}
                         </div>
                         <div className="log-panel__levels">
@@ -311,14 +311,14 @@ export const LogPanel: React.FC = () => {
                                             >
                                                 {log.message}
                                             </span>
-                                            <button
-                                                className="log-panel__entry-copy"
+                                            <Button
+                                                className="log-panel__entry-copy" variant="ghost" size="sm" iconOnly
                                                 onClick={(e) => { e.stopPropagation(); copyLine(log.message); }}
                                                 title="Copy line"
                                                 aria-label="Copy log line"
                                             >
                                                 <Icon name="copy" />
-                                            </button>
+                                            </Button>
                                         </div>
                                     );
                                 })}

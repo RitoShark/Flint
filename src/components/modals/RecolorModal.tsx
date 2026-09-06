@@ -465,14 +465,14 @@ export const RecolorModal: React.FC = () => {
                                     {zoom > 1 && (
                                         <div className="recolor-modal__zoom-badge">
                                             {Math.round(zoom * 100)}%
-                                            <button
+                                            <Button
                                                 type="button"
-                                                className="recolor-modal__zoom-reset"
+                                                className="recolor-modal__zoom-reset" variant="ghost" size="sm"
                                                 onClick={(e) => { e.stopPropagation(); resetView(); }}
                                                 title="Reset zoom"
                                             >
                                                 Reset
-                                            </button>
+                                            </Button>
                                         </div>
                                     )}
                                     <div className="recolor-modal__zoom-hint">Scroll to zoom</div>
@@ -498,28 +498,28 @@ export const RecolorModal: React.FC = () => {
 
                         {isFolder && texturePaths.length > 0 && (
                             <div className="recolor-modal__swap">
-                                <button
+                                <Button
                                     type="button"
-                                    className="dl-btn dl-btn--ghost dl-btn--sm dl-btn--icon"
+                                    variant="ghost" size="sm" iconOnly
                                     onClick={() => step(-1)}
                                     disabled={!hasSwap}
                                     aria-label="Previous texture"
                                 >
                                     <Icon name="chevronLeft" />
-                                </button>
+                                </Button>
                                 <span className="recolor-modal__swap-label" title={texturePaths[previewIndex]}>
                                     {currentTexName}
                                     <span className="recolor-modal__swap-count"> {previewIndex + 1} / {texturePaths.length}</span>
                                 </span>
-                                <button
+                                <Button
                                     type="button"
-                                    className="dl-btn dl-btn--ghost dl-btn--sm dl-btn--icon"
+                                    variant="ghost" size="sm" iconOnly
                                     onClick={() => step(1)}
                                     disabled={!hasSwap}
                                     aria-label="Next texture"
                                 >
                                     <Icon name="chevronRight" />
-                                </button>
+                                </Button>
                             </div>
                         )}
                     </div>

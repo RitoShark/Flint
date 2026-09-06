@@ -250,14 +250,14 @@ export const BinSplitModal: React.FC = () => {
                                 <Button
                                     variant="ghost"
                                     onClick={selectAll}
-                                    style={{ padding: '8px 16px', fontSize: 13, whiteSpace: 'nowrap', flex: '0 0 auto' }}
+                                    style={{ whiteSpace: 'nowrap', flex: '0 0 auto' }}
                                 >
                                     All
                                 </Button>
                                 <Button
                                     variant="ghost"
                                     onClick={selectNone}
-                                    style={{ padding: '8px 16px', fontSize: 13, whiteSpace: 'nowrap', flex: '0 0 auto' }}
+                                    style={{ whiteSpace: 'nowrap', flex: '0 0 auto' }}
                                 >
                                     None
                                 </Button>

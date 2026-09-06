@@ -18,31 +18,6 @@ import { MapPreviewWindow } from './components/preview/MapPreviewWindow';
 import { ThumbnailWindow } from './components/thumbnail/ThumbnailWindow';
 
 import './styles/index.css';
-// Must load AFTER index.css to override.
-import './styles/ui-primitives.css';
-import './styles/settings-polish.css';
-import './styles/project-list-polish.css';
-import './styles/new-project-polish.css';
-import './styles/logger-polish.css';
-import './styles/wad-explorer-polish.css';
-import './styles/cheat-sheet-polish.css';
-import './styles/shortcut-cheatsheet.css';
-import './styles/browse-wad-polish.css';
-import './styles/archive-editor-polish.css';
-import './styles/titlebar-polish.css';
-import './styles/skin-fixer.css';
-import './styles/skin-port.css';
-import './styles/tutorial-polish.css';
-import './styles/design-lab.css';
-import './styles/cdn.css';
-import './styles/importMod.css';
-import './styles/whats-new-polish.css';
-import './styles/wad-audit-polish.css';
-import './styles/add-layer-polish.css';
-import './styles/mod-info-polish.css';
-// Loaded LAST so its rules win cleanly.
-import './styles/flint-2.css';
-import './themes/default.css';
 
 const isDesignLab =
     typeof window !== 'undefined' &&

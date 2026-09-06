@@ -1,0 +1,158 @@
+.checkpoint-diff__stats { display: flex; gap: var(--space-lg); margin: var(--space-md) 0 var(--space-xl); }
+
+.checkpoint-diff__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-md);
+}
+
+.checkpoint-diff__header h3 { margin: 0; }
+
+.checkpoint-diff__list { display: flex; flex-direction: column; gap: 2px; max-height: 300px; overflow-y: auto; }
+
+.checkpoint-modal { max-width: 1200px; width: 90vw; max-height: 85vh; display: flex; flex-direction: column; }
+
+.checkpoint-modal__body { display: flex; flex-direction: column; gap: var(--space-xl); overflow: hidden; }
+
+.checkpoint-modal__create {
+  padding: var(--space-lg);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.checkpoint-modal__create h3 {
+  margin: 0 0 var(--space-xs) 0;
+  font-size: var(--text-base);
+  color: var(--text-primary);
+}
+
+.checkpoint-modal__create p { margin: 0 0 var(--space-md) 0; font-size: var(--text-sm); }
+
+.checkpoint-form { display: flex; gap: var(--space-sm); }
+
+.checkpoint-form input { flex: 1; }
+
+.checkpoint-modal__content {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: var(--space-xl);
+  overflow: hidden;
+  min-height: 0;
+}
+
+.checkpoint-modal__list { display: flex; flex-direction: column; gap: var(--space-md); overflow: hidden; }
+
+.checkpoint-modal__list h3 { margin: 0 0 var(--space-md) 0; font-size: var(--text-base); color: var(--text-primary); }
+
+.checkpoint-modal__details {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.checkpoint-modal__loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xl);
+  color: var(--text-muted);
+}
+
+.checkpoint-modal__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-xl);
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.checkpoint-modal__empty span { font-size: 32px; opacity: 0.5; }
+
+.checkpoint-modal__empty p { margin: 0; }
+
+.checkpoint-details {
+  padding: var(--space-lg);
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.checkpoint-details__loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-xl);
+  color: var(--text-muted);
+}
+
+.checkpoint-details__loading span { font-size: 24px; animation: spin 1s linear infinite; }
+
+.checkpoint-details__placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  height: 100%;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.checkpoint-details__placeholder span { font-size: 32px; opacity: 0.3; }
+
+.checkpoint-details__placeholder p { margin: 0; font-style: italic; }
+
+.diff-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+.diff-badge--added {
+  background-color: rgba(63, 185, 80, 0.1);
+  color: var(--success);
+  border: 1px solid rgba(63, 185, 80, 0.3);
+}
+
+.diff-badge--modified {
+  background-color: rgba(255, 191, 0, 0.1);
+  color: var(--warning);
+  border: 1px solid rgba(255, 191, 0, 0.3);
+}
+
+.diff-badge--deleted {
+  background-color: rgba(248, 81, 73, 0.1);
+  color: var(--error);
+  border: 1px solid rgba(248, 81, 73, 0.3);
+}
+
+.diff-file__info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+
+.diff-file__path {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.italic { font-style: italic; }

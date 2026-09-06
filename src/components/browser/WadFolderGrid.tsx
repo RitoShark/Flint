@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 /**
  * Card grid for a WAD/package folder — the same surface the project screen shows
  * when you select a folder in its tree, sourced from a VFS mount instead of disk.
@@ -88,15 +89,15 @@ export const WadFolderGrid: React.FC<WadFolderGridProps> = ({
         <div className="wgrid">
             <div className="wgrid__bar">
                 {parentDir !== null ? (
-                    <button
+                    <Button
                         type="button"
-                        className="wgrid__up"
+                        className="wgrid__up" variant="ghost" size="sm" iconOnly
                         onClick={() => onOpenFolder(parentDir)}
                         title={`Go up to ${parentLabel}`}
                     >
                         <span className="wgrid__up-icon" dangerouslySetInnerHTML={{ __html: getIcon('chevronUp') }} />
                         <span className="wgrid__up-label">{parentLabel}</span>
-                    </button>
+                    </Button>
                 ) : (
                     <span className="wgrid__root">
                         <span className="wgrid__root-icon" dangerouslySetInnerHTML={{ __html: getIcon('package') }} />

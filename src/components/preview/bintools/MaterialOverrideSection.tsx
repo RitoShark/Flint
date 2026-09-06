@@ -1,3 +1,4 @@
+import { Button } from '../../ui/Button';
 import React, { useEffect, useState } from 'react';
 import { Icon } from '../../ui';
 import { Section } from './Section';
@@ -53,39 +54,39 @@ export const MaterialOverrideSection: React.FC<MaterialOverrideSectionProps> = (
         >
             <div className="bin-tools__body">
                 {!exists ? (
-                    <button className="dl-btn dl-btn--sm" style={{ width: '100%' }} onClick={handleAddBlock}>
+                    <Button size="sm" style={{ width: '100%' }} onClick={handleAddBlock}>
                         Add materialOverride block
-                    </button>
+                    </Button>
                 ) : (
                     <>
                         {!formOpen && !toonOpen && (
                             <>
                                 <div className="bin-tools__row">
-                                    <button
-                                        className="dl-btn dl-btn--sm"
+                                    <Button
+                                        size="sm"
                                         style={{ flex: 1 }}
                                         onClick={() => { setKind('texture'); setFormOpen(true); }}
                                     >
                                         <Icon className="bin-tools__glyph" name="texture" />
                                         Texture
-                                    </button>
-                                    <button
-                                        className="dl-btn dl-btn--sm"
+                                    </Button>
+                                    <Button
+                                        size="sm"
                                         style={{ flex: 1 }}
                                         onClick={() => { setKind('material'); setFormOpen(true); }}
                                     >
                                         <Icon className="bin-tools__glyph" name="contrast" />
                                         Material
-                                    </button>
+                                    </Button>
                                 </div>
-                                <button
-                                    className="dl-btn dl-btn--sm"
+                                <Button
+                                    size="sm"
                                     style={{ width: '100%' }}
                                     onClick={() => setToonOpen(true)}
                                 >
                                     <Icon className="bin-tools__glyph" name="color-palette" />
                                     Toon shading
-                                </button>
+                                </Button>
                             </>
                         )}
                         {toonOpen && (
@@ -118,8 +119,8 @@ export const MaterialOverrideSection: React.FC<MaterialOverrideSectionProps> = (
                                     }}
                                 />
                                 <div className="bin-tools__row">
-                                    <button className="dl-btn dl-btn--sm dl-btn--primary" style={{ flex: 1 }} onClick={handleInsert}>Insert</button>
-                                    <button className="dl-btn dl-btn--sm" style={{ flex: 1 }} onClick={() => setFormOpen(false)}>Cancel</button>
+                                    <Button size="sm" variant="primary" style={{ flex: 1 }} onClick={handleInsert}>Insert</Button>
+                                    <Button size="sm" style={{ flex: 1 }} onClick={() => setFormOpen(false)}>Cancel</Button>
                                 </div>
                             </div>
                         )}

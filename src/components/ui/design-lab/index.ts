@@ -1,8 +1,6 @@
 export { DlIcon } from './DlIcon';
 export type { DlIconName, DlIconProps } from './DlIcon';
 
-export { DlButton, DlIconButton } from './DlButton';
-export type { DlButtonProps, DlButtonVariant, DlButtonSize, DlIconButtonProps } from './DlButton';
 
 export { DlSelect } from './DlSelect';
 export type { DlSelectProps, DlSelectOption } from './DlSelect';

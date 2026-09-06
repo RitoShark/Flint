@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useModalStore, useProjectTabStore, useConfigStore, useNotificationStore, useNavigationStore } from '../../lib/stores';
@@ -105,16 +106,16 @@ export const RenameProjectModal: React.FC = () => {
                 </div>
 
                 <div className="dl-modal__foot" style={{ justifyContent: 'flex-end' }}>
-                    <button className="dl-btn dl-btn--ghost" onClick={closeModal} disabled={busy}>
+                    <Button variant="ghost" onClick={closeModal} disabled={busy}>
                         {t('common.cancel')}
-                    </button>
-                    <button
-                        className={`dl-btn dl-btn--primary${busy ? ' dl-btn--loading' : ''}`}
+                    </Button>
+                    <Button
+                        variant="primary" loading={busy}
                         onClick={save}
                         disabled={!canSave}
                     >
                         {t('common.save')}
-                    </button>
+                    </Button>
                 </div>
             </div>
         </div>,

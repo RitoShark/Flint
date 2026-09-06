@@ -1,3 +1,4 @@
+import { Button } from '../../ui/Button';
 import React, { useState } from 'react';
 import type * as monacoNs from 'monaco-editor';
 import { Section } from './Section';
@@ -19,22 +20,22 @@ export const VfxSection: React.FC<VfxSectionProps> = ({ editorRef }) => {
     return (
         <Section title="VFX Emitters" collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)}>
             <div className="bin-tools__row">
-                <button
-                    className="dl-btn dl-btn--sm"
+                <Button
+                    size="sm"
                     style={{ flex: 1 }}
                     onClick={() => fold(true)}
                     title="Fold all VfxEmitterDefinitionData blocks"
                 >
                     Fold All
-                </button>
-                <button
-                    className="dl-btn dl-btn--sm"
+                </Button>
+                <Button
+                    size="sm"
                     style={{ flex: 1 }}
                     onClick={() => fold(false)}
                     title="Unfold all VfxEmitterDefinitionData blocks"
                 >
                     Unfold All
-                </button>
+                </Button>
             </div>
         </Section>
     );

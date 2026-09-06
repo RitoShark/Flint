@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useProjectTabStore, useAppMetadataStore, useModalStore, useNotificationStore, useConfigStore, useNavigationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
@@ -138,9 +139,9 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
                 }}
             >
                 {parentRel !== null ? (
-                    <button
+                    <Button
                         type="button"
-                        className="btn btn--secondary btn--sm"
+                        variant="secondary" size="sm"
                         style={{ flexShrink: 0, maxWidth: '220px' }}
                         onClick={() => goTo(parentRel)}
                         title={`Go up to ${parentLabel}`}
@@ -155,7 +156,7 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
                         >
                             {parentLabel}
                         </span>
-                    </button>
+                    </Button>
                 ) : (
                     <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>📁 Project root</span>
                 )}

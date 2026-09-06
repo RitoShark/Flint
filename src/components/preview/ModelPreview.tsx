@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Scene } from '@babylonjs/core/scene';
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
@@ -183,9 +184,9 @@ const MpPopup: React.FC<{
             <span className="mp-panel__title">{title}</span>
             <div className="mp-panel__head-actions">
                 {headExtra}
-                <button className="mp-panel__close" onClick={onClose} title="Close" aria-label="Close">
+                <Button className="mp-panel__close" variant="ghost" size="sm" iconOnly onClick={onClose} title="Close" aria-label="Close">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
-                </button>
+                </Button>
             </div>
         </div>
         <div className="mp-panel__body">{children}</div>
@@ -1524,18 +1525,18 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             {meshData && (
                 <>
                     <div className="model-preview__controls-bar model-preview__controls-bar--left">
-                        <button
-                            className={`model-preview__control-btn ${activePopup === 'environment' ? 'model-preview__control-btn--active' : ''}`}
+                        <Button
+                            className="model-preview__control-btn" variant="secondary" size="sm" iconOnly active={activePopup === 'environment'}
                             onClick={() => setActivePopup(activePopup === 'environment' ? null : 'environment')}
                             title="Environment Settings"
                         >
                             <span dangerouslySetInnerHTML={{ __html: getIcon('settings') }} />
-                        </button>
+                        </Button>
                     </div>
 
                     <div className="model-preview__controls-bar">
-                        <button
-                            className={`model-preview__control-btn ${activePopup === 'display' ? 'model-preview__control-btn--active' : ''}`}
+                        <Button
+                            className="model-preview__control-btn" variant="secondary" size="sm" iconOnly active={activePopup === 'display'}
                             onClick={() => setActivePopup(activePopup === 'display' ? null : 'display')}
                             title="Display & Skeleton"
                         >
@@ -1545,22 +1546,22 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                                 <circle cx="12" cy="4.5" r="2" />
                                 <path d="M12 6.5v6M6.5 9.5h11M9.5 12.5l-2 5M14.5 12.5l2 5" />
                             </svg>
-                        </button>
-                        <button
-                            className={`model-preview__control-btn ${activePopup === 'materials' ? 'model-preview__control-btn--active' : ''}`}
+                        </Button>
+                        <Button
+                            className="model-preview__control-btn" variant="secondary" size="sm" iconOnly active={activePopup === 'materials'}
                             onClick={() => setActivePopup(activePopup === 'materials' ? null : 'materials')}
                             title="Materials"
                         >
                             <span dangerouslySetInnerHTML={{ __html: getIcon('picture') }} />
-                        </button>
+                        </Button>
                         {animations.length > 0 && (
-                            <button
-                                className={`model-preview__control-btn ${activePopup === 'animations' ? 'model-preview__control-btn--active' : ''}`}
+                            <Button
+                                className="model-preview__control-btn" variant="secondary" size="sm" iconOnly active={activePopup === 'animations'}
                                 onClick={() => setActivePopup(activePopup === 'animations' ? null : 'animations')}
                                 title="Animations"
                             >
                                 <span dangerouslySetInnerHTML={{ __html: getIcon('video') }} />
-                            </button>
+                            </Button>
                         )}
                     </div>
                 </>
@@ -1688,11 +1689,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                             <span className="mp-materials__count">{shownCount}/{total} shown</span>
                         </div>
                         <div className="mp-materials__head-actions">
-                            <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={() => toggleAllMaterials(true)}>Show all</button>
-                            <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={() => toggleAllMaterials(false)}>Hide all</button>
-                            <button className="mp-materials__close" onClick={() => setActivePopup(null)} title="Close" aria-label="Close">
+                            <Button variant="ghost" size="sm" onClick={() => toggleAllMaterials(true)}>Show all</Button>
+                            <Button variant="ghost" size="sm" onClick={() => toggleAllMaterials(false)}>Hide all</Button>
+                            <Button className="mp-materials__close" variant="ghost" size="sm" iconOnly onClick={() => setActivePopup(null)} title="Close" aria-label="Close">
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
-                            </button>
+                            </Button>
                         </div>
                     </div>
                     <div className="mp-materials__body">
@@ -1747,8 +1748,8 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                                                 {hasTexture ? 'Texture loaded' : 'No texture'}
                                             </span>
                                         </div>
-                                        <button
-                                            className="mp-mat-row__eye"
+                                        <Button
+                                            className="mp-mat-row__eye" variant="ghost" size="sm" iconOnly
                                             title={isVisible ? 'Hide this material' : 'Show this material'}
                                             aria-pressed={isVisible}
                                             onClick={(e) => { e.stopPropagation(); toggleMaterial(matName); }}
@@ -1764,7 +1765,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                                                     <line x1="1" y1="1" x2="23" y2="23" />
                                                 </svg>
                                             )}
-                                        </button>
+                                        </Button>
                                     </div>
                                 );
                             })}
@@ -1806,8 +1807,8 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     {selectedAnimation && (
                         <div className="mp-anim-controls">
                             <div className="mp-anim-buttons">
-                                <button
-                                    className={`dl-btn dl-btn--sm ${isPlaying ? 'dl-btn--primary' : 'dl-btn--secondary'}`}
+                                <Button
+                                    size="sm" variant={isPlaying ? "primary" : "secondary"}
                                     onClick={() => setIsPlaying(!isPlaying)}
                                 >
                                     {isPlaying ? (
@@ -1816,14 +1817,14 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3" /></svg>
                                     )}
                                     <span>{isPlaying ? 'Pause' : 'Play'}</span>
-                                </button>
-                                <button
-                                    className="dl-btn dl-btn--sm dl-btn--ghost"
+                                </Button>
+                                <Button
+                                    size="sm" variant="ghost"
                                     onClick={() => { setIsPlaying(false); handleSliderChange(0); }}
                                 >
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="6" width="12" height="12" /></svg>
                                     <span>Stop</span>
-                                </button>
+                                </Button>
                             </div>
                             {animationData && (
                                 <div className="mp-anim-timeline">

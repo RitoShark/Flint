@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import * as api from '../../lib/api';
 import type { StringTableData, StringTableRow } from '../../lib/api/legacyFormats';
@@ -132,8 +133,8 @@ export const StringTableEditor: React.FC<StringTableEditorProps> = ({ filePath }
                     style={{ flex: 1, padding: '4px 8px' }}
                 />
                 <span style={{ fontSize: 12, opacity: 0.7 }}>{filtered.length} / {data.rows.length}</span>
-                {!readOnly && <button className="btn btn--sm" onClick={addRow}>+ Row</button>}
-                {!readOnly && <button className="btn btn--primary btn--sm" disabled={!dirty} onClick={handleSave}>Save</button>}
+                {!readOnly && <Button size="sm" onClick={addRow}>+ Row</Button>}
+                {!readOnly && <Button variant="primary" size="sm" disabled={!dirty} onClick={handleSave}>Save</Button>}
                 {readOnly && <span style={{ fontSize: 12, color: 'var(--warning, #e0a030)' }}>Encrypted — read-only</span>}
             </div>
             <div style={{ flex: 1, minHeight: 0 }}>
@@ -154,7 +155,7 @@ export const StringTableEditor: React.FC<StringTableEditorProps> = ({ filePath }
                                 style={{ flex: 1, padding: '2px 6px' }}
                             />
                             {!readOnly && !row.encrypted && (
-                                <button className="btn btn--ghost btn--sm" onClick={() => deleteRow(row)} title="Delete row">✕</button>
+                                <Button variant="ghost" size="sm" onClick={() => deleteRow(row)} title="Delete row">✕</Button>
                             )}
                         </div>
                     )}

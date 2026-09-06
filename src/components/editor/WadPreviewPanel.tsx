@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useState, useEffect, useRef } from 'react';
 import { useWadExtractStore, useNotificationStore, useModalStore } from '../../lib/stores';
 import * as api from '../../lib/api';
@@ -742,14 +743,14 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties; sessionId?
                         <div style={{ marginBottom: '16px', fontSize: '12px' }}>
                             Extract the file to preview it in the project editor.
                         </div>
-                        <button
-                            className="btn btn--primary btn--sm"
+                        <Button
+                            variant="primary" size="sm"
                             onClick={handleExtractThis}
                             disabled={isExtracting}
                         >
                             <span dangerouslySetInnerHTML={{ __html: getIcon('export') }} />
                             <span>{isExtracting ? 'Extracting…' : 'Extract File'}</span>
-                        </button>
+                        </Button>
                     </div>
                 </div>
             );
@@ -764,13 +765,13 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties; sessionId?
                 {isImage && (
                     <div className="preview-panel__zoom-controls" style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
                         {(['fit', 1, 2] as const).map(z => (
-                            <button
+                            <Button
                                 key={String(z)}
-                                className={`btn btn--sm ${imageZoom === z ? 'btn--active' : ''}`}
+                                size="sm" active={imageZoom === z}
                                 onClick={() => setImageZoom(z)}
                             >
                                 {z === 'fit' ? 'Fit' : `${(z as number) * 100}%`}
-                            </button>
+                            </Button>
                         ))}
                         <div style={{ width: '1px', height: '16px', background: 'var(--border)', margin: '0 8px' }} />
                     </div>
@@ -778,20 +779,20 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties; sessionId?
                 <span className="preview-panel__filename" style={{ minWidth: 0, flex: 1, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', margin: '0 8px' }}>
                     {fileName}
                 </span>
-                <div style={{ 
-                    position: 'absolute', 
-                    right: '12px', 
-                    top: '50%', 
-                    transform: 'translateY(-50%)', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '8px' 
+                <div style={{
+                    position: 'absolute',
+                    right: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
                 }}>
                     <Dropdown
                         align="right"
                         trigger={(open, toggle) => (
-                            <button
-                                className={`btn btn--sm ${open ? 'btn--active' : ''}`}
+                            <Button
+                                size="sm" active={open}
                                 onClick={toggle}
                                 style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
                                 title="Copy metadata to clipboard"
@@ -799,7 +800,7 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties; sessionId?
                                 <span dangerouslySetInnerHTML={{ __html: getIcon('copy') }} />
                                 <span>Copy</span>
                                 <span style={{ opacity: 0.5, fontSize: '9px', marginLeft: '2px' }}>▼</span>
-                            </button>
+                            </Button>
                         )}
                         items={[
                             ...(chunk.path ? [
@@ -836,47 +837,47 @@ export const WadPreviewPanel: React.FC<{ style?: React.CSSProperties; sessionId?
                         ]}
                     />
                     {canEditChunks && isContentDirty && (
-                        <button
-                            className="btn btn--sm btn--primary"
+                        <Button
+                            size="sm" variant="primary"
                             onClick={handleSaveChunk}
                             disabled={isSavingChunk}
                             title="Save this file in memory inside the WAD session"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'var(--success, #28a745)', borderColor: 'var(--success, #28a745)', color: '#fff' }}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                         >
                             <span dangerouslySetInnerHTML={{ __html: getIcon('save') || '💾' }} />
                             <span>{isSavingChunk ? 'Saving...' : 'Save File'}</span>
-                        </button>
+                        </Button>
                     )}
-                    <button
-                        className="btn btn--sm btn--primary"
+                    <Button
+                        size="sm" variant="primary"
                         onClick={handleExtractThis}
                         disabled={isExtracting}
                         title="Extract this file to a folder"
                     >
                         <span dangerouslySetInnerHTML={{ __html: getIcon('export') }} />
                         <span>{isExtracting ? 'Extracting…' : 'Extract File'}</span>
-                    </button>
+                    </Button>
                     {canEditChunks && (
-                        <button
-                            className="btn btn--sm btn--danger"
+                        <Button
+                            size="sm" variant="danger"
                             onClick={handleDeleteFromWad}
                             title="Delete this file from the WAD (applied when you save the WAD)"
                             style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                         >
                             <span dangerouslySetInnerHTML={{ __html: getIcon('trash') || '🗑' }} />
                             <span>Delete</span>
-                        </button>
+                        </Button>
                     )}
-                    <button
-                        className="btn btn--sm"
+                    <Button
+                        size="sm"
                         onClick={() => {
                             useWadExtractStore.getState().setPreview(session.id, null);
                         }}
                         title="Close preview"
-                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', padding: 0 }}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '28px' }}
                     >
                         <span dangerouslySetInnerHTML={{ __html: getIcon('close') || '✕' }} />
-                    </button>
+                    </Button>
                 </div>
             </div>
 

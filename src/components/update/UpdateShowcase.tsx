@@ -1,10 +1,10 @@
+import { Button } from '../ui/Button';
 import React from 'react';
 import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import './update-showcase.css';
 
 interface GithubRelease {
     tag_name: string;
@@ -117,9 +117,9 @@ export const UpdateShowcase: React.FC = () => {
                             {release?.author && <button type="button" onClick={() => void openUrl(release.author!.url)}>Posted by {release.author.login}</button>}
                         </div>
                     </div>
-                    <button type="button" className="flint-update__close" onClick={close} title="Close" aria-label="Close">
+                    <Button type="button" className="flint-update__close" variant="ghost" size="sm" iconOnly onClick={close} title="Close" aria-label="Close">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
-                    </button>
+                    </Button>
                 </header>
                 <div className="flint-update__body">
                     {loading && <div className="flint-update__loading"><span className="flint-update__spinner" />Loading release notes…</div>}
@@ -133,8 +133,8 @@ export const UpdateShowcase: React.FC = () => {
                     )}
                 </div>
                 <footer className="flint-update__foot">
-                    <button type="button" className="flint-update__button" onClick={() => void openUrl(releaseUrl)}>View on GitHub</button>
-                    <button type="button" className="flint-update__button flint-update__button--primary" onClick={close}>Continue</button>
+                    <Button type="button" className="flint-update__button" variant="secondary" size="md" onClick={() => void openUrl(releaseUrl)}>View on GitHub</Button>
+                    <Button type="button" className="flint-update__button" variant="primary" size="md" onClick={close}>Continue</Button>
                 </footer>
             </section>
         </div>

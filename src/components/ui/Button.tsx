@@ -4,13 +4,14 @@ import { Icon, type IconName } from './Icon';
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success';
 export type ButtonSize = 'sm' | 'md' | 'lg';
 
-export interface ButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
+export interface ButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children' | 'dangerouslySetInnerHTML'> {
     variant?: ButtonVariant;
     size?: ButtonSize;
     icon?: IconName;
     iconRight?: IconName;
     iconOnly?: boolean;
     active?: boolean;
+    loading?: boolean;
     fullWidth?: boolean;
     children?: React.ReactNode;
 }
@@ -26,7 +27,7 @@ const variantClass: Record<ButtonVariant, string> = {
 const sizeClass: Record<ButtonSize, string> = {
     sm: 'btn--sm',
     md: '',
-    lg: 'btn--large',
+    lg: 'btn--lg',
 };
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
@@ -37,12 +38,14 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             icon,
             iconRight,
             iconOnly = false,
-            active = false,
+            active,
+            loading = false,
             fullWidth = false,
             className = '',
             style,
             children,
             type = 'button',
+            disabled,
             ...rest
         },
         ref,
@@ -53,20 +56,42 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             sizeClass[size],
             iconOnly ? 'btn--icon' : '',
             active ? 'btn--active' : '',
+            loading ? 'btn--loading' : '',
+            fullWidth ? 'btn--full-width' : '',
             className,
         ]
             .filter(Boolean)
             .join(' ');
 
-        const mergedStyle = fullWidth ? { width: '100%', ...style } : style;
-
         return (
-            <button ref={ref} type={type} className={classes} style={mergedStyle} {...rest}>
-                {icon && <Icon name={icon} />}
-                {children != null && <span>{children}</span>}
-                {iconRight && <Icon name={iconRight} />}
+            <button
+                ref={ref}
+                type={type}
+                className={classes}
+                style={style}
+                disabled={disabled || loading}
+                aria-busy={loading || undefined}
+                aria-pressed={active}
+                {...rest}
+            >
+                {icon && <Icon name={icon} className="btn__icon" aria-hidden="true" />}
+                {children}
+                {iconRight && <Icon name={iconRight} className="btn__icon" aria-hidden="true" />}
+                {loading && <span className="btn__spinner" aria-hidden="true" />}
             </button>
         );
     },
 );
 Button.displayName = 'Button';
+
+export interface IconButtonProps extends Omit<ButtonProps, 'children' | 'iconRight' | 'iconOnly'> {
+    icon: IconName;
+    title: string;
+}
+
+export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
+    ({ title, ...props }, ref) => (
+        <Button ref={ref} title={title} aria-label={title} {...props} iconOnly />
+    ),
+);
+IconButton.displayName = 'IconButton';

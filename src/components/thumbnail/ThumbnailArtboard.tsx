@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { DiscLayer, EnvLayer, Layer, ModelLayer, TextLayer, updateLayer } from '../../lib/thumbnail/layers';
@@ -11,7 +12,6 @@ import { DiscComposite } from './DiscComposite';
 import { FrameComposite } from './FrameComposite';
 import { ModelStudioModal } from './ModelStudioModal';
 import { DlIcon } from '../ui/design-lab';
-import '../../styles/thumbnail.css';
 
 // Base cream/gold text color the whole thumbnail style family shares before
 // any hue theming is mixed in (was hardcoded as `.tb-el.text .tb-body`'s
@@ -1084,25 +1084,25 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
           the Face-camera auto-orient, right over the canvas. */}
       {selectedModel && (
         <div className="tb-model-bar">
-          <button
+          <Button
             ref={studioBtnRef}
             type="button"
-            className={`tb-model-bar__btn${studioOpen ? ' tb-model-bar__btn--active' : ''}`}
+            className="tb-model-bar__btn" variant="secondary" size="sm" iconOnly active={studioOpen}
             title="Edit meshes & animation"
             onClick={() => setStudioOpen(o => !o)}
           >
             <DlIcon name="settings" size={15} />
             <span>Meshes &amp; animation</span>
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="tb-model-bar__btn"
+            className="tb-model-bar__btn" variant="secondary" size="sm" iconOnly
             title="Turn the character to face the camera"
             onClick={faceSelectedModel}
           >
             <DlIcon name="target" size={15} />
             <span>Face camera</span>
-          </button>
+          </Button>
         </div>
       )}
       {selectedModel && studioOpen && (
@@ -1245,7 +1245,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
       {orbitLayerId && (
         <div className="tb-orbit-hint">
           <span>Editing model · left-drag = turn · alt = tilt · ctrl = roll · right-drag = pan · wheel = scale · dbl-click to reset</span>
-          <button className="tb-orbit-hint__exit" onClick={exitOrbit}>Done (Esc)</button>
+          <Button className="tb-orbit-hint__exit" variant="secondary" size="sm" onClick={exitOrbit}>Done (Esc)</Button>
         </div>
       )}
     </div>

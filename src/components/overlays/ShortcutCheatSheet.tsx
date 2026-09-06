@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React from 'react';
 import { buildCheatSheet, scopeHint } from '../../lib/shortcuts/cheatSheet';
 import { SHORTCUTS } from '../../lib/shortcuts/manifest';
@@ -41,7 +42,7 @@ export const ShortcutCheatSheet: React.FC<Props> = ({ onClose }) => {
             >
                 <header className="sc-sheet__header">
                     <h2 className="sc-sheet__title">Keyboard Shortcuts</h2>
-                    <button className="sc-sheet__close" onClick={onClose} title="Close (Esc)">
+                    <Button className="sc-sheet__close" variant="ghost" size="sm" iconOnly onClick={onClose} title="Close (Esc)">
                         <svg viewBox="0 0 16 16" width="14" height="14">
                             <path
                                 d="M4.5 4.5l7 7m0-7l-7 7"
@@ -51,7 +52,7 @@ export const ShortcutCheatSheet: React.FC<Props> = ({ onClose }) => {
                                 fill="none"
                             />
                         </svg>
-                    </button>
+                    </Button>
                 </header>
 
                 <div className="sc-sheet__body">

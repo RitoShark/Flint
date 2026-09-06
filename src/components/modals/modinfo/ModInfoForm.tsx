@@ -1,3 +1,4 @@
+import { Button } from '../../ui/Button';
 import React, { useState } from 'react';
 import { getIcon } from '../../../lib/ui-helpers/fileIcons';
 import {
@@ -162,12 +163,12 @@ export const ModInfoForm: React.FC<Props> = ({ section, draft, slug, onChange })
                 <div className="mi-field">
                     <div className="mi-field__head">
                         <span className="mi-field__label">Contributors</span>
-                        <button
-                            className="dl-btn dl-btn--secondary dl-btn--sm"
+                        <Button
+                            variant="secondary" size="sm"
                             onClick={() => onChange({ authors: [...draft.authors, { name: '', role: '' }] })}
                         >
                             Add
-                        </button>
+                        </Button>
                     </div>
                     {draft.authors.length === 0 && <div className="mi-empty">Nobody credited yet.</div>}
                     {draft.authors.map((author, index) => (

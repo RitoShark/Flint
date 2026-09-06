@@ -1,3 +1,4 @@
+import { Button } from './Button';
 /**
  * Flint — Design Lab
  *
@@ -12,7 +13,6 @@
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import '../../styles/design-lab.css';
 
 // ─── Inline icons (lab-local — keeps file fully standalone) ────────────────
 const I = {
@@ -226,14 +226,14 @@ const Dropdown: React.FC<{ label: string; align?: 'left' | 'right' }> = ({ label
 
     return (
         <>
-            <button
+            <Button
                 ref={triggerRef}
-                className={`dl-btn dl-btn--secondary ${open ? 'dl-btn--active' : ''}`}
+                variant="secondary" active={open}
                 onClick={() => setOpen((v) => !v)}
             >
                 <span>{label}</span>
                 <Icon glyph="chevronDown" />
-            </button>
+            </Button>
             {open && pos && createPortal(
                 <div
                     ref={menuRef}
@@ -358,7 +358,7 @@ const Modal: React.FC<{
             <div className={`dl-modal ${size === 'wide' ? 'dl-modal--wide' : ''} ${size === 'large' ? 'dl-modal--large' : ''}`}>
                 <div className="dl-modal__head">
                     <h3 className="dl-modal__title">{title}</h3>
-                    <button className="dl-modal__close" onClick={onClose} aria-label="Close"><Icon glyph="close" /></button>
+                    <Button className="dl-modal__close" variant="ghost" size="sm" iconOnly onClick={onClose} aria-label="Close"><Icon glyph="close" /></Button>
                 </div>
                 <div className="dl-modal__body">{children}</div>
                 {footer && <div className="dl-modal__foot">{footer}</div>}
@@ -395,7 +395,7 @@ export const DesignLab: React.FC = () => {
 
     useEffect(() => {
         const onMove = (e: MouseEvent) => {
-            const btn = (e.target as HTMLElement).closest<HTMLElement>('.dl-btn');
+            const btn = (e.target as HTMLElement).closest<HTMLElement>('.btn');
             if (!btn) return;
             const r = btn.getBoundingClientRect();
             btn.style.setProperty('--mx', `${e.clientX - r.left}px`);
@@ -557,42 +557,42 @@ export const DesignLab: React.FC = () => {
                         {/* ─── Modal (placed before below-the-fold sections so the open buttons are easy to find) ─── */}
                         <Section title="Modal" subtitle="Portal-rendered. Click an option below to open.">
                             <Row label="Open">
-                                <button className="dl-btn dl-btn--primary" onClick={() => setOpenModal('default')}><Icon glyph="sparkle" /><span>Default modal</span></button>
-                                <button className="dl-btn" onClick={() => setOpenModal('wide')}>Wide modal</button>
-                                <button className="dl-btn dl-btn--danger" onClick={() => setOpenModal('confirm')}><Icon glyph="trash" /><span>Confirm dialog</span></button>
+                                <Button variant="primary" onClick={() => setOpenModal('default')}><Icon glyph="sparkle" /><span>Default modal</span></Button>
+                                <Button  onClick={() => setOpenModal('wide')}>Wide modal</Button>
+                                <Button variant="danger" onClick={() => setOpenModal('confirm')}><Icon glyph="trash" /><span>Confirm dialog</span></Button>
                             </Row>
                         </Section>
 
                         {/* ─── Buttons ─────────────────────────────────── */}
                         <Section title="Buttons" subtitle="Cursor-following glow, overlay primary, serious red danger.">
                             <Row label="Variants">
-                                <button className="dl-btn dl-btn--primary"><Icon glyph="sparkle" /><span>Primary</span></button>
-                                <button className="dl-btn dl-btn--secondary"><span>Secondary</span></button>
-                                <button className="dl-btn dl-btn--ghost"><span>Ghost</span></button>
-                                <button className="dl-btn dl-btn--danger"><Icon glyph="trash" /><span>Danger</span></button>
+                                <Button variant="primary"><Icon glyph="sparkle" /><span>Primary</span></Button>
+                                <Button variant="secondary"><span>Secondary</span></Button>
+                                <Button variant="ghost"><span>Ghost</span></Button>
+                                <Button variant="danger"><Icon glyph="trash" /><span>Danger</span></Button>
                             </Row>
                             <Row label="Sizes">
-                                <button className="dl-btn dl-btn--sm">Small</button>
-                                <button className="dl-btn">Medium</button>
-                                <button className="dl-btn dl-btn--lg dl-btn--primary">Large</button>
+                                <Button size="sm">Small</Button>
+                                <Button >Medium</Button>
+                                <Button size="lg" variant="primary">Large</Button>
                             </Row>
                             <Row label="With icon">
-                                <button className="dl-btn dl-btn--primary"><Icon glyph="download" /><span>Download</span></button>
-                                <button className="dl-btn"><span>Next</span><Icon glyph="chevronRight" /></button>
-                                <button className="dl-btn dl-btn--ghost"><Icon glyph="refresh" /><span>Refresh</span></button>
+                                <Button variant="primary"><Icon glyph="download" /><span>Download</span></Button>
+                                <Button ><span>Next</span><Icon glyph="chevronRight" /></Button>
+                                <Button variant="ghost"><Icon glyph="refresh" /><span>Refresh</span></Button>
                             </Row>
                             <Row label="Icon only">
-                                <button className="dl-btn dl-btn--icon" title="Settings"><Icon glyph="settings" /></button>
-                                <button className="dl-btn dl-btn--icon dl-btn--danger" title="Delete"><Icon glyph="trash" /></button>
-                                <button className="dl-btn dl-btn--icon dl-btn--primary" title="Confirm"><Icon glyph="check" /></button>
+                                <Button iconOnly title="Settings"><Icon glyph="settings" /></Button>
+                                <Button iconOnly variant="danger" title="Delete"><Icon glyph="trash" /></Button>
+                                <Button iconOnly variant="primary" title="Confirm"><Icon glyph="check" /></Button>
                             </Row>
                             <Row label="States">
-                                <button className="dl-btn">Idle</button>
-                                <button className="dl-btn dl-btn--active">Active</button>
-                                <button className="dl-btn" disabled>Disabled</button>
-                                <button className={`dl-btn dl-btn--primary ${loading ? 'dl-btn--loading' : ''}`} onClick={fakeLoad}>
+                                <Button >Idle</Button>
+                                <Button active>Active</Button>
+                                <Button  disabled>Disabled</Button>
+                                <Button variant="primary" loading={loading} onClick={fakeLoad}>
                                     {loading ? 'Loading' : 'Click me'}
-                                </button>
+                                </Button>
                             </Row>
                         </Section>
 
@@ -696,8 +696,8 @@ export const DesignLab: React.FC = () => {
                 title="Create new project"
                 footer={
                     <>
-                        <button className="dl-btn" onClick={() => setOpenModal(null)}>Cancel</button>
-                        <button className="dl-btn dl-btn--primary" onClick={() => setOpenModal(null)}>Create</button>
+                        <Button  onClick={() => setOpenModal(null)}>Cancel</Button>
+                        <Button variant="primary" onClick={() => setOpenModal(null)}>Create</Button>
                     </>
                 }
             >
@@ -716,9 +716,9 @@ export const DesignLab: React.FC = () => {
                 size="wide"
                 footer={
                     <>
-                        <button className="dl-btn dl-btn--ghost">Help</button>
-                        <button className="dl-btn" onClick={() => setOpenModal(null)}>Cancel</button>
-                        <button className="dl-btn dl-btn--primary" onClick={() => setOpenModal(null)}>Export</button>
+                        <Button variant="ghost">Help</Button>
+                        <Button  onClick={() => setOpenModal(null)}>Cancel</Button>
+                        <Button variant="primary" onClick={() => setOpenModal(null)}>Export</Button>
                     </>
                 }
             >
@@ -742,8 +742,8 @@ export const DesignLab: React.FC = () => {
                 title="Delete project?"
                 footer={
                     <>
-                        <button className="dl-btn" onClick={() => setOpenModal(null)}>Cancel</button>
-                        <button className="dl-btn dl-btn--danger" onClick={() => setOpenModal(null)}>Delete forever</button>
+                        <Button  onClick={() => setOpenModal(null)}>Cancel</Button>
+                        <Button variant="danger" onClick={() => setOpenModal(null)}>Delete forever</Button>
                     </>
                 }
             >

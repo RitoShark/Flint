@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
@@ -190,20 +191,20 @@ export const TextPreview: React.FC<TextPreviewProps> = ({ filePath }) => {
                 <div className="text-preview__toolbar-right">
                     {hasChanges && (
                         <>
-                            <button
-                                className="btn btn--sm btn--ghost"
+                            <Button
+                                size="sm" variant="ghost"
                                 onClick={handleRevert}
                                 disabled={saving}
                             >
                                 Revert
-                            </button>
-                            <button
-                                className="btn btn--sm btn--primary"
+                            </Button>
+                            <Button
+                                size="sm" variant="primary"
                                 onClick={handleSave}
                                 disabled={saving}
                             >
                                 {saving ? 'Saving...' : 'Save'}
-                            </button>
+                            </Button>
                         </>
                     )}
                 </div>

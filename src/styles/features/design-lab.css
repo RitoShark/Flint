@@ -1,0 +1,95 @@
+.dl-root {
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  font-family: var(--font-sans);
+  min-height: 100%;
+}
+
+.dl-shell { max-width: 1100px; margin: 0 auto; padding: 48px 32px 96px; }
+
+.dl-page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 40px;
+  padding-bottom: 24px;
+  border-bottom: var(--dl-border-soft);
+}
+
+.dl-page-head h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  background: linear-gradient(135deg,
+        var(--text-primary) 0%,
+        color-mix(in oklab, var(--accent-primary) 60%, var(--text-primary)) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.dl-page-head p { margin: 6px 0 0; color: var(--text-secondary); font-size: 13px; }
+
+.dl-page-head__meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+@keyframes dl-spin {
+  to { transform: rotate(360deg); }
+}
+
+.dl-textarea { padding: 10px 12px; height: auto; min-height: 80px; resize: vertical; line-height: 1.5; }
+
+@keyframes dl-pop-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
+@keyframes dl-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes dl-modal-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0)  scale(1); }
+}
+
+@keyframes dl-shimmer {
+  to { transform: translateX(100%); }
+}
+
+@keyframes dl-indet {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+
+.dl-theme-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.dl-theme-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: transform var(--dl-fast), border-color var(--dl-fast);
+}
+
+.dl-theme-swatch:hover { transform: scale(1.1); }
+
+.dl-theme-swatch--active { border-color: white; box-shadow: 0 0 0 2px var(--accent-primary); }

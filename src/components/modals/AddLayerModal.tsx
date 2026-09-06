@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useModalStore, useNotificationStore, useProjectTabStore } from '../../lib/stores';
@@ -483,19 +484,19 @@ export const AddLayerModal: React.FC = () => {
                             </>
                         )}
                     </div>
-                    <button
-                        className="dl-btn dl-btn--ghost"
+                    <Button
+                        variant="ghost"
                         onClick={() => setSelection(new Uint8Array(selection.length))}
                         disabled={busy || selectedCount === 0}
                     >
                         {t('addLayer.clear')}
-                    </button>
-                    <button className="dl-btn dl-btn--secondary" onClick={closeModal} disabled={busy}>
+                    </Button>
+                    <Button variant="secondary" onClick={closeModal} disabled={busy}>
                         {t('common.cancel')}
-                    </button>
-                    <button className="dl-btn dl-btn--primary" onClick={() => void handleSubmit()} disabled={!canSubmit}>
+                    </Button>
+                    <Button variant="primary" onClick={() => void handleSubmit()} disabled={!canSubmit}>
                         {busy ? t('addLayer.creating') : t('addLayer.create')}
-                    </button>
+                    </Button>
                 </div>
             </div>
         </div>,

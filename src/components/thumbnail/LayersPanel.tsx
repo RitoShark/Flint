@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import { Ref, useRef, useState } from 'react';
 import { Layer } from '../../lib/thumbnail/layers';
 import { DlIcon, type DlIconName } from '../ui/design-lab';
@@ -53,32 +54,32 @@ function LayerRow({ layer, selected, dropBefore, dragging, onSelect, onToggleHid
         aria-label="Drag to reorder"
         onPointerDown={(e) => { e.stopPropagation(); onDragStart(e, layer.id); }}
       />
-      <button
+      <Button
         type="button"
-        className="tb-layer__btn tb-layer__eye"
+        className="tb-layer__btn tb-layer__eye" variant="ghost" size="sm" iconOnly
         title={layer.hidden ? 'Hidden — click to show' : 'Visible — click to hide'}
         onClick={(e) => { e.stopPropagation(); onToggleHidden(layer.id); }}
       >
         <DlIcon name={layer.hidden ? 'eye-off' : 'eye'} size={14} />
-      </button>
+      </Button>
       <span className="tb-layer__ic"><DlIcon name={iconFor(layer.type)} size={14} /></span>
       <span className="tb-layer__nm">{layer.name}</span>
-      <button
+      <Button
         type="button"
-        className={`tb-layer__btn tb-layer__lock${layer.locked ? ' tb-layer__lock--on' : ''}`}
+        className={`tb-layer__btn tb-layer__lock ${layer.locked ? ' tb-layer__lock--on' : ''}`} variant="ghost" size="sm" iconOnly
         title={layer.locked ? 'Locked — click to unlock' : 'Click to lock placement'}
         onClick={(e) => { e.stopPropagation(); onToggleLock(layer.id); }}
       >
         <DlIcon name={layer.locked ? 'lockClosed' : 'lockOpen'} size={14} />
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
-        className="tb-layer__btn tb-layer__del"
+        className="tb-layer__btn tb-layer__del" variant="ghost" size="sm" iconOnly
         title="Delete layer"
         onClick={(e) => { e.stopPropagation(); onDelete(layer.id); }}
       >
         <DlIcon name="close" size={14} />
-      </button>
+      </Button>
     </div>
   );
 }

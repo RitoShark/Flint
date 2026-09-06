@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
@@ -309,13 +310,13 @@ export const LuaBin64Editor: React.FC<LuaBin64EditorProps> = ({ filePath, hideFi
                     </span>
                 </span>
                 <div className="bin-editor__toolbar-actions">
-                    <button
-                        className="btn btn--primary btn--sm"
+                    <Button
+                        variant="primary" size="sm"
                         onClick={handleSave}
                         disabled={!isDirty}
                     >
                         Save
-                    </button>
+                    </Button>
                 </div>
             </div>
 

@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React from 'react';
 import { useNotificationStore } from '../../lib/stores';
 import { getToastIcon } from '../../lib/ui-helpers/fileIcons';
@@ -28,13 +29,13 @@ export const ToastContainer: React.FC = () => {
                             <div className="toast-suggestion">{toast.suggestion}</div>
                         )}
                     </div>
-                    <button
-                        className="toast-dismiss"
+                    <Button
+                        className="toast-dismiss" variant="ghost" size="sm" iconOnly
                         onClick={() => dismissToast(toast.id)}
                         aria-label="Dismiss"
                     >
                         ×
-                    </button>
+                    </Button>
                 </div>
             ))}
         </div>

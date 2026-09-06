@@ -1,3 +1,4 @@
+import { Button } from '../../ui/Button';
 import React from 'react';
 import { SettingsRow, SettingsTag } from './SettingsRow';
 import { useTranslation } from '../../../lib/i18n';
@@ -56,27 +57,27 @@ export const IntegrationsTab: React.FC<{
                 actions={connected ? (
                     <>
                         {isLauncher && !isDefault && (
-                            <button className="dl-btn dl-btn--primary dl-btn--sm" onClick={() => onPreferredLauncherChange(i.id as 'ltk' | 'celestial')}>
+                            <Button variant="primary" size="sm" onClick={() => onPreferredLauncherChange(i.id as 'ltk' | 'celestial')}>
                                 {t('settings.integrations.setDefault')}
-                            </button>
+                            </Button>
                         )}
                         {isLauncher && isDefault && (
-                            <button
-                                className={`dl-btn dl-btn--sm ${autoSync ? 'dl-btn--active' : ''}`}
+                            <Button
+                                size="sm" active={autoSync}
                                 disabled={!ltkConfigured}
                                 onClick={() => onAutoSyncChange(!autoSync)}
                                 title={t('settings.integrations.autoSyncTitle')}
                             >
                                 {autoSync ? t('settings.integrations.autoSyncOn') : t('settings.integrations.autoSyncOff')}
-                            </button>
+                            </Button>
                         )}
-                        <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={() => void onConnect(i)}>{t('common.change')}</button>
-                        <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={() => i.setPath('')}>{t('common.disconnect')}</button>
+                        <Button variant="ghost" size="sm" onClick={() => void onConnect(i)}>{t('common.change')}</Button>
+                        <Button variant="ghost" size="sm" onClick={() => i.setPath('')}>{t('common.disconnect')}</Button>
                     </>
                 ) : (
                     <>
-                        <button className="dl-btn dl-btn--primary dl-btn--sm" onClick={() => void onConnect(i)}>{t('common.connect')}</button>
-                        <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={i.onDetect}>{t('common.detect')}</button>
+                        <Button variant="primary" size="sm" onClick={() => void onConnect(i)}>{t('common.connect')}</Button>
+                        <Button variant="ghost" size="sm" onClick={i.onDetect}>{t('common.detect')}</Button>
                     </>
                 )}
             />

@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useCallback, useMemo, useState } from 'react';
 import * as monaco from 'monaco-editor';
 import * as api from '../../lib/api';
@@ -185,23 +186,23 @@ export const WorkspaceSearch: React.FC<WorkspaceSearchProps> = ({ projectPath, s
                     onClick={() => toggleOption('regex')}
                     title="Use regular expression"
                 >.*</button>
-                <button
-                    className="dl-btn dl-btn--sm dl-btn--primary ws-search__go"
+                <Button
+                    className="ws-search__go" size="sm" variant="primary"
                     onClick={() => void runSearch()}
                     disabled={busy || !query}
                 >
                     {busy ? 'Searching…' : 'Search'}
-                </button>
+                </Button>
             </div>
 
             {showReplace && (
-                <button
-                    className="dl-btn dl-btn--sm ws-search__replace-all"
+                <Button
+                    className="ws-search__replace-all" size="sm"
                     onClick={handleReplaceAll}
                     disabled={busy || !result || result.files.length === 0}
                 >
                     Replace all in {result?.files.length ?? 0} file{(result?.files.length ?? 0) === 1 ? '' : 's'}
-                </button>
+                </Button>
             )}
 
             {error && <div className="ws-search__error">{error}</div>}

@@ -333,15 +333,15 @@ export const NewProjectModal: React.FC = () => {
                 setWorking('Loading video file...');
                 const assetUrl = convertFileSrc(path);
                 console.info(`[NewProject] loadVideoFromPath: converted path to assetUrl="${assetUrl}"`);
-                
+
                 console.info(`[NewProject] loadVideoFromPath: fetching assetUrl...`);
                 const res = await fetch(assetUrl);
                 console.info(`[NewProject] loadVideoFromPath: fetch response status=${res.status}, ok=${res.ok}`);
                 if (!res.ok) throw new Error(`Failed to fetch local file via asset protocol (status: ${res.status})`);
-                
+
                 const blob = await res.blob();
                 console.info(`[NewProject] loadVideoFromPath: blob loaded successfully, size=${blob.size} bytes, type="${blob.type}"`);
-                
+
                 const filename = path.split(/[\\/]/).pop() || 'video.mp4';
                 const file = new File([blob], filename, { type: blob.type || 'video/mp4' });
                 console.info(`[NewProject] loadVideoFromPath: constructed File: name="${file.name}", size=${file.size}`);
@@ -373,7 +373,7 @@ export const NewProjectModal: React.FC = () => {
             const physicalX = pos.x / window.devicePixelRatio;
             const physicalY = pos.y / window.devicePixelRatio;
             const insidePhysical = physicalX >= r.left && physicalX <= r.right && physicalY >= r.top && physicalY <= r.bottom;
-            
+
             console.info(
                 `[NewProject] Drag/Drop hit test: ` +
                 `rawPos=(${pos.x}, ${pos.y}), ` +
@@ -382,7 +382,7 @@ export const NewProjectModal: React.FC = () => {
                 `insideLogical=${insideLogical}, ` +
                 `insidePhysical=${insidePhysical}`
             );
-            
+
             return insideLogical || insidePhysical;
         };
 
@@ -402,25 +402,25 @@ export const NewProjectModal: React.FC = () => {
                 } else if (type === 'drop') {
                     const payload = event.payload as { position?: { x: number; y: number }; paths?: string[] };
                     setVideoDragOver(false);
-                    
+
                     const pos = payload.position;
                     if (!pos) {
                         console.warn('[NewProject] Drop failed: event payload missing position');
                         showToast('error', 'Drop failed: missing position data');
                         return;
                     }
-                    
+
                     if (!checkInsideDropZone(pos)) {
                         console.warn('[NewProject] Drop ignored: pointer is not inside the drop zone');
                         return;
                     }
-                    
+
                     if (!payload.paths?.length) {
                         console.warn('[NewProject] Drop ignored: empty paths list');
                         showToast('error', 'No file path in the drop');
                         return;
                     }
-                    
+
                     const videoPath = payload.paths.find((p) => /\.(mp4|webm|mov|avi|mkv)$/i.test(p));
                     if (videoPath) {
                         console.info(`[NewProject] Video dropped. Path: "${videoPath}"`);
@@ -644,17 +644,17 @@ export const NewProjectModal: React.FC = () => {
             console.info(`[NewProject] loadVideoFile: name="${file.name}", size=${file.size} bytes, type="${file.type}"`);
             const meta = await getVideoMetadata(file);
             console.info(`[NewProject] loadVideoFile: metadata retrieved successfully:`, meta);
-            
+
             setVideoFile(file);
             setVideoMeta(meta);
             setTrimStart(0);
             setTrimEnd(meta.duration);
             setCustomFps(Math.min(30, Math.round(meta.fps)));
 
-            if (previewUrl) { 
+            if (previewUrl) {
                 console.info('[NewProject] loadVideoFile: revoking old preview URL');
-                URL.revokeObjectURL(previewUrl); 
-                setPreviewUrl(null); 
+                URL.revokeObjectURL(previewUrl);
+                setPreviewUrl(null);
             }
 
             if (videoPreviewRef.current) {
@@ -1226,14 +1226,14 @@ export const NewProjectModal: React.FC = () => {
                                             )}
                                         </span>
                                     </div>
-                                    <button
-                                        className="np-hero-splash__edit"
+                                    <Button
+                                        className="np-hero-splash__edit" variant="secondary" size="sm"
                                         onClick={() => { setSkinSearch(''); setSkinPickerOpen(true); }}
                                         title="Change skin"
                                     >
                                         <Icon name="file-edit" />
                                         <span>Change skin</span>
-                                    </button>
+                                    </Button>
                                 </div>
                             </div>
                         )}
@@ -1707,9 +1707,9 @@ export const NewProjectModal: React.FC = () => {
                     >
                         <div className="np-ve-header">
                             <span className="np-ve-header__title">Edit Video</span>
-                            <button className="modal__close" onClick={() => setVideoEditorOpen(false)} aria-label="Close">
+                            <Button className="modal__close" variant="ghost" size="sm" iconOnly onClick={() => setVideoEditorOpen(false)} aria-label="Close">
                                 <Icon name="close" />
-                            </button>
+                            </Button>
                         </div>
 
                         <div className="np-ve-content">
@@ -1727,8 +1727,8 @@ export const NewProjectModal: React.FC = () => {
                                     />
                                 </div>
                                 <div className="np-ve-player__controls">
-                                    <button
-                                        className="np-ve-play-btn"
+                                    <Button
+                                        className="np-ve-play-btn" variant="secondary" size="lg" iconOnly
                                         onClick={() => {
                                             const vid = videoEditorRef.current;
                                             if (!vid) return;
@@ -1752,7 +1752,7 @@ export const NewProjectModal: React.FC = () => {
                                                 <polygon points="3,2 11,7 3,12" fill="currentColor"/>
                                             </svg>
                                         )}
-                                    </button>
+                                    </Button>
                                     <span className="np-ve-player__time">
                                         {formatEditorTime(editorCurrentTime)} / {formatEditorTime(videoMeta.duration)}
                                     </span>
@@ -1973,14 +1973,14 @@ export const NewProjectModal: React.FC = () => {
                                     autoFocus
                                 />
                             </div>
-                            <button
-                                className="dl-btn dl-btn--ghost dl-btn--icon dl-btn--sm"
+                            <Button
+                                variant="ghost" iconOnly size="sm"
                                 onClick={() => setSkinPickerOpen(false)}
                                 aria-label="Close"
                                 style={{ flexShrink: 0 }}
                             >
                                 <Icon name="close" />
-                            </button>
+                            </Button>
                         </div>
 
                         <div className="np-skin-picker__grid">
@@ -2085,8 +2085,8 @@ export const NewProjectModal: React.FC = () => {
                             )}
                         </p>
                         <div className="np-experimental-dialog__actions">
-                            <button className="btn btn--secondary" onClick={() => setExperimentalWarning(null)}>Cancel</button>
-                            <button className="btn btn--primary" onClick={confirmExperimental}>Continue anyway</button>
+                            <Button variant="secondary" onClick={() => setExperimentalWarning(null)}>Cancel</Button>
+                            <Button variant="primary" onClick={confirmExperimental}>Continue anyway</Button>
                         </div>
                     </div>
                 </div>
@@ -2114,14 +2114,14 @@ export const NewProjectModal: React.FC = () => {
                                     autoFocus
                                 />
                             </div>
-                            <button
-                                className="dl-btn dl-btn--ghost dl-btn--icon dl-btn--sm"
+                            <Button
+                                variant="ghost" iconOnly size="sm"
                                 onClick={() => setTftSkinPickerOpen(false)}
                                 aria-label="Close"
                                 style={{ flexShrink: 0 }}
                             >
                                 <Icon name="close" />
-                            </button>
+                            </Button>
                         </div>
 
                         <div className="np-skin-picker__grid">

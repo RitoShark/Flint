@@ -1,3 +1,4 @@
+import { Button } from '../../ui/Button';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as api from '../../../lib/api';
 import { useNotificationStore } from '../../../lib/stores';
@@ -11,7 +12,6 @@ import type {
     EmitterColors,
     VfxModel,
 } from '../../../lib/api/paint';
-import './PaintPanel.css';
 
 interface PaintPanelProps {
     binPath: string;
@@ -470,13 +470,13 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                     {/* No `--sm`: DlSelect's trigger is 36px, so a 28px button
                         beside it reads as a mismatched pair. Both are pinned to
                         --paint-ctl-h in the stylesheet. */}
-                    <button
+                    <Button
                         type="button"
-                        className="dl-btn dl-btn--secondary paint-toolbar__btn"
+                        className="paint-toolbar__btn" variant="secondary"
                         onClick={selectByBlendMode}
                     >
                         Select BM {blendModeSelect}
-                    </button>
+                    </Button>
                 </div>
 
                 <div className="paint-toolbar__group paint-toolbar__group--targets">
@@ -577,25 +577,25 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                 </span>
 
                 <div className="paint-footer__actions">
-                    <button
+                    <Button
                         type="button"
-                        className="dl-btn dl-btn--ghost dl-btn--sm"
+                        variant="ghost" size="sm"
                         onClick={handleUndo}
                         title="Undo the last edit"
                     >
                         Undo
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                         type="button"
-                        className="dl-btn dl-btn--ghost dl-btn--sm"
+                        variant="ghost" size="sm"
                         onClick={handleRedo}
                         title="Redo the last undone edit"
                     >
                         Redo
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                         type="button"
-                        className="dl-btn dl-btn--primary paint-footer__recolor"
+                        className="paint-footer__recolor" variant="primary"
                         onClick={handleRecolor}
                         disabled={selectedEmitterKeys.length === 0}
                         title={
@@ -605,16 +605,16 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                         }
                     >
                         Recolor{selectedEmitterKeys.length > 0 && ` (${selectedEmitterKeys.length})`}
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                         type="button"
-                        className="dl-btn dl-btn--sm paint-footer__save"
+                        className="paint-footer__save" size="sm"
                         onClick={handleSave}
                         disabled={!dirty || saving}
                         title={dirty ? 'Save the BIN (checkpoints the project first)' : 'No changes'}
                     >
                         {saving ? 'Saving…' : 'Save'}
-                    </button>
+                    </Button>
                 </div>
             </div>
         </div>

@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useModalStore, useNotificationStore, useProjectTabStore } from '../../lib/stores';
 import * as api from '../../lib/api';
@@ -119,11 +120,11 @@ export const MapTexturesModal: React.FC = () => {
                                         {s.exists ? ' · PSD ready' : ' · not generated'}
                                     </div>
                                 </div>
-                                <button className="btn btn--sm" disabled={anyBusy || empty} onClick={() => onCombine(s)}>
+                                <Button size="sm" disabled={anyBusy || empty} onClick={() => onCombine(s)}>
                                     {isBusy ? '…' : s.exists ? 'Regenerate' : 'Combine'}
-                                </button>
-                                <button className="btn btn--sm" disabled={anyBusy || !s.exists} onClick={() => onOpen(s)}>Open</button>
-                                <button className="btn btn--sm" disabled={anyBusy || !s.exists} onClick={() => onApply(s)}>Apply</button>
+                                </Button>
+                                <Button size="sm" disabled={anyBusy || !s.exists} onClick={() => onOpen(s)}>Open</Button>
+                                <Button size="sm" disabled={anyBusy || !s.exists} onClick={() => onApply(s)}>Apply</Button>
                             </div>
                         );
                     })}

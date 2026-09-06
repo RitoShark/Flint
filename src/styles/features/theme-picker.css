@@ -1,0 +1,230 @@
+.theme-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.theme-swatch {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  position: relative;
+  transition: transform var(--ux-fast),
+        border-color var(--ux-fast),
+        box-shadow var(--ux-base);
+}
+
+.theme-swatch:hover { transform: scale(1.12); }
+
+.theme-swatch--active {
+  border-color: var(--text-primary);
+  box-shadow: 0 0 0 2px var(--bg-secondary),
+        0 0 0 4px currentColor,
+        0 0 18px color-mix(in oklab, var(--accent-primary) 60%, transparent);
+}
+
+.theme-swatch--custom {
+  background: linear-gradient(135deg, #f43f5e, #fbbf24, #22c55e, #3b82f6, #a855f7);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  overflow: hidden;
+}
+
+.theme-swatch--custom input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+.theme-range {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg,
+        color-mix(in oklab, var(--accent-primary) 80%, transparent),
+        color-mix(in oklab, var(--accent-primary) 30%, transparent));
+  outline: none;
+}
+
+.theme-range::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: white;
+  border: 2px solid var(--accent-primary);
+  cursor: pointer;
+  transition: transform var(--ux-fast), box-shadow var(--ux-fast);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .35);
+}
+
+.theme-range::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .35),
+                0 0 0 6px color-mix(in oklab, var(--accent-primary) 25%, transparent);
+}
+
+.theme-range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: white;
+  border: 2px solid var(--accent-primary);
+  cursor: pointer;
+}
+
+.theme-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 16px;
+  background: radial-gradient(circle at top left,
+            color-mix(in oklab, var(--accent-primary) 12%, transparent),
+            transparent 60%),
+        var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.theme-preview__chip {
+  margin-left: auto;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: color-mix(in oklab, var(--accent-primary) 18%, transparent);
+  border: 1px solid color-mix(in oklab, var(--accent-primary) 40%, transparent);
+  color: color-mix(in oklab, var(--accent-primary) 30%, var(--text-primary));
+}
+
+.modal--settings .theme-preset-grid, .fwiz .theme-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.modal--settings .theme-custom-accent, .fwiz .theme-custom-accent {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.modal--settings .theme-custom-accent__hex, .fwiz .theme-custom-accent__hex {
+  width: 110px;
+  flex-shrink: 0;
+  font-family: var(--font-mono, monospace);
+  text-transform: uppercase;
+}
+
+.modal--settings .theme-custom-accent__hint, .fwiz .theme-custom-accent__hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.modal--settings .theme-preset, .fwiz .theme-preset {
+  --accent: #ef4444;
+  --bg: #0c0c10;
+  --raised: #1a1a22;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1.5px solid color-mix(in oklab, var(--border) 90%, transparent);
+  background: color-mix(in oklab, var(--bg-secondary) 70%, transparent);
+  cursor: pointer;
+  padding: 0;
+  transition: transform var(--ux-fast), border-color var(--ux-base), box-shadow var(--ux-base);
+}
+
+.modal--settings .theme-preset:hover, .fwiz .theme-preset:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in oklab, var(--accent) 55%, var(--border));
+}
+
+.modal--settings .theme-preset.is-active, .fwiz .theme-preset.is-active {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 30%, transparent),
+        0 12px 28px -10px color-mix(in oklab, var(--accent) 50%, transparent);
+}
+
+.modal--settings .theme-preset__mock, .fwiz .theme-preset__mock {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  height: 78px;
+  padding: 8px;
+  background: var(--bg);
+}
+
+.modal--settings .theme-preset__mock-rail, .fwiz .theme-preset__mock-rail {
+  width: 12px;
+  border-radius: 3px;
+  background: var(--raised);
+}
+
+.modal--settings .theme-preset__mock-rows, .fwiz .theme-preset__mock-rows { flex: 1; display: grid; gap: 4px; }
+
+.modal--settings .theme-preset__mock-row { display: flex; gap: 4px; }
+
+.modal--settings .theme-preset__mock-tile, .fwiz .theme-preset__mock-tile {
+  flex: 1;
+  border-radius: 3px;
+  background: var(--raised);
+}
+
+.modal--settings .theme-preset__mock-tile--accent { background: var(--accent); }
+
+.modal--settings .theme-preset__mock-tile--accent-soft, .fwiz .theme-preset__mock-tile--accent-soft {
+  background: color-mix(in oklab, var(--accent) 55%, var(--raised));
+}
+
+.modal--settings .theme-preset__foot, .fwiz .theme-preset__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: color-mix(in oklab, var(--bg-secondary) 80%, transparent);
+  border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+}
+
+.modal--settings .theme-preset__name, .fwiz .theme-preset__name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.modal--settings .theme-preset__dots, .fwiz .theme-preset__dots { display: flex; gap: 5px; align-items: center; }
+
+.modal--settings .theme-preset__dot, .fwiz .theme-preset__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in oklab, white 18%, transparent);
+}
+
+.modal--settings .theme-preset__check, .fwiz .theme-preset__check {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 8px color-mix(in oklab, var(--accent) 60%, transparent);
+}

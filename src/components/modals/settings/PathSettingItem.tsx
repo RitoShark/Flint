@@ -1,7 +1,7 @@
+import { Button } from '../../ui/Button';
 import React from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Icon, type IconName, Input } from '../../ui';
-import { getIcon } from '../../../lib/ui-helpers/fileIcons';
 import { SettingsRow, SettingsTag } from './SettingsRow';
 import { useTranslation } from '../../../lib/i18n';
 
@@ -55,14 +55,14 @@ export const PathSettingItem: React.FC<{ setting: PathSetting }> = ({ setting })
                         onButtonClick={handleBrowse}
                     />
                     {setting.onDetect && setting.detectLabel && (
-                        <button
+                        <Button
                             type="button"
-                            className="dl-btn dl-btn--ghost dl-btn--sm dl-btn--icon settings-row__detect"
+                            className="settings-row__detect" variant="ghost" size="sm" iconOnly
                             onClick={setting.onDetect}
                             disabled={setting.disabled}
                             title={setting.detectLabel}
                             aria-label={setting.detectLabel}
-                            dangerouslySetInnerHTML={{ __html: getIcon('search') }}
+                            icon="search"
                         />
                     )}
                 </div>

@@ -1,6 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import type { HudData, HudEntry } from '../../lib/api';
-import './HUDCanvas.css';
 
 interface HUDCanvasProps {
     hudData: HudData;

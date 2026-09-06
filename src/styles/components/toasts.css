@@ -1,0 +1,85 @@
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.toast--success { border-left: 3px solid var(--success); }
+
+.toast--warning { border-left: 3px solid var(--warning); }
+
+.toast--error { border-left: 3px solid var(--error); }
+
+.toast-container {
+  position: fixed;
+  bottom: var(--space-xl);
+  right: var(--space-xl);
+  z-index: 2000;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: var(--space-sm);
+  max-width: 400px;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  pointer-events: auto;
+  animation: toast-slide-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.toast-info { border-left: 3px solid var(--accent-secondary); }
+
+.toast-success { border-left: 3px solid var(--success); }
+
+.toast-warning { border-left: 3px solid var(--warning); }
+
+.toast-error { border-left: 3px solid var(--error); }
+
+@keyframes toast-slide-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.toast-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  border-radius: 50%;
+  line-height: 0;
+}
+
+.toast-icon svg { display: block; }
+
+.toast-info .toast-icon { background-color: rgba(88, 166, 255, 0.2); color: var(--accent-secondary); }
+
+.toast-success .toast-icon { background-color: rgba(63, 185, 80, 0.2); color: var(--success); }
+
+.toast-warning .toast-icon { background-color: rgba(210, 153, 34, 0.2); color: var(--warning); }
+
+.toast-error .toast-icon { background-color: rgba(248, 81, 73, 0.2); color: var(--error); }
+
+.toast-content { flex: 1; min-width: 0; }
+
+.toast-message { font-size: var(--text-sm); color: var(--text-primary); line-height: 1.4; }
+
+.toast-suggestion {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin-top: var(--space-xs);
+  line-height: 1.4;
+}
+
+.toast-dismiss { flex-shrink: 0; }
+
+.toast { transition: transform var(--ux-base), opacity var(--ux-base) !important; }

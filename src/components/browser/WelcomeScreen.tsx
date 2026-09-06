@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useConfigStore, useModalStore, useAppMetadataStore, useNotificationStore } from '../../lib/stores';
 import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
@@ -143,15 +144,15 @@ export const WelcomeScreen: React.FC = () => {
                     <h2 className="welcome__column-title">{t('welcome.folders')}</h2>
 
                     <div className="welcome__actions">
-                        <button className="btn btn--primary btn--large" onClick={() => openModal('newProject')}>
+                        <Button variant="primary" size="lg" onClick={() => openModal('newProject')}>
                             <span>{t('welcome.createProject')}</span>
                             <span dangerouslySetInnerHTML={{ __html: getIcon('plus') }} />
-                        </button>
+                        </Button>
 
-                        <button className="btn btn--secondary btn--large" onClick={handleOpenProject}>
+                        <Button variant="secondary" size="lg" onClick={handleOpenProject}>
                             <span>{t('welcome.openMods')}</span>
                             <span dangerouslySetInnerHTML={{ __html: getIcon('folderOpen2') }} />
-                        </button>
+                        </Button>
                     </div>
 
                     {recentProjects.length > 0 && (() => {
@@ -183,23 +184,23 @@ export const WelcomeScreen: React.FC = () => {
                                                 <span className="welcome__recent-date">
                                                     {formatRelativeTime(project.lastOpened)}
                                                 </span>
-                                                <button
-                                                    className="welcome__recent-delete"
+                                                <Button
+                                                    className="welcome__recent-delete" variant="ghost" size="sm" iconOnly
                                                     onClick={(e) => handleRemoveRecent(e, project.path)}
                                                     title={t('welcome.removeRecent')}
                                                 >
                                                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
                                                         <path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                                                     </svg>
-                                                </button>
+                                                </Button>
                                             </div>
                                         </div>
                                     ))}
                                 </div>
                                 {(hidden > 0 || showAllRecent) && total > RECENT_DEFAULT_LIMIT && (
-                                    <button
+                                    <Button
                                         type="button"
-                                        className="welcome__recent-toggle"
+                                        className="welcome__recent-toggle" variant="ghost" size="sm"
                                         onClick={() => setShowAllRecent((v) => !v)}
                                     >
                                         {showAllRecent
@@ -208,7 +209,7 @@ export const WelcomeScreen: React.FC = () => {
                                         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ transform: showAllRecent ? 'rotate(180deg)' : 'none', transition: 'transform 220ms ease' }}>
                                             <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                                         </svg>
-                                    </button>
+                                    </Button>
                                 )}
                             </div>
                         );
@@ -221,18 +222,18 @@ export const WelcomeScreen: React.FC = () => {
                     <h2 className="welcome__column-title">{t('welcome.exploreFiles')}</h2>
 
                     <div className="welcome__actions">
-                        <button className="btn btn--secondary btn--large" onClick={() => openModal('browseWad')}>
+                        <Button variant="secondary" size="lg" onClick={() => openModal('browseWad')}>
                             <span dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
                             <span>{t('welcome.browseWadFile')}</span>
-                        </button>
+                        </Button>
 
-                        <button className="btn btn--secondary btn--large" onClick={handleOpenWadExplorer}>
+                        <Button variant="secondary" size="lg" onClick={handleOpenWadExplorer}>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="2" />
                                 <path d="M3 9h18M8 5V3m8 2V3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                             </svg>
                             <span>{t('welcome.wadExplorer')}</span>
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </div>

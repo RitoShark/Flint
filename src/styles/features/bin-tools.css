@@ -1,0 +1,282 @@
+.bin-tools {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 280px;
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+  overflow-y: auto;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-bottom-left-radius: var(--radius-md);
+  box-shadow: -4px 4px 18px rgb(0 0 0 / 35%);
+}
+
+.bin-editor__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.bin-editor__chip:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: color-mix(in oklab, var(--accent-primary) 55%, transparent);
+}
+
+.bin-editor__chip:disabled { opacity: 0.45; cursor: default; }
+
+.bin-editor__chip--ghost {
+  padding: 0 6px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.bin-editor__chip--ghost:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+  border-color: transparent;
+  color: var(--text-primary);
+}
+
+.bin-editor__chip--ghost.bin-editor__chip--on {
+  background: color-mix(in oklab, var(--accent-primary) 18%, transparent);
+  border-color: transparent;
+  color: var(--accent-primary);
+}
+
+.bin-editor__chip--on {
+  border-color: var(--accent-primary);
+  background: color-mix(in oklab, var(--accent-primary) 18%, var(--bg-tertiary));
+  color: var(--text-primary);
+}
+
+.bin-editor__chip-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.bin-editor__chip-icon svg { display: block; width: 13px; height: 13px; }
+
+.bin-editor__leap {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  z-index: 12;
+  display: block;
+  padding: 0;
+  border: none;
+  text-align: left;
+  white-space: pre;
+  cursor: pointer;
+  box-shadow: 0 -6px 6px -6px rgb(0 0 0 / 55%);
+}
+
+.bin-editor__leap:hover { background: var(--leap-hover) !important; }
+
+.bin-editor__leap-num {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.bin-editor__leap-chev {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.85;
+}
+
+.bin-editor__leap-chev svg { display: block; width: 14px; height: 14px; }
+
+.bin-editor__leap-text { display: block; overflow: hidden; text-overflow: ellipsis; }
+
+.bin-tools__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg,
+    color-mix(in oklab, var(--bg-tertiary) 80%, transparent) 0%,
+    transparent 100%);
+}
+
+.bin-tools__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+.bin-tools__title::before {
+  content: '';
+  display: block;
+  width: 3px;
+  height: 12px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--accent-primary), var(--accent-secondary));
+}
+
+.bin-tools__section { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+
+.bin-tools__section:last-child { border-bottom: none; }
+
+.bin-tools__section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.bin-tools__section-head:hover { color: var(--text-primary); }
+
+.bin-tools__chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  opacity: 0.6;
+}
+
+.bin-tools__chevron svg { display: block; width: 12px; height: 12px; }
+
+.bin-tools__hint { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); }
+
+.bin-tools__check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.bin-tools__check input { flex-shrink: 0; margin: 0; accent-color: var(--accent-primary); }
+
+.bin-tools__index {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.bin-tools__index-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 6px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bin-tools__index-row:hover {
+  background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+  color: var(--text-primary);
+}
+
+.bin-tools__index-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.bin-tools__index-line { flex-shrink: 0; font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+
+.bin-tools__glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.bin-tools__glyph svg { display: block; width: 14px; height: 14px; }
+
+.bin-tools__badge {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--accent-primary) 20%, transparent);
+  color: var(--accent-primary);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.bin-tools__body { display: flex; flex-direction: column; gap: 6px; }
+
+.bin-tools__row { display: flex; align-items: center; gap: 6px; }
+
+.bin-tools__status {
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bin-tools__mesh {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  text-align: left;
+}
+
+.bin-tools__mesh-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.bin-tools__mesh-tex {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bin-tools__color { flex: none; width: 34px; height: 26px; padding: 0; border: 0; background: none; cursor: pointer; }
+
+.bin-tools .dl-input { height: 28px; padding: 0 8px; font-size: 12px; }

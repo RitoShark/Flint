@@ -1,8 +1,8 @@
+import { Button } from '../ui/Button';
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { HUDCanvas } from './HUDCanvas';
 import * as api from '../../lib/api';
 import type { HudData, HudEntry } from '../../lib/api';
-import './HUDEditor.css';
 
 interface HUDEditorProps {
     filePath: string;
@@ -500,36 +500,36 @@ export const HUDEditor: React.FC<HUDEditorProps> = ({ filePath }) => {
                 </div>
 
                 <div className="hud-editor__actions">
-                    <button
+                    <Button
                         onClick={handleUndo}
                         disabled={undoIndex <= 0}
-                        className="btn btn--sm"
+                        size="sm"
                         title="Ctrl+Z"
                     >
                         ↶ Undo
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                         onClick={handleRedo}
                         disabled={undoIndex >= undoHistory.length - 1}
-                        className="btn btn--sm"
+                        size="sm"
                         title="Ctrl+Y"
                     >
                         ↷ Redo
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                         onClick={handleReset}
                         disabled={!hasChanges}
-                        className="btn btn--sm btn--secondary"
+                        size="sm" variant="secondary"
                     >
                         Reset
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                         onClick={handleExport}
-                        className="btn btn--sm btn--primary"
+                        size="sm" variant="primary"
                         title="Ctrl+S"
                     >
                         Save Changes
-                    </button>
+                    </Button>
                 </div>
 
                 {hasChanges && (

@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import * as api from '../../lib/api';
@@ -185,14 +186,14 @@ export const LoadManifestModal: React.FC = () => {
                                 ? `${visible.length} of ${filterManifests(entries, filter).length} manifests`
                                 : `${visible.length} manifest${visible.length === 1 ? '' : 's'}`}
                         </span>
-                        <button
-                            className="cdn-refresh"
+                        <Button
+                            className="cdn-refresh" variant="ghost" size="sm" iconOnly
                             disabled={fetching}
                             title="Check the GitHub catalog for newly-shipped manifests"
                             onClick={() => fetchVersions(true)}
                         >
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36" /><path d="M21 3v6h-6" /></svg>
-                        </button>
+                        </Button>
                         <div className="cdn-search">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
                             <input type="text" placeholder="Filter version / patch…" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -238,10 +239,10 @@ export const LoadManifestModal: React.FC = () => {
                         {selectedVersion ? `Selected: ${selectedVersion} · ${region}` : 'Select a version'}
                     </span>
                     <div className="cdn-foot-actions">
-                        <button className="dl-btn dl-btn--ghost" onClick={closeModal}>Cancel</button>
-                        <button className="dl-btn dl-btn--primary" disabled={!selectedPath || loading} onClick={load}>
+                        <Button variant="ghost" onClick={closeModal}>Cancel</Button>
+                        <Button variant="primary" disabled={!selectedPath || loading} onClick={load}>
                             {loading ? <><span className="cdn-spinner" /><span>Loading manifest…</span></> : 'Load'}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </div>

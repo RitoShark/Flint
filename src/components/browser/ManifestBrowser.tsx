@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useMemo, useState } from 'react';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
@@ -507,12 +508,12 @@ export const ManifestBrowser: React.FC = () => {
                 <span dangerouslySetInnerHTML={{ __html: getIcon('document') }} />
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }} title={chunk.path ?? chunk.hash}>{node.name}</span>
                 <span style={{ opacity: 0.5, fontSize: 11 }}>{formatBytes(chunk.size)}</span>
-                <button
-                    className="btn btn--sm cdn-inner-extract"
+                <Button
+                    className="cdn-inner-extract" size="sm"
                     title="Extract this file"
                     disabled={extracting}
                     onClick={(e) => { e.stopPropagation(); extractInnerFile(wadFileIndex, chunk); }}
-                >Extract</button>
+                >Extract</Button>
             </div>
         );
     };
@@ -533,8 +534,8 @@ export const ManifestBrowser: React.FC = () => {
                         <span dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
                         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.name}</span>
                         <span style={{ opacity: 0.5, fontSize: 11 }}>{formatBytes(node.size)}</span>
-                        <button className="btn btn--sm" title="Extract this folder"
-                            onClick={(e) => { e.stopPropagation(); extractNode(node); }}>Extract</button>
+                        <Button size="sm" title="Extract this folder"
+                            onClick={(e) => { e.stopPropagation(); extractNode(node); }}>Extract</Button>
                     </div>
                     {expanded && node.children.map((c) => renderNode(c, depth + 1))}
                 </div>
@@ -557,8 +558,8 @@ export const ManifestBrowser: React.FC = () => {
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.name}</span>
                     {locale && <span className="cdn-langtag">{locale}</span>}
                     <span style={{ opacity: 0.5, fontSize: 11 }}>{formatBytes(node.size)}</span>
-                    <button className="btn btn--sm" title={isWad ? 'Unpack this WAD’s files into a folder (right-click for raw download)' : 'Extract'}
-                        onClick={(e) => { e.stopPropagation(); isWad ? unpackWad(node) : extractNode(node); }}>Extract</button>
+                    <Button size="sm" title={isWad ? 'Unpack this WAD’s files into a folder (right-click for raw download)' : 'Extract'}
+                        onClick={(e) => { e.stopPropagation(); isWad ? unpackWad(node) : extractNode(node); }}>Extract</Button>
                 </div>
                 {wadExpanded && node.file_index != null && (
                     <div>
@@ -613,8 +614,8 @@ export const ManifestBrowser: React.FC = () => {
                                 <span className="cdn-langtoggle__tgl" />
                                 <span>Flat</span>
                             </div>
-                            <button className="btn btn--sm" disabled={checkedCount === 0} onClick={clearSelection}>Clear</button>
-                            <button className="btn btn--sm btn--primary" disabled={checkedCount === 0} onClick={extractSelected}>Extract selected</button>
+                            <Button size="sm" disabled={checkedCount === 0} onClick={clearSelection}>Clear</Button>
+                            <Button size="sm" variant="primary" disabled={checkedCount === 0} onClick={extractSelected}>Extract selected</Button>
                         </>
                     )}
                 </div>

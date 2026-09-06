@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTransferStore, useProjectTabStore, useNotificationStore } from '../../lib/stores';
@@ -121,10 +122,10 @@ export const TransferModal: React.FC = () => {
                 title={`${n} item${n === 1 ? '' : 's'} already exist${n === 1 ? 's' : ''}`}
                 foot={
                     <>
-                        <button className="dl-btn dl-btn--ghost" onClick={() => setConflict(null)} disabled={busy}>Cancel</button>
+                        <Button variant="ghost" onClick={() => setConflict(null)} disabled={busy}>Cancel</Button>
                         <div style={{ display: 'flex', gap: 8 }}>
-                            <button className="dl-btn dl-btn--secondary" onClick={() => execute(conflict.op, 'rename')} disabled={busy}>Keep both</button>
-                            <button className={`dl-btn dl-btn--danger${busy ? ' dl-btn--loading' : ''}`} onClick={() => execute(conflict.op, 'replace')} disabled={busy}>Replace</button>
+                            <Button variant="secondary" onClick={() => execute(conflict.op, 'rename')} disabled={busy}>Keep both</Button>
+                            <Button variant="danger" loading={busy} onClick={() => execute(conflict.op, 'replace')} disabled={busy}>Replace</Button>
                         </div>
                     </>
                 }
@@ -153,10 +154,10 @@ export const TransferModal: React.FC = () => {
             title={`Move or copy ${single ? (single.isDirectory ? 'folder' : 'file') : `${items.length} items`}?`}
             foot={
                 <>
-                    <button className="dl-btn dl-btn--ghost" onClick={closeTransfer} disabled={busy}>Cancel</button>
+                    <Button variant="ghost" onClick={closeTransfer} disabled={busy}>Cancel</Button>
                     <div style={{ display: 'flex', gap: 8 }}>
-                        <button className={`dl-btn dl-btn--primary${runningOp === 'move' ? ' dl-btn--loading' : ''}`} onClick={() => start('move')} disabled={busy}>Move</button>
-                        <button className={`dl-btn dl-btn--secondary${runningOp === 'copy' ? ' dl-btn--loading' : ''}`} onClick={() => start('copy')} disabled={busy}>Copy</button>
+                        <Button variant="primary" loading={runningOp === 'move'} onClick={() => start('move')} disabled={busy}>Move</Button>
+                        <Button variant="secondary" loading={runningOp === 'copy'} onClick={() => start('copy')} disabled={busy}>Copy</Button>
                     </div>
                 </>
             }

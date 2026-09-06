@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import { useAppMetadataStore, useConfigStore, useModalStore, useNotificationStore, useWadExtractStore } from '../../lib/stores';
 import { leagueRootFromWadPath, parseSkinBinPath } from '../../lib/projectOpen';
@@ -249,7 +250,7 @@ export const WadBrowserPanel: React.FC<{
         try {
             setIsSavingWad(true);
             setStatus('working', 'Saving WAD...');
-            
+
             await api.saveWadEditSession(session.editSessionId, session.wadPath);
             useWadExtractStore.getState().setSessionDirty(session.id, false);
             showToast('success', 'WAD saved successfully!');
@@ -336,7 +337,7 @@ export const WadBrowserPanel: React.FC<{
         if (!session) return;
         const hashes = chunkHashesUnder(session.chunks, node.fullPath);
         const allSelected = hashes.length > 0 && hashes.every(h => session.selectedHashes.has(h));
-        
+
         for (const hash of hashes) {
             const isCurrentlySelected = session.selectedHashes.has(hash);
             if (allSelected && isCurrentlySelected) {
@@ -725,33 +726,26 @@ export const WadBrowserPanel: React.FC<{
                     {totalChunks.toLocaleString()} files{selectedCount > 0 ? ` · ${selectedCount} selected` : ''}
                 </span>
                 {session.editSessionId && session.isDirty && !session.embedded && (
-                    <button
-                        className="btn btn--primary btn--sm"
+                    <Button
+                        variant="primary" size="sm"
                         onClick={handleSaveWad}
                         disabled={isSavingWad}
-                        style={{
-                            background: 'var(--success, #28a745)',
-                            borderColor: 'var(--success, #28a745)',
-                            color: '#fff',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                        }}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                         title="Save modified WAD changes to disk"
                     >
                         <span dangerouslySetInnerHTML={{ __html: getIcon('save') || '💾' }} />
                         <span>{isSavingWad ? 'Saving...' : 'Save WAD'}</span>
-                    </button>
+                    </Button>
                 )}
-                <button
-                    className="btn btn--primary btn--sm"
+                <Button
+                    variant="primary" size="sm"
                     onClick={handleExtractSelected}
                     disabled={selectedCount === 0 || isExtracting}
                     title={selectedCount === 0 ? 'Select files to extract' : `Extract ${selectedCount} selected file${selectedCount !== 1 ? 's' : ''}`}
                 >
                     <span dangerouslySetInnerHTML={{ __html: getIcon('export') }} />
                     <span>{isExtracting ? 'Extracting...' : `Extract${selectedCount > 0 ? ` (${selectedCount})` : ''}`}</span>
-                </button>
+                </Button>
             </div>
         </div>
     );

@@ -1,0 +1,127 @@
+.fwiz-splash {
+  position: absolute;
+  inset: 36px 0 0 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  text-align: center;
+  cursor: pointer;
+  transform-origin: 50% 45%;
+  transition: opacity 700ms var(--ux-ease), transform 700ms var(--ux-ease), filter 700ms var(--ux-ease);
+}
+
+.fwiz-splash--in { animation: ux-splash-in 700ms var(--ux-ease) both; }
+
+.fwiz-splash--hold { opacity: 1; transform: scale(1); }
+
+.fwiz-splash--out { opacity: 0; transform: scale(1.18); filter: blur(8px); pointer-events: none; }
+
+.fwiz-splash__logo {
+  position: relative;
+  width: 168px;
+  height: 168px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-primary);
+  margin-bottom: 32px;
+}
+
+.fwiz-splash__logo svg {
+  position: relative;
+  z-index: 3;
+  filter: drop-shadow(0 0 26px color-mix(in oklab, var(--accent-primary) 75%, transparent))
+        drop-shadow(0 0 60px color-mix(in oklab, var(--accent-primary) 40%, transparent));
+  animation: ux-splash-pop 820ms var(--ux-ease-spring) both, ux-splash-flicker 4.4s 900ms ease-in-out infinite;
+}
+
+.fwiz-splash__logo-glow {
+  position: absolute;
+  inset: -36px;
+  border-radius: 50%;
+  background: radial-gradient(circle,
+        color-mix(in oklab, var(--accent-primary) 70%, transparent) 0%,
+        transparent 65%);
+  filter: blur(28px);
+  animation: ux-splash-glow 3.6s ease-in-out infinite;
+  z-index: 1;
+}
+
+.fwiz-splash__logo-ring, .fwiz-splash__logo-ring--two {
+  position: absolute;
+  inset: 14px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in oklab, var(--accent-primary) 45%, transparent);
+  animation: ux-splash-ring 3s ease-in-out infinite;
+  z-index: 2;
+}
+
+.fwiz-splash__logo-ring--two {
+  inset: -10px;
+  border-color: color-mix(in oklab, var(--accent-primary) 22%, transparent);
+  animation-delay: -1.5s;
+}
+
+.fwiz-splash__title {
+  font-family: var(--font-sans);
+  font-size: clamp(44px, 7vw, 80px);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.32em;
+  margin: 0;
+  padding-left: 0.32em;
+  color: #fff;
+  text-shadow: 0 0 28px color-mix(in oklab, var(--accent-primary) 70%, transparent),
+        0 0 64px color-mix(in oklab, var(--accent-primary) 35%, transparent),
+        0 2px 0 color-mix(in oklab, #000 50%, transparent);
+  user-select: none;
+}
+
+.fwiz-splash__title span {
+  display: inline-block;
+  animation: ux-splash-letter 700ms var(--ux-ease-spring) both;
+  will-change: transform, opacity;
+}
+
+.fwiz-splash__bar {
+  display: block;
+  width: 240px;
+  max-width: 60vw;
+  height: 1.5px;
+  margin: 18px auto 18px;
+  background: linear-gradient(90deg,
+        transparent 0%,
+        color-mix(in oklab, var(--accent-primary) 80%, transparent) 50%,
+        transparent 100%);
+  transform: scaleX(0);
+  animation: ux-splash-bar 600ms 600ms var(--ux-ease) both;
+  transform-origin: 50%;
+}
+
+.fwiz-splash__subtitle {
+  margin: 0;
+  color: color-mix(in oklab, var(--text-primary) 70%, var(--text-muted));
+  font-size: clamp(13px, 1.2vw, 15px);
+  letter-spacing: 0.08em;
+  text-transform: lowercase;
+  font-weight: 400;
+  opacity: 0;
+  animation: ux-splash-fade-in 600ms 850ms var(--ux-ease) both;
+}
+
+.fwiz-splash__hint {
+  position: absolute;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: color-mix(in oklab, var(--text-muted) 65%, transparent);
+  opacity: 0;
+  animation: ux-splash-hint 800ms 1700ms var(--ux-ease) both, ux-splash-hint-pulse 2s 2500ms ease-in-out infinite;
+}

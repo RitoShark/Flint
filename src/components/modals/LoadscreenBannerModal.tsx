@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useModalStore, useNotificationStore, useProjectTabStore } from '../../lib/stores';
@@ -451,7 +452,7 @@ export const LoadscreenBannerModal: React.FC = () => {
             <div className="dl-modal dl-modal--large" role="dialog" aria-modal="true" style={{ maxWidth: 1000, width: '92vw' }}>
                 <div className="dl-modal__head">
                     <h3 className="dl-modal__title">Animated Loadscreen Banner — Mask</h3>
-                    <button className="dl-btn dl-btn--icon" onClick={requestClose} aria-label="Close">✕</button>
+                    <Button iconOnly onClick={requestClose} aria-label="Close">✕</Button>
                 </div>
 
                 <div className="dl-modal__body" style={{ display: 'flex', gap: 16, minHeight: 420 }}>
@@ -518,8 +519,8 @@ export const LoadscreenBannerModal: React.FC = () => {
                     <div style={{ width: 240, flex: 'none', display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto' }}>
                         <Section title="Tool">
                             <div style={{ display: 'flex', gap: 8 }}>
-                                <button className={`dl-btn dl-btn--sm ${tool === 'brush' ? 'dl-btn--primary' : 'dl-btn--secondary'}`} style={{ flex: 1 }} onClick={() => setTool('brush')} title="Paint over what should stay clean (no VFX) — e.g. the champion">Mask out</button>
-                                <button className={`dl-btn dl-btn--sm ${tool === 'eraser' ? 'dl-btn--primary' : 'dl-btn--secondary'}`} style={{ flex: 1 }} onClick={() => setTool('eraser')} title="Bring the VFX back to a masked-out area">Restore</button>
+                                <Button size="sm" variant={tool === 'brush' ? "primary" : "secondary"} style={{ flex: 1 }} onClick={() => setTool('brush')} title="Paint over what should stay clean (no VFX) — e.g. the champion">Mask out</Button>
+                                <Button size="sm" variant={tool === 'eraser' ? "primary" : "secondary"} style={{ flex: 1 }} onClick={() => setTool('eraser')} title="Bring the VFX back to a masked-out area">Restore</Button>
                             </div>
                         </Section>
                         <Section title="Brush">
@@ -543,8 +544,8 @@ export const LoadscreenBannerModal: React.FC = () => {
                         </Section>
                         <Section title="History">
                             <div style={{ display: 'flex', gap: 8 }}>
-                                <button className="dl-btn dl-btn--sm dl-btn--ghost" style={{ flex: 1 }} onClick={undo} disabled={undoRef.current.length === 0}>Undo</button>
-                                <button className="dl-btn dl-btn--sm dl-btn--ghost" style={{ flex: 1 }} onClick={redo} disabled={redoRef.current.length === 0}>Redo</button>
+                                <Button size="sm" variant="ghost" style={{ flex: 1 }} onClick={undo} disabled={undoRef.current.length === 0}>Undo</Button>
+                                <Button size="sm" variant="ghost" style={{ flex: 1 }} onClick={redo} disabled={redoRef.current.length === 0}>Redo</Button>
                             </div>
                         </Section>
                         <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
@@ -556,12 +557,12 @@ export const LoadscreenBannerModal: React.FC = () => {
                 </div>
 
                 <div className="dl-modal__foot" style={{ justifyContent: 'space-between' }}>
-                    <button className={`dl-btn dl-btn--ghost${reverting ? ' dl-btn--loading' : ''}`} onClick={requestClose} disabled={saving || reverting}>
+                    <Button variant="ghost" loading={reverting} onClick={requestClose} disabled={saving || reverting}>
                         {reverting ? 'Cancelling…' : 'Cancel'}
-                    </button>
-                    <button className={`dl-btn dl-btn--primary${saving ? ' dl-btn--loading' : ''}`} onClick={handleSave} disabled={saving || reverting || loading || !!error}>
+                    </Button>
+                    <Button variant="primary" loading={saving} onClick={handleSave} disabled={saving || reverting || loading || !!error}>
                         {saving ? 'Saving…' : 'Save Mask'}
-                    </button>
+                    </Button>
                 </div>
             </div>
         </div>,

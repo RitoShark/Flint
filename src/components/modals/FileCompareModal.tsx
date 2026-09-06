@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useModalStore, useConfigStore, useProjectTabStore } from '../../lib/stores';
@@ -5,7 +6,6 @@ import * as api from '../../lib/api';
 import type { OriginalFileMeta } from '../../lib/api';
 import { diffLines, type LineDiffResult } from '../../lib/util/lineDiff';
 import { VirtualList } from '../preview/VirtualList';
-import '../../styles/design-lab.css';
 
 interface FileCompareOptions {
     mode: 'original' | 'backup';
@@ -254,7 +254,7 @@ export const FileCompareModal: React.FC = () => {
                     {error && !loading && (
                         <div className="dl-fc__error">
                             <p>{error}</p>
-                            <button className="dl-btn dl-btn--secondary" onClick={closeModal}>Close</button>
+                            <Button variant="secondary" onClick={closeModal}>Close</Button>
                         </div>
                     )}
 
@@ -302,7 +302,7 @@ export const FileCompareModal: React.FC = () => {
                 </div>
 
                 <div className="dl-modal__foot">
-                    <button className="dl-btn dl-btn--secondary" onClick={closeModal}>Close</button>
+                    <Button variant="secondary" onClick={closeModal}>Close</Button>
                 </div>
             </div>
 

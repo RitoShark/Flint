@@ -11,7 +11,7 @@ export interface DlIconProps extends React.HTMLAttributes<HTMLSpanElement> {
 /**
  * Design-lab inline icon. Renders one of the shared SVG glyphs (see
  * `lib/ui-helpers/fileIcons`) wrapped in the `.dl-icon` shape so it inherits
- * `currentColor` and sizes consistently inside `.dl-btn` / `.dl-dd__item` /
+ * `currentColor` and sizes consistently inside `.btn` / `.dl-dd__item` /
  * `.dl-select-trigger`. Prefer this over raw emoji or ad-hoc text glyphs.
  */
 export const DlIcon: React.FC<DlIconProps> = ({ name, size, className = '', style, ...rest }) => {

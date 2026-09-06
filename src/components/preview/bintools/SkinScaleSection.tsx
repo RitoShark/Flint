@@ -1,3 +1,4 @@
+import { Button } from '../../ui/Button';
 import React, { useEffect, useRef, useState } from 'react';
 import { Icon } from '../../ui';
 import { Section } from './Section';
@@ -77,13 +78,13 @@ export const SkinScaleSection: React.FC<SkinScaleSectionProps> = ({ content, onA
                         />
                         <span style={{ flexShrink: 0, color: 'var(--text-muted)', fontSize: 11 }}>%</span>
                     </div>
-                    <button
-                        className="dl-btn dl-btn--sm dl-btn--icon"
+                    <Button
+                        size="sm" iconOnly
                         onClick={handleApply}
                         title={exists ? 'Apply value' : 'Add skinScale property'}
                     >
                         <Icon className="bin-tools__glyph" name={exists ? 'check' : 'plus'} />
-                    </button>
+                    </Button>
                 </div>
                 {status && <div className="bin-tools__status">{status}</div>}
             </div>

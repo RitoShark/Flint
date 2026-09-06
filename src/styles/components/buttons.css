@@ -1,0 +1,138 @@
+.btn {
+  --button-tone: var(--accent-primary);
+  --button-height: var(--btn-h-md);
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  gap: 8px;
+  height: var(--button-height);
+  padding: 0 var(--btn-px-md);
+  border: 1px solid var(--border);
+  border-radius: var(--dl-radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
+  overflow: hidden;
+  box-shadow: 0 1px 0 rgb(255 255 255 / 3%) inset, 0 1px 2px rgb(0 0 0 / 25%);
+  transition: background var(--dl-fast), border-color var(--dl-fast), color var(--dl-fast), box-shadow var(--dl-fast), transform var(--dl-fast);
+}
+
+.btn:hover:not(:disabled):not([aria-disabled="true"]) {
+  border-color: color-mix(in oklab, var(--button-tone) 45%, var(--border));
+}
+
+.btn:active:not(:disabled):not([aria-disabled="true"]) { transform: scale(.985); }
+
+.btn:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.btn:is(:disabled, [aria-disabled="true"]) {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.btn--sm {
+  --button-height: var(--btn-h-sm);
+  padding-inline: var(--btn-px-sm);
+  font-size: 12px;
+  gap: 6px;
+}
+
+.btn--lg {
+  --button-height: var(--btn-h-lg);
+  padding-inline: var(--btn-px-lg);
+  font-size: 14px;
+  gap: 10px;
+}
+
+.btn--icon { width: var(--button-height); padding: 0; }
+.btn--full-width { width: 100%; }
+
+.btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--text-secondary);
+}
+
+.btn--ghost:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: color-mix(in oklab, var(--button-tone) 10%, transparent);
+  color: var(--text-primary);
+}
+
+.btn--primary, .btn--danger, .btn--success {
+  background: color-mix(in oklab, var(--button-tone) 12%, transparent);
+  border-color: color-mix(in oklab, var(--button-tone) 35%, transparent);
+  color: color-mix(in oklab, var(--button-tone) 30%, var(--text-primary));
+  box-shadow: 0 1px 0 rgb(255 255 255 / 4%) inset;
+}
+
+.btn--danger { --button-tone: var(--color-danger); color: var(--color-danger); }
+.btn--success { --button-tone: var(--color-success); color: var(--color-success); }
+
+.btn:is(.btn--primary, .btn--danger, .btn--success):hover:not(:disabled):not([aria-disabled="true"]) {
+  background: color-mix(in oklab, var(--button-tone) 22%, transparent);
+  border-color: color-mix(in oklab, var(--button-tone) 60%, transparent);
+}
+
+.btn--active {
+  background: color-mix(in oklab, var(--button-tone) 18%, var(--bg-tertiary));
+  border-color: color-mix(in oklab, var(--button-tone) 50%, var(--border));
+  color: color-mix(in oklab, var(--button-tone) 30%, var(--text-primary));
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 25%);
+}
+
+.btn > span, .btn__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: inherit;
+}
+
+.btn__icon { flex: none; }
+.btn svg { display: block; width: 14px; height: 14px; flex: none; }
+.btn--lg svg { width: 18px; height: 18px; }
+.btn--primary svg { color: var(--accent-primary); }
+.btn > * { position: relative; z-index: 1; }
+
+.btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: radial-gradient(160px circle at var(--mx, 50%) var(--my, 50%), color-mix(in oklab, var(--button-tone) 35%, transparent), transparent 60%);
+  opacity: 0;
+  transition: opacity var(--dl-base);
+}
+
+[data-button-glow="on"] .btn:hover:not(:disabled):not([aria-disabled="true"])::after { opacity: 1; }
+.btn--loading { color: transparent; }
+.btn--loading > :not(.btn__spinner) { visibility: hidden; }
+
+.btn .btn__spinner {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 14px;
+  height: 14px;
+  border: 2px solid color-mix(in oklab, var(--text-primary) 30%, transparent);
+  border-top-color: var(--text-primary);
+  border-radius: 50%;
+  animation: button-spin 720ms linear infinite;
+}
+
+@keyframes button-spin { to { transform: rotate(360deg); } }

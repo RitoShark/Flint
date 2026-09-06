@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { Engine } from '@babylonjs/core/Engines/engine';
@@ -891,34 +892,34 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             })()}
 
             {!loading && !error && (
-                <button
-                    style={{ ...iconBtn, ...(showPanel ? iconBtnActive : {}) }}
+                <Button size="sm"
+                    style={{ position: 'absolute', top: 8, right: 8 }} iconOnly active={showPanel}
                     onClick={() => setShowPanel(p => !p)}
                     title="Layers & variants"
-                >☰</button>
+                >☰</Button>
             )}
 
             {!loading && !error && (
-                <button
-                    style={{ ...iconBtn, top: 50, ...(paintMode ? iconBtnActive : {}) }}
+                <Button size="sm"
+                    style={{ position: 'absolute', right: 8, top: 50 }} iconOnly active={paintMode}
                     onClick={() => setPaintMode(p => !p)}
                     title="Paint on the map (brush)"
-                >🖌</button>
+                >🖌</Button>
             )}
 
             {!loading && !error && (
-                <button
-                    style={{ ...iconBtn, top: 90, ...(showCamPanel ? iconBtnActive : {}) }}
+                <Button size="sm"
+                    style={{ position: 'absolute', right: 8, top: 90 }} iconOnly active={showCamPanel}
                     onClick={() => setShowCamPanel(p => !p)}
                     title="Camera speed settings"
-                >⚙</button>
+                >⚙</Button>
             )}
 
             {showCamPanel && !loading && !error && (
                 <div style={{ ...panel, top: 90, right: 50, width: 220, ...camDrag.dragStyle }}>
                     <div style={{ ...panelHeader, cursor: 'move' }} onMouseDown={camDrag.onHeaderMouseDown}>
                         <span style={{ fontWeight: 600, fontSize: 13 }}>Camera speed</span>
-                        <button style={{ ...textBtn, padding: '2px 8px' }} onClick={() => setShowCamPanel(false)}>×</button>
+                        <Button size="sm"  onClick={() => setShowCamPanel(false)}>×</Button>
                     </div>
                     <div style={panelBody}>
                         {([
@@ -934,8 +935,8 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                                     onChange={e => set(Number(e.target.value))} />
                             </div>
                         ))}
-                        <button style={{ ...textBtn, width: '100%', padding: '4px 0' }}
-                            onClick={() => setCamSpeed(CAM_DEFAULTS)}>Reset to defaults</button>
+                        <Button size="sm" style={{ width: '100%' }}
+                            onClick={() => setCamSpeed(CAM_DEFAULTS)}>Reset to defaults</Button>
                         <div style={{ fontSize: 10, color: '#888', marginTop: 6 }}>
                             Left-drag = rotate · Right-drag = pan · Wheel = zoom. Saved automatically.
                         </div>
@@ -947,19 +948,19 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 <div style={{ ...panel, top: undefined, bottom: 12, left: 12, right: 'auto', width: 230, ...paintDrag.dragStyle }}>
                     <div style={{ ...panelHeader, cursor: 'move' }} onMouseDown={paintDrag.onHeaderMouseDown}>
                         <span style={{ fontWeight: 600, fontSize: 13 }}>Paint{painting ? ' …' : ''}</span>
-                        <button style={{ ...textBtn, padding: '2px 8px' }} onClick={() => setPaintMode(false)}>×</button>
+                        <Button size="sm"  onClick={() => setPaintMode(false)}>×</Button>
                     </div>
                     <div style={panelBody}>
                         <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-                            <button
-                                style={{ ...textBtn, flex: 1, padding: '4px 0', background: !eraser ? '#3a5' : undefined }}
+                            <Button size="sm"
+                                style={{ flex: 1 }} active={!eraser}
                                 onClick={() => setEraser(false)}
-                            >🖌 Brush</button>
-                            <button
-                                style={{ ...textBtn, flex: 1, padding: '4px 0', background: eraser ? '#a55' : undefined }}
+                            >🖌 Brush</Button>
+                            <Button size="sm"
+                                style={{ flex: 1 }} active={eraser}
                                 onClick={() => setEraser(true)}
                                 title="Erase painted pixels back to the original texture"
-                            >🧽 Eraser</button>
+                            >🧽 Eraser</Button>
                         </div>
                         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginBottom: 8, cursor: 'pointer' }}>
                             <input type="checkbox" checked={onlyThisMesh} onChange={e => setOnlyThisMesh(e.target.checked)} />
@@ -968,10 +969,10 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                         <div style={sectionLabel}>Blend</div>
                         <div style={{ display: 'flex', gap: 4, marginBottom: 8, opacity: eraser ? 0.4 : 1 }}>
                             {(['Normal', 'Dodge', 'Multiply'] as paint.BlendMode[]).map(m => (
-                                <button key={m} disabled={eraser}
-                                    style={{ ...textBtn, flex: 1, padding: '3px 0', background: brush.mode === m ? '#3a5' : undefined }}
+                                <Button size="sm" key={m} disabled={eraser}
+                                    style={{ flex: 1 }} active={brush.mode === m}
                                     onClick={() => setBrush(b => ({ ...b, mode: m }))}
-                                >{m}</button>
+                                >{m}</Button>
                             ))}
                         </div>
                         <div style={sectionLabel}>Color</div>
@@ -985,10 +986,10 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                                 style={{ width: 28, height: 28, padding: 0, border: '1px solid #666', borderRadius: 4, background: 'none', cursor: 'pointer' }}
                                 value={rgbToHex(brush.color)}
                                 onChange={e => setBrush(b => ({ ...b, color: hexToRgb(e.target.value) }))} />
-                            <button style={{ ...textBtn, flex: 1, background: eyedrop ? '#3a5' : undefined }}
+                            <Button size="sm" style={{ flex: 1 }} active={eyedrop}
                                 onClick={() => setEyedrop(v => !v)}
                                 title="Click the map to sample a color"
-                            >{eyedrop ? 'Click to pick…' : 'Eyedropper'}</button>
+                            >{eyedrop ? 'Click to pick…' : 'Eyedropper'}</Button>
                         </div>
                         {([
                             ['Size (px)', brushSize, 2, 300, (v: number) => setBrushSize(v)],
@@ -1013,34 +1014,34 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                                 <div key={i} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                                     <span style={{ width: 14, height: 14, borderRadius: 3, flexShrink: 0,
                                         background: `rgb(${p.brush.color[0]},${p.brush.color[1]},${p.brush.color[2]})`, border: '1px solid #555' }} />
-                                    <button style={{ ...textBtn, flex: 1, padding: '2px 6px', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                    <Button size="sm" style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                                         title={`${p.brush.mode} · size ${p.size}`}
                                         onClick={() => { setBrush(p.brush); setBrushSize(p.size); setEraser(false); }}
-                                    >{p.name}</button>
-                                    <button style={{ ...textBtn, padding: '2px 6px' }}
+                                    >{p.name}</Button>
+                                    <Button size="sm"
                                         title="Delete preset"
                                         onClick={() => setPresets(ps => ps.filter((_, j) => j !== i))}
-                                    >×</button>
+                                    >×</Button>
                                 </div>
                             ))}
                         </div>
-                        <button style={{ ...textBtn, width: '100%', padding: '4px 0', marginBottom: 6 }}
+                        <Button size="sm" style={{ width: '100%', marginBottom: 6 }}
                             onClick={() => {
                                 const name = window.prompt('Preset name:', `${brush.mode} ${brushSize}px`);
                                 if (name) setPresets(ps => [...ps, { name, brush: { ...brush }, size: brushSize }]);
                             }}
-                        >+ Save current as preset</button>
+                        >+ Save current as preset</Button>
 
                         <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
-                            <button style={{ ...textBtn, flex: 1, padding: '4px 0', opacity: canUndo ? 1 : 0.4 }}
-                                disabled={!canUndo} onClick={handleUndo} title="Undo (Ctrl+Z)">↶ Undo</button>
-                            <button style={{ ...textBtn, flex: 1, padding: '4px 0', opacity: canRedo ? 1 : 0.4 }}
-                                disabled={!canRedo} onClick={handleRedo} title="Redo (Ctrl+Y)">↷ Redo</button>
+                            <Button size="sm" style={{ flex: 1 }}
+                                disabled={!canUndo} onClick={handleUndo} title="Undo (Ctrl+Z)">↶ Undo</Button>
+                            <Button size="sm" style={{ flex: 1 }}
+                                disabled={!canRedo} onClick={handleRedo} title="Redo (Ctrl+Y)">↷ Redo</Button>
                         </div>
-                        <button style={{ ...textBtn, width: '100%', marginTop: 6, padding: '6px 0', background: '#2a6', opacity: saveProgress ? 0.6 : 1 }}
+                        <Button size="sm" style={{ width: '100%', marginTop: 6 }} variant="success"
                             disabled={!!saveProgress}
                             onClick={handleSavePaint}
-                        >{saveProgress ? `Saving ${saveProgress.done}/${saveProgress.total}…` : 'Save painted textures'}</button>
+                        >{saveProgress ? `Saving ${saveProgress.done}/${saveProgress.total}…` : 'Save painted textures'}</Button>
                         {saveProgress && (
                             <div style={{ marginTop: 6 }}>
                                 <div style={{ height: 6, borderRadius: 3, background: '#333', overflow: 'hidden' }}>
@@ -1062,7 +1063,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 <div style={panel}>
                     <div style={panelHeader}>
                         <span style={{ fontWeight: 600, fontSize: 13 }}>Layers</span>
-                        <button style={{ ...textBtn, padding: '2px 8px' }} onClick={() => setShowPanel(false)}>×</button>
+                        <Button size="sm"  onClick={() => setShowPanel(false)}>×</Button>
                     </div>
 
                     <div style={panelBody}>
@@ -1172,7 +1173,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 <div style={{ ...infoCard, ...cardDrag.dragStyle }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, cursor: 'move' }} onMouseDown={cardDrag.onHeaderMouseDown}>
                         <span style={{ fontWeight: 600, fontSize: 12 }}>Texture</span>
-                        <button style={{ ...textBtn, padding: '2px 8px' }} onClick={() => setPinnedInfo(null)}>×</button>
+                        <Button size="sm"  onClick={() => setPinnedInfo(null)}>×</Button>
                     </div>
                     {pinnedInfo.texturePath && (
                         <TextureThumb projectPath={projectPath} texturePath={pinnedInfo.texturePath} />
@@ -1188,24 +1189,24 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                         {pinnedInfo.variants.join(', ')} · layer 0x{pinnedInfo.layer.toString(16)}
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        <button
-                            style={textBtn}
+                        <Button size="sm"
+
                             disabled={!pinnedTexPath}
                             onClick={() => { if (pinnedTexPath) void navigator.clipboard.writeText(pinnedTexPath); }}
-                        >Copy path</button>
-                        <button
-                            style={textBtn}
+                        >Copy path</Button>
+                        <Button size="sm"
+
                             disabled={!pinnedTexPath}
                             onClick={() => { if (pinnedTexPath) void api.openWithDefaultApp(pinnedTexPath.replace(/\//g, '\\')); }}
-                        >Open in editor</button>
-                        <button
-                            style={textBtn}
+                        >Open in editor</Button>
+                        <Button size="sm"
+
                             onClick={() => toggleMesh(pinnedInfo.meshName)}
-                        >{hiddenMeshes.has(pinnedInfo.meshName) ? 'Show mesh' : 'Hide mesh'}</button>
-                        <button
-                            style={textBtn}
+                        >{hiddenMeshes.has(pinnedInfo.meshName) ? 'Show mesh' : 'Hide mesh'}</Button>
+                        <Button size="sm"
+
                             onClick={() => setShowUv(v => !v)}
-                        >{showUv ? 'Hide UV' : 'Show UV'}</button>
+                        >{showUv ? 'Hide UV' : 'Show UV'}</Button>
                     </div>
                     {showUv && (
                         <div style={{ marginTop: 8 }}>
@@ -1314,13 +1315,6 @@ const UvOverlay: React.FC<{ projectPath: string; texturePath: string | null; tri
 };
 
 // ── Self-contained panel styles ─────────────────────────────────────────────
-const iconBtn: React.CSSProperties = {
-    position: 'absolute', top: 8, right: 8, width: 34, height: 34,
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    background: 'rgba(30,30,30,0.9)', color: '#ddd', border: '1px solid #444',
-    borderRadius: 6, cursor: 'pointer', fontSize: 16,
-};
-const iconBtnActive: React.CSSProperties = { background: '#3a3a3a', color: '#fff', borderColor: '#666' };
 const panel: React.CSSProperties = {
     position: 'absolute', top: 50, right: 8, width: 300, maxHeight: 'calc(100% - 60px)',
     display: 'flex', flexDirection: 'column',
@@ -1340,10 +1334,6 @@ const sectionLabel: React.CSSProperties = {
 const row: React.CSSProperties = {
     display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px',
     borderRadius: 4, cursor: 'pointer',
-};
-const textBtn: React.CSSProperties = {
-    background: '#2a2a2a', color: '#ddd', border: '1px solid #444',
-    borderRadius: 4, padding: '2px 10px', cursor: 'pointer', fontSize: 12,
 };
 const hoverBar: React.CSSProperties = {
     position: 'absolute', bottom: 0, left: 0, right: 0,

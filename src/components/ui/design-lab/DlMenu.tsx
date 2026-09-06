@@ -1,3 +1,4 @@
+import { Button } from '../Button';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DlIcon, type DlIconName } from './DlIcon';
@@ -21,7 +22,7 @@ export interface DlMenuProps {
 }
 
 /**
- * Design-lab overflow menu — a `.dl-btn--icon` trigger that opens a portal
+ * Design-lab overflow menu — a `.btn--icon` trigger that opens a portal
  * `.dl-dd-portal` list of actions. Used for the thumbnail toolbar's
  * Save / Export / Import group (collapsed into one three-dot menu). Portal'd
  * so it's never clipped by the toolbar's overflow.
@@ -70,15 +71,15 @@ export const DlMenu: React.FC<DlMenuProps> = ({ items, triggerIcon = 'more', tit
 
     return (
         <>
-            <button
+            <Button
                 ref={triggerRef}
                 type="button"
                 title={title}
-                className={`dl-btn dl-btn--secondary dl-btn--icon ${open ? 'dl-btn--active' : ''}`}
+                variant="secondary" iconOnly active={open}
                 onClick={() => setOpen((v) => !v)}
             >
                 <DlIcon name={triggerIcon} />
-            </button>
+            </Button>
             {open && pos && createPortal(
                 <div
                     ref={menuRef}

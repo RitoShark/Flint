@@ -1,0 +1,325 @@
+.modal, .dl-modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--dl-radius-lg);
+  box-shadow: var(--dl-shadow-lg);
+}
+.modal__header, .dl-modal__head { padding: 18px 22px 14px; border-bottom: 1px solid var(--border); }
+.modal__title, .dl-modal__title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.modal__body, .dl-modal__body { padding: 22px; }
+.modal__footer, .dl-modal__foot { padding: 14px 22px; border-top: 1px solid var(--border); background: color-mix(in oklab, var(--bg-tertiary) 50%, transparent); }
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  opacity: 0;
+  visibility: hidden;
+  transition: all var(--transition-base);
+}
+
+.modal-overlay--visible { opacity: 1; visibility: visible; }
+
+.modal {
+  width: 90%;
+  max-width: 500px;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.modal--wide { max-width: 800px; }
+
+.modal--large { max-width: 1000px; }
+
+.modal--project-list .modal__title { display: flex; align-items: center; gap: 10px; }
+
+.modal--project-list .modal__title svg { color: var(--accent-primary); }
+
+.modal-overlay--zooming {
+  animation: npOverlayZoomOut 650ms cubic-bezier(.22, 1, .36, 1) forwards;
+  pointer-events: none;
+}
+
+.modal__footer--split { justify-content: space-between; }
+
+.modal__footer-actions { display: flex; gap: var(--space-sm); }
+
+.modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal__title { }
+
+.modal__body { overflow-y: auto; flex: 1; }
+
+.modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+}
+
+.modal__loading-overlay {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  border-radius: var(--radius-lg);
+}
+
+.modal__loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-lg);
+  text-align: center;
+  padding: var(--space-xl);
+}
+
+.modal__loading-text { font-size: var(--text-lg); font-weight: 500; color: var(--text-primary); }
+
+.modal__loading-progress { font-size: var(--text-sm); color: var(--text-secondary); min-height: 1.5em; }
+
+.modal-overlay { background: rgba(0, 0, 0, 0.55); }
+
+.modal {
+  transform: translateY(8px) scale(0.97);
+  opacity: 0;
+  transition: transform var(--motion-base) var(--ease-spring),
+    opacity var(--motion-base);
+}
+
+.modal-overlay--visible .modal { transform: translateY(0) scale(1); opacity: 1; }
+
+.modal-overlay { backdrop-filter: blur(6px) saturate(110%); -webkit-backdrop-filter: blur(6px) saturate(110%); }
+
+.modal--project-list .modal__header, .modal--project-list .modal__footer {
+  background: transparent;
+  border-color: color-mix(in oklab, var(--border) 55%, transparent);
+}
+
+.modal--large.cs-modal {
+  height: 80vh;
+  max-height: 800px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: radial-gradient(120% 80% at 100% 0%,
+            color-mix(in oklab, var(--accent-primary) 9%, transparent) 0%,
+            transparent 55%),
+        color-mix(in oklab, var(--bg-secondary) 88%, transparent);
+  box-shadow: 0 24px 48px -16px rgba(0, 0, 0, .55),
+        0 0 0 1px color-mix(in oklab, var(--accent-primary) 14%, var(--border));
+}
+
+.dl-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: color-mix(in oklab, black 60%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: dl-fade-in var(--dl-base) var(--dl-ease-out);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.dl-modal {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 480px;
+  max-height: calc(100vh - 48px);
+  overflow: hidden;
+  transform-origin: center;
+  animation: dl-modal-in 360ms var(--dl-ease-spring);
+  isolation: isolate;
+}
+
+.dl-modal--wide { max-width: 720px; }
+
+.dl-modal--large { max-width: 960px; }
+
+.dl-modal__head { flex: none; border-top-left-radius: inherit; border-top-right-radius: inherit; }
+
+.dl-modal__body { overflow: auto; flex: 1; }
+
+.dl-modal__foot { flex: none; border-bottom-left-radius: inherit; border-bottom-right-radius: inherit; }
+
+.dl-modal__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dl-modal__title { margin: 0; flex: 1; }
+
+.dl-modal__body { display: grid; gap: 14px; }
+
+.dl-modal__foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dl-modal.wa-modal {
+  max-width: 1140px;
+  width: 100%;
+  height: 78vh;
+  max-height: 760px;
+  border-radius: 14px;
+  border: none;
+  background: radial-gradient(120% 80% at 100% 0%,
+            color-mix(in oklab, var(--accent-primary) 9%, transparent) 0%,
+            transparent 55%),
+        color-mix(in oklab, var(--bg-secondary) 88%, transparent);
+  box-shadow: 0 24px 48px -16px rgba(0, 0, 0, .55),
+        0 0 0 1px color-mix(in oklab, var(--accent-primary) 14%, var(--border));
+}
+
+.wa-modal .dl-modal__head {
+  gap: 10px;
+  padding: 12px 16px;
+  background: transparent;
+  border-bottom: 1px solid color-mix(in oklab, var(--accent-primary) 14%, transparent);
+}
+
+.wa-modal .dl-modal__body {
+  display: grid;
+  grid-template-columns: 194px minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.wa-modal .dl-modal__foot {
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: transparent;
+  border-top: 1px solid color-mix(in oklab, var(--border) 40%, transparent);
+}
+
+.dl-modal.al-modal {
+  max-width: 1180px;
+  width: 100%;
+  height: 80vh;
+  max-height: 780px;
+  border-radius: 14px;
+  border: none;
+  background: radial-gradient(120% 80% at 100% 0%,
+            color-mix(in oklab, var(--accent-primary) 9%, transparent) 0%,
+            transparent 55%),
+        color-mix(in oklab, var(--bg-secondary) 88%, transparent);
+  box-shadow: 0 24px 48px -16px rgba(0, 0, 0, .55),
+        0 0 0 1px color-mix(in oklab, var(--accent-primary) 14%, var(--border));
+}
+
+.al-modal .dl-modal__head {
+  gap: 10px;
+  padding: 12px 16px;
+  background: transparent;
+  border-bottom: 1px solid color-mix(in oklab, var(--accent-primary) 14%, transparent);
+}
+
+.al-modal .dl-modal__body {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.al-modal .dl-modal__foot {
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: transparent;
+  border-top: 1px solid color-mix(in oklab, var(--accent-primary) 12%, transparent);
+}
+
+.dl-modal.mi-modal {
+  max-width: 900px;
+  width: 100%;
+  height: 74vh;
+  max-height: 700px;
+  border-radius: 14px;
+  border: none;
+  background: radial-gradient(120% 80% at 100% 0%,
+            color-mix(in oklab, var(--accent-primary) 9%, transparent) 0%,
+            transparent 55%),
+        color-mix(in oklab, var(--bg-secondary) 88%, transparent);
+  box-shadow: 0 24px 48px -16px rgba(0, 0, 0, .55),
+        0 0 0 1px color-mix(in oklab, var(--accent-primary) 14%, var(--border));
+}
+
+.mi-modal .dl-modal__head {
+  gap: 10px;
+  padding: 12px 16px;
+  background: transparent;
+  border-bottom: 1px solid color-mix(in oklab, var(--accent-primary) 14%, transparent);
+}
+
+.mi-modal .dl-modal__body {
+  display: grid;
+  grid-template-columns: 186px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.mi-modal .dl-modal__foot {
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: transparent;
+  border-top: 1px solid color-mix(in oklab, var(--accent-primary) 12%, transparent);
+}
+
+html[data-glass="on"] .modal, html[data-glass="on"] .dl-modal, html[data-glass="on"] .modal--settings, html[data-glass="on"] .context-menu, html[data-glass="on"] .dropdown-menu, html[data-glass="on"] .dl-dd-portal {
+  backdrop-filter: blur(var(--ux-glass-blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--ux-glass-blur)) saturate(160%);
+  background: color-mix(in oklab, var(--bg-secondary) calc(var(--ux-glass-opacity) * 100%), transparent);
+}
+
+html[data-glass="on"] .modal-overlay {
+  backdrop-filter: blur(calc(var(--ux-glass-blur) * 0.4));
+  -webkit-backdrop-filter: blur(calc(var(--ux-glass-blur) * 0.4));
+}
+
+html[data-glass="off"] .modal, html[data-glass="off"] .dl-modal, html[data-glass="off"] .modal--settings, html[data-glass="off"] .context-menu {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: var(--bg-secondary);
+}
+
+.modal-overlay--visible .modal { animation: ux-modal-pop 280ms var(--ux-ease-spring); }
+
+.modal-overlay--closing { animation: ux-modal-overlay-out 220ms var(--ux-ease) forwards; pointer-events: none; }
+
+.modal-overlay--closing .modal, .modal--closing {
+  animation: ux-modal-pop-out 240ms var(--ux-ease) forwards !important;
+}

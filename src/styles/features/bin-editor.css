@@ -1,0 +1,148 @@
+.bin-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--bg-primary);
+}
+
+.bin-editor__loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: var(--space-md);
+  color: var(--text-muted);
+}
+
+.bin-editor__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  gap: var(--space-md);
+}
+
+.bin-editor__toolbar-actions { display: flex; gap: var(--space-sm); flex-shrink: 0; }
+
+.bin-editor__filename {
+  font-weight: 500;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.bin-editor__filename-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.bin-editor__stats { font-size: var(--text-xs); color: var(--text-muted); font-weight: normal; flex-shrink: 0; }
+
+.bin-editor__bracket-error {
+  font-size: var(--text-xs);
+  color: #ff6b6b;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(255, 68, 68, 0.12);
+  flex-shrink: 0;
+}
+
+.bin-editor__bracket-error:hover { background: rgba(255, 68, 68, 0.22); }
+
+.bin-editor__bracket-ok {
+  font-size: var(--text-xs);
+  color: #69db7c;
+  font-weight: normal;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(105, 219, 124, 0.08);
+  flex-shrink: 0;
+}
+
+.bin-editor__audit {
+  font-size: var(--text-xs);
+  color: var(--color-warning);
+  font-weight: 500;
+  cursor: pointer;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--color-warning) 14%, transparent);
+  flex-shrink: 0;
+}
+
+.bin-editor__audit:hover { background: color-mix(in oklab, var(--color-warning) 26%, transparent); }
+
+.bin-editor__audit--critical {
+  color: var(--color-danger);
+  background: color-mix(in oklab, var(--color-danger) 14%, transparent);
+}
+
+.bin-editor__audit--critical:hover { background: color-mix(in oklab, var(--color-danger) 26%, transparent); }
+
+.flint-issue-line--critical { background: color-mix(in oklab, var(--color-danger) 10%, transparent) !important; }
+
+.flint-issue-line--warning { background: color-mix(in oklab, var(--color-warning) 10%, transparent) !important; }
+
+.flint-issue-glyph { border-radius: 50%; margin-left: 3px; width: 8px !important; height: 8px !important; }
+
+.flint-issue-glyph--critical { background: var(--color-danger); }
+
+.flint-issue-glyph--warning { background: var(--color-warning); }
+
+.flint-reveal-line {
+  background: color-mix(in oklab, var(--accent-primary) 22%, transparent) !important;
+  animation: flint-reveal-fade 2.6s ease-out forwards;
+}
+
+@keyframes flint-reveal-fade {
+  0% { background-color: color-mix(in oklab, var(--accent-primary) 40%, transparent); }
+  25% { background-color: color-mix(in oklab, var(--accent-primary) 30%, transparent); }
+  100% { background-color: transparent; }
+}
+
+.bracket-error-line { background: rgba(255, 68, 68, 0.08) !important; }
+
+.bracket-error-glyph {
+  background: #ff4444;
+  border-radius: 50%;
+  margin-left: 3px;
+  width: 8px !important;
+  height: 8px !important;
+}
+
+.bracket-suggest-line { background: rgba(240, 160, 32, 0.08) !important; }
+
+.bracket-suggest-after::after {
+  content: ' ← insert closing bracket here';
+  color: #f0a020;
+  font-style: italic;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.bin-editor__content { flex: 1; position: relative; overflow: hidden; background-color: var(--bg-primary); }
+
+.bin-editor__error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: var(--space-md);
+  color: var(--error);
+}
+
+.bin-property-tree {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  font-size: var(--text-sm);
+}

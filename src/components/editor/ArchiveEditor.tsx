@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
@@ -259,14 +260,14 @@ export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
                 <span className="archive-toolbar__name" data-tauri-drag-region>{archiveName}</span>
                 <span className="archive-toolbar__kind">{layout.kind}</span>
                 <div style={{ flex: 1 }} data-tauri-drag-region />
-                <button
-                    className="dl-btn dl-btn--primary dl-btn--sm"
+                <Button
+                    variant="primary" size="sm"
                     onClick={handleSave}
                     disabled={busy}
                     data-tauri-drag-region="false"
                 >
                     {busy ? 'Saving…' : 'Save Archive'}
-                </button>
+                </Button>
             </div>
 
             <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>

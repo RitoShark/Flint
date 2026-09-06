@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
@@ -1295,59 +1296,59 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 </span>
                 <div className="bin-editor__toolbar-actions">
                     {!bracketStatus.valid && (
-                        <button
-                            className="btn btn--icon"
-                            style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', color: 'var(--warning, #f0a020)' }}
+                        <Button
+                            iconOnly
+
                             onClick={handleFixBracket}
                             title="Insert missing closing bracket at suggested position"
                         >
                             {'}'}
-                        </button>
+                        </Button>
                     )}
-                    <button
-                        className={`btn btn--icon${sidePanelOpen ? ' btn--primary' : ''}`}
+                    <Button
+                        iconOnly variant={sidePanelOpen ? "primary" : undefined}
                         style={!sidePanelOpen ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
                         onClick={() => setSidePanelOpen(!sidePanelOpen)}
                         title="Toggle BIN tools panel (skinScale, materialOverride, VFX)"
                     >
                         <Icon name="settings" />
-                    </button>
+                    </Button>
                     {hasMaskMap && (
-                        <button
-                            className={`btn btn--icon${maskEditorOpen ? ' btn--primary' : ''}`}
+                        <Button
+                            iconOnly variant={maskEditorOpen ? "primary" : undefined}
                             style={!maskEditorOpen ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
                             onClick={() => setMaskEditorOpen(!maskEditorOpen)}
                             title="Toggle animation mask weight editor"
                         >
                             <Icon name="contrast" />
-                        </button>
+                        </Button>
                     )}
                     {hasVfx && (
-                        <button
-                            className={`btn btn--icon${paintOpen ? ' btn--primary' : ''}`}
+                        <Button
+                            iconOnly variant={paintOpen ? "primary" : undefined}
                             style={!paintOpen ? { background: 'var(--bg-tertiary)', border: '1px solid var(--border)' } : undefined}
                             onClick={() => setPaintOpen(!paintOpen)}
                             title="Toggle VFX paint (recolor emitters and materials)"
                         >
                             <Icon name="texture" />
-                        </button>
+                        </Button>
                     )}
-                    <button
-                        className="btn btn--icon"
-                        style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}
+                    <Button
+                        iconOnly
+
                         onClick={() => void handleUnhash()}
                         title="Unhash: re-resolve any 0x… hash tokens against the known BIN hash dictionary"
                     >
                         <Icon name="target" />
-                    </button>
-                    <button
-                        className="btn btn--primary btn--icon"
+                    </Button>
+                    <Button
+                        variant="primary" iconOnly
                         onClick={handleSave}
                         disabled={!isDirty}
                         title={!bracketStatus.valid ? 'Fix bracket errors before saving' : 'Save (Ctrl+S)'}
                     >
                         <SaveIcon />
-                    </button>
+                    </Button>
                 </div>
             </div>
 

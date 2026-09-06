@@ -1,0 +1,142 @@
+html[data-fps="on"] *, html[data-fps="on"] *::before, html[data-fps="on"] *::after {
+  transition: none !important;
+  animation-duration: 0.001ms !important;
+  animation-delay: 0ms !important;
+  animation-iteration-count: 1 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html *, html *::before, html *::after { transition: none !important; animation-duration: 0.001ms !important; }
+}
+
+@keyframes ux-view-in {
+  from { opacity: 0; transform: translateY(6px); filter: blur(2px); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+
+@keyframes ux-modal-pop {
+  0% { opacity: 0; transform: scale(0.94) translateY(8px); }
+  60% { opacity: 1; }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes ux-modal-overlay-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes ux-modal-pop-out {
+  0% { opacity: 1; transform: scale(1)    translateY(0); }
+  100% { opacity: 0; transform: scale(0.96) translateY(6px); }
+}
+
+@keyframes ux-panel-in {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes ux-fwiz-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ux-orb-a {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(80px, 60px) scale(1.1); }
+}
+
+@keyframes ux-orb-b {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-120px, -80px) scale(1.15); }
+}
+
+@keyframes ux-halo {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 0.95; transform: scale(1.25); }
+}
+
+@keyframes ux-fwiz-slide {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes ux-fwiz-stage {
+  from { opacity: 0; transform: translateX(24px) scale(0.985); }
+  to { opacity: 1; transform: translateX(0)    scale(1); }
+}
+
+@keyframes ux-fwiz-stage-back {
+  from { opacity: 0; transform: translateX(-24px) scale(0.985); }
+  to { opacity: 1; transform: translateX(0)     scale(1); }
+}
+
+@media (min-width: 1100px) {
+  .fwiz-pane--paths { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
+}
+
+@media (max-width: 760px) {
+  .fwiz__shell { padding: 16px 16px 22px; }
+  .fwiz__titlebar-mode { display: none; }
+  .fwiz-step__label { display: none; }
+  .fwiz-step__item { justify-content: center; padding: 10px; gap: 0; }
+  .fwiz-detectbar__track { width: 100%; }
+  .fwiz__nav-counter { display: none; }
+}
+
+@keyframes ux-splash-in {
+  from { opacity: 0; transform: scale(0.94); filter: blur(6px); }
+  to { opacity: 1; transform: scale(1); filter: blur(0); }
+}
+
+@keyframes ux-splash-pop {
+  from { opacity: 0; transform: scale(0.4) rotate(-12deg); }
+  to { opacity: 1; transform: scale(1)   rotate(0); }
+}
+
+@keyframes ux-splash-flicker {
+  0%, 100% { transform: scale(1)    rotate(0); }
+  25% { transform: scale(1.04) rotate(-1deg); }
+  55% { transform: scale(0.98) rotate(0.6deg); }
+  78% { transform: scale(1.03) rotate(-0.4deg); }
+}
+
+@keyframes ux-splash-glow {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.22); }
+}
+
+@keyframes ux-splash-ring {
+  0%, 100% { transform: scale(0.92); opacity: 0.85; }
+  50% { transform: scale(1.18); opacity: 0.3; }
+}
+
+@keyframes ux-splash-letter {
+  from { opacity: 0; transform: translateY(28px) scale(0.7) rotate(-4deg); }
+  to { opacity: 1; transform: translateY(0)    scale(1)   rotate(0); }
+}
+
+@keyframes ux-splash-bar {
+  from { transform: scaleX(0); opacity: 0; }
+  to { transform: scaleX(1); opacity: 1; }
+}
+
+@keyframes ux-splash-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes ux-splash-hint {
+  from { opacity: 0; transform: translate(-50%, 6px); }
+  to { opacity: 0.55; transform: translate(-50%, 0); }
+}
+
+@keyframes ux-splash-hint-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.95; }
+}
+
+@media (max-width: 600px) {
+  .fwiz-finish__shortcuts { grid-template-columns: 1fr; }
+}

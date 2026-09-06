@@ -1,0 +1,32 @@
+.loader {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--bg-hover);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.progress-bar { height: 8px; background-color: var(--bg-tertiary); border-radius: var(--radius-sm); overflow: hidden; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.progress-bar > div:last-child { background: var(--surface-3) !important; }
+
+.progress-bar > div:last-child > div {
+  background: linear-gradient(90deg,
+    var(--accent-primary),
+    color-mix(in oklab, var(--accent-primary) 70%, white 30%)) !important;
+  box-shadow: 0 0 8px color-mix(in oklab, var(--accent-primary) 50%, transparent);
+}

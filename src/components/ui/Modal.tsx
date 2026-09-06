@@ -1,8 +1,9 @@
+import { Button } from './Button';
 import React, { useEffect, useState } from 'react';
 import { Spinner } from './Spinner';
 import { Icon } from './Icon';
 
-/** Match the longest of the two animations in flint-2.css (modal pop = 280ms,
+/** Match the longest of the two animations in components/modals.css (modal pop = 280ms,
  *  overlay fade = 220ms). 280 keeps the DOM alive long enough for both to play. */
 const MODAL_EXIT_MS = 280;
 
@@ -89,9 +90,9 @@ export const ModalHeader: React.FC<ModalHeaderProps> = ({ title, onClose, childr
         <h2 className="modal__title">{title}</h2>
         {children}
         {onClose && (
-            <button className="modal__close" onClick={onClose} aria-label="Close">
+            <Button className="modal__close" variant="ghost" size="sm" iconOnly onClick={onClose} aria-label="Close">
                 <Icon name="close" />
-            </button>
+            </Button>
         )}
     </div>
 );

@@ -1,3 +1,4 @@
+import { Button } from '../../ui/Button';
 import React, { useEffect, useState } from 'react';
 import type * as monacoNs from 'monaco-editor';
 import { Icon } from '../../ui';
@@ -46,9 +47,9 @@ export const BinToolsPanel: React.FC<BinToolsPanelProps> = ({
         <div className="bin-tools">
             <div className="bin-tools__head">
                 <span className="bin-tools__title">BIN Tools</span>
-                <button className="bin-tools__close" onClick={onClose} title="Close">
+                <Button className="bin-tools__close" variant="ghost" size="sm" iconOnly onClick={onClose} title="Close">
                     <Icon className="bin-tools__glyph" name="close" />
-                </button>
+                </Button>
             </div>
 
             <SkinScaleSection content={settled} onApply={apply} />

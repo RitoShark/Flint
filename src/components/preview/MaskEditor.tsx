@@ -1,9 +1,9 @@
+import { Button } from '../ui/Button';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import * as api from '../../lib/api';
 import { useNotificationStore } from '../../lib/stores';
 import type { JointWeight, MaskDocument, MaskView } from '../../lib/api/animask';
 import { invertAll, setAll, setSubtree } from '../../lib/maskOps';
-import './MaskEditor.css';
 
 interface MaskEditorProps {
     binPath: string;
@@ -143,8 +143,8 @@ const JointRow: React.FC<JointRowProps> = ({ joint, depth, onWeightChange, onSet
                     if (e.key === 'Enter') { commitDraft(); (e.target as HTMLInputElement).blur(); }
                 }}
             />
-            <button
-                className="btn mask-editor__mini-btn"
+            <Button
+                className="mask-editor__mini-btn"
                 onClick={() => onSetSubtree(joint.index, joint.weight)}
                 disabled={subtreeDisabled}
                 title={
@@ -154,7 +154,7 @@ const JointRow: React.FC<JointRowProps> = ({ joint, depth, onWeightChange, onSet
                 }
             >
                 Subtree
-            </button>
+            </Button>
         </div>
     );
 };
@@ -361,14 +361,14 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({ binPath, sklPath }) => {
                             ? 'No changes'
                             : `${dirtyWeightCount} weight${dirtyWeightCount === 1 ? '' : 's'} changed in ${dirtyKeys.length} mask${dirtyKeys.length === 1 ? '' : 's'}`}
                     </span>
-                    <button
-                        className="btn btn--primary btn--sm"
+                    <Button
+                        variant="primary" size="sm"
                         onClick={handleSave}
                         disabled={dirtyKeys.length === 0 || saving}
                         title={dirtyKeys.length === 0 ? 'No edited masks to save' : `Save ${dirtyKeys.length} edited mask${dirtyKeys.length === 1 ? '' : 's'}`}
                     >
                         {saving ? 'Saving…' : 'Save'}
-                    </button>
+                    </Button>
                 </div>
             </div>
 
@@ -422,20 +422,20 @@ export const MaskEditor: React.FC<MaskEditorProps> = ({ binPath, sklPath }) => {
                                         if (Number.isFinite(parsed)) setBulkValue(clampWeight(parsed));
                                     }}
                                 />
-                                <button
-                                    className="btn mask-editor__mini-btn"
+                                <Button
+                                    className="mask-editor__mini-btn"
                                     onClick={() => handleSetAll(selectedMask.key, bulkValue)}
                                     title={`Set every joint in this mask to ${formatWeight(bulkValue)}`}
                                 >
                                     Set all
-                                </button>
-                                <button
-                                    className="btn mask-editor__mini-btn"
+                                </Button>
+                                <Button
+                                    className="mask-editor__mini-btn"
                                     onClick={() => handleInvertAll(selectedMask.key)}
                                     title="Map every weight w to 1 - w"
                                 >
                                     Invert
-                                </button>
+                                </Button>
                             </div>
                             {mismatched && (
                                 <div className="mask-editor__warning-banner">

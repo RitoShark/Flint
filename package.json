@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "vite",
     "dev:clean": "node -e \"require('fs').rmSync('node_modules/.vite', { recursive: true, force: true }); console.log('cleared node_modules/.vite');\"",
-    "build": "tsc && vite build",
+    "build": "npm run check:ui && tsc && vite build",
+    "check:ui": "node scripts/check-ui.mjs",
     "tauri": "tauri",
     "tauri:shaders": "tauri dev --features shaderforge",
     "dev:release": "tauri dev --release",

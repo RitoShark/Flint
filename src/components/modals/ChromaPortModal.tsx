@@ -210,20 +210,20 @@ export const ChromaPortModal: React.FC = () => {
                 {!loading && !fetchError && totalOptions > 0 && (
                     <>
                         <div className="chroma-port-toolbar">
-                            <button
-                                className="dl-btn dl-btn--ghost dl-btn--sm"
+                            <Button
+                                variant="ghost" size="sm"
                                 onClick={selectAll}
                                 disabled={selected.size === totalOptions}
                             >
                                 All
-                            </button>
-                            <button
-                                className="dl-btn dl-btn--ghost dl-btn--sm"
+                            </Button>
+                            <Button
+                                variant="ghost" size="sm"
                                 onClick={selectNone}
                                 disabled={selected.size === 0}
                             >
                                 None
-                            </button>
+                            </Button>
                             <span className="chroma-port-count">
                                 {selected.size} / {totalOptions} selected
                             </span>

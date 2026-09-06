@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useState, useEffect, useRef } from 'react';
 import { useModalStore } from '../../lib/stores';
 import type { ModalType } from '../../lib/types';
@@ -330,10 +331,10 @@ export const TutorialOverlay: React.FC<Props> = ({ onDone }) => {
                 </div>
 
                 <div className="tutorial-callout__actions">
-                    <button className="tutorial-skip" onClick={finish}>Skip tour</button>
+                    <Button className="tutorial-skip" variant="ghost" size="sm" onClick={finish}>Skip tour</Button>
                     <div className="tutorial-callout__nav">
-                        <button
-                            className="tutorial-nav-btn"
+                        <Button
+                            className="tutorial-nav-btn" variant="secondary" size="sm"
                             onClick={prev}
                             disabled={idx === 0}
                             title="Previous"
@@ -342,9 +343,9 @@ export const TutorialOverlay: React.FC<Props> = ({ onDone }) => {
                             <svg width="11" height="11" viewBox="0 0 10 10" fill="none">
                                 <path d="M7 1L3 5l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
                             </svg>
-                        </button>
-                        <button
-                            className={`tutorial-nav-btn ${isLast ? 'tutorial-nav-btn--done' : 'tutorial-nav-btn--next'}`}
+                        </Button>
+                        <Button
+                            className="tutorial-nav-btn" variant={isLast ? "primary" : "primary"} size="sm"
                             onClick={next}
                             title={isLast ? 'Finish' : 'Next'}
                             aria-label={isLast ? 'Finish tutorial' : 'Next step'}
@@ -358,7 +359,7 @@ export const TutorialOverlay: React.FC<Props> = ({ onDone }) => {
                                     <path d="M3 1l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
                                 </svg>
                             )}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </div>

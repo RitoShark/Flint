@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as api from '../../lib/api';
 import type { AudioEntryInfo } from '../../lib/types';
@@ -801,44 +802,44 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                 )}
 
                 <div style={styles.toolbar}>
-                    <button
-                        className="btn btn--sm"
+                    <Button
+                        size="sm"
                         onClick={(e) => { e.currentTarget.blur(); toggleShiftSpace(); }}
                         disabled={!buffer || applying}
                         title="Shift+Space — play whole file"
                     >
                         {isPlaying ? '■ Stop' : '▶ Play all'}
-                    </button>
-                    <button
-                        className="btn btn--sm"
+                    </Button>
+                    <Button
+                        size="sm"
                         onClick={(e) => { e.currentTarget.blur(); toggleSpace(); }}
                         disabled={!buffer || applying || selection.end <= selection.start + 0.001}
                         title="Space — play selection (from playhead if inside)"
                     >
                         ▶ Play selection
-                    </button>
+                    </Button>
 
                     <span style={styles.toolbarSep} />
 
-                    <button className="btn btn--sm btn--ghost" onClick={zoomOut} disabled={!buffer || zoom <= MIN_ZOOM} title="-">
+                    <Button size="sm" variant="ghost" onClick={zoomOut} disabled={!buffer || zoom <= MIN_ZOOM} title="-">
                         −
-                    </button>
+                    </Button>
                     <span style={styles.zoomLabel}>{zoom.toFixed(1)}×</span>
-                    <button className="btn btn--sm btn--ghost" onClick={zoomIn} disabled={!buffer || zoom >= MAX_ZOOM} title="+">
+                    <Button size="sm" variant="ghost" onClick={zoomIn} disabled={!buffer || zoom >= MAX_ZOOM} title="+">
                         +
-                    </button>
-                    <button className="btn btn--sm btn--ghost" onClick={resetZoom} disabled={!buffer} title="0">
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={resetZoom} disabled={!buffer} title="0">
                         Reset
-                    </button>
-                    <button className="btn btn--sm btn--ghost" onClick={fitSelection} disabled={!buffer}>
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={fitSelection} disabled={!buffer}>
                         Fit selection
-                    </button>
+                    </Button>
 
                     <span style={styles.toolbarSep} />
 
-                    <button className="btn btn--sm btn--ghost" onClick={selectAll} disabled={!buffer}>
+                    <Button size="sm" variant="ghost" onClick={selectAll} disabled={!buffer}>
                         Select all
-                    </button>
+                    </Button>
                 </div>
 
                 <div ref={containerRef} style={styles.canvasWrap}>
@@ -956,17 +957,17 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                 </div>
 
                 <div style={styles.footer}>
-                    <button className="btn btn--sm btn--ghost" onClick={onClose} disabled={applying}>
+                    <Button size="sm" variant="ghost" onClick={onClose} disabled={applying}>
                         Cancel
-                    </button>
-                    <button
-                        className="btn btn--sm btn--primary"
+                    </Button>
+                    <Button
+                        size="sm" variant="primary"
                         onClick={handleApply}
                         disabled={!buffer || applying || selection.end <= selection.start + 0.001}
                         title={`Replace WEM ${entry.id} with the selected range`}
                     >
                         {applying ? 'Applying...' : source ? 'Import' : 'Apply trim'}
-                    </button>
+                    </Button>
                 </div>
             </div>
         </div>

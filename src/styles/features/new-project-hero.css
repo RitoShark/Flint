@@ -1,0 +1,99 @@
+.np-hero-splash {
+  position: relative;
+  width: 100%;
+  height: 160px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #0a0a0a;
+}
+
+.np-hero-splash__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 20%;
+  opacity: 0;
+  transform: scale(1.04);
+  transition: opacity 0.5s ease, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.np-hero-splash__img--loaded { opacity: 1; transform: scale(1); }
+
+.np-hero-splash__overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(0deg, rgba(14, 14, 14, 0.85) 0%, rgba(14, 14, 14, 0.3) 35%, transparent 70%);
+  pointer-events: none;
+}
+
+.np-hero-splash__info {
+  position: absolute;
+  bottom: 12px;
+  left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  z-index: 1;
+}
+
+.np-hero-splash__champion {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.np-hero-splash__skin {
+  font-size: 18px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #fff 0%, #aaa 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.3px;
+}
+
+.np-hero-wrap { position: relative; margin-bottom: 18px; isolation: isolate; }
+
+.np-hero-glow {
+  position: absolute;
+  inset: -22px;
+  z-index: -1;
+  background-size: cover;
+  background-position: center 25%;
+  filter: blur(40px) saturate(160%);
+  opacity: 0.55;
+  border-radius: 24px;
+  pointer-events: none;
+  animation: npGlowFade 600ms ease;
+}
+
+.np-hero-splash { margin-bottom: 0 !important; border: none; }
+
+.np-hero-splash__edit { position: absolute; top: 12px; right: 12px; z-index: 2; width: auto !important; }
+
+.np-hero-chroma-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--dot-color, var(--accent-primary)) 20%, transparent);
+  border: 1px solid color-mix(in oklab, var(--dot-color, var(--accent-primary)) 40%, transparent);
+  font-size: 10px;
+  font-weight: 600;
+  color: white;
+  letter-spacing: 0.04em;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.np-hero-chroma-badge__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dot-color, var(--accent-primary));
+  box-shadow: 0 0 4px var(--dot-color, var(--accent-primary));
+  flex: none;
+}

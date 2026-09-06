@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useProjectTabStore, useAppMetadataStore, useNotificationStore, useModalStore } from '../../lib/stores';
 import * as api from '../../lib/api';
@@ -239,9 +240,9 @@ export const CheckpointTimeline: React.FC = () => {
                         className="dl-input"
                         disabled={isCreating}
                     />
-                    <button type="submit" className="dl-btn dl-btn--primary" disabled={!message.trim() || isCreating}>
+                    <Button type="submit" variant="primary" disabled={!message.trim() || isCreating}>
                         {isCreating ? 'Saving…' : 'Create Checkpoint'}
-                    </button>
+                    </Button>
                 </form>
             </div>
 
@@ -321,20 +322,20 @@ export const CheckpointTimeline: React.FC = () => {
                                         </div>
 
                                         <div className="checkpoint-item__actions">
-                                            <button
-                                                className="dl-btn dl-btn--ghost dl-btn--sm dl-btn--icon"
+                                            <Button
+                                                variant="ghost" size="sm" iconOnly
                                                 title="Restore this state"
                                                 onClick={(e) => { e.stopPropagation(); handleRestore(cp.id); }}
                                             >
                                                 <span dangerouslySetInnerHTML={{ __html: getIcon('refresh') }} />
-                                            </button>
-                                            <button
-                                                className="dl-btn dl-btn--ghost dl-btn--sm dl-btn--icon dl-btn--danger"
+                                            </Button>
+                                            <Button
+                                                variant="danger" size="sm" iconOnly
                                                 title="Delete checkpoint"
                                                 onClick={(e) => { e.stopPropagation(); handleDelete(cp.id); }}
                                             >
                                                 <span dangerouslySetInnerHTML={{ __html: getIcon('trash') }} />
-                                            </button>
+                                            </Button>
                                         </div>
                                     </div>
                                 </div>
@@ -413,13 +414,13 @@ export const CheckpointTimeline: React.FC = () => {
                                         <div className="checkpoint-preview">
                                             <div className="checkpoint-preview__header">
                                                 <h4>{getFileName(previewFile.path)}</h4>
-                                                <button
-                                                    className="dl-btn dl-btn--ghost dl-btn--sm dl-btn--icon"
+                                                <Button
+                                                    variant="ghost" size="sm" iconOnly
                                                     onClick={() => { setPreviewFile(null); setPreviewOld(null); setPreviewNew(null); }}
                                                     title="Close preview"
                                                 >
                                                     <span dangerouslySetInnerHTML={{ __html: getIcon('close') }} />
-                                                </button>
+                                                </Button>
                                             </div>
                                             {isLoadingPreview ? (
                                                 <div className="checkpoint-preview__loading">Loading preview...</div>

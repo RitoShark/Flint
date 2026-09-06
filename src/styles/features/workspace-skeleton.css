@@ -1,0 +1,105 @@
+.modal--zooming .np-skel__tile, .modal--zooming .np-skel__shimmer, .modal--zooming .np-skel__pulse {
+  animation-play-state: paused !important;
+}
+
+.np-skel { display: flex; flex-direction: column; height: 100%; background: var(--bg-primary); }
+
+.np-skel__topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  height: 44px;
+  flex: none;
+}
+
+.np-skel__spacer { flex: 1; }
+
+.np-skel__dot { width: 10px; height: 10px; border-radius: 50%; background: var(--bg-tertiary); }
+
+.np-skel__body { flex: 1; display: grid; grid-template-columns: 220px 1fr; min-height: 0; }
+
+.np-skel__side {
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.np-skel__main { padding: 22px 28px; display: flex; flex-direction: column; gap: 22px; overflow: hidden; }
+
+.np-skel__hero { display: flex; flex-direction: column; gap: 8px; }
+
+.np-skel__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+
+.np-skel__tile {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: npTileFloat 2.4s ease-in-out infinite;
+}
+
+@keyframes npTileFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+.np-skel__shimmer {
+  display: block;
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg,
+      color-mix(in oklab, var(--text-muted) 12%, transparent) 0%,
+      color-mix(in oklab, var(--text-muted) 22%, transparent) 50%,
+      color-mix(in oklab, var(--text-muted) 12%, transparent) 100%);
+  background-size: 200% 100%;
+  animation: npShimmer 1.6s ease-in-out infinite;
+}
+
+.np-skel__shimmer--soft { opacity: 0.55; }
+
+.np-skel__shimmer--row { height: 10px; border-radius: 5px; }
+
+.np-skel__shimmer--block { height: 70px; border-radius: 8px; }
+
+@keyframes npShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.np-skel__statusline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  flex: none;
+  font-size: 12px;
+}
+
+.np-skel__pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-secondary);
+  box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent-secondary) 60%, transparent);
+  animation: npPulse 1.4s ease-out infinite;
+}
+
+@keyframes npPulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent-secondary) 60%, transparent); }
+  100% { box-shadow: 0 0 0 10px color-mix(in oklab, var(--accent-secondary) 0%, transparent); }
+}
+
+.np-skel__title { color: var(--text-primary); font-weight: 600; }
+
+.np-skel__progress { color: var(--text-muted); margin-left: auto; font-family: var(--font-mono); font-size: 11px; }

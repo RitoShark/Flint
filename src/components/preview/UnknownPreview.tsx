@@ -1,9 +1,9 @@
+import { Button } from '../ui/Button';
 import React, { useState } from 'react';
 import { HexViewer } from './HexViewer';
 import { TextPreview } from './TextPreview';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { useUxStore } from '../../lib/stores/uxStore';
-import './UnknownPreview.css';
 
 interface UnknownPreviewProps {
     filePath: string;
@@ -49,14 +49,14 @@ export const UnknownPreview: React.FC<UnknownPreviewProps> = ({ filePath }) => {
                         <span>
                             Opening <code>.{ext}</code> files in {rememberedMode === 'hex' ? 'Hex View' : 'Text Editor'}
                         </span>
-                        <button
-                            className="btn btn--sm btn--ghost"
-                            style={{ marginLeft: 'auto', padding: '1px 8px', fontSize: '11px' }}
+                        <Button
+                            size="sm" variant="ghost"
+                            style={{ marginLeft: 'auto' }}
                             title="Stop opening this file type automatically"
                             onClick={() => setUnknownPreviewForExt(ext, null)}
                         >
                             Forget
-                        </button>
+                        </Button>
                     </div>
                 )}
                 <div style={{ flex: 1, minHeight: 0 }}>
@@ -79,20 +79,20 @@ export const UnknownPreview: React.FC<UnknownPreviewProps> = ({ filePath }) => {
                 <p>This file type does not have a dedicated viewer. How would you like to open it?</p>
 
                 <div className="unknown-preview__options">
-                    <button
-                        className="btn btn--primary unknown-preview__btn"
+                    <Button
+                        className="unknown-preview__btn" variant="primary"
                         onClick={() => openWith('text')}
                     >
                         <span dangerouslySetInnerHTML={{ __html: getIcon('document') }} />
                         Open in Text Editor
-                    </button>
-                    <button
-                        className="btn btn--secondary unknown-preview__btn"
+                    </Button>
+                    <Button
+                        className="unknown-preview__btn" variant="secondary"
                         onClick={() => openWith('hex')}
                     >
                         <span dangerouslySetInnerHTML={{ __html: getIcon('code') }} />
                         Open in Hex View
-                    </button>
+                    </Button>
                 </div>
 
                 {ext && (

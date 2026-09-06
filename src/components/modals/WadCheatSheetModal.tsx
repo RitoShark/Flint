@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useMemo, useState } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import CHEAT_SHEET_MD from '../../assets/wad-cheat-sheet.md?raw';
@@ -320,19 +321,19 @@ export const WadCheatSheetModal: React.FC<WadCheatSheetModalProps> = ({ onClose,
                         autoFocus
                     />
                     {search && (
-                        <button
-                            className="cs-search__clear"
+                        <Button
+                            className="cs-search__clear" variant="ghost" size="sm" iconOnly
                             onClick={() => setSearch('')}
                             aria-label="Clear filter"
                             title="Clear filter"
                         >
                             <Icon name="close" />
-                        </button>
+                        </Button>
                     )}
                 </div>
-                <button className="modal__close" onClick={onClose} aria-label="Close" title="Close (Esc)">
+                <Button className="modal__close" variant="ghost" size="sm" iconOnly onClick={onClose} aria-label="Close" title="Close (Esc)">
                     <Icon name="close" />
-                </button>
+                </Button>
             </div>
 
             <div className="cs-modal__body">

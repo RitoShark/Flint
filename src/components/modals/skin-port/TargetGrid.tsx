@@ -1,3 +1,4 @@
+import { Button } from '../../ui/Button';
 import React from 'react';
 
 export interface PortTarget {
@@ -34,29 +35,29 @@ export const TargetGrid: React.FC<TargetGridProps> = ({
     return (
         <>
             <div className="skin-port__toolbar">
-                <button
-                    className="dl-btn dl-btn--ghost dl-btn--sm"
+                <Button
+                    variant="ghost" size="sm"
                     onClick={onSelectAll}
                     disabled={selected.size === targets.length}
                 >
                     All
-                </button>
-                <button
-                    className="dl-btn dl-btn--ghost dl-btn--sm"
+                </Button>
+                <Button
+                    variant="ghost" size="sm"
                     onClick={onSelectNone}
                     disabled={selected.size === 0}
                 >
                     None
-                </button>
+                </Button>
                 {preset && (
-                    <button
-                        className="dl-btn dl-btn--ghost dl-btn--sm"
+                    <Button
+                        variant="ghost" size="sm"
                         onClick={preset.onSelect}
                         disabled={preset.disabled}
                         title={preset.title}
                     >
                         {preset.label}
-                    </button>
+                    </Button>
                 )}
                 <span className="skin-port__count">
                     {selected.size} / {targets.length} {noun}

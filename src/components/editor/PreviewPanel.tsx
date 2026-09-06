@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useState, useEffect, useRef } from 'react';
 import { useConfigStore, useProjectTabStore, useModalStore, useNotificationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
@@ -141,13 +142,13 @@ const WadArchiveNotice: React.FC<{ filePath: string }> = ({ filePath }) => (
     <div className="preview-panel__empty">
         <div className="preview-panel__empty-icon" dangerouslySetInnerHTML={{ __html: getIcon('wad') }} />
         <div className="preview-panel__empty-text">This is a WAD archive.</div>
-        <button
-            className="dl-btn dl-btn--primary"
+        <Button
+            variant="primary"
             style={{ marginTop: 12 }}
             onClick={() => { openWadInExtract(filePath).catch(() => {}); }}
         >
             Open in WAD viewer
-        </button>
+        </Button>
     </div>
 );
 
@@ -477,32 +478,32 @@ export const PreviewPanel: React.FC = () => {
             <div className="preview-panel__toolbar">
                 {isImage && (
                     <div className="preview-panel__zoom-controls">
-                        <button
-                            className={`btn btn--sm ${imageZoom === 'fit' ? 'btn--active' : ''}`}
+                        <Button
+                            size="sm" active={imageZoom === 'fit'}
                             onClick={() => setImageZoom('fit')}
                         >
                             Fit
-                        </button>
-                        <button
-                            className={`btn btn--sm ${imageZoom === 1 ? 'btn--active' : ''}`}
+                        </Button>
+                        <Button
+                            size="sm" active={imageZoom === 1}
                             onClick={() => setImageZoom(1)}
                         >
                             100%
-                        </button>
-                        <button
-                            className={`btn btn--sm ${imageZoom === 2 ? 'btn--active' : ''}`}
+                        </Button>
+                        <Button
+                            size="sm" active={imageZoom === 2}
                             onClick={() => setImageZoom(2)}
                         >
                             200%
-                        </button>
+                        </Button>
                         <div className="preview-panel__divider" style={{ width: '1px', height: '16px', background: 'var(--border)', margin: '0 8px' }} />
-                        <button
-                            className="btn btn--sm"
+                        <Button
+                            size="sm"
                             onClick={() => openModal('recolor', { filePath: selectedFile })}
                         >
                             <span dangerouslySetInnerHTML={{ __html: getIcon('texture') }} />
                             <span>Recolor</span>
-                        </button>
+                        </Button>
                     </div>
                 )}
                 <span className="preview-panel__filename">{fileName}</span>
@@ -542,8 +543,8 @@ export const PreviewPanel: React.FC = () => {
                     {(fileInfo.extension === 'bin' || fileInfo.file_type === 'application/x-bin') ? (
                         <div className="preview-panel__info-actions">
                             {jadePath && jadePath.trim() !== '' && (
-                                <button
-                                    className="preview-panel__open-btn"
+                                <Button
+                                    className="preview-panel__open-btn" variant="secondary" size="sm"
                                     onClick={async () => {
                                         try {
                                             const normalizedPath = filePath.replace(/\//g, '\\');
@@ -563,11 +564,11 @@ export const PreviewPanel: React.FC = () => {
                                         draggable={false}
                                     />
                                     <span>Jade</span>
-                                </button>
+                                </Button>
                             )}
                             {quartzPath && quartzPath.trim() !== '' && (
-                                <button
-                                    className="preview-panel__open-btn"
+                                <Button
+                                    className="preview-panel__open-btn" variant="secondary" size="sm"
                                     onClick={async () => {
                                         try {
                                             const normalizedPath = filePath.replace(/\//g, '\\');
@@ -587,12 +588,12 @@ export const PreviewPanel: React.FC = () => {
                                         draggable={false}
                                     />
                                     <span>Quartz</span>
-                                </button>
+                                </Button>
                             )}
                         </div>
                     ) : (
-                        <button
-                            className="preview-panel__open-btn"
+                        <Button
+                            className="preview-panel__open-btn" variant="secondary" size="sm"
                             onClick={async () => {
                                 try {
                                     const normalizedPath = filePath.replace(/\//g, '\\');
@@ -607,7 +608,7 @@ export const PreviewPanel: React.FC = () => {
                         >
                             <span dangerouslySetInnerHTML={{ __html: getIcon('folderOpen2') }} />
                             <span>Open</span>
-                        </button>
+                        </Button>
                     )}
                 </div>
             )}

@@ -1,0 +1,195 @@
+.radio-group { display: flex; gap: var(--space-lg); }
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  transition: color var(--transition-fast);
+}
+
+.radio-label:hover { color: var(--text-primary); }
+
+.radio-label input[type="radio"] {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  background-color: var(--bg-tertiary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.radio-label input[type="radio"]:checked {
+  border-color: var(--accent-primary);
+  background-color: var(--accent-primary);
+}
+
+.radio-label input[type="radio"]:checked::after {
+  content: '';
+  display: block;
+  width: 6px;
+  height: 6px;
+  margin: 3px;
+  border-radius: 50%;
+  background-color: var(--text-primary);
+}
+
+.radio-text { user-select: none; }
+
+.checkbox-label { display: inline-flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+
+.checkbox-label input[type="checkbox"] { margin-top: 1px; }
+
+.checkbox-label__content { display: flex; flex-direction: column; gap: 2px; }
+
+.checkbox-label__label { font-size: var(--text-sm); font-weight: 500; color: var(--text-primary); line-height: 1.3; }
+
+.checkbox-label__description { font-size: var(--text-xs); color: var(--text-muted); line-height: 1.4; }
+
+.dl-toggle {
+  --_w: 36px;
+  --_h: 20px;
+  --_pad: 2px;
+  position: relative;
+  display: inline-block;
+  width: var(--_w);
+  height: var(--_h);
+  flex: none;
+}
+
+.dl-toggle input { position: absolute; inset: 0; opacity: 0; cursor: pointer; margin: 0; }
+
+.dl-toggle__track {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  transition: background var(--dl-base), border-color var(--dl-base), box-shadow var(--dl-base);
+}
+
+.dl-toggle__thumb {
+  position: absolute;
+  top: var(--_pad);
+  left: var(--_pad);
+  width: calc(var(--_h) - var(--_pad) * 2);
+  height: calc(var(--_h) - var(--_pad) * 2);
+  background: var(--text-secondary);
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0,0,0,.35);
+  transition: transform 320ms var(--dl-ease-spring), background var(--dl-base);
+}
+
+.dl-toggle input:checked ~ .dl-toggle__track {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent-primary) 30%, transparent);
+}
+
+.dl-toggle input:checked ~ .dl-toggle__thumb { background: white; transform: translateX(calc(var(--_w) - var(--_h))); }
+
+.dl-toggle input:focus-visible ~ .dl-toggle__track { box-shadow: var(--dl-ring); }
+
+.dl-toggle input:disabled ~ .dl-toggle__track, .dl-toggle input:disabled ~ .dl-toggle__thumb { opacity: 0.4; }
+
+.dl-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--dl-radius-sm);
+  transition: border-color var(--dl-fast), background var(--dl-fast);
+}
+
+.dl-toggle-row:hover { border-color: color-mix(in oklab, var(--accent-primary) 30%, var(--border)); }
+
+.dl-toggle-row__text { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+
+.dl-toggle-row__label { font-size: 13px; color: var(--text-primary); font-weight: 500; }
+
+.dl-toggle-row__desc { font-size: 11px; color: var(--text-muted); }
+
+.dl-check {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.dl-check input { position: absolute; opacity: 0; pointer-events: none; }
+
+.dl-check__box {
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--border);
+  background: var(--bg-tertiary);
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  position: relative;
+  transition: background var(--dl-fast), border-color var(--dl-fast), transform var(--dl-fast);
+}
+
+.dl-check:hover .dl-check__box { border-color: color-mix(in oklab, var(--color-danger) 55%, var(--border)); }
+
+.dl-check input:checked ~ .dl-check__box {
+  background: var(--bg-primary);
+  border-color: var(--color-danger);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-danger) 30%, transparent);
+}
+
+.dl-check__tick, .dl-check__cross {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: scale(0.4) rotate(-15deg);
+  transition: opacity 140ms var(--dl-ease-out), transform 260ms var(--dl-ease-spring);
+  pointer-events: none;
+}
+
+.dl-check__tick { color: var(--color-danger); }
+
+.dl-check__cross { color: var(--text-muted); }
+
+.dl-check__tick .dl-icon, .dl-check__cross .dl-icon { width: 11px; height: 11px; }
+
+.dl-check__tick svg, .dl-check__cross svg { width: 100%; height: 100%; display: block; }
+
+.dl-check input:checked ~ .dl-check__box .dl-check__tick { opacity: 1; transform: scale(1) rotate(0); }
+
+.dl-check input:focus-visible ~ .dl-check__box { box-shadow: var(--dl-ring); }
+
+.dl-check--disabled, .dl-check input:disabled ~ * { opacity: 0.8; cursor: not-allowed; }
+
+.dl-check--disabled .dl-check__box, .dl-check input:disabled ~ .dl-check__box {
+  background: repeating-linear-gradient(135deg,
+            color-mix(in oklab, var(--text-muted) 15%, transparent) 0 4px,
+            transparent 4px 8px),
+        var(--bg-tertiary);
+  border-color: color-mix(in oklab, var(--text-muted) 35%, var(--border));
+  box-shadow: none;
+}
+
+.dl-check--disabled .dl-check__tick, .dl-check input:disabled ~ .dl-check__box .dl-check__tick {
+  opacity: 0 !important;
+}
+
+.dl-check--disabled .dl-check__cross, .dl-check input:disabled ~ .dl-check__box .dl-check__cross {
+  opacity: 1;
+  transform: scale(1) rotate(0);
+}

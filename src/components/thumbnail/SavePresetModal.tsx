@@ -1,6 +1,7 @@
+import { Button } from '../ui/Button';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { DlButton, DlIcon } from '../ui/design-lab';
+import { DlIcon } from '../ui/design-lab';
 
 export interface SavePresetModalProps {
   /** Prefill (e.g. the skin/champion name, or the last saved preset name). */
@@ -34,7 +35,7 @@ export function SavePresetModal({ initialName, onSave, onClose }: SavePresetModa
       <div className="dl-modal" style={{ maxWidth: 420 }} onMouseDown={(e) => e.stopPropagation()}>
         <div className="dl-modal__head">
           <h3 className="dl-modal__title"><DlIcon name="save" style={{ marginRight: 8 }} />Save preset</h3>
-          <button className="dl-modal__close" onClick={onClose} title="Close"><DlIcon name="close" /></button>
+          <Button className="dl-modal__close" variant="ghost" size="sm" iconOnly onClick={onClose} title="Close"><DlIcon name="close" /></Button>
         </div>
         <div className="dl-modal__body" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <label style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Preset name</label>
@@ -56,8 +57,8 @@ export function SavePresetModal({ initialName, onSave, onClose }: SavePresetModa
           </p>
         </div>
         <div className="dl-modal__foot" style={{ padding: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <DlButton variant="ghost" onClick={onClose}>Cancel</DlButton>
-          <DlButton variant="primary" icon="save" onClick={submit} disabled={!name.trim()}>Save preset</DlButton>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" icon="save" onClick={submit} disabled={!name.trim()}>Save preset</Button>
         </div>
       </div>
     </div>,

@@ -1,0 +1,49 @@
+.hex-viewer { display: flex; flex-direction: column; height: 100%; font-family: var(--font-mono); font-size: 12px; }
+
+.hex-viewer__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  background-color: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+}
+
+.hex-viewer__header {
+  display: flex;
+  padding: var(--space-xs) var(--space-md);
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.hex-viewer__offset-col { width: 80px; }
+
+.hex-viewer__hex-col { flex: 1; }
+
+.hex-viewer__ascii-col { width: 140px; }
+
+.hex-viewer__content { flex: 1; overflow-y: auto; padding: var(--space-xs) 0; }
+
+.hex-viewer__row { display: flex; padding: 2px var(--space-md); line-height: 1.4; }
+
+.hex-viewer__row:hover { background-color: var(--bg-hover); }
+
+.hex-viewer__offset { width: 80px; color: var(--accent-secondary); }
+
+.hex-viewer__hex { flex: 1; color: var(--text-primary); letter-spacing: 0.5px; }
+
+.hex-viewer__ascii { width: 140px; color: var(--text-secondary); white-space: pre; }
+
+.hex-viewer__truncated { padding: var(--space-md); text-align: center; color: var(--text-muted); font-style: italic; }
+
+.hex-viewer__loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: var(--space-md);
+  color: var(--text-muted);
+}

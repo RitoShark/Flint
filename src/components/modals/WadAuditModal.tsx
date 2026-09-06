@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useModalStore, useNavigationStore, useNotificationStore, useProjectTabStore } from '../../lib/stores';
@@ -456,22 +457,22 @@ export const WadAuditModal: React.FC = () => {
 
                 <div className="dl-modal__foot">
                     <div className="wa-foot__actions">
-                        <button className="dl-btn dl-btn--ghost" onClick={copyList} disabled={!shownPaths.length}>
+                        <Button variant="ghost" onClick={copyList} disabled={!shownPaths.length}>
                             Copy list
-                        </button>
+                        </Button>
                         {view === 'risks' && fixable.length > 1 && (
-                            <button
-                                className="dl-btn dl-btn--secondary"
+                            <Button
+                                variant="secondary"
                                 disabled={fixing || loading}
                                 onClick={() => void fixAlignment(fixable)}
                             >
                                 {fixing ? 'Resizing…' : `Resize ${fixable.length} textures to fit`}
-                            </button>
+                            </Button>
                         )}
                     </div>
-                    <button className="dl-btn dl-btn--primary" onClick={closeModal}>
+                    <Button variant="primary" onClick={closeModal}>
                         Close
-                    </button>
+                    </Button>
                 </div>
             </div>
         </div>,

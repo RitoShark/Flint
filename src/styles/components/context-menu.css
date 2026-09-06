@@ -1,0 +1,146 @@
+.context-menu {
+  --cm-radius: 4px;
+  --cm-pad-x: 5px;
+  --cm-pad-y: 5px;
+  --cm-icon: var(--text-secondary);
+  --cm-ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+  --cm-ease-out: cubic-bezier(.22, 1, .36, 1);
+  background: var(--bg-secondary);
+  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  border-radius: var(--cm-radius);
+  box-shadow: 0 10px 24px -12px rgba(0, 0, 0, 0.5),
+    0 2px 6px -3px rgba(0, 0, 0, 0.4);
+  min-width: 186px;
+  padding: var(--cm-pad-y) var(--cm-pad-x);
+  user-select: none;
+  transform-origin: top left;
+  animation: contextMenuIn 150ms var(--cm-ease-spring) both;
+  z-index: 2000;
+}
+
+.context-menu--closing { animation: contextMenuOut 140ms var(--cm-ease-out) forwards; }
+
+@keyframes contextMenuIn {
+  from { opacity: 0; transform: translateY(-4px) scale(0.96); filter: blur(2px); }
+  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+@keyframes contextMenuOut {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(-2px) scale(0.98); }
+}
+
+.context-menu__item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 9px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--text-secondary);
+  transition: background 120ms var(--cm-ease-out),
+    color 120ms var(--cm-ease-out);
+  isolation: isolate;
+}
+
+.context-menu__item::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+  opacity: 0;
+  transition: opacity 120ms var(--cm-ease-out);
+  z-index: -1;
+}
+
+.context-menu__item::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  width: 2px;
+  height: 0;
+  background: var(--accent-primary);
+  transform: translateY(-50%);
+  transition: height 150ms var(--cm-ease-spring);
+}
+
+.context-menu__item:hover:not(.context-menu__item--disabled), .context-menu__item--open {
+  color: var(--text-primary);
+  --cm-icon: var(--accent-primary);
+}
+
+.context-menu__item:hover:not(.context-menu__item--disabled)::before, .context-menu__item--open::before { opacity: 1; }
+
+.context-menu__item:hover:not(.context-menu__item--disabled)::after, .context-menu__item--open::after { height: 15px; }
+
+.context-menu__item:active:not(.context-menu__item--disabled)::before {
+  background: color-mix(in oklab, var(--accent-primary) 22%, transparent);
+}
+
+.context-menu__item--danger {
+  color: color-mix(in oklab, var(--error) 75%, var(--text-secondary));
+  --cm-icon: color-mix(in oklab, var(--error) 70%, var(--text-secondary));
+}
+
+.context-menu__item--danger::before { background: color-mix(in oklab, var(--error) 16%, transparent); }
+
+.context-menu__item--danger::after { background: var(--error); }
+
+.context-menu__item--danger:hover:not(.context-menu__item--disabled) { color: var(--error); --cm-icon: var(--error); }
+
+.context-menu__item--danger:active:not(.context-menu__item--disabled)::before {
+  background: color-mix(in oklab, var(--error) 24%, transparent);
+}
+
+.context-menu__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--cm-icon);
+  transition: color 120ms var(--cm-ease-out);
+}
+
+.context-menu__icon--empty { visibility: hidden; }
+
+.context-menu__icon svg { width: 14px; height: 14px; display: block; }
+
+.context-menu__label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.context-menu__shortcut {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  padding-left: 12px;
+  flex-shrink: 0;
+}
+
+.context-menu__chevron {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: color 120ms var(--cm-ease-out);
+}
+
+.context-menu__item--parent:hover .context-menu__chevron, .context-menu__item--open .context-menu__chevron {
+  color: var(--accent-primary);
+}
+
+.context-menu__separator {
+  height: 1px;
+  background: color-mix(in oklab, var(--border) 55%, transparent);
+  margin: 5px 7px;
+}
+
+.context-menu__item--disabled { opacity: 0.38; cursor: default; }
+
+.context-menu__item--disabled::before, .context-menu__item--disabled::after { display: none; }

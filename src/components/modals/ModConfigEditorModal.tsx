@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useModalStore } from '../../lib/stores';
@@ -68,16 +69,16 @@ export const ModConfigEditorModal: React.FC = () => {
 
                 <div className="dl-modal__foot">
                     <span className="mi-foot__path">mod.config.json</span>
-                    <button className="dl-btn dl-btn--secondary" onClick={closeModal} disabled={saving}>
+                    <Button variant="secondary" onClick={closeModal} disabled={saving}>
                         {dirty ? 'Discard' : 'Close'}
-                    </button>
-                    <button
-                        className="dl-btn dl-btn--primary"
+                    </Button>
+                    <Button
+                        variant="primary"
                         onClick={() => void save().then((ok) => ok && closeModal())}
                         disabled={!dirty || saving}
                     >
                         {saving ? 'Saving…' : 'Save'}
-                    </button>
+                    </Button>
                 </div>
             </div>
         </div>,

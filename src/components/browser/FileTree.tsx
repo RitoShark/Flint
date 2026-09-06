@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useState, useMemo, useCallback, useRef, useEffect, CSSProperties } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useAppMetadataStore, useProjectTabStore, useModalStore, useNotificationStore, useConfigStore, useNavigationStore } from '../../lib/stores';
@@ -83,8 +84,8 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({ style }) => {
             {!searchRequested && (
                 <>
             {isMapProject && (
-                <button
-                    className="btn btn--sm"
+                <Button
+                    size="sm"
                     style={{ margin: '8px 8px 0', width: 'calc(100% - 16px)', justifyContent: 'center' }}
                     title="Open a 3D preview of this map in a separate window"
                     onClick={async () => {
@@ -99,7 +100,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({ style }) => {
                 >
                     <span dangerouslySetInnerHTML={{ __html: getIcon('image') }} />
                     <span>Preview Map</span>
-                </button>
+                </Button>
             )}
             <div className="search-box">
                 <input
@@ -1071,17 +1072,17 @@ const ProjectsPanel: React.FC = () => {
             <div className="projects-panel__header">
                 <span className="projects-panel__title">Recent Folders</span>
                 <div style={{ display: 'flex', gap: '4px' }}>
-                    <button
-                        className="btn btn--ghost btn--small"
+                    <Button
+                        variant="ghost" size="sm"
                         title="Open Folder"
                         onClick={() => openModal('projectList')}
-                        dangerouslySetInnerHTML={{ __html: getIcon('folderOpen2') }}
+                        icon="folderOpen2" iconOnly
                     />
-                    <button
-                        className="btn btn--ghost btn--small"
+                    <Button
+                        variant="ghost" size="sm"
                         title="New Workspace"
                         onClick={() => openModal('newProject')}
-                        dangerouslySetInnerHTML={{ __html: getIcon('plus') }}
+                        icon="plus" iconOnly
                     />
                 </div>
             </div>

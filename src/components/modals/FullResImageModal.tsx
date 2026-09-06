@@ -152,8 +152,8 @@ export const FullResImageModal: React.FC = () => {
                             {' · '}
                             {Math.round(zoom * 100)}%
                         </span>
-                        <Button variant="ghost" size="sm" onClick={fitToWindow} style={{ padding: '4px 10px' }}>Fit</Button>
-                        <Button variant="ghost" size="sm" onClick={resetView} style={{ padding: '4px 10px' }}>1:1</Button>
+                        <Button variant="ghost" size="sm" onClick={fitToWindow} >Fit</Button>
+                        <Button variant="ghost" size="sm" onClick={resetView} >1:1</Button>
                     </div>
                 </ModalHeader>
 

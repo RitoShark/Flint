@@ -1,3 +1,4 @@
+import { Button } from '../../ui/Button';
 import React, { useState } from 'react';
 import { Section } from './Section';
 import { useSectionDefault } from './sectionDefaults';
@@ -200,9 +201,9 @@ export const PersistentVfxSection: React.FC<PersistentVfxSectionProps> = ({ cont
                     </>
                 )}
 
-                <button className="dl-btn dl-btn--sm dl-btn--primary" style={{ width: '100%' }} onClick={handleAdd}>
+                <Button size="sm" variant="primary" style={{ width: '100%' }} onClick={handleAdd}>
                     Add persistent VFX
-                </button>
+                </Button>
                 {status && <div className="bin-tools__status">{status}</div>}
             </div>
         </Section>

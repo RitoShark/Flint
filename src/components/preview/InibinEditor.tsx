@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
@@ -179,14 +180,14 @@ export const InibinEditor: React.FC<InibinEditorProps> = ({ filePath }) => {
                 )}
                 <div style={{ flex: 1 }} />
                 {!readOnly && (
-                    <button
-                        className="btn btn--primary btn--sm"
+                    <Button
+                        variant="primary" size="sm"
                         disabled={!dirty}
                         onClick={handleSave}
                         title="Save inibin (Ctrl+S)"
                     >
                         Save
-                    </button>
+                    </Button>
                 )}
             </div>
 

@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import * as api from '../../lib/api';
@@ -731,20 +732,20 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
 
                 <div style={panelStyles.controls}>
                     <div style={panelStyles.modeGroup}>
-                        <button
-                            className={`btn btn--sm ${viewMode === 'flat' ? 'btn--active' : ''}`}
+                        <Button
+                            size="sm" active={viewMode === 'flat'}
                             onClick={() => setViewMode('flat')}
                         >
                             Flat
-                        </button>
-                        <button
-                            className={`btn btn--sm ${viewMode === 'events' ? 'btn--active' : ''}`}
+                        </Button>
+                        <Button
+                            size="sm" active={viewMode === 'events'}
                             onClick={() => setViewMode('events')}
                             disabled={!canUseEventView}
                             title={canUseEventView ? 'Group by event name' : 'Link a BIN file to enable events view'}
                         >
                             Events
-                        </button>
+                        </Button>
                     </div>
 
                     <input
@@ -766,14 +767,14 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                             style={{ width: 80 }}
                         />
                     </div>
-                    <button
-                        className="btn btn--sm"
+                    <Button
+                        size="sm"
                         onClick={handleStop}
                         disabled={playingId === null}
                         title="Stop playback"
                     >
                         Stop
-                    </button>
+                    </Button>
                 </div>
             </div>
 
@@ -826,16 +827,16 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                     )}
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
-                    <button className="btn btn--sm" onClick={handlePickEvents} title="Pick an events BNK to supply HIRC">
+                    <Button size="sm" onClick={handlePickEvents} title="Pick an events BNK to supply HIRC">
                         {hircSource.kind === 'external' ? 'Change Events...' : 'Link Events...'}
-                    </button>
-                    <button className="btn btn--sm" onClick={handlePickBin} disabled={binLink.kind === 'loading'}>
+                    </Button>
+                    <Button size="sm" onClick={handlePickBin} disabled={binLink.kind === 'loading'}>
                         {binLink.kind === 'linked' ? 'Change BIN...' : 'Link BIN...'}
-                    </button>
+                    </Button>
                     {binLink.kind === 'linked' && (
-                        <button className="btn btn--sm btn--ghost" onClick={handleUnlinkBin}>
+                        <Button size="sm" variant="ghost" onClick={handleUnlinkBin}>
                             Unlink
-                        </button>
+                        </Button>
                     )}
                 </div>
             </div>
@@ -847,31 +848,31 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                         : 'No unsaved changes'}
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
-                    <button
-                        className="btn btn--sm"
+                    <Button
+                        size="sm"
                         onClick={handleUndo}
                         disabled={undoDepth === 0 || saving}
                         title="Undo last edit"
                     >
                         Undo
-                    </button>
-                    <button
-                        className="btn btn--sm btn--primary"
+                    </Button>
+                    <Button
+                        size="sm" variant="primary"
                         onClick={handleSave}
                         disabled={!isDirty || saving}
                         title="Save to disk"
                     >
                         {saving ? 'Saving...' : 'Save'}
-                    </button>
+                    </Button>
                 </div>
             </div>
 
             {error && (
                 <div style={panelStyles.errorBanner}>
                     <span>{error}</span>
-                    <button className="btn btn--sm btn--ghost" onClick={() => setError(null)}>
+                    <Button size="sm" variant="ghost" onClick={() => setError(null)}>
                         Dismiss
-                    </button>
+                    </Button>
                 </div>
             )}
 
@@ -1033,9 +1034,9 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                             />
                             <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
                                 {[-6, -3, 0, 3, 6].map((v) => (
-                                    <button
+                                    <Button
                                         key={v}
-                                        className="btn btn--sm btn--ghost"
+                                        size="sm" variant="ghost"
                                         onClick={() =>
                                             setVolumeModal((prev) =>
                                                 prev ? { ...prev, gainDb: v } : null,
@@ -1044,7 +1045,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                                         disabled={volumeModal.busy}
                                     >
                                         {v > 0 ? `+${v}` : v} dB
-                                    </button>
+                                    </Button>
                                 ))}
                             </div>
                             <div style={{ ...panelStyles.subtle, marginTop: 8, fontSize: 11 }}>
@@ -1053,20 +1054,20 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                             </div>
                         </div>
                         <div style={panelStyles.modalFooter}>
-                            <button
-                                className="btn btn--sm btn--ghost"
+                            <Button
+                                size="sm" variant="ghost"
                                 onClick={() => setVolumeModal(null)}
                                 disabled={volumeModal.busy}
                             >
                                 Cancel
-                            </button>
-                            <button
-                                className="btn btn--sm btn--primary"
+                            </Button>
+                            <Button
+                                size="sm" variant="primary"
                                 onClick={handleApplyVolume}
                                 disabled={volumeModal.busy}
                             >
                                 {volumeModal.busy ? 'Applying...' : 'Apply'}
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 </div>

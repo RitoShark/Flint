@@ -1,3 +1,4 @@
+import { Button } from '../ui/Button';
 import { ChangeEvent, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Layer } from '../../lib/thumbnail/layers';
@@ -437,7 +438,7 @@ function EnvProps({ layer, onChange }: { layer: Extract<Layer, { type: 'env' }>;
           >
             {layer.variations.map(v => <option key={v.name} value={v.name}>{v.name}</option>)}
           </select>
-          <button className="dl-btn dl-btn--secondary dl-btn--sm" onClick={addVariation}>+ New</button>
+          <Button variant="secondary" size="sm" onClick={addVariation}>+ New</Button>
         </div>
       </div>
       <div className="tb-grp">
@@ -453,7 +454,7 @@ function EnvProps({ layer, onChange }: { layer: Extract<Layer, { type: 'env' }>;
                 value={active?.textures[slot] ?? ''}
                 onChange={(e: ChangeEvent<HTMLInputElement>) => setSlotTexture(slot, e.target.value)}
               />
-              <button className="dl-btn dl-btn--ghost dl-btn--sm" onClick={() => browse(slot)}>…</button>
+              <Button variant="ghost" size="sm" onClick={() => browse(slot)}>…</Button>
             </div>
           </div>
         ))}
