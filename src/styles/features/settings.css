@@ -129,69 +129,6 @@
 
 .version-card__actions { display: flex; gap: var(--space-xs); }
 
-input[type="checkbox"]:not(.settings-toggle input):not(.np-pbe-toggle__input) {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  display: inline-grid;
-  place-content: center;
-  border: 1.5px solid var(--border-default);
-  border-radius: 4px;
-  background: var(--surface-3);
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: background var(--motion-fast),
-    border-color var(--motion-fast),
-    transform var(--motion-fast),
-    box-shadow var(--motion-fast);
-}
-
-input[type="checkbox"]:not(.settings-toggle input):not(.np-pbe-toggle__input):hover {
-  border-color: color-mix(in oklab, var(--color-danger) 55%, var(--border-default));
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-danger) 12%, transparent);
-}
-
-input[type="checkbox"]:not(.settings-toggle input):not(.np-pbe-toggle__input):checked {
-  background: var(--bg-primary);
-  border-color: var(--color-danger);
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-danger) 30%, transparent);
-}
-
-input[type="checkbox"]:not(.settings-toggle input):not(.np-pbe-toggle__input)::before {
-  content: '';
-  width: 9px;
-  height: 9px;
-  background: var(--color-danger);
-  clip-path: polygon(14% 47%, 0 60%, 36% 96%, 100% 18%, 86% 6%, 36% 67%);
-  transform: scale(0);
-  transition: transform var(--motion-base) var(--ease-spring);
-}
-
-input[type="checkbox"]:not(.settings-toggle input):not(.np-pbe-toggle__input):checked::before { transform: scale(1); }
-
-input[type="checkbox"]:not(.settings-toggle input):not(.np-pbe-toggle__input):disabled {
-  opacity: 0.8;
-  cursor: not-allowed;
-  background: repeating-linear-gradient(135deg,
-      color-mix(in oklab, var(--text-muted) 15%, transparent) 0 4px,
-      transparent 4px 8px),
-    var(--surface-3);
-  border-color: color-mix(in oklab, var(--text-muted) 35%, var(--border-default));
-  box-shadow: none;
-}
-
-input[type="checkbox"]:not(.settings-toggle input):not(.np-pbe-toggle__input):disabled::before {
-  width: 8px;
-  height: 8px;
-  background: var(--text-muted);
-  clip-path: polygon(0 14%, 14% 0, 50% 36%, 86% 0, 100% 14%, 64% 50%, 100% 86%, 86% 100%, 50% 64%, 14% 100%, 0 86%, 36% 50%);
-  transform: scale(1);
-}
-
-input[type="checkbox"]:not(.settings-toggle input):not(.np-pbe-toggle__input):disabled:hover { box-shadow: none; }
-
 .settings-toggle input[type="checkbox"] {
   width: 36px;
   height: 20px;

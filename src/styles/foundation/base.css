@@ -71,7 +71,7 @@ a:hover { text-decoration: underline; }
 
 button { font-family: inherit; font-size: inherit; cursor: pointer; border: none; background: none; color: inherit; }
 
-:where(input:not([type="range"]), select, textarea) {
+:where(input:not([type="range"], [type="checkbox"], [type="radio"]), select, textarea) {
   font-family: inherit;
   font-size: inherit;
   color: inherit;

@@ -1,4 +1,5 @@
 import { Button } from '../ui/Button';
+import { Checkbox } from '../ui/Checkbox';
 import { ChangeEvent, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Layer } from '../../lib/thumbnail/layers';
@@ -273,13 +274,9 @@ function SliderNum({ min, max, value, suffix, step, onChange, onBeginGesture, on
   );
 }
 
-/** A labeled toggle row (design-lab `.dl-check`). */
 function CheckRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
-    <label className="dl-check tb-check-row">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-      <span>{label}</span>
-    </label>
+    <Checkbox className="tb-check-row" label={label} checked={checked} onChange={(e) => onChange(e.target.checked)} />
   );
 }
 

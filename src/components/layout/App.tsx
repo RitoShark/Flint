@@ -1,3 +1,4 @@
+import { useExtraSettingsShortcut } from '../modals/settings/ExtraSettings';
 import { DesignLab } from '../ui/DesignLab';
 import { motionDuration } from '../../lib/ui-helpers/motion';
 import React, { useEffect, useCallback, useRef, useState } from 'react';
@@ -109,6 +110,7 @@ const ActiveModal: React.FC<{ activeModal: string | null }> = React.memo(({ acti
 ActiveModal.displayName = 'ActiveModal';
 
 export const App: React.FC = () => {
+    useExtraSettingsShortcut();
     const activeTabId = useProjectTabStore((s) => s.activeTabId);
     const openTabs = useProjectTabStore((s) => s.openTabs);
     const currentView = useNavigationStore((s) => s.currentView);

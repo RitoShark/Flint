@@ -1,3 +1,4 @@
+import { ExtraSettings, useExtraSettings } from './settings/ExtraSettings';
 import React, { useState, useEffect } from 'react';
 import { useConfigStore, useNavigationStore, useUxStore, useModalStore, useNotificationStore, useAppMetadataStore, useWadExplorerStore } from '../../lib/stores';
 import { useShallow } from 'zustand/react/shallow';
@@ -20,7 +21,7 @@ import {
 } from '../ui';
 import { triggerTutorialReplay } from '../overlays/TutorialOverlay';
 
-type SettingsTab = 'creator' | 'general' | 'theme' | 'binEditor' | 'paths' | 'integrations' | 'dev';
+type SettingsTab = 'creator' | 'general' | 'theme' | 'binEditor' | 'paths' | 'integrations' | 'dev' | 'extra';
 
 import { PathSettingItem, type PathSetting } from './settings/PathSettingItem';
 import { SchemaProgressView, SchemaResultView, type SchemaProgress } from './settings/SchemaViews';
@@ -48,7 +49,12 @@ export const SettingsModal: React.FC = () => {
     const configStore = useConfigStore();
     const ux = useUxStore();
 
+    const extraUnlocked = useExtraSettings((state) => state.unlocked);
+    const requestedTab = useModalStore((state) => state.modalOptions);
     const [activeTab, setActiveTab] = useState<SettingsTab>('creator');
+    useEffect(() => {
+        if (extraUnlocked && requestedTab?.initialTab === 'extra') setActiveTab('extra');
+    }, [extraUnlocked, requestedTab]);
 
     const [leaguePath, setLeaguePath] = useState(configStore.leaguePath || '');
     const [leaguePathPbe, setLeaguePathPbe] = useState(configStore.leaguePathPbe || '');
@@ -548,6 +554,7 @@ export const SettingsModal: React.FC = () => {
         { id: 'paths', label: t('settings.tab.paths'), icon: 'folder' },
         { id: 'integrations', label: t('settings.tab.integrations'), icon: 'link' },
         { id: 'dev', label: t('settings.tab.dev'), icon: 'code' },
+        ...(extraUnlocked ? [{ id: 'extra' as const, label: 'Lost & Found', icon: 'document' as const }] : []),
     ];
 
     const pathSettings: PathSetting[] = [
@@ -943,6 +950,7 @@ export const SettingsModal: React.FC = () => {
                         </div>
                     )}
 
+                    {extraUnlocked && activeTab === 'extra' && <ExtraSettings />}
                     {activeTab === 'binEditor' && <BinEditorTab />}
 
                     {activeTab === 'dev' && (

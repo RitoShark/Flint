@@ -10,7 +10,7 @@ const cube = solid('M9 1.5a2 2 0 0 1 2 0l6 3.4-7 4-7-4z M2 6.5l7 4V19l-6-3.4a2 2
 const picture = solid('M3 2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2 M13 5a2 2 0 1 0 0 4 2 2 0 0 0 0-4 M3 15h14l-4-5-3 3-3-4z');
 const cog = solid('M8 1h4l.7 2.3 1.6.9 2.3-.5 2 3.5-1.6 1.8v2l1.6 1.8-2 3.5-2.3-.5-1.6.9L12 19H8l-.7-2.3-1.6-.9-2.3.5-2-3.5L3 11V9L1.4 7.2l2-3.5 2.3.5 1.6-.9z M10 6.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7');
 const lock = solid('M5 8V6a5 5 0 0 1 10 0v2h1a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z M7 8h6V6a3 3 0 0 0-6 0z M9 11v4h2v-4z');
-const check = solid('M2.4 9.6a1.4 1.4 0 0 1 2 0L8 13.2l7.6-8.8a1.4 1.4 0 0 1 2.1 1.8L9.1 16a1.4 1.4 0 0 1-2 .1l-4.7-4.5a1.4 1.4 0 0 1 0-2');
+const check = line('M4 10l4 4 8-8');
 const artwork = {
     chevronRight: line('M7 5l5 5-5 5'), chevronDown: line('M5 7l5 5 5-5'), chevronUp: line('M5 13l5-5 5 5'), chevronLeft: line('M13 5l-5 5 5 5'),
     folder, folderOpen, folderOpen2: folderOpen, file: sheet, document: sheet,
