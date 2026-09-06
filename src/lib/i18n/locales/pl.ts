@@ -428,8 +428,8 @@ export const pl: TranslationDict = {
     // Settings - Dev Tab
     'settings.dev.title': 'Narzędzia Deweloperskie',
     'settings.dev.sub': 'Narzędzia wewnętrzne i ekstraktory schematów. Używaj ostrożnie.',
-    'settings.dev.uiShowcase': 'Przegląd Komponentów UI',
-    'settings.dev.uiShowcaseSub': 'Wszystkie elementy i ich warianty',
+    'settings.dev.uiShowcase': "Podgląd interfejsu",
+    'settings.dev.uiShowcaseSub': "Otwórz komponenty i animacje w osobnej karcie",
     'settings.dev.replaySetup': 'Powtórz Konfigurację',
     'settings.dev.replaySetupSub': 'Otwórz kreator powitalny ponownie',
     'settings.dev.restartTutorial': 'Zrestartuj Samouczek',

@@ -433,8 +433,8 @@ export const en: TranslationDict = {
     // Settings - Dev Tab
     'settings.dev.title': 'Developer Tools',
     'settings.dev.sub': 'Internal utilities and schema extractors. Handle with care — these scan your whole League install and write files to disk.',
-    'settings.dev.uiShowcase': 'UI Showcase',
-    'settings.dev.uiShowcaseSub': 'Every component, every variant',
+    'settings.dev.uiShowcase': "UI Preview",
+    'settings.dev.uiShowcaseSub': "Open the component and motion preview in its own tab",
     'settings.dev.replaySetup': 'Replay Setup',
     'settings.dev.replaySetupSub': 'Reopen the welcome wizard',
     'settings.dev.restartTutorial': 'Restart Tutorial',

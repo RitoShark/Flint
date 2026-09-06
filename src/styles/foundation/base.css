@@ -176,3 +176,5 @@ body > * { position: relative; z-index: 1; }
 *::-webkit-scrollbar-corner { background: transparent; }
 
 ::selection { background: color-mix(in oklab, var(--accent-primary) 35%, transparent); color: var(--text-primary); }
+
+.flint-icon { display: block; }

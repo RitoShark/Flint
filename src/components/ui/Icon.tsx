@@ -14,7 +14,7 @@ export const Icon: React.FC<IconProps> = ({ name, size, style, ...rest }) => {
         <span
             {...rest}
             style={inline}
-            dangerouslySetInnerHTML={{ __html: getIcon(name) }}
+            dangerouslySetInnerHTML={{ __html: size ? getIcon(name).replace('width="16" height="16"', `width="${size}" height="${size}"`) : getIcon(name) }}
         />
     );
 };

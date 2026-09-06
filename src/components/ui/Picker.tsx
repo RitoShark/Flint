@@ -1,3 +1,4 @@
+import { usePresence } from '../../lib/ui-helpers/usePresence';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -37,6 +38,7 @@ export function Picker<V extends string = string>({
     'aria-label': ariaLabel,
 }: PickerProps<V>) {
     const [open, setOpen] = useState(false);
+    const { present, exiting } = usePresence(open);
     const triggerRef = useRef<HTMLButtonElement>(null);
     const menuRef = useRef<HTMLDivElement>(null);
     const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
@@ -44,7 +46,7 @@ export function Picker<V extends string = string>({
     const selected = options.find((o) => o.value === value);
 
     useLayoutEffect(() => {
-        if (!open || !triggerRef.current) { setPos(null); return; }
+        if (!present || !triggerRef.current) { setPos(null); return; }
         const update = () => {
             const r = triggerRef.current!.getBoundingClientRect();
             setPos({ top: r.bottom + 6, left: r.left, width: r.width });
@@ -56,7 +58,7 @@ export function Picker<V extends string = string>({
             window.removeEventListener('scroll', update, true);
             window.removeEventListener('resize', update);
         };
-    }, [open]);
+    }, [present]);
 
     useEffect(() => {
         if (!open) return;
@@ -101,10 +103,10 @@ export function Picker<V extends string = string>({
                 </svg>
             </button>
 
-            {open && pos && createPortal(
+            {present && pos && createPortal(
                 <div
                     ref={menuRef}
-                    className="pkr-menu"
+                    className={`pkr-menu ${exiting ? 'pkr-menu--closing' : ''}`}
                     style={{
                         position: 'fixed',
                         top: pos.top,

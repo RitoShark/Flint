@@ -18,7 +18,8 @@ export type TabKind =
     | 'project'
     | 'extract'
     | 'manifest'
-    | 'archive';
+    | 'archive'
+    | 'ui-preview';
 
 export interface TabRef {
     kind: TabKind;
@@ -30,6 +31,7 @@ export const WAD_EXPLORER_TAB_ID = '__wad_explorer__';
 
 export interface TabSnapshot {
     wadExplorerOpen: boolean;
+    uiPreviewOpen?: boolean;
     fileEditorTabIds: string[];
     projectTabIds: string[];
     /** Unfiltered, including 'archive-' sessions — TitleBar renders those too. */
@@ -56,6 +58,7 @@ export function buildTabList(s: TabSnapshot): TabRef[] {
     for (const id of s.projectTabIds) list.push({ kind: 'project', id });
     for (const id of s.extractSessionIds) list.push({ kind: 'extract', id });
     for (const id of s.manifestSessionIds) list.push({ kind: 'manifest', id });
+    if (s.uiPreviewOpen) list.push({ kind: 'ui-preview', id: '__ui_preview__' });
     for (const id of s.archiveTabIds) list.push({ kind: 'archive', id });
 
     return list;
@@ -64,6 +67,8 @@ export function buildTabList(s: TabSnapshot): TabRef[] {
 /** Which view corresponds to which tab kind, and which id identifies the active one. */
 function activeRef(active: ActiveTabState): TabRef | null {
     switch (active.view) {
+        case 'ui-preview':
+            return { kind: 'ui-preview', id: '__ui_preview__' };
         case 'wad-explorer':
             return { kind: 'wad-explorer', id: WAD_EXPLORER_TAB_ID };
         case 'file-editor':

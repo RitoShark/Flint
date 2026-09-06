@@ -24,18 +24,14 @@
   z-index: 100;
   transform: translateY(-6px) scale(0.98);
   transform-origin: top right;
-  transition: opacity var(--motion-fast),
-    transform var(--motion-fast),
-    visibility 0s linear var(--motion-fast);
+  transition: opacity 160ms ease, transform 160ms ease, visibility 0s linear 160ms;
 }
 
 .dropdown--open .dropdown__menu {
   transform: translateY(0) scale(1);
   visibility: visible;
   opacity: 1;
-  transition: opacity var(--motion-fast),
-    transform var(--motion-fast) var(--ease-spring),
-    visibility 0s;
+  transition: opacity 180ms ease, transform 240ms var(--ux-ease-spring), visibility 0s;
 }
 
 .dropdown__item {

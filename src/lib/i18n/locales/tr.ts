@@ -428,8 +428,8 @@ export const tr: TranslationDict = {
     // Settings - Dev Tab
     'settings.dev.title': 'Geliştirici Araçları',
     'settings.dev.sub': 'Dahili sistem araçları ve şema çıkarıcılar. Dikkatli kullanın — tüm oyun dizinini tarar ve diske dosya yazar.',
-    'settings.dev.uiShowcase': 'Arayüz Vitrini (UI Showcase)',
-    'settings.dev.uiShowcaseSub': 'Tüm buton, girdi ve arayüz bileşenleri',
+    'settings.dev.uiShowcase': "Arayüz Önizleme",
+    'settings.dev.uiShowcaseSub': "Bileşenleri ve animasyonları ayrı bir sekmede önizleyin",
     'settings.dev.replaySetup': 'İlk Kurulumu Tekrarla',
     'settings.dev.replaySetupSub': 'Karşılama sihirbazını baştan açar',
     'settings.dev.restartTutorial': 'Rehberi Yeniden Başlat',

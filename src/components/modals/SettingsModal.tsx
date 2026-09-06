@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useConfigStore, useUxStore, useModalStore, useNotificationStore, useAppMetadataStore, useWadExplorerStore } from '../../lib/stores';
+import { useConfigStore, useNavigationStore, useUxStore, useModalStore, useNotificationStore, useAppMetadataStore, useWadExplorerStore } from '../../lib/stores';
 import { useShallow } from 'zustand/react/shallow';
 import * as api from '../../lib/api';
 import type { FileAssocStatus } from '../../lib/api';
@@ -13,10 +13,10 @@ import {
     Icon,
     type IconName,
     Modal,
-    ModalBody,
+
     ModalFooter,
     ModalHeader,
-    DesignLab,
+
 } from '../ui';
 import { triggerTutorialReplay } from '../overlays/TutorialOverlay';
 
@@ -101,7 +101,10 @@ export const SettingsModal: React.FC = () => {
     const [troybinSchemaProgress, setTroybinSchemaProgress] = useState<SchemaProgress | null>(null);
     const [troybinSchemaResult, setTroybinSchemaResult] = useState<api.TroybinSchemaStats | null>(null);
 
-    const [showUIPreview, setShowUIPreview] = useState(false);
+    const handleOpenUiPreview = () => {
+        closeModal();
+        if (useModalStore.getState().activeModal === null) useNavigationStore.getState().openUiPreview();
+    };
 
     const isVisible = activeModal === 'settings';
 
@@ -957,15 +960,18 @@ export const SettingsModal: React.FC = () => {
                                 </div>
                             </div>
 
-                            {import.meta.env.DEV && (
-                                <>
-                                    <div className="settings-subhead">Debug utilities · dev build only</div>
-                                    <div className="dev-grid">
-                                        <button className="dev-tile" onClick={() => setShowUIPreview(true)}>
+                            <div className="dev-grid">
+                                        <button className="dev-tile" onClick={handleOpenUiPreview}>
                                             <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('picture') }} />
                                             <span className="dev-tile__label">{t('settings.dev.uiShowcase')}</span>
                                             <span className="dev-tile__desc">{t('settings.dev.uiShowcaseSub')}</span>
                                         </button>
+                            </div>
+
+                            {import.meta.env.DEV && (
+                                <>
+                                    <div className="settings-subhead">Debug utilities · dev build only</div>
+                                    <div className="dev-grid">
                                         <button className="dev-tile" onClick={() => { closeModal(); setTimeout(() => useModalStore.getState().openModal('firstTimeSetup'), 300); }}>
                                             <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('refresh') }} />
                                             <span className="dev-tile__label">{t('settings.dev.replaySetup')}</span>
@@ -1061,17 +1067,6 @@ export const SettingsModal: React.FC = () => {
                     {t('settings.saveSettings')}
                 </Button>
             </ModalFooter>
-
-            <Modal
-                open={showUIPreview}
-                onClose={() => setShowUIPreview(false)}
-                modifier="modal--fullscreen"
-            >
-                <ModalHeader title="Design Lab" onClose={() => setShowUIPreview(false)} />
-                <ModalBody style={{ overflow: 'auto', padding: 0 }}>
-                    <DesignLab />
-                </ModalBody>
-            </Modal>
         </Modal>
     );
 };

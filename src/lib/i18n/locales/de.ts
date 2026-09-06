@@ -428,8 +428,8 @@ export const de: TranslationDict = {
     // Settings - Dev Tab
     'settings.dev.title': 'Entwickler-Werkzeuge',
     'settings.dev.sub': 'Interne Hilfsprogramme und Schema-Extraktoren. Vorsicht — diese scannen deine gesamte League-Installation.',
-    'settings.dev.uiShowcase': 'UI-Showcase',
-    'settings.dev.uiShowcaseSub': 'Alle Komponenten und Varianten ansehen',
+    'settings.dev.uiShowcase': "UI-Vorschau",
+    'settings.dev.uiShowcaseSub': "Komponenten und Animationen in einem eigenen Tab öffnen",
     'settings.dev.replaySetup': 'Einrichtung wiederholen',
     'settings.dev.replaySetupSub': 'Den Willkommens-Assistenten erneut öffnen',
     'settings.dev.restartTutorial': 'Tutorial neu starten',

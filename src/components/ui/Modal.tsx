@@ -1,12 +1,9 @@
-import { motionDuration } from '../../lib/ui-helpers/motion';
+import { usePresence } from '../../lib/ui-helpers/usePresence';
 import { Button } from './Button';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { Spinner } from './Spinner';
 import { Icon } from './Icon';
 
-/** Match the longest of the two animations in components/modals.css (modal pop = 280ms,
- *  overlay fade = 220ms). 280 keeps the DOM alive long enough for both to play. */
-const MODAL_EXIT_MS = 280;
 
 export type ModalSize = 'default' | 'wide' | 'large';
 
@@ -36,28 +33,7 @@ export const Modal: React.FC<ModalProps> = ({
     closeOnEscape = true,
     children,
 }) => {
-    const [mounted, setMounted] = useState(open);
-    const [closing, setClosing] = useState(false);
-
-    useEffect(() => {
-        if (open) {
-            setMounted(true);
-            setClosing(false);
-            return;
-        }
-        if (!mounted) return;
-        if (motionDuration(MODAL_EXIT_MS) === 0) {
-            setMounted(false);
-            setClosing(false);
-            return;
-        }
-        setClosing(true);
-        const t = setTimeout(() => {
-            setMounted(false);
-            setClosing(false);
-        }, motionDuration(MODAL_EXIT_MS));
-        return () => clearTimeout(t);
-    }, [open, mounted]);
+    const { present: mounted, exiting: closing } = usePresence(open, 240);
 
     useEffect(() => {
         if (!open || !closeOnEscape || !onClose) return;

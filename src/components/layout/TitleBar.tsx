@@ -1,3 +1,5 @@
+import { IconButton } from '../ui/Button';
+import { Icon } from '../ui/Icon';
 import { motionDuration } from '../../lib/ui-helpers/motion';
 import React, { useCallback, useState, useMemo, useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -562,7 +564,8 @@ export const TitleBar: React.FC = () => {
     // Sessions the archive editor opened for its own panes are not tabs.
     const userExtractSessions = useMemo(() => extractSessions.filter(s => !s.embedded), [extractSessions]);
 
-    const hasTabs = openTabs.length > 0 || userExtractSessions.length > 0 || manifestList.length > 0 || openArchiveTabs.length > 0 || isWadExplorerOpen || fileEditorTabs.length > 0;
+    const uiPreviewOpen = useNavigationStore((state) => state.uiPreviewOpen);
+    const hasTabs = uiPreviewOpen || openTabs.length > 0 || userExtractSessions.length > 0 || manifestList.length > 0 || openArchiveTabs.length > 0 || isWadExplorerOpen || fileEditorTabs.length > 0;
 
     return (
         <div className="titlebar" data-tauri-drag-region>
@@ -675,6 +678,15 @@ export const TitleBar: React.FC = () => {
                                 onClose={(e) => handleCloseManifest(e, s.sessionId)}
                             />
                         ))}
+                        {uiPreviewOpen && (
+                            <div className={`titlebar__tab ${currentView === 'ui-preview' ? 'titlebar__tab--active' : ''}`} role="tab" aria-selected={currentView === 'ui-preview'} tabIndex={0}
+                                onClick={() => useNavigationStore.getState().setView('ui-preview')}
+                                onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); useNavigationStore.getState().setView('ui-preview'); } }}>
+                                <Icon className="titlebar__tab-icon" name="contrast" />
+                                <span className="titlebar__tab-name">UI Preview</span>
+                                <IconButton variant="ghost" size="sm" icon="close" title="Close UI Preview" onClick={event => { event.stopPropagation(); useNavigationStore.getState().closeUiPreview(); }} />
+                            </div>
+                        )}
                         {openArchiveTabs.map(tab => (
                             <ArchiveTab
                                 key={tab.id}

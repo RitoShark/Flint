@@ -93,3 +93,28 @@
 .dl-theme-swatch:hover { transform: scale(1.1); }
 
 .dl-theme-swatch--active { border-color: white; box-shadow: 0 0 0 2px var(--accent-primary); }
+
+.ui-preview { flex: 1; min-width: 0; height: 100%; overflow: auto; background: var(--bg-primary); }
+.ui-preview__shell { max-width: 1200px; margin: 0 auto; padding: 40px 40px 64px; }
+.ui-preview__header { display: flex; align-items: center; justify-content: space-between; gap: 32px; padding-bottom: 28px; }
+.ui-preview__eyebrow { font-size: 10px; letter-spacing: .16em; color: var(--text-muted); }
+.ui-preview__header h1 { font-size: 32px; font-weight: 600; letter-spacing: -.04em; margin: 8px 0; }
+.ui-preview__header p, .ui-preview__section header p { color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
+.ui-preview__preferences { display: grid; gap: 12px; }
+.ui-preview__preferences small { color: var(--text-muted); font-size: 11px; }
+.ui-preview__nav { display: flex; gap: 8px; padding: 12px 0; border-block: 1px solid var(--border); margin-bottom: 28px; }
+.ui-preview__page { display: grid; gap: 24px; }
+.ui-preview__section { border: 1px solid var(--border); border-radius: 12px; background: var(--bg-secondary); padding: 24px; }
+.ui-preview__section header { margin-bottom: 24px; }
+.ui-preview__section h2 { font-size: 17px; font-weight: 600; margin-bottom: 6px; }
+.ui-preview__examples { display: grid; gap: 24px; }
+.ui-preview__row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.ui-preview .modal__body .ui-preview__row { margin-top: 20px; }
+.ui-preview__fields, .ui-preview__cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.ui-preview__cards { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.ui-preview__context-target { display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 120px; border: 1px dashed var(--border); border-radius: 8px; color: var(--text-secondary); }
+.ui-preview__icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
+.ui-preview__icon { display: grid; gap: 14px; justify-items: center; padding: 18px 8px; border-radius: 8px; background: var(--bg-tertiary); color: var(--text-secondary); }
+.ui-preview__icon > div { display: flex; gap: 14px; align-items: center; }
+.ui-preview__icon > span { font-size: 10px; color: var(--text-muted); }
+.ui-preview__feedback { margin-top: 24px; font-size: 12px; color: var(--text-muted); }

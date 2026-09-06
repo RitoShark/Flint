@@ -1,100 +1,83 @@
-const stroke = (d: string) => `<path d="${d}" stroke="currentColor" stroke-width="1.5" stroke-linejoin="bevel"/>`;
-const facet = (d: string) => `<path d="${d}" fill="currentColor" opacity=".2"/>`;
-const dot = (x: number, y: number, r = 1.5) => `<circle cx="${x}" cy="${y}" r="${r}" fill="currentColor"/>`;
-const sheet = stroke('M4 2.5h8l4 4v11H4z M12 2.5v4h4') + facet('M4 2.5h8v4h4v3H4z');
-const folder = stroke('M2 5h6l2 2h8v10H2z') + facet('M2 8h16v9H2z');
-const openFolder = stroke('M2 15V5h6l2 2h7v3 M2 17l2-7h14l-2 7z') + facet('M4 10h14l-2 7H2z');
-const cube = stroke('M10 2l7 4v8l-7 4-7-4V6z M3 6l7 4 7-4 M10 10v8') + facet('M10 10l7-4v8l-7 4z');
-const picture = stroke('M2.5 3.5h15v13h-15z M3 14l4-5 4 4 3-3 3 4') + dot(13,7) + facet('M3 14l4-5 4 4 3-3 3 4v2H3z');
-const check = stroke('M3 10l4 4L17 4');
-const cog = stroke('M7 2h6l1 3 3 1 1 6-3 2-1 4H7l-1-3-4-2V7l3-1z M7 8l3-2 3 2v4l-3 2-3-2z') + facet('M7 8l3-2 3 2v4l-3 2-3-2z');
-const lock = stroke('M4 9h12v9H4z M6 9V5l2-2h4l2 2v4') + facet('M4 9h12v9H4z') + stroke('M10 12v3');
+const solid = (d: string) => `<path d="${d}" fill="currentColor" fill-rule="evenodd" clip-rule="evenodd"/>`;
+const line = (d: string) => `<path d="${d}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
+const disk = (x: number, y: number, r: number) => `<circle cx="${x}" cy="${y}" r="${r}" fill="currentColor"/>`;
+const block = (x: number, y: number, w: number, h: number, r = 2) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}" fill="currentColor"/>`;
+const sheet = solid('M5 1h6l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2 M11 2v4h4');
+const page = (body: string) => `<g opacity=".22">${sheet}</g>${body}`;
+const folder = solid('M3 3h4c1 0 1.5.5 2 1l1 1h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2');
+const folderOpen = solid('M3 3h4c1 0 1.5.5 2 1l1 1h6a2 2 0 0 1 2 2H6c-1.4 0-2.2.8-2.6 2L1 15V5a2 2 0 0 1 2-2 M6 9h11c1 0 1.5.7 1.2 1.5l-2 6A2 2 0 0 1 14.3 18H2.5z');
+const cube = solid('M9 1.5a2 2 0 0 1 2 0l6 3.4-7 4-7-4z M2 6.5l7 4V19l-6-3.4a2 2 0 0 1-1-1.7z M11 10.5l7-4v7.4a2 2 0 0 1-1 1.7L11 19z');
+const picture = solid('M3 2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2 M13 5a2 2 0 1 0 0 4 2 2 0 0 0 0-4 M3 15h14l-4-5-3 3-3-4z');
+const cog = solid('M8 1h4l.7 2.3 1.6.9 2.3-.5 2 3.5-1.6 1.8v2l1.6 1.8-2 3.5-2.3-.5-1.6.9L12 19H8l-.7-2.3-1.6-.9-2.3.5-2-3.5L3 11V9L1.4 7.2l2-3.5 2.3.5 1.6-.9z M10 6.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7');
+const lock = solid('M5 8V6a5 5 0 0 1 10 0v2h1a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z M7 8h6V6a3 3 0 0 0-6 0z M9 11v4h2v-4z');
+const check = solid('M2.4 9.6a1.4 1.4 0 0 1 2 0L8 13.2l7.6-8.8a1.4 1.4 0 0 1 2.1 1.8L9.1 16a1.4 1.4 0 0 1-2 .1l-4.7-4.5a1.4 1.4 0 0 1 0-2');
 const artwork = {
-    chevronRight: stroke('M7 4l6 6-6 6'),
-    chevronDown: stroke('M4 7l6 6 6-6'),
-    chevronUp: stroke('M4 13l6-6 6 6'),
-    chevronLeft: stroke('M13 4l-6 6 6 6'),
-    folder, folderOpen: openFolder, folderOpen2: openFolder,
-    file: sheet,
-    javascript: sheet + stroke('M10 10v5H7 M15 10h-3v2h3v3h-3'),
-    typescript: sheet + stroke('M6 10h5 M8.5 10v5 M15 10h-3v2h3v3h-3'),
-    react: stroke('M10 2l7 4v8l-7 4-7-4V6z M3 6l14 8 M17 6L3 14 M10 2v16') + dot(10,10,2),
-    json: sheet + stroke('M8 10H6v2l-1 1 1 1v2h2 M12 10h2v2l1 1-1 1v2h-2'),
-    markdown: sheet + stroke('M6 15v-5l3 3 3-3v5 M14 11v4l-2-2 M14 15l2-2'),
-    config: cog,
-    yaml: sheet + stroke('M6 10l3 3 3-3 M9 13v3 M13 15h2'),
+    chevronRight: line('M7 5l5 5-5 5'), chevronDown: line('M5 7l5 5 5-5'), chevronUp: line('M5 13l5-5 5 5'), chevronLeft: line('M13 5l-5 5 5 5'),
+    folder, folderOpen, folderOpen2: folderOpen, file: sheet, document: sheet,
+    javascript: page(line('M9 9v6H6 M15 9h-3v3h3v3h-3')),
+    typescript: page(line('M5 9h5 M7.5 9v6 M15 9h-3v3h3v3h-3')),
+    react: disk(10,10,2.5) + line('M4 4l12 12 M4 16L16 4 M2 10h16'),
+    json: page(line('M7 8H5v3l-1 1 1 1v3h2 M13 8h2v3l1 1-1 1v3h-2')),
+    markdown: page(line('M5 15V9l3 3 3-3v6 M14 9v6l-2-2 M14 15l2-2')),
+    config: cog, yaml: page(line('M6 9l4 4 4-4 M10 13v4')),
     image: picture, picture,
-    texture: stroke('M3 3h14v14H3z M3 10h14 M10 3v14') + facet('M3 3h7v7H3z M10 10h7v7h-7z'),
-    bin: stroke('M5 3h10l3 7-3 7H5l-3-7z M6 7h3v6H6z M12 7h2 M13 7v6 M12 13h2') + facet('M5 3h10l3 7h-3l-2-4H7l-2 4H2z'),
-    model: cube,
-    skeleton: dot(10,4,2) + stroke('M10 6v6 M4 8l6 2 6-2 M10 12l-4 5 M10 12l4 5') + dot(4,8,1) + dot(16,8,1),
-    animation: stroke('M3 4h11v11H3z M7 17h10V7') + facet('M7 6l5 3.5L7 13z'),
-    wad: stroke('M3 3h14v14H3z M3 7h14 M8 3v4 M12 3v4 M7 11h6') + facet('M3 3h14v4H3z'),
-    html: sheet + stroke('M8 10l-3 3 3 3 M12 10l3 3-3 3'),
-    css: sheet + stroke('M6 10h8l-1 5-3 1-3-1 M7 12h6'),
-    text: sheet + stroke('M6 10h8 M6 13h8 M6 16h5'),
-    rust: stroke('M5 3h10l3 7-3 7H5l-3-7z M7 14V6h5l2 2-2 2H7 M11 10l3 4') + facet('M5 3h10l3 7h-3l-2-4H7l-2 4H2z'),
-    python: sheet + stroke('M6 12V9h6v3H9v3h6v-3') + dot(8,10,0.6) + dot(13,14,0.6),
-    shell: stroke('M2 3h16v14H2z M5 7l3 3-3 3 M10 13h5') + facet('M2 3h16v2H2z'),
-    git: stroke('M10 2l8 8-8 8-8-8z M7 5l6 6 M8 6v8') + dot(8,7) + dot(8,14) + dot(13,11),
-    video: stroke('M2 4h16v12H2z M5 4v12 M15 4v12 M2 8h3 M15 8h3 M2 12h3 M15 12h3') + facet('M8 7l5 3-5 3z'),
-    audio: stroke('M3 8v4 M6 5v10 M10 2v16 M14 5v10 M17 8v4') + facet('M8 4h4v12H8z'),
+    texture: block(1,1,8,8) + block(11,11,8,8) + '<g opacity=".35">' + block(11,1,8,8) + block(1,11,8,8) + '</g>',
+    bin: page(block(6,8,3,3,1) + block(11,8,3,3,1) + block(6,13,3,3,1) + block(11,13,3,3,1)),
+    model: cube, layerModel: cube,
+    skeleton: disk(10,3,2.5) + line('M10 7v5 M4 8l6 2 6-2 M10 12l-4 5 M10 12l4 5'),
+    animation: block(1,3,4,14,1.5) + block(7,6,4,11,1.5) + solid('M14 5a1 1 0 0 1 1.5-.8l4 3a1 1 0 0 1 0 1.6l-4 3A1 1 0 0 1 14 10z'),
+    wad: solid('M3 2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2 M3 5v2h14V5z M7 10v3h6v-3z'),
+    html: page(line('M7 9l-3 3 3 3 M13 9l3 3-3 3')),
+    css: page(solid('M5 8h10l-1.5 8-3.5 1-3.5-1-.5-3h2l.3 1.5 1.7.5 1.7-.5.3-2H6l-.3-2H13l.2-1H5z')),
+    text: page(line('M6 9h8 M6 12h8 M6 15h5')),
+    rust: page(line('M6 16V8h5a3 3 0 0 1 0 6H6 M10 14l4 3')),
+    python: page(solid('M6 7h6a2 2 0 0 1 2 2v3H8v2H5a2 2 0 0 1-2-2v-1a2 2 0 0 1 2-2h1z M9 13h6a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-1h2z')),
+    shell: solid('M3 2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2 M4 6l4 4-4 4 1.5 1.5L11 10 5.5 4.5z M11 13v2h5v-2z'),
+    git: line('M5 4v12 M5 8h6a4 4 0 0 0 4-4') + disk(5,3,2.5) + disk(5,17,2.5) + disk(15,3,2.5),
+    video: solid('M3 3h9a2 2 0 0 1 2 2v2l4-2a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1l-4-2v2a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2'),
+    audio: block(1,7,3,6,1.5) + block(6,3,3,14,1.5) + block(11,1,3,18,1.5) + block(16,6,3,8,1.5),
     lock, lockClosed: lock,
-    lockOpen: stroke('M4 9h12v9H4z M8 9V5l2-2h4l2 2') + facet('M4 9h12v9H4z') + stroke('M10 12v3'),
-    plus: stroke('M10 3v14 M3 10h14') + facet('M7 7h6v6H7z'),
-    minus: stroke('M3 10h14'),
-    info: stroke('M6 2h8l4 4v8l-4 4H6l-4-4V6z M10 9v5') + dot(10,6,1),
-    user: stroke('M3 18v-4l4-3h6l4 3v4') + facet('M3 18v-4l4-3h6l4 3v4z') + stroke('M7 3h6v5l-3 2-3-2z'),
-    link: stroke('M8 6l3-3h4l2 2v4l-3 3 M12 14l-3 3H5l-2-2v-4l3-3 M7 13l6-6'),
-    globe: stroke('M6 2h8l4 5v6l-4 5H6l-4-5V7z M6 2l2 8-2 8 M14 2l-2 8 2 8 M2 10h16') + facet('M2 7l4-5 2 8-2 8-4-5z'),
-    heart: stroke('M2 5l3-2h3l2 3 2-3h3l3 2v5l-8 8-8-8z') + facet('M2 5l3-2h3l2 3v12l-8-8z'),
-    success: stroke('M8 2H5L2 5v10l3 3h10l3-3v-4') + check,
-    warning: stroke('M9 2h2l8 15H1z M10 7v5') + dot(10,14,0.8) + facet('M9 2h2l8 15h-4z'),
-    error: stroke('M6 2h8l4 4v8l-4 4H6l-4-4V6z M7 7l6 6 M13 7l-6 6'),
-    document: sheet,
+    lockOpen: solid('M7 8h9a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2h1V6a5 5 0 0 1 9-3l-1.5 1.5A3 3 0 0 0 7 6z M9 11v4h2v-4z'),
+    plus: block(8.5,2,3,16,1.5) + block(2,8.5,16,3,1.5), minus: block(2,8.5,16,3,1.5),
+    info: solid('M10 1a9 9 0 1 0 0 18 9 9 0 0 0 0-18 M9 5v2h2V5z M9 9v6h2V9z'),
+    user: disk(10,5,4) + solid('M2 17a8 6 0 0 1 16 0 2 2 0 0 1-2 2H4a2 2 0 0 1-2-2'),
+    link: line('M8 6l2-2a4.2 4.2 0 0 1 6 6l-2 2 M6 8l-2 2a4.2 4.2 0 0 0 6 6l2-2 M7 13l6-6'),
+    globe: solid('M10 1a9 9 0 1 0 0 18 9 9 0 0 0 0-18 M3 8h4l1-2-2-2-3 2z M9 10l2-2 5 2-2 3-1 4-3-1z'),
+    heart: solid('M10 18C7 15 1 11 1 6a4.5 4.5 0 0 1 9-1 4.5 4.5 0 0 1 9 1c0 5-6 9-9 12'),
+    success: solid('M10 1a9 9 0 1 0 0 18 9 9 0 0 0 0-18 M4 10l4 4 8-8-1.5-1.5L8 11l-2.5-2.5z'),
+    warning: solid('M8.2 2a2 2 0 0 1 3.6 0l7 13a2 2 0 0 1-1.8 3H3a2 2 0 0 1-1.8-3z M9 6v6h2V6z M9 14v2h2v-2z'),
+    error: solid('M10 1a9 9 0 1 0 0 18 9 9 0 0 0 0-18 M6 5L5 6l4 4-4 4 1 1 4-4 4 4 1-1-4-4 4-4-1-1-4 4z'),
     settings: cog,
-    search: stroke('M6 2h5l3 3v6l-3 3H6l-4-3V5z M13 13l5 5') + facet('M6 2h5l3 3v3H2V5z'),
+    search: solid('M8 1a7 7 0 1 0 4.2 12.6l4.8 4.8a1.4 1.4 0 0 0 2-2l-4.8-4.8A7 7 0 0 0 8 1 M8 3.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9'),
     package: cube,
-    save: stroke('M3 2h11l3 3v13H3z M6 2v5h7V2 M6 18v-7h8v7') + facet('M6 11h8v7H6z') + stroke('M11 3v3'),
+    save: solid('M3 1h11l5 5v11a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2 M5 2v5h8V2z M5 11v7h10v-7z'),
     check,
-    export: stroke('M11 3h6v6 M17 3l-9 9 M8 4H3v13h13v-5') + facet('M3 11h4v6H3z'),
-    import: stroke('M11 3h6v14h-6 M2 10h10 M8 6l4 4-4 4') + facet('M14 3h3v14h-3z'),
-    svg: sheet + stroke('M5 14l3-4 4 5 3-5') + dot(8,10,1) + dot(12,15,1),
-    xml: sheet + stroke('M7 10l-2 3 2 3 M13 10l2 3-2 3 M11 10l-2 6'),
-    tauri: stroke('M3 6l4-4h6l4 4-4 4H7z M3 14l4-4h6l4 4-4 4H7z') + facet('M7 10h6l4 4-4 4H7z'),
-    history: stroke('M3 7l3-4h8l4 4v7l-4 4H7l-4-3 M2 2v6h6 M10 6v5l4 2'),
-    wrench: stroke('M12 2l-3 3v4L2 16l2 2 7-7h4l3-3V4l-4 4-2-2 4-4z') + facet('M2 16l7-7 2 2-7 7z'),
-    refresh: stroke('M3 8V3l3 3 M3 6l4-4h6l4 4 M17 12v5l-3-3 M17 14l-4 4H7l-4-4'),
-    trash: stroke('M2 5h16 M7 5V2h6v3 M4 5l1 13h10l1-13 M8 8v7 M12 8v7') + facet('M4 5h12l-1 13H5z'),
-    contrast: stroke('M6 2h8l4 4v8l-4 4H6l-4-4V6z') + '<path d="M10 2h4l4 4v8l-4 4h-4z" fill="currentColor"/>',
-    download: stroke('M10 2v10 M6 8l4 4 4-4 M3 13v5h14v-5') + facet('M3 15h14v3H3z'),
-    copy: stroke('M7 6h10v12H7z M13 6V2H3v12h4') + facet('M7 6h10v3H7z'),
-    close: stroke('M4 4l12 12 M16 4L4 16'),
-    code: stroke('M6 4l-4 6 4 6 M14 4l4 6-4 6 M12 2L8 18'),
-    eye: stroke('M1 10l5-6h8l5 6-5 6H6z') + dot(10,10,3) + facet('M1 10l5-6h8l5 6-5-3H6z'),
-    more: dot(4,10) + dot(10,10) + dot(16,10),
-    layerText: stroke('M3 4h14 M10 4v13 M6 17h8 M3 4v3 M17 4v3'),
-    layerModel: cube,
-    'git-compare': stroke('M5 3v11h6 M8 11l3 3-3 3 M15 17V6H9 M12 3L9 6l3 3') + dot(5,3) + dot(15,17),
-    'file-edit': sheet + stroke('M8 15l6-6 2 2-6 6H8z'),
-    'color-palette': stroke('M7 2h7l4 4v5l-3 2h-4l-1 5H6l-4-4V7z') + dot(7,7) + dot(12,5) + dot(15,9) + dot(5,12),
-    'paint-bucket': stroke('M8 2l8 8-7 7-7-7 7-7 M3 10h13 M16 13l3 4-2 2-2-2z') + facet('M3 10h13l-7 7z'),
-    'eye-off': stroke('M1 10l5-6h8l5 6-5 6H6z M2 2l16 16') + dot(10,10,2),
-    target: stroke('M7 3H3v4 M13 3h4v4 M3 13v4h4 M17 13v4h-4 M10 1v4 M10 15v4 M1 10h4 M15 10h4') + dot(10,10,2),
-};
-
-const tones: Partial<Record<keyof typeof artwork, string>> = {
-    folder: '#B5A080', folderOpen: '#D3BA8E', file: '#94A3B8',
-    javascript: '#E8C46A', typescript: '#79B8E8', react: '#7DD3D8', json: '#D8B679',
-    yaml: '#D8B679', markdown: '#A8BCCF', config: '#A8BCCF', text: '#A8BCCF',
-    image: '#C69FDB', texture: '#71C2B3', bin: '#E9AD73', model: '#B99ADE',
-    skeleton: '#B99ADE', animation: '#D7A3BA', wad: '#B5A080',
-    html: '#DE997A', css: '#8DB5E8', rust: '#D6A189', python: '#D8C780',
-    shell: '#9BC6A5', git: '#DD987E', video: '#C69FDB', audio: '#91B6CD',
+    export: solid('M10 1h8a1 1 0 0 1 1 1v8h-3V6L8 14l-2-2 8-8h-4z') + line('M6 4H3v13h13v-3'),
+    import: solid('M2 8h7V4l7 6-7 6v-5H2z') + line('M13 2h5v16h-5'),
+    svg: page(disk(6,11,2) + disk(14,11,2) + line('M6 11l4-4 4 4 M6 11l4 5 4-5')),
+    xml: page(line('M6 9l-2 3 2 3 M14 9l2 3-2 3 M11 8l-2 8')),
+    tauri: disk(7,7,5) + '<g opacity=".45">' + disk(13,13,5) + '</g>',
+    history: solid('M3 1v7h7L7.3 5.3A6 6 0 1 1 4 12H1.5A8.5 8.5 0 1 0 5.5 3.5z') + line('M10 7v4l3 2'),
+    wrench: solid('M13 1a6 6 0 0 0-5.6 8L1.8 15a2.3 2.3 0 0 0 3.2 3.2l6-5.6A6 6 0 0 0 19 7l-4 3-4-4z'),
+    refresh: solid('M17 1v7h-7l2.5-2.5A6 6 0 0 0 4 10H1.5a8.5 8.5 0 0 1 12.8-6.3z M3 19v-7h7l-2.5 2.5A6 6 0 0 0 16 10h2.5a8.5 8.5 0 0 1-12.8 6.3z'),
+    trash: solid('M7 1h6l1 2h3a1.5 1.5 0 0 1 0 3H3a1.5 1.5 0 0 1 0-3h3z M4 8h12l-1 9a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z M7 10v6h2v-6z M11 10v6h2v-6z'),
+    contrast: solid('M10 1a9 9 0 1 0 0 18 9 9 0 0 0 0-18 M10 3v14a7 7 0 0 0 0-14'),
+    download: solid('M8.5 1h3v8H16l-6 6-6-6h4.5z') + line('M2 14v4h16v-4'),
+    copy: block(6,6,13,13) + '<g opacity=".4">' + block(1,1,13,13) + '</g>',
+    close: line('M5 5l10 10 M15 5L5 15'), code: line('M6 5l-4 5 4 5 M14 5l4 5-4 5 M11 3L9 17'),
+    eye: solid('M1 9q9-13 18 0a2 2 0 0 1 0 2Q10 24 1 11a2 2 0 0 1 0-2 M10 6a4 4 0 1 0 0 8 4 4 0 0 0 0-8') + disk(10,10,2),
+    more: disk(3,10,2) + disk(10,10,2) + disk(17,10,2),
+    layerText: solid('M2 2h16v4h-2V5h-4v11h3v2H5v-2h3V5H4v1H2z'),
+    'git-compare': disk(5,3,2.5) + disk(15,17,2.5) + line('M5 5v9h5 M8 11l3 3-3 3 M15 15V6h-5 M12 3L9 6l3 3'),
+    'file-edit': page(solid('M6 14l8-8 3 3-8 8H6z')),
+    'color-palette': solid('M10 1a9 9 0 1 0 0 18h1a2 2 0 0 0 1-3.5 1.5 1.5 0 0 1 1-2.5h2a4 4 0 0 0 4-4c0-4.5-4-8-9-8 M6 4a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3 M11 3a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3 M15 6a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3 M4 9a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3'),
+    'paint-bucket': solid('M8 2l9 9-7 7a2 2 0 0 1-3 0l-6-6a2 2 0 0 1 0-3z M4 10h10L8 4z M17 13q5 6 0 6t0-6'),
+    'eye-off': line('M2 2l16 16 M1 10q3-5 6-5 M13 5q3 0 6 5-3 5-6 5 M7 15q-3 0-6-5') + disk(10,10,3),
+    target: line('M6 2H2v4 M14 2h4v4 M2 14v4h4 M18 14v4h-4') + disk(10,10,4),
 };
 
 export const icons = Object.fromEntries(Object.entries(artwork).map(([name, body]) => [name,
-    `<svg class="flint-icon" data-icon="${name}" width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg"${tones[name as keyof typeof artwork] ? ` style="color:${tones[name as keyof typeof artwork]}"` : ''}>${body}</svg>`,
+    `<svg class="flint-icon" data-icon="${name}" width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">${body}</svg>`,
 ])) as Record<keyof typeof artwork, string>;
 
 const extensionMap: Record<string, keyof typeof icons> = {

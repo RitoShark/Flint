@@ -153,3 +153,15 @@ describe('tabAtSlot', () => {
         expect(tabAtSlot(buildTabList({ ...empty, projectTabIds: ['solo'] }), 9)?.id).toBe('solo');
     });
 });
+
+describe('UI Preview tab', () => {
+    it('sits between manifest and archive tabs and participates in keyboard navigation', () => {
+        const list = buildTabList({ ...empty, manifestSessionIds: ['manifest'], uiPreviewOpen: true, archiveTabIds: ['archive'] });
+        expect(list.map(tab => tab.kind)).toEqual(['manifest', 'ui-preview', 'archive']);
+        const index = activeTabIndex(list, { ...noneActive, view: 'ui-preview' });
+        expect(index).toBe(1);
+        expect(stepTab(list, index, 1)?.kind).toBe('archive');
+        expect(stepTab(list, index, -1)?.kind).toBe('manifest');
+        expect(tabAtSlot(list, 2)?.kind).toBe('ui-preview');
+    });
+});

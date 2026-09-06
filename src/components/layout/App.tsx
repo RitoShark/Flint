@@ -1,3 +1,5 @@
+import { DesignLab } from '../ui/DesignLab';
+import { motionDuration } from '../../lib/ui-helpers/motion';
 import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { useAppMetadataStore, useConfigStore, useProjectTabStore, useNavigationStore, useWadExtractStore, useWadExplorerStore, useModalStore, useNotificationStore } from '../../lib/stores';
 import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
@@ -64,7 +66,16 @@ function getActiveTab(state: { activeTabId: string | null; openTabs: Array<{ id:
 let startupRan = false;
 
 const ActiveModal: React.FC<{ activeModal: string | null }> = React.memo(({ activeModal }) => {
-    switch (activeModal) {
+    const [displayedModal, setDisplayedModal] = useState(activeModal);
+    useEffect(() => {
+        if (activeModal || motionDuration(280) === 0) {
+            setDisplayedModal(activeModal);
+            return;
+        }
+        const timer = setTimeout(() => setDisplayedModal(null), motionDuration(280));
+        return () => clearTimeout(timer);
+    }, [activeModal]);
+    switch (activeModal ?? displayedModal) {
         case 'newProject':       return <NewProjectModal />;
         case 'settings':         return <SettingsModal />;
         case 'export':           return <ExportModal />;
@@ -172,7 +183,9 @@ export const App: React.FC = () => {
     });
     useAction('app.closeCurrent', () => {
         const s = stateRef.current;
-        if (s.currentView === 'wad-explorer') {
+        if (s.currentView === 'ui-preview') {
+            useNavigationStore.getState().closeUiPreview();
+        } else if (s.currentView === 'wad-explorer') {
             navigationCoordinator.closeWadExplorerWithFallback();
         } else if (s.currentView === 'extract' && s.activeExtractId) {
             navigationCoordinator.closeExtractSessionWithFallback(s.activeExtractId);
@@ -611,6 +624,7 @@ export const App: React.FC = () => {
     const isFileEditor = currentView === 'file-editor';
     const isArchiveEditor = currentView === 'archive-editor';
     const isManifest = currentView === 'manifest';
+    const isUiPreview = currentView === 'ui-preview';
     const hasProject = !isWadExplorer && !isManifest && currentView !== 'welcome';
 
     const [projectIntro, setProjectIntro] = useState(false);
@@ -656,7 +670,8 @@ export const App: React.FC = () => {
                     </div>
                 )}
                 {isManifest && <ManifestBrowser />}
-                {!isWadExplorer && !isManifest && (
+                {isUiPreview && <DesignLab />}
+                {!isWadExplorer && !isManifest && !isUiPreview && (
                     <>
                         {hasProject && !isExtractMode && !isFileEditor && !isArchiveEditor && (
                             <>

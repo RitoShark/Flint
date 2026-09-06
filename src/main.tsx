@@ -83,7 +83,7 @@ root.render(
         : isMapPreview
             ? React.createElement(MapPreviewWindow)
             : isDesignLab
-                ? React.createElement(React.StrictMode, null, React.createElement(DesignLab))
+                ? React.createElement(React.StrictMode, null, React.createElement(DesignLab, { standalone: true }))
                 : React.createElement(
                       React.StrictMode,
                       null,

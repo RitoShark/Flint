@@ -5,6 +5,9 @@ import { useArchiveTabStore } from './archiveTabStore';
 
 interface NavigationState {
   currentView: ViewType;
+  uiPreviewOpen: boolean;
+  openUiPreview: () => void;
+  closeUiPreview: () => void;
   /** The CDN manifest session shown when currentView === 'manifest'. */
   activeManifestId: string | null;
 
@@ -20,6 +23,9 @@ interface NavigationState {
 
 export const useNavigationStore = create<NavigationState>((set) => ({
   currentView: 'welcome',
+  uiPreviewOpen: false,
+  openUiPreview: () => set({ uiPreviewOpen: true, currentView: 'ui-preview' }),
+  closeUiPreview: () => set((state) => ({ uiPreviewOpen: false, ...(state.currentView === 'ui-preview' ? { currentView: 'welcome' as const } : {}) })),
   activeManifestId: null,
 
   setView: (view) => set({ currentView: view }),

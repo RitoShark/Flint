@@ -27,6 +27,7 @@ import {
 
 function readSnapshot(): TabSnapshot {
     return {
+        uiPreviewOpen: useNavigationStore.getState().uiPreviewOpen,
         wadExplorerOpen: useWadExplorerStore.getState().isOpen,
         fileEditorTabIds: useFileEditorStore.getState().tabs.map((t) => t.id),
         projectTabIds: useProjectTabStore.getState().openTabs.map((t) => t.id),
@@ -53,6 +54,9 @@ export function activateTab(ref: TabRef): void {
     const nav = useNavigationStore.getState();
 
     switch (ref.kind) {
+        case 'ui-preview':
+            nav.openUiPreview();
+            return;
         case 'wad-explorer':
             navigationCoordinator.openWadExplorer();
             return;

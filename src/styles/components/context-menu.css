@@ -14,14 +14,14 @@
   padding: var(--cm-pad-y) var(--cm-pad-x);
   user-select: none;
   transform-origin: top left;
-  animation: contextMenuIn 150ms var(--cm-ease-spring) both;
+  animation: contextMenuIn 220ms var(--cm-ease-spring) both;
   z-index: 2000;
 }
 
 .context-menu--closing { animation: contextMenuOut 140ms var(--cm-ease-out) forwards; }
 
 @keyframes contextMenuIn {
-  from { opacity: 0; transform: translateY(-4px) scale(0.96); }
+  from { opacity: 0; transform: translateY(-6px) scale(0.94); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 

@@ -428,8 +428,8 @@ export const pt: TranslationDict = {
     // Settings - Dev Tab
     'settings.dev.title': 'Ferramentas de Desenvolvedor',
     'settings.dev.sub': 'Utilitários internos e extratores de esquemas. Use com cuidado.',
-    'settings.dev.uiShowcase': 'Vitrine de UI',
-    'settings.dev.uiShowcaseSub': 'Todos os componentes e variações',
+    'settings.dev.uiShowcase': "Prévia da interface",
+    'settings.dev.uiShowcaseSub': "Abrir componentes e animações em uma aba própria",
     'settings.dev.replaySetup': 'Repetir Configuração',
     'settings.dev.replaySetupSub': 'Reabrir o assistente de boas-vindas',
     'settings.dev.restartTutorial': 'Reiniciar Tutorial',
