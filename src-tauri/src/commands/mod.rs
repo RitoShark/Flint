@@ -11,6 +11,7 @@ pub mod platform;
 pub mod editor;
 pub mod system;
 pub mod cdn;
+pub mod ritobin_lsp;
 
 pub use project::{map_project, map_preview, map_tiles, thumbnail_window, project_watcher, checkpoint, compare, chroma, skin_port, hash_overlay};
 pub use wad::{wad_edit, extract_hashes, wad_pack};

@@ -119,6 +119,12 @@
 
 .bracket-suggest-line { background: rgba(240, 160, 32, 0.08) !important; }
 
+.lsp-bracket-suggestion {
+    color: var(--color-warning);
+    font-style: italic;
+    padding-left: 8px;
+}
+
 .bracket-suggest-after::after {
   content: ' ← insert closing bracket here';
   color: #f0a020;

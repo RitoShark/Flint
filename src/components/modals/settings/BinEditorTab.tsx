@@ -33,6 +33,10 @@ export function sectionStartsExpanded(
 export const BinEditorTab: React.FC = () => {
     const ux = useUxStore();
     const { t } = useTranslation();
+    const setUseLsp = (enabled: boolean) => ux.setBinEditorPrefs({
+        binEditorUseLsp: enabled,
+        ...(enabled ? { binEditorAutoSuggestions: true } : {}),
+    });
 
     const setSection = (title: string, expanded: boolean) =>
         ux.setBinEditorPrefs({
@@ -42,6 +46,24 @@ export const BinEditorTab: React.FC = () => {
     return (
         <div className="settings-panel">
             <div className="settings-subhead">{t('settings.binEditor.editor')}</div>
+
+            <SettingsRow
+                icon={<Icon name="settings" />}
+                title={t('settings.binEditor.useLsp')}
+                sub={<span className="settings-row__sub">{t('settings.binEditor.useLspSub')}</span>}
+                onActivate={() => setUseLsp(!ux.binEditorUseLsp)}
+                actions={<Checkbox toggle checked={ux.binEditorUseLsp}
+                    onChange={(e) => setUseLsp(e.target.checked)} />}
+            />
+
+            {ux.binEditorUseLsp && <SettingsRow
+                icon={<Icon name="text" />}
+                title={t('settings.binEditor.lspHover')}
+                sub={<span className="settings-row__sub">{t('settings.binEditor.lspHoverSub')}</span>}
+                onActivate={() => ux.setBinEditorPrefs({ binEditorLspHover: !ux.binEditorLspHover })}
+                actions={<Checkbox toggle checked={ux.binEditorLspHover}
+                    onChange={(e) => ux.setBinEditorPrefs({ binEditorLspHover: e.target.checked })} />}
+            />}
 
             <SettingsRow
                 icon={<Icon name="text" />}

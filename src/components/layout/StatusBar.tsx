@@ -3,6 +3,8 @@ import { useAppMetadataStore, useNotificationStore } from '../../lib/stores';
 import { setLogStore } from '../../lib/util/logger';
 import { Button, Icon } from '../ui';
 import { useTranslation } from '../../lib/i18n';
+import { useLspLogStore } from '../../lib/stores/lspLogStore';
+import { LspLogView } from './LspLogView';
 
 type LogLevel = 'info' | 'warning' | 'error';
 type FilterLevel = 'all' | LogLevel;
@@ -49,6 +51,10 @@ export const LogPanel: React.FC = () => {
 
     const [filter, setFilter] = useState('');
     const [levelFilter, setLevelFilter] = useState<FilterLevel>('all');
+    const lspSession = useLspLogStore(s => s.live?.session);
+    const [panel, setPanel] = useState<'output' | 'lsp'>('output');
+    const showLsp = panel === 'lsp' && !!lspSession;
+    useEffect(() => { if (!lspSession) setPanel('output'); }, [lspSession]);
 
     useEffect(() => {
         if (hasConnectedRef.current) return;
@@ -99,7 +105,7 @@ export const LogPanel: React.FC = () => {
             el.scrollTop = el.scrollHeight;
             setScrollTop(el.scrollTop);
         }
-    }, [filteredLogs, logPanelExpanded]);
+    }, [filteredLogs, logPanelExpanded, showLsp]);
 
     useEffect(() => {
         if (!logPanelExpanded) return;
@@ -110,7 +116,7 @@ export const LogPanel: React.FC = () => {
         const ro = new ResizeObserver(measure);
         ro.observe(el);
         return () => ro.disconnect();
-    }, [logPanelExpanded]);
+    }, [logPanelExpanded, showLsp]);
 
     const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
         const el = e.currentTarget;
@@ -193,14 +199,19 @@ export const LogPanel: React.FC = () => {
                         <span className="log-panel__title">
                             <span className="log-panel__title-icon"><Icon name="info" /></span>
                             <span>
-                                <span className="log-panel__title-name">Output</span>
+                                <span className="log-panel__title-name">{showLsp ? 'LSP' : 'Output'}</span>
                                 <span className="log-panel__title-sub">
-                                    {logs.length} entr{logs.length === 1 ? 'y' : 'ies'}
-                                    {logs.length !== filteredLogs.length && ` · ${filteredLogs.length} shown`}
+                                    {showLsp ? 'Current BIN · live' : `${logs.length} ${logs.length === 1 ? 'entry' : 'entries'}`}
+                                    {!showLsp && logs.length !== filteredLogs.length && ` · ${filteredLogs.length} shown`}
                                 </span>
                             </span>
                         </span>
                         <div className="log-panel__actions">
+                            {lspSession && <div role="group" aria-label="Log view">
+                                <Button size="sm" variant={!showLsp ? 'primary' : 'ghost'} aria-pressed={!showLsp} onClick={() => setPanel('output')}>Output</Button>
+                                <Button size="sm" variant={showLsp ? 'primary' : 'ghost'} aria-pressed={showLsp} onClick={() => setPanel('lsp')}>LSP</Button>
+                            </div>}
+                            {!showLsp && <>
                             {selCount > 0 && (
                                 <Button size="sm" variant="primary" icon="copy" onClick={copySelection}>
                                     Copy selection ({selCount})
@@ -212,12 +223,14 @@ export const LogPanel: React.FC = () => {
                             <Button size="sm" variant="danger" icon="trash" onClick={clearLogs} disabled={logs.length === 0}>
                                 Clear
                             </Button>
+                            </>}
                             <Button className="modal__close" variant="ghost" size="sm" iconOnly onClick={toggleLogPanel} aria-label="Close">
                                 <Icon name="close" />
                             </Button>
                         </div>
                     </div>
 
+                    {showLsp ? <LspLogView /> : <>
                     <div className="log-panel__toolbar">
                         <div className="log-panel__search">
                             <Icon name="search" />
@@ -325,6 +338,7 @@ export const LogPanel: React.FC = () => {
                             </div>
                         )}
                     </div>
+                    </>}
                 </div>
             </div>
         );

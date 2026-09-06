@@ -29,6 +29,8 @@ import { useSearchPanelStore } from '../../lib/stores/searchPanelStore';
 import { projectRootFromFilePath } from '../../lib/wadPath';
 import { bracketStackAtLine } from '../../lib/editor/blockExtraction';
 import { checkRitobinBrackets, type BracketCheckResult } from '../../lib/editor/bracketCheck';
+import { attachRitobinLsp, type LspStatus } from '../../lib/editor/ritobinLsp';
+import { useLspLogStore } from '../../lib/stores/lspLogStore';
 import { colorizeRitobinLine } from '../../lib/editor/ritobinColorize';
 import { resolvePreset } from '../../lib/editor/ritobinThemes';
 import {
@@ -64,6 +66,10 @@ registerRitobinTheme(monaco as any);
 const HOVER_DELAY_MS = 3000;
 
 const BRACKET_CHECK_DEBOUNCE_MS = 300;
+
+function checkEditorBrackets(text: string): BracketCheckResult {
+    return useUxStore.getState().binEditorUseLsp ? { valid: true, errors: [] } : checkRitobinBrackets(text);
+}
 
 /** Marker owner for the audit findings, kept apart from any other producer. */
 const AUDIT_MARKER_OWNER = 'flint-audit';
@@ -243,6 +249,11 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const wordWrapPref = useUxStore((s) => s.binEditorWordWrap);
     const fontSizePref = useUxStore((s) => s.binEditorFontSize);
     const autoSuggestionsPref = useUxStore((s) => s.binEditorAutoSuggestions);
+    const useLsp = useUxStore((s) => s.binEditorUseLsp);
+    const lspBracketFix = useLspLogStore(s => s.live?.filePath === filePath ? s.live.bracketFix : null);
+    const lspHover = useUxStore((s) => s.binEditorLspHover);
+    const [lspStatus, setLspStatus] = useState<LspStatus>({ state: 'starting', message: 'Starting LSP…', diagnostics: 0 });
+    const [lspRetry, setLspRetry] = useState(0);
     const autoUnhashPref = useUxStore((s) => s.binEditorAutoUnhash);
     const syntaxThemePref = useUxStore((s) => s.binEditorSyntaxTheme);
     const leapBarPref = useUxStore((s) => s.binEditorLeapBar);
@@ -384,8 +395,10 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
 
     const runBracketCheck = useCallback((text: string) => {
         if (bracketCheckTimerRef.current) clearTimeout(bracketCheckTimerRef.current);
+        if (useUxStore.getState().binEditorUseLsp) return;
         bracketCheckTimerRef.current = setTimeout(async () => {
-            const result = checkRitobinBrackets(text);
+            if (useUxStore.getState().binEditorUseLsp) return;
+            const result = checkEditorBrackets(text);
             /* Update the ref HERE, not just on the next render: the inline-completion provider
                reads it, and Monaco re-queries the provider the instant the edit lands — long
                before React re-renders. Without this, deleting a `}` offered no hint until the
@@ -449,7 +462,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             setContent(cached.content);
             setOriginalContent(cached.originalContent);
             setLineCount(cached.content.split('\n').length);
-            setBracketStatus(checkRitobinBrackets(cached.content));
+            setBracketStatus(checkEditorBrackets(cached.content));
             setError(null);
             setLoading(false);
             return;
@@ -465,7 +478,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 setContent(text);
                 setOriginalContent(text);
                 setLineCount(text.split('\n').length);
-                const result = checkRitobinBrackets(text);
+                const result = checkEditorBrackets(text);
                 setBracketStatus(result);
                 editorSessionStore.save(filePath, { fileVersion, content: text, originalContent: text, variant });
             } catch (err) {
@@ -616,6 +629,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
 
         const inlineProvider = monaco.languages.registerInlineCompletionsProvider(RITOBIN_LANGUAGE_ID, {
             provideInlineCompletions(model, position) {
+                if (useUxStore.getState().binEditorUseLsp || model !== ed.getModel()) return { items: [] };
                 const lineContent = model.getLineContent(position.lineNumber);
                 const trimmed = lineContent.trim();
                 if (trimmed.length > 0 && position.column <= lineContent.length) return { items: [] };
@@ -670,7 +684,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 refreshSubmeshDecorations();
             });
 
-            const initialResult = checkRitobinBrackets(content);
+            const initialResult = checkEditorBrackets(content);
             if (!initialResult.valid) {
                 const newDecorations: editor.IModelDeltaDecoration[] = initialResult.errors.map(err => ({
                     range: new monaco.Range(err.line, 1, err.line, model.getLineMaxColumn(err.line)),
@@ -713,6 +727,26 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [loading, error]);
 
+    useEffect(() => {
+        const ed = editorRef.current;
+        if (!ed || loading || error) return;
+        if (bracketCheckTimerRef.current) clearTimeout(bracketCheckTimerRef.current);
+        if (!useLsp) {
+            runBracketCheck(ed.getValue());
+            return;
+        }
+        const clean = { valid: true, errors: [] };
+        bracketStatusRef.current = clean;
+        setBracketStatus(clean);
+        decorationsRef.current = ed.deltaDecorations(decorationsRef.current, []);
+        issueDecorationsRef.current = ed.deltaDecorations(issueDecorationsRef.current, []);
+        const model = ed.getModel();
+        if (model) monaco.editor.setModelMarkers(model, AUDIT_MARKER_OWNER, []);
+        setAuditIssues([]);
+        const connection = attachRitobinLsp(ed, filePath, searchRoot, setLspStatus, () => useUxStore.getState().binEditorLspHover);
+        return () => connection.dispose();
+    }, [useLsp, editorEpoch, loading, error, filePath, searchRoot, runBracketCheck, lspRetry]);
+
     // Apply minimap & editor options changes in place. The editor-creation effect
     // must not depend on these preferences — re-running it would dispose the model
     // and the undo stack — so toggling is pushed through updateOptions instead.
@@ -722,13 +756,14 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
 
     useEffect(() => {
         editorRef.current?.updateOptions({
-            quickSuggestions: autoSuggestionsPref ? { other: 'on', comments: 'off', strings: 'off' } : false,
+            quickSuggestions: autoSuggestionsPref ? { other: 'on', comments: 'off', strings: useLsp ? 'on' : 'off' } : false,
             suggestOnTriggerCharacters: autoSuggestionsPref,
-            wordBasedSuggestions: autoSuggestionsPref ? 'currentDocument' : 'off',
+            wordBasedSuggestions: autoSuggestionsPref && !useLsp ? 'currentDocument' : 'off',
             acceptSuggestionOnEnter: autoSuggestionsPref ? 'on' : 'off',
             parameterHints: { enabled: autoSuggestionsPref },
+            hover: { enabled: useLsp && lspHover },
         });
-    }, [autoSuggestionsPref]);
+    }, [autoSuggestionsPref, useLsp, lspHover, editorEpoch]);
 
     useEffect(() => {
         editorRef.current?.updateOptions({ wordWrap: wordWrapPref ? 'on' : 'off' });
@@ -752,13 +787,13 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     }, []);
 
     useEffect(() => {
-        if (!searchRoot || loading || error) { setAuditIssues([]); return; }
+        if (useLsp || !searchRoot || loading || error) { setAuditIssues([]); return; }
         let cancelled = false;
         fileIssues(searchRoot, filePath)
             .then((found) => { if (!cancelled) { setAuditIssues(found); setAuditIndex(0); } })
             .catch((e) => { console.debug('[bin-editor] audit failed:', e); });
         return () => { cancelled = true; };
-    }, [searchRoot, filePath, fileVersion, loading, error]);
+    }, [searchRoot, filePath, fileVersion, loading, error, useLsp]);
 
     /* Where each finding sits in THIS text. A reported line is used as given; a finding
        with no line still names its asset path in the message, and searching the live
@@ -766,7 +801,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
        number computed against the on-disk render would not. */
     const issueRanges = useMemo(() => {
         const model = editorRef.current?.getModel();
-        if (!model) return [];
+        if (useLsp || !model) return [];
         return auditIssues.flatMap((issue) => {
             if (issue.line && issue.line <= model.getLineCount()) {
                 return [{
@@ -784,7 +819,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         /* Deliberately NOT keyed on `content`: recomputing per keystroke would snap each
            mark back to the line the audit reported, undoing the tracking the decorations
            give for free. Markers do go stale on edit; the next save re-runs the audit. */
-    }, [auditIssues, editorEpoch]);
+    }, [auditIssues, editorEpoch, useLsp]);
 
     /* Markers carry the message in the hover and paint the overview ruler, under their
        own owner so the bracket decorations cannot clobber them — but a squiggle alone is
@@ -841,7 +876,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     }, [issueRanges]);
 
     const handleSave = useCallback(async () => {
-        if (!bracketStatus.valid) {
+        if (!useLsp && !bracketStatus.valid) {
             const firstError = bracketStatus.errors[0];
             showToast('error', `Cannot save: ${firstError.message} (line ${firstError.line})`);
             if (editorRef.current) {
@@ -861,7 +896,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
 
             const tabStore = useProjectTabStore.getState();
             const tab = tabStore.activeTabId ? tabStore.openTabs.find((t) => t.id === tabStore.activeTabId) : null;
-            if (tab?.projectPath) recheckFile(tab.projectPath, filePath);
+            if (!useLsp && tab?.projectPath) recheckFile(tab.projectPath, filePath);
             if (tab?.project && tab.projectPath) {
                 const projPath = tab.projectPath.replace(/\\/g, '/');
                 const normalizedFile = filePath.replace(/\\/g, '/');
@@ -893,7 +928,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             }
             setReady('Save failed');
         }
-    }, [filePath, content, setWorking, setReady, showToast, bracketStatus]);
+    }, [filePath, content, setWorking, setReady, showToast, bracketStatus, useLsp]);
     saveRef.current = handleSave;
 
     useEffect(() => { return () => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); }; }, []);
@@ -1250,7 +1285,31 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                     <span className="bin-editor__stats" style={{ marginLeft: 0 }}>
                         {lineCount.toLocaleString()} lines
                     </span>
-                    {bracketLabel && (
+                    {useLsp && (
+                        <span className="bin-editor__stats" title={lspStatus.message} role="status">
+                            {lspStatus.state === 'starting' ? 'LSP: starting…' : lspStatus.state === 'error'
+                                ? 'LSP unavailable' : lspStatus.checking ? 'LSP: checking…'
+                                    : lspStatus.message !== 'LSP connected' ? `LSP: ${lspStatus.message}` : `LSP: ${lspStatus.diagnostics} diagnostics`}
+                        </span>
+                    )}
+                    {useLsp && lspStatus.state === 'error' && (
+                        <button type="button" className="bin-editor__chip" title={lspStatus.message}
+                            onClick={() => setLspRetry(n => n + 1)}>Retry LSP</button>
+                    )}
+                    {useLsp && lspBracketFix && (
+                        <Button size="sm" variant="ghost" title={lspBracketFix.explanation} onClick={() => {
+                            const ed = editorRef.current;
+                            if (!ed) return;
+                            const position = lspBracketFix.edit.range.start;
+                            ed.revealLineInCenter(position.line + 1);
+                            ed.setPosition({ lineNumber: position.line + 1, column: position.character + 1 });
+                            ed.focus();
+                            ed.trigger('flint-lsp-bracket-suggestion', 'editor.action.quickFix', {});
+                        }}>
+                            Bracket suggestion · line {lspBracketFix.edit.range.start.line + 1}
+                        </Button>
+                    )}
+                    {!useLsp && bracketLabel && (
                         <span
                             className="bin-editor__bracket-error"
                             title={bracketStatus.errors.map((e, i) => `${i + 1}. Line ${e.line}: ${e.message}`).join('\n')}
@@ -1273,7 +1332,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                             {bracketLabel}
                         </span>
                     )}
-                    {!bracketLabel && isDirty && (
+                    {!useLsp && !bracketLabel && isDirty && (
                         <span className="bin-editor__bracket-ok">Brackets OK</span>
                     )}
                     {auditIssues.length > 0 && (
@@ -1295,7 +1354,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                     )}
                 </span>
                 <div className="bin-editor__toolbar-actions">
-                    {!bracketStatus.valid && (
+                    {!useLsp && !bracketStatus.valid && (
                         <Button
                             iconOnly
 
@@ -1345,7 +1404,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                         variant="primary" iconOnly
                         onClick={handleSave}
                         disabled={!isDirty}
-                        title={!bracketStatus.valid ? 'Fix bracket errors before saving' : 'Save (Ctrl+S)'}
+                        title={!useLsp && !bracketStatus.valid ? 'Fix bracket errors before saving' : 'Save (Ctrl+S)'}
                     >
                         <SaveIcon />
                     </Button>

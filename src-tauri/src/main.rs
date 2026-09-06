@@ -124,6 +124,12 @@ fn main() {
         .manage(CdnSessionState::new())
         .manage(PendingFileOpenState::new())
         .manage(HashOverlayState::new())
+        .manage(commands::ritobin_lsp::LspState::default())
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                window.state::<commands::ritobin_lsp::LspState>().stop_window(window.label());
+            }
+        })
         .on_page_load(move |_webview, payload| {
             tracing::info!(
                 "[startup] webview page_load (event={:?}, url={}) +{}ms",
@@ -251,6 +257,10 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::ritobin_lsp::ritobin_lsp_start,
+            commands::ritobin_lsp::ritobin_lsp_send,
+            commands::ritobin_lsp::ritobin_lsp_stop,
+            commands::ritobin_lsp::ritobin_lsp_lookup_names,
             startup::startup_window_ready,
             startup::startup_main_ready,
             startup::startup_continue,
@@ -592,6 +602,11 @@ fn main() {
             commands::search::search_project_bins,
             commands::search::replace_in_bins,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                app.state::<commands::ritobin_lsp::LspState>().stop_all();
+            }
+        });
 }

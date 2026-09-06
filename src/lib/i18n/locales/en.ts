@@ -377,6 +377,10 @@ export const en: TranslationDict = {
 
     // Settings - Bin Editor Tab
     'settings.binEditor.editor': 'Editor',
+    'settings.binEditor.useLsp': 'Use ritobin language server',
+    'settings.binEditor.useLspSub': 'Use LSP autocomplete, formatting and diagnostics in place of Flint’s editor checks. Installs automatically and updates with Flint releases. Suggestions use Flint’s local hashes; unhashing stays with Flint. The LSP downloads class metadata, but never hash tables.',
+    'settings.binEditor.lspHover': 'LSP hover help',
+    'settings.binEditor.lspHoverSub': 'Show language-server documentation on hover. Off by default. Quoted paths keep Flint’s file preview without LSP popups.',
     'settings.binEditor.wordWrap': 'Word wrap',
     'settings.binEditor.wordWrapSub': 'Wrap long lines instead of scrolling sideways.',
     'settings.binEditor.fontSize': 'Font size',

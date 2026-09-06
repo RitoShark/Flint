@@ -30,6 +30,10 @@ export interface UxPrefs {
     binEditorFontSize: number;
     /** Show Monaco autocomplete suggestions popup while typing in BIN files. */
     binEditorAutoSuggestions: boolean;
+    /** Opt in to the managed hash-disabled ritobin language server. */
+    binEditorUseLsp: boolean;
+    /** Optional LSP documentation popups; Flint asset previews stay independent. */
+    binEditorLspHover: boolean;
     /** Run the Unhash pass automatically when a BIN opens. */
     binEditorAutoUnhash: boolean;
     /** Tools-panel sections that start expanded, keyed by section title. */
@@ -55,6 +59,8 @@ const DEFAULTS: UxPrefs = {
     binEditorWordWrap: false,
     binEditorFontSize: 13,
     binEditorAutoSuggestions: false,
+    binEditorUseLsp: false,
+    binEditorLspHover: false,
     binEditorAutoUnhash: false,
     binEditorExpandedSections: {},
     binEditorSyntaxTheme: 'default',

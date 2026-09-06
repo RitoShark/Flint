@@ -44,10 +44,51 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Resolve upstream ritobin LSP for this release
+        id: lsp
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FLINT_TAG: ${{ github.ref_name }}
+        run: |
+          $flintVersion = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ($env:FLINT_TAG -ne "v$flintVersion") { throw 'Release tag must match the Flint application version' }
+          $releases = gh api 'repos/alanpq/ritobin-lsp/releases?per_page=100' | ConvertFrom-Json
+          if ($LASTEXITCODE) { throw 'Upstream release lookup failed' }
+          $release = $releases | Where-Object { !$_.draft -and !$_.prerelease -and $_.tag_name -match '^ritobin-lsp-v\d' } | Select-Object -First 1
+          if (!$release) { throw 'No upstream server release found' }
+          git clone --depth 1 --branch $release.tag_name https://github.com/alanpq/ritobin-lsp.git upstream
+          if ($LASTEXITCODE) { throw 'Upstream checkout failed' }
+          $revision = git -C upstream rev-parse HEAD
+          if ($LASTEXITCODE) { throw 'Upstream revision lookup failed' }
+          $adapter = (Get-FileHash scripts/lsp/patch-upstream.mjs -Algorithm SHA256).Hash.ToLower().Substring(0,12)
+          "version=$revision-$adapter" >> $env:GITHUB_OUTPUT
+          "flint_version=$flintVersion" >> $env:GITHUB_OUTPUT
+
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: |
+            src-tauri
+            upstream
+
+      - name: Build and validate hash-disabled ritobin LSP
+        shell: pwsh
+        env:
+          LSP_VERSION: ${{ steps.lsp.outputs.version }}
+          FLINT_VERSION: ${{ steps.lsp.outputs.flint_version }}
+        run: |
+          node scripts/lsp/patch-upstream.mjs upstream
+          if ($LASTEXITCODE) { throw 'Hash isolation patch failed' }
+          cargo build --manifest-path upstream/Cargo.toml --locked --release -p ritobin-lsp
+          if ($LASTEXITCODE) { throw 'LSP build failed' }
+          node scripts/lsp/smoke-test.mjs upstream/target/release/ritobin-lsp.exe
+          if ($LASTEXITCODE) { throw 'LSP smoke test failed' }
+          New-Item -ItemType Directory -Path lsp-artifacts -Force | Out-Null
+          $asset = "ritobin-lsp-$env:LSP_VERSION-windows-x86_64.exe"
+          Copy-Item upstream/target/release/ritobin-lsp.exe "lsp-artifacts/$asset"
+          $sha = (Get-FileHash "lsp-artifacts/$asset" -Algorithm SHA256).Hash.ToLower()
+          @{ version=$env:LSP_VERSION; flintVersion=$env:FLINT_VERSION; asset=$asset; sha256=$sha; noHashes=1 } | ConvertTo-Json | Set-Content lsp-artifacts/ritobin-lsp-manifest.json -Encoding utf8NoBOM
 
       - name: Install Dependencies
         run: npm ci
@@ -67,6 +108,16 @@ jobs:
           releaseDraft: false
           prerelease: false
           updaterJsonPreferNsis: true
+
+      - name: Attach ritobin LSP to the Flint release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FLINT_TAG: ${{ github.ref_name }}
+        run: |
+          $assets = Get-ChildItem lsp-artifacts -File | ForEach-Object { $_.FullName }
+          gh release upload $env:FLINT_TAG @assets --clobber
+          if ($LASTEXITCODE) { throw 'LSP release asset upload failed' }
 
       - name: Patch latest.json notes and push to updater release
         shell: bash

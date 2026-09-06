@@ -442,3 +442,13 @@ input.log-panel__search-input, .log-panel__search-input {
 .log-panel__entry--warning::before { background: var(--color-warning); }
 
 .log-panel__entry--error::before { background: var(--color-danger); }
+
+.lsp-log { padding: 16px; line-height: 1.5; }
+.lsp-log__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.lsp-log__path, .lsp-log__muted { color: var(--text-muted); overflow-wrap: anywhere; }
+.lsp-log__item { padding: 10px 12px; margin-top: 8px; border: 1px solid var(--border); border-radius: 6px; }
+.lsp-log__message, .lsp-log__item pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0 0; font: inherit; }
+.lsp-log__state--error, .lsp-log__output--error { color: var(--color-danger); }
+.lsp-log__output--warning { color: var(--color-warning); }
+.lsp-log__diagnostic--1 { border-left: 3px solid var(--color-danger); }
+.lsp-log__diagnostic--2 { border-left: 3px solid var(--color-warning); }
