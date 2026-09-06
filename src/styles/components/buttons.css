@@ -80,9 +80,15 @@
   min-height: 124px;
   padding: 18px 20px;
   border-radius: var(--dl-radius);
+  background: color-mix(in oklab, var(--bg-tertiary) 45%, transparent);
+  border-color: color-mix(in oklab, var(--border) 70%, transparent);
   white-space: normal;
   text-align: left;
 }
+
+.btn--tile.btn--primary { background: color-mix(in oklab, var(--button-tone) 7%, transparent); }
+
+.btn--tile.btn--primary:hover:not(:disabled) { background: color-mix(in oklab, var(--button-tone) 14%, transparent); }
 
 .btn--tile .btn__icon {
   width: 36px;
