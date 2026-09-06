@@ -25,8 +25,11 @@
   align-items: center;
   padding: 96px 32px 48px;
   overflow-y: auto;
+  scrollbar-width: none;
   position: relative;
 }
+
+.welcome::-webkit-scrollbar { display: none; }
 
 .welcome--drag-over {
   outline: 2px dashed color-mix(in oklab, var(--accent-primary) 60%, transparent);

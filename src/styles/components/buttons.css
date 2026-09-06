@@ -57,6 +57,20 @@
   gap: 10px;
 }
 
+.btn--xl {
+  --button-height: var(--btn-h-xl);
+  padding-inline: var(--btn-px-xl);
+  font-size: 18px;
+  gap: 10px;
+}
+
+.btn--stacked {
+  flex-direction: column;
+  height: auto;
+  min-height: var(--button-height);
+  padding-block: var(--btn-px-md);
+}
+
 .btn--icon { width: var(--button-height); padding: 0; }
 .btn--full-width { width: 100%; }
 
@@ -68,7 +82,8 @@
 }
 
 .btn--ghost:hover:not(:disabled):not([aria-disabled="true"]) {
-  background: color-mix(in oklab, var(--button-tone) 10%, transparent);
+  background: color-mix(in oklab, var(--text-primary) 6%, transparent);
+  border-color: transparent;
   color: var(--text-primary);
 }
 
@@ -103,7 +118,8 @@
 
 .btn__icon { flex: none; }
 .btn svg { display: block; width: 14px; height: 14px; flex: none; }
-.btn--lg svg { width: 18px; height: 18px; }
+.btn--icon:not(.btn--sm) svg { width: 16px; height: 16px; }
+.btn:is(.btn--lg, .btn--xl) svg { width: 18px; height: 18px; }
 .btn--primary svg { color: var(--accent-primary); }
 .btn > * { position: relative; z-index: 1; }
 
@@ -119,7 +135,7 @@
   transition: opacity var(--dl-base);
 }
 
-[data-button-glow="on"] .btn:hover:not(:disabled):not([aria-disabled="true"])::after { opacity: 1; }
+[data-button-glow="on"] .btn:not(.btn--ghost):hover:not(:disabled):not([aria-disabled="true"])::after { opacity: 1; }
 .btn--loading { color: transparent; }
 .btn--loading > :not(.btn__spinner) { visibility: hidden; }
 

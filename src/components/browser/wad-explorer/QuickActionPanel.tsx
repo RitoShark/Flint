@@ -155,10 +155,11 @@ export const QuickActionPanel: React.FC<QuickActionPanelProps> = ({ wads, onSetF
                 {counts.map(qa => (
                     <Button
                         key={qa.label}
-                        variant="secondary"
+                        variant="ghost"
+                        size="lg"
+                        layout="stacked"
                         onClick={() => onSetFilter(qa.regex.source)}
                         title={`Filter to ${qa.label} (${qa.count.toLocaleString()} in loaded WADs)`}
-                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}
                     >
                         <span dangerouslySetInnerHTML={{ __html: qa.iconHtml }} />
                         <span style={{ fontSize: '13px', fontWeight: 500 }}>{qa.label}</span>

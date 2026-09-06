@@ -2,11 +2,12 @@ import React from 'react';
 import { Icon, type IconName } from './Icon';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success';
-export type ButtonSize = 'sm' | 'md' | 'lg';
+export type ButtonSize = 'sm' | 'md' | 'lg' | 'xl';
 
 export interface ButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children' | 'dangerouslySetInnerHTML'> {
     variant?: ButtonVariant;
     size?: ButtonSize;
+    layout?: 'inline' | 'stacked';
     icon?: IconName;
     iconRight?: IconName;
     iconOnly?: boolean;
@@ -28,6 +29,7 @@ const sizeClass: Record<ButtonSize, string> = {
     sm: 'btn--sm',
     md: '',
     lg: 'btn--lg',
+    xl: 'btn--xl',
 };
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
@@ -35,6 +37,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         {
             variant = 'secondary',
             size = 'md',
+            layout = 'inline',
             icon,
             iconRight,
             iconOnly = false,
@@ -54,6 +57,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             'btn',
             variantClass[variant],
             sizeClass[size],
+            layout === 'stacked' ? 'btn--stacked' : '',
             iconOnly ? 'btn--icon' : '',
             active ? 'btn--active' : '',
             loading ? 'btn--loading' : '',

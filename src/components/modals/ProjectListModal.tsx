@@ -736,10 +736,10 @@ export const ProjectListModal: React.FC = () => {
             </ModalBody>
 
             <ModalFooter>
-                <Button variant="secondary" icon="folder" onClick={handleBrowseFiles}>
+                <Button variant="ghost" icon="folder" onClick={handleBrowseFiles}>
                     {t('projectList.openDisk')}
                 </Button>
-                <Button variant="secondary" icon="folderOpen2" onClick={handleImportFolder}>
+                <Button variant="ghost" icon="folderOpen2" onClick={handleImportFolder}>
                     {t('projectList.importFolder')}
                 </Button>
                 <Button variant="success" icon="download" onClick={handleImportMod}>

@@ -1478,6 +1478,7 @@ export const WadExplorer: React.FC = () => {
                         <span style={{ fontSize: '12px', fontWeight: 600, flex: 1 }}>{t('wadExplorer.title')}</span>
                         <Button
                             size="sm"
+                            variant="ghost"
                             title={t('wadExplorer.cdnTooltip')}
                             onClick={() => openModal('loadManifest')}
                             style={{ display: 'flex', alignItems: 'center', gap: 4 }}
@@ -1487,6 +1488,8 @@ export const WadExplorer: React.FC = () => {
                         </Button>
                         <Button
                             size="sm"
+                            variant="ghost"
+                            iconOnly
                             title={t('wadExplorer.cheatSheetTooltip')}
                             onClick={() => setShowCheatSheet(true)}
 

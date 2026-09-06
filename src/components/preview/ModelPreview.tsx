@@ -1526,7 +1526,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 <>
                     <div className="model-preview__controls-bar model-preview__controls-bar--left">
                         <Button
-                            className="model-preview__control-btn" variant="secondary" size="sm" iconOnly active={activePopup === 'environment'}
+                            className="model-preview__control-btn" variant="secondary" size="md" iconOnly active={activePopup === 'environment'}
                             onClick={() => setActivePopup(activePopup === 'environment' ? null : 'environment')}
                             title="Environment Settings"
                         >
@@ -1536,7 +1536,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
                     <div className="model-preview__controls-bar">
                         <Button
-                            className="model-preview__control-btn" variant="secondary" size="sm" iconOnly active={activePopup === 'display'}
+                            className="model-preview__control-btn" variant="secondary" size="md" iconOnly active={activePopup === 'display'}
                             onClick={() => setActivePopup(activePopup === 'display' ? null : 'display')}
                             title="Display & Skeleton"
                         >
@@ -1548,7 +1548,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                             </svg>
                         </Button>
                         <Button
-                            className="model-preview__control-btn" variant="secondary" size="sm" iconOnly active={activePopup === 'materials'}
+                            className="model-preview__control-btn" variant="secondary" size="md" iconOnly active={activePopup === 'materials'}
                             onClick={() => setActivePopup(activePopup === 'materials' ? null : 'materials')}
                             title="Materials"
                         >
@@ -1556,7 +1556,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         </Button>
                         {animations.length > 0 && (
                             <Button
-                                className="model-preview__control-btn" variant="secondary" size="sm" iconOnly active={activePopup === 'animations'}
+                                className="model-preview__control-btn" variant="secondary" size="md" iconOnly active={activePopup === 'animations'}
                                 onClick={() => setActivePopup(activePopup === 'animations' ? null : 'animations')}
                                 title="Animations"
                             >

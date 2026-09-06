@@ -73,9 +73,11 @@
   --btn-h-sm: 28px;
   --btn-h-md: 36px;
   --btn-h-lg: 44px;
+  --btn-h-xl: 52px;
   --btn-px-sm: 12px;
   --btn-px-md: 16px;
   --btn-px-lg: 22px;
+  --btn-px-xl: 28px;
   --btn-gap: 8px;
 }
 
