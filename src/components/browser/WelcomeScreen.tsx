@@ -112,8 +112,9 @@ export const WelcomeScreen: React.FC = () => {
     const trackPointer = (e: React.PointerEvent<HTMLDivElement>) => {
         const el = e.currentTarget;
         const rect = el.getBoundingClientRect();
-        el.style.setProperty('--mx', `${e.clientX - rect.left}px`);
-        el.style.setProperty('--my', `${e.clientY - rect.top + el.scrollTop}px`);
+        const zoom = parseFloat(getComputedStyle(el).zoom) || 1;
+        el.style.setProperty('--mx', `${(e.clientX - rect.left) / zoom}px`);
+        el.style.setProperty('--my', `${(e.clientY - rect.top) / zoom + el.scrollTop}px`);
     };
 
     return (

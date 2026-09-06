@@ -32,7 +32,7 @@
   grid-template-columns: minmax(0, 640px) minmax(360px, 460px);
   justify-content: center;
   gap: clamp(48px, 6vw, 120px);
-  padding: clamp(40px, 7vh, 88px) clamp(40px, 6vw, 96px) clamp(40px, 18vh, 200px);
+  padding: clamp(40px, 7vh, 88px) clamp(40px, 6vw, 96px) clamp(40px, 12vh, 140px);
   overflow-y: auto;
   scrollbar-width: none;
   position: relative;
@@ -251,6 +251,14 @@
 
 .welcome__recent-item:hover .welcome__recent-delete,
 .welcome__recent-delete:focus-visible { opacity: 1; }
+
+@media (min-width: 1600px) and (min-height: 850px) {
+  .welcome { zoom: 1.15; }
+}
+
+@media (min-width: 1880px) and (min-height: 1000px) {
+  .welcome { zoom: 1.3; }
+}
 
 @media (max-width: 1100px) {
   .welcome { grid-template-columns: minmax(0, 640px); gap: 40px; }
