@@ -1,7 +1,6 @@
 @import './foundation/tokens.css';
 @import './foundation/base.css';
 @import './components/buttons.css';
-@import './foundation/motion.css';
 @import './foundation/utilities.css';
 @import './components/choices.css';
 @import './components/confirm-dialog.css';
@@ -78,3 +77,4 @@
 @import './features/paint.css';
 @import './features/setup-splash.css';
 @import '../themes/default.css';
+@import './foundation/motion.css';

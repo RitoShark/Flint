@@ -3,17 +3,19 @@ html[data-fps="on"] *, html[data-fps="on"] *::before, html[data-fps="on"] *::aft
   animation-duration: 0.001ms !important;
   animation-delay: 0ms !important;
   animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+  will-change: auto !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html *, html *::before, html *::after { transition: none !important; animation-duration: 0.001ms !important; }
+  html *, html *::before, html *::after { transition: none !important; animation-duration: 0.001ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; will-change: auto !important; }
 }
 
 @keyframes ux-view-in {
-  from { opacity: 0; transform: translateY(6px); filter: blur(2px); }
-  to { opacity: 1; transform: translateY(0); filter: blur(0); }
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes ux-modal-pop {
@@ -139,4 +141,71 @@ html[data-fps="on"] *, html[data-fps="on"] *::before, html[data-fps="on"] *::aft
 
 @media (max-width: 600px) {
   .fwiz-finish__shortcuts { grid-template-columns: 1fr; }
+}
+
+:root {
+  --motion-control: 160ms cubic-bezier(.2, .8, .2, 1);
+  --motion-panel: 260ms cubic-bezier(.16, 1, .3, 1);
+  --motion-spring: 320ms cubic-bezier(.22, 1.25, .4, 1);
+}
+
+@keyframes flint-row-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes flint-check-in {
+  from { opacity: 0; scale: .65; }
+  to { opacity: 1; scale: 1; }
+}
+
+@keyframes flint-panel-in {
+  from { opacity: 0; translate: 0 6px; }
+  to { opacity: 1; translate: 0 0; }
+}
+
+@keyframes flint-tab-in {
+  from { opacity: .4; scale: .96; }
+  to { opacity: 1; scale: 1; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html:not([data-fps="on"]) {
+    .btn:not(.btn--ghost, .btn--icon):hover:not(:disabled, [aria-disabled="true"]) { translate: 0 -1px; }
+    .btn:active:not(:disabled, [aria-disabled="true"]) { translate: 0 0; }
+    .btn .flint-icon { transition: rotate var(--motion-spring), translate var(--motion-control), scale var(--motion-control); }
+    .btn:hover:not(:disabled, [aria-disabled="true"]) .flint-icon[data-icon="settings"] { rotate: 30deg; }
+    .btn:hover:not(:disabled, [aria-disabled="true"]) .flint-icon[data-icon="download"] { translate: 0 2px; }
+    .btn:hover:not(:disabled, [aria-disabled="true"]) .flint-icon[data-icon="export"] { translate: 1px -1px; }
+    .btn:hover:not(:disabled, [aria-disabled="true"]) .flint-icon[data-icon="folderOpen2"] { rotate: -6deg; }
+    .btn:hover:not(:disabled, [aria-disabled="true"]) .flint-icon[data-icon="plus"] { rotate: 90deg; }
+    .btn:hover:not(:disabled, [aria-disabled="true"]) .flint-icon[data-icon="heart"] { scale: 1.12; }
+
+    .welcome__actions > .btn, .welcome__recent-item { animation: flint-row-in var(--motion-panel) backwards; }
+    .welcome__actions > :nth-child(2), .welcome__recent-item:nth-child(2) { animation-delay: 35ms; }
+    .welcome__recent-item:nth-child(3) { animation-delay: 70ms; }
+    .welcome__recent-item:nth-child(n+4) { animation-delay: 90ms; }
+    .welcome__recent-icon { transition: rotate var(--motion-spring); }
+    .welcome__recent-item:hover .welcome__recent-icon { rotate: -8deg; }
+
+    .btn--stacked { animation: flint-panel-in var(--motion-panel) backwards; }
+    .btn--stacked:nth-child(2) { animation-delay: 30ms; }
+    .btn--stacked:nth-child(3) { animation-delay: 60ms; }
+    .btn--stacked:nth-child(4) { animation-delay: 90ms; }
+    .btn--stacked:hover .flint-icon { translate: 0 -2px; scale: 1.08; }
+
+    .model-preview__popup, .dl-dd-portal, .pkr-menu { animation: flint-panel-in var(--motion-panel) backwards; }
+    .dl-tab--active { animation: flint-tab-in var(--motion-control); }
+    .checkbox-label input:checked::before, .radio-label input:checked::after { animation: flint-check-in var(--motion-spring); }
+    .settings-sidebar__item > span:first-child { transition: translate var(--motion-spring); }
+    .settings-sidebar__item:hover > span:first-child { translate: 2px 0; }
+    .settings-sidebar__item--active .flint-icon { animation: flint-check-in var(--motion-spring); }
+    .context-menu__icon { transition: translate var(--motion-control); }
+    .context-menu__item:hover > .context-menu__icon { translate: 1px 0; }
+    .toast-success .flint-icon, .toast--success .flint-icon { animation: flint-check-in var(--motion-spring); }
+    .form-range::-webkit-slider-thumb { transition: scale var(--motion-control); }
+    .form-range:active::-webkit-slider-thumb { scale: 1.12; }
+    .form-range::-moz-range-thumb { transition: scale var(--motion-control); }
+    .form-range:active::-moz-range-thumb { scale: 1.12; }
+  }
 }

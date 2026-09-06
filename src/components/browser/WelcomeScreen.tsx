@@ -1,4 +1,5 @@
 import { Button } from '../ui/Button';
+import { Icon } from '../ui/Icon';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useConfigStore, useModalStore, useAppMetadataStore, useNotificationStore } from '../../lib/stores';
 import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
@@ -228,10 +229,7 @@ export const WelcomeScreen: React.FC = () => {
                         </Button>
 
                         <Button variant="secondary" size="xl" onClick={handleOpenWadExplorer}>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="2" />
-                                <path d="M3 9h18M8 5V3m8 2V3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                            </svg>
+                            <Icon name="wad" />
                             <span>{t('welcome.wadExplorer')}</span>
                         </Button>
                     </div>

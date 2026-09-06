@@ -1,3 +1,4 @@
+import { motionDuration } from '../../lib/ui-helpers/motion';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useModalStore } from '../../lib/stores';
 import type { ContextMenuOption } from '../../lib/types';
@@ -165,11 +166,16 @@ export const ContextMenu: React.FC = () => {
             return;
         }
         if (!snapshot) return;
+        if (motionDuration(EXIT_MS) === 0) {
+            setSnapshot(null);
+            setClosing(false);
+            return;
+        }
         setClosing(true);
         const t = setTimeout(() => {
             setSnapshot(null);
             setClosing(false);
-        }, EXIT_MS);
+        }, motionDuration(EXIT_MS));
         return () => clearTimeout(t);
     }, [menu]); // eslint-disable-line react-hooks/exhaustive-deps
 

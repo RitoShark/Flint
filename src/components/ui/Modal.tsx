@@ -1,3 +1,4 @@
+import { motionDuration } from '../../lib/ui-helpers/motion';
 import { Button } from './Button';
 import React, { useEffect, useState } from 'react';
 import { Spinner } from './Spinner';
@@ -45,11 +46,16 @@ export const Modal: React.FC<ModalProps> = ({
             return;
         }
         if (!mounted) return;
+        if (motionDuration(MODAL_EXIT_MS) === 0) {
+            setMounted(false);
+            setClosing(false);
+            return;
+        }
         setClosing(true);
         const t = setTimeout(() => {
             setMounted(false);
             setClosing(false);
-        }, MODAL_EXIT_MS);
+        }, motionDuration(MODAL_EXIT_MS));
         return () => clearTimeout(t);
     }, [open, mounted]);
 

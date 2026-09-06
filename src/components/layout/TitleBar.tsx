@@ -1,3 +1,4 @@
+import { motionDuration } from '../../lib/ui-helpers/motion';
 import React, { useCallback, useState, useMemo, useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { save } from '@tauri-apps/plugin-dialog';
@@ -75,7 +76,7 @@ const Tab: React.FC<TabProps> = ({ tab, isActive, onSwitch, onClose }) => {
         e.stopPropagation();
         if (closing) return;
         setClosing(true);
-        setTimeout(() => onClose(e), TAB_CLOSE_MS);
+        setTimeout(() => onClose(e), motionDuration(TAB_CLOSE_MS));
     }, [onClose, closing]);
 
     const handleMiddleClick = useCallback((e: React.MouseEvent) => {
@@ -137,7 +138,7 @@ const ExtractTab: React.FC<ExtractTabProps> = ({ session, isActive, onSwitch, on
         e.stopPropagation();
         if (closing) return;
         setClosing(true);
-        setTimeout(() => onClose(e), TAB_CLOSE_MS);
+        setTimeout(() => onClose(e), motionDuration(TAB_CLOSE_MS));
     }, [onClose, closing]);
 
     const handleMiddleClick = useCallback((e: React.MouseEvent) => {
@@ -195,7 +196,7 @@ const ManifestTab: React.FC<ManifestTabProps> = ({ label, isActive, onSwitch, on
         e.stopPropagation();
         if (closing) return;
         setClosing(true);
-        setTimeout(() => onClose(e), TAB_CLOSE_MS);
+        setTimeout(() => onClose(e), motionDuration(TAB_CLOSE_MS));
     }, [onClose, closing]);
     const handleMiddleClick = useCallback((e: React.MouseEvent) => {
         if (e.button === 1) { e.preventDefault(); triggerClose(e); }
@@ -235,7 +236,7 @@ const ArchiveTab: React.FC<ArchiveTabProps> = ({ tab, isActive, onSwitch, onClos
         e.stopPropagation();
         if (closing) return;
         setClosing(true);
-        setTimeout(() => onClose(e), TAB_CLOSE_MS);
+        setTimeout(() => onClose(e), motionDuration(TAB_CLOSE_MS));
     }, [onClose, closing]);
 
     const handleMiddleClick = useCallback((e: React.MouseEvent) => {

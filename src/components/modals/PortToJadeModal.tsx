@@ -148,7 +148,7 @@ export const PortToJadeModal: React.FC = () => {
             closeModal();
         } catch (err) {
             const fe = err as api.FlintError;
-            showToast('error', fe.getUserMessage?.() || `Port to Jade failed: ${err}`);
+            showToast('error', fe.getUserMessage?.() || `Port To Classic failed: ${err}`);
         } finally {
             setBusy(false);
         }
@@ -156,9 +156,9 @@ export const PortToJadeModal: React.FC = () => {
 
     return (
         <Modal open={isVisible} onClose={busy ? () => {} : closeModal}>
-            {busy && <ModalLoading text="Porting to Jade" progress="Writing BIN files…" />}
+            {busy && <ModalLoading text="Porting to Classic" progress="Writing BIN files…" />}
 
-            <ModalHeader title="Port to Jade" onClose={closeModal} />
+            <ModalHeader title="Port To Classic" onClose={closeModal} />
 
             <ModalBody>
                 <p className="skin-port__intro">

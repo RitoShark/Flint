@@ -1540,12 +1540,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                             onClick={() => setActivePopup(activePopup === 'display' ? null : 'display')}
                             title="Display & Skeleton"
                         >
-                            {/* Skeleton/rig glyph (currentColor so it themes) — distinct
-                                from the Materials "picture" icon. */}
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <circle cx="12" cy="4.5" r="2" />
-                                <path d="M12 6.5v6M6.5 9.5h11M9.5 12.5l-2 5M14.5 12.5l2 5" />
-                            </svg>
+                            <span dangerouslySetInnerHTML={{ __html: getIcon('skeleton') }} />
                         </Button>
                         <Button
                             className="model-preview__control-btn" variant="secondary" size="md" iconOnly active={activePopup === 'materials'}

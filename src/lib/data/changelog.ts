@@ -121,8 +121,8 @@ export const CHANGELOG: VersionChangelog[] = [
             {
                 icon: 'copy',
                 tag: 'feature',
-                title: 'Port to Jade and NoSkinLite',
-                description: 'Two new project actions. Port to Jade clones a skin onto the matching League Classic character, offering exactly the skin slots that character actually has. NoSkinLite clones a skin-0 project across a range of slots so it shows up regardless of which skin the player owns. Neither ever overwrites an existing BIN, so both are safe to re-run.',
+                title: 'Port To Classic and NoSkinLite',
+                description: 'Two new project actions. Port To Classic clones a skin onto the matching League Classic character, offering exactly the skin slots that character actually has. NoSkinLite clones a skin-0 project across a range of slots so it shows up regardless of which skin the player owns. Neither ever overwrites an existing BIN, so both are safe to re-run.',
             },
             {
                 icon: 'texture',

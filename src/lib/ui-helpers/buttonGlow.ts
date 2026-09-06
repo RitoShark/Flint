@@ -5,22 +5,22 @@ export function installButtonGlow() {
     if (installed || typeof document === 'undefined') return;
     installed = true;
 
-    let pending = false;
+    let frame = 0;
     let lastEvent: { x: number; y: number; target: HTMLElement | null } | null = null;
     let cachedTarget: HTMLElement | null = null;
     let cachedRect: DOMRect | null = null;
 
     const flush = () => {
-        pending = false;
+        frame = 0;
         const ev = lastEvent;
         if (!ev) return;
-        const target = ev.target?.closest<HTMLElement>('.btn, .np-champ-card') ?? null;
+        const target = ev.target?.closest<HTMLElement>('.btn:not(.btn--ghost), .np-champ-card') ?? null;
         if (!target) {
             cachedTarget = null;
             cachedRect = null;
             return;
         }
-        if (target !== cachedTarget) {
+        if (target !== cachedTarget || !cachedRect) {
             cachedTarget = target;
             cachedRect = target.getBoundingClientRect();
         }
@@ -31,9 +31,8 @@ export function installButtonGlow() {
 
     const onMouseMove = (e: MouseEvent) => {
         lastEvent = { x: e.clientX, y: e.clientY, target: e.target as HTMLElement | null };
-        if (!pending) {
-            pending = true;
-            requestAnimationFrame(flush);
+        if (!frame) {
+            frame = requestAnimationFrame(flush);
         }
     };
 
@@ -46,6 +45,9 @@ export function installButtonGlow() {
     window.addEventListener('resize', invalidate, { passive: true });
 
     teardown = () => {
+        cancelAnimationFrame(frame);
+        frame = 0;
+        lastEvent = null;
         document.removeEventListener('mousemove', onMouseMove);
         window.removeEventListener('scroll', invalidate, { capture: true } as EventListenerOptions);
         window.removeEventListener('resize', invalidate);

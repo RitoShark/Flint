@@ -18,7 +18,7 @@
   font-weight: 500;
   border-radius: 6px;
   cursor: pointer;
-  transition: color var(--dl-fast);
+  transition: color var(--dl-fast), background var(--motion-fast), box-shadow var(--motion-fast);
 }
 
 .dl-tab:hover { color: var(--text-primary); }
