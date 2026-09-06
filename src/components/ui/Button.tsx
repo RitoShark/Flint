@@ -7,7 +7,7 @@ export type ButtonSize = 'sm' | 'md' | 'lg' | 'xl';
 export interface ButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children' | 'dangerouslySetInnerHTML'> {
     variant?: ButtonVariant;
     size?: ButtonSize;
-    layout?: 'inline' | 'stacked';
+    layout?: 'inline' | 'stacked' | 'tile';
     icon?: IconName;
     iconRight?: IconName;
     iconOnly?: boolean;
@@ -57,7 +57,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             'btn',
             variantClass[variant],
             sizeClass[size],
-            layout === 'stacked' ? 'btn--stacked' : '',
+            layout === 'stacked' ? 'btn--stacked' : layout === 'tile' ? 'btn--tile' : '',
             iconOnly ? 'btn--icon' : '',
             active ? 'btn--active' : '',
             loading ? 'btn--loading' : '',

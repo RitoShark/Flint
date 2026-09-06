@@ -181,12 +181,12 @@ html[data-fps="on"] *, html[data-fps="on"] *::before, html[data-fps="on"] *::aft
     .btn:hover:not(:disabled, [aria-disabled="true"]) .flint-icon[data-icon="plus"] { rotate: 90deg; }
     .btn:hover:not(:disabled, [aria-disabled="true"]) .flint-icon[data-icon="heart"] { scale: 1.12; }
 
-    .welcome__actions > .btn, .welcome__recent-item { animation: flint-row-in var(--motion-panel) backwards; }
-    .welcome__actions > :nth-child(2), .welcome__recent-item:nth-child(2) { animation-delay: 35ms; }
-    .welcome__recent-item:nth-child(3) { animation-delay: 70ms; }
-    .welcome__recent-item:nth-child(n+4) { animation-delay: 90ms; }
-    .welcome__recent-icon { transition: rotate var(--motion-spring); }
-    .welcome__recent-item:hover .welcome__recent-icon { rotate: -8deg; }
+    .welcome__tiles > .btn, .welcome__recent-item { animation: flint-row-in var(--motion-panel) backwards; }
+    .welcome__tiles > :nth-child(2), .welcome__recent-item:nth-child(2) { animation-delay: 35ms; }
+    .welcome__tiles > :nth-child(3), .welcome__recent-item:nth-child(3) { animation-delay: 70ms; }
+    .welcome__tiles > :nth-child(4), .welcome__recent-item:nth-child(n+4) { animation-delay: 90ms; }
+    .welcome__recent-icon svg { transition: rotate var(--motion-spring); }
+    .welcome__recent-item:hover .welcome__recent-icon svg { rotate: -8deg; }
 
     .btn--stacked { animation: flint-panel-in var(--motion-panel) backwards; }
     .btn--stacked:nth-child(2) { animation-delay: 30ms; }

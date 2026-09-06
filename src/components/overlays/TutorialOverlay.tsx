@@ -45,7 +45,7 @@ const STEPS: Step[] = [
     {
         title: 'Create a Mod Project',
         body: "Click here to start a new mod. We'll walk through the creation flow so you know exactly what to expect.",
-        selector: '.welcome__column--left .btn--primary',
+        selector: '.welcome__tiles [data-action="create-project"]',
         placement: 'below',
     },
     {
@@ -101,13 +101,13 @@ const STEPS: Step[] = [
     {
         title: 'Open or Import a Project',
         body: 'Load a project you have worked on before, or import a .fantome / .modpkg file from another tool. Recent projects appear below for quick access.',
-        selector: '.welcome__column--left .btn--secondary',
+        selector: '.welcome__tiles [data-action="open-mods"]',
         placement: 'below',
     },
     {
         title: 'Browse Raw Game Files',
         body: 'Open WAD archives straight from your League install to extract individual assets — no project needed. Great for hunting down specific textures or meshes.',
-        selector: '.welcome__column--right .welcome__actions',
+        selector: '.welcome__tiles [data-action="browse-wad"]',
         placement: 'below',
     },
     {

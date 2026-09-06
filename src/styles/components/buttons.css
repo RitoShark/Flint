@@ -71,6 +71,40 @@
   padding-block: var(--btn-px-md);
 }
 
+.btn--tile {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 14px;
+  height: auto;
+  min-height: 124px;
+  padding: 18px 20px;
+  border-radius: var(--dl-radius);
+  white-space: normal;
+  text-align: left;
+}
+
+.btn--tile .btn__icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: color-mix(in oklab, var(--text-muted) 14%, transparent);
+  color: var(--text-secondary);
+  transition: background var(--dl-base), color var(--dl-base);
+}
+
+.btn--tile .btn__icon svg { width: 20px; height: 20px; color: inherit; }
+
+.btn--tile.btn--primary .btn__icon,
+.btn--tile:hover:not(:disabled) .btn__icon {
+  background: color-mix(in oklab, var(--button-tone) 24%, transparent);
+  color: color-mix(in oklab, var(--button-tone) 40%, #fff);
+}
+
+.btn--tile .btn__label { flex-direction: column; align-items: flex-start; gap: 3px; }
+.btn--tile .btn__title { font-size: 15px; font-weight: 600; line-height: 1.2; }
+.btn--tile .btn__sub { font-size: 12.5px; font-weight: 400; line-height: 1.35; color: var(--text-muted); }
+
 .btn--icon { width: var(--button-height); padding: 0; }
 .btn--full-width { width: 100%; }
 

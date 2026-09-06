@@ -18,13 +18,7 @@ const ClockIcon: React.FC = () => (
     </svg>
 );
 
-
-// =============================================================================
-// Welcome Screen
-// =============================================================================
-
-/** How many recent projects to show before "Show all" is clicked. */
-const RECENT_DEFAULT_LIMIT = 3;
+const RECENT_DEFAULT_LIMIT = 5;
 
 export const WelcomeScreen: React.FC = () => {
     const { t } = useTranslation();
@@ -40,11 +34,6 @@ export const WelcomeScreen: React.FC = () => {
     const [showAllRecent, setShowAllRecent] = useState(false);
     const dropZoneRef = useRef<HTMLDivElement>(null);
 
-    // Drop recents whose folder is gone. App.tsx also sweeps once ~3s after
-    // launch, but a project deleted while Flint is running would otherwise sit
-    // in the list until the next restart — so re-check whenever the list is
-    // actually shown. Reads the store directly instead of depending on
-    // `recentProjects`, which would re-run the effect on every prune.
     useEffect(() => {
         let cancelled = false;
         (async () => {
@@ -58,15 +47,12 @@ export const WelcomeScreen: React.FC = () => {
                     useConfigStore.getState().setRecentProjects(valid);
                 }
             } catch (error) {
-                // Non-fatal: a failed check just leaves the list as-is.
                 console.debug('[Welcome] recent-project validity check failed:', error);
             }
         })();
         return () => { cancelled = true; };
     }, []);
 
-    // Drop a Flint project folder to open it, or an extracted WAD folder to
-    // import it. The whole welcome surface is the target.
     const handleDroppedFolder = useCallback(async (path: string) => {
         const outcome = await openOrImportFolder(path);
         if (outcome.kind === 'rejected') {
@@ -76,8 +62,6 @@ export const WelcomeScreen: React.FC = () => {
         }
     }, [showToast]);
 
-    // Stand down while any modal is open — the project list renders its own
-    // drop zone on top, and both listeners would otherwise fire for one drop.
     const dragOver = useFolderDrop(handleDroppedFolder, {
         zoneRef: dropZoneRef,
         enabled: activeModal === null,
@@ -109,10 +93,6 @@ export const WelcomeScreen: React.FC = () => {
         }
     };
 
-    const handleOpenProject = () => {
-        openModal('projectList');
-    };
-
     const handleRemoveRecent = (e: React.MouseEvent, projectPath: string) => {
         e.stopPropagation();
         useConfigStore.getState().setRecentProjects(
@@ -120,9 +100,9 @@ export const WelcomeScreen: React.FC = () => {
         );
     };
 
-    const handleOpenWadExplorer = () => {
-        navigationCoordinator.openWadExplorer();
-    };
+    const total = recentProjects.length;
+    const visible = recentProjects.slice(0, showAllRecent ? total : RECENT_DEFAULT_LIMIT);
+    const hidden = total - visible.length;
 
     return (
         <div className={`welcome ${dragOver ? 'welcome--drag-over' : ''}`} ref={dropZoneRef}>
@@ -133,108 +113,100 @@ export const WelcomeScreen: React.FC = () => {
                     <span className="welcome__drop-hint">{t('welcome.dropHint')}</span>
                 </div>
             )}
-            <div className="welcome__header">
-                <h1 className="welcome__greeting">
-                    {t(greetingKey)}, <span className="welcome__creator-name">{creatorName}</span>
-                </h1>
+
+            <section className="welcome__hero">
+                <p className="welcome__greeting">{t(greetingKey)},</p>
+                <h1 className="welcome__creator-name">{creatorName}</h1>
                 <p className="welcome__subtitle">{t('welcome.subtitle')}</p>
-            </div>
 
-            <div className="welcome__columns">
-                <div className="welcome__column welcome__column--left">
-                    <h2 className="welcome__column-title">{t('welcome.folders')}</h2>
+                <div className="welcome__tiles">
+                    <Button variant="primary" layout="tile" icon="plus" data-action="create-project" onClick={() => openModal('newProject')}>
+                        <span className="btn__label">
+                            <span className="btn__title">{t('welcome.createProject')}</span>
+                            <span className="btn__sub">{t('welcome.createProjectSub')}</span>
+                        </span>
+                    </Button>
+                    <Button layout="tile" icon="wad" data-action="wad-explorer" onClick={() => navigationCoordinator.openWadExplorer()}>
+                        <span className="btn__label">
+                            <span className="btn__title">{t('welcome.wadExplorer')}</span>
+                            <span className="btn__sub">{t('welcome.wadExplorerSub')}</span>
+                        </span>
+                    </Button>
+                    <Button layout="tile" icon="folderOpen2" data-action="open-mods" onClick={() => openModal('projectList')}>
+                        <span className="btn__label">
+                            <span className="btn__title">{t('welcome.openMods')}</span>
+                            <span className="btn__sub">{t('welcome.openModsSub')}</span>
+                        </span>
+                    </Button>
+                    <Button layout="tile" icon="package" data-action="browse-wad" onClick={() => openModal('browseWad')}>
+                        <span className="btn__label">
+                            <span className="btn__title">{t('welcome.browseWadFile')}</span>
+                            <span className="btn__sub">{t('welcome.browseWadFileSub')}</span>
+                        </span>
+                    </Button>
+                </div>
+            </section>
 
-                    <div className="welcome__actions">
-                        <Button variant="primary" size="xl" onClick={() => openModal('newProject')}>
-                            <span>{t('welcome.createProject')}</span>
-                            <span dangerouslySetInnerHTML={{ __html: getIcon('plus') }} />
-                        </Button>
-
-                        <Button variant="secondary" size="xl" onClick={handleOpenProject}>
-                            <span>{t('welcome.openMods')}</span>
-                            <span dangerouslySetInnerHTML={{ __html: getIcon('folderOpen2') }} />
-                        </Button>
-                    </div>
-
-                    {recentProjects.length > 0 && (() => {
-                        const total = recentProjects.length;
-                        const limit = showAllRecent ? total : RECENT_DEFAULT_LIMIT;
-                        const visible = recentProjects.slice(0, limit);
-                        const hidden = total - visible.length;
-                        return (
-                            <div className="welcome__recent">
-                                <h3 className="welcome__recent-title">
-                                    <ClockIcon />
-                                    <span>{t('welcome.recentFolders')}</span>
-                                    <span className="welcome__recent-count">{total}</span>
-                                </h3>
-                                <div className="welcome__recent-list">
-                                    {visible.map((project: RecentProject) => (
-                                         <div
-                                            key={project.path}
-                                            className="welcome__recent-item"
-                                            onClick={() => openRecentProject(project.path)}
+            <aside className="welcome__recent">
+                {total > 0 && (
+                    <>
+                        <h3 className="welcome__recent-title">
+                            <ClockIcon />
+                            <span>{t('welcome.recentFolders')}</span>
+                            <span className="welcome__recent-count">{total}</span>
+                        </h3>
+                        <div className="welcome__recent-list">
+                            {visible.map((project: RecentProject) => (
+                                <div
+                                    key={project.path}
+                                    className="welcome__recent-item"
+                                    onClick={() => openRecentProject(project.path)}
+                                >
+                                    <Icon name="folder" className="welcome__recent-icon" />
+                                    <span className="welcome__recent-info">
+                                        <span className="welcome__recent-name">{project.name}</span>
+                                        <span className="welcome__recent-path">{project.path}</span>
+                                    </span>
+                                    <span className="welcome__recent-actions">
+                                        <span className="welcome__recent-date">
+                                            {formatRelativeTime(project.lastOpened)}
+                                        </span>
+                                        <Button
+                                            className="welcome__recent-delete" variant="ghost" size="sm" iconOnly
+                                            onClick={(e) => handleRemoveRecent(e, project.path)}
+                                            title={t('welcome.removeRecent')}
                                         >
-                                            <div className="welcome__recent-info">
-                                                <span className="welcome__recent-icon" dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
-                                                <span className="welcome__recent-name">
-                                                    {project.name}
-                                                </span>
-                                            </div>
-                                            <div className="welcome__recent-actions">
-                                                <span className="welcome__recent-date">
-                                                    {formatRelativeTime(project.lastOpened)}
-                                                </span>
-                                                <Button
-                                                    className="welcome__recent-delete" variant="ghost" size="sm" iconOnly
-                                                    onClick={(e) => handleRemoveRecent(e, project.path)}
-                                                    title={t('welcome.removeRecent')}
-                                                >
-                                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                                        <path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                                                    </svg>
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    ))}
+                                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                                <path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                                            </svg>
+                                        </Button>
+                                    </span>
                                 </div>
-                                {(hidden > 0 || showAllRecent) && total > RECENT_DEFAULT_LIMIT && (
-                                    <Button
-                                        type="button"
-                                        className="welcome__recent-toggle" variant="ghost" size="sm"
-                                        onClick={() => setShowAllRecent((v) => !v)}
-                                    >
-                                        {showAllRecent
-                                            ? t('welcome.showFewer')
-                                            : t('welcome.showAll', { count: hidden })}
-                                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ transform: showAllRecent ? 'rotate(180deg)' : 'none', transition: 'transform 220ms ease' }}>
-                                            <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                                        </svg>
-                                    </Button>
-                                )}
-                            </div>
-                        );
-                    })()}
+                            ))}
+                        </div>
+                        {total > RECENT_DEFAULT_LIMIT && (
+                            <Button
+                                className="welcome__recent-toggle" variant="ghost" size="sm"
+                                onClick={() => setShowAllRecent((v) => !v)}
+                            >
+                                {showAllRecent
+                                    ? t('welcome.showFewer')
+                                    : t('welcome.showAll', { count: hidden })}
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ transform: showAllRecent ? 'rotate(180deg)' : 'none', transition: 'transform 220ms ease' }}>
+                                    <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                            </Button>
+                        )}
+                    </>
+                )}
+                <div className="welcome__drop-note">
+                    <Icon name="import" className="welcome__drop-note-icon" />
+                    <span>
+                        <strong>{t('welcome.dropTitle')}</strong>
+                        {t('welcome.dropHint')}
+                    </span>
                 </div>
-
-                <div className="welcome__divider"></div>
-
-                <div className="welcome__column welcome__column--right">
-                    <h2 className="welcome__column-title">{t('welcome.exploreFiles')}</h2>
-
-                    <div className="welcome__actions">
-                        <Button variant="secondary" size="xl" onClick={() => openModal('browseWad')}>
-                            <span dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
-                            <span>{t('welcome.browseWadFile')}</span>
-                        </Button>
-
-                        <Button variant="secondary" size="xl" onClick={handleOpenWadExplorer}>
-                            <Icon name="wad" />
-                            <span>{t('welcome.wadExplorer')}</span>
-                        </Button>
-                    </div>
-                </div>
-            </div>
+            </aside>
         </div>
     );
 };
