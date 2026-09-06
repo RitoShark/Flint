@@ -109,8 +109,6 @@ export const pl: TranslationDict = {
     'welcome.openModsSub': 'Przeglądaj folder projektów',
     'welcome.recentFolders': 'Ostatnio otwierane',
     'welcome.removeRecent': 'Usuń z listy',
-    'welcome.showFewer': 'Pokaż mniej',
-    'welcome.showAll': 'Pokaż wszystkie (jeszcze {count})',
     'welcome.browseWadFile': 'Otwórz plik WAD',
     'welcome.browseWadFileSub': 'Otwórz .wad.client bez projektu',
     'welcome.wadExplorer': 'Eksplorator WAD',

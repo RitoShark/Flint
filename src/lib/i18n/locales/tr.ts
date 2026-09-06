@@ -109,8 +109,6 @@ export const tr: TranslationDict = {
     'welcome.openModsSub': 'Proje klasörüne göz at',
     'welcome.recentFolders': 'Son Çalışılanlar',
     'welcome.removeRecent': 'Listeden kaldır',
-    'welcome.showFewer': 'Daha az göster',
-    'welcome.showAll': 'Tümünü göster ({count} tane daha)',
     'welcome.browseWadFile': 'WAD Dosyası Aç',
     'welcome.browseWadFileSub': 'Projesiz bir .wad.client aç',
     'welcome.wadExplorer': 'WAD Gezgini',

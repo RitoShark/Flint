@@ -30,8 +30,6 @@ const RecentArt: React.FC<{ project: RecentProject }> = ({ project }) => {
     );
 };
 
-const RECENT_DEFAULT_LIMIT = 5;
-
 export const WelcomeScreen: React.FC = () => {
     const { t } = useTranslation();
     const recentProjects = useConfigStore((s) => s.recentProjects);
@@ -43,7 +41,6 @@ export const WelcomeScreen: React.FC = () => {
     const setError = useAppMetadataStore((s) => s.setError);
     const showToast = useNotificationStore((s) => s.showToast);
     const [greetingKey, setGreetingKey] = useState('welcome.greeting.morning');
-    const [showAllRecent, setShowAllRecent] = useState(false);
     const dropZoneRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -112,12 +109,15 @@ export const WelcomeScreen: React.FC = () => {
         );
     };
 
-    const total = recentProjects.length;
-    const visible = recentProjects.slice(0, showAllRecent ? total : RECENT_DEFAULT_LIMIT);
-    const hidden = total - visible.length;
+    const trackPointer = (e: React.PointerEvent<HTMLDivElement>) => {
+        const el = e.currentTarget;
+        const rect = el.getBoundingClientRect();
+        el.style.setProperty('--mx', `${e.clientX - rect.left}px`);
+        el.style.setProperty('--my', `${e.clientY - rect.top + el.scrollTop}px`);
+    };
 
     return (
-        <div className={`welcome ${dragOver ? 'welcome--drag-over' : ''}`} ref={dropZoneRef}>
+        <div className={`welcome ${dragOver ? 'welcome--drag-over' : ''}`} ref={dropZoneRef} onPointerMove={trackPointer}>
             {dragOver && (
                 <div className="welcome__drop-overlay">
                     <span className="welcome__drop-icon" dangerouslySetInnerHTML={{ __html: getIcon('folderOpen2') }} />
@@ -160,15 +160,15 @@ export const WelcomeScreen: React.FC = () => {
             </section>
 
             <aside className="welcome__recent">
-                {total > 0 && (
+                {recentProjects.length > 0 && (
                     <>
                         <h3 className="welcome__recent-title">
                             <ClockIcon />
                             <span>{t('welcome.recentFolders')}</span>
-                            <span className="welcome__recent-count">{total}</span>
+                            <span className="welcome__recent-count">{recentProjects.length}</span>
                         </h3>
                         <div className="welcome__recent-list">
-                            {visible.map((project: RecentProject) => (
+                            {recentProjects.map((project: RecentProject) => (
                                 <div
                                     key={project.path}
                                     className="welcome__recent-item"
@@ -177,12 +177,9 @@ export const WelcomeScreen: React.FC = () => {
                                     <RecentArt project={project} />
                                     <span className="welcome__recent-info">
                                         <span className="welcome__recent-name">{project.name}</span>
-                                        <span className="welcome__recent-path">{project.path}</span>
+                                        <span className="welcome__recent-date">{formatRelativeTime(project.lastOpened)}</span>
                                     </span>
                                     <span className="welcome__recent-actions">
-                                        <span className="welcome__recent-date">
-                                            {formatRelativeTime(project.lastOpened)}
-                                        </span>
                                         <Button
                                             className="welcome__recent-delete" variant="ghost" size="sm" iconOnly
                                             onClick={(e) => handleRemoveRecent(e, project.path)}
@@ -196,19 +193,6 @@ export const WelcomeScreen: React.FC = () => {
                                 </div>
                             ))}
                         </div>
-                        {total > RECENT_DEFAULT_LIMIT && (
-                            <Button
-                                className="welcome__recent-toggle" variant="ghost" size="sm"
-                                onClick={() => setShowAllRecent((v) => !v)}
-                            >
-                                {showAllRecent
-                                    ? t('welcome.showFewer')
-                                    : t('welcome.showAll', { count: hidden })}
-                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ transform: showAllRecent ? 'rotate(180deg)' : 'none', transition: 'transform 220ms ease' }}>
-                                    <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                            </Button>
-                        )}
                     </>
                 )}
             </aside>
