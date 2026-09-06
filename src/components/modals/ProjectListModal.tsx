@@ -10,6 +10,7 @@ import { useFolderDrop } from '../../lib/folderDrop';
 import { openOrImportFolder, isSameProjectPath } from '../../lib/projectOpen';
 import { isJadeAlias, liveChampionAlias } from '../../lib/data/datadragon';
 import type { SavedProject } from '../../lib/types';
+import { thumbnailCache, useProjectArtUrl } from '../../lib/ui-helpers/projectArt';
 import { useTranslation } from '../../lib/i18n';
 
 type SortMode = 'recent' | 'name' | 'champion';
@@ -39,55 +40,6 @@ function hueFor(s: string): number {
     for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
     return h % 360;
 }
-
-function normalizeChampionAlias(alias: string): string {
-    if (!alias) return '';
-    const lower = alias.toLowerCase().replace(/['\s]/g, '');
-    
-    // Hardcoded overrides for champions with multiple capital letters or special casing in DDragon
-    const overrides: Record<string, string> = {
-        aurelionsol: 'AurelionSol',
-        belveth: 'BelVeth',
-        chogath: 'ChoGath',
-        drmundo: 'DrMundo',
-        jarvaniv: 'JarvanIV',
-        kaisa: 'KaiSa',
-        khazix: 'KhaZix',
-        kogmaw: 'KogMaw',
-        ksante: 'KSante',
-        leblanc: 'LeBlanc',
-        leesin: 'LeeSin',
-        masteryi: 'MasterYi',
-        missfortune: 'MissFortune',
-        nunu: 'Nunu',
-        reksai: 'RekSai',
-        renata: 'Renata',
-        renataglasc: 'Renata',
-        tahmkench: 'TahmKench',
-        twistedfate: 'TwistedFate',
-        velkoz: 'VelKoz',
-        xinzhao: 'XinZhao',
-        monkeyking: 'MonkeyKing',
-        wukong: 'MonkeyKing',
-    };
-
-    if (overrides[lower]) {
-        return overrides[lower];
-    }
-
-    // Default: Capitalize first letter (e.g. yone -> Yone)
-    return alias.charAt(0).toUpperCase() + alias.slice(1).toLowerCase();
-}
-
-/** Only valid for skin projects with a real champion alias; map /
- *  loading-screen projects fall back to the monogram tile. */
-function championSplashUrl(alias: string): string {
-    const normalized = normalizeChampionAlias(liveChampionAlias(alias));
-    return `https://ddragon.leagueoflegends.com/cdn/img/champion/loading/${normalized}_0.jpg`;
-}
-
-/** Keyed by absolute project path. */
-const thumbnailCache = new Map<string, string | null>();
 
 /** Keyed by image URL. */
 const colorCache = new Map<string, [number, number, number]>();
@@ -136,55 +88,6 @@ function extractDominantColor(img: HTMLImageElement): [number, number, number] |
     } catch {
         return null; // CORS taint, etc.
     }
-}
-
-/**
- * Resolve a project's tile artwork URL:
- *   1. `{project.path}/thumbnail.webp` via Tauri read — only when `visible`
- *      (lazy load via IntersectionObserver, so a big list doesn't fire a
- *      readFileBytes per card on open).
- *   2. Champion's centered DDragon splash (skin only — maps/loading-screens
- *      go straight to the monogram tile).
- *   3. null → caller renders the monogram fallback.
- */
-function useProjectArtUrl(project: SavedProject, visible: boolean) {
-    const [thumb, setThumb] = useState<string | null>(() => project.thumbnail ?? thumbnailCache.get(project.path) ?? null);
-    const [thumbFailed, setThumbFailed] = useState(thumbnailCache.get(project.path) === null && !project.thumbnail);
-    const cancelled = useRef(false);
-
-    useEffect(() => {
-        cancelled.current = false;
-        if (project.thumbnail) {
-            setThumb(project.thumbnail);
-            return;
-        }
-        if (!visible) return;
-        if (thumbnailCache.has(project.path)) return;
-        (async () => {
-            try {
-                const folder = project.path.replace(/[\\/](mod\.config|flint|project)\.json$/, '');
-                const thumbPath = `${folder.replace(/\\/g, '/')}/thumbnail.webp`;
-                const bytes = await api.readFileBytes(thumbPath, { silent: true });
-                if (cancelled.current) return;
-                const blob = new Blob([new Uint8Array(bytes)], { type: 'image/webp' });
-                const url = URL.createObjectURL(blob);
-                thumbnailCache.set(project.path, url);
-                setThumb(url);
-            } catch {
-                if (cancelled.current) return;
-                thumbnailCache.set(project.path, null);
-                setThumbFailed(true);
-            }
-        })();
-        return () => { cancelled.current = true; };
-    }, [project.path, visible, project.thumbnail]);
-
-    const hasSplashFallback = project.kind === 'skin' && !!project.champion;
-    return {
-        url: thumb ?? (thumbFailed && hasSplashFallback ? championSplashUrl(project.champion) : null),
-        isLoading: visible && !thumb && !thumbFailed,
-        usingFallback: thumbFailed,
-    };
 }
 
 const ProjectCard: React.FC<{

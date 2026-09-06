@@ -10,6 +10,7 @@ import { useFolderDrop } from '../../lib/folderDrop';
 import { openOrImportFolder, openProjectAt, isSameProjectPath } from '../../lib/projectOpen';
 import type { RecentProject } from '../../lib/types';
 import { useTranslation } from '../../lib/i18n';
+import { useProjectArtUrl } from '../../lib/ui-helpers/projectArt';
 
 const ClockIcon: React.FC = () => (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
@@ -17,6 +18,17 @@ const ClockIcon: React.FC = () => (
         <path d="M12 6v6l4 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
 );
+
+const RecentArt: React.FC<{ project: RecentProject }> = ({ project }) => {
+    const { url } = useProjectArtUrl({ path: project.path, champion: project.champion }, true);
+    const [failed, setFailed] = useState(false);
+    if (!url || failed) return <Icon name="folder" className="welcome__recent-icon" />;
+    return (
+        <span className="welcome__recent-icon welcome__recent-icon--art">
+            <img src={url} alt="" className="welcome__recent-art" onError={() => setFailed(true)} />
+        </span>
+    );
+};
 
 const RECENT_DEFAULT_LIMIT = 5;
 
@@ -162,7 +174,7 @@ export const WelcomeScreen: React.FC = () => {
                                     className="welcome__recent-item"
                                     onClick={() => openRecentProject(project.path)}
                                 >
-                                    <Icon name="folder" className="welcome__recent-icon" />
+                                    <RecentArt project={project} />
                                     <span className="welcome__recent-info">
                                         <span className="welcome__recent-name">{project.name}</span>
                                         <span className="welcome__recent-path">{project.path}</span>
@@ -199,13 +211,6 @@ export const WelcomeScreen: React.FC = () => {
                         )}
                     </>
                 )}
-                <div className="welcome__drop-note">
-                    <Icon name="import" className="welcome__drop-note-icon" />
-                    <span>
-                        <strong>{t('welcome.dropTitle')}</strong>
-                        {t('welcome.dropHint')}
-                    </span>
-                </div>
             </aside>
         </div>
     );
