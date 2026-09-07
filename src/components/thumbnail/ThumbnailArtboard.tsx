@@ -1287,7 +1287,7 @@ function LayerBody({ layer, preset, hue, fontVersion }: { layer: Layer; preset: 
     );
   }
   if (layer.type === 'model') {
-    // Placeholder body — real SKN preview lands in a later phase.
+    // The model renders on its own view canvas; this is the drag hit-proxy.
     return <div className="tb-body">{layer.name.split('—')[0].trim()}</div>;
   }
   if (layer.type === 'disc') {

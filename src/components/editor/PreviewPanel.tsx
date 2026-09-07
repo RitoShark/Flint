@@ -464,11 +464,6 @@ export const PreviewPanel: React.FC = () => {
             return <ModelPreview filePath={filePath} meshType="static" />;
         }
 
-        // TODO: Add SKL skeleton preview once ltk_mesh supports it
-        // if (fileInfo.extension === 'skl' || fileInfo.file_type === 'model/x-lol-skl') {
-        //     return <SkeletonPreview key={filePath} filePath={filePath} />;
-        // }
-
         return <UnknownPreview key={filePath} filePath={filePath} />;
     };
 

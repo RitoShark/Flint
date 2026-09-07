@@ -319,7 +319,7 @@ pub async fn read_bin_info(input_path: String) -> Result<BinInfo, String> {
 
     Ok(BinInfo {
         entry_count: bin.entries.len(),
-        version: 1, // TODO: Extract actual version from bin file if available
+        version: bin.version,
     })
 }
 

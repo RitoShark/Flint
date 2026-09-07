@@ -33,8 +33,7 @@ rustc-hash = "2"
 
 # league-toolkit format crates (tex/mesh/meta/ritobin/anim/file): FULLY REMOVED.
 # Flint's format handling is now 100% on ritoshark (tex/mesh/anim/file/rst/bin/wad).
-# With Hematite removed (2026-07-14) league-toolkit is fully out of the tree; the
-# league-mod crates below are unrelated to the format migration.
+# The league-mod crates below are unrelated to the format migration.
 
 # RitoShark crates (owner's workspace — migrating off league-toolkit onto these).
 # Pinned to main HEAD; bump as the owner pushes (WadBuilder, etc.). Default features = all formats.
@@ -56,10 +55,8 @@ flint-wad = { path = "../flint-wad" }
 intel_tex_2 = "0.4"
 
 
-# Hematite fixer: REMOVED 2026-07-14 (skin fixing disabled; owner is reworking
-# Hematite — its league-toolkit crate became hematite-file at rev 025c8ce). When it
-# returns, re-add hematite-types/core/file pinned to one rev and make sure its
-# rs_* pins match Flint's ritoshark rev (else duplicate rs_* copies compile).
+# Hematite fixer lives in crates/hematite-flint (re-integrated 2026-07-21). Its
+# rs_* pins must match Flint's ritoshark rev or two copies of each rs_* compile.
 
 # LMDB via heed — memory-mapped B-tree DB for fast hash lookups
 heed = "0.20"
