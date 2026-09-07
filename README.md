@@ -1,12 +1,6 @@
-<img align="left" width="300" src="flint-logo.png" alt="Flint">
+<div align="center">
 
-### Flint
-
-A skin modding studio for League of Legends.
-
-<br clear="left">
-
----
+<img src="docs/media/flint-logo.gif" alt="Flint" width="500">
 
 [![Rust](https://img.shields.io/badge/Rust-stable-orange?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![Tauri](https://img.shields.io/badge/Tauri-2.0-24C8D8?style=flat-square&logo=tauri)](https://tauri.app/)
@@ -15,10 +9,6 @@ A skin modding studio for League of Legends.
 [![License](https://img.shields.io/badge/License-AGPL--3.0-22c55e?style=flat-square)](LICENSE)
 
 [Download](#download) · [Features](#features) · [License](#license)
-
-<div align="center">
-
-<img src="docs/media/flint-logo.gif" alt="Flint" width="900">
 
 </div>
 
@@ -38,6 +28,8 @@ skin modding usually takes.
 
 <br>
 
+<img align="right" width="420" src="docs/shots/model-preview.png" alt="A skin project open in Flint">
+
 Pick a champion and a skin. Flint extracts it, repaths it onto your own asset folder, and lays it
 out as a project — not a heap of files named after hashes.
 
@@ -50,6 +42,8 @@ out as a project — not a heap of files named after hashes.
 - Port a skin to League Classic, strip it down for NoSkinLite, or push a base skin's edits across
   all of its chromas.
 
+<br clear="all">
+
 </details>
 
 <details>
@@ -57,14 +51,35 @@ out as a project — not a heap of files named after hashes.
 
 <br>
 
-Every file in the game archive, in a tree that expands instantly instead of making you wait for a
-full index.
+<img align="right" width="420" src="docs/shots/wad-explorer.png" alt="WAD Explorer">
+
+Every WAD in the game, in a tree that expands instantly instead of making you wait for a full
+index to build.
 
 - One search box. Type an extension, a substring, or a regex — there is no mode to switch.
   Results stay collapsed so a common word doesn't bury you.
 - Names resolve to readable paths, so you're not reading hex.
-- Or skip your install entirely: pull a manifest straight from Riot's CDN by region and patch, and
-  extract whole WADs, single folders, or one file.
+- Tick the files you want and extract them, or pull a whole folder at once.
+
+<br clear="all">
+
+</details>
+
+<details>
+<summary><b>CDN</b> · pull a patch straight from Riot without installing it</summary>
+
+<br>
+
+<img align="right" width="420" src="docs/shots/cdn.png" alt="Load from CDN">
+
+Pick a platform, a kind and a region, and Flint lists every manifest Riot is serving — by patch and
+build number.
+
+Load one and it browses exactly like a local WAD, so you can pull an asset from a patch you don't
+have installed, or compare something against a build you've already moved past. Manifests you've
+already downloaded are marked.
+
+<br clear="all">
 
 </details>
 
@@ -72,6 +87,8 @@ full index.
 <summary><b>Preview</b> · look at things before you break them</summary>
 
 <br>
+
+<img align="right" width="420" src="docs/shots/texture-preview.png" alt="Texture preview">
 
 - **Models** — SKN, SKL, SCB and SCO, with skeletons and animations, framed correctly whether it's
   Teemo or Cho'Gath.
@@ -81,12 +98,19 @@ full index.
 - **The rest** — BIN, ritobin, troybin, luabin, RST string tables, inibin and cfgbin, manifests.
   Most of them are editable, not just readable.
 
+Every preview tells you what the file actually is — a texture's real format and dimensions, a
+mesh's size — so you find out something is a `Bc1` 308×560 before you spend an hour on it.
+
+<br clear="all">
+
 </details>
 
 <details>
 <summary><b>BIN editing</b> · a real editor, not a text box</summary>
 
 <br>
+
+<img align="right" width="420" src="docs/shots/bin-editor.png" alt="BIN editor">
 
 Monaco with a proper ritobin language behind it — highlighting, folding, a minimap, and bracket
 checking that understands blocks instead of counting braces, so it only speaks up when something
@@ -98,6 +122,8 @@ is genuinely unbalanced.
 - Compare two BINs properly, whole file, not a selection of hunks.
 - An optional [ritobin language server](docs/ritobin-lsp.md) for completion and diagnostics. Off by
   default, and it downloads no hashes of its own — names come from your local database.
+
+<br clear="all">
 
 </details>
 
