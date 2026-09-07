@@ -102,15 +102,15 @@ is genuinely unbalanced.
 </details>
 
 <details>
-<summary><b>3D editor</b> · edit the mesh, not just look at it</summary>
+<summary><b>Textures and meshes</b> · get a skin ready to paint on</summary>
 
 <br>
 
-- Delete submeshes, and paste geometry between two files — remapped by joint name, because raw
-  blend indices mean nothing across two different skeletons.
-- Paint weights, with an x-ray view of the skeleton underneath.
-- Cut a skin's textures into Photoshop layers along their UV islands, so you can paint on the parts
+- Cut a skin's textures into Photoshop layers along their UV islands, so you paint on the parts
   instead of on one flat atlas.
+- Toggle submeshes on and off in the preview to see what a piece of the model actually is.
+- Convert PNGs to TEX or DDS on the way in. DDS export is deliberately limited to the formats
+  League's loader can read — a BC7 DDS crashes the client, so Flint won't write one.
 
 </details>
 
