@@ -1,0 +1,80 @@
+name: Bug report
+description: Something in Flint is broken
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: make sure you are on the latest release, since Flint updates itself and the
+        bug may already be gone.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, and what Flint did instead of what you expected.
+      placeholder: |
+        I opened a .fantome from 2024 and hit Import. The import finished but the
+        skin BIN was empty.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. New project from Ahri, skin 3
+        2. Right click the skin BIN, Organize VFX
+        3. Export as .fantome
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Flint version
+      description: Settings, or the installer filename.
+      placeholder: "2.9.7"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where in Flint
+      options:
+        - Project creation or import
+        - WAD explorer or CDN
+        - Preview (model, texture, audio, map)
+        - BIN editor
+        - Thumbnails or loadscreens
+        - Check files or Skin Fixer
+        - Export or launcher sync
+        - Something else
+    validations:
+      required: true
+
+  - type: input
+    id: patch
+    attributes:
+      label: League patch
+      description: Only matters if the bug involves reading game files.
+      placeholder: "16.12"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log
+      description: >
+        Logs are in %APPDATA%\Flint\logs\, one file per day. Paste the part from around when it
+        broke, or attach the file. Paths in it may include your username, so trim it if you care.
+      render: text
+
+  - type: textarea
+    id: files
+    attributes:
+      label: Files
+      description: >
+        A project folder or mod package that reproduces it helps a lot. Do not attach Riot's
+        assets, just your own mod files or a link.

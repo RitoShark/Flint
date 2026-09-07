@@ -1,0 +1,26 @@
+name: Feature request
+description: Ask for something Flint does not do yet
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: Describe the actual modding task, not the feature you already have in mind.
+      placeholder: |
+        I redo the same six recolors every time a skin gets a new chroma, and I have
+        to redo them by hand in Photoshop each time.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: Optional. If you already know what you want it to look like, say so.
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: How you do it today
+      description: Another tool, a script, or by hand. Useful for judging how much this is worth.
