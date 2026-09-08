@@ -34,7 +34,7 @@ import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { createEngine } from '../../lib/babylon/engine';
 import { buildSknMeshes, type MeshDTO } from '../../lib/babylon/meshBuilder';
 import { buildBabylonSkeleton, type BoneData } from '../../lib/babylon/skeletonBuilder';
-import { AnimationPlayer } from '../../lib/babylon/animationPlayer';
+import { AnimationPlayer, resetSkeletonToRestPose } from '../../lib/babylon/animationPlayer';
 import { SubmeshVisibilityTimeline, fnv1a32Lower } from '../../lib/babylon/submeshVisibility';
 import type { AnimationClipInfo, SkinForm, SubmeshVisEvent } from '../../lib/api/mesh';
 import { modelPreviewSessionStore, type ModelPreviewSession } from '../../lib/stores/modelPreviewSessionStore';
@@ -168,6 +168,8 @@ function pickInitialAnimation(
     return null;
 }
 
+const PLAYBACK_SPEEDS = [0.25, 0.5, 1, 2];
+
 // ── Shared design-lab popup building blocks (used by the Display / Environment /
 //    Animations popups so they all read like the reworked Materials panel). ──
 
@@ -274,8 +276,17 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const [selectedAnimation, setSelectedAnimation] = useState<string>('');
     const [isPlaying, setIsPlaying] = useState(false);
 
-    const [animationData, setAnimationData] = useState<{ duration: number; fps: number; joint_count: number; joint_hashes: number[] } | null>(null);
+    const [animationData, setAnimationData] = useState<{ duration: number; fps: number; frame_count: number; joint_count: number; joint_hashes: number[] } | null>(null);
     const [currentTime, setCurrentTime] = useState(0);
+    const [animSearch, setAnimSearch] = useState('');
+    const [loopAnimation, setLoopAnimation] = useState(true);
+    const [playbackSpeed, setPlaybackSpeed] = useState(1);
+
+    const filteredAnimations = useMemo(() => {
+        const q = animSearch.trim().toLowerCase();
+        if (!q) return animations;
+        return animations.filter((a) => a.name.toLowerCase().includes(q));
+    }, [animations, animSearch]);
 
     const [skeletonData, setSkeletonData] = useState<any | null>(null);
     const [showSkeleton, setShowSkeleton] = useState(savedSettings.showSkeleton);
@@ -550,6 +561,9 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     if (lastTimeRef.current !== 0) {
                         const dt = (now - lastTimeRef.current) / 1000;
                         animationPlayerRef.current.tick(dt);
+                        if (animationPlayerRef.current.paused && latestRef.current.isPlaying) {
+                            setIsPlaying(false);
+                        }
 
                         const curTime = animationPlayerRef.current.time;
                         const rounded = Math.round(curTime * 100) / 100;
@@ -1109,6 +1123,9 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             setAnimationData(null);
             setCurrentTime(0);
             animationPlayerRef.current = null;
+            if (builtSklRef.current) {
+                resetSkeletonToRestPose(builtSklRef.current.bones, builtSklRef.current.joints);
+            }
             // Dropped the animation â†’ fall back to the static baseline visibility.
             submeshTimelineRef.current = null;
             timelineInitRef.current = null;
@@ -1152,6 +1169,8 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         joints
                     );
                     player.paused = !isPlaying;
+                    player.loop = loopAnimation;
+                    player.speed = playbackSpeed;
                     const seekTo = latestRef.current.currentTime;
                     if (seekTo > 0) {
                         player.time = seekTo;
@@ -1184,6 +1203,13 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         }
     }, [isPlaying]);
 
+    useEffect(() => {
+        const player = animationPlayerRef.current;
+        if (!player) return;
+        player.loop = loopAnimation;
+        player.speed = playbackSpeed;
+    }, [loopAnimation, playbackSpeed]);
+
     const handleSliderChange = (val: number) => {
         setCurrentTime(val);
         if (animationPlayerRef.current) {
@@ -1192,6 +1218,25 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         }
         // Recompute submesh visibility at the scrubbed time (works while paused too).
         applyTimelineVisibility(val);
+    };
+
+    const animFps = animationData && animationData.fps > 0 ? animationData.fps : 30;
+    const lastFrame = Math.max(0, (animationData?.frame_count ?? 1) - 1);
+    const currentFrame = Math.min(lastFrame, Math.max(0, Math.round(currentTime * animFps)));
+
+    const seekFrame = (frame: number) => {
+        handleSliderChange(Math.min(lastFrame, Math.max(0, Math.round(frame))) / animFps);
+    };
+
+    const stepFrame = (delta: number) => {
+        setIsPlaying(false);
+        const span = lastFrame + 1;
+        seekFrame((((currentFrame + delta) % span) + span) % span);
+    };
+
+    const togglePlay = () => {
+        if (!isPlaying && !loopAnimation && currentFrame >= lastFrame) seekFrame(0);
+        setIsPlaying(!isPlaying);
     };
 
     useEffect(() => {
@@ -1777,12 +1822,31 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     onClose={() => setActivePopup(null)}
                     headExtra={<span className="mp-panel__count">{animations.length}</span>}
                 >
+                    {animations.length > 6 && (
+                        <input
+                            className="dl-input mp-anim-search"
+                            type="text"
+                            value={animSearch}
+                            placeholder="Search animations"
+                            onChange={(e) => setAnimSearch(e.target.value)}
+                        />
+                    )}
                     <div className="mp-anim-list">
-                        {animations.map((anim, index) => {
+                        <button
+                            className={`mp-anim-row ${!selectedAnimation ? 'mp-anim-row--active' : ''}`}
+                            onClick={() => { setIsPlaying(false); setSelectedAnimation(''); }}
+                            title="Bind pose straight from the skeleton"
+                        >
+                            <span className="mp-anim-row__glyph" aria-hidden>
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="4.5" r="2.5" /><path d="M3 10h18M12 8v8M12 16l-3.5 5M12 16l3.5 5" /></svg>
+                            </span>
+                            <span className="mp-anim-row__name">T-Pose</span>
+                        </button>
+                        {filteredAnimations.map((anim, index) => {
                             const active = selectedAnimation === anim.animation_path;
                             return (
                                 <button
-                                    key={index}
+                                    key={`${anim.animation_path}-${index}`}
                                     className={`mp-anim-row ${active ? 'mp-anim-row--active' : ''}`}
                                     onClick={() => setSelectedAnimation(anim.animation_path)}
                                     title={anim.name}
@@ -1798,50 +1862,82 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                                 </button>
                             );
                         })}
+                        {filteredAnimations.length === 0 && (
+                            <div className="mp-anim-empty">No animation matches "{animSearch.trim()}"</div>
+                        )}
                     </div>
-                    {selectedAnimation && (
+                    {selectedAnimation && animationData && (
                         <div className="mp-anim-controls">
-                            <div className="mp-anim-buttons">
-                                <Button
-                                    size="sm" variant={isPlaying ? "primary" : "secondary"}
-                                    onClick={() => setIsPlaying(!isPlaying)}
-                                >
+                            <div className="mp-transport">
+                                <Button size="sm" variant="ghost" iconOnly title="First frame" onClick={() => { setIsPlaying(false); seekFrame(0); }}>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="2.5" height="14" rx="1" /><polygon points="20 5 20 19 9.5 12" /></svg>
+                                </Button>
+                                <Button size="sm" variant="ghost" iconOnly title="Previous frame" onClick={() => stepFrame(-1)}>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M15 5L8 12l7 7" /></svg>
+                                </Button>
+                                <Button size="sm" variant={isPlaying ? 'primary' : 'secondary'} iconOnly title={isPlaying ? 'Pause' : 'Play'} onClick={togglePlay}>
                                     {isPlaying ? (
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg>
                                     ) : (
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20" /></svg>
                                     )}
-                                    <span>{isPlaying ? 'Pause' : 'Play'}</span>
+                                </Button>
+                                <Button size="sm" variant="ghost" iconOnly title="Next frame" onClick={() => stepFrame(1)}>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5l7 7-7 7" /></svg>
+                                </Button>
+                                <Button size="sm" variant="ghost" iconOnly title="Last frame" onClick={() => { setIsPlaying(false); seekFrame(lastFrame); }}>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="4 5 4 19 14.5 12" /><rect x="16.5" y="5" width="2.5" height="14" rx="1" /></svg>
+                                </Button>
+                                <span className="mp-transport__gap" />
+                                <Button
+                                    size="sm" variant="ghost" iconOnly active={loopAnimation}
+                                    title={loopAnimation ? 'Looping' : 'Play once'}
+                                    onClick={() => setLoopAnimation(!loopAnimation)}
+                                >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 2.5l3.5 3.5L17 9.5" /><path d="M3.5 12.5v-2a4 4 0 0 1 4-4h13" /><path d="M7 21.5L3.5 18 7 14.5" /><path d="M20.5 11.5v2a4 4 0 0 1-4 4h-13" /></svg>
                                 </Button>
                                 <Button
-                                    size="sm" variant="ghost"
-                                    onClick={() => { setIsPlaying(false); handleSliderChange(0); }}
+                                    className="mp-transport__speed" size="sm" variant="ghost"
+                                    title="Playback speed"
+                                    onClick={() => setPlaybackSpeed(PLAYBACK_SPEEDS[(PLAYBACK_SPEEDS.indexOf(playbackSpeed) + 1) % PLAYBACK_SPEEDS.length])}
                                 >
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="6" width="12" height="12" /></svg>
-                                    <span>Stop</span>
+                                    {playbackSpeed}x
                                 </Button>
                             </div>
-                            {animationData && (
-                                <div className="mp-anim-timeline">
-                                    <div
-                                        className="dl-slider"
-                                        style={{ ['--_value' as never]: `${animationData.duration > 0 ? (currentTime / animationData.duration) * 100 : 0}%` }}
-                                    >
-                                        <input
-                                            type="range"
-                                            min={0}
-                                            max={animationData.duration}
-                                            step={0.001}
-                                            value={currentTime}
-                                            onChange={(e) => handleSliderChange(parseFloat(e.target.value))}
-                                        />
-                                    </div>
-                                    <div className="mp-anim-timeline__info">
-                                        <span>{currentTime.toFixed(2)}s / {animationData.duration.toFixed(2)}s</span>
-                                        <span className="mp-anim-timeline__meta">{animationData.fps.toFixed(0)} FPS · {animationData.joint_count} joints</span>
-                                    </div>
-                                </div>
-                            )}
+                            <div
+                                className="dl-slider mp-tl__scrub"
+                                style={{ ['--_value' as never]: `${lastFrame > 0 ? (currentFrame / lastFrame) * 100 : 0}%` }}
+                            >
+                                <input
+                                    type="range"
+                                    min={0}
+                                    max={lastFrame}
+                                    step={1}
+                                    value={currentFrame}
+                                    onChange={(e) => { setIsPlaying(false); seekFrame(parseInt(e.target.value, 10)); }}
+                                />
+                            </div>
+                            <div className="mp-tl__row">
+                                <label className="mp-tl__frame">
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        max={lastFrame}
+                                        value={currentFrame}
+                                        onChange={(e) => {
+                                            const v = parseInt(e.target.value, 10);
+                                            if (Number.isNaN(v)) return;
+                                            setIsPlaying(false);
+                                            seekFrame(v);
+                                        }}
+                                    />
+                                    <span className="mp-tl__dim">/ {lastFrame}</span>
+                                </label>
+                                <span className="mp-tl__time">
+                                    {currentTime.toFixed(2)}s
+                                    <span className="mp-tl__dim"> / {animationData.duration.toFixed(2)}s · {Math.round(animFps)}fps</span>
+                                </span>
+                            </div>
                         </div>
                     )}
                 </MpPopup>

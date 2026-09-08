@@ -233,6 +233,7 @@ export interface AnimationList {
 interface AnimationData {
     duration: number;
     fps: number;
+    frame_count: number;
     joint_count: number;
     joint_hashes: number[];
 }

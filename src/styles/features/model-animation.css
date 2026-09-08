@@ -1,4 +1,8 @@
-.mp-anim-list { display: flex; flex-direction: column; gap: 3px; max-height: 240px; overflow-y: auto; }
+.mp-anim-search { height: 30px; padding: 0 10px; font-size: 12px; flex: 0 0 auto; }
+
+.mp-anim-list { display: flex; flex-direction: column; gap: 3px; max-height: 200px; overflow-y: auto; }
+
+.mp-anim-empty { padding: 12px 8px; font-size: 11.5px; color: var(--text-muted); text-align: center; }
 
 .mp-anim-row {
   display: flex;
@@ -46,22 +50,49 @@
   border-top: 1px solid var(--border);
 }
 
-.mp-anim-buttons { display: flex; gap: 6px; }
+.mp-transport { display: flex; align-items: center; gap: 2px; }
 
-.mp-anim-buttons .btn { flex: 1; }
+.mp-transport__gap { flex: 1 1 auto; }
 
-.mp-anim-timeline { display: flex; flex-direction: column; gap: 6px; }
+.mp-transport__speed { min-width: 38px; font-size: 11px; font-variant-numeric: tabular-nums; }
 
-.mp-anim-timeline__info {
+.mp-tl__scrub { --_thumb: 12px; }
+
+.mp-tl__row {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   font-size: 11px;
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
 
-.mp-anim-timeline__meta { color: var(--text-tertiary, var(--text-secondary)); }
+.mp-tl__frame { display: flex; align-items: center; gap: 5px; cursor: text; }
+
+.mp-tl__frame input {
+  width: 46px;
+  height: 22px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.mp-tl__frame input:hover { border-color: color-mix(in oklab, var(--accent-primary) 30%, var(--border)); }
+
+.mp-tl__frame input:focus { outline: none; border-color: var(--accent-primary); }
+
+.mp-tl__frame input::-webkit-outer-spin-button,
+.mp-tl__frame input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+.mp-tl__dim { color: var(--text-muted); }
 
 .model-preview__popup--top-right { top: 64px; right: var(--space-md); }
 
