@@ -449,7 +449,7 @@ export const TitleBar: React.FC = () => {
                 },
             });
 
-            showToast('success', `Exported to ${result.path}`);
+            showToast('success', `Exported to ${result.output_path}`);
 
             api.createCheckpoint(currentProjectPath, `Auto-checkpoint: Exported to ${format}`).catch(e => {
                 console.warn('Auto-checkpoint failed:', e);

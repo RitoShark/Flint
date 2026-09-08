@@ -1,11 +1,12 @@
 import { Button } from '../ui/Button';
 import React from 'react';
 import { useNotificationStore } from '../../lib/stores';
+import { Icon } from '../ui/Icon';
 import { getToastIcon } from '../../lib/ui-helpers/fileIcons';
 
 const ToastIcon: React.FC<{ type: string }> = ({ type }) => {
     const iconHtml = getToastIcon(type as 'info' | 'success' | 'warning' | 'error');
-    return <span dangerouslySetInnerHTML={{ __html: iconHtml }} />;
+    return <span className="toast-icon__glyph" dangerouslySetInnerHTML={{ __html: iconHtml }} />;
 };
 
 export const ToastContainer: React.FC = () => {
@@ -19,7 +20,10 @@ export const ToastContainer: React.FC = () => {
     return (
         <div className="toast-container">
             {toasts.map(toast => (
-                <div key={toast.id} className={`toast toast-${toast.type}`}>
+                <div
+                    key={toast.id}
+                    className={`toast toast-${toast.type}${toast.suggestion ? ' toast--stacked' : ''}`}
+                >
                     <div className="toast-icon">
                         <ToastIcon type={toast.type} />
                     </div>
@@ -34,7 +38,7 @@ export const ToastContainer: React.FC = () => {
                         onClick={() => dismissToast(toast.id)}
                         aria-label="Dismiss"
                     >
-                        ×
+                        <Icon name="close" />
                     </Button>
                 </div>
             ))}

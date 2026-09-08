@@ -15,7 +15,15 @@ interface ExportParams {
     metadata: ExportMetadata;
 }
 
-export async function exportProject(params: ExportParams): Promise<{ path: string }> {
+export interface ExportResult {
+    success: boolean;
+    output_path: string;
+    file_count: number;
+    total_size: number;
+    message: string;
+}
+
+export async function exportProject(params: ExportParams): Promise<ExportResult> {
     if (params.format === 'fantome') {
         return invokeCommand('export_fantome', {
             projectPath: params.projectPath,

@@ -198,7 +198,7 @@ export const ExportModal: React.FC = () => {
                 },
             });
 
-            showToast('success', t('export.exportedSuccess', { path: result.path }));
+            showToast('success', t('export.exportedSuccess', { path: result.output_path }));
             closeModal();
         } catch (err) {
             console.error('Export failed:', err);
