@@ -181,8 +181,8 @@
 .fwiz-rail {
   display: flex;
   flex-direction: column;
+  justify-content: safe center;
   gap: 3px;
-  align-content: start;
   min-height: 0;
   overflow-y: auto;
   padding: 8px 0 12px;
@@ -278,10 +278,11 @@
 
 .fwiz__stage {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-auto-rows: auto;
+  align-content: safe center;
   min-height: 0;
   padding: 4px 4px 18px;
-  overflow: hidden;
+  overflow-y: auto;
   animation: ux-fwiz-stage 420ms var(--ux-ease) both;
 }
 
@@ -304,7 +305,7 @@
   line-height: 1.55;
 }
 
-.fwiz__body { display: grid; gap: 16px; min-height: 0; overflow-y: auto; align-content: start; }
+.fwiz__body { display: grid; gap: 16px; align-content: start; }
 
 .fwiz-pane--split {
   display: grid;
