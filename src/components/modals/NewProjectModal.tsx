@@ -1291,8 +1291,8 @@ export const NewProjectModal: React.FC = () => {
                             style={{ display: 'none' }}
                             onChange={onVideoInputChange}
                         />
-                        <div className="np-section">
-                            <label className="np-label">Video File</label>
+                        <div className="np-section np-section--grow">
+                            <label className="np-label">Video file</label>
                             {!videoFile ? (
                                 <div
                                     ref={videoDropZoneRef}
@@ -1340,7 +1340,7 @@ export const NewProjectModal: React.FC = () => {
                                                 ) : (
                                                     <>
                                                         <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 2v5M6 9v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-                                                        Exceeds 16k limit — open editor to adjust
+                                                        {budget.totalFrames} frames at {budget.frameW}&times;{budget.frameH} does not fit 16384. Lower the scale or the frame rate.
                                                     </>
                                                 )}
                                             </div>
@@ -1368,6 +1368,75 @@ export const NewProjectModal: React.FC = () => {
                                 </div>
                             )}
                         </div>
+
+                        {videoFile && videoMeta && (
+                            <div className="np-section np-out">
+                                <label className="np-label">Output</label>
+                                <div className="np-out__grid">
+                                    <div className="np-field">
+                                        <label className="np-label np-label--soft">Resolution</label>
+                                        <Picker<string>
+                                            fullWidth
+                                            disabled={!force169}
+                                            value={String(loadscreenResIdx)}
+                                            onChange={(v) => setLoadscreenResIdx(parseInt(v, 10))}
+                                            options={LOADSCREEN_RESOLUTIONS.map((r, i) => ({
+                                                value: String(i),
+                                                label: r.label,
+                                            }))}
+                                        />
+                                    </div>
+                                    <div className="np-field">
+                                        <label className="np-label np-label--soft">Frame rate</label>
+                                        <Picker<string>
+                                            fullWidth
+                                            value={String(customFps)}
+                                            onChange={(v) => setCustomFps(parseInt(v, 10))}
+                                            options={FPS_OPTIONS.map((fps) => ({
+                                                value: String(fps),
+                                                label: `${fps} fps`,
+                                            }))}
+                                        />
+                                    </div>
+                                    <div className="np-field">
+                                        <label className="np-label np-label--soft">Scale</label>
+                                        <Picker<string>
+                                            fullWidth
+                                            value={String(scaleFactor)}
+                                            onChange={(v) => setScaleFactor(parseFloat(v))}
+                                            options={SCALE_OPTIONS.map((opt) => {
+                                                const baseW = force169 ? LOADSCREEN_RESOLUTIONS[loadscreenResIdx].width : videoMeta.width;
+                                                const baseH = force169 ? LOADSCREEN_RESOLUTIONS[loadscreenResIdx].height : videoMeta.height;
+                                                return {
+                                                    value: String(opt.value),
+                                                    label: opt.label,
+                                                    hint: `${Math.floor(baseW * opt.value)}×${Math.floor(baseH * opt.value)}`,
+                                                };
+                                            })}
+                                        />
+                                    </div>
+                                    <div className="np-field">
+                                        <label className="np-label np-label--soft">Fit</label>
+                                        <Picker<FitMode>
+                                            fullWidth
+                                            value={fitMode}
+                                            onChange={setFitMode}
+                                            options={[
+                                                { value: 'cover', label: 'Fill', hint: 'Scale to cover, crop overflow' },
+                                                { value: 'contain', label: 'Fit', hint: 'Letterbox, no crop' },
+                                                { value: 'stretch', label: 'Stretch', hint: 'Distort to fill' },
+                                            ]}
+                                        />
+                                    </div>
+                                </div>
+                                <Checkbox
+                                    checked={force169}
+                                    onChange={(e) => setForce169(e.target.checked)}
+                                    label="Force 16:9"
+                                    description="Loadscreens are authored 16:9. Off keeps the source aspect ratio."
+                                />
+                            </div>
+                        )}
                     </div>
 
                     {/* ════════════ Map Project Form ════════════ */}

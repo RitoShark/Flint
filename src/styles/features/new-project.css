@@ -616,3 +616,16 @@
 }
 
 .np-experimental-dialog__actions { display: flex; gap: 8px; margin-top: 4px; }
+.np-label--soft {
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--text-muted);
+}
+
+.np-out { display: flex; flex-direction: column; gap: 11px; margin-bottom: 0; }
+
+.np-out__grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+
+.np-form .video-info { flex: 1; min-height: 0; }
