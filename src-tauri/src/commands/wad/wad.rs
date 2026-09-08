@@ -635,7 +635,7 @@ pub async fn concat_wad_skin_bin(
 /// Pre-fault the WAD-hash LMDB into the OS page cache with one sequential
 /// read. Cold random b-tree lookups otherwise cost seconds on the first
 /// bulk resolve (measured 4.3s for a 306 MB data.mdb).
-fn warm_wad_lmdb_once() {
+pub(crate) fn warm_wad_lmdb_once() {
     static WARMED: std::sync::Once = std::sync::Once::new();
     WARMED.call_once(|| {
         std::thread::spawn(|| {

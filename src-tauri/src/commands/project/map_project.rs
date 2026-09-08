@@ -42,6 +42,8 @@ pub async fn list_available_maps(league_path: String) -> Result<Vec<MapEntryView
     if !path.exists() {
         return Err(format!("League path does not exist: {}", league_path));
     }
+    crate::commands::wad::wad::warm_wad_lmdb_once();
+
     tokio::task::spawn_blocking(move || {
         map::list_available_maps(&path)
             .map(|v| v.into_iter().map(MapEntryView::from).collect())
