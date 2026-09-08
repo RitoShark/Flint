@@ -296,7 +296,7 @@
   line-height: 1.55;
 }
 
-.fwiz__body { display: grid; gap: 16px; min-height: 0; overflow-y: auto; }
+.fwiz__body { display: grid; gap: 16px; min-height: 0; overflow-y: auto; align-content: safe center; }
 
 .fwiz-pane--split {
   display: grid;

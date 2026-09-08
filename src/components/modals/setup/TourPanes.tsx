@@ -164,7 +164,7 @@ export const WorkspacePane: React.FC = () => (
             <MockWindow title="Flint">
                 <Zone n={1} className="tour-ws__bar">
                     <span className="tour-chip"><Icon name="refresh" />Sync</span>
-                    <span className="tour-chip"><Icon name="history" />Checkpoints</span>
+                    <span className="tour-chip"><Icon name="history" />Timeline</span>
                     <span className="tour-chip"><Icon name="export" />Export</span>
                     <span className="tour-ws__bar-gap" />
                     <span className="tour-chip"><Icon name="wrench" /></span>
@@ -192,16 +192,19 @@ export const WorkspacePane: React.FC = () => (
     >
         <Note n={1} title="Title bar">
             Sync copies the project into your launcher&rsquo;s mod folder so you can test it in game.
-            Checkpoints snapshot the whole project so you can roll back a change that went wrong. The
-            wrench is Skin Fixer, which scans for the usual breakages and patches them.
+            Timeline is the checkpoint history: snapshot the project, compare snapshots, restore one
+            when a change goes wrong. The wrench is Skin Fixer, which scans for the usual breakages
+            and patches them.
         </Note>
         <Note n={2} title="File tree">
             Every file the project owns. Icons mark the type, and right-click is where the per-file
             tools live.
         </Note>
         <Note n={3} title="Editor">
-            Opens the right tool for whatever you clicked. Textures get a viewer with recolor and DDS
-            or TEX conversion, models get a 3D preview with animations, BINs get a property editor.
+            Opens whichever viewer fits the file. Models get a 3D preview with the skeleton and its
+            animations, BINs get a property editor, audio banks get a player, textures get a zoomable
+            viewer. The texture viewer only shows the file. Recolouring and format conversion are
+            right-click actions, and pixel editing happens in your own image editor.
         </Note>
         <Note n={4} title="Status bar">
             The current project, the patch it was built against, and anything running in the
@@ -211,6 +214,27 @@ export const WorkspacePane: React.FC = () => (
 );
 
 /* ── 4. WAD Explorer ───────────────────────────────────────────────────── */
+
+type WadNode = { depth: number; label: string; icon: IconName; state?: 'open' | 'shut'; on?: boolean; dim?: boolean };
+
+const WAD_TREE: WadNode[] = [
+    { depth: 0, label: 'Ahri.wad.client', icon: 'wad', state: 'open' },
+    { depth: 1, label: 'assets', icon: 'folderOpen', state: 'open' },
+    { depth: 2, label: 'characters/ahri', icon: 'folderOpen', state: 'open' },
+    { depth: 3, label: 'skins/skin01', icon: 'folderOpen', state: 'open' },
+    { depth: 4, label: 'ahri_base_tx_cm.dds', icon: 'texture', on: true },
+    { depth: 4, label: 'ahri_base.skn', icon: 'model' },
+    { depth: 4, label: 'ahri_base.skl', icon: 'skeleton' },
+    { depth: 3, label: 'particles', icon: 'folder', state: 'shut' },
+    { depth: 1, label: 'data', icon: 'folderOpen', state: 'open' },
+    { depth: 2, label: 'characters/ahri/skins/skin01.bin', icon: 'bin' },
+    { depth: 2, label: '0x7a3f19c4e2b08d51', icon: 'file', dim: true },
+    { depth: 0, label: 'Aatrox.wad.client', icon: 'wad', state: 'shut' },
+    { depth: 0, label: 'Global.wad.client', icon: 'wad', state: 'shut' },
+    { depth: 0, label: 'Map11.wad.client', icon: 'wad', state: 'shut' },
+    { depth: 0, label: 'UI.wad.client', icon: 'wad', state: 'shut' },
+    { depth: 0, label: 'en_US.wad.client', icon: 'wad', state: 'shut' },
+];
 
 export const WadPane: React.FC = () => (
     <TourSplit
@@ -229,14 +253,21 @@ export const WadPane: React.FC = () => (
                 </Zone>
                 <div className="tour-wad__body">
                     <Zone n={2} className="tour-wad__tree">
-                        <MockRow icon="wad" label="Ahri.wad.client" />
-                        <MockRow icon="folder" label="assets/characters/ahri" />
-                        <MockRow icon="texture" label="ahri_base_tx_cm.dds" on />
-                        <MockRow icon="model" label="ahri.skn" />
-                        <MockRow icon="file" label="0x7a3f19c4e2b08d51" dim />
+                        {WAD_TREE.map((n) => (
+                            <div
+                                key={n.label + n.depth}
+                                className={`tour-mrow tour-wtree__row ${n.on ? 'is-on' : ''} ${n.dim ? 'is-dim' : ''}`}
+                                style={{ ['--depth' as never]: n.depth }}
+                            >
+                                <span className={`tour-wtree__twist ${n.state ? `is-${n.state}` : 'is-leaf'}`} />
+                                <span className="tour-mrow__ico"><Icon name={n.icon} /></span>
+                                <span className="tour-mrow__label">{n.label}</span>
+                            </div>
+                        ))}
                     </Zone>
                     <Zone n={3} className="tour-wad__preview">
                         <div className="tour-wad__thumb" />
+                        <span className="tour-wad__meta">ahri_base_tx_cm.dds &middot; BC3 &middot; 1024&times;1024</span>
                         <span className="tour-btn">Extract</span>
                     </Zone>
                 </div>
@@ -244,16 +275,21 @@ export const WadPane: React.FC = () => (
         }
     >
         <Note n={1} title="Search">
-            Filters every chunk in the archive by path. Type part of a champion name, a folder, or a
+            Filters every chunk in every archive by path. Type part of a champion name, a folder, or a
             file extension.
         </Note>
-        <Note n={2} title="Named and unnamed chunks">
-            Rows showing a bare hash are chunks the database has no name for. That is normal, and they
-            still preview and extract fine.
+        <Note n={2} title="One tree, every archive">
+            Each .wad.client in your install is a root. Champions get one each, and there are archives
+            for the maps, the UI, the localised text and the shared Global assets. Expand one and its
+            contents appear as a normal folder tree.
         </Note>
         <Note n={3} title="Preview, then extract">
             Textures, models, BINs, audio and text render in place. Nothing touches your disk until you
             extract, and you can take one file, a folder, or the whole archive.
+        </Note>
+        <Note title="Rows that show a bare hash">
+            Those are chunks the hash database has no name for. That is normal. They preview and
+            extract like anything else, they just land under their hash.
         </Note>
         <Note title="No project required">
             The explorer runs straight off your install, so you can dig through the game without
@@ -264,51 +300,120 @@ export const WadPane: React.FC = () => (
 
 /* ── 5. Context menus ──────────────────────────────────────────────────── */
 
-const MENU: { label: string; sub?: boolean; icon?: IconName }[] = [
-    { label: 'Project', sub: true, icon: 'folder' },
-    { label: 'Export', sub: true, icon: 'export' },
-    { label: 'Add Layer…', icon: 'plus' },
-    { label: 'Batch Recolor', icon: 'contrast' },
-    { label: 'BIN Tools', sub: true, icon: 'bin' },
-    { label: 'Check Files', icon: 'wrench' },
-    { label: 'Compare with…', sub: true, icon: 'copy' },
-    { label: 'Backup', sub: true, icon: 'history' },
-    { label: 'Reveal in Explorer', icon: 'folderOpen' },
+interface MenuRow {
+    label: string;
+    icon: IconName;
+    sub?: boolean;
+    /** Dimmed in the mock: it is not on the menu unless the condition holds. */
+    conditional?: boolean;
+    when: string;
+    note: string;
+}
+
+const FOLDER_MENU: MenuRow[] = [
+    {
+        label: 'Project', icon: 'wrench', sub: true, when: 'project root only',
+        note: 'Rename, mod info, thumbnail, Add Layer, and Port to Chromas.',
+    },
+    {
+        label: 'Export', icon: 'export', sub: true, when: 'project root only',
+        note: 'Writes a .modpkg or a .fantome.',
+    },
+    {
+        label: 'Add Layer…', icon: 'plus', conditional: true, when: 'on content/ only',
+        note: 'Adds another WAD layer to the mod.',
+    },
+    {
+        label: 'Batch Recolor', icon: 'contrast', when: 'any folder',
+        note: 'Shifts hue, saturation and brightness across every texture under it.',
+    },
+    {
+        label: 'BIN Tools', icon: 'bin', sub: true, conditional: true, when: 'on the data/ folder',
+        note: 'Split BINs by Class, and Organize VFX, which consolidates scattered VFX into one BIN.',
+    },
+    {
+        label: 'Check Files', icon: 'search', conditional: true, when: 'on a .wad.client folder',
+        note: 'Audits that WAD tree for dead particle links, missing animations and bad references. It walks the whole tree, so a subfolder will not do.',
+    },
+    {
+        label: 'New Folder', icon: 'folder', when: 'any folder',
+        note: 'Creates an empty folder in place.',
+    },
+    {
+        label: 'Copy', icon: 'copy', sub: true, when: 'any folder',
+        note: 'Absolute path, relative path, or just the name.',
+    },
+    {
+        label: 'Reveal in Explorer', icon: 'folderOpen', when: 'any folder',
+        note: 'Opens the folder in Windows.',
+    },
+];
+
+const FILE_MENU: { label: string; when: string; note: string }[] = [
+    {
+        label: 'Edit BIN, View Troybin, Edit LuaBin64', when: 'by extension',
+        note: 'Each opens its own editor. Which one appears depends on the file you clicked.',
+    },
+    {
+        label: 'Recolor', when: '.dds and .tex',
+        note: 'Not on .png. Shifts the colours of that one texture.',
+    },
+    {
+        label: 'File Transformation', when: 'textures only',
+        note: 'Convert to .dds shows on a .tex, Convert to .tex shows on a .dds, Export as .png shows on either.',
+    },
+    {
+        label: 'Create Thumbnail, Cut Textures by UV', when: '.skn only',
+        note: 'Both need a mesh, so they never appear on anything else.',
+    },
+    {
+        label: 'Split BIN by Class', when: '.bin, except _concat',
+        note: 'A concatenated BIN is already merged, so splitting it is meaningless.',
+    },
+    {
+        label: 'Compare with, Backup, Restore from Original', when: 'only under content/<name>.wad.client/',
+        note: 'These need a stock file to diff against, and Flint can only find one for assets that came out of a WAD. Files you added yourself do not get them.',
+    },
 ];
 
 export const MenusPane: React.FC = () => (
-    <TourSplit
-        lead="The toolbar only carries what you press constantly. Everything else is on right-click, and the menu changes with what you clicked: the project root, a folder, a texture, a BIN, a model."
-        mock={
-            <div className="tour-menu-stage" aria-hidden="true">
-                <div className="tour-menu">
-                    {MENU.map((m) => (
-                        <div key={m.label} className="tour-menu__item">
-                            <span className="tour-menu__ico">{m.icon && <Icon name={m.icon} />}</span>
-                            <span className="tour-menu__label">{m.label}</span>
-                            {m.sub && <Icon name="chevronRight" className="tour-menu__chev" />}
-                        </div>
-                    ))}
-                </div>
-            </div>
-        }
-    >
-        <Note title="Project and Export">
-            Project holds rename, mod info, thumbnail, and Port to Chromas, which copies your work onto
-            every chroma of the skin. Export writes a .fantome or a .modpkg.
-        </Note>
-        <Note title="Check Files">
-            Runs Skin Fixer over the project and lists what is broken: dead particle links, missing
-            animations, bad references. Worth running before you ship.
-        </Note>
-        <Note title="Compare and Backup">
-            Compare diffs a file against the original from the WAD, or against your own backup. Backup
-            is a per-file snapshot you can restore. Together they are how you find out what you
-            actually changed.
-        </Note>
-        <Note title="Per-type tools">
-            Textures get Recolor, DDS and TEX conversion, PNG export, and Cut Textures by UV. BINs get
-            Split by Class and Organize VFX. Models get a preview and thumbnail creation.
-        </Note>
-    </TourSplit>
+    <div className="tour-menus">
+        <p className="tour__lead">
+            The toolbar only carries what you press constantly. Everything else is on right-click, and
+            the menu changes with what you clicked. Dimmed rows below are not always there.
+        </p>
+
+        <div className="tour-cm">
+            <span className="tour-cm__panel" aria-hidden="true" />
+            {FOLDER_MENU.map((m) => (
+                <React.Fragment key={m.label}>
+                    <div className={`tour-cm__item ${m.conditional ? 'is-conditional' : ''}`}>
+                        <span className="tour-cm__ico"><Icon name={m.icon} /></span>
+                        <span className="tour-cm__label">{m.label}</span>
+                        {m.sub && <Icon name="chevronRight" className="tour-cm__chev" />}
+                    </div>
+                    <span className="tour-cm__link" aria-hidden="true" />
+                    <p className="tour-cm__note">
+                        <b>{m.when}</b>
+                        {m.note}
+                    </p>
+                </React.Fragment>
+            ))}
+        </div>
+
+        <div className="tour-files">
+            <p className="tour-files__head">Right-clicking a file instead</p>
+            <dl className="tour-files__list">
+                {FILE_MENU.map((f) => (
+                    <div key={f.label} className="tour-files__row">
+                        <dt>
+                            {f.label}
+                            <span>{f.when}</span>
+                        </dt>
+                        <dd>{f.note}</dd>
+                    </div>
+                ))}
+            </dl>
+        </div>
+    </div>
 );
