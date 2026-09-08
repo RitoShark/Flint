@@ -23,7 +23,17 @@ import {
 import { Button, Checkbox, Icon, Picker } from '../ui';
 
 import { compressDeflate, type ProjectType, SCALE_OPTIONS, FPS_OPTIONS } from './new-project/helpers';
-import { NameAndPathRow } from './new-project/NameAndPathRow';
+import { toDisplayPath, fromDisplayPath, registerAppHome } from '../../lib/util/displayPath';
+
+function mapArtUrl(mapId: string): string {
+    return `/maps/${mapId.toLowerCase()}.webp`;
+}
+
+const NAME_PLACEHOLDER: Record<ProjectType, string> = {
+    'skin': 'e.g. Ahri Base Rework',
+    'map': 'e.g. My Custom Map',
+    'loading-screen': 'e.g. My Animated Loadscreen',
+};
 import { ChromaPreviewPopup } from './new-project/ChromaPreviewPopup';
 
 export const NewProjectModal: React.FC = () => {
@@ -49,6 +59,7 @@ export const NewProjectModal: React.FC = () => {
     const [isCreating, setIsCreating] = useState(false);
     const [progress, setProgress] = useState('');
     const [transitioning, setTransitioning] = useState(false);
+    const [extractSfx, setExtractSfx] = useState(false);
 
     useEffect(() => {
         if (!isCreating) return;
@@ -153,6 +164,7 @@ export const NewProjectModal: React.FC = () => {
     /** 'variant' = only the chosen variant + referenced kit-pieces (default,
      *  matches what MapgeoAddon ships). 'full' = legacy whole-WAD dump. */
     const [mapExtractMode, setMapExtractMode] = useState<'variant' | 'full'>('variant');
+    const [mapSearch, setMapSearch] = useState('');
 
     // ─── Loading screen state ────────────────────────────────────────────
     const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -187,9 +199,11 @@ export const NewProjectModal: React.FC = () => {
     // ─── Effects ─────────────────────────────────────────────────────────
 
     useEffect(() => {
-        if (isVisible && !projectPath) {
-            setDefaultProjectPath();
-        }
+        if (!isVisible) return;
+        api.getAppHome()
+            .then(registerAppHome)
+            .catch((err) => console.debug('[NewProject] app home lookup failed:', err));
+        if (!projectPath) setDefaultProjectPath();
     }, [isVisible]);
 
     useEffect(() => {
@@ -897,6 +911,12 @@ export const NewProjectModal: React.FC = () => {
         ? champions.filter(c => c.name.toLowerCase().includes(championSearch.toLowerCase()))
         : champions;
 
+    const filteredMaps = mapSearch
+        ? availableMaps.filter(m =>
+            m.displayName.toLowerCase().includes(mapSearch.toLowerCase())
+            || m.id.toLowerCase().includes(mapSearch.toLowerCase()))
+        : availableMaps;
+
     const filteredSkins = skinSearch
         ? skins.filter(s => s.name.toLowerCase().includes(skinSearch.toLowerCase()))
         : skins;
@@ -1002,54 +1022,170 @@ export const NewProjectModal: React.FC = () => {
 
                 <div className="np-header">
                     <h2 className="np-header__title">New Project</h2>
-                    <span className="np-header__subtitle">Choose a project type and configure it</span>
                 </div>
 
-                <div className="np-body">
-                    <div className="np-type-selector">
+                <div className="np-split">
+                    <nav className="np-rail" aria-label="Project type">
+                        <div className="np-rail__group">Type</div>
+
                         <button
-                            className={`np-type-card${projectType === 'skin' ? ' np-type-card--active' : ''}`}
+                            className="np-type"
+                            aria-pressed={projectType === 'skin'}
                             onClick={() => setProjectType('skin')}
                         >
-                            <div className="np-type-card__glow" />
-                            <div className="np-type-card__icon">
-                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                            <span className="np-type__icon">
+                                <svg viewBox="0 0 24 24" fill="none">
                                     <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" stroke="currentColor" strokeWidth="1.5" fill="none"/>
                                     <path d="M7 12.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM10 8.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM14 8.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM17 12.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3z" fill="currentColor"/>
                                     <path d="M16.36 14.64a3 3 0 01-2.83 2.36c-.55 0-1-.45-1-1v-1a1 1 0 00-1-1h-1a1 1 0 00-1 1v1c0 .55-.45 1-1 1a3 3 0 01-2.83-2.36" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
                                 </svg>
-                            </div>
-                            <span className="np-type-card__label">Skin</span>
+                            </span>
+                            <span className="np-type__text">
+                                <span className="np-type__title">Skin</span>
+                                <span className="np-type__sub">From a champion skin</span>
+                            </span>
                         </button>
 
                         <button
-                            className={`np-type-card np-type-card--experimental${projectType === 'map' ? ' np-type-card--active' : ''}`}
+                            className="np-type"
+                            aria-pressed={projectType === 'map'}
                             onClick={() => handleSelectExperimentalType('map')}
                         >
-                            <div className="np-type-card__glow" />
-                            <div className="np-type-card__icon">
-                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                            <span className="np-type__icon">
+                                <svg viewBox="0 0 24 24" fill="none">
                                     <path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinejoin="round"/>
                                     <path d="M9 4v14M15 6v14" stroke="currentColor" strokeWidth="1.5"/>
                                 </svg>
-                            </div>
-                            <span className="np-type-card__label">Map</span>
+                            </span>
+                            <span className="np-type__text">
+                                <span className="np-type__title">Map</span>
+                                <span className="np-type__sub">From a shipped map</span>
+                            </span>
                         </button>
 
                         <button
-                            className={`np-type-card${projectType === 'loading-screen' ? ' np-type-card--active' : ''}`}
+                            className="np-type"
+                            aria-pressed={projectType === 'loading-screen'}
                             onClick={() => setProjectType('loading-screen')}
                         >
-                            <div className="np-type-card__glow" />
-                            <div className="np-type-card__icon">
-                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                            <span className="np-type__icon">
+                                <svg viewBox="0 0 24 24" fill="none">
                                     <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/>
                                     <polygon points="10,9 10,15 15,12" fill="currentColor"/>
                                 </svg>
-                            </div>
-                            <span className="np-type-card__label">Loading Screen</span>
+                            </span>
+                            <span className="np-type__text">
+                                <span className="np-type__title">Loading screen</span>
+                                <span className="np-type__sub">From a video file</span>
+                            </span>
                         </button>
-                    </div>
+
+                        {(projectType === 'skin' || projectType === 'loading-screen') && (
+                            <>
+                                <div className="np-rail__rule" />
+                                <div className="np-rail__group">Source</div>
+
+                                <label
+                                    className="np-rtoggle"
+                                    title={configStore.leaguePathPbe
+                                        ? 'Pull champion list, skin metadata and WAD files from your PBE install instead of Live.'
+                                        : 'No PBE League path configured. Open Settings (Ctrl+,) to set one.'}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={usePbe}
+                                        onChange={(e) => {
+                                            const next = e.target.checked;
+                                            if (next && !configStore.leaguePathPbe) {
+                                                console.error('[NewProject] PBE toggle blocked: leaguePathPbe is null. Set it in Settings.');
+                                                showToast('error', 'No PBE League path configured. Open Settings (Ctrl+,) to set one.');
+                                                return;
+                                            }
+                                            setUsePbe(next);
+                                        }}
+                                    />
+                                    <span className="np-rtoggle__track"><span className="np-rtoggle__thumb" /></span>
+                                    <span>PBE install</span>
+                                    <span className="np-rtoggle__hint">{usePbe ? 'PBE' : 'Live'}</span>
+                                </label>
+
+                                {projectType === 'skin' && (
+                                    <label
+                                        className="np-rtoggle"
+                                        title="Use the League Classic roster. The Classic skin is Skin 301, and not every champion has one."
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            checked={roster === 'classic'}
+                                            onChange={(e) => handleSelectRoster(e.target.checked ? 'classic' : 'live')}
+                                        />
+                                        <span className="np-rtoggle__track"><span className="np-rtoggle__thumb" /></span>
+                                        <span>Classic roster</span>
+                                        <span className="np-rtoggle__hint">Skin 301</span>
+                                    </label>
+                                )}
+                            </>
+                        )}
+
+                        {projectType === 'skin' && (
+                            <>
+                                <div className="np-rail__rule" />
+                                <div className="np-rail__group">Extract</div>
+
+                                <label className="np-rtoggle" title="Repath the skin's SFX banks alongside its assets. Off leaves sound paths stock.">
+                                    <input
+                                        type="checkbox"
+                                        checked={extractSfx}
+                                        onChange={(e) => setExtractSfx(e.target.checked)}
+                                    />
+                                    <span className="np-rtoggle__track"><span className="np-rtoggle__thumb" /></span>
+                                    <span>Extract SFX</span>
+                                    <span className="np-rtoggle__hint">.bnk</span>
+                                </label>
+
+                                <label className="np-rtoggle np-rtoggle--disabled" title="Voiceover lives in a separate locale WAD that Flint does not open yet.">
+                                    <input type="checkbox" checked={false} disabled readOnly />
+                                    <span className="np-rtoggle__track"><span className="np-rtoggle__thumb" /></span>
+                                    <span>Extract VO</span>
+                                    <span className="np-rtoggle__hint">soon</span>
+                                </label>
+                            </>
+                        )}
+
+                        {projectType === 'map' && (
+                            <>
+                                <div className="np-rail__rule" />
+                                <div className="np-rail__group">Extract</div>
+
+                                <label
+                                    className="np-rtoggle"
+                                    title="Off pulls the variant's mapgeo, materials.bin and the assets they reference. On dumps every chunk in the map WAD, which runs to gigabytes."
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={mapExtractMode === 'full'}
+                                        onChange={(e) => setMapExtractMode(e.target.checked ? 'full' : 'variant')}
+                                    />
+                                    <span className="np-rtoggle__track"><span className="np-rtoggle__thumb" /></span>
+                                    <span>Full WAD</span>
+                                    <span className="np-rtoggle__hint">GBs</span>
+                                </label>
+
+                                <label className="np-rtoggle" title="Pull lightmaps, lightgrid and grass-tint textures.">
+                                    <input
+                                        type="checkbox"
+                                        checked={includeLevels}
+                                        onChange={(e) => setIncludeLevels(e.target.checked)}
+                                    />
+                                    <span className="np-rtoggle__track"><span className="np-rtoggle__thumb" /></span>
+                                    <span>Include LEVELS</span>
+                                    <span className="np-rtoggle__hint">lightmaps</span>
+                                </label>
+                            </>
+                        )}
+                    </nav>
+
+                    <div className="np-pane">
 
                     {/* ════════════ Skin Project Form ════════════ */}
                     <div className={`np-form${projectType === 'skin' ? ' np-form--active' : ''}`}>
@@ -1108,16 +1244,7 @@ export const NewProjectModal: React.FC = () => {
                             </div>
                         )}
 
-                        <NameAndPathRow
-                            namePlaceholder="e.g., Ahri Base Rework"
-                            name={projectName}
-                            onNameChange={setProjectName}
-                            path={projectPath}
-                            onPathChange={setProjectPath}
-                            onBrowse={handleBrowsePath}
-                        />
-
-                        <div className="np-section">
+                        <div className="np-section np-section--grow">
                             <div className="np-section__header">
                                 <label className="np-label">{roster === 'classic' ? 'Champion · League Classic' : 'Champion'}</label>
                                 <div className="np-search-wrap">
@@ -1157,15 +1284,6 @@ export const NewProjectModal: React.FC = () => {
 
                     {/* ════════════ Loading Screen Form ════════════ */}
                     <div className={`np-form${projectType === 'loading-screen' ? ' np-form--active' : ''}`}>
-                        <NameAndPathRow
-                            namePlaceholder="e.g., My Animated Loadscreen"
-                            name={projectName}
-                            onNameChange={setProjectName}
-                            path={projectPath}
-                            onPathChange={setProjectPath}
-                            onBrowse={handleBrowsePath}
-                        />
-
                         <input
                             ref={videoInputRef}
                             type="file"
@@ -1254,68 +1372,61 @@ export const NewProjectModal: React.FC = () => {
 
                     {/* ════════════ Map Project Form ════════════ */}
                     <div className={`np-form${projectType === 'map' ? ' np-form--active' : ''}`}>
-                        <NameAndPathRow
-                            namePlaceholder="e.g., My Custom Map"
-                            name={projectName}
-                            onNameChange={setProjectName}
-                            path={projectPath}
-                            onPathChange={setProjectPath}
-                            onBrowse={handleBrowsePath}
-                        />
-
-                        <section className="np-map-section">
-                            <header className="np-map-section__head">
-                                <span className="np-map-section__step">1</span>
-                                <div>
-                                    <div className="np-map-section__title">Source map</div>
-                                    <div className="np-map-section__sub">
-                                        Pick a Riot map from <code>Game/DATA/FINAL/Maps/Shipping</code>
-                                    </div>
-                                </div>
-                            </header>
-
-                            <div className="np-map-field">
+                        <div className="np-section np-section--grow">
+                            <div className="np-section__header np-section__header--row">
                                 <label className="np-label">Map</label>
-                                <Picker
-                                    fullWidth
-                                    menuMaxHeight={210}
-                                    value={selectedMapId}
-                                    onChange={setSelectedMapId}
-                                    disabled={mapsLoading || availableMaps.length === 0}
-                                    placeholder={
-                                        mapsLoading ? 'Scanning maps…'
-                                        : availableMaps.length === 0 ? 'No maps found in League folder'
-                                        : 'Select a map…'
-                                    }
-                                    options={availableMaps.map(m => ({
-                                        value: m.id,
-                                        label: m.displayName,
-                                        hint: `${m.id}${m.hasLevels ? ' · +LEVELS' : ''}`,
-                                    }))}
-                                />
-                            </div>
-                        </section>
-
-                        {/* Step 2 — revealed once a map is picked. */}
-                        {selectedMapId && (
-                        <section className="np-map-section np-map-reveal">
-                            <header className="np-map-section__head">
-                                <span className="np-map-section__step">2</span>
-                                <div>
-                                    <div className="np-map-section__title">Variant</div>
-                                    <div className="np-map-section__sub">
-                                        Which shipped version of the map to base the project on
-                                    </div>
+                                {availableMaps.length > 0 && (
+                                    <span className="np-count">{availableMaps.length}</span>
+                                )}
+                                <div className="np-search-wrap">
+                                    <span className="np-search-icon"><Icon name="search" /></span>
+                                    <input
+                                        type="text"
+                                        className="np-search"
+                                        placeholder={mapsLoading ? 'Scanning maps…' : 'Search maps…'}
+                                        value={mapSearch}
+                                        onChange={(e) => setMapSearch(e.target.value)}
+                                    />
                                 </div>
-                            </header>
+                            </div>
 
-                            <div className="np-map-field">
-                                <label className="np-label">
-                                    Variant
+                            {!mapsLoading && availableMaps.length === 0 ? (
+                                <div className="np-hint">No maps found under Game/DATA/FINAL/Maps/Shipping.</div>
+                            ) : (
+                                <div className="np-map-grid">
+                                    {filteredMaps.map((m) => (
+                                        <button
+                                            key={m.id}
+                                            className="np-map-card"
+                                            aria-pressed={selectedMapId === m.id}
+                                            onClick={() => setSelectedMapId(m.id)}
+                                            title={m.displayName}
+                                        >
+                                            <span className="np-map-card__art">
+                                                <img src={mapArtUrl(m.id)} alt="" loading="lazy"
+                                                    onError={(e) => { (e.target as HTMLImageElement).style.visibility = 'hidden'; }} />
+                                            </span>
+                                            <span className="np-map-card__body">
+                                                <span className="np-map-card__name">{m.displayName}</span>
+                                                <span className="np-map-card__meta">
+                                                    <span className="np-map-card__code">{m.id}</span>
+                                                    {m.hasLevels && <span className="np-map-card__levels">LEVELS</span>}
+                                                </span>
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {mapExtractMode === 'variant' && (
+                            <div className="np-section">
+                                <div className="np-section__header np-section__header--row">
+                                    <label className="np-label">Variant</label>
                                     {mapVariants.length > 0 && (
-                                        <span className="np-map-count">{mapVariants.length}</span>
+                                        <span className="np-count">{mapVariants.length}</span>
                                     )}
-                                </label>
+                                </div>
                                 <Picker
                                     fullWidth
                                     menuMaxHeight={210}
@@ -1324,163 +1435,63 @@ export const NewProjectModal: React.FC = () => {
                                     disabled={variantsLoading || mapVariants.length === 0}
                                     placeholder={
                                         variantsLoading ? 'Scanning variants…'
+                                        : !selectedMapId ? 'Pick a map first'
                                         : mapVariants.length === 0 ? 'No variants found'
                                         : 'Select a variant…'
                                     }
-                                    options={mapVariants.map(v => ({
-                                        value: v.name,
-                                        label: v.name,
-                                    }))}
+                                    options={mapVariants.map(v => ({ value: v.name, label: v.name }))}
                                 />
                             </div>
-                        </section>
                         )}
-
-                        {/* Step 3 — revealed once a variant is chosen. */}
-                        {selectedMapId && selectedVariant && (
-                        <section className="np-map-section np-map-reveal">
-                            <header className="np-map-section__head">
-                                <span className="np-map-section__step">3</span>
-                                <div>
-                                    <div className="np-map-section__title">Extraction strategy</div>
-                                    <div className="np-map-section__sub">
-                                        Variant only is fastest; Full WAD pulls every chunk
-                                    </div>
-                                </div>
-                            </header>
-
-                            <div className="np-map-mode-grid">
-                                <button
-                                    type="button"
-                                    onClick={() => setMapExtractMode('variant')}
-                                    className={`np-map-mode${mapExtractMode === 'variant' ? ' np-map-mode--active' : ''}`}
-                                >
-                                    <span className="np-map-mode__check">
-                                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                            <path d="M3 8l4 4 6-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                        </svg>
-                                    </span>
-                                    <span className="np-map-mode__icon" aria-hidden>
-                                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                                            <path d="M21 16V8l-9-5-9 5v8l9 5 9-5z"/>
-                                            <path d="M3.3 7.5L12 12.5l8.7-5"/>
-                                            <path d="M12 12.5V21"/>
-                                        </svg>
-                                    </span>
-                                    <span className="np-map-mode__body">
-                                        <span className="np-map-mode__title">Variant only</span>
-                                        <span className="np-map-mode__desc">
-                                            mapgeo + materials.bin + the assets it references
-                                        </span>
-                                        <span className="np-map-mode__tag">Recommended · fast</span>
-                                    </span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setMapExtractMode('full')}
-                                    className={`np-map-mode${mapExtractMode === 'full' ? ' np-map-mode--active' : ''}`}
-                                >
-                                    <span className="np-map-mode__check">
-                                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                            <path d="M3 8l4 4 6-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                        </svg>
-                                    </span>
-                                    <span className="np-map-mode__icon" aria-hidden>
-                                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                                            <rect x="3" y="5" width="18" height="14" rx="2"/>
-                                            <path d="M3 9h18M8 5V3m8 2V3"/>
-                                        </svg>
-                                    </span>
-                                    <span className="np-map-mode__body">
-                                        <span className="np-map-mode__title">Full WAD</span>
-                                        <span className="np-map-mode__desc">
-                                            Every chunk — heavy, gigabytes
-                                        </span>
-                                        <span className="np-map-mode__tag np-map-mode__tag--warn">Power users</span>
-                                    </span>
-                                </button>
-                            </div>
-
-                            <Checkbox
-                                className="np-map-toggle"
-                                checked={includeLevels}
-                                onChange={(e) => setIncludeLevels(e.target.checked)}
-                                label="Include LEVELS WAD"
-                                description="Pull lightmaps, lightgrid and grass-tint textures"
-                            />
-
-                            <div className="np-hint">
-                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{marginRight: '8px', flexShrink: 0}}>
-                                    <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                                    <path d="M8 5v3M8 10v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                                </svg>
-                                {mapExtractMode === 'variant'
-                                    ? 'Pulls only the variant’s mapgeo + materials.bin and the asset paths it references (kit-pieces, textures, lightmaps). Matches MapgeoAddon’s scoped flow.'
-                                    : 'Dumps the entire map WAD into your project. Use this if you need every chunk — most users want “Variant only”.'}
-                            </div>
-                        </section>
-                        )}
+                    </div>
                     </div>
                 </div>
 
                 <div className="np-footer">
-                    {(projectType === 'skin' || projectType === 'loading-screen') && (
-                        <label
-                            className={`np-pbe-toggle${usePbe ? ' np-pbe-toggle--on' : ''}`}
-                            title={configStore.leaguePathPbe
-                                ? 'Pull champion list, skin metadata and WAD files from your PBE install instead of Live.'
-                                : 'No PBE League path configured. Open Settings (Ctrl+,) to set one.'}
-                        >
-                            <input
-                                type="checkbox"
-                                className="np-pbe-toggle__input"
-                                checked={usePbe}
-                                onChange={(e) => {
-                                    const next = e.target.checked;
-                                    if (next && !configStore.leaguePathPbe) {
-                                        console.error('[NewProject] PBE toggle blocked: leaguePathPbe is null. Set it in Settings.');
-                                        showToast('error', 'No PBE League path configured. Open Settings (Ctrl+,) to set one.');
-                                        return;
-                                    }
-                                    console.info(`[NewProject] PBE toggle → ${next ? 'PBE' : 'Live'} (path=${next ? configStore.leaguePathPbe : leaguePath})`);
-                                    setUsePbe(next);
-                                }}
-                            />
-                            <span className="np-pbe-toggle__track">
-                                <span className="np-pbe-toggle__thumb" />
+                    <div className="np-footer__field">
+                        <label className="np-label" htmlFor="np-project-name">Project name</label>
+                        <input
+                            id="np-project-name"
+                            type="text"
+                            className="np-input"
+                            placeholder={NAME_PLACEHOLDER[projectType]}
+                            value={projectName}
+                            onChange={(e) => setProjectName(e.target.value)}
+                        />
+                    </div>
+
+                    <span className="np-footer__divider" />
+
+                    <div className="np-footer__field np-footer__field--path">
+                        <label className="np-label" htmlFor="np-project-path">Location</label>
+                        <div className="np-footer__path">
+                            <span className="np-loc" title={projectPath}>
+                                <input
+                                    id="np-project-path"
+                                    type="text"
+                                    spellCheck={false}
+                                    value={toDisplayPath(projectPath)}
+                                    onChange={(e) => setProjectPath(fromDisplayPath(e.target.value))}
+                                />
+                                {projectName.trim() && (
+                                    <span className="np-loc__leaf">/{projectName.trim()}</span>
+                                )}
                             </span>
-                            <span className="np-pbe-toggle__label">PBE</span>
-                        </label>
-                    )}
-                    {projectType === 'skin' && (
-                        <label
-                            className={`np-pbe-toggle${roster === 'classic' ? ' np-pbe-toggle--on' : ''}`}
-                            title="Use the League Classic roster. The Classic skin is Skin 301 — not every champion has one."
+                            <Button size="sm" onClick={handleBrowsePath}>Browse</Button>
+                        </div>
+                    </div>
+
+                    <div className="np-footer__actions">
+                        <Button variant="ghost" onClick={closeModal}>Cancel</Button>
+                        <Button
+                            variant="success"
+                            icon="success"
+                            onClick={handleCreate}
+                            disabled={!canCreate}
                         >
-                            <input
-                                type="checkbox"
-                                className="np-pbe-toggle__input"
-                                checked={roster === 'classic'}
-                                onChange={(e) => handleSelectRoster(e.target.checked ? 'classic' : 'live')}
-                            />
-                            <span className="np-pbe-toggle__track">
-                                <span className="np-pbe-toggle__thumb" />
-                            </span>
-                            <span className="np-pbe-toggle__label">Classic</span>
-                        </label>
-                    )}
-                    <div className="np-footer__spacer" />
-                    <Button variant="ghost" onClick={closeModal}>
-                        Cancel
-                    </Button>
-                    <Button
-                        variant="success"
-                        icon="success"
-                        onClick={handleCreate}
-                        disabled={!canCreate}
-                    >
-                        Create Project
-                    </Button>
+                            Create project
+                        </Button>
+                    </div>
                 </div>
             </div>
 

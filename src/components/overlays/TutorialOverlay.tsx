@@ -50,8 +50,8 @@ const STEPS: Step[] = [
     },
     {
         title: 'Pick a Project Type',
-        body: 'Choose between a champion skin mod, an animated loading screen, or a HUD editor. Skin mods are the most common starting point.',
-        selector: '.np-type-selector',
+        body: 'Choose between a champion skin, a shipped map, or an animated loading screen. Skins are the most common starting point.',
+        selector: '.np-rail',
         placement: 'below',
         modal: 'newProject',
         delay: 280,

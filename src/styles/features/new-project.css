@@ -1,7 +1,6 @@
 .modal--new-project {
-  max-width: 860px;
-  width: 90%;
-  max-height: 88vh;
+  width: 980px;
+  max-width: 94vw;
   border: 1px solid #1e1e1e;
   background: #0e0e0e;
   border-radius: 14px;
@@ -16,76 +15,167 @@
 
 .np-header { justify-content: space-between; }
 
-.np-body { padding: 20px 24px; overflow-y: auto; flex: 1; min-height: 0; }
-
-.np-type-selector {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 20px;
-  background: #0e0e0e;
-  border: 1px solid #1e1e1e;
-  border-radius: 10px;
-  padding: 4px;
+.np-split {
+  display: grid;
+  grid-template-columns: 244px minmax(0, 1fr);
+  height: 470px;
 }
 
-.np-type-card {
-  position: relative;
+.np-rail {
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 12px;
+  min-height: 0;
+  overflow-y: auto;
+  border-right: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  background: color-mix(in oklab, var(--bg-primary) 55%, #000);
+}
+
+.np-rail__group {
+  padding: 0 8px 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in oklab, var(--text-muted) 78%, transparent);
+}
+
+.np-rail__rule {
+  height: 1px;
+  margin: 12px 8px 10px;
+  background: color-mix(in oklab, var(--border) 70%, transparent);
+}
+
+.np-type {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  flex: 1;
-  padding: 9px 14px;
+  gap: 11px;
+  width: 100%;
+  padding: 9px 10px;
+  text-align: left;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 7px;
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  border-radius: 8px;
   color: var(--text-muted);
-  overflow: hidden;
+  cursor: pointer;
+  transition: background var(--dl-fast), color var(--dl-fast), border-color var(--dl-fast);
 }
 
-.np-type-card__glow { display: none; }
+.np-type:hover { background: var(--bg-tertiary); color: var(--text-secondary); }
 
-.np-type-card:hover { background: #191919; color: var(--text-secondary); transform: none; box-shadow: none; }
-
-.np-type-card--active {
-  background: #1d1d1d;
-  border-color: #2d2d2d;
+.np-type[aria-pressed="true"] {
+  background: var(--bg-hover);
+  border-color: color-mix(in oklab, var(--border) 120%, transparent);
   color: var(--text-primary);
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
 }
 
-.np-type-card--active .np-type-card__icon { color: var(--accent-secondary); }
-
-.np-type-card__icon {
+.np-type__icon {
+  width: 30px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--text-muted) 12%, transparent);
+  color: inherit;
+  transition: background var(--dl-fast), color var(--dl-fast);
+}
+
+.np-type__icon svg { width: 17px; height: 17px; display: block; }
+
+.np-type[aria-pressed="true"] .np-type__icon {
+  background: color-mix(in oklab, var(--accent-primary) 22%, transparent);
+  color: color-mix(in oklab, var(--accent-primary) 45%, #fff);
+}
+
+.np-type__text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.np-type__title { font-size: 13px; font-weight: 600; line-height: 1.25; }
+.np-type__sub { font-size: 11.5px; line-height: 1.3; color: var(--text-muted); }
+
+.np-rtoggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.np-rtoggle:hover { background: var(--bg-tertiary); }
+.np-rtoggle--disabled { opacity: 0.5; cursor: not-allowed; }
+.np-rtoggle input { position: absolute; opacity: 0; pointer-events: none; }
+
+.np-rtoggle__track {
+  position: relative;
+  width: 28px;
+  height: 16px;
   flex-shrink: 0;
-  transition: color 0.15s ease;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  transition: background var(--dl-fast), border-color var(--dl-fast);
 }
 
-.np-type-card__label {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  white-space: nowrap;
+.np-rtoggle__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform var(--dl-fast), background var(--dl-fast);
 }
 
+.np-rtoggle input:checked + .np-rtoggle__track {
+  background: color-mix(in oklab, var(--accent-primary) 55%, transparent);
+  border-color: var(--accent-primary);
+}
+
+.np-rtoggle input:checked + .np-rtoggle__track .np-rtoggle__thumb {
+  transform: translateX(12px);
+  background: #dcdcdc;
+}
+
+.np-rtoggle input:focus-visible + .np-rtoggle__track {
+  outline: 2px solid var(--accent-secondary);
+  outline-offset: 2px;
+}
+
+.np-rtoggle__hint {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: color-mix(in oklab, var(--text-muted) 80%, transparent);
+}
+
+.np-pane {
+  display: flex;
+  flex-direction: column;
+  padding: 18px 20px 12px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
 .np-form { display: none; opacity: 0; }
 
-.np-form--active { display: block; animation: npFormIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.np-form--active {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+  animation: npFormIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
 
 @keyframes npFormIn {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
-
-.np-fields-row { display: flex; gap: 12px; margin-bottom: 16px; }
-
 .np-field { display: flex; flex-direction: column; gap: 6px; }
 
 .np-field--grow { flex: 1; min-width: 0; }
@@ -100,15 +190,123 @@
 
 .np-section { margin-bottom: 16px; }
 
+.np-section--grow { margin-bottom: 0; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
 .np-section__header { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+
+.np-section__header--row { flex-direction: row; align-items: center; gap: 10px; }
+
+.np-section__header--row .np-search-wrap { margin-left: auto; width: 190px; }
+
+.np-count {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+  border: 1px solid color-mix(in oklab, var(--accent-primary) 28%, transparent);
+  color: color-mix(in oklab, var(--accent-primary) 40%, var(--text-primary));
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.np-map-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  grid-auto-rows: minmax(126px, 1fr);
+  align-content: stretch;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.np-map-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 8px;
+  text-align: left;
+  cursor: pointer;
+  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--bg-primary) 55%, transparent);
+  transition: background var(--dl-fast), border-color var(--dl-fast);
+}
+
+.np-map-card:hover {
+  background: var(--bg-tertiary);
+  border-color: color-mix(in oklab, var(--border) 130%, transparent);
+}
+
+.np-map-card[aria-pressed="true"] {
+  background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+  border-color: color-mix(in oklab, var(--accent-primary) 60%, transparent);
+}
+
+.np-map-card__art {
+  flex: 1;
+  min-height: 54px;
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--bg-tertiary);
+  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+}
+
+.np-map-card__art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  filter: saturate(0.8) brightness(0.82);
+  transition: filter var(--dl-base);
+}
+
+.np-map-card:hover .np-map-card__art img,
+.np-map-card[aria-pressed="true"] .np-map-card__art img { filter: none; }
+
+.np-map-card__body {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 2px 2px;
+}
+
+.np-map-card__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.np-map-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+}
+
+.np-map-card__code { color: var(--text-muted); }
+
+.np-map-card__levels {
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid color-mix(in oklab, var(--accent-primary) 38%, transparent);
+  background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
+  color: color-mix(in oklab, var(--accent-primary) 40%, var(--text-secondary));
+}
 
 @keyframes npChampIn {
   from { opacity: 0; transform: scale(0.9); }
   to { opacity: 1; transform: scale(1); }
 }
-
-.np-section--skins { animation: npFormIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-
 @keyframes npSkinIn {
   from { opacity: 0; transform: translateY(10px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
@@ -126,9 +324,64 @@
   line-height: 1.5;
 }
 
-.np-footer { display: flex; align-items: center; border-top: 1px solid #1a1a1a; }
+.np-footer { display: flex; align-items: flex-end; border-top: 1px solid #1a1a1a; }
 
-.np-footer__spacer { flex: 1 1 auto; }
+.np-footer__field { display: flex; flex-direction: column; gap: 6px; width: 232px; flex-shrink: 0; }
+
+.np-footer__field--path { flex: 1; width: auto; min-width: 0; }
+
+.np-footer__divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 0 8px;
+  background: color-mix(in oklab, var(--border) 70%, transparent);
+}
+
+.np-footer__path { display: flex; gap: 6px; min-width: 0; }
+
+.np-footer__actions { display: flex; gap: 8px; flex-shrink: 0; margin-left: 8px; }
+
+.np-loc {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.np-loc:focus-within { border-color: var(--accent-primary); }
+
+.np-loc input {
+  flex: 0 1 auto;
+  width: 100%;
+  min-width: 40px;
+  height: 100%;
+  padding: 0 0 0 10px;
+  background: none;
+  border: 0;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+}
+
+.np-loc input:focus { outline: none; }
+
+.np-loc__leaf {
+  flex: 0 0 auto;
+  max-width: 45%;
+  padding-right: 10px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .np-loading-overlay {
   position: absolute;
@@ -192,15 +445,6 @@
   color: var(--text-primary) !important;
   margin: 0;
 }
-
-.np-header__subtitle {
-  font-size: 11px !important;
-  color: var(--text-muted);
-  margin-left: auto;
-  text-align: right;
-  line-height: 1.3;
-}
-
 @keyframes npGlowFade {
   from { opacity: 0; }
   to { opacity: 0.55; }
@@ -218,29 +462,10 @@
 }
 
 .np-footer {
-  padding: 12px 22px !important;
-  gap: 8px !important;
+  padding: 14px 22px !important;
+  gap: 0 !important;
   border-top-color: color-mix(in oklab, var(--border) 70%, transparent) !important;
 }
-
-.np-form .np-map-section {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 16px 18px;
-  background: linear-gradient(180deg,
-            color-mix(in oklab, white 4%, transparent) 0%,
-            transparent 46%),
-        color-mix(in oklab, var(--bg-primary) 24%, transparent);
-  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
-  border-radius: 14px;
-  box-shadow: inset 0 1px 0 color-mix(in oklab, white 6%, transparent);
-}
-
-.np-form .np-map-section+.np-map-section { margin-top: 4px; }
-
-.np-form .np-map-reveal { animation: np-map-reveal 320ms cubic-bezier(.22, 1, .36, 1) both; }
-
 @keyframes np-map-reveal {
   from { opacity: 0; transform: translateY(-8px); }
   to { opacity: 1; transform: translateY(0); }
@@ -249,225 +474,6 @@
 @media (prefers-reduced-motion: reduce) {
   .np-form .np-map-reveal { animation: none; }
 }
-
-.np-form .np-map-section__head { display: flex; align-items: center; gap: 12px; }
-
-.np-form .np-map-section__step {
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
-  border: 1px solid color-mix(in oklab, var(--accent-primary) 30%, transparent);
-  border-radius: 9px;
-  font-size: 12px;
-  font-weight: 700;
-  color: color-mix(in oklab, var(--accent-primary) 65%, var(--text-primary));
-  font-family: var(--font-mono);
-  flex: none;
-}
-
-.np-form .np-map-section__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: -0.005em;
-  line-height: 1.2;
-}
-
-.np-form .np-map-section__sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; line-height: 1.45; }
-
-.np-form .np-map-section__sub code {
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 1px 5px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: color-mix(in oklab, var(--accent-primary) 25%, var(--text-secondary));
-}
-
-.np-form .np-map-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-
-.np-form .np-map-field .np-label { display: flex; align-items: center; gap: 8px; margin: 0; }
-
-.np-form .np-map-count {
-  display: inline-flex;
-  align-items: center;
-  height: 16px;
-  padding: 0 6px;
-  background: color-mix(in oklab, var(--accent-primary) 16%, transparent);
-  color: var(--accent-primary);
-  border: 1px solid color-mix(in oklab, var(--accent-primary) 30%, transparent);
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  line-height: 1;
-}
-
-.np-form .np-map-mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-
-.np-form .np-map-mode {
-  box-sizing: border-box;
-  appearance: none;
-  -webkit-appearance: none;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-  position: relative;
-  overflow: hidden;
-  display: grid;
-  grid-template-columns: 38px 1fr;
-  grid-template-rows: auto auto;
-  column-gap: 12px;
-  row-gap: 4px;
-  padding: 14px;
-  background: color-mix(in oklab, var(--bg-primary) 24%, transparent);
-  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
-  border-radius: 12px;
-  color: var(--text-secondary);
-  box-shadow: inset 0 1px 0 color-mix(in oklab, white 5%, transparent);
-  transition: background var(--motion-fast),
-        border-color var(--motion-fast),
-        color var(--motion-fast),
-        transform var(--motion-fast),
-        box-shadow var(--motion-fast);
-}
-
-.np-form .np-map-mode:hover {
-  background: color-mix(in oklab, var(--accent-primary) 7%, transparent);
-  border-color: color-mix(in oklab, var(--accent-primary) 30%, var(--border));
-  color: var(--text-primary);
-}
-
-.np-form .np-map-mode:active { transform: scale(0.997); }
-
-.np-form .np-map-mode--active {
-  background: color-mix(in oklab, var(--accent-primary) 10%, transparent);
-  border-color: color-mix(in oklab, var(--accent-primary) 45%, transparent);
-  color: var(--text-primary);
-}
-
-.np-form .np-map-mode--active::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  background: color-mix(in oklab, var(--accent-primary) 65%, transparent);
-}
-
-.np-form .np-map-mode__check {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 18px;
-  height: 18px;
-  display: grid;
-  place-items: center;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  color: transparent;
-  transition: all var(--motion-fast);
-}
-
-.np-form .np-map-mode--active .np-map-mode__check {
-  background: var(--accent-primary);
-  border-color: var(--accent-primary);
-  color: white;
-}
-
-.np-form .np-map-mode__icon {
-  grid-row: 1 / span 2;
-  width: 38px;
-  height: 38px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: color-mix(in oklab, var(--bg-primary) 45%, transparent);
-  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
-  border-radius: 10px;
-  color: var(--text-secondary);
-  transition: color var(--motion-fast), border-color var(--motion-fast), background var(--motion-fast);
-}
-
-.np-form .np-map-mode__icon svg { display: block; }
-
-.np-form .np-map-mode--active .np-map-mode__icon {
-  color: color-mix(in oklab, var(--accent-primary) 65%, var(--text-primary));
-  background: color-mix(in oklab, var(--accent-primary) 14%, transparent);
-  border-color: color-mix(in oklab, var(--accent-primary) 30%, transparent);
-}
-
-.np-form .np-map-mode__body { display: contents; }
-
-.np-form .np-map-mode__title {
-  grid-column: 2;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
-  line-height: 1.2;
-}
-
-.np-form .np-map-mode__desc { grid-column: 2; font-size: 11px; color: var(--text-muted); line-height: 1.45; }
-
-.np-form .np-map-mode__tag {
-  grid-column: 2;
-  margin-top: 6px;
-  align-self: start;
-  display: inline-flex;
-  align-items: center;
-  height: 18px;
-  padding: 0 8px;
-  background: color-mix(in oklab, var(--color-success) 14%, transparent);
-  border: 1px solid color-mix(in oklab, var(--color-success) 30%, transparent);
-  color: var(--color-success);
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  width: fit-content;
-}
-
-.np-form .np-map-mode__tag--warn {
-  background: color-mix(in oklab, var(--color-warning) 14%, transparent);
-  border-color: color-mix(in oklab, var(--color-warning) 30%, transparent);
-  color: var(--color-warning);
-}
-
-.np-form .np-map-toggle.checkbox-label {
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  background: color-mix(in oklab, var(--bg-primary) 24%, transparent);
-  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
-  border-radius: 10px;
-  box-shadow: inset 0 1px 0 color-mix(in oklab, white 5%, transparent);
-  cursor: pointer;
-  transition: border-color var(--motion-fast), background var(--motion-fast);
-}
-
-.np-form .np-map-toggle.checkbox-label:hover {
-  background: color-mix(in oklab, var(--accent-primary) 6%, transparent);
-  border-color: color-mix(in oklab, var(--accent-primary) 30%, var(--border));
-}
-
-.np-form .np-map-toggle .checkbox-label__label { font-weight: 600; }
-
-.np-form .np-map-section .np-hint {
-  align-items: center;
-  background: color-mix(in oklab, var(--bg-primary) 22%, transparent);
-  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
-  border-radius: 10px;
-  color: var(--text-muted);
-}
-
-.np-form .np-map-section .np-hint svg { color: color-mix(in oklab, var(--accent-primary) 55%, var(--text-muted)); }
-
 @media (max-width: 720px) {
   .np-form .np-map-mode-grid { grid-template-columns: 1fr; }
 }
@@ -582,43 +588,6 @@
   font-size: 10px;
   color: white;
 }
-
-.np-type-card__badge {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  color: #f87171;
-  background: rgba(248, 113, 113, 0.12);
-  border: 1px solid rgba(248, 113, 113, 0.3);
-  border-radius: 3px;
-  padding: 1px 4px;
-  line-height: 1.4;
-}
-
-.np-type-card--experimental { position: relative; }
-
-.np-type-card--experimental::after {
-  content: 'BETA';
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  color: #f59e0b;
-  background: rgba(245, 158, 11, 0.12);
-  border: 1px solid rgba(245, 158, 11, 0.3);
-  border-radius: 3px;
-  padding: 1px 4px;
-  line-height: 1.4;
-}
-
 .np-experimental-dialog {
   background: color-mix(in oklab, var(--bg-secondary) 85%, transparent);
   backdrop-filter: blur(14px) saturate(140%);
@@ -647,102 +616,3 @@
 }
 
 .np-experimental-dialog__actions { display: flex; gap: 8px; margin-top: 4px; }
-
-.np-tft-top-row { display: flex; align-items: flex-start; gap: 14px; }
-
-.np-tft-top-row__fields { flex: 1; min-width: 0; }
-
-.np-tft-top-row__fields .np-fields-row { flex-direction: column; margin-bottom: 0; gap: 8px; }
-
-.np-tft-top-row { margin-bottom: 12px; }
-
-.np-tft-top-row__fields .np-field { gap: 3px; }
-
-.np-tft-top-row__fields .np-field { max-width: 660px; }
-
-.np-tft-card {
-  position: relative;
-  border-radius: 10px;
-  overflow: hidden;
-  background: var(--bg-secondary);
-  border: 1.5px solid var(--border-color);
-  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.np-tft-card__img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  opacity: 0;
-  transition: opacity 0.25s;
-}
-
-.np-tft-card--loaded .np-tft-card__img { opacity: 1; }
-
-.np-tft-card--hero {
-  width: 130px;
-  height: 130px;
-  flex-shrink: 0;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.04);
-}
-
-.np-tft-card--hero:hover {
-  border-color: var(--accent-color, #c89b3c);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(200,155,60,0.3);
-  transform: translateY(-2px);
-}
-
-.np-tft-card__footer {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: 20px 10px 8px;
-  background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%);
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.np-tft-card__species {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: rgba(255,255,255,0.55);
-  line-height: 1.2;
-}
-
-.np-tft-card__variant {
-  font-size: 12px;
-  font-weight: 600;
-  color: #fff;
-  line-height: 1.3;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.np-tft-card__change-hint {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  background: rgba(0,0,0,0.55);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  opacity: 0;
-  transition: opacity 0.15s;
-  border-radius: inherit;
-}
-
-.np-tft-card__change-hint svg, .np-tft-card__change-hint > div { width: 18px; height: 18px; }
-
-.np-tft-card--hero:hover .np-tft-card__change-hint { opacity: 1; }

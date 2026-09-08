@@ -103,6 +103,7 @@ fn display_name_for(id: &str) -> String {
         ("map22", "TFT"),
         ("map30", "Arena"),
         ("map33", "Swarm"),
+        ("map453", "Classic"),
         ("common", "Common (shared assets)"),
     ];
     for (k, v) in known {
