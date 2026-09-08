@@ -217,6 +217,7 @@ export const NewProjectModal: React.FC = () => {
     /** 'variant' = only the chosen variant + referenced kit-pieces (default,
      *  matches what MapgeoAddon ships). 'full' = legacy whole-WAD dump. */
     const [mapExtractMode, setMapExtractMode] = useState<'variant' | 'full'>('variant');
+    const [mapArtMissing, setMapArtMissing] = useState<Record<string, boolean>>({});
     const [mapSearch, setMapSearch] = useState('');
 
     // ─── Loading screen state ────────────────────────────────────────────
@@ -1496,14 +1497,28 @@ export const NewProjectModal: React.FC = () => {
                                             title={m.displayName}
                                         >
                                             <span className="np-map-card__art">
-                                                <img src={mapArtUrl(m.id)} alt="" loading="lazy"
-                                                    onError={(e) => { (e.target as HTMLImageElement).style.visibility = 'hidden'; }} />
+                                                {mapArtMissing[m.id] ? (
+                                                    <span className="np-map-card__art-fallback">
+                                                        <Icon name="help" size={34} />
+                                                    </span>
+                                                ) : (
+                                                    <img src={mapArtUrl(m.id)} alt="" loading="lazy"
+                                                        onError={() => setMapArtMissing((prev) => ({ ...prev, [m.id]: true }))} />
+                                                )}
                                             </span>
                                             <span className="np-map-card__body">
                                                 <span className="np-map-card__name">{m.displayName}</span>
                                                 <span className="np-map-card__meta">
                                                     <span className="np-map-card__code">{m.id}</span>
                                                     {m.hasLevels && <span className="np-map-card__levels">LEVELS</span>}
+                                                    {m.id === 'common' && (
+                                                        <span
+                                                            className="np-map-card__help"
+                                                            title="Common.wad.client holds the assets every map shares. It ships no mapgeo variants, so pick Full WAD to extract it."
+                                                        >
+                                                            <Icon name="help" size={13} />
+                                                        </span>
+                                                    )}
                                                 </span>
                                             </span>
                                         </button>

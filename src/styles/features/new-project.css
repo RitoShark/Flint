@@ -266,6 +266,23 @@
 .np-map-card:hover .np-map-card__art img,
 .np-map-card[aria-pressed="true"] .np-map-card__art img { filter: none; }
 
+.np-map-card__art-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: color-mix(in oklab, var(--text-muted) 50%, transparent);
+  transition: color var(--dl-base);
+}
+
+.np-map-card__art-fallback svg { display: block; }
+
+.np-map-card:hover .np-map-card__art-fallback,
+.np-map-card[aria-pressed="true"] .np-map-card__art-fallback {
+  color: color-mix(in oklab, var(--accent-primary) 65%, var(--text-muted));
+}
+
 .np-map-card__body {
   display: flex;
   align-items: baseline;
@@ -294,6 +311,19 @@
 }
 
 .np-map-card__code { color: var(--text-muted); }
+
+.np-map-card__help {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  cursor: help;
+}
+
+.np-map-card__help svg { display: block; }
+
+.np-map-card:hover .np-map-card__help,
+.np-map-card[aria-pressed="true"] .np-map-card__help { color: var(--text-secondary); }
 
 .np-map-card__levels {
   padding: 1px 5px;

@@ -105,7 +105,7 @@ fn display_name_for(id: &str) -> String {
         ("map30", "Arena"),
         ("map33", "Swarm"),
         ("map453", "Classic"),
-        ("common", "Common (shared assets)"),
+        ("common", "Common"),
     ];
     for (k, v) in known {
         if &lower == k { return (*v).to_string(); }
