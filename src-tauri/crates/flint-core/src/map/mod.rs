@@ -10,8 +10,9 @@ use crate::error::{Error, Result};
 use crate::hash::ResolvedHashes;
 use crate::project::{create_project as core_create_project, register_in_index, save_project, Project};
 use crate::wad::extractor::{extract_full_wad_filtered, resolve_wad_paths, ExtractionResult};
-use ritoshark::prelude::*;
-use ritoshark::wad::{Wad, WadChunk};
+use crate::wad::format::WadChunk;
+use crate::wad::reader::read_wad_toc;
+use crate::wad::read_chunk_decompressed_bytes;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -395,14 +396,14 @@ fn xx64(s: &str) -> u64 {
 /// Extract one chunk of a mounted WAD to disk by absolute path. Skips
 /// silently if the chunk isn't present in the WAD.
 fn extract_one(
-    wad: &Wad,
+    wad_path: &Path,
     by_hash: &HashMap<u64, WadChunk>,
     rel_path: &str,
     output_dir: &Path,
 ) -> Result<bool> {
     let h = xx64(rel_path);
     let Some(chunk) = by_hash.get(&h).copied() else { return Ok(false); };
-    let data = wad.chunk_data(&chunk).map_err(|e| Error::Wad {
+    let data = read_chunk_decompressed_bytes(wad_path, &chunk).map_err(|e| Error::Wad {
         message: format!("Failed to decompress chunk for '{}': {}", rel_path, e),
         path: None,
     })?;
@@ -475,12 +476,8 @@ pub fn extract_variant_files(
     let mapgeo_path = format!("{}{}.mapgeo", prefix, var_lower);
     let materials_path = format!("{}{}.materials.bin", prefix, var_lower);
 
-    let wad = Wad::from_path(wad_path).map_err(|e| Error::Wad {
-        message: format!("Failed to mount WAD: {}", e),
-        path: Some(wad_path.to_path_buf()),
-    })?;
-
-    let by_hash: HashMap<u64, WadChunk> = wad
+    let toc = read_wad_toc(wad_path)?;
+    let by_hash: HashMap<u64, WadChunk> = toc
         .chunks.iter()
         .map(|c| (c.path_hash, *c))
         .collect();
@@ -488,21 +485,21 @@ pub fn extract_variant_files(
     fs::create_dir_all(output_dir).map_err(|e| Error::io_with_path(e, output_dir))?;
 
     let mut extracted = 0usize;
-    if extract_one(&wad, &by_hash, &mapgeo_path, output_dir)? { extracted += 1; }
-    if extract_one(&wad, &by_hash, &materials_path, output_dir)? { extracted += 1; }
+    if extract_one(wad_path, &by_hash, &mapgeo_path, output_dir)? { extracted += 1; }
+    if extract_one(wad_path, &by_hash, &materials_path, output_dir)? { extracted += 1; }
 
     // Scan materials.bin for referenced paths. If we couldn't pull it (e.g.
     // hash miss), there's nothing to scan and we just return what we have.
     let mat_h = xx64(&materials_path);
     if let Some(chunk) = by_hash.get(&mat_h).copied() {
-        if let Ok(bytes) = wad.chunk_data(&chunk) {
+        if let Ok(bytes) = read_chunk_decompressed_bytes(wad_path, &chunk) {
             let referenced = scan_referenced_paths(&bytes);
             tracing::info!(
                 "Variant '{}' references {} candidate asset path(s) in materials.bin",
                 variant, referenced.len()
             );
             for path in referenced {
-                if extract_one(&wad, &by_hash, &path, output_dir).unwrap_or(false) {
+                if extract_one(wad_path, &by_hash, &path, output_dir).unwrap_or(false) {
                     extracted += 1;
                 }
             }
@@ -565,11 +562,8 @@ pub fn extract_levels_variant_files(
     let with_data: Vec<String> = candidates.iter().map(|p| format!("data/{}", p)).collect();
     candidates.extend(with_data);
 
-    let wad = Wad::from_path(wad_path).map_err(|e| Error::Wad {
-        message: format!("Failed to mount LEVELS WAD: {}", e),
-        path: Some(wad_path.to_path_buf()),
-    })?;
-    let by_hash: HashMap<u64, WadChunk> = wad
+    let toc = read_wad_toc(wad_path)?;
+    let by_hash: HashMap<u64, WadChunk> = toc
         .chunks.iter()
         .map(|c| (c.path_hash, *c))
         .collect();
@@ -577,7 +571,7 @@ pub fn extract_levels_variant_files(
     fs::create_dir_all(output_dir).map_err(|e| Error::io_with_path(e, output_dir))?;
     let mut extracted = 0usize;
     for path in candidates {
-        if extract_one(&wad, &by_hash, &path, output_dir).unwrap_or(false) {
+        if extract_one(wad_path, &by_hash, &path, output_dir).unwrap_or(false) {
             extracted += 1;
         }
     }

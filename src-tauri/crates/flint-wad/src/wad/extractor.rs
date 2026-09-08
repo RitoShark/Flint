@@ -947,13 +947,8 @@ pub fn resolve_wad_paths(
     wad_path: impl AsRef<Path>,
     resolve_paths: impl Fn(&[u64]) -> ResolvedHashes,
 ) -> Result<ResolvedHashes> {
-    let wad_path = wad_path.as_ref();
-    let wad = Wad::from_path(wad_path)
-        .map_err(|e| Error::Wad {
-            message: format!("Failed to parse WAD: {}", e),
-            path: Some(wad_path.to_path_buf()),
-        })?;
-    let hashes: Vec<u64> = wad.chunks.iter().map(|c| c.path_hash).collect();
+    let toc = crate::wad::reader::read_wad_toc(wad_path.as_ref())?;
+    let hashes: Vec<u64> = toc.chunks.iter().map(|c| c.path_hash).collect();
     Ok(resolve_paths(&hashes))
 }
 
