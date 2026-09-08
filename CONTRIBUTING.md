@@ -20,10 +20,6 @@ npx tsc --noEmit          # frontend types
 cd src-tauri && cargo clippy
 ```
 
-Do not run `cargo build` or `cargo check` on their own. `npm run tauri dev` compiles the Rust
-itself, and a standalone build wipes the incremental cache, which costs you a 15 minute rebuild for
-nothing.
-
 ## Commits
 
 [Conventional Commits](https://www.conventionalcommits.org), because
