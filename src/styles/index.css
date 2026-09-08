@@ -51,6 +51,7 @@
 @import './features/settings.css';
 @import './features/setup-wizard.css';
 @import './features/setup-fields.css';
+@import './features/setup-tour.css';
 @import './features/shortcuts.css';
 @import './features/skin-fixer.css';
 @import './features/skin-picker.css';

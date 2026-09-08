@@ -1,35 +1,68 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useModalStore, useNotificationStore, useConfigStore, useUxStore } from '../../lib/stores';
+import { useModalStore, useNotificationStore, useConfigStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Button, Input, Icon, Textarea, Checkbox, Spinner } from '../ui';
+import { Button, Input, Icon, Textarea, Checkbox, Spinner, type IconName } from '../ui';
 import { FlintFlameMark } from '../ui/FlintFlameMark';
-import { ThemePresetGrid } from './settings/ThemeTab';
 import { SettingsRow } from './settings/SettingsRow';
 import { PathSettingItem } from './settings/PathSettingItem';
+import { FlowPane, ProjectsPane, WorkspacePane, WadPane, MenusPane } from './setup/TourPanes';
 
-type StepId = 'splash' | 'theme' | 'identity' | 'paths' | 'finish';
+type StepId = 'splash' | 'flow' | 'projects' | 'workspace' | 'wad' | 'menus' | 'identity' | 'paths' | 'finish';
 
 interface Step {
     id: StepId;
+    /** Starts a new rail group when set. */
+    group?: string;
+    /** Rail label. Empty = not shown in the rail. */
+    short: string;
+    hint: string;
+    icon: IconName;
     title: string;
     subtitle: string;
-    /** Compact label shown in the stepper rail. Empty = hidden. */
-    short: string;
 }
 
 const STEPS: Step[] = [
-    { id: 'splash',   short: '',         title: '',                              subtitle: '' },
-    { id: 'theme',    short: 'Theme',    title: 'Pick a vibe',                   subtitle: 'Choose an accent and surface style. Tweakable later in Settings.' },
-    { id: 'identity', short: 'Identity', title: "Let's get acquainted",          subtitle: 'Your creator name is stamped into every mod you publish.' },
-    { id: 'paths',    short: 'Paths',    title: 'Point Flint at your install',   subtitle: 'All optional — but each one unlocks a piece of the IDE.' },
-    { id: 'finish',   short: 'Finish',   title: '',                              subtitle: '' },
+    { id: 'splash', short: '', hint: '', icon: 'info', title: '', subtitle: '' },
+    {
+        id: 'flow', group: 'Learn', short: 'How it works', hint: 'The five stages', icon: 'refresh',
+        title: 'How Flint works',
+        subtitle: 'From the files sitting in your League folder to a mod someone else can install.',
+    },
+    {
+        id: 'projects', short: 'Projects', hint: 'Making a mod', icon: 'plus',
+        title: 'Projects',
+        subtitle: 'What New Project does, and what each field on it decides.',
+    },
+    {
+        id: 'workspace', short: 'Workspace', hint: 'Where you edit', icon: 'layerText',
+        title: 'The workspace',
+        subtitle: 'Four regions, and which tool opens for which file.',
+    },
+    {
+        id: 'wad', short: 'WAD Explorer', hint: 'Reading the game', icon: 'wad',
+        title: 'WAD Explorer',
+        subtitle: 'Search and preview the game archives without extracting anything first.',
+    },
+    {
+        id: 'menus', short: 'Right-click', hint: 'Where the tools live', icon: 'more',
+        title: 'Right-click menus',
+        subtitle: 'Most of what Flint can do is one right-click away.',
+    },
+    {
+        id: 'identity', group: 'Set up', short: 'You', hint: 'Name and links', icon: 'user',
+        title: 'Who is shipping this',
+        subtitle: 'Your creator name is stamped into every mod you build.',
+    },
+    {
+        id: 'paths', short: 'Paths', hint: 'Game, launcher, editors', icon: 'folder',
+        title: 'Point Flint at your install',
+        subtitle: 'Flint needs the League folder for almost everything. The rest are optional.',
+    },
+    { id: 'finish', short: 'Finish', hint: 'Two last switches', icon: 'success', title: '', subtitle: '' },
 ];
-
-/** Default accent used before the user picks a theme. */
-const DEFAULT_ACCENT = '#EF5244';
 
 type DetectingState = boolean;
 
@@ -37,7 +70,6 @@ export const FirstTimeSetupModal: React.FC = () => {
     const closeModal = useModalStore((s) => s.closeModal);
     const activeModal = useModalStore((s) => s.activeModal);
     const showToast = useNotificationStore((s) => s.showToast);
-    const ux = useUxStore();
     const config = useConfigStore();
 
     const creatorDescriptionStored = useConfigStore((s) => s.creatorDescription);
@@ -75,22 +107,10 @@ export const FirstTimeSetupModal: React.FC = () => {
     const [detectingAll, setDetectingAll] = useState<DetectingState>(false);
     const autoDetectRan = useRef(false);
     const [flintHome, setFlintHome] = useState<string>('');
-    const [accentChoice, setAccentChoice] = useState<string>(ux.accentPrimary || DEFAULT_ACCENT);
-    const [glassChoice, setGlassChoice] = useState<boolean>(ux.glassmorphism);
 
     const isVisible = activeModal === 'firstTimeSetup';
     const step = STEPS[stepIndex];
     const isLast = stepIndex === STEPS.length - 1;
-
-    useEffect(() => {
-        if (!isVisible) return;
-        ux.setAccentPrimary(accentChoice);
-    }, [accentChoice, isVisible]); // eslint-disable-line react-hooks/exhaustive-deps
-
-    useEffect(() => {
-        if (!isVisible) return;
-        ux.setGlassmorphism(glassChoice);
-    }, [glassChoice, isVisible]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const advance = () => { setDirection(1); setStepIndex((i) => Math.min(STEPS.length - 1, i + 1)); };
     const back    = () => { setDirection(-1); setStepIndex((i) => Math.max(0, i - 1)); };
@@ -183,7 +203,7 @@ export const FirstTimeSetupModal: React.FC = () => {
             if (ext.jade || ext.quartz) setEditorsOpen(true);
 
             if (results.length === 0) {
-                showToast('warning', 'Nothing was auto-detected — fill paths manually.');
+                showToast('warning', 'Nothing was auto-detected. Fill the paths in manually.');
             } else if (failures.length === 0) {
                 showToast('success', `Detected ${results.join(', ')}.`);
             } else {
@@ -250,12 +270,12 @@ export const FirstTimeSetupModal: React.FC = () => {
                     showToast('warning', `File associations registered with ${result.errors.length} error(s).`);
                 }
             } catch {
-                showToast('warning', "Couldn't register file associations — do it later in Settings.");
+                showToast('warning', "Couldn't register file associations. You can do it later in Settings.");
             }
         }
 
         closeModal();
-        showToast('success', 'Setup complete — welcome to Flint.');
+        showToast('success', 'Setup complete. Welcome to Flint.');
     };
 
     const onIdentityKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -294,120 +314,109 @@ export const FirstTimeSetupModal: React.FC = () => {
             <WizBackdrop />
             <WizTitleBar />
             <div className="fwiz__shell">
-                <Stepper
+                <WizRail
                     steps={visibleSteps}
                     index={visibleIndex}
                     onJump={(i) => goToStep(i + 1)}
                 />
 
-                <main className={`fwiz__stage fwiz__stage--${direction > 0 ? 'fwd' : 'back'}`} key={step.id}>
-                    {(step.title || step.subtitle) && (
-                        <div className="fwiz__heading">
-                            {step.title && <h1>{step.title}</h1>}
-                            {step.subtitle && <p>{step.subtitle}</p>}
+                <div className="fwiz__main">
+                    <main className={`fwiz__stage fwiz__stage--${direction > 0 ? 'fwd' : 'back'}`} key={step.id}>
+                        {(step.title || step.subtitle) && (
+                            <div className="fwiz__heading">
+                                {step.title && <h1>{step.title}</h1>}
+                                {step.subtitle && <p>{step.subtitle}</p>}
+                            </div>
+                        )}
+
+                        <div className="fwiz__body">
+                            {step.id === 'identity' && (
+                                <IdentityPane
+                                    value={creatorName}
+                                    onChange={setCreatorName}
+                                    onKeyDown={onIdentityKey}
+                                    description={creatorDescription}
+                                    onDescriptionChange={setCreatorDescription}
+                                    home={creatorHome}
+                                    onHomeChange={setCreatorHome}
+                                    tip={creatorTip}
+                                    onTipChange={setCreatorTip}
+                                />
+                            )}
+                            {step.id === 'paths' && (
+                                <PathsPane
+                                    league={leaguePath}
+                                    pbe={pbePath}
+                                    project={defaultProjectPath}
+                                    ltk={ltkPath}
+                                    celestial={celestialPath}
+                                    preferredLauncher={preferredLauncher}
+                                    jade={jadePath}
+                                    quartz={quartzPath}
+                                    autoSync={autoSync}
+                                    editorsOpen={editorsOpen}
+                                    flintHome={flintHome}
+                                    detectingAll={detectingAll}
+                                    onLeague={setLeaguePath}
+                                    onPbe={setPbePath}
+                                    onProject={setDefaultProjectPath}
+                                    onLtk={setLtkPath}
+                                    onCelestial={setCelestialPath}
+                                    onJade={setJadePath}
+                                    onQuartz={setQuartzPath}
+                                    onAutoSync={setAutoSync}
+                                    onEditorsToggle={() => setEditorsOpen((v) => !v)}
+                                    onPreferredLauncherChange={setPreferredLauncher}
+                                    onBrowseLeague={() => browseDir('Select League of Legends Folder', setLeaguePath)}
+                                    onBrowsePbe={() => browseDir('Select PBE Folder', setPbePath)}
+                                    onBrowseProject={() => browseDir('Where should new projects be created?', setDefaultProjectPath)}
+                                    onBrowseLtk={() => browseDir('Select LTK Manager Mod Folder', setLtkPath)}
+                                    onBrowseCelestial={() => browseDir('Select Celestial Mod Folder', setCelestialPath)}
+                                />
+                            )}
+                            {step.id === 'flow' && <FlowPane />}
+                            {step.id === 'projects' && <ProjectsPane />}
+                            {step.id === 'workspace' && <WorkspacePane />}
+                            {step.id === 'wad' && <WadPane />}
+                            {step.id === 'menus' && <MenusPane />}
+                            {step.id === 'finish' && (
+                                <FinishPane
+                                    creatorName={creatorName}
+                                    registerAssoc={registerAssoc}
+                                    onRegisterAssoc={setRegisterAssoc}
+                                    autoUpdate={autoUpdate}
+                                    onAutoUpdate={setAutoUpdate}
+                                />
+                            )}
                         </div>
-                    )}
+                    </main>
 
-                    <div className="fwiz__body">
-                        {step.id === 'identity' && (
-                            <IdentityPane
-                                value={creatorName}
-                                onChange={setCreatorName}
-                                onKeyDown={onIdentityKey}
-                                description={creatorDescription}
-                                onDescriptionChange={setCreatorDescription}
-                                home={creatorHome}
-                                onHomeChange={setCreatorHome}
-                                tip={creatorTip}
-                                onTipChange={setCreatorTip}
-                            />
-                        )}
-                        {step.id === 'paths' && (
-                            <PathsPane
-                                league={leaguePath}
-                                pbe={pbePath}
-                                project={defaultProjectPath}
-                                ltk={ltkPath}
-                                celestial={celestialPath}
-                                preferredLauncher={preferredLauncher}
-                                jade={jadePath}
-                                quartz={quartzPath}
-                                autoSync={autoSync}
-                                editorsOpen={editorsOpen}
-                                flintHome={flintHome}
-                                detectingAll={detectingAll}
-                                onLeague={setLeaguePath}
-                                onPbe={setPbePath}
-                                onProject={setDefaultProjectPath}
-                                onLtk={setLtkPath}
-                                onCelestial={setCelestialPath}
-                                onJade={setJadePath}
-                                onQuartz={setQuartzPath}
-                                onAutoSync={setAutoSync}
-                                onEditorsToggle={() => setEditorsOpen((v) => !v)}
-                                onPreferredLauncherChange={setPreferredLauncher}
-                                onBrowseLeague={() => browseDir('Select League of Legends Folder', setLeaguePath)}
-                                onBrowsePbe={() => browseDir('Select PBE Folder', setPbePath)}
-                                onBrowseProject={() => browseDir('Where should new projects be created?', setDefaultProjectPath)}
-                                onBrowseLtk={() => browseDir('Select LTK Manager Mod Folder', setLtkPath)}
-                                onBrowseCelestial={() => browseDir('Select Celestial Mod Folder', setCelestialPath)}
-                            />
-                        )}
-                        {step.id === 'theme' && (
-                            <ThemePane
-                                accent={accentChoice}
-                                onAccent={setAccentChoice}
-                                selectedTheme={config.selectedTheme}
-                                onSelectTheme={(id) => config.setSelectedTheme(id)}
-                                glass={glassChoice}
-                                onGlass={setGlassChoice}
-                                glassBlur={ux.glassBlur}
-                                onGlassBlur={ux.setGlassBlur}
-                                glassOpacity={ux.glassOpacity}
-                                onGlassOpacity={ux.setGlassOpacity}
-                                fpsMode={ux.fpsMode}
-                                onFpsMode={ux.setFpsMode}
-                                buttonGlow={ux.buttonGlow}
-                                onButtonGlow={ux.setButtonGlow}
-                            />
-                        )}
-                        {step.id === 'finish' && (
-                            <FinishPane
-                                creatorName={creatorName}
-                                registerAssoc={registerAssoc}
-                                onRegisterAssoc={setRegisterAssoc}
-                                autoUpdate={autoUpdate}
-                                onAutoUpdate={setAutoUpdate}
-                            />
-                        )}
-                    </div>
-                </main>
-
-                <footer className="fwiz__nav">
-                    <Button variant="ghost" onClick={back} disabled={visibleIndex === 0}>
-                        Back
-                    </Button>
-                    <div className="fwiz__nav-spacer" />
-                    <span className="fwiz__nav-counter">
-                        {String(visibleIndex + 1).padStart(2, '0')}<span> / {visibleTotal}</span>
-                    </span>
-                    {isLast ? (
-                        <Button variant="success" size="lg" iconRight="chevronRight" onClick={handleFinish} className="fwiz__cta">
-                            Enter Flint
+                    <footer className="fwiz__nav">
+                        <Button variant="ghost" onClick={back} disabled={visibleIndex === 0}>
+                            Back
                         </Button>
-                    ) : (
-                        <Button
-                            variant="primary"
-                            size="lg"
-                            iconRight="chevronRight"
-                            onClick={advance}
-                            disabled={!canAdvance}
-                            className="fwiz__cta"
-                        >
-                            Continue
-                        </Button>
-                    )}
-                </footer>
+                        <div className="fwiz__nav-spacer" />
+                        <span className="fwiz__nav-counter">
+                            {String(visibleIndex + 1).padStart(2, '0')}<span> / {visibleTotal}</span>
+                        </span>
+                        {isLast ? (
+                            <Button variant="success" size="lg" iconRight="chevronRight" onClick={handleFinish} className="fwiz__cta">
+                                Enter Flint
+                            </Button>
+                        ) : (
+                            <Button
+                                variant="primary"
+                                size="lg"
+                                iconRight="chevronRight"
+                                onClick={advance}
+                                disabled={!canAdvance}
+                                className="fwiz__cta"
+                            >
+                                Continue
+                            </Button>
+                        )}
+                    </footer>
+                </div>
             </div>
         </div>
     );
@@ -522,40 +531,49 @@ const WizTitleBar: React.FC = () => {
 };
 
 /* -------------------------------------------------------------------------- */
-/* Stepper rail                                                                */
+/* Rail                                                                        */
 /* -------------------------------------------------------------------------- */
-const Stepper: React.FC<{
+const WizRail: React.FC<{
     steps: Step[];
     index: number;
     onJump: (i: number) => void;
 }> = ({ steps, index, onJump }) => (
-    <ol className="fwiz-step">
-        {steps.map((s, i) => {
-            const reachable = i <= index;
-            return (
-                <li key={s.id}>
-                    <button
-                        type="button"
-                        className={`fwiz-step__item ${i === index ? 'is-active' : ''} ${i < index ? 'is-done' : ''} ${reachable ? '' : 'is-locked'}`}
-                        onClick={() => onJump(i)}
-                        disabled={!reachable}
-                        aria-current={i === index ? 'step' : undefined}
-                    >
-                        <span className="fwiz-step__dot">
-                            {i < index ? (
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                                    <polyline points="20 6 9 17 4 12" />
-                                </svg>
-                            ) : (
-                                i + 1
-                            )}
-                        </span>
-                        <span className="fwiz-step__label">{s.short}</span>
-                    </button>
-                </li>
-            );
-        })}
-    </ol>
+    <nav className="fwiz-rail" aria-label="Setup steps">
+        {steps.map((s, i) => (
+            <React.Fragment key={s.id}>
+                {s.group && (
+                    <>
+                        {i > 0 && <div className="fwiz-rail__rule" />}
+                        <span className="fwiz-rail__group">{s.group}</span>
+                    </>
+                )}
+                <button
+                    type="button"
+                    className="fwiz-rail__item"
+                    aria-pressed={i === index}
+                    aria-current={i === index ? 'step' : undefined}
+                    data-done={i < index || undefined}
+                    disabled={i > index}
+                    onClick={() => onJump(i)}
+                    title={s.short}
+                >
+                    <span className="fwiz-rail__ico">
+                        {i < index ? (
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                        ) : (
+                            <Icon name={s.icon} />
+                        )}
+                    </span>
+                    <span className="fwiz-rail__text">
+                        <span className="fwiz-rail__title">{s.short}</span>
+                        <span className="fwiz-rail__sub">{s.hint}</span>
+                    </span>
+                </button>
+            </React.Fragment>
+        ))}
+    </nav>
 );
 
 /* -------------------------------------------------------------------------- */
@@ -589,7 +607,7 @@ const IdentityPane: React.FC<{
                             autoFocus
                         />
                         <p className="creator-field__hint">
-                            Stamped into every mod you ship — proper credit, automatically.
+                            Stamped into every mod you ship, so the credit is already in there.
                         </p>
                     </div>
                 }
@@ -607,7 +625,7 @@ const IdentityPane: React.FC<{
                             maxLength={280}
                         />
                         <p className="creator-field__hint">
-                            Pre-fills the description on every new project — editable per-project later. {description.length}/280
+                            Pre-fills the description on every new project. You can change it per project. {description.length}/280
                         </p>
                     </div>
                 }
@@ -616,7 +634,7 @@ const IdentityPane: React.FC<{
 
         <div className="fwiz-pane__col">
             <p className="settings-subhead">Links</p>
-            <p className="settings-subhead__note">Optional — shipped with your mods so people can find and support you.</p>
+            <p className="settings-subhead__note">Optional. These ship with your mods so people can find you.</p>
             <SettingsRow
                 icon={<Icon name="link" />}
                 title="Home page"
@@ -687,8 +705,8 @@ const PathsPane: React.FC<{
                 <strong>{p.detectingAll ? 'Detecting your setup…' : 'Auto-detected your setup'}</strong>
                 <span>
                     {p.detectingAll
-                        ? 'Scanning for League, PBE, launchers and editors — adjust anything below.'
-                        : `Found ${filledCount}/5 — review and tweak any path below.`}
+                        ? 'Scanning for League, PBE, launchers and editors. Adjust anything below.'
+                        : `Found ${filledCount}/5. Review or change any path below.`}
                 </span>
             </div>
             <div className="fwiz-detectbar__track" aria-hidden="true">
@@ -718,7 +736,7 @@ const PathsPane: React.FC<{
                     value: p.league,
                     onChange: p.onLeague,
                     browseTitle: 'Select League of Legends Folder',
-                    hint: 'Powers in-game tooling, hash resolution, and previews.',
+                    hint: 'Used for extraction, hash resolution and previews.',
                 }} />
                 <PathSettingItem setting={{
                     logoSrc: '/lol-logo.png',
@@ -767,7 +785,7 @@ const PathsPane: React.FC<{
                         <span>
                             Jade &amp; Quartz{' '}
                             <span className="fwiz-disclose__sub">
-                                {hasEditor ? '— detected' : '— optional, not detected'}
+                                {hasEditor ? '(detected)' : '(optional, not detected)'}
                             </span>
                         </span>
                         <svg className="fwiz-disclose__chev" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -845,7 +863,7 @@ const LauncherPicker: React.FC<{
     return (
         <div className="fwiz-settings__block">
             <p className="settings-subhead__note">
-                Pick where “Sync to Launcher” drops your mods. Configure both — switch any time.
+                Pick where “Sync to Launcher” drops your mods. Set both up and switch any time.
             </p>
             <div className="fwiz-launcher__grid">
                 {launchers.map((l) => {
@@ -888,92 +906,6 @@ const LauncherPicker: React.FC<{
     );
 };
 
-const ThemePane: React.FC<{
-    accent: string;
-    onAccent: (hex: string) => void;
-    selectedTheme: string | null;
-    onSelectTheme: (id: string | null) => void;
-    glass: boolean;
-    onGlass: (b: boolean) => void;
-    glassBlur: number;
-    onGlassBlur: (n: number) => void;
-    glassOpacity: number;
-    onGlassOpacity: (n: number) => void;
-    fpsMode: boolean;
-    onFpsMode: (b: boolean) => void;
-    buttonGlow: boolean;
-    onButtonGlow: (b: boolean) => void;
-}> = ({
-    accent, onAccent, selectedTheme, onSelectTheme, glass, onGlass,
-    glassBlur, onGlassBlur, glassOpacity, onGlassOpacity,
-    fpsMode, onFpsMode, buttonGlow, onButtonGlow,
-}) => (
-    <div className="fwiz-settings fwiz-pane--split">
-        <div className="fwiz-pane__col">
-            <p className="settings-subhead">Appearance</p>
-            <ThemePresetGrid
-                selectedTheme={selectedTheme}
-                customAccent={accent}
-                onSelect={(id, hex) => { onSelectTheme(id); onAccent(hex); }}
-                onCustomAccent={(hex) => { onSelectTheme('custom'); onAccent(hex); }}
-            />
-        </div>
-
-        <div className="fwiz-pane__col">
-            <p className="settings-subhead">Surfaces</p>
-            <SettingsRow
-                icon={<Icon name="picture" />}
-                title="Glassmorphism"
-                sub={<span className="settings-row__sub">Frosted blur on panels and modals — turn off for solid surfaces.</span>}
-                onActivate={() => onGlass(!glass)}
-                actions={<Checkbox toggle checked={glass} onChange={(e) => onGlass(e.target.checked)} />}
-            />
-            {glass && (
-                <>
-                    <SettingsRow
-                        icon={<Icon name="settings" />}
-                        title="Glass blur"
-                        sub={
-                            <input type="range" min={0} max={32} step={1} value={glassBlur}
-                                onChange={(e) => onGlassBlur(Number(e.target.value))} className="theme-range" />
-                        }
-                        actions={<span className="settings-row__metric">{glassBlur}px</span>}
-                    />
-                    <SettingsRow
-                        icon={<Icon name="settings" />}
-                        title="Glass opacity"
-                        sub={
-                            <input type="range" min={0.2} max={1} step={0.05} value={glassOpacity}
-                                onChange={(e) => onGlassOpacity(Number(e.target.value))} className="theme-range" />
-                        }
-                        actions={<span className="settings-row__metric">{Math.round(glassOpacity * 100)}%</span>}
-                    />
-                </>
-            )}
-
-            <p className="settings-subhead">Performance</p>
-            <SettingsRow
-                icon={<Icon name="refresh" />}
-                title="FPS Mode"
-                sub={<span className="settings-row__sub" style={{ whiteSpace: 'normal' }}>
-                    Strip every CSS transition, animation and backdrop blur for maximum responsiveness — great for older hardware.
-                </span>}
-                onActivate={() => onFpsMode(!fpsMode)}
-                actions={<Checkbox toggle checked={fpsMode} onChange={(e) => onFpsMode(e.target.checked)} />}
-            />
-            <SettingsRow
-                icon={<Icon name="picture" />}
-                title="Button Glow"
-                sub={<span className="settings-row__sub" style={{ whiteSpace: 'normal' }}>{fpsMode
-                    ? 'Off automatically while FPS Mode is on (the cursor-tracking listener costs frames).'
-                    : 'A soft radial glow that tracks your cursor across buttons. On by default.'}</span>}
-                onActivate={fpsMode ? undefined : () => onButtonGlow(!buttonGlow)}
-                actions={<Checkbox toggle checked={buttonGlow && !fpsMode} disabled={fpsMode} onChange={(e) => onButtonGlow(e.target.checked)} />}
-            />
-        </div>
-    </div>
-);
-
 const FinishPane: React.FC<{
     creatorName: string;
     registerAssoc: boolean;
@@ -989,47 +921,16 @@ const FinishPane: React.FC<{
             <div className="fwiz-finish__welcome">
                 <h2 className="fwiz-finish__title">Welcome, {creatorName.trim() || 'Anonymous'}</h2>
                 <p className="fwiz-finish__sub">
-                    Workshop wired up. Hit <kbd>Ctrl</kbd>+<kbd>N</kbd> any time to spin up a mod.
+                    Everything is set. You can replay this tour from Settings at any time.
                 </p>
             </div>
 
             <div className="fwiz-finish__panel">
-                <div className="fwiz-finish__panel-head">
-                    <span className="fwiz-finish__panel-eyebrow">What you can do now</span>
+                <div className="fwiz-finish__shortcuts">
+                    <div><kbd>Ctrl</kbd>+<kbd>N</kbd><span>New mod</span></div>
+                    <div><kbd>Ctrl</kbd>+<kbd>K</kbd><span>Command palette</span></div>
+                    <div><kbd>Ctrl</kbd>+<kbd>,</kbd><span>Settings</span></div>
                 </div>
-
-                <ul className="fwiz-intro">
-                    <li className="fwiz-intro__item">
-                        <span className="fwiz-intro__ico"><Icon name="plus" /></span>
-                        <div>
-                            <strong>Create a project</strong>
-                            <p>
-                                Pick a champion and skin, and Flint pulls the assets straight out of the game,
-                                repaths them under your creator name, and leaves you a clean folder to edit.
-                            </p>
-                        </div>
-                    </li>
-                    <li className="fwiz-intro__item">
-                        <span className="fwiz-intro__ico"><Icon name="package" /></span>
-                        <div>
-                            <strong>Browse the game with WAD Explorer</strong>
-                            <p>
-                                Search every WAD in your install by name — textures, models, BINs and audio —
-                                and preview them in place without extracting anything first.
-                            </p>
-                        </div>
-                    </li>
-                    <li className="fwiz-intro__item">
-                        <span className="fwiz-intro__ico"><Icon name="download" /></span>
-                        <div>
-                            <strong>Pull assets from the CDN</strong>
-                            <p>
-                                No install needed for the newest patch — Flint can fetch what it needs straight
-                                from Riot&rsquo;s servers, so you can start on a skin the day it ships.
-                            </p>
-                        </div>
-                    </li>
-                </ul>
 
                 <a
                     className="fwiz-wiki"
@@ -1039,18 +940,13 @@ const FinishPane: React.FC<{
                     <img className="fwiz-wiki__logo" src="/divine-logo.webp" alt="" draggable={false} />
                     <span className="fwiz-wiki__text">
                         <strong>New to modding? Read the Divine Skins wiki</strong>
-                        <span>Guides that cover modding from the ground up — wiki.divineskins.gg</span>
+                        <span>Guides that cover modding from the ground up. wiki.divineskins.gg</span>
                     </span>
                     <svg className="fwiz-wiki__arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                         <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                 </a>
 
-                <div className="fwiz-finish__shortcuts">
-                    <div><kbd>Ctrl</kbd>+<kbd>N</kbd><span>New mod</span></div>
-                    <div><kbd>Ctrl</kbd>+<kbd>,</kbd><span>Settings</span></div>
-                    <div><kbd>Ctrl</kbd>+<kbd>K</kbd><span>Command palette</span></div>
-                </div>
             </div>
 
             <div className="fwiz-settings">
@@ -1059,7 +955,7 @@ const FinishPane: React.FC<{
                     icon={<Icon name="link" />}
                     title="Open Flint from Explorer"
                     sub={<span className="settings-row__sub" style={{ whiteSpace: 'normal' }}>
-                        Adds Flint to the “Open with” menu for .wad, .bin, .tex, .fantome and more. Your default apps stay unchanged.
+                        Adds Flint to the “Open with” menu for .wad, .bin, .tex, .fantome and more. Your default apps stay as they are.
                     </span>}
                     onActivate={() => onRegisterAssoc(!registerAssoc)}
                     actions={<Checkbox toggle checked={registerAssoc} onChange={(e) => onRegisterAssoc(e.target.checked)} />}
