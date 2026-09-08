@@ -38,10 +38,63 @@ impl ProjectKind {
 fn is_zero_u32(v: &u32) -> bool { *v == 0 }
 fn is_empty_string(s: &str) -> bool { s.is_empty() }
 
-/// Flint-specific metadata (stored separately from mod.config.json). Only the
-/// fields meaningful for the project's `kind` are written.
+fn is_false(v: &bool) -> bool { !*v }
+
+/// Where the project's assets came from. Everything here is fixed at creation
+/// and is what later passes need to reason about the project: which patch the
+/// bytes were pulled from, whether it was Live or PBE, and which slice of the
+/// WAD was taken.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct FlintSource {
+    /// Champion internal name (e.g. "Ahri"). Skin projects only.
+    #[serde(default, skip_serializing_if = "is_empty_string")]
+    pub champion: String,
+
+    /// Skin ID, or the chroma's skin number when a chroma was picked.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub skin_id: u32,
+
+    /// Map id (e.g. "map11"). Map projects only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map_id: Option<String>,
+
+    /// Map variant base name (e.g. "srx_baseworld"). Map projects only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant: Option<String>,
+
+    /// Full game build the assets were extracted from, e.g. "16.17.8104348",
+    /// read from `Game/content-metadata.json`. Riot retypes BIN fields between
+    /// patches, so a checker needs to know what the project was built against.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub game_version: Option<String>,
+
+    /// "live" or "pbe".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+}
+
+/// What the extraction actually pulled, so a later pass can tell the difference
+/// between "the mod does not touch sounds" and "the sounds were left stock".
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct FlintExtract {
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub sfx: bool,
+
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub vo: bool,
+}
+
+pub const FLINT_SCHEMA: u32 = 2;
+
+/// Flint-specific metadata, stored beside mod.config.json. Schema 1 was a flat
+/// bag that also carried an absolute `league_path`; those files still load, but
+/// the path is never written back — it went stale whenever League moved and it
+/// leaked the user's Windows account name into anything they shared.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlintMetadata {
+    #[serde(default)]
+    pub schema: u32,
+
     /// Stable project id (UUID v4); the index tracks moves/renames by it.
     #[serde(default)]
     pub pid: String,
@@ -50,24 +103,51 @@ pub struct FlintMetadata {
     #[serde(default)]
     pub kind: ProjectKind,
 
-    /// Champion internal name (e.g., "Ahri"). Empty / omitted for non-skin projects.
-    #[serde(default, skip_serializing_if = "is_empty_string")]
-    pub champion: String,
+    #[serde(default)]
+    pub source: FlintSource,
 
-    /// Skin ID (0 for base skin). Only written for Skin projects.
-    #[serde(default, skip_serializing_if = "is_zero_u32")]
-    pub skin_id: u32,
-
-    /// Map id (e.g., "map11"). Only present for Map projects.
+    /// The `ASSETS/<creator>/<project>` segment the repath actually wrote.
+    /// Renames and anything resolving an asset path need the value that was
+    /// used, not one re-derived from the current name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub map_id: Option<String>,
+    pub repath_prefix: Option<String>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub league_path: Option<PathBuf>,
+    #[serde(default)]
+    pub extract: FlintExtract,
 
     pub created_at: DateTime<Utc>,
 
     pub modified_at: DateTime<Utc>,
+
+    // ── schema 1, read so old projects keep their identity, never written ──
+    #[serde(default, skip_serializing)]
+    pub champion: String,
+
+    #[serde(default, skip_serializing)]
+    pub skin_id: u32,
+
+    #[serde(default, skip_serializing)]
+    pub map_id: Option<String>,
+
+    #[serde(default, skip_serializing)]
+    pub league_path: Option<PathBuf>,
+}
+
+impl FlintMetadata {
+    /// Schema 1 kept champion/skin/map at the top level. Fold them in so the
+    /// rest of the code only ever reads `source`.
+    pub fn normalized(mut self) -> Self {
+        if self.source.champion.is_empty() && !self.champion.is_empty() {
+            self.source.champion = std::mem::take(&mut self.champion);
+        }
+        if self.source.skin_id == 0 && self.skin_id != 0 {
+            self.source.skin_id = self.skin_id;
+        }
+        if self.source.map_id.is_none() && self.map_id.is_some() {
+            self.source.map_id = self.map_id.take();
+        }
+        self
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,6 +201,28 @@ pub struct Project {
 
     #[serde(skip)]
     pub league_path: Option<PathBuf>,
+
+    /// Map variant base name - map projects only.
+    #[serde(default)]
+    pub variant: Option<String>,
+
+    /// Game build the assets were extracted from.
+    #[serde(default)]
+    pub game_version: Option<String>,
+
+    /// "live" or "pbe".
+    #[serde(default)]
+    pub source_branch: Option<String>,
+
+    /// The ASSETS/<creator>/<project> segment the repath wrote.
+    #[serde(default)]
+    pub repath_prefix: Option<String>,
+
+    #[serde(default)]
+    pub extract_sfx: bool,
+
+    #[serde(default)]
+    pub extract_vo: bool,
 
     #[serde(default)]
     pub project_path: PathBuf,
@@ -190,6 +292,12 @@ impl Project {
             skin_id,
             map_id: None,
             league_path: Some(league_path.into()),
+            variant: None,
+            game_version: None,
+            source_branch: None,
+            repath_prefix: None,
+            extract_sfx: false,
+            extract_vo: false,
             project_path: project_path.into(),
             created_at: now,
             modified_at: now,
@@ -237,15 +345,28 @@ impl Project {
     }
 
     pub fn to_flint_metadata(&self) -> FlintMetadata {
+        let is_skin = matches!(self.kind, ProjectKind::Skin | ProjectKind::Tft);
+        let is_map = matches!(self.kind, ProjectKind::Map);
         FlintMetadata {
+            schema: FLINT_SCHEMA,
             pid: self.pid.clone(),
             kind: self.kind,
-            champion: if matches!(self.kind, ProjectKind::Skin) || matches!(self.kind, ProjectKind::Tft) { self.champion.clone() } else { String::new() },
-            skin_id: if matches!(self.kind, ProjectKind::Skin) || matches!(self.kind, ProjectKind::Tft) { self.skin_id } else { 0 },
-            map_id: if matches!(self.kind, ProjectKind::Map) { self.map_id.clone() } else { None },
-            league_path: self.league_path.clone(),
+            source: FlintSource {
+                champion: if is_skin { self.champion.clone() } else { String::new() },
+                skin_id: if is_skin { self.skin_id } else { 0 },
+                map_id: if is_map { self.map_id.clone() } else { None },
+                variant: if is_map { self.variant.clone() } else { None },
+                game_version: self.game_version.clone(),
+                branch: self.source_branch.clone(),
+            },
+            repath_prefix: self.repath_prefix.clone(),
+            extract: FlintExtract { sfx: self.extract_sfx, vo: self.extract_vo },
             created_at: self.created_at,
-            modified_at: self.modified_at,
+            modified_at: Utc::now(),
+            champion: String::new(),
+            skin_id: 0,
+            map_id: None,
+            league_path: None,
         }
     }
 
@@ -404,14 +525,22 @@ pub fn open_project(path: &Path) -> Result<Project> {
         if let Ok(file) = File::open(&flint_path) {
             let reader = BufReader::new(file);
             if let Ok(flint) = serde_json::from_reader::<_, FlintMetadata>(reader) {
+                let flint = flint.normalized();
                 project.pid = flint.pid;
                 project.kind = flint.kind;
-                project.champion = flint.champion;
-                project.skin_id = flint.skin_id;
-                project.map_id = flint.map_id;
+                project.champion = flint.source.champion;
+                project.skin_id = flint.source.skin_id;
+                project.map_id = flint.source.map_id;
+                project.variant = flint.source.variant;
+                project.game_version = flint.source.game_version;
+                project.source_branch = flint.source.branch;
+                project.repath_prefix = flint.repath_prefix;
+                project.extract_sfx = flint.extract.sfx;
+                project.extract_vo = flint.extract.vo;
                 project.league_path = flint.league_path;
                 project.created_at = flint.created_at;
                 project.modified_at = flint.modified_at;
+                needs_resave |= flint.schema < FLINT_SCHEMA;
             }
         }
     }
@@ -596,12 +725,47 @@ mod tests {
     }
 
     #[test]
+    fn schema_one_flint_files_still_load() {
+        let raw = r#"{
+            "pid": "3fe695f1-17b9-4a12-86c5-3e78db4f9132",
+            "kind": "skin",
+            "champion": "Irelia",
+            "skin_id": 18,
+            "league_path": "E:/Games/League of Legends",
+            "created_at": "2026-09-02T20:24:20.394350400Z",
+            "modified_at": "2026-09-02T20:24:20.394350400Z"
+        }"#;
+
+        let flint: FlintMetadata = serde_json::from_str(raw).unwrap();
+        assert_eq!(flint.schema, 0);
+        let flint = flint.normalized();
+        assert_eq!(flint.source.champion, "Irelia");
+        assert_eq!(flint.source.skin_id, 18);
+    }
+
+    #[test]
+    fn saving_never_writes_the_league_path_back() {
+        let mut project = Project::new("Test", "Ahri", 5, r"C:\League", r"C:\test", None);
+        project.repath_prefix = Some("Creator/Test".to_string());
+        project.game_version = Some("16.17.8104348".to_string());
+        project.extract_vo = true;
+
+        let json = serde_json::to_string(&project.to_flint_metadata()).unwrap();
+        assert!(!json.contains("league_path"), "{json}");
+        assert!(json.contains("\"schema\":2"), "{json}");
+        assert!(json.contains("16.17.8104348"), "{json}");
+        assert!(json.contains("\"vo\":true"), "{json}");
+    }
+
+    #[test]
     fn test_flint_metadata() {
         let project = Project::new("Test", "Ahri", 5, "C:\\League", "C:\\test", None);
         let flint = project.to_flint_metadata();
         
-        assert_eq!(flint.champion, "Ahri");
-        assert_eq!(flint.skin_id, 5);
+        assert_eq!(flint.schema, FLINT_SCHEMA);
+        assert_eq!(flint.source.champion, "Ahri");
+        assert_eq!(flint.source.skin_id, 5);
+        assert!(flint.league_path.is_none());
     }
 
     #[test]
@@ -679,4 +843,14 @@ mod tests {
         let result = create_project("Test", "", 0, &league_dir, temp_dir.path(), None);
         assert!(result.is_ok(), "empty champion should be allowed: {:?}", result);
     }
+}
+
+/// Full game build from `Game/content-metadata.json`, e.g. `"16.17.8104348"`.
+/// The file's value carries a `+branch.…` suffix that is dropped here.
+pub fn read_game_version(league_path: &Path) -> Option<String> {
+    let path = league_path.join("Game").join("content-metadata.json");
+    let text = fs::read_to_string(path).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let raw = value.get("version")?.as_str()?;
+    Some(raw.split('+').next().unwrap_or(raw).to_string())
 }

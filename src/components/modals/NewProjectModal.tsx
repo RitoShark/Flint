@@ -70,12 +70,19 @@ const ChampionTile: React.FC<{
     );
 };
 
+const CREATE_TITLE: Record<ProjectType, string> = {
+    'skin': 'Building the skin project',
+    'map': 'Building the map project',
+    'loading-screen': 'Building the loading screen',
+};
+
 const NAME_PLACEHOLDER: Record<ProjectType, string> = {
     'skin': 'e.g. Ahri Base Rework',
     'map': 'e.g. My Custom Map',
     'loading-screen': 'e.g. My Animated Loadscreen',
 };
 import { ChromaPreviewPopup } from './new-project/ChromaPreviewPopup';
+import { CreateProgress, stepsFor, type CreatePhase } from './new-project/CreateProgress';
 
 export const NewProjectModal: React.FC = () => {
     const closeModal = useModalStore((s) => s.closeModal);
@@ -99,12 +106,14 @@ export const NewProjectModal: React.FC = () => {
     const [projectPath, setProjectPath] = useState('');
     const [isCreating, setIsCreating] = useState(false);
     const [progress, setProgress] = useState('');
+    const [phase, setPhase] = useState<CreatePhase | null>(null);
     const [transitioning, setTransitioning] = useState(false);
+    const [handoff, setHandoff] = useState(false);
     const [extractSfx, setExtractSfx] = useState(false);
     const [extractVo, setExtractVo] = useState(false);
 
     useEffect(() => {
-        if (!isCreating) return;
+        if (!isCreating) { setPhase(null); return; }
         // Phases carry no count, so use the indeterminate marquee.
         api.setTaskbarProgress('indeterminate');
         const unlistenP = listen<{ phase: string; message: string }>(
@@ -112,6 +121,8 @@ export const NewProjectModal: React.FC = () => {
             (event) => {
                 const m = event.payload?.message;
                 if (typeof m === 'string' && m.length > 0) setProgress(m);
+                const p = event.payload?.phase;
+                if (typeof p === 'string' && p.length > 0) setPhase(p as CreatePhase);
             },
         );
         return () => {
@@ -242,6 +253,11 @@ export const NewProjectModal: React.FC = () => {
 
     useEffect(() => {
         if (!isVisible) return;
+        // The modal stays mounted between opens, so the hand-off flags have to
+        // be cleared here or a second project starts mid-animation.
+        setHandoff(false);
+        setTransitioning(false);
+        setPhase(null);
         api.getAppHome()
             .then(registerAppHome)
             .catch((err) => console.debug('[NewProject] app home lookup failed:', err));
@@ -909,7 +925,11 @@ export const NewProjectModal: React.FC = () => {
     };
 
     const finishProjectCreation = async (project: Project, championName: string, skinNum: number) => {
+        // Let the finished step list read before anything moves.
+        setPhase('complete');
         setProgress('Opening project...');
+        setHandoff(true);
+        await new Promise((r) => setTimeout(r, 420));
 
         const projectDir = project.project_path || projectPath;
         useProjectTabStore.getState().addTab(project, projectDir);
@@ -1013,54 +1033,15 @@ export const NewProjectModal: React.FC = () => {
         // on .modal-overlay being the nearest positioned ancestor — don't migrate
         // to <Modal> (it would change the containing block).
         <div className={`modal-overlay modal-overlay--visible${transitioning ? ' modal-overlay--zooming' : ''}`}>
-            <div className={`modal modal--new-project${transitioning ? ' modal--zooming' : ''}`}>
+            <div className={`modal modal--new-project${handoff ? ' modal--handoff' : ''}${transitioning ? ' modal--zooming' : ''}`}>
                 {isCreating && (
                     <div className="np-loading-overlay">
-                        <div className="np-skel">
-                            <div className="np-skel__topbar">
-                                <span className="np-skel__shimmer" style={{ width: 110 }} />
-                                <span className="np-skel__shimmer np-skel__shimmer--soft" style={{ width: 70 }} />
-                                <span className="np-skel__spacer" />
-                                <span className="np-skel__dot" />
-                                <span className="np-skel__dot" />
-                                <span className="np-skel__dot" />
-                            </div>
-                            <div className="np-skel__body">
-                                <aside className="np-skel__side">
-                                    <span className="np-skel__shimmer" style={{ width: 90 }} />
-                                    {Array.from({ length: 7 }).map((_, i) => (
-                                        <span
-                                            key={i}
-                                            className="np-skel__shimmer np-skel__shimmer--row"
-                                            style={{
-                                                width: `${60 + ((i * 13) % 35)}%`,
-                                                marginLeft: i % 3 === 0 ? 0 : 14,
-                                                animationDelay: `${i * 80}ms`,
-                                            }}
-                                        />
-                                    ))}
-                                </aside>
-                                <main className="np-skel__main">
-                                    <div className="np-skel__hero">
-                                        <span className="np-skel__shimmer" style={{ width: 200, height: 18 }} />
-                                        <span className="np-skel__shimmer np-skel__shimmer--soft" style={{ width: 320, height: 12 }} />
-                                    </div>
-                                    <div className="np-skel__grid">
-                                        {Array.from({ length: 6 }).map((_, i) => (
-                                            <div key={i} className="np-skel__tile" style={{ animationDelay: `${i * 90}ms` }}>
-                                                <span className="np-skel__shimmer np-skel__shimmer--block" />
-                                                <span className="np-skel__shimmer np-skel__shimmer--row" style={{ width: '70%' }} />
-                                            </div>
-                                        ))}
-                                    </div>
-                                </main>
-                            </div>
-                            <div className="np-skel__statusline">
-                                <span className="np-skel__pulse" />
-                                <span className="np-skel__title">Creating Project</span>
-                                <span className="np-skel__progress">{progress || 'Preparing workspace…'}</span>
-                            </div>
-                        </div>
+                        <CreateProgress
+                            steps={stepsFor(projectType, extractVo)}
+                            phase={phase}
+                            message={progress}
+                            title={CREATE_TITLE[projectType]}
+                        />
                     </div>
                 )}
 

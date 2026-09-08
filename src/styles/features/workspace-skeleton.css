@@ -1,105 +1,175 @@
-.modal--zooming .np-skel__tile, .modal--zooming .np-skel__shimmer, .modal--zooming .np-skel__pulse {
-  animation-play-state: paused !important;
-}
-
-.np-skel { display: flex; flex-direction: column; height: 100%; background: var(--bg-primary); }
-
-.np-skel__topbar {
+.np-progress {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
-  height: 44px;
-  flex: none;
+  justify-content: center;
+  height: 100%;
+  background: var(--bg-primary);
 }
 
-.np-skel__spacer { flex: 1; }
-
-.np-skel__dot { width: 10px; height: 10px; border-radius: 50%; background: var(--bg-tertiary); }
-
-.np-skel__body { flex: 1; display: grid; grid-template-columns: 220px 1fr; min-height: 0; }
-
-.np-skel__side {
-  background: var(--bg-secondary);
-  border-right: 1px solid var(--border);
-  padding: 14px 12px;
+.np-progress__inner {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  align-items: center;
+  width: 100%;
+  max-width: 360px;
+  padding: 0 24px;
+  text-align: center;
 }
 
-.np-skel__main { padding: 22px 28px; display: flex; flex-direction: column; gap: 22px; overflow: hidden; }
-
-.np-skel__hero { display: flex; flex-direction: column; gap: 8px; }
-
-.np-skel__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
-
-.np-skel__tile {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  animation: npTileFloat 2.4s ease-in-out infinite;
-}
-
-@keyframes npTileFloat {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-2px); }
-}
-
-.np-skel__shimmer {
-  display: block;
-  height: 12px;
-  border-radius: 6px;
-  background: linear-gradient(90deg,
-      color-mix(in oklab, var(--text-muted) 12%, transparent) 0%,
-      color-mix(in oklab, var(--text-muted) 22%, transparent) 50%,
-      color-mix(in oklab, var(--text-muted) 12%, transparent) 100%);
-  background-size: 200% 100%;
-  animation: npShimmer 1.6s ease-in-out infinite;
-}
-
-.np-skel__shimmer--soft { opacity: 0.55; }
-
-.np-skel__shimmer--row { height: 10px; border-radius: 5px; }
-
-.np-skel__shimmer--block { height: 70px; border-radius: 8px; }
-
-@keyframes npShimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-.np-skel__statusline {
+.np-progress__badge {
+  width: 46px;
+  height: 46px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border);
-  flex: none;
-  font-size: 12px;
-}
-
-.np-skel__pulse {
-  width: 8px;
-  height: 8px;
+  justify-content: center;
   border-radius: 50%;
-  background: var(--accent-secondary);
-  box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent-secondary) 60%, transparent);
-  animation: npPulse 1.4s ease-out infinite;
+  border: 1px solid color-mix(in oklab, var(--accent-primary) 40%, transparent);
+  background: color-mix(in oklab, var(--accent-primary) 12%, transparent);
+  color: color-mix(in oklab, var(--accent-primary) 45%, #fff);
+  transition: background var(--dl-base), border-color var(--dl-base), color var(--dl-base);
 }
 
-@keyframes npPulse {
-  0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent-secondary) 60%, transparent); }
-  100% { box-shadow: 0 0 0 10px color-mix(in oklab, var(--accent-secondary) 0%, transparent); }
+.np-progress__badge svg { width: 22px; height: 22px; display: block; }
+
+.np-progress__badge--done {
+  border-color: color-mix(in oklab, var(--success) 55%, transparent);
+  background: color-mix(in oklab, var(--success) 16%, transparent);
+  color: var(--success);
+  animation: npBadgePop 420ms cubic-bezier(.34, 1.56, .64, 1) both;
 }
 
-.np-skel__title { color: var(--text-primary); font-weight: 600; }
+@keyframes npBadgePop {
+  0% { transform: scale(0.7); opacity: 0; }
+  60% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
 
-.np-skel__progress { color: var(--text-muted); margin-left: auto; font-family: var(--font-mono); font-size: 11px; }
+.np-progress__spinner {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in oklab, var(--accent-primary) 28%, transparent);
+  border-top-color: color-mix(in oklab, var(--accent-primary) 60%, #fff);
+  animation: npSpin 780ms linear infinite;
+}
+
+@keyframes npSpin { to { transform: rotate(360deg); } }
+
+.np-progress__title {
+  margin: 16px 0 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.np-progress__message {
+  margin: 5px 0 0;
+  min-height: 17px;
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.np-progress__steps {
+  list-style: none;
+  margin: 26px 0 0;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+}
+
+.np-step {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  transition: background var(--dl-base), color var(--dl-base);
+}
+
+.np-step__marker {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.np-step__marker svg { width: 13px; height: 13px; display: block; }
+
+.np-step__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  transition: transform var(--dl-base);
+}
+
+.np-step--pending { color: color-mix(in oklab, var(--text-muted) 62%, transparent); }
+
+.np-step--active {
+  background: color-mix(in oklab, var(--accent-primary) 10%, transparent);
+  color: var(--text-primary);
+}
+
+.np-step--active .np-step__dot {
+  background: var(--accent-primary);
+  animation: npStepPulse 1.1s ease-in-out infinite;
+}
+
+@keyframes npStepPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent-primary) 45%, transparent); }
+  50% { transform: scale(1.15); box-shadow: 0 0 0 5px color-mix(in oklab, var(--accent-primary) 0%, transparent); }
+}
+
+.np-step--done { color: var(--text-secondary); }
+.np-step--done .np-step__marker { color: var(--success); }
+.np-step--done .np-step__label { text-decoration: none; }
+
+.np-step__label { min-width: 0; }
+
+.np-progress__bar {
+  position: relative;
+  margin-top: 22px;
+  width: 100%;
+  height: 3px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--border) 90%, transparent);
+  overflow: hidden;
+}
+
+.np-progress__fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg,
+      color-mix(in oklab, var(--accent-primary) 55%, transparent),
+      var(--accent-hover));
+  transition: width 420ms cubic-bezier(.22, 1, .36, 1);
+}
+
+/* Hand-off: the panel settles before the modal zooms into the workspace. */
+.modal--handoff .np-progress__inner {
+  animation: npHandoff 320ms cubic-bezier(.22, 1, .36, 1) both;
+}
+
+@keyframes npHandoff {
+  0% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1.04); opacity: 0.85; }
+}
+
+.modal--zooming .np-progress__spinner,
+.modal--zooming .np-step--active .np-step__dot { animation: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .np-progress__spinner,
+  .np-step--active .np-step__dot,
+  .np-progress__badge--done,
+  .modal--handoff .np-progress__inner { animation: none; }
+  .np-progress__fill { transition: none; }
+}

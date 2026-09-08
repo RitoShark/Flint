@@ -288,7 +288,7 @@ pub fn create_map_project(
     // through core_create_project for the on-disk layout, then convert to the
     // Map shape and re-save so the legacy `champion: "map-<id>"` tag never lands.
     let project = core_create_project(name, "", 0, league_path, output_dir, author)?;
-    let project = project.into_map(entry.id.clone());
+    let mut project = project.into_map(entry.id.clone());
     save_project(&project)?;
     if let Err(e) = register_in_index(output_dir, &project) {
         tracing::warn!("Failed to refresh projects.json for map project {}: {}", project.pid, e);
@@ -369,6 +369,12 @@ pub fn create_map_project(
                 }
             }
         }
+    }
+
+    project.variant = variant_name.map(|v| v.to_string());
+    project.game_version = crate::project::read_game_version(league_path);
+    if let Err(e) = crate::project::save_project(&project) {
+        tracing::warn!("Failed to record map project provenance: {}", e);
     }
 
     progress("complete", "Map project created.");

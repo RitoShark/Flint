@@ -3,7 +3,7 @@ pub mod project;
 pub mod index;
 pub mod discover;
 
-pub use project::{create_project, open_project, register_in_index, save_project, FlintMetadata, Project, ProjectKind};
+pub use project::{create_project, open_project, read_game_version, register_in_index, save_project, FlintExtract, FlintMetadata, FlintSource, Project, ProjectKind, FLINT_SCHEMA};
 pub use index::{
     index_path, read_index, remove as remove_from_index,
     remove_by_path as remove_from_index_by_path, upsert as upsert_index,

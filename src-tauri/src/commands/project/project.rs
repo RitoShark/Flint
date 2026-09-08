@@ -2,6 +2,7 @@
 
 use flint_core::project::{
     create_project as core_create_project,
+    read_game_version,
     open_project as core_open_project,
     register_in_index as core_register_in_index,
     save_project as core_save_project,
@@ -222,11 +223,17 @@ pub async fn create_project(
     let output_clone = output_path_buf.clone();
     let creator_clone = creator_name.clone();
     let is_tft_clone = is_tft_project;
+    let game_version = read_game_version(&league_path_buf);
+    let source_branch = if pbe { "pbe" } else { "live" }.to_string();
 
     let t = Instant::now();
-    let project = tokio::task::spawn_blocking(move || -> Result<Project, String> {
+    let mut project = tokio::task::spawn_blocking(move || -> Result<Project, String> {
         let mut project = core_create_project(&name_clone, &champion_clone, skin_id, &league_clone, &output_clone, creator_clone)
             .map_err(|e| e.to_string())?;
+        project.game_version = game_version;
+        project.source_branch = Some(source_branch);
+        project.extract_sfx = repath_sfx;
+        project.extract_vo = repath_vo;
         if is_tft_clone {
             project = project.into_tft(&champion_clone, skin_id);
             core_save_project(&project).map_err(|e| e.to_string())?;
@@ -405,6 +412,7 @@ pub async fn create_project(
             }));
 
             tracing::info!("Repathing assets with prefix: ASSETS/{}/{}", creator, name);
+            project.repath_prefix = Some(format!("{}/{}", creator.replace(' ', "-"), name.replace(' ', "-")));
 
             let repath_config = OrganizerConfig {
                 enable_concat: true,
@@ -471,6 +479,12 @@ pub async fn create_project(
                 }
             }
         }
+    }
+
+    // flint.json is written before the repath runs, so the prefix and the
+    // finished timestamps only land on this second save.
+    if let Err(e) = core_save_project(&project) {
+        tracing::warn!("Failed to record project provenance: {}", e);
     }
 
     let _ = app.emit("project-create-progress", serde_json::json!({
