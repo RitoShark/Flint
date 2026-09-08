@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 const SHOW_DELAY_MS = 500;
 const HIDE_DELAY_MS = 60;
@@ -35,6 +35,8 @@ function readTooltipText(el: HTMLElement): string | null {
 
 export const TooltipProvider: React.FC = () => {
     const [tip, setTip] = useState<TipState | null>(null);
+    const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+    const tipRef = useRef<HTMLDivElement>(null);
     const showTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const activeEl = useRef<HTMLElement | null>(null);
@@ -87,23 +89,30 @@ export const TooltipProvider: React.FC = () => {
         };
     }, []);
 
+    useLayoutEffect(() => {
+        if (!tip) { setPos(null); return; }
+        const el = tipRef.current;
+        if (!el) return;
+        const { width, height } = el.getBoundingClientRect();
+        const maxLeft = Math.max(VIEWPORT_PAD, window.innerWidth - VIEWPORT_PAD - width);
+        const maxTop = Math.max(VIEWPORT_PAD, window.innerHeight - VIEWPORT_PAD - height);
+        const centerX = tip.rect.left + tip.rect.width / 2;
+        const rawTop = tip.placement === 'top' ? tip.rect.top - GAP - height : tip.rect.bottom + GAP;
+        setPos({
+            left: Math.min(Math.max(VIEWPORT_PAD, centerX - width / 2), maxLeft),
+            top: Math.min(Math.max(VIEWPORT_PAD, rawTop), maxTop),
+        });
+    }, [tip]);
+
     if (!tip) return null;
 
-    const vpW = window.innerWidth;
-    const vpH = window.innerHeight;
-    const centerX = tip.rect.left + tip.rect.width / 2;
-    const anchorY = tip.placement === 'top' ? tip.rect.top - GAP : tip.rect.bottom + GAP;
-
-    const style: React.CSSProperties = {
-        left: Math.max(VIEWPORT_PAD, Math.min(vpW - VIEWPORT_PAD, centerX)),
-        top: Math.max(VIEWPORT_PAD, Math.min(vpH - VIEWPORT_PAD, anchorY)),
-        transform: tip.placement === 'top'
-            ? 'translate(-50%, -100%)'
-            : 'translate(-50%, 0)',
-    };
-
     return (
-        <div className={`flint-tooltip flint-tooltip--${tip.placement}`} style={style} role="tooltip">
+        <div
+            ref={tipRef}
+            className={`flint-tooltip flint-tooltip--${tip.placement}`}
+            style={{ left: pos?.left ?? 0, top: pos?.top ?? 0, visibility: pos ? 'visible' : 'hidden' }}
+            role="tooltip"
+        >
             {tip.text}
         </div>
     );
