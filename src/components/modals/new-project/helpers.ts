@@ -9,7 +9,7 @@ export async function compressDeflate(data: Uint8Array): Promise<Uint8Array> {
     return new Uint8Array(compressedBuffer);
 }
 
-export type ProjectType = 'skin' | 'loading-screen' | 'map' | 'tft';
+export type ProjectType = 'skin' | 'loading-screen' | 'map';
 
 export const SCALE_OPTIONS = [
     { label: '100%', value: 1.0 },
