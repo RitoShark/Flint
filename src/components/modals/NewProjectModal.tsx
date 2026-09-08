@@ -736,6 +736,7 @@ export const NewProjectModal: React.FC = () => {
                 leaguePath: effectiveLeaguePath,
                 creatorName: creatorName || undefined,
                 isPbe: usePbe,
+                extractSfx,
             });
 
             await finishProjectCreation(project, selectedChampion.name, effectiveSkinNum);

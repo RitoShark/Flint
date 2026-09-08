@@ -11,6 +11,7 @@ interface CreateProjectParams {
     creatorName?: string;
     isPbe?: boolean;
     isTft?: boolean;
+    extractSfx?: boolean;
 }
 
 export async function createProject(params: CreateProjectParams): Promise<Project> {
@@ -23,6 +24,7 @@ export async function createProject(params: CreateProjectParams): Promise<Projec
         creatorName: params.creatorName,
         isPbe: params.isPbe,
         isTft: params.isTft,
+        extractSfx: params.extractSfx,
     });
 }
 

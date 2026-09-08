@@ -66,6 +66,7 @@ pub async fn repath_project_cmd(
         delete_sources: true,
         consolidate_vfx: false,
         cleanup_pipeline: false,
+        repath_sfx: true,
     };
 
     let result = tokio::task::spawn_blocking(move || {

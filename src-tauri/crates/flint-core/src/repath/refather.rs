@@ -32,6 +32,7 @@ static CHAMPION_SKIN_NAME_HASH: LazyLock<u32> = LazyLock::new(|| {
 pub(crate) enum AssetPath<'a> {
     /// SFX files — repath to audio/sfx/. Live in the champion WAD.
     SoundSfx {
+        original_path: &'a str,
         filename: &'a str,
     },
 
@@ -97,7 +98,7 @@ impl<'a> AssetPath<'a> {
             }
 
             let filename = sound_path.split('/').next_back().unwrap_or(sound_path);
-            return Some(AssetPath::SoundSfx { filename });
+            return Some(AssetPath::SoundSfx { filename, original_path: path });
         }
 
         if let Some(rest) = Self::strip_prefix_ignore_case(stripped, "characters/") {
@@ -148,8 +149,12 @@ impl<'a> AssetPath<'a> {
         let prefix = config.prefix();
 
         match self {
-            AssetPath::SoundSfx { filename } => {
-                format!("ASSETS/{}/audio/sfx/{}", prefix, filename)
+            AssetPath::SoundSfx { filename, original_path } => {
+                if config.repath_sfx {
+                    format!("ASSETS/{}/audio/sfx/{}", prefix, filename)
+                } else {
+                    original_path.to_string()
+                }
             }
             AssetPath::SoundVo { original_path } => {
                 original_path.to_string()
@@ -214,6 +219,9 @@ pub struct RepathConfig {
     pub skip_bin_cleanup: bool,
     /// Lowercased sub-champion names (Tibbers, Skaarl, …) detected in the WAD.
     pub sub_characters: Vec<String>,
+    /// When false, SFX bank paths are left stock instead of moving under
+    /// ASSETS/<prefix>/audio/sfx/. VO is always left alone.
+    pub repath_sfx: bool,
 }
 
 impl RepathConfig {
@@ -786,6 +794,7 @@ mod tests {
             cleanup_unused: true,
             skip_bin_cleanup: false,
             sub_characters: vec![],
+            repath_sfx: true,
         };
 
         assert_eq!(
@@ -826,6 +835,7 @@ mod tests {
             cleanup_unused: true,
             skip_bin_cleanup: false,
             sub_characters: vec!["annietibbers".to_string()],
+            repath_sfx: true,
         };
 
         assert_eq!(
@@ -866,6 +876,7 @@ mod tests {
             cleanup_unused: true,
             skip_bin_cleanup: false,
             sub_characters: vec![],
+            repath_sfx: true,
         };
 
         assert_eq!(
@@ -897,6 +908,7 @@ mod tests {
             cleanup_unused: true,
             skip_bin_cleanup: false,
             sub_characters: vec![],
+            repath_sfx: true,
         };
 
         assert_eq!(
@@ -927,6 +939,7 @@ mod tests {
             cleanup_unused: true,
             skip_bin_cleanup: false,
             sub_characters: vec![],
+            repath_sfx: true,
         };
 
         assert_eq!(
@@ -949,6 +962,7 @@ mod tests {
             cleanup_unused: true,
             skip_bin_cleanup: false,
             sub_characters: vec![],
+            repath_sfx: true,
         };
 
         assert_eq!(
@@ -967,6 +981,7 @@ mod tests {
             cleanup_unused: true,
             skip_bin_cleanup: false,
             sub_characters: vec![],
+            repath_sfx: true,
         };
 
         assert_eq!(
@@ -985,6 +1000,7 @@ mod tests {
             cleanup_unused: true,
             skip_bin_cleanup: false,
             sub_characters: vec![],
+            repath_sfx: true,
         };
 
         assert_eq!(
@@ -998,6 +1014,38 @@ mod tests {
     }
 
     #[test]
+    fn test_sfx_stays_stock_when_repath_sfx_is_off() {
+        let config = RepathConfig {
+            creator_name: "SirDexal".to_string(),
+            project_name: "Cozy".to_string(),
+            champion: "Kayn".to_string(),
+            target_skin_id: 20,
+            cleanup_unused: true,
+            skip_bin_cleanup: false,
+            sub_characters: vec![],
+            repath_sfx: false,
+        };
+
+        assert_eq!(
+            apply_prefix_to_path(
+                "assets/sounds/wwise2016/sfx/characters/kayn/skins/skin20/kayn_skin20_sfx_audio.bnk",
+                "SirDexal/Cozy",
+                &config
+            ),
+            "assets/sounds/wwise2016/sfx/characters/kayn/skins/skin20/kayn_skin20_sfx_audio.bnk"
+        );
+
+        assert_eq!(
+            apply_prefix_to_path(
+                "assets/characters/kayn/skins/skin20/particles/x.dds",
+                "SirDexal/Cozy",
+                &config
+            ),
+            "ASSETS/SirDexal/Cozy/particles/x.dds"
+        );
+    }
+
+    #[test]
     fn test_apply_prefix_to_path_sounds() {
         let config = RepathConfig {
             creator_name: "SirDexal".to_string(),
@@ -1007,6 +1055,7 @@ mod tests {
             cleanup_unused: true,
             skip_bin_cleanup: false,
             sub_characters: vec![],
+            repath_sfx: true,
         };
 
         assert_eq!(
@@ -1065,6 +1114,7 @@ mod tests {
             cleanup_unused: true,
             skip_bin_cleanup: false,
             sub_characters: vec![],
+            repath_sfx: true,
         };
 
         assert_eq!(
@@ -1084,7 +1134,7 @@ mod tests {
 
         assert!(parsed.is_some());
         match parsed.unwrap() {
-            AssetPath::SoundSfx { filename } => {
+            AssetPath::SoundSfx { filename, .. } => {
                 assert_eq!(filename, "kayn_skin20_sfx.bnk");
             }
             _ => panic!("Expected SoundSfx variant"),
@@ -1219,10 +1269,12 @@ mod tests {
             cleanup_unused: true,
             skip_bin_cleanup: false,
             sub_characters: vec![],
+            repath_sfx: true,
         };
 
         let asset_path = AssetPath::SoundSfx {
             filename: "kayn_skin20_sfx.bnk",
+            original_path: "assets/sounds/wwise2016/sfx/characters/kayn/kayn_skin20_sfx.bnk",
         };
 
         assert_eq!(
@@ -1241,6 +1293,7 @@ mod tests {
             cleanup_unused: true,
             skip_bin_cleanup: false,
             sub_characters: vec![],
+            repath_sfx: true,
         };
 
         let original = "assets/sounds/wwise2016/vo/en_us/kayn_vo.wpk";
@@ -1359,6 +1412,7 @@ mod tests {
             cleanup_unused: true,
             skip_bin_cleanup: false,
             sub_characters: vec![],
+            repath_sfx: true,
         };
 
         repath_project(base, &config, &HashMap::new()).unwrap();
@@ -1422,6 +1476,7 @@ mod tests {
             cleanup_unused: true,
             skip_bin_cleanup: false,
             sub_characters: vec![],
+            repath_sfx: true,
         };
 
         repath_project(base, &config, &HashMap::new()).unwrap();
@@ -1475,6 +1530,7 @@ mod tests {
             cleanup_unused: true,
             skip_bin_cleanup: false,
             sub_characters: vec![],
+            repath_sfx: true,
         };
 
         repath_project(base, &config, &HashMap::new()).unwrap();
@@ -1524,6 +1580,7 @@ mod tests {
             cleanup_unused: true,
             skip_bin_cleanup: false,
             sub_characters: vec![],
+            repath_sfx: true,
         };
 
         repath_project(base, &config, &HashMap::new()).unwrap();
@@ -1569,6 +1626,7 @@ mod tests {
             cleanup_unused: true,
             skip_bin_cleanup: false,
             sub_characters: vec![],
+            repath_sfx: true,
         };
 
         repath_project(base, &config, &HashMap::new()).unwrap();
@@ -1608,6 +1666,7 @@ mod tests {
             cleanup_unused: true,
             skip_bin_cleanup: false,
             sub_characters: vec![],
+            repath_sfx: true,
         };
 
         // existing_paths references only the relocated base-res copy.
@@ -1639,6 +1698,7 @@ mod tests {
             cleanup_unused: true,
             skip_bin_cleanup: false,
             sub_characters: vec![],
+            repath_sfx: true,
         };
 
         let mut existing: HashSet<String> = HashSet::new();
@@ -1717,6 +1777,7 @@ mod tests {
             cleanup_unused: true,
             skip_bin_cleanup: false,
             sub_characters: vec![],
+            repath_sfx: true,
         };
 
         let dir = tempfile::tempdir().unwrap();
@@ -1747,6 +1808,7 @@ mod tests {
             cleanup_unused: true,
             skip_bin_cleanup: false,
             sub_characters: vec![],
+            repath_sfx: true,
         };
 
         let dir = tempfile::tempdir().unwrap();

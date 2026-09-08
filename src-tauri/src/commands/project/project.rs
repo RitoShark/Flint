@@ -120,10 +120,12 @@ pub async fn create_project(
     creator_name: Option<String>,
     is_pbe: Option<bool>,
     is_tft: Option<bool>,
+    extract_sfx: Option<bool>,
     lmdb: tauri::State<'_, LmdbCacheState>,
     app: tauri::AppHandle,
 ) -> Result<Project, String> {
     let pbe = is_pbe.unwrap_or(false);
+    let repath_sfx = extract_sfx.unwrap_or(false);
     let source_label = if pbe { "PBE" } else { "Live" };
     tracing::info!(
         "Frontend requested project creation: {} ({} skin {}) from {} install",
@@ -335,6 +337,7 @@ pub async fn create_project(
             delete_sources: true,
             consolidate_vfx: false,
             cleanup_pipeline: false,
+            repath_sfx,
         };
 
         let assets_path_for_concat = project.assets_path();
@@ -378,6 +381,7 @@ pub async fn create_project(
                 delete_sources: true,
                 consolidate_vfx: false,
                 cleanup_pipeline: false,
+                repath_sfx,
             };
 
             let assets_path_for_repath = project.assets_path();

@@ -31,6 +31,9 @@ pub struct OrganizerConfig {
     /// When true, run the import cleanup pass (unhash, dds->tex, sco->scb, BIN
     /// extension rewrite, 2x/4x strip) after consolidation+repath. Import only.
     pub cleanup_pipeline: bool,
+    /// Project creation lets the user opt in; import and export keep the
+    /// historic behaviour of always repathing SFX.
+    pub repath_sfx: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -194,6 +197,7 @@ pub fn organize_project(
             cleanup_unused: config.cleanup_unused,
             skip_bin_cleanup: config.skip_bin_cleanup,
             sub_characters: sub_bins.iter().map(|(sub, _)| sub.clone()).collect(),
+            repath_sfx: config.repath_sfx,
         };
 
         match repath_project(content_base, &repath_config, path_mappings) {
@@ -390,6 +394,7 @@ mod tests {
             delete_sources: true,
             consolidate_vfx: false,
             cleanup_pipeline: false,
+            repath_sfx: true,
         }
     }
 
@@ -465,6 +470,7 @@ mod tests {
                 delete_sources: true,
                 consolidate_vfx: false,
                 cleanup_pipeline: false,
+                repath_sfx: true,
             };
             organize_project(&assets, &config, &r.path_mappings).unwrap();
 
@@ -549,6 +555,7 @@ mod tests {
             delete_sources: true,
             consolidate_vfx: false,
             cleanup_pipeline: false,
+            repath_sfx: true,
         };
 
         organize_project(base, &config, &HashMap::new()).unwrap();
