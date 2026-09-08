@@ -56,6 +56,15 @@
 
 .tour-note p { margin: 0; font-size: 12px; line-height: 1.55; color: var(--text-muted); }
 
+.tour-note code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--text-muted) 14%, transparent);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
 /* ── Mock window chrome ─────────────────────────────────────────────────── */
 
 .tour-win {
@@ -230,7 +239,9 @@
   color: var(--text-secondary);
 }
 
-.tour-ws__body { display: grid; grid-template-columns: 152px minmax(0, 1fr); gap: 14px; }
+.tour-ws__body { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 14px; }
+
+.tour-ws__tree { display: grid; align-content: start; gap: 1px; }
 
 .tour-ws__canvas {
   height: 118px;
@@ -260,7 +271,7 @@
 
 .tour-wad__tree { display: grid; align-content: start; gap: 1px; }
 
-.tour-wtree__row { padding-left: calc(6px + var(--depth) * 13px); }
+.tour-wtree__row { padding-left: calc(6px + var(--depth) * 11px); }
 
 .tour-wtree__twist { position: relative; flex: none; width: 9px; height: 9px; color: var(--text-muted); }
 

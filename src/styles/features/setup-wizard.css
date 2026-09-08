@@ -136,6 +136,7 @@
   z-index: 1;
   display: grid;
   grid-template-columns: 246px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: clamp(18px, 2.4vw, 40px);
   width: min(1560px, 94vw);
   margin: 0 auto;
@@ -148,7 +149,7 @@
 
 .fwiz__main {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
 }
@@ -275,7 +276,14 @@
   .fwiz-rail__text, .fwiz-rail__group { display: none; }
 }
 
-.fwiz__stage { padding: 4px 4px 18px; overflow: auto; animation: ux-fwiz-stage 420ms var(--ux-ease) both; }
+.fwiz__stage {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  padding: 4px 4px 18px;
+  overflow: hidden;
+  animation: ux-fwiz-stage 420ms var(--ux-ease) both;
+}
 
 .fwiz__stage--back { animation-name: ux-fwiz-stage-back; }
 
@@ -290,13 +298,13 @@
 }
 
 .fwiz__heading p {
-  margin: 0 0 26px;
+  margin: 0 0 18px;
   color: color-mix(in oklab, var(--text-primary) 70%, var(--text-secondary));
   font-size: clamp(12px, 1.3vw, 13.5px);
   line-height: 1.55;
 }
 
-.fwiz__body { display: grid; gap: 16px; min-height: 0; overflow-y: auto; align-content: safe center; }
+.fwiz__body { display: grid; gap: 16px; min-height: 0; overflow-y: auto; align-content: start; }
 
 .fwiz-pane--split {
   display: grid;

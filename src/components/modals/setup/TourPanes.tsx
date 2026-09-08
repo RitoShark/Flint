@@ -47,6 +47,24 @@ const MockRow: React.FC<{ icon?: IconName; label: string; on?: boolean; dim?: bo
     </div>
 );
 
+type TreeNode = { depth: number; label: string; icon: IconName; state?: 'open' | 'shut'; on?: boolean; dim?: boolean };
+
+const MockTree: React.FC<{ nodes: TreeNode[] }> = ({ nodes }) => (
+    <>
+        {nodes.map((n) => (
+            <div
+                key={n.depth + n.label}
+                className={`tour-mrow tour-wtree__row ${n.on ? 'is-on' : ''} ${n.dim ? 'is-dim' : ''}`}
+                style={{ ['--depth' as never]: n.depth }}
+            >
+                <span className={`tour-wtree__twist ${n.state ? `is-${n.state}` : 'is-leaf'}`} />
+                <span className="tour-mrow__ico"><Icon name={n.icon} /></span>
+                <span className="tour-mrow__label">{n.label}</span>
+            </div>
+        ))}
+    </>
+);
+
 /* ── 1. Pipeline ───────────────────────────────────────────────────────── */
 
 const STAGES: { icon: IconName; title: string; body: string }[] = [
@@ -157,6 +175,21 @@ export const ProjectsPane: React.FC = () => (
 
 /* ── 3. Workspace ──────────────────────────────────────────────────────── */
 
+const PROJECT_TREE: TreeNode[] = [
+    { depth: 0, label: 'content', icon: 'folderOpen', state: 'open' },
+    { depth: 1, label: 'base', icon: 'folderOpen', state: 'open' },
+    { depth: 2, label: 'Ahri.wad.client', icon: 'wad', state: 'open' },
+    { depth: 3, label: 'assets/characters/ahri/skins/skin01', icon: 'folderOpen', state: 'open' },
+    { depth: 4, label: 'ahri_base_tx_cm.dds', icon: 'texture', on: true },
+    { depth: 4, label: 'ahri_base.skn', icon: 'model' },
+    { depth: 4, label: 'ahri_base.skl', icon: 'skeleton' },
+    { depth: 3, label: 'data/characters/ahri/skins', icon: 'folderOpen', state: 'open' },
+    { depth: 4, label: 'skin01.bin', icon: 'bin' },
+    { depth: 0, label: 'output', icon: 'folder', state: 'shut' },
+    { depth: 0, label: 'mod.config.json', icon: 'json' },
+    { depth: 0, label: 'flint.json', icon: 'json' },
+];
+
 export const WorkspacePane: React.FC = () => (
     <TourSplit
         lead="Open a project and the window splits into four regions. What you click on the left opens in the middle."
@@ -172,12 +205,7 @@ export const WorkspacePane: React.FC = () => (
                 </Zone>
                 <div className="tour-ws__body">
                     <Zone n={2} className="tour-ws__tree">
-                        <MockRow icon="folderOpen" label="ASSETS" />
-                        <MockRow icon="folder" label="Characters" />
-                        <MockRow icon="texture" label="ahri_base_tx.dds" on />
-                        <MockRow icon="model" label="ahri.skn" />
-                        <MockRow icon="bin" label="skin0.bin" />
-                        <MockRow icon="audio" label="ahri_sfx.bnk" />
+                        <MockTree nodes={PROJECT_TREE} />
                     </Zone>
                     <Zone n={3} className="tour-ws__stage">
                         <div className="tour-ws__canvas" />
@@ -197,8 +225,10 @@ export const WorkspacePane: React.FC = () => (
             and patches them.
         </Note>
         <Note n={2} title="File tree">
-            Every file the project owns. Icons mark the type, and right-click is where the per-file
-            tools live.
+            Everything the project owns. Your assets sit under <code>content/base/</code> in an
+            unpacked copy of the WAD they came from, which is the shape a launcher expects.
+            <code>mod.config.json</code> is the mod info, <code>flint.json</code> is Flint&rsquo;s own
+            record of where the files came from. Right-click is where the per-file tools live.
         </Note>
         <Note n={3} title="Editor">
             Opens whichever viewer fits the file. Models get a 3D preview with the skeleton and its
@@ -215,9 +245,7 @@ export const WorkspacePane: React.FC = () => (
 
 /* ── 4. WAD Explorer ───────────────────────────────────────────────────── */
 
-type WadNode = { depth: number; label: string; icon: IconName; state?: 'open' | 'shut'; on?: boolean; dim?: boolean };
-
-const WAD_TREE: WadNode[] = [
+const WAD_TREE: TreeNode[] = [
     { depth: 0, label: 'Ahri.wad.client', icon: 'wad', state: 'open' },
     { depth: 1, label: 'assets', icon: 'folderOpen', state: 'open' },
     { depth: 2, label: 'characters/ahri', icon: 'folderOpen', state: 'open' },
@@ -253,17 +281,7 @@ export const WadPane: React.FC = () => (
                 </Zone>
                 <div className="tour-wad__body">
                     <Zone n={2} className="tour-wad__tree">
-                        {WAD_TREE.map((n) => (
-                            <div
-                                key={n.label + n.depth}
-                                className={`tour-mrow tour-wtree__row ${n.on ? 'is-on' : ''} ${n.dim ? 'is-dim' : ''}`}
-                                style={{ ['--depth' as never]: n.depth }}
-                            >
-                                <span className={`tour-wtree__twist ${n.state ? `is-${n.state}` : 'is-leaf'}`} />
-                                <span className="tour-mrow__ico"><Icon name={n.icon} /></span>
-                                <span className="tour-mrow__label">{n.label}</span>
-                            </div>
-                        ))}
+                        <MockTree nodes={WAD_TREE} />
                     </Zone>
                     <Zone n={3} className="tour-wad__preview">
                         <div className="tour-wad__thumb" />
