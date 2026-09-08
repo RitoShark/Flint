@@ -268,6 +268,35 @@ pub fn find_champion_wad(league_path: impl AsRef<Path>, champion: &str) -> Optio
     }
 }
 
+/// Every `<champ>.<locale>.wad.client` sibling of the champion WAD. Riot ships
+/// one per locale and the voiceover banks live only in these, never in the main
+/// archive.
+pub fn find_voiceover_wads(league_path: impl AsRef<Path>, champion: &str) -> Vec<PathBuf> {
+    let stem = wad_champion_name(champion).to_lowercase();
+    let dir = league_path
+        .as_ref()
+        .join("Game")
+        .join("DATA")
+        .join("FINAL")
+        .join("Champions");
+    let main = format!("{}.wad.client", stem);
+    let prefix = format!("{}.", stem);
+
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut out: Vec<PathBuf> = entries
+        .flatten()
+        .filter(|e| {
+            let name = e.file_name().to_string_lossy().to_lowercase();
+            name != main && name.starts_with(&prefix) && name.ends_with(".wad.client")
+        })
+        .map(|e| e.path())
+        .collect();
+    out.sort();
+    out
+}
+
 /// Extract ALL files under `assets/` or `data/` from a WAD archive. Cleanup of
 /// unused files happens later during the repathing phase based on what the skin
 /// BIN references.

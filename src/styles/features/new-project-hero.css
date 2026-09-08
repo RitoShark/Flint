@@ -71,7 +71,7 @@
 
 .np-hero-splash { margin-bottom: 0 !important; border: none; }
 
-.np-hero-splash__edit { position: absolute; top: 12px; right: 12px; z-index: 2; width: auto !important; }
+.np-hero-splash__edit { position: absolute; bottom: 12px; right: 12px; z-index: 2; width: auto !important; }
 
 .np-hero-chroma-badge {
   display: inline-flex;

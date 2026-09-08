@@ -24,10 +24,51 @@ import { Button, Checkbox, Icon, Picker } from '../ui';
 
 import { compressDeflate, type ProjectType, SCALE_OPTIONS, FPS_OPTIONS } from './new-project/helpers';
 import { toDisplayPath, fromDisplayPath, registerAppHome } from '../../lib/util/displayPath';
+import { loadAccent, getCachedAccent } from '../../lib/ui-helpers/imageAccent';
 
 function mapArtUrl(mapId: string): string {
     return `/maps/${mapId.toLowerCase()}.webp`;
 }
+
+const ChampionTile: React.FC<{
+    champ: DDragonChampion;
+    iconUrl: string;
+    active: boolean;
+    index: number;
+    onPick: () => void;
+}> = ({ champ, iconUrl, active, index, onPick }) => {
+    const [accent, setAccent] = useState(() => getCachedAccent(iconUrl) ?? null);
+
+    useEffect(() => {
+        const cached = getCachedAccent(iconUrl);
+        if (cached !== undefined) { setAccent(cached); return; }
+        let live = true;
+        loadAccent(iconUrl).then((a) => { if (live) setAccent(a); });
+        return () => { live = false; };
+    }, [iconUrl]);
+
+    const style = accent
+        ? ({ '--c1': `rgb(${accent.c1})`, animationDelay: `${Math.min(index * 15, 300)}ms` } as React.CSSProperties)
+        : ({ animationDelay: `${Math.min(index * 15, 300)}ms` } as React.CSSProperties);
+
+    return (
+        <button
+            className={`np-champ-card${active ? ' np-champ-card--active' : ''}${accent ? ' np-champ-card--tinted' : ''}`}
+            onClick={onPick}
+            title={champ.name}
+            style={style}
+        >
+            <img
+                src={iconUrl}
+                alt={champ.name}
+                className="np-champ-card__icon"
+                loading="lazy"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            />
+            <span className="np-champ-card__name">{champ.name}</span>
+        </button>
+    );
+};
 
 const NAME_PLACEHOLDER: Record<ProjectType, string> = {
     'skin': 'e.g. Ahri Base Rework',
@@ -60,6 +101,7 @@ export const NewProjectModal: React.FC = () => {
     const [progress, setProgress] = useState('');
     const [transitioning, setTransitioning] = useState(false);
     const [extractSfx, setExtractSfx] = useState(false);
+    const [extractVo, setExtractVo] = useState(false);
 
     useEffect(() => {
         if (!isCreating) return;
@@ -737,6 +779,7 @@ export const NewProjectModal: React.FC = () => {
                 creatorName: creatorName || undefined,
                 isPbe: usePbe,
                 extractSfx,
+                extractVo,
             });
 
             await finishProjectCreation(project, selectedChampion.name, effectiveSkinNum);
@@ -1144,11 +1187,15 @@ export const NewProjectModal: React.FC = () => {
                                     <span className="np-rtoggle__hint">.bnk</span>
                                 </label>
 
-                                <label className="np-rtoggle np-rtoggle--disabled" title="Voiceover lives in a separate locale WAD that Flint does not open yet.">
-                                    <input type="checkbox" checked={false} disabled readOnly />
+                                <label className="np-rtoggle" title="Pull the champion's voiceover banks from every locale WAD and repath them under the project. Adds a lot of files.">
+                                    <input
+                                        type="checkbox"
+                                        checked={extractVo}
+                                        onChange={(e) => setExtractVo(e.target.checked)}
+                                    />
                                     <span className="np-rtoggle__track"><span className="np-rtoggle__thumb" /></span>
                                     <span>Extract VO</span>
-                                    <span className="np-rtoggle__hint">soon</span>
+                                    <span className="np-rtoggle__hint">.wpk</span>
                                 </label>
                             </>
                         )}
@@ -1246,8 +1293,11 @@ export const NewProjectModal: React.FC = () => {
                         )}
 
                         <div className="np-section np-section--grow">
-                            <div className="np-section__header">
+                            <div className="np-section__header np-section__header--row">
                                 <label className="np-label">{roster === 'classic' ? 'Champion · League Classic' : 'Champion'}</label>
+                                {champions.length > 0 && (
+                                    <span className="np-count">{filteredChampions.length}</span>
+                                )}
                                 <div className="np-search-wrap">
                                     <span className="np-search-icon"><Icon name="search" /></span>
                                     <input
@@ -1261,22 +1311,14 @@ export const NewProjectModal: React.FC = () => {
                             </div>
                             <div className="np-champion-grid">
                                 {filteredChampions.map((champ, i) => (
-                                    <button
+                                    <ChampionTile
                                         key={champ.id}
-                                        className={`np-champ-card${selectedChampion?.id === champ.id ? ' np-champ-card--active' : ''}`}
-                                        onClick={() => { setSelectedChampion(champ); setChampionSearch(''); }}
-                                        title={champ.name}
-                                        style={{ animationDelay: `${Math.min(i * 15, 300)}ms` }}
-                                    >
-                                        <img
-                                            src={cachedUrl(datadragon.getChampionIconUrl(champ.id))}
-                                            alt={champ.name}
-                                            className="np-champ-card__icon"
-                                            loading="lazy"
-                                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                                        />
-                                        <span className="np-champ-card__name">{champ.name}</span>
-                                    </button>
+                                        champ={champ}
+                                        iconUrl={cachedUrl(datadragon.getChampionIconUrl(champ.id))}
+                                        active={selectedChampion?.id === champ.id}
+                                        index={i}
+                                        onPick={() => { setSelectedChampion(champ); setChampionSearch(''); }}
+                                    />
                                 ))}
                             </div>
                         </div>

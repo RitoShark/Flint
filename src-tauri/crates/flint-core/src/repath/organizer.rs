@@ -34,6 +34,8 @@ pub struct OrganizerConfig {
     /// Project creation lets the user opt in; import and export keep the
     /// historic behaviour of always repathing SFX.
     pub repath_sfx: bool,
+    /// Only true when the locale WADs were extracted alongside the champion WAD.
+    pub repath_vo: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -198,6 +200,7 @@ pub fn organize_project(
             skip_bin_cleanup: config.skip_bin_cleanup,
             sub_characters: sub_bins.iter().map(|(sub, _)| sub.clone()).collect(),
             repath_sfx: config.repath_sfx,
+            repath_vo: config.repath_vo,
         };
 
         match repath_project(content_base, &repath_config, path_mappings) {
@@ -395,6 +398,7 @@ mod tests {
             consolidate_vfx: false,
             cleanup_pipeline: false,
             repath_sfx: true,
+            repath_vo: false,
         }
     }
 
@@ -471,6 +475,7 @@ mod tests {
                 consolidate_vfx: false,
                 cleanup_pipeline: false,
                 repath_sfx: true,
+                repath_vo: false,
             };
             organize_project(&assets, &config, &r.path_mappings).unwrap();
 
@@ -556,6 +561,7 @@ mod tests {
             consolidate_vfx: false,
             cleanup_pipeline: false,
             repath_sfx: true,
+            repath_vo: false,
         };
 
         organize_project(base, &config, &HashMap::new()).unwrap();

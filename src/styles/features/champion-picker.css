@@ -154,3 +154,26 @@ input.np-search:focus {
   border-color: var(--accent-primary) !important;
   box-shadow: 0 0 10px color-mix(in oklab, var(--accent-primary) 45%, transparent) !important;
 }
+
+.np-champ-card--tinted {
+  background: color-mix(in oklab, var(--c1) 9%, transparent) !important;
+  border-color: color-mix(in oklab, var(--c1) 18%, transparent) !important;
+}
+
+.np-champ-card--tinted:hover {
+  background: color-mix(in oklab, var(--c1) 18%, transparent) !important;
+  border-color: color-mix(in oklab, var(--c1) 34%, transparent) !important;
+}
+
+.np-champ-card--tinted.np-champ-card--active {
+  background: color-mix(in oklab, var(--c1) 26%, transparent) !important;
+  border-color: color-mix(in oklab, var(--c1) 62%, transparent) !important;
+}
+
+.np-champ-card--tinted .np-champ-card__icon {
+  border-color: color-mix(in oklab, var(--c1) 40%, transparent);
+}
+
+.np-champ-card--tinted.np-champ-card--active .np-champ-card__icon {
+  border-color: color-mix(in oklab, var(--c1) 75%, transparent);
+}

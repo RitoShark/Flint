@@ -9,7 +9,8 @@ use flint_core::project::{
 };
 use flint_core::repath::{organize_project, rename_project_asset_prefix, OrganizerConfig, RenameResult};
 use flint_core::wad::extractor::{
-    find_champion_wad, extract_skin_assets, extract_skin_assets_selective, wad_contains_skin_bin,
+    find_champion_wad, find_voiceover_wads, extract_skin_assets, extract_skin_assets_selective,
+    wad_contains_skin_bin,
 };
 use flint_core::hash::{resolve_hashes_lmdb_bulk, ResolvedHashes};
 use crate::state::LmdbCacheState;
@@ -121,11 +122,13 @@ pub async fn create_project(
     is_pbe: Option<bool>,
     is_tft: Option<bool>,
     extract_sfx: Option<bool>,
+    extract_vo: Option<bool>,
     lmdb: tauri::State<'_, LmdbCacheState>,
     app: tauri::AppHandle,
 ) -> Result<Project, String> {
     let pbe = is_pbe.unwrap_or(false);
     let repath_sfx = extract_sfx.unwrap_or(false);
+    let repath_vo = extract_vo.unwrap_or(false);
     let source_label = if pbe { "PBE" } else { "Live" };
     tracing::info!(
         "Frontend requested project creation: {} ({} skin {}) from {} install",
@@ -248,6 +251,7 @@ pub async fn create_project(
 
     let assets_path = project.assets_path();
     let champion_for_extract = champion.clone();
+    let env_for_vo = env_arc.clone();
 
     let t = Instant::now();
     let extraction_result = tokio::task::spawn_blocking(move || {
@@ -289,6 +293,39 @@ pub async fn create_project(
     let extract_elapsed = t.elapsed();
     tracing::debug!("[TIMING] extract_skin_assets: {:?}", extract_elapsed);
     phase_timings.push(("extract_skin_assets", extract_elapsed));
+
+    let mut extraction_result = extraction_result;
+    if repath_vo {
+        let vo_wads = find_voiceover_wads(&league_path_buf, &champion);
+        tracing::info!("Voiceover requested: {} locale WAD(s) found", vo_wads.len());
+        if let Ok(Ok(ref mut main_result)) = extraction_result {
+            for vo_wad in vo_wads {
+                let _ = app.emit("project-create-progress", serde_json::json!({
+                    "phase": "voiceover",
+                    "message": format!("Extracting voiceover: {}",
+                        vo_wad.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default())
+                }));
+                let assets_path = project.assets_path();
+                let champion_for_vo = champion.clone();
+                let env = env_for_vo.clone();
+                let resolve = move |hashes: &[u64]| -> ResolvedHashes {
+                    resolve_hashes_lmdb_bulk(hashes, &env)
+                };
+                let vo_result = tokio::task::spawn_blocking(move || {
+                    extract_skin_assets(&vo_wad, &assets_path, &champion_for_vo, skin_id, resolve, false)
+                })
+                .await;
+                match vo_result {
+                    Ok(Ok(r)) => {
+                        main_result.extracted_count += r.extracted_count;
+                        main_result.path_mappings.extend(r.path_mappings);
+                    }
+                    Ok(Err(e)) => tracing::warn!("Voiceover extraction failed: {}", e),
+                    Err(e) => tracing::warn!("Voiceover extraction task failed: {}", e),
+                }
+            }
+        }
+    }
 
     let extraction_result = match extraction_result {
         Ok(Ok(result)) => {
@@ -338,6 +375,7 @@ pub async fn create_project(
             consolidate_vfx: false,
             cleanup_pipeline: false,
             repath_sfx,
+            repath_vo,
         };
 
         let assets_path_for_concat = project.assets_path();
@@ -382,6 +420,7 @@ pub async fn create_project(
                 consolidate_vfx: false,
                 cleanup_pipeline: false,
                 repath_sfx,
+                repath_vo,
             };
 
             let assets_path_for_repath = project.assets_path();

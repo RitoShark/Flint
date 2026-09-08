@@ -12,6 +12,7 @@ interface CreateProjectParams {
     isPbe?: boolean;
     isTft?: boolean;
     extractSfx?: boolean;
+    extractVo?: boolean;
 }
 
 export async function createProject(params: CreateProjectParams): Promise<Project> {
@@ -25,6 +26,7 @@ export async function createProject(params: CreateProjectParams): Promise<Projec
         isPbe: params.isPbe,
         isTft: params.isTft,
         extractSfx: params.extractSfx,
+        extractVo: params.extractVo,
     });
 }
 

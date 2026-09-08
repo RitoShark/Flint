@@ -572,6 +572,7 @@ fn import_modpkg_internal(
             consolidate_vfx: true,
             cleanup_pipeline: true,
             repath_sfx: true,
+            repath_vo: false,
         };
 
         organize_project(&content_path, &config, &path_mappings)

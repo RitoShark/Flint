@@ -40,6 +40,9 @@ pub(crate) enum AssetPath<'a> {
     /// keep their original paths or the game can't find them.
     SoundVo {
         original_path: &'a str,
+        /// Locale folder from `sounds/wwise2016/vo/<locale>/…`.
+        locale: &'a str,
+        filename: &'a str,
     },
 
     /// `characters/{champion}/hud/{filename}` → project-level hud/ folder.
@@ -92,8 +95,14 @@ impl<'a> AssetPath<'a> {
 
         if let Some(sound_path) = Self::strip_prefix_ignore_case(stripped, "sounds/") {
             if Self::contains_ignore_case(sound_path, "/vo/") {
+                let after_vo = Self::split_after_ignore_case(sound_path, "/vo/").unwrap_or("");
+                let mut segments = after_vo.split('/');
+                let locale = segments.next().unwrap_or("");
+                let filename = after_vo.split('/').next_back().unwrap_or(after_vo);
                 return Some(AssetPath::SoundVo {
                     original_path: path,
+                    locale,
+                    filename,
                 });
             }
 
@@ -156,8 +165,14 @@ impl<'a> AssetPath<'a> {
                     original_path.to_string()
                 }
             }
-            AssetPath::SoundVo { original_path } => {
-                original_path.to_string()
+            AssetPath::SoundVo { original_path, locale, filename } => {
+                // Locale stays in the path: every locale WAD ships the same
+                // bank filenames, so flattening them collides.
+                if config.repath_vo && !locale.is_empty() {
+                    format!("ASSETS/{}/audio/vo/{}/{}", prefix, locale, filename)
+                } else {
+                    original_path.to_string()
+                }
             }
             AssetPath::ChampionHud { filename } => {
                 format!("ASSETS/{}/hud/{}", prefix, filename)
@@ -204,6 +219,11 @@ impl<'a> AssetPath<'a> {
     }
 
     #[inline]
+    fn split_after_ignore_case<'b>(haystack: &'b str, needle: &str) -> Option<&'b str> {
+        let lower = haystack.to_lowercase();
+        lower.find(&needle.to_lowercase()).map(|i| &haystack[i + needle.len()..])
+    }
+
     fn contains_ignore_case(s: &str, pattern: &str) -> bool {
         s.to_lowercase().contains(&pattern.to_lowercase())
     }
@@ -220,8 +240,11 @@ pub struct RepathConfig {
     /// Lowercased sub-champion names (Tibbers, Skaarl, …) detected in the WAD.
     pub sub_characters: Vec<String>,
     /// When false, SFX bank paths are left stock instead of moving under
-    /// ASSETS/<prefix>/audio/sfx/. VO is always left alone.
+    /// ASSETS/<prefix>/audio/sfx/.
     pub repath_sfx: bool,
+    /// When false, VO bank paths are left stock. Only set true when the locale
+    /// WADs were actually extracted, or the BINs point at files that are absent.
+    pub repath_vo: bool,
 }
 
 impl RepathConfig {
@@ -795,6 +818,7 @@ mod tests {
             skip_bin_cleanup: false,
             sub_characters: vec![],
             repath_sfx: true,
+            repath_vo: false,
         };
 
         assert_eq!(
@@ -836,6 +860,7 @@ mod tests {
             skip_bin_cleanup: false,
             sub_characters: vec!["annietibbers".to_string()],
             repath_sfx: true,
+            repath_vo: false,
         };
 
         assert_eq!(
@@ -877,6 +902,7 @@ mod tests {
             skip_bin_cleanup: false,
             sub_characters: vec![],
             repath_sfx: true,
+            repath_vo: false,
         };
 
         assert_eq!(
@@ -909,6 +935,7 @@ mod tests {
             skip_bin_cleanup: false,
             sub_characters: vec![],
             repath_sfx: true,
+            repath_vo: false,
         };
 
         assert_eq!(
@@ -940,6 +967,7 @@ mod tests {
             skip_bin_cleanup: false,
             sub_characters: vec![],
             repath_sfx: true,
+            repath_vo: false,
         };
 
         assert_eq!(
@@ -963,6 +991,7 @@ mod tests {
             skip_bin_cleanup: false,
             sub_characters: vec![],
             repath_sfx: true,
+            repath_vo: false,
         };
 
         assert_eq!(
@@ -982,6 +1011,7 @@ mod tests {
             skip_bin_cleanup: false,
             sub_characters: vec![],
             repath_sfx: true,
+            repath_vo: false,
         };
 
         assert_eq!(
@@ -1001,6 +1031,7 @@ mod tests {
             skip_bin_cleanup: false,
             sub_characters: vec![],
             repath_sfx: true,
+            repath_vo: false,
         };
 
         assert_eq!(
@@ -1024,6 +1055,7 @@ mod tests {
             skip_bin_cleanup: false,
             sub_characters: vec![],
             repath_sfx: false,
+            repath_vo: false,
         };
 
         assert_eq!(
@@ -1056,6 +1088,7 @@ mod tests {
             skip_bin_cleanup: false,
             sub_characters: vec![],
             repath_sfx: true,
+            repath_vo: false,
         };
 
         assert_eq!(
@@ -1115,6 +1148,7 @@ mod tests {
             skip_bin_cleanup: false,
             sub_characters: vec![],
             repath_sfx: true,
+            repath_vo: false,
         };
 
         assert_eq!(
@@ -1148,8 +1182,10 @@ mod tests {
 
         assert!(parsed.is_some());
         match parsed.unwrap() {
-            AssetPath::SoundVo { original_path } => {
+            AssetPath::SoundVo { original_path, locale, filename } => {
                 assert_eq!(original_path, path);
+                assert_eq!(locale, "en_us");
+                assert_eq!(filename, "kayn_vo.wpk");
             }
             _ => panic!("Expected SoundVo variant"),
         }
@@ -1252,8 +1288,10 @@ mod tests {
 
         assert!(parsed.is_some());
         match parsed.unwrap() {
-            AssetPath::SoundVo { original_path } => {
+            AssetPath::SoundVo { original_path, locale, filename } => {
                 assert_eq!(original_path, path);
+                assert_eq!(locale, "en_us");
+                assert_eq!(filename, "kayn_vo.wpk");
             }
             _ => panic!("Expected SoundVo variant"),
         }
@@ -1270,6 +1308,7 @@ mod tests {
             skip_bin_cleanup: false,
             sub_characters: vec![],
             repath_sfx: true,
+            repath_vo: false,
         };
 
         let asset_path = AssetPath::SoundSfx {
@@ -1294,14 +1333,23 @@ mod tests {
             skip_bin_cleanup: false,
             sub_characters: vec![],
             repath_sfx: true,
+            repath_vo: false,
         };
 
         let original = "assets/sounds/wwise2016/vo/en_us/kayn_vo.wpk";
         let asset_path = AssetPath::SoundVo {
             original_path: original,
+            locale: "en_us",
+            filename: "kayn_vo.wpk",
         };
 
         assert_eq!(asset_path.to_repathed(&config), original);
+
+        let repathing = RepathConfig { repath_vo: true, ..config };
+        assert_eq!(
+            asset_path.to_repathed(&repathing),
+            "ASSETS/TestCreator/TestProject/audio/vo/en_us/kayn_vo.wpk"
+        );
     }
 
     #[test]
@@ -1413,6 +1461,7 @@ mod tests {
             skip_bin_cleanup: false,
             sub_characters: vec![],
             repath_sfx: true,
+            repath_vo: false,
         };
 
         repath_project(base, &config, &HashMap::new()).unwrap();
@@ -1477,6 +1526,7 @@ mod tests {
             skip_bin_cleanup: false,
             sub_characters: vec![],
             repath_sfx: true,
+            repath_vo: false,
         };
 
         repath_project(base, &config, &HashMap::new()).unwrap();
@@ -1531,6 +1581,7 @@ mod tests {
             skip_bin_cleanup: false,
             sub_characters: vec![],
             repath_sfx: true,
+            repath_vo: false,
         };
 
         repath_project(base, &config, &HashMap::new()).unwrap();
@@ -1581,6 +1632,7 @@ mod tests {
             skip_bin_cleanup: false,
             sub_characters: vec![],
             repath_sfx: true,
+            repath_vo: false,
         };
 
         repath_project(base, &config, &HashMap::new()).unwrap();
@@ -1627,6 +1679,7 @@ mod tests {
             skip_bin_cleanup: false,
             sub_characters: vec![],
             repath_sfx: true,
+            repath_vo: false,
         };
 
         repath_project(base, &config, &HashMap::new()).unwrap();
@@ -1667,6 +1720,7 @@ mod tests {
             skip_bin_cleanup: false,
             sub_characters: vec![],
             repath_sfx: true,
+            repath_vo: false,
         };
 
         // existing_paths references only the relocated base-res copy.
@@ -1699,6 +1753,7 @@ mod tests {
             skip_bin_cleanup: false,
             sub_characters: vec![],
             repath_sfx: true,
+            repath_vo: false,
         };
 
         let mut existing: HashSet<String> = HashSet::new();
@@ -1778,6 +1833,7 @@ mod tests {
             skip_bin_cleanup: false,
             sub_characters: vec![],
             repath_sfx: true,
+            repath_vo: false,
         };
 
         let dir = tempfile::tempdir().unwrap();
@@ -1809,6 +1865,7 @@ mod tests {
             skip_bin_cleanup: false,
             sub_characters: vec![],
             repath_sfx: true,
+            repath_vo: false,
         };
 
         let dir = tempfile::tempdir().unwrap();
