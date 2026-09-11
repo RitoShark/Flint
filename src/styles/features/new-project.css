@@ -29,7 +29,6 @@
   min-height: 0;
   overflow-y: auto;
   border-right: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
-  background: color-mix(in oklab, var(--bg-primary) 55%, #000);
 }
 
 .np-rail__group {
