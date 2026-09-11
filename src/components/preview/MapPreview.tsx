@@ -151,6 +151,17 @@ function savePref(key: string, value: unknown): void {
 interface CamSpeed { rotate: number; pan: number; zoom: number; }
 const CAM_DEFAULTS: CamSpeed = { rotate: 1500, pan: 15, zoom: 0.04 };
 
+/** Babylon pans `1 / panningSensibility` WORLD units per pixel, which is a fixed
+ *  distance regardless of how far out the camera sits. A League map is tens of
+ *  thousands of units across, so a drag that feels right up close crawls when the
+ *  whole map is in frame. Derive the sensibility from the radius instead, so one
+ *  pixel of drag is always one pixel of map. `pan` stays a divisor on top of that:
+ *  the default tracks the cursor exactly, higher is slower. */
+function panSensibility(camera: ArcRotateCamera, height: number, pan: number): number {
+    const worldPerPixel = (2 * Math.tan(camera.fov / 2) * camera.radius) / Math.max(height, 1);
+    return Math.max(0.05, (pan / CAM_DEFAULTS.pan) / Math.max(worldPerPixel, 1e-6));
+}
+
 interface BrushPreset { name: string; brush: paint.Brush; size: number; }
 
 function rgbToHex(c: [number, number, number]): string {
@@ -505,7 +516,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             camera.lowerRadiusLimit = size * 0.05;
             camera.upperRadiusLimit = size * 10;
             const cs = camSpeedRef.current;
-            camera.panningSensibility = cs.pan;
             camera.angularSensibilityX = cs.rotate;
             camera.angularSensibilityY = cs.rotate;
             camera.wheelDeltaPercentage = cs.zoom;
@@ -644,6 +654,10 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         const scene = new Scene(engine);
         sceneRef.current = scene;
         scene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0);
+        // Babylon runs its own pick on every pointer move to maintain mesh-under-
+        // pointer state. Nothing here uses that - hover, identify and paint all pick
+        // for themselves - and on a map it walks hundreds of meshes per move.
+        scene.skipPointerMovePicking = true;
 
         const camera = new ArcRotateCamera('cam', Math.PI / 2, Math.PI / 3, 1000, Vector3.Zero(), scene);
         camera.attachControl(canvas, true);
@@ -651,11 +665,20 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             const cs = camSpeedRef.current;
             camera.angularSensibilityX = cs.rotate;
             camera.angularSensibilityY = cs.rotate;
-            camera.panningSensibility = cs.pan;
             camera.wheelDeltaPercentage = cs.zoom;
         }
         camera.inertia = 0.7;
         cameraRef.current = camera;
+
+        const rescalePan = () => {
+            camera.panningSensibility = panSensibility(
+                camera, engine.getRenderHeight(), camSpeedRef.current.pan,
+            );
+        };
+        rescalePan();
+        // Fires on every zoom and frame change. Writing the sensibility does not
+        // itself change the view matrix, so this does not re-enter.
+        camera.onViewMatrixChangedObservable.add(rescalePan);
 
         uvPassRef.current = createUvPass(scene);
 
@@ -829,8 +852,15 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 }
                 return;
             }
+            // Hover identification ray-casts the WHOLE map on the CPU, down to
+            // triangles. Doing that on every pointer move of a camera drag is what
+            // made right-click panning crawl: the pick costs more than the frame it
+            // is riding on.
             if (pi.type === PointerEventTypes.POINTERMOVE) {
-                hoverDirty = true;
+                // Read the live button mask rather than tracking down/up: a pointerup
+                // delivered outside the canvas would otherwise leave hover dead.
+                const dragging = ((pi.event as PointerEvent).buttons ?? 0) !== 0;
+                if (!dragging) hoverDirty = true;
             } else if (pi.type === PointerEventTypes.POINTERPICK) {
                 const pick = pi.pickInfo;
                 const built = pick?.pickedMesh
@@ -1124,8 +1154,9 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         if (cam) {
             cam.angularSensibilityX = camSpeed.rotate;
             cam.angularSensibilityY = camSpeed.rotate;
-            cam.panningSensibility = camSpeed.pan;
             cam.wheelDeltaPercentage = camSpeed.zoom;
+            const h = engineRef.current?.getRenderHeight() ?? 0;
+            cam.panningSensibility = panSensibility(cam, h, camSpeed.pan);
         }
     }, [camSpeed]);
 
