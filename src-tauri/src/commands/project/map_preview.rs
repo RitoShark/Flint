@@ -282,6 +282,21 @@ pub fn decode_geometry(geo: &MapGeometry) -> Result<DecodedGeometry, String> {
         ..Default::default()
     };
 
+    // One pass to size the pools. A real map runs to millions of vertices, and letting
+    // three Vecs of that size grow by doubling is most of this function's cost.
+    let total_verts: usize = geo.models.iter().map(|m| m.vertex_count as usize).sum();
+    let total_indices: usize = geo
+        .models
+        .iter()
+        .filter_map(|m| geo.index_buffers.get(m.index_buffer_id as usize))
+        .map(|b| b.indices.len())
+        .sum();
+    out.positions.reserve(total_verts * 3);
+    out.uvs.reserve(total_verts * 2);
+    out.indices.reserve(total_indices);
+    out.submeshes
+        .reserve(geo.models.iter().map(|m| m.submeshes.len()).sum());
+
     for model in &geo.models {
         let desc = geo
             .vertex_descriptions
@@ -384,10 +399,13 @@ pub async fn load_map_preview(project_path: String) -> Result<tauri::ipc::Respon
     let project = PathBuf::from(&project_path);
     let source = discover_map_source(&project)?;
 
+    let started = std::time::Instant::now();
     let bytes = std::fs::read(&source.mapgeo).map_err(|e| format!("Failed to read mapgeo: {e}"))?;
     let geo =
         MapGeometry::from_bytes(&bytes).map_err(|e| format!("Failed to parse mapgeo: {:?}", e))?;
+    let parsed_at = std::time::Instant::now();
     let decoded = decode_geometry(&geo)?;
+    let decoded_at = std::time::Instant::now();
     let materials = build_material_table(&source.materials)?;
 
     let meta = MapPreviewMeta {
@@ -400,7 +418,10 @@ pub async fn load_map_preview(project_path: String) -> Result<tauri::ipc::Respon
     };
 
     let meta_json = serde_json::to_vec(&meta).map_err(|e| e.to_string())?;
-    let mut out: Vec<u8> = Vec::new();
+    // Sized up front: this buffer runs to tens of MB on a real map, and growing it by
+    // doubling copies the whole thing about as many bytes again as it ends up holding.
+    let body = (decoded.positions.len() + decoded.uvs.len() + decoded.indices.len()) * 4;
+    let mut out: Vec<u8> = Vec::with_capacity(8 + meta_json.len() + body);
     out.extend_from_slice(&(meta_json.len() as u32).to_le_bytes());
     out.extend_from_slice(&meta_json);
     while !out.len().is_multiple_of(4) {
@@ -416,6 +437,14 @@ pub async fn load_map_preview(project_path: String) -> Result<tauri::ipc::Respon
         out.extend_from_slice(&i.to_le_bytes());
     }
 
+    tracing::debug!(
+        "[TIMING] map geometry: read+parse {:?}, decode {:?}, {} verts / {} tris, {:.1} MB",
+        parsed_at.duration_since(started),
+        decoded_at.elapsed(),
+        decoded.positions.len() / 3,
+        decoded.indices.len() / 3,
+        out.len() as f64 / 1_048_576.0
+    );
     Ok(tauri::ipc::Response::new(out))
 }
 
