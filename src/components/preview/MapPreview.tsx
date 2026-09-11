@@ -532,8 +532,8 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             setLoading(false);
 
             // Every model on a League map is baked-lit, and the atlas is named by the
-            // GEOMETRY, not the materials bin. Without it a surface is flat albedo -
-            // which on big terrain slabs reads as "untextured, just coloured".
+            // GEOMETRY, not the materials bin. Without it a surface renders as raw
+            // albedo - far brighter and flatter than the game.
             const lightmapPaths = [...new Set(
                 builtMeshes.map(b => b.lightmap).filter((p): p is string => !!p),
             )];
@@ -541,20 +541,35 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             // ONE round trip for the whole variant. This used to be one IPC call per
             // texture at concurrency 4, each decoding to RGBA: 192 calls and 585 MB
             // on the wire for Bilgewater, against 105 MB of compressed blocks.
+            //
+            // The atlases go in a SECOND call rather than the same one: they are
+            // 2048x2048 BC3 apiece and would double the first payload, holding the
+            // whole map grey until both finished.
             void (async () => {
                 try {
-                    const wanted = [...uniquePaths, ...lightmapPaths];
                     const entries = await api.loadMapTextures(
-                        projectPath, wanted, preferCompressedRef.current,
+                        projectPath, uniquePaths, preferCompressedRef.current,
                     );
                     if (gen !== buildGenRef.current || !sceneRef.current) return;
                     const byPath = new Map<string, api.MapTextureEntry>();
-                    wanted.forEach((path, i) => byPath.set(path, entries[i]));
+                    uniquePaths.forEach((path, i) => byPath.set(path, entries[i]));
                     applyEntries(uniqueTextures, byPath);
-                    const lit = applyTerrainLighting(builtMeshes, byPath, data.env);
                     setStatus(
                         `${data.variant} · ${builtMeshes.length} meshes · ${uniquePaths.length} textures`
-                        + (lightmapPaths.length ? ` · ${lit} baked-lit` : ''),
+                        + (lightmapPaths.length ? ' · baking light' : ''),
+                    );
+                    if (!lightmapPaths.length) return;
+
+                    const lmEntries = await api.loadMapTextures(
+                        projectPath, lightmapPaths, preferCompressedRef.current,
+                    );
+                    if (gen !== buildGenRef.current || !sceneRef.current) return;
+                    const lmByPath = new Map<string, api.MapTextureEntry>();
+                    lightmapPaths.forEach((path, i) => lmByPath.set(path, lmEntries[i]));
+                    const lit = applyTerrainLighting(builtMeshes, lmByPath, data.env);
+                    setStatus(
+                        `${data.variant} · ${builtMeshes.length} meshes · ${uniquePaths.length} textures`
+                        + ` · ${lit} baked-lit`,
                     );
                 } catch (e) {
                     console.error('[map-tex] batch failed', e);
