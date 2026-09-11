@@ -155,11 +155,13 @@ const CAM_DEFAULTS: CamSpeed = { rotate: 1500, pan: 15, zoom: 0.04 };
  *  distance regardless of how far out the camera sits. A League map is tens of
  *  thousands of units across, so a drag that feels right up close crawls when the
  *  whole map is in frame. Derive the sensibility from the radius instead, so one
- *  pixel of drag is always one pixel of map. `pan` stays a divisor on top of that:
- *  the default tracks the cursor exactly, higher is slower. */
+ *  pixel of drag is a fixed fraction of the frame. `pan` stays a divisor on top of
+ *  that: higher is slower. */
+const PAN_TRACKING = 0.5;
 function panSensibility(camera: ArcRotateCamera, height: number, pan: number): number {
     const worldPerPixel = (2 * Math.tan(camera.fov / 2) * camera.radius) / Math.max(height, 1);
-    return Math.max(0.05, (pan / CAM_DEFAULTS.pan) / Math.max(worldPerPixel, 1e-6));
+    const step = worldPerPixel * PAN_TRACKING;
+    return Math.max(0.05, (pan / CAM_DEFAULTS.pan) / Math.max(step, 1e-6));
 }
 
 interface BrushPreset { name: string; brush: paint.Brush; size: number; }
