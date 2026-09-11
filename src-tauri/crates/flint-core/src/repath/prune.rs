@@ -6,27 +6,18 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
-use super::refather::RepathConfig;
+use super::refather::RepathPlan;
 use super::paths::*;
 use super::refather::find_main_skin_bin;
 pub(crate) fn cleanup_unused_files(
     content_base: &Path,
-    referenced_paths: &HashSet<String>,
-    prefix: &str,
-    config: &RepathConfig,
+    plan: &RepathPlan,
     // Paths referenced only by non-shipping champion-root BINs — kept in place.
     preserved_paths: &HashSet<String>,
 ) -> Result<usize> {
     use rayon::prelude::*;
 
-    let expected_paths: HashSet<String> = referenced_paths
-        .iter()
-        .flat_map(|p| {
-            let raw = normalize_path(p);
-            let repathed = normalize_path(&apply_prefix_to_path(p, prefix, config));
-            [raw, repathed]
-        })
-        .collect();
+    let expected_paths = plan.expected();
 
     // Walk serially (WalkDir holds file-handle state), then delete in parallel.
     let to_delete: Vec<PathBuf> = WalkDir::new(content_base)
@@ -90,23 +81,14 @@ pub(crate) fn cleanup_unused_files(
 /// and `data/characters/` so it can never touch the relocated project tree.
 pub(crate) fn sweep_source_tree_orphans(
     content_base: &Path,
-    referenced_paths: &HashSet<String>,
-    prefix: &str,
-    config: &RepathConfig,
+    plan: &RepathPlan,
     // Paths referenced only by non-shipping champion-root BINs — kept in place.
     preserved_paths: &HashSet<String>,
 ) -> usize {
     use rayon::prelude::*;
 
-    // A file is "referenced" if its raw OR repathed form is in existing_paths.
-    let expected: HashSet<String> = referenced_paths
-        .iter()
-        .flat_map(|p| {
-            let raw = normalize_path(p);
-            let repathed = normalize_path(&apply_prefix_to_path(p, prefix, config));
-            [raw, repathed]
-        })
-        .collect();
+    // A file is "referenced" if its source OR its planned destination names it.
+    let expected = plan.expected();
 
     let to_delete: Vec<PathBuf> = WalkDir::new(content_base)
         .into_iter()

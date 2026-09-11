@@ -264,6 +264,105 @@ pub struct RepathResult {
     pub missing_paths: Vec<String>,
 }
 
+/// Every referenced asset's destination, decided ONCE so the BIN rewrite, the file
+/// moves and the cleanup passes cannot disagree about where a file went.
+pub(crate) struct RepathPlan {
+    /// normalized source path -> destination path
+    pub(crate) dest: HashMap<String, String>,
+    /// Sources that lost a destination collision and have no home of their own.
+    pub(crate) collided: Vec<String>,
+}
+
+impl RepathPlan {
+    pub(crate) fn get(&self, source: &str) -> Option<&String> {
+        self.dest.get(source)
+    }
+
+    /// Source and destination spellings together — what the cleanup passes must keep.
+    pub(crate) fn expected(&self) -> HashSet<String> {
+        let mut out = HashSet::with_capacity(self.dest.len() * 2);
+        for (src, dst) in &self.dest {
+            out.insert(src.clone());
+            out.insert(normalize_path(dst));
+        }
+        out
+    }
+}
+
+fn is_animation(path: &str) -> bool {
+    path.len() > 4 && path[path.len() - 4..].eq_ignore_ascii_case(".anm")
+}
+
+/// `…/foo.anm` -> `…/animations/foo.anm`, unless it already sits under one.
+fn under_animations(path: &str) -> String {
+    if path.to_lowercase().contains("/animations/") {
+        return path.to_string();
+    }
+    match path.rfind('/') {
+        Some(i) => format!("{}/animations/{}", &path[..i], &path[i + 1..]),
+        None => format!("animations/{}", path),
+    }
+}
+
+/// `…/animations/foo.anm` -> `…/animations/dupe/foo.anm`.
+fn dupe_slot(path: &str) -> String {
+    match path.rfind('/') {
+        Some(i) => format!("{}/dupe/{}", &path[..i], &path[i + 1..]),
+        None => format!("dupe/{}", path),
+    }
+}
+
+/// Resolve every source to a destination, first-writer-wins on collisions.
+///
+/// LANDMINE: two sources routinely want one destination, and `.anm` is where it bites.
+/// An animation BIN pulls clips from SEVERAL skins' asset folders; Riot stores older
+/// skins' clips flat in the skin folder and newer ones under `animations/`, and the same
+/// clip NAME appears in both with DIFFERENT content (Irelia skin63 pulls 40 clips from
+/// skin16's flat folder and 30 from `animations/` folders, 3 of them same-named).
+/// Collapsing those onto one path silently drops an animation, so a colliding `.anm`
+/// goes to `animations/dupe/` rather than being thrown away.
+fn plan_destinations(
+    existing_paths: &HashSet<String>,
+    prefix: &str,
+    config: &RepathConfig,
+) -> RepathPlan {
+    let mut sources: Vec<&String> = existing_paths.iter().collect();
+    sources.sort();
+
+    let mut taken: HashMap<String, String> = HashMap::with_capacity(sources.len());
+    let mut dest: HashMap<String, String> = HashMap::with_capacity(sources.len());
+    let mut collided = Vec::new();
+
+    for source in sources {
+        let repathed = apply_prefix_to_path(source, prefix, config);
+        let mut candidate = replace_base_folder_in_animation_path(&repathed, config.target_skin_id);
+        let animation = is_animation(&candidate);
+        if animation {
+            candidate = under_animations(&candidate);
+        }
+        let mut key = normalize_path(&candidate);
+
+        if taken.contains_key(&key) && animation {
+            candidate = dupe_slot(&candidate);
+            key = normalize_path(&candidate);
+        }
+
+        if let Some(winner) = taken.get(&key) {
+            tracing::warn!(
+                "Conflict detected: '{}' and '{}' both map to '{}'",
+                winner, source, key
+            );
+            collided.push(source.clone());
+            continue;
+        }
+
+        taken.insert(key, source.clone());
+        dest.insert(source.clone(), candidate);
+    }
+
+    RepathPlan { dest, collided }
+}
+
 pub fn repath_project(
     content_base: &Path,
     config: &RepathConfig,
@@ -464,11 +563,12 @@ pub fn repath_project(
 
     let t_step4 = std::time::Instant::now();
     let prefix = config.prefix();
+    let plan = plan_destinations(&existing_paths, &prefix, config);
     let bins_processed = AtomicUsize::new(0);
     let paths_modified = AtomicUsize::new(0);
 
     bin_files.par_iter().for_each(|bin_path| {
-        match repath_bin_file(bin_path, &existing_paths, &prefix, config) {
+        match repath_bin_file(bin_path, &plan, config) {
             Ok(modified_count) => {
                 bins_processed.fetch_add(1, Ordering::Relaxed);
                 paths_modified.fetch_add(modified_count, Ordering::Relaxed);
@@ -484,12 +584,12 @@ pub fn repath_project(
     tracing::debug!("[TIMING] step4 repath {} BINs in parallel: {:?}", result.bins_processed, t_step4.elapsed());
 
     let t_step5 = std::time::Instant::now();
-    result.files_relocated = relocate_assets(file_base, &existing_paths, &prefix, config)?;
+    result.files_relocated = relocate_assets(file_base, &plan, config)?;
     tracing::debug!("[TIMING] step5 relocate_assets ({} files): {:?}", result.files_relocated, t_step5.elapsed());
 
     if config.cleanup_unused {
         let t_step6 = std::time::Instant::now();
-        result.files_removed = cleanup_unused_files(file_base, &existing_paths, &prefix, config, &preserved_paths)?;
+        result.files_removed = cleanup_unused_files(file_base, &plan, &preserved_paths)?;
         tracing::debug!("[TIMING] step6 cleanup_unused_files ({} removed): {:?}", result.files_removed, t_step6.elapsed());
     }
 
@@ -510,7 +610,7 @@ pub fn repath_project(
     // directory; this pass removes exactly the orphaned originals.
     if config.cleanup_unused {
         let t_sweep = std::time::Instant::now();
-        let swept = sweep_source_tree_orphans(file_base, &existing_paths, &prefix, config, &preserved_paths);
+        let swept = sweep_source_tree_orphans(file_base, &plan, &preserved_paths);
         if swept > 0 {
             tracing::info!("Swept {} un-relocated orphan(s) from the source characters/ tree", swept);
         }
@@ -531,7 +631,7 @@ pub fn repath_project(
     Ok(result)
 }
 
-fn repath_bin_file(bin_path: &Path, existing_paths: &HashSet<String>, prefix: &str, config: &RepathConfig) -> Result<usize> {
+fn repath_bin_file(bin_path: &Path, plan: &RepathPlan, config: &RepathConfig) -> Result<usize> {
     let data = fs::read(bin_path).map_err(|e| Error::io_with_path(e, bin_path))?;
 
     let mut bin = read_bin(&data)
@@ -550,7 +650,7 @@ fn repath_bin_file(bin_path: &Path, existing_paths: &HashSet<String>, prefix: &s
                 }
             }
 
-            modified_count += repath_value(value, existing_paths, prefix, config);
+            modified_count += repath_value(value, plan);
         }
     }
 
@@ -565,16 +665,14 @@ fn repath_bin_file(bin_path: &Path, existing_paths: &HashSet<String>, prefix: &s
     Ok(modified_count)
 }
 
-fn repath_value(value: &mut BinValue, existing_paths: &HashSet<String>, prefix: &str, config: &RepathConfig) -> usize {
+fn repath_value(value: &mut BinValue, plan: &RepathPlan) -> usize {
     let mut count = 0;
 
     match value {
         BinValue::String(s) => {
             if is_asset_path(s) {
-                let normalized = normalize_path(s);
-                if existing_paths.contains(&normalized) {
-                    let repathed = apply_prefix_to_path(s, prefix, config);
-                    *s = replace_base_folder_in_animation_path(&repathed, config.target_skin_id);
+                if let Some(dest) = plan.get(&normalize_path(s)) {
+                    *s = dest.clone();
                     count += 1;
                 }
             }
@@ -583,11 +681,8 @@ fn repath_value(value: &mut BinValue, existing_paths: &HashSet<String>, prefix: 
             let known = flint_hash::hash::get_cached_bin_hashes().read();
             if let Some(s) = known.get(*h) {
                 if is_asset_path(s) {
-                    let normalized = normalize_path(s);
-                    if existing_paths.contains(&normalized) {
-                        let repathed = apply_prefix_to_path(s, prefix, config);
-                        let final_path = replace_base_folder_in_animation_path(&repathed, config.target_skin_id);
-                        *h = xxhash_rust::xxh64::xxh64(final_path.to_lowercase().as_bytes(), 0);
+                    if let Some(dest) = plan.get(&normalize_path(s)) {
+                        *h = xxhash_rust::xxh64::xxh64(dest.to_lowercase().as_bytes(), 0);
                         count += 1;
                     }
                 }
@@ -595,21 +690,21 @@ fn repath_value(value: &mut BinValue, existing_paths: &HashSet<String>, prefix: 
         }
         BinValue::List { items, .. } => {
             for item in items.iter_mut() {
-                count += repath_value(item, existing_paths, prefix, config);
+                count += repath_value(item, plan);
             }
         }
         BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
             for v in fields.values_mut() {
-                count += repath_value(v, existing_paths, prefix, config);
+                count += repath_value(v, plan);
             }
         }
         BinValue::Option { value: Some(inner), .. } => {
-            count += repath_value(inner, existing_paths, prefix, config);
+            count += repath_value(inner, plan);
         }
         BinValue::Map { entries, .. } => {
             for (key, val) in entries.iter_mut() {
-                count += repath_value(key, existing_paths, prefix, config);
-                count += repath_value(val, existing_paths, prefix, config);
+                count += repath_value(key, plan);
+                count += repath_value(val, plan);
             }
         }
         _ => {}
@@ -618,48 +713,34 @@ fn repath_value(value: &mut BinValue, existing_paths: &HashSet<String>, prefix: 
     count
 }
 
-/// `skins/skinN/base/…` → flattened path with the animation BIN remapped to the target skin id.
-fn relocate_assets(content_base: &Path, existing_paths: &HashSet<String>, prefix: &str, config: &RepathConfig) -> Result<usize> {
-    /* Pass 1 (serial): plan the moves with first-writer-wins conflict
-       detection (cheap — one HashMap insert per path). Paths are sorted so
-       which source wins a conflicting destination is deterministic. */
-    let mut destinations: HashMap<String, String> = HashMap::new();
-    let mut moves: Vec<(PathBuf, PathBuf)> = Vec::with_capacity(existing_paths.len());
+/// Execute the plan: move every referenced file to the destination it was assigned.
+fn relocate_assets(content_base: &Path, plan: &RepathPlan, config: &RepathConfig) -> Result<usize> {
+    let mut moves: Vec<(PathBuf, PathBuf)> = Vec::with_capacity(plan.dest.len());
     let mut parent_dirs: HashSet<PathBuf> = HashSet::new();
     let mut conflict_sources: Vec<PathBuf> = Vec::new();
 
-    let mut sorted_paths: Vec<&String> = existing_paths.iter().collect();
-    sorted_paths.sort();
+    let mut planned: Vec<(&String, &String)> = plan.dest.iter().collect();
+    planned.sort();
 
-    for path in sorted_paths {
+    for (path, new_path) in planned {
         // Skip BIN files except concat.bin (which moves to match its repathed reference).
         if path.to_lowercase().ends_with(".bin") && !path.to_lowercase().contains("_concat") {
             continue;
         }
-
-        let new_path = apply_prefix_to_path(path, prefix, config);
-        let dest_normalized = normalize_path(&new_path);
-        if let Some(prev_source) = destinations.get(&dest_normalized) {
-            tracing::warn!(
-                "Conflict detected: '{}' and '{}' both map to '{}'",
-                prev_source, path, dest_normalized
-            );
-            // The BINs were already rewritten to the shared destination, so this
-            // source is dead weight — and the cleanup passes keep it (its raw path
-            // still counts as referenced). Remove it here instead of leaving it.
-            if config.cleanup_unused {
-                conflict_sources.push(content_base.join(path));
-            }
-            continue;
-        }
-        destinations.insert(dest_normalized, path.clone());
-
         let source = content_base.join(path);
-        let dest = content_base.join(&new_path);
+        let dest = content_base.join(new_path);
         if let Some(parent) = dest.parent() {
             parent_dirs.insert(parent.to_path_buf());
         }
         moves.push((source, dest));
+    }
+
+    // A source that lost its destination outright has no home: the BINs point at the
+    // winner, so it is dead weight the cleanup passes would otherwise keep.
+    if config.cleanup_unused {
+        for path in &plan.collided {
+            conflict_sources.push(content_base.join(path));
+        }
     }
 
     // Pass 2: pre-create all unique parent directories.
@@ -743,6 +824,59 @@ pub(crate) fn find_main_skin_bin(content_base: &Path, champion: &str, skin_id: u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn irelia_config() -> RepathConfig {
+        RepathConfig {
+            creator_name: "SirDexal".to_string(),
+            project_name: "teata".to_string(),
+            champion: "irelia".to_string(),
+            target_skin_id: 63,
+            cleanup_unused: true,
+            skip_bin_cleanup: false,
+            sub_characters: vec![],
+            repath_sfx: true,
+            repath_vo: false,
+        }
+    }
+
+    /// Riot stores an old skin's clips flat in its skin folder and a newer skin's under
+    /// `animations/`, and one animation BIN pulls from both. Every clip has to end up
+    /// under `animations/`, and two same-named clips from different skins have to stay
+    /// two files — Irelia's skin63 graph really does reference both.
+    #[test]
+    fn animations_land_under_animations_and_same_named_clips_both_survive() {
+        let config = irelia_config();
+        let prefix = config.prefix();
+        let flat = "assets/characters/irelia/skins/skin16/irelia_attack_01_close.anm".to_string();
+        let nested =
+            "assets/characters/irelia/skins/skin18/animations/irelia_attack_01_close.anm".to_string();
+        let solo = "assets/characters/irelia/skins/skin16/irelia_death.anm".to_string();
+        let texture = "assets/characters/irelia/skins/skin63/irelia_skin63_tx_cm.tex".to_string();
+        let sources: HashSet<String> =
+            [flat.clone(), nested.clone(), solo.clone(), texture.clone()].into();
+
+        let plan = plan_destinations(&sources, &prefix, &config);
+
+        assert!(plan.collided.is_empty(), "no animation may lose its home");
+        assert_eq!(
+            plan.get(&solo).unwrap(),
+            "ASSETS/SirDexal/teata/animations/irelia_death.anm"
+        );
+        // A texture keeps the flat layout it always had.
+        assert_eq!(
+            plan.get(&texture).unwrap(),
+            "ASSETS/SirDexal/teata/irelia_skin63_tx_cm.tex"
+        );
+
+        let a = plan.get(&flat).unwrap();
+        let b = plan.get(&nested).unwrap();
+        assert_ne!(a, b, "same-named clips must not collapse onto one file");
+        let dupe = [a.as_str(), b.as_str()]
+            .into_iter()
+            .find(|d| d.contains("/animations/dupe/"))
+            .expect("the loser goes to animations/dupe/");
+        assert!(dupe.ends_with("/animations/dupe/irelia_attack_01_close.anm"));
+    }
 
     #[test]
     fn test_is_asset_path() {
@@ -1727,7 +1861,7 @@ mod tests {
         let mut existing: HashSet<String> = HashSet::new();
         existing.insert("assets/cz/project-yone/body1.tex".to_string());
 
-        let swept = sweep_source_tree_orphans(base, &existing, &config.prefix(), &config, &HashSet::new());
+        let swept = sweep_source_tree_orphans(base, &plan_destinations(&existing, &config.prefix(), &config), &HashSet::new());
         assert_eq!(swept, 1, "the stranded twin must be swept");
         assert!(!twin.exists(), "stranded twin removed");
         assert!(moved.exists(), "relocated base-res untouched (not under characters/)");
@@ -1759,7 +1893,7 @@ mod tests {
         let mut existing: HashSet<String> = HashSet::new();
         existing.insert("assets/characters/yasuo/skins/base/particles/keep.tex".to_string());
 
-        assert_eq!(sweep_source_tree_orphans(base, &existing, &config.prefix(), &config, &HashSet::new()), 0);
+        assert_eq!(sweep_source_tree_orphans(base, &plan_destinations(&existing, &config.prefix(), &config), &HashSet::new()), 0);
         assert!(f.exists(), "referenced file must survive the sweep");
     }
 
@@ -1848,7 +1982,7 @@ mod tests {
         let mut referenced: HashSet<String> = HashSet::new();
         referenced.insert(raw_rel.to_string());
 
-        let removed = cleanup_unused_files(base, &referenced, "SirDexal/Renny", &config, &HashSet::new()).unwrap();
+        let removed = cleanup_unused_files(base, &plan_destinations(&referenced, "SirDexal/Renny", &config), &HashSet::new()).unwrap();
         assert_eq!(removed, 0, "raw-referenced file must not be deleted");
         assert!(raw_file.exists(), "raw-referenced file should still exist");
     }
@@ -1882,7 +2016,7 @@ mod tests {
         // Referenced set does NOT contain the orphan.
         let referenced: HashSet<String> = HashSet::new();
 
-        let removed = cleanup_unused_files(base, &referenced, "SirDexal/Renny", &config, &HashSet::new()).unwrap();
+        let removed = cleanup_unused_files(base, &plan_destinations(&referenced, "SirDexal/Renny", &config), &HashSet::new()).unwrap();
         assert!(removed >= 1, "in-tree orphan must be deleted");
         assert!(!orphan_file.exists(), "in-tree orphan should be gone");
     }
