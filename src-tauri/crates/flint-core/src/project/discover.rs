@@ -177,18 +177,24 @@ fn read_listing_lightweight(project_path: &Path) -> Option<ProjectListing> {
                 .map_err(std::io::Error::other)
         }) {
             Ok(meta) => {
+                // Schema 2 nests champion/skin/map under `source`; only `normalized`
+                // folds a schema-1 file's top-level fields in. Reading them raw here
+                // left every schema-2 project with no champion in the index, which
+                // the project list renders as a bare "Project".
+                let meta = meta.normalized();
+                let source = meta.source;
                 /* Normalise legacy `champion: "map-<id>"` / `"loading-screen"`
                    tags into the kind+map_id shape. */
                 let (kind, champion, skin_id, map_id) = if matches!(meta.kind, ProjectKind::Skin) {
-                    if let Some(rest) = meta.champion.strip_prefix("map-") {
+                    if let Some(rest) = source.champion.strip_prefix("map-") {
                         (ProjectKind::Map, String::new(), 0, Some(rest.to_string()))
-                    } else if meta.champion.eq_ignore_ascii_case("loading-screen") {
+                    } else if source.champion.eq_ignore_ascii_case("loading-screen") {
                         (ProjectKind::LoadingScreen, String::new(), 0, None)
                     } else {
-                        (meta.kind, meta.champion, meta.skin_id, meta.map_id)
+                        (meta.kind, source.champion, source.skin_id, source.map_id)
                     }
                 } else {
-                    (meta.kind, meta.champion, meta.skin_id, meta.map_id)
+                    (meta.kind, source.champion, source.skin_id, source.map_id)
                 };
                 (
                     if meta.pid.is_empty() { uuid::Uuid::new_v4().to_string() } else { meta.pid },
@@ -255,4 +261,57 @@ fn read_thumbnail_base64(project_path: &Path) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_project(dir: &Path, flint: &str) {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(dir.join(PROJECT_FILE), r#"{"name":"p","display_name":"P","version":"0.1.0","description":"","authors":[]}"#).unwrap();
+        std::fs::write(dir.join(FLINT_FILE), flint).unwrap();
+    }
+
+    #[test]
+    fn a_schema_2_project_still_reports_its_champion() {
+        let tmp = std::env::temp_dir().join(format!("flint-discover-{}", uuid::Uuid::new_v4()));
+        write_project(
+            &tmp,
+            r#"{"schema":2,"pid":"p2","kind":"skin","source":{"champion":"Irelia","skin_id":63},
+                "created_at":"2026-09-11T22:50:24Z","modified_at":"2026-09-11T22:50:30Z"}"#,
+        );
+        let listing = read_listing_lightweight(&tmp).expect("listing");
+        assert_eq!(listing.champion, "Irelia");
+        assert_eq!(listing.skin_id, 63);
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn a_schema_1_project_keeps_its_top_level_champion() {
+        let tmp = std::env::temp_dir().join(format!("flint-discover-{}", uuid::Uuid::new_v4()));
+        write_project(
+            &tmp,
+            r#"{"schema":1,"pid":"p1","kind":"skin","champion":"Jhin","skin_id":36,
+                "created_at":"2026-09-11T22:50:24Z","modified_at":"2026-09-11T22:50:30Z"}"#,
+        );
+        let listing = read_listing_lightweight(&tmp).expect("listing");
+        assert_eq!(listing.champion, "Jhin");
+        assert_eq!(listing.skin_id, 36);
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn a_legacy_map_tag_becomes_a_map_project() {
+        let tmp = std::env::temp_dir().join(format!("flint-discover-{}", uuid::Uuid::new_v4()));
+        write_project(
+            &tmp,
+            r#"{"schema":1,"pid":"p3","kind":"skin","champion":"map-map11",
+                "created_at":"2026-09-11T22:50:24Z","modified_at":"2026-09-11T22:50:30Z"}"#,
+        );
+        let listing = read_listing_lightweight(&tmp).expect("listing");
+        assert_eq!(listing.kind, ProjectKind::Map);
+        assert_eq!(listing.map_id.as_deref(), Some("map11"));
+        std::fs::remove_dir_all(&tmp).ok();
+    }
 }
