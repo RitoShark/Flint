@@ -26,6 +26,13 @@ export interface MapTexture {
     rgba: Uint8Array;
 }
 
+/** One texture out of the batch. `dds` is compressed blocks the GPU decompresses
+ *  itself; `rgba` is the fallback for formats with no legacy DDS FourCC. */
+export type MapTextureEntry =
+    | { kind: 'missing' }
+    | { kind: 'dds'; dds: ArrayBuffer; hasAlpha: boolean }
+    | { kind: 'rgba'; width: number; height: number; rgba: Uint8Array; hasAlpha: boolean };
+
 /**
  * Decode the binary payload from `load_map_preview`:
  * `[u32 meta_len][meta json utf-8][pad to 4][positions f32][uvs f32][indices u32]`.
@@ -82,6 +89,43 @@ export async function loadMapTexture(
     const height = view.getUint32(4, true);
     const rgba = new Uint8Array(buf.slice(8));
     return { width, height, rgba };
+}
+
+/** Every texture for a variant in ONE call. Entries come back in request order. */
+export async function loadMapTextures(
+    projectPath: string,
+    texturePaths: string[],
+    preferCompressed: boolean,
+): Promise<MapTextureEntry[]> {
+    const buf = await invokeCommand<ArrayBuffer>('load_map_textures', {
+        projectPath,
+        texturePaths,
+        preferCompressed,
+    });
+    const dv = new DataView(buf);
+    let off = 0;
+    const count = dv.getUint32(off, true); off += 4;
+    const out: MapTextureEntry[] = [];
+    for (let i = 0; i < count; i++) {
+        const kind = dv.getUint32(off, true); off += 4;
+        if (kind === 0) {
+            out.push({ kind: 'missing' });
+        } else if (kind === 1) {
+            const flags = dv.getUint32(off, true); off += 4;
+            const len = dv.getUint32(off, true); off += 4;
+            // Copy: Babylon's DDS loader holds on to the buffer it is given.
+            const dds = buf.slice(off, off + len); off += len;
+            out.push({ kind: 'dds', dds, hasAlpha: (flags & 1) !== 0 });
+        } else {
+            const width = dv.getUint32(off, true); off += 4;
+            const height = dv.getUint32(off, true); off += 4;
+            const flags = dv.getUint32(off, true); off += 4;
+            const len = dv.getUint32(off, true); off += 4;
+            const rgba = new Uint8Array(buf, off, len); off += len;
+            out.push({ kind: 'rgba', width, height, rgba, hasAlpha: (flags & 1) !== 0 });
+        }
+    }
+    return out;
 }
 
 export async function resolveMapTexturePath(

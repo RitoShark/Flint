@@ -237,11 +237,11 @@ export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapM
             });
 
             for (let i = 0; i < vCount * 3; i++) gPos[vWrite * 3 + i] = positions[vStart * 3 + i];
-            // UVs with V flipped (matches RawTexture invertY=true downstream).
-            for (let i = 0; i < vCount * 2; i++) {
-                gUv[vWrite * 2 + i] =
-                    i % 2 === 1 ? 1.0 - uvs[vStart * 2 + i] : uvs[vStart * 2 + i];
-            }
+            // UVs pass through as authored. LANDMINE: this pairs with invertY=FALSE
+            // on every map texture. Compressed blocks cannot be flipped on upload,
+            // so the GPU-native path forces the D3D convention on both halves at
+            // once - flipping one without the other puts every map upside down.
+            gUv.set(uvs.subarray(vStart * 2, (vStart + vCount) * 2), vWrite * 2);
             // Re-base indices: global -> submesh-local range, then offset by vWrite.
             for (let i = 0; i < iCount; i++) {
                 gIdx[iWrite + i] = indices[iStart + i] - vStart + vWrite;

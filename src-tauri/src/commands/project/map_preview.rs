@@ -419,6 +419,214 @@ pub async fn load_map_preview(project_path: String) -> Result<tauri::ipc::Respon
     Ok(tauri::ipc::Response::new(out))
 }
 
+// ============================================================================
+// Texture batch - compressed blocks straight to the GPU
+// ============================================================================
+
+const FLAG_HAS_ALPHA: u32 = 1;
+
+/// LANDMINE: a TEX stores its mip chain SMALLEST FIRST, so the full-resolution mip is
+/// the LAST `mip_size(w, h)` bytes of the payload. That one fact is what lets this skip
+/// `Texture::from_bytes` entirely, and with it `derive_mip_count`, which disagrees with
+/// the file on 81 of the 3499 mipmapped block-compressed textures in the owner's
+/// projects and fails those outright. Slicing from the end works on all 5983 measured:
+/// every mipmapped payload holds at least one top mip, every flat one is exactly one.
+fn tex_mip_layout(
+    format: ritoshark::tex::TexFormat,
+    w: u32,
+    h: u32,
+    payload: usize,
+) -> Vec<(usize, usize)> {
+    let top = format.mip_size(w, h);
+    if payload < top {
+        return Vec::new();
+    }
+    let mut sizes = Vec::new();
+    let mut total = 0usize;
+    for level in 0..16u32 {
+        let size = format.mip_size((w >> level).max(1), (h >> level).max(1));
+        total += size;
+        sizes.push(size);
+        if total == payload {
+            let mut offset = payload;
+            return sizes
+                .iter()
+                .map(|size| {
+                    offset -= size;
+                    (offset, *size)
+                })
+                .collect();
+        }
+        if total > payload {
+            break;
+        }
+    }
+    vec![(payload - top, top)]
+}
+
+/// The legacy DDS FourCC for a block format, or None for anything needing the DX10
+/// extension. Only these go to the GPU as blocks; everything else is decoded.
+fn legacy_fourcc(format: ritoshark::tex::TexFormat) -> Option<[u8; 4]> {
+    use ritoshark::tex::TexFormat as F;
+    match format {
+        F::Bc1 | F::Bc1Alt => Some(*b"DXT1"),
+        F::Bc3 => Some(*b"DXT5"),
+        _ => None,
+    }
+}
+
+/// Repackage a TEX's already-compressed blocks as a DDS, copying the payload verbatim.
+/// No decode and no re-encode: the GPU decompresses, and the wire payload stays the
+/// compressed size instead of `w * h * 4`.
+fn tex_as_dds(data: &[u8]) -> Option<(Vec<u8>, bool)> {
+    use ritoshark::tex::TexFormat;
+    if data.len() < 12 || data[..4] != [b'T', b'E', b'X', 0] {
+        return None;
+    }
+    let width = u16::from_le_bytes([data[4], data[5]]) as u32;
+    let height = u16::from_le_bytes([data[6], data[7]]) as u32;
+    let format = TexFormat::from_u8(data[9])?;
+    let fourcc = legacy_fourcc(format)?;
+    let payload = &data[12..];
+    let mips = tex_mip_layout(format, width, height, payload.len());
+    let (_, top_size) = *mips.first()?;
+
+    let mut out = Vec::with_capacity(128 + payload.len());
+    out.extend_from_slice(b"DDS ");
+    let mut header = [0u32; 31];
+    header[0] = 124;
+    header[1] = 0x1 | 0x2 | 0x4 | 0x1000 | 0x8_0000 | if mips.len() > 1 { 0x2_0000 } else { 0 };
+    header[2] = height;
+    header[3] = width;
+    header[4] = top_size as u32;
+    header[6] = mips.len() as u32;
+    header[18] = 32;
+    header[19] = 0x4;
+    header[20] = u32::from_le_bytes(fourcc);
+    header[26] = 0x1000 | if mips.len() > 1 { 0x40_0000 | 0x8 } else { 0 };
+    for word in header {
+        out.extend_from_slice(&word.to_le_bytes());
+    }
+    for (offset, size) in &mips {
+        out.extend_from_slice(&payload[*offset..*offset + *size]);
+    }
+    Some((out, matches!(format, TexFormat::Bc3)))
+}
+
+enum MapTexturePayload {
+    Missing,
+    Dds { bytes: Vec<u8>, has_alpha: bool },
+    Rgba { width: u32, height: u32, bytes: Vec<u8> },
+}
+
+fn encode_map_texture(path: &Path, prefer_compressed: bool) -> MapTexturePayload {
+    let Ok(data) = std::fs::read(path) else {
+        return MapTexturePayload::Missing;
+    };
+    if prefer_compressed {
+        if data.starts_with(b"DDS ") {
+            return MapTexturePayload::Dds { bytes: data, has_alpha: true };
+        }
+        if let Some((bytes, has_alpha)) = tex_as_dds(&data) {
+            return MapTexturePayload::Dds { bytes, has_alpha };
+        }
+    }
+    match crate::commands::texture_convert::decode_full_rgba(&data) {
+        Ok(rgba) => {
+            let (width, height) = rgba.dimensions();
+            MapTexturePayload::Rgba { width, height, bytes: rgba.into_raw() }
+        }
+        Err(_) => MapTexturePayload::Missing,
+    }
+}
+
+/// Load every texture a map variant needs in ONE call.
+///
+/// Payload: `[u32 count]` then per entry, in request order:
+///   kind 0 -> `[u32 0]`
+///   kind 1 -> `[u32 1][u32 flags][u32 len][dds bytes]`
+///   kind 2 -> `[u32 2][u32 w][u32 h][u32 flags][u32 len][rgba bytes]`
+#[tauri::command]
+pub async fn load_map_textures(
+    project_path: String,
+    texture_paths: Vec<String>,
+    prefer_compressed: bool,
+) -> Result<tauri::ipc::Response, String> {
+    let project = PathBuf::from(&project_path);
+    // ONCE for the whole batch. This used to run per texture, re-reading flint.json
+    // and re-scanning every content layer for each one.
+    let source = discover_map_source(&project)?;
+    let bin_dir = source
+        .materials
+        .parent()
+        .ok_or("materials bin has no parent dir")?
+        .to_string_lossy()
+        .to_string();
+
+    let mut resolved: Vec<Option<PathBuf>> = Vec::with_capacity(texture_paths.len());
+    for texture_path in &texture_paths {
+        resolved.push(
+            crate::commands::mesh::resolve_asset_path(texture_path.clone(), bin_dir.clone())
+                .await
+                .ok()
+                .map(PathBuf::from),
+        );
+    }
+
+    let started = std::time::Instant::now();
+    let count = texture_paths.len();
+    let out = tokio::task::spawn_blocking(move || {
+        use rayon::prelude::*;
+        let entries: Vec<Vec<u8>> = resolved
+            .par_iter()
+            .map(|path| {
+                let mut entry = Vec::new();
+                let payload = match path {
+                    Some(path) => encode_map_texture(path, prefer_compressed),
+                    None => MapTexturePayload::Missing,
+                };
+                match payload {
+                    MapTexturePayload::Missing => entry.extend_from_slice(&0u32.to_le_bytes()),
+                    MapTexturePayload::Dds { bytes, has_alpha } => {
+                        entry.extend_from_slice(&1u32.to_le_bytes());
+                        entry.extend_from_slice(
+                            &(if has_alpha { FLAG_HAS_ALPHA } else { 0 }).to_le_bytes(),
+                        );
+                        entry.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+                        entry.extend_from_slice(&bytes);
+                    }
+                    MapTexturePayload::Rgba { width, height, bytes } => {
+                        entry.extend_from_slice(&2u32.to_le_bytes());
+                        entry.extend_from_slice(&width.to_le_bytes());
+                        entry.extend_from_slice(&height.to_le_bytes());
+                        entry.extend_from_slice(&FLAG_HAS_ALPHA.to_le_bytes());
+                        entry.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+                        entry.extend_from_slice(&bytes);
+                    }
+                }
+                entry
+            })
+            .collect();
+
+        let mut out = Vec::with_capacity(4 + entries.iter().map(|e| e.len()).sum::<usize>());
+        out.extend_from_slice(&(entries.len() as u32).to_le_bytes());
+        for entry in entries {
+            out.extend_from_slice(&entry);
+        }
+        out
+    })
+    .await
+    .map_err(|e| format!("texture batch panicked: {e}"))?;
+
+    tracing::debug!(
+        "[TIMING] map textures: {} in {:?}, {:.1} MB on the wire",
+        count,
+        started.elapsed(),
+        out.len() as f64 / 1_048_576.0
+    );
+    Ok(tauri::ipc::Response::new(out))
+}
+
 /// Decode one texture (referenced by a bin texturePath) to raw RGBA.
 /// Payload: `[u32 width][u32 height][rgba bytes]`.
 #[tauri::command]

@@ -321,6 +321,7 @@ fn main() {
             // Map preview commands (separate-window 3D map preview)
             commands::map_preview::load_map_preview,
             commands::map_preview::load_map_texture,
+            commands::map_preview::load_map_textures,
             commands::map_preview::open_map_preview_window,
             commands::map_preview::resolve_map_texture_path,
             commands::thumbnail_window::open_thumbnail_window,

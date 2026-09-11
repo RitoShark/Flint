@@ -9,6 +9,7 @@ import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
 import { Material } from '@babylonjs/core/Materials/material';
 import { RawTexture } from '@babylonjs/core/Materials/Textures/rawTexture';
+import type { BaseTexture } from '@babylonjs/core/Materials/Textures/baseTexture';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import { Vector3, Color3, Color4 } from '@babylonjs/core/Maths/math';
 import { PointerEventTypes } from '@babylonjs/core/Events/pointerEvents';
@@ -46,6 +47,47 @@ function addressMode(riot: number): number {
         case 3: return Texture.CLAMP_ADDRESSMODE;
         default: return Texture.WRAP_ADDRESSMODE;
     }
+}
+
+/** Build a Babylon texture from one batch entry.
+ *
+ *  LANDMINE: `invertY` is FALSE on both arms, and `mapMeshBuilder` correspondingly
+ *  passes UVs through unflipped. Compressed blocks cannot be flipped during upload,
+ *  so the GPU-native path pins the D3D convention for the whole map pipeline. The
+ *  two halves move together or every surface renders upside down. */
+function createMapTexture(
+    scene: Scene,
+    entry: api.MapTextureEntry,
+    addressU: number,
+    addressV: number,
+    name: string,
+): BaseTexture | null {
+    if (entry.kind === 'missing') return null;
+    let tex: BaseTexture;
+    if (entry.kind === 'dds') {
+        // The blocks go to the GPU as they sit on disk. Mip levels the file already
+        // carries come with them; `noMipmap` only says not to try generating more,
+        // which is impossible for a compressed upload anyway.
+        tex = new Texture(name, scene, {
+            noMipmap: false,
+            invertY: false,
+            samplingMode: Texture.TRILINEAR_SAMPLINGMODE,
+            buffer: entry.dds,
+            forcedExtension: '.dds',
+        });
+    } else {
+        tex = RawTexture.CreateRGBATexture(
+            entry.rgba, entry.width, entry.height, scene,
+            /* generateMipMaps */ true,
+            /* invertY */ false,
+            Texture.TRILINEAR_SAMPLINGMODE,
+        );
+        tex.name = name;
+    }
+    tex.wrapU = addressMode(addressU);
+    tex.wrapV = addressMode(addressV);
+    tex.hasAlpha = true;
+    return tex;
 }
 
 /** A texture's cache identity. The modes belong in it: the same file is used
@@ -136,7 +178,10 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     const cameraRef = useRef<ArcRotateCamera | null>(null);
     const meshesRef = useRef<Mesh[]>([]);
     const builtRef = useRef<BuiltMapMesh[]>([]);
-    const texCacheRef = useRef<Map<string, RawTexture>>(new Map());
+    const texCacheRef = useRef<Map<string, BaseTexture>>(new Map());
+    // Compressed upload needs the S3TC extension. Without it every entry comes
+    // back as RGBA instead, which is slower but renders identically.
+    const preferCompressedRef = useRef(true);
     const paintBufRef = useRef<Map<string, { texs: RawTexture[]; rgba: Uint8Array; orig: Uint8Array; w: number; h: number }>>(new Map());
     const dataRef = useRef<api.MapPreviewData | null>(null);
     const meshByBabylonRef = useRef<Map<Mesh, BuiltMapMesh>>(new Map());
@@ -216,50 +261,29 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     const [meshSearch, setMeshSearch] = useState('');
 
     // ── Apply (or reuse cached) texture to a material ────────────────────────
-    const loadAndApply = useCallback(async (
-        texPath: string,
-        addressU: number,
-        addressV: number,
-        mats: PBRMaterial[],
+    /** Bind already-fetched entries to their materials, creating one texture per
+     *  (path, address-mode) pair. The BYTES are shared: a file used under two modes
+     *  is fetched once and uploaded twice. */
+    const applyEntries = useCallback((
+        slots: { path: string; u: number; v: number; mats: PBRMaterial[] }[],
+        entries: Map<string, api.MapTextureEntry>,
     ) => {
-        const scene = sceneRef.current;
-        if (!scene) return;
-        try {
-            const cacheKey = textureKey(texPath, addressU, addressV);
+        const sc = sceneRef.current;
+        const eng = engineRef.current;
+        if (!sc || sc.isDisposed || !eng || eng.isDisposed) return;
+        for (const { path, u, v, mats } of slots) {
+            const cacheKey = textureKey(path, u, v);
             let tex = texCacheRef.current.get(cacheKey);
             if (!tex) {
-                const { width, height, rgba } = await api.loadMapTexture(projectPath, texPath);
-                const sc = sceneRef.current;
-                const eng = engineRef.current;
-                if (!sc || sc.isDisposed || !eng || eng.isDisposed) return;
-                // Mipmaps ON: map textures tile, and an unmipped tiling surface
-                // aliases badly into the distance. NOTE the polarity trap — this
-                // argument is `generateMipMaps`, while `new Texture(...)`'s third
-                // argument next to it in the SKN path is `noMipmap`.
-                tex = RawTexture.CreateRGBATexture(
-                    rgba, width, height, sc,
-                    /* generateMipMaps */ true,
-                    /* invertY */ true,
-                    Texture.TRILINEAR_SAMPLINGMODE,
-                );
-                tex.wrapU = addressMode(addressU);
-                tex.wrapV = addressMode(addressV);
-                tex.hasAlpha = true;
-                texCacheRef.current.set(cacheKey, tex);
-                // Painting edits the FILE, so its buffer stays keyed by path and
-                // tracks every texture built from it.
-                const buf = paintBufRef.current.get(texPath);
-                if (buf) {
-                    buf.texs.push(tex);
-                } else {
-                    paintBufRef.current.set(texPath, {
-                        texs: [tex],
-                        rgba: new Uint8Array(rgba),
-                        orig: new Uint8Array(rgba),
-                        w: width,
-                        h: height,
-                    });
+                const entry = entries.get(path);
+                if (!entry) continue;
+                const made = createMapTexture(sc, entry, u, v, cacheKey);
+                if (!made) {
+                    for (const mat of mats) mat.albedoColor = new Color3(1, 0, 1);
+                    continue;
                 }
+                tex = made;
+                texCacheRef.current.set(cacheKey, tex);
             }
             for (const mat of mats) {
                 mat.albedoTexture = tex;
@@ -269,11 +293,24 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 mat.alphaCutOff = 0.5;
                 mat.backFaceCulling = false;
             }
+        }
+    }, []);
+
+    const loadAndApply = useCallback(async (
+        texPath: string,
+        addressU: number,
+        addressV: number,
+        mats: PBRMaterial[],
+    ) => {
+        try {
+            const [entry] = await api.loadMapTextures(projectPath, [texPath], preferCompressedRef.current);
+            if (!entry) return;
+            applyEntries([{ path: texPath, u: addressU, v: addressV, mats }], new Map([[texPath, entry]]));
         } catch (e) {
             console.error('[map-tex] failed', texPath, e);
             for (const mat of mats) mat.albedoColor = new Color3(1, 0, 1);
         }
-    }, [projectPath]);
+    }, [projectPath, applyEntries]);
 
     const applyTexture = useCallback(async (
         mat: PBRMaterial,
@@ -387,35 +424,30 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             }
 
             const uniqueTextures = [...byTexture.values()];
+            const uniquePaths = [...new Set(uniqueTextures.map(t => t.path))];
             setStatus(
-                `${data.variant} · ${builtMeshes.length} meshes · loading 0/${uniqueTextures.length} textures`,
+                `${data.variant} · ${builtMeshes.length} meshes · loading ${uniquePaths.length} textures`,
             );
             setLoading(false);
 
-            const CONCURRENCY = 4;
-            let next = 0;
-            let done = 0;
-            const worker = async () => {
-                while (true) {
-                    const i = next++;
-                    if (i >= uniqueTextures.length) break;
-                    if (gen !== buildGenRef.current || !sceneRef.current) break;
-                    const { path, u, v, mats } = uniqueTextures[i];
-                    await loadAndApply(path, u, v, mats);
-                    done++;
-                    if (done % 8 === 0 || done === uniqueTextures.length) {
-                        setStatus(
-                            `${data.variant} · ${builtMeshes.length} meshes · loading ${done}/${uniqueTextures.length} textures`,
-                        );
-                    }
+            // ONE round trip for the whole variant. This used to be one IPC call per
+            // texture at concurrency 4, each decoding to RGBA: 192 calls and 585 MB
+            // on the wire for Bilgewater, against 105 MB of compressed blocks.
+            void (async () => {
+                try {
+                    const entries = await api.loadMapTextures(
+                        projectPath, uniquePaths, preferCompressedRef.current,
+                    );
+                    if (gen !== buildGenRef.current || !sceneRef.current) return;
+                    const byPath = new Map<string, api.MapTextureEntry>();
+                    uniquePaths.forEach((path, i) => byPath.set(path, entries[i]));
+                    applyEntries(uniqueTextures, byPath);
+                    setStatus(`${data.variant} · ${builtMeshes.length} meshes · ${uniquePaths.length} textures`);
+                } catch (e) {
+                    console.error('[map-tex] batch failed', e);
+                    setStatus(`${data.variant} · ${builtMeshes.length} meshes · textures failed`);
                 }
-            };
-            await Promise.all(
-                Array.from({ length: Math.min(CONCURRENCY, uniqueTextures.length) }, worker),
-            );
-            if (sceneRef.current) {
-                setStatus(`${data.variant} · ${builtMeshes.length} meshes · ${uniqueTextures.length} textures`);
-            }
+            })();
         } catch (e) {
             setError((e as Error).message || 'Failed to load map');
             setLoading(false);
@@ -465,6 +497,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         if (!canvas) return;
         const engine = createEngine(canvas);
         engineRef.current = engine;
+        preferCompressedRef.current = !!engine.getCaps().s3tc;
         const scene = new Scene(engine);
         sceneRef.current = scene;
         scene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0);
@@ -740,6 +773,74 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         if (paintMode) cam.detachControl();
         else cam.attachControl(canvas, true);
     }, [paintMode]);
+
+    // Painting needs CPU pixels, and a compressed texture has none. The buffers are
+    // built only when paint mode is actually entered: the display path uploads ~105 MB
+    // of blocks, while the RGBA these need is ~585 MB for one Bilgewater variant.
+    useEffect(() => {
+        if (!paintMode) return;
+        let cancelled = false;
+        void (async () => {
+            const wanted = new Map<string, { path: string; u: number; v: number; mats: PBRMaterial[] }>();
+            for (const bm of builtRef.current) {
+                if (!bm.texturePath || bm.mesh.isDisposed() || !bm.mesh.isEnabled()) continue;
+                if (paintBufRef.current.has(bm.texturePath)) continue;
+                const key = textureKey(bm.texturePath, bm.addressU, bm.addressV);
+                const mat = bm.mesh.material as PBRMaterial | null;
+                if (!mat) continue;
+                const slot = wanted.get(key);
+                if (slot) slot.mats.push(mat);
+                else wanted.set(key, { path: bm.texturePath, u: bm.addressU, v: bm.addressV, mats: [mat] });
+            }
+            const slots = [...wanted.values()];
+            const paths = [...new Set(slots.map(sl => sl.path))];
+            if (!paths.length) return;
+            setStatus(`Preparing ${paths.length} textures for painting…`);
+            try {
+                // preferCompressed false: the stroke writes into these pixels.
+                const entries = await api.loadMapTextures(projectPath, paths, false);
+                if (cancelled || !sceneRef.current) return;
+                const byPath = new Map<string, api.MapTextureEntry>();
+                paths.forEach((path, i) => byPath.set(path, entries[i]));
+                const sc = sceneRef.current;
+                for (const { path, u, v, mats } of slots) {
+                    const entry = byPath.get(path);
+                    if (!entry || entry.kind !== 'rgba') continue;
+                    const key = textureKey(path, u, v);
+                    texCacheRef.current.get(key)?.dispose();
+                    const tex = RawTexture.CreateRGBATexture(
+                        entry.rgba, entry.width, entry.height, sc,
+                        /* generateMipMaps */ true,
+                        /* invertY */ false,
+                        Texture.TRILINEAR_SAMPLINGMODE,
+                    );
+                    tex.wrapU = addressMode(u);
+                    tex.wrapV = addressMode(v);
+                    tex.hasAlpha = true;
+                    tex.name = key;
+                    texCacheRef.current.set(key, tex);
+                    for (const mat of mats) mat.albedoTexture = tex;
+                    const buf = paintBufRef.current.get(path);
+                    if (buf) {
+                        buf.texs.push(tex);
+                    } else {
+                        paintBufRef.current.set(path, {
+                            texs: [tex],
+                            rgba: new Uint8Array(entry.rgba),
+                            orig: new Uint8Array(entry.rgba),
+                            w: entry.width,
+                            h: entry.height,
+                        });
+                    }
+                }
+                setStatus(`Ready to paint · ${paths.length} textures`);
+            } catch (e) {
+                console.error('[paint] could not prepare textures', e);
+                setStatus('Could not prepare textures for painting');
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [paintMode, projectPath]);
 
     useEffect(() => {
         if (!paintMode) { setCursorPos(null); return; }
