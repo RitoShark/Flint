@@ -7,6 +7,7 @@ import type { MapMaterial } from '../api/mapPreview';
 export interface MapGeometryInput {
     positions: Float32Array; // global pool, len = vertexCount*3
     uvs: Float32Array;       // global pool, len = vertexCount*2
+    uvs2: Float32Array;      // lightmap UVs, len = vertexCount*2
     indices: Uint32Array;    // global indices
     submeshes: SubmeshRange[];
     /** submesh name -> its diffuse texture and sampler addressing */
@@ -30,6 +31,10 @@ export interface BuiltMapMesh {
     mesh: Mesh;
     /** Texture path this mesh needs, or null if the submesh had no material. */
     texturePath: string | null;
+    /** The baked-light atlas this mesh samples, or null. Part of the mesh's identity:
+     *  the lightmap is per MODEL while the texture is per submesh, so two submeshes
+     *  sharing a texture under different atlases cannot be merged. */
+    lightmap: string | null;
     /** Riot's authored address modes for that texture (0 WRAP, 1 CLAMP, 2 MIRROR,
      *  3 BORDER). One texture is used under two different modes in 182 places
      *  across League's maps, so these are part of a mesh's texture identity. */
@@ -186,19 +191,21 @@ function groupKey(materials: Record<string, MapMaterial>, sm: SubmeshRange): str
     const m = materials[sm.name];
     const tex = m ? `${m.path}|${m.address_u}|${m.address_v}` : `__notex__${sm.name}`;
     const layer = effectiveLayer(sm.layer ?? 0xff, sm.name);
-    return `${layer}::${tex}`;
+    return `${layer}::${tex}::${sm.lightmap ?? ''}`;
 }
 
 export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapMesh[] {
-    const { positions, uvs, indices, submeshes, materials } = input;
+    const { positions, uvs, uvs2, indices, submeshes, materials } = input;
 
     const groups = new Map<string, SubmeshRange[]>();
     // The key embeds the address modes, so recover the material from the side map
     // rather than parsing them back out of the string.
     const groupMaterial = new Map<string, MapMaterial | null>();
+    const groupLightmap = new Map<string, string | null>();
     for (const sm of submeshes) {
         const key = groupKey(materials, sm);
         groupMaterial.set(key, materials[sm.name] ?? null);
+        groupLightmap.set(key, sm.lightmap || null);
         const list = groups.get(key);
         if (list) list.push(sm);
         else groups.set(key, [sm]);
@@ -216,6 +223,7 @@ export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapM
 
         const gPos = new Float32Array(totalVerts * 3);
         const gUv = new Float32Array(totalVerts * 2);
+        const gUv2 = new Float32Array(totalVerts * 2);
         const gIdx = new Uint32Array(totalIdx);
 
         let vWrite = 0; // vertex write cursor (in vertices)
@@ -242,6 +250,9 @@ export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapM
             // so the GPU-native path forces the D3D convention on both halves at
             // once - flipping one without the other puts every map upside down.
             gUv.set(uvs.subarray(vStart * 2, (vStart + vCount) * 2), vWrite * 2);
+            if (uvs2.length) {
+                gUv2.set(uvs2.subarray(vStart * 2, (vStart + vCount) * 2), vWrite * 2);
+            }
             // Re-base indices: global -> submesh-local range, then offset by vWrite.
             for (let i = 0; i < iCount; i++) {
                 gIdx[iWrite + i] = indices[iStart + i] - vStart + vWrite;
@@ -259,6 +270,7 @@ export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapM
         vd.indices = gIdx;
         vd.normals = normals;
         vd.uvs = gUv;
+        vd.uvs2 = gUv2;
 
         const sep = key.indexOf('::');
         const layer = parseInt(key.slice(0, sep), 10);
@@ -276,6 +288,7 @@ export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapM
         out.push({
             mesh,
             texturePath,
+            lightmap: groupLightmap.get(key) ?? null,
             addressU: material?.address_u ?? 0,
             addressV: material?.address_v ?? 0,
             layer,

@@ -14,9 +14,13 @@ export interface MapPreviewData {
     submeshes: SubmeshRange[];
     /** submesh name -> its diffuse texture and sampler addressing */
     materials: Record<string, MapMaterial>;
+    /** `MapSunProperties.lightMapColorScale` - the engine's multiplier on baked light. */
+    lightmap_scale: number;
     bounding_box: [[number, number, number], [number, number, number]];
     positions: Float32Array;
     uvs: Float32Array;
+    /** Lightmap UVs, scale/bias already applied by the backend. */
+    uvs2: Float32Array;
     indices: Uint32Array;
 }
 
@@ -53,15 +57,19 @@ function decodeMapPayload(buf: ArrayBuffer): MapPreviewData {
     off += vertexCount * 3 * 4;
     const uvs = new Float32Array(buf.slice(off, off + vertexCount * 2 * 4));
     off += vertexCount * 2 * 4;
+    const uvs2 = new Float32Array(buf.slice(off, off + vertexCount * 2 * 4));
+    off += vertexCount * 2 * 4;
     const indices = new Uint32Array(buf.slice(off, off + indexCount * 4));
 
     return {
         variant: meta.variant,
         submeshes: meta.submeshes,
         materials: meta.materials,
+        lightmap_scale: meta.lightmap_scale ?? 1,
         bounding_box: meta.bounding_box,
         positions,
         uvs,
+        uvs2,
         indices,
     };
 }

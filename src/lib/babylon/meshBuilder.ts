@@ -11,6 +11,8 @@ export interface SubmeshRange {
     index_count: number;
     /** Map only: MapModel.layer bitmask encoding the elemental variant. */
     layer?: number;
+    /** Map only: the baked-light atlas this submesh's model samples ('' for none). */
+    lightmap?: string;
 }
 
 export interface MeshDTO {

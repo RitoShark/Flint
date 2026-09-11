@@ -239,6 +239,10 @@ pub struct SubmeshRange {
     pub vertex_count: u32,
     pub start_index: u32,
     pub index_count: u32,
+    /// The baked-light atlas this submesh's MODEL samples, lowercased, or empty.
+    /// Every League map surface is lit by one of these; without it a mesh renders
+    /// as flat albedo, which is what "textured in jade, flat colour here" means.
+    pub lightmap: String,
     /// MapModel.layer bitmask — the AUTHORITATIVE elemental-variant encoding.
     /// Each bit = one rift variant (0x01 base, 0x02 infernal, 0x04 mountain,
     /// 0x08 ocean, 0x10 cloud, 0x20 hextech, 0x40 chemtech). 0xff = shared
@@ -254,6 +258,9 @@ pub struct SubmeshRange {
 pub struct DecodedGeometry {
     pub positions: Vec<f32>, // len = vertex_count * 3
     pub uvs: Vec<f32>,       // len = vertex_count * 2
+    /// Lightmap UVs, with each model's own `baked_light` scale and bias already
+    /// applied, so the frontend uploads them as UV2 and needs no per-mesh uniform.
+    pub uvs2: Vec<f32>, // len = vertex_count * 2
     pub indices: Vec<u32>,
     pub submeshes: Vec<SubmeshRange>,
     pub bbox_min: [f32; 3],
@@ -272,6 +279,47 @@ fn read_f32x2(buf: &[u8], at: usize) -> [f32; 2] {
         f32::from_le_bytes(buf[at..at + 4].try_into().unwrap()),
         f32::from_le_bytes(buf[at + 4..at + 8].try_into().unwrap()),
     ]
+}
+
+/// `MapSunProperties.lightMapColorScale` — how much the engine multiplies the baked
+/// light by before it reaches the surface. Riot ships 2.0 on Map12; without it every
+/// lit surface renders at half brightness. Defaults to 1.0 when the bin has no value.
+fn read_lightmap_scale(bin: &Bin) -> f32 {
+    fn find(value: &BinValue, field: u32) -> Option<f32> {
+        match value {
+            BinValue::Embed { fields, .. } | BinValue::Pointer { fields, .. } => {
+                for (name, inner) in fields {
+                    if *name == field {
+                        if let BinValue::F32(v) = inner {
+                            return Some(*v);
+                        }
+                    }
+                    if let Some(found) = find(inner, field) {
+                        return Some(found);
+                    }
+                }
+                None
+            }
+            BinValue::List { items, .. } => items.iter().find_map(|i| find(i, field)),
+            BinValue::Option { value: Some(inner), .. } => find(inner, field),
+            BinValue::Map { entries, .. } => entries.iter().find_map(|(_, v)| find(v, field)),
+            _ => None,
+        }
+    }
+    let field = h("lightMapColorScale");
+    for entry in &bin.entries {
+        for (name, value) in &entry.fields {
+            if *name == field {
+                if let BinValue::F32(v) = value {
+                    return *v;
+                }
+            }
+            if let Some(found) = find(value, field) {
+                return found;
+            }
+        }
+    }
+    1.0
 }
 
 /// Decode all models of a parsed mapgeo into a single geometry pool.
@@ -293,6 +341,7 @@ pub fn decode_geometry(geo: &MapGeometry) -> Result<DecodedGeometry, String> {
         .sum();
     out.positions.reserve(total_verts * 3);
     out.uvs.reserve(total_verts * 2);
+    out.uvs2.reserve(total_verts * 2);
     out.indices.reserve(total_indices);
     out.submeshes
         .reserve(geo.models.iter().map(|m| m.submeshes.len()).sum());
@@ -307,6 +356,8 @@ pub fn decode_geometry(geo: &MapGeometry) -> Result<DecodedGeometry, String> {
         // Byte offset of Position and Texcoord0 within a vertex.
         let mut pos_off: Option<usize> = None;
         let mut uv_off: Option<usize> = None;
+        // Texcoord7 is the lightmap UV set (same channel jade reads).
+        let mut lm_off: Option<usize> = None;
         let mut running = 0usize;
         for el in &desc.elements {
             match el.name {
@@ -315,6 +366,9 @@ pub fn decode_geometry(geo: &MapGeometry) -> Result<DecodedGeometry, String> {
                 }
                 ElementName::Texcoord0 if el.format == ElementFormat::XyFloat32 => {
                     uv_off = Some(running)
+                }
+                ElementName::Texcoord7 if el.format == ElementFormat::XyFloat32 => {
+                    lm_off = Some(running)
                 }
                 _ => {}
             }
@@ -351,15 +405,30 @@ pub fn decode_geometry(geo: &MapGeometry) -> Result<DecodedGeometry, String> {
                 None => [0.0, 0.0],
             };
             out.uvs.extend_from_slice(&uv);
+            // lmUV = texcoord7 * scale + offset, exactly the transform the model
+            // declares. Baking it here keeps the frontend free of per-mesh uniforms.
+            let lm = match lm_off {
+                Some(o) => {
+                    let raw = read_f32x2(&vbuf.data, vbase + o);
+                    [
+                        raw[0] * model.baked_light.scale.x + model.baked_light.offset.x,
+                        raw[1] * model.baked_light.scale.y + model.baked_light.offset.y,
+                    ]
+                }
+                None => [0.0, 0.0],
+            };
+            out.uvs2.extend_from_slice(&lm);
         }
 
         for &idx in &ibuf.indices {
             out.indices.push(base_vertex + idx as u32);
         }
 
+        let lightmap = model.baked_light.path.to_ascii_lowercase();
         for sm in &model.submeshes {
             out.submeshes.push(SubmeshRange {
                 name: sm.name.clone(),
+                lightmap: lightmap.clone(),
                 start_vertex: base_vertex + sm.min_vertex,
                 vertex_count: sm.max_vertex.saturating_sub(sm.min_vertex) + 1,
                 start_index: base_index + sm.index_start,
@@ -388,6 +457,8 @@ struct MapPreviewMeta {
     submeshes: Vec<SubmeshRange>,
     /// submesh-name -> diffuse texture path (bin path; absent for some submeshes)
     materials: MaterialTable,
+    /// `MapSunProperties.lightMapColorScale`, applied to every baked-light sample.
+    lightmap_scale: f32,
     bounding_box: [[f32; 3]; 2],
 }
 
@@ -406,6 +477,9 @@ pub async fn load_map_preview(project_path: String) -> Result<tauri::ipc::Respon
     let parsed_at = std::time::Instant::now();
     let decoded = decode_geometry(&geo)?;
     let decoded_at = std::time::Instant::now();
+    let lightmap_scale = Bin::from_path(&source.materials)
+        .map(|bin| read_lightmap_scale(&bin))
+        .unwrap_or(1.0);
     let materials = build_material_table(&source.materials)?;
 
     let meta = MapPreviewMeta {
@@ -414,13 +488,16 @@ pub async fn load_map_preview(project_path: String) -> Result<tauri::ipc::Respon
         index_count: decoded.indices.len() as u32,
         submeshes: decoded.submeshes,
         materials,
+        lightmap_scale,
         bounding_box: [decoded.bbox_min, decoded.bbox_max],
     };
 
     let meta_json = serde_json::to_vec(&meta).map_err(|e| e.to_string())?;
     // Sized up front: this buffer runs to tens of MB on a real map, and growing it by
     // doubling copies the whole thing about as many bytes again as it ends up holding.
-    let body = (decoded.positions.len() + decoded.uvs.len() + decoded.indices.len()) * 4;
+    let body =
+        (decoded.positions.len() + decoded.uvs.len() + decoded.uvs2.len() + decoded.indices.len())
+            * 4;
     let mut out: Vec<u8> = Vec::with_capacity(8 + meta_json.len() + body);
     out.extend_from_slice(&(meta_json.len() as u32).to_le_bytes());
     out.extend_from_slice(&meta_json);
@@ -431,6 +508,9 @@ pub async fn load_map_preview(project_path: String) -> Result<tauri::ipc::Respon
         out.extend_from_slice(&f.to_le_bytes());
     }
     for f in &decoded.uvs {
+        out.extend_from_slice(&f.to_le_bytes());
+    }
+    for f in &decoded.uvs2 {
         out.extend_from_slice(&f.to_le_bytes());
     }
     for i in &decoded.indices {

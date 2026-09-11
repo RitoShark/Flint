@@ -489,6 +489,42 @@ fn collect_refs(value: &crate::bin::BinValue, out: &mut ReferencedAssets) {
     }
 }
 
+/// Every asset the GEOMETRY names, which is a different set from the materials bin's.
+///
+/// Each model carries a baked-light atlas, a stationary-light channel and any per-model
+/// texture override. **None of them appear in the materials bin**, so scanning that file
+/// alone ships a map with no lightmaps at all - and on a League map the baked light is
+/// most of what a surface actually looks like. Measured on Map12/Bilgewater: all 515
+/// models reference one of 26 atlases, and every one was missing from the project.
+fn mapgeo_asset_paths(bytes: &[u8]) -> HashSet<String> {
+    use ritoshark::prelude::Parse as _;
+    let mut out = HashSet::new();
+    let Ok(geo) = ritoshark::mapgeo::MapGeometry::from_bytes(bytes) else {
+        tracing::warn!("mapgeo did not parse; its own asset references were not collected");
+        return out;
+    };
+    let mut push = |path: &str| {
+        if path.is_empty() {
+            return;
+        }
+        let lower = path.to_ascii_lowercase();
+        if looks_like_asset(&lower) {
+            out.insert(lower);
+        }
+    };
+    for model in &geo.models {
+        push(&model.baked_light.path);
+        push(&model.stationary_light.path);
+        if let Some(baked_paint) = &model.baked_paint {
+            push(&baked_paint.path);
+        }
+        for over in &model.texture_overrides {
+            push(&over.path);
+        }
+    }
+    out
+}
+
 /// Scan a BIN's raw bytes for length-prefixed UTF-8 strings that look like
 /// asset paths (start with `assets/`/`data/`, end in a known extension).
 /// Same approach as the extract_hashes scanner, but tighter — we only need
@@ -553,6 +589,25 @@ pub fn extract_variant_files(
     let mut extracted = 0usize;
     if extract_one(wad_path, &by_hash, &mapgeo_path, output_dir)? { extracted += 1; }
     if extract_one(wad_path, &by_hash, &materials_path, output_dir)? { extracted += 1; }
+
+    // The geometry names its own assets - lightmaps above all - and the materials bin
+    // knows nothing about them.
+    let geo_h = xx64(&mapgeo_path);
+    if let Some(chunk) = by_hash.get(&geo_h).copied() {
+        if let Ok(bytes) = read_chunk_decompressed_bytes(wad_path, &chunk) {
+            let from_geometry = mapgeo_asset_paths(&bytes);
+            tracing::info!(
+                "Variant '{}' geometry names {} asset(s) of its own",
+                variant,
+                from_geometry.len()
+            );
+            for path in &from_geometry {
+                if extract_one(wad_path, &by_hash, path, output_dir).unwrap_or(false) {
+                    extracted += 1;
+                }
+            }
+        }
+    }
 
     // Scan materials.bin for referenced paths. If we couldn't pull it (e.g.
     // hash miss), there's nothing to scan and we just return what we have.

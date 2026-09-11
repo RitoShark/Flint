@@ -179,6 +179,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     const meshesRef = useRef<Mesh[]>([]);
     const builtRef = useRef<BuiltMapMesh[]>([]);
     const texCacheRef = useRef<Map<string, BaseTexture>>(new Map());
+    const lightmapCacheRef = useRef<Map<string, BaseTexture | null>>(new Map());
     // Compressed upload needs the S3TC extension. Without it every entry comes
     // back as RGBA instead, which is slower but renders identically.
     const preferCompressedRef = useRef(true);
@@ -296,6 +297,46 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         }
     }, []);
 
+    /** Bind each mesh's baked-light atlas.
+     *
+     *  Babylon's `unlit` path skips lighting entirely, lightmap included, so a lit mesh
+     *  has to leave it. `useLightmapAsShadowmap = false` makes the atlas an irradiance
+     *  term, and with no other light in the scene the result is `albedo x lightmap`,
+     *  scaled by the bin's own `lightMapColorScale`. A mesh whose atlas failed to load
+     *  KEEPS `unlit` - going unlit-with-no-light would render it black, which is worse
+     *  than flat. */
+    const applyLightmaps = useCallback((
+        meshes: BuiltMapMesh[],
+        entries: Map<string, api.MapTextureEntry>,
+        scale: number,
+    ): number => {
+        const sc = sceneRef.current;
+        if (!sc || sc.isDisposed) return 0;
+        let lit = 0;
+        for (const bm of meshes) {
+            if (!bm.lightmap || bm.mesh.isDisposed()) continue;
+            const mat = bm.mesh.material as PBRMaterial | null;
+            if (!mat) continue;
+            let lm = lightmapCacheRef.current.get(bm.lightmap);
+            if (lm === undefined) {
+                const entry = entries.get(bm.lightmap);
+                lm = entry ? createMapTexture(sc, entry, 1, 1, `lm:${bm.lightmap}`) : null;
+                if (lm) {
+                    lm.coordinatesIndex = 1;
+                    lm.level = scale > 0 ? scale : 1;
+                    lm.hasAlpha = false;
+                }
+                lightmapCacheRef.current.set(bm.lightmap, lm);
+            }
+            if (!lm) continue;
+            mat.unlit = false;
+            mat.lightmapTexture = lm;
+            mat.useLightmapAsShadowmap = false;
+            lit++;
+        }
+        return lit;
+    }, []);
+
     const loadAndApply = useCallback(async (
         texPath: string,
         addressU: number,
@@ -370,6 +411,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 {
                     positions: data.positions,
                     uvs: data.uvs,
+                    uvs2: data.uvs2,
                     indices: data.indices,
                     submeshes: data.submeshes,
                     materials: data.materials,
@@ -430,19 +472,31 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             );
             setLoading(false);
 
+            // Every model on a League map is baked-lit, and the atlas is named by the
+            // GEOMETRY, not the materials bin. Without it a surface is flat albedo -
+            // which on big terrain slabs reads as "untextured, just coloured".
+            const lightmapPaths = [...new Set(
+                builtMeshes.map(b => b.lightmap).filter((p): p is string => !!p),
+            )];
+
             // ONE round trip for the whole variant. This used to be one IPC call per
             // texture at concurrency 4, each decoding to RGBA: 192 calls and 585 MB
             // on the wire for Bilgewater, against 105 MB of compressed blocks.
             void (async () => {
                 try {
+                    const wanted = [...uniquePaths, ...lightmapPaths];
                     const entries = await api.loadMapTextures(
-                        projectPath, uniquePaths, preferCompressedRef.current,
+                        projectPath, wanted, preferCompressedRef.current,
                     );
                     if (gen !== buildGenRef.current || !sceneRef.current) return;
                     const byPath = new Map<string, api.MapTextureEntry>();
-                    uniquePaths.forEach((path, i) => byPath.set(path, entries[i]));
+                    wanted.forEach((path, i) => byPath.set(path, entries[i]));
                     applyEntries(uniqueTextures, byPath);
-                    setStatus(`${data.variant} · ${builtMeshes.length} meshes · ${uniquePaths.length} textures`);
+                    const lit = applyLightmaps(builtMeshes, byPath, data.lightmap_scale);
+                    setStatus(
+                        `${data.variant} · ${builtMeshes.length} meshes · ${uniquePaths.length} textures`
+                        + (lightmapPaths.length ? ` · ${lit} baked-lit` : ''),
+                    );
                 } catch (e) {
                     console.error('[map-tex] batch failed', e);
                     setStatus(`${data.variant} · ${builtMeshes.length} meshes · textures failed`);
@@ -517,7 +571,10 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         uvPassRef.current = createUvPass(scene);
 
         const light = new HemisphericLight('ambient', new Vector3(0, 1, 0), scene);
-        light.intensity = 1.2;
+        // Zero: a baked-lit mesh leaves `unlit`, so any real light here would ADD a
+        // second diffuse term on top of the atlas and wash the baked shading out.
+        // Meshes with no atlas stay unlit and never consult it either way.
+        light.intensity = 0;
         light.specular = new Color3(0, 0, 0);
 
         const handleContextMenu = (e: MouseEvent) => e.preventDefault();
