@@ -117,13 +117,37 @@ pub fn discover_map_source(project_path: &Path) -> Result<MapPreviewSource, Stri
 // Materials bin -> submesh-name -> diffuse-texture-path table
 // ============================================================================
 
-/// Map of submesh/material name -> diffuse texture path (as stored in the bin,
-/// e.g. "ASSETS/Maps/.../foo.tex").
-pub type MaterialTable = HashMap<String, String>;
+/// One material's diffuse texture and how its sampler addresses it.
+///
+/// LANDMINE: `addressU`/`addressV` are Riot's AUTHORED enum, not D3D's — 0 WRAP,
+/// 1 CLAMP, 2 MIRROR, 3 BORDER. Over half of League's map materials bins author
+/// them, and every authored value is non-default, so treating a missing field and
+/// a present one alike renders thousands of samplers as WRAP.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MapMaterial {
+    /// Texture path as stored in the bin, e.g. "ASSETS/Maps/.../foo.tex".
+    pub path: String,
+    pub address_u: u32,
+    pub address_v: u32,
+}
+
+/// Map of submesh/material name -> its diffuse texture.
+pub type MaterialTable = HashMap<String, MapMaterial>;
 
 /// FNV1a-32 of a field/class name (case-insensitive per the hashing rule).
 fn h(name: &str) -> u32 {
     ritoshark::hash::fnv1a(name)
+}
+
+/// Pull an integer field out of a field map by its (hashed) name.
+fn get_u32(fields: &IndexMap<u32, BinValue>, name: &str) -> Option<u32> {
+    match fields.get(&h(name)) {
+        Some(BinValue::U32(v)) => Some(*v),
+        Some(BinValue::I32(v)) => Some(*v as u32),
+        Some(BinValue::U8(v)) => Some(*v as u32),
+        Some(BinValue::U16(v)) => Some(*v as u32),
+        _ => None,
+    }
 }
 
 /// Pull a String field out of a field map by its (hashed) name.
@@ -167,8 +191,8 @@ pub fn build_material_table(materials_bin: &Path) -> Result<MaterialTable, Strin
             "color_texture",
         ];
 
-        let mut chosen: Option<String> = None;
-        let mut first_path: Option<String> = None;
+        let mut chosen: Option<MapMaterial> = None;
+        let mut first_path: Option<MapMaterial> = None;
         for item in items {
             let fields = match item {
                 BinValue::Embed { fields, .. } | BinValue::Pointer { fields, .. } => fields,
@@ -178,20 +202,25 @@ pub fn build_material_table(materials_bin: &Path) -> Result<MaterialTable, Strin
             else {
                 continue;
             };
+            let material = MapMaterial {
+                path: tex_path,
+                address_u: get_u32(fields, "addressU").unwrap_or(0),
+                address_v: get_u32(fields, "addressV").unwrap_or(0),
+            };
             if first_path.is_none() {
-                first_path = Some(tex_path.clone());
+                first_path = Some(material.clone());
             }
             let sampler_name = get_string(fields, "TextureName")
                 .unwrap_or_default()
                 .to_lowercase();
             if DIFFUSE_NAMES.contains(&sampler_name.as_str()) {
-                chosen = Some(tex_path);
+                chosen = Some(material);
                 break;
             }
         }
 
-        if let Some(path) = chosen.or(first_path) {
-            table.insert(mat_name.clone(), path);
+        if let Some(material) = chosen.or(first_path) {
+            table.insert(mat_name.clone(), material);
         }
     }
 
@@ -622,6 +651,8 @@ mod tests {
             h("texturePath"),
             BinValue::String("ASSETS/Maps/Foo/bar.tex".into()),
         );
+        sampler.insert(h("addressU"), BinValue::U32(1));
+        sampler.insert(h("addressV"), BinValue::U32(2));
 
         let mut fields = IndexMap::new();
         fields.insert(h("name"), BinValue::String("Foo/Bar_MAT".into()));
@@ -655,10 +686,64 @@ mod tests {
         std::fs::write(&tmp, bin.to_bytes().unwrap()).unwrap();
 
         let table = build_material_table(&tmp).unwrap();
-        assert_eq!(
-            table.get("Foo/Bar_MAT").map(String::as_str),
-            Some("ASSETS/Maps/Foo/bar.tex")
+        let material = table.get("Foo/Bar_MAT").expect("material in table");
+        assert_eq!(material.path, "ASSETS/Maps/Foo/bar.tex");
+        // Authored modes travel; they are the difference between a tiling
+        // surface and a clamped one, and over half of Riot's map materials
+        // bins set them.
+        assert_eq!(material.address_u, 1);
+        assert_eq!(material.address_v, 2);
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    /// A sampler that authors no addressing means WRAP, which is enum 0.
+    #[test]
+    fn material_without_authored_addressing_defaults_to_wrap() {
+        use ritoshark::bin::{BinEntry, BinType};
+        use ritoshark::prelude::Serialize as _;
+
+        let mut sampler = IndexMap::new();
+        sampler.insert(h("TextureName"), BinValue::String("DiffuseTexture".into()));
+        sampler.insert(
+            h("texturePath"),
+            BinValue::String("ASSETS/Maps/Foo/plain.tex".into()),
         );
+
+        let mut fields = IndexMap::new();
+        fields.insert(h("name"), BinValue::String("Plain_MAT".into()));
+        fields.insert(
+            h("samplerValues"),
+            BinValue::List {
+                is_list2: true,
+                item: BinType::Embed,
+                items: vec![BinValue::Embed {
+                    class: h("StaticMaterialShaderSamplerDef"),
+                    fields: sampler,
+                }],
+            },
+        );
+
+        let bin = Bin {
+            is_patch: false,
+            patch_header: [0; 8],
+            version: 3,
+            linked: vec![],
+            entries: vec![BinEntry {
+                path_hash: 1,
+                class_hash: h("StaticMaterialDef"),
+                fields,
+            }],
+            patches: vec![],
+            trailing: vec![],
+        };
+
+        let tmp = std::env::temp_dir().join("flint_mp_mat_plain.bin");
+        std::fs::write(&tmp, bin.to_bytes().unwrap()).unwrap();
+
+        let table = build_material_table(&tmp).unwrap();
+        let material = table.get("Plain_MAT").expect("material in table");
+        assert_eq!(material.address_u, 0);
+        assert_eq!(material.address_v, 0);
         let _ = std::fs::remove_file(&tmp);
     }
 

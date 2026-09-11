@@ -1,11 +1,19 @@
 import { invokeCommand } from './core';
 import type { SubmeshRange } from '../babylon/meshBuilder';
 
+/** A material's diffuse texture plus Riot's AUTHORED address-mode enum
+ *  (0 WRAP, 1 CLAMP, 2 MIRROR, 3 BORDER) — not the D3D enum. */
+export interface MapMaterial {
+    path: string;
+    address_u: number;
+    address_v: number;
+}
+
 export interface MapPreviewData {
     variant: string;
     submeshes: SubmeshRange[];
-    /** submesh name -> diffuse texture path (bin path, e.g. "ASSETS/.../foo.tex") */
-    materials: Record<string, string>;
+    /** submesh name -> its diffuse texture and sampler addressing */
+    materials: Record<string, MapMaterial>;
     bounding_box: [[number, number, number], [number, number, number]];
     positions: Float32Array;
     uvs: Float32Array;

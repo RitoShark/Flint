@@ -30,6 +30,31 @@ import {
 import * as paint from '../../lib/babylon/paintEngine';
 import { createUvPass, type UvPass } from '../../lib/babylon/uvPaintPass';
 
+/** Riot's AUTHORED texture address-mode enum -> Babylon.
+ *
+ *  0 = WRAP, 1 = CLAMP, 2 = MIRROR, 3 = BORDER. This is NOT the D3D enum: the
+ *  game indexes [1, 3, 2, 4] into D3D11's 1-based TEXTURE_ADDRESS_MODE, so an
+ *  authored 1 becomes D3D 3 (CLAMP) and an authored 2 becomes D3D 2 (MIRROR).
+ *  Babylon has no border mode, so BORDER takes clamp-to-edge, the nearest thing.
+ *
+ *  Only observable where UVs leave [0,1], which is exactly what a tiling map
+ *  surface does. 109 of League's 200 map materials bins author these. */
+function addressMode(riot: number): number {
+    switch (riot) {
+        case 1: return Texture.CLAMP_ADDRESSMODE;
+        case 2: return Texture.MIRROR_ADDRESSMODE;
+        case 3: return Texture.CLAMP_ADDRESSMODE;
+        default: return Texture.WRAP_ADDRESSMODE;
+    }
+}
+
+/** A texture's cache identity. The modes belong in it: the same file is used
+ *  under two different ones in 182 places across League's maps, and Babylon
+ *  addressing is a property of the texture, not of the material. */
+function textureKey(path: string, addressU: number, addressV: number): string {
+    return `${path}|${addressU}|${addressV}`;
+}
+
 interface MapPreviewProps {
     projectPath: string;
 }
@@ -112,7 +137,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     const meshesRef = useRef<Mesh[]>([]);
     const builtRef = useRef<BuiltMapMesh[]>([]);
     const texCacheRef = useRef<Map<string, RawTexture>>(new Map());
-    const paintBufRef = useRef<Map<string, { tex: RawTexture; rgba: Uint8Array; orig: Uint8Array; w: number; h: number }>>(new Map());
+    const paintBufRef = useRef<Map<string, { texs: RawTexture[]; rgba: Uint8Array; orig: Uint8Array; w: number; h: number }>>(new Map());
     const dataRef = useRef<api.MapPreviewData | null>(null);
     const meshByBabylonRef = useRef<Map<Mesh, BuiltMapMesh>>(new Map());
     const hoverTintRef = useRef<{ mesh: Mesh; prev: Color3 } | null>(null);
@@ -191,28 +216,50 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     const [meshSearch, setMeshSearch] = useState('');
 
     // ── Apply (or reuse cached) texture to a material ────────────────────────
-    const loadAndApply = useCallback(async (texPath: string, mats: PBRMaterial[]) => {
+    const loadAndApply = useCallback(async (
+        texPath: string,
+        addressU: number,
+        addressV: number,
+        mats: PBRMaterial[],
+    ) => {
         const scene = sceneRef.current;
         if (!scene) return;
         try {
-            let tex = texCacheRef.current.get(texPath);
+            const cacheKey = textureKey(texPath, addressU, addressV);
+            let tex = texCacheRef.current.get(cacheKey);
             if (!tex) {
                 const { width, height, rgba } = await api.loadMapTexture(projectPath, texPath);
                 const sc = sceneRef.current;
                 const eng = engineRef.current;
                 if (!sc || sc.isDisposed || !eng || eng.isDisposed) return;
-                tex = RawTexture.CreateRGBATexture(rgba, width, height, sc, false, true);
-                tex.wrapU = Texture.WRAP_ADDRESSMODE;
-                tex.wrapV = Texture.WRAP_ADDRESSMODE;
+                // Mipmaps ON: map textures tile, and an unmipped tiling surface
+                // aliases badly into the distance. NOTE the polarity trap — this
+                // argument is `generateMipMaps`, while `new Texture(...)`'s third
+                // argument next to it in the SKN path is `noMipmap`.
+                tex = RawTexture.CreateRGBATexture(
+                    rgba, width, height, sc,
+                    /* generateMipMaps */ true,
+                    /* invertY */ true,
+                    Texture.TRILINEAR_SAMPLINGMODE,
+                );
+                tex.wrapU = addressMode(addressU);
+                tex.wrapV = addressMode(addressV);
                 tex.hasAlpha = true;
-                texCacheRef.current.set(texPath, tex);
-                paintBufRef.current.set(texPath, {
-                    tex,
-                    rgba: new Uint8Array(rgba),
-                    orig: new Uint8Array(rgba),
-                    w: width,
-                    h: height,
-                });
+                texCacheRef.current.set(cacheKey, tex);
+                // Painting edits the FILE, so its buffer stays keyed by path and
+                // tracks every texture built from it.
+                const buf = paintBufRef.current.get(texPath);
+                if (buf) {
+                    buf.texs.push(tex);
+                } else {
+                    paintBufRef.current.set(texPath, {
+                        texs: [tex],
+                        rgba: new Uint8Array(rgba),
+                        orig: new Uint8Array(rgba),
+                        w: width,
+                        h: height,
+                    });
+                }
             }
             for (const mat of mats) {
                 mat.albedoTexture = tex;
@@ -228,8 +275,13 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         }
     }, [projectPath]);
 
-    const applyTexture = useCallback(async (mat: PBRMaterial, texPath: string) => {
-        await loadAndApply(texPath, [mat]);
+    const applyTexture = useCallback(async (
+        mat: PBRMaterial,
+        texPath: string,
+        addressU: number,
+        addressV: number,
+    ) => {
+        await loadAndApply(texPath, addressU, addressV, [mat]);
     }, [loadAndApply]);
 
     // ── Visibility model ─────────────────────────────────────────────────────
@@ -316,8 +368,8 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             camera.minZ = 1;
             camera.maxZ = Math.max(size * 8, 10000);
 
-            const byTexture = new Map<string, PBRMaterial[]>();
-            for (const { mesh, texturePath } of builtMeshes) {
+            const byTexture = new Map<string, { path: string; u: number; v: number; mats: PBRMaterial[] }>();
+            for (const { mesh, texturePath, addressU, addressV } of builtMeshes) {
                 const mat = new PBRMaterial(mesh.name + '_mat', scene);
                 mat.unlit = true;
                 mat.metallic = 0;
@@ -327,13 +379,14 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 mat.albedoColor = new Color3(0.5, 0.5, 0.5);
                 mesh.material = mat;
                 if (texturePath) {
-                    const list = byTexture.get(texturePath);
-                    if (list) list.push(mat);
-                    else byTexture.set(texturePath, [mat]);
+                    const key = textureKey(texturePath, addressU, addressV);
+                    const slot = byTexture.get(key);
+                    if (slot) slot.mats.push(mat);
+                    else byTexture.set(key, { path: texturePath, u: addressU, v: addressV, mats: [mat] });
                 }
             }
 
-            const uniqueTextures = [...byTexture.entries()];
+            const uniqueTextures = [...byTexture.values()];
             setStatus(
                 `${data.variant} · ${builtMeshes.length} meshes · loading 0/${uniqueTextures.length} textures`,
             );
@@ -347,8 +400,8 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                     const i = next++;
                     if (i >= uniqueTextures.length) break;
                     if (gen !== buildGenRef.current || !sceneRef.current) break;
-                    const [texPath, mats] = uniqueTextures[i];
-                    await loadAndApply(texPath, mats);
+                    const { path, u, v, mats } = uniqueTextures[i];
+                    await loadAndApply(path, u, v, mats);
                     done++;
                     if (done % 8 === 0 || done === uniqueTextures.length) {
                         setStatus(
@@ -376,9 +429,13 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             const texPath = b.texturePath;
             if (!texPath) continue;
             if (!texPath.toLowerCase().endsWith(base)) continue;
-            texCacheRef.current.get(texPath)?.dispose();
-            texCacheRef.current.delete(texPath);
-            if (b.mesh.material) await applyTexture(b.mesh.material as PBRMaterial, texPath);
+            const key = textureKey(texPath, b.addressU, b.addressV);
+            texCacheRef.current.get(key)?.dispose();
+            texCacheRef.current.delete(key);
+            paintBufRef.current.delete(texPath);
+            if (b.mesh.material) {
+                await applyTexture(b.mesh.material as PBRMaterial, texPath, b.addressU, b.addressV);
+            }
         }
     }, [applyTexture]);
 
@@ -548,7 +605,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 } else {
                     paint.compositeMask(entry.rgba, base0, mask, entry.w, entry.h, b.mode, b.color);
                 }
-                entry.tex.update(entry.rgba);
+                entry.texs.forEach(t => t.update(entry.rgba));
                 dirtyTexRef.current.add(texPath);
             }
         };
@@ -700,7 +757,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             if (!entry) continue;
             replaced.set(texPath, new Uint8Array(entry.rgba));
             entry.rgba.set(before);
-            entry.tex.update(entry.rgba);
+            entry.texs.forEach(t => t.update(entry.rgba));
             dirtyTexRef.current.add(texPath);
         }
         return replaced;
@@ -745,7 +802,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 const entry = paintBufRef.current.get(texPath);
                 if (entry) {
                     paint.edgeDilate(entry.rgba, entry.w, entry.h, 4);
-                    entry.tex.update(entry.rgba);
+                    entry.texs.forEach(t => t.update(entry.rgba));
                     try {
                         await api.savePaintedTexture(projectPath, texPath, entry.rgba, entry.w, entry.h);
                         written++;

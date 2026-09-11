@@ -2,14 +2,15 @@ import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
 import type { Scene } from '@babylonjs/core/scene';
 import type { SubmeshRange } from './meshBuilder';
+import type { MapMaterial } from '../api/mapPreview';
 
 export interface MapGeometryInput {
     positions: Float32Array; // global pool, len = vertexCount*3
     uvs: Float32Array;       // global pool, len = vertexCount*2
     indices: Uint32Array;    // global indices
     submeshes: SubmeshRange[];
-    /** submesh name -> diffuse texture path */
-    materials: Record<string, string>;
+    /** submesh name -> its diffuse texture and sampler addressing */
+    materials: Record<string, MapMaterial>;
 }
 
 /** One original submesh's triangle range inside a merged mesh, kept so a picked
@@ -29,6 +30,11 @@ export interface BuiltMapMesh {
     mesh: Mesh;
     /** Texture path this mesh needs, or null if the submesh had no material. */
     texturePath: string | null;
+    /** Riot's authored address modes for that texture (0 WRAP, 1 CLAMP, 2 MIRROR,
+     *  3 BORDER). One texture is used under two different modes in 182 places
+     *  across League's maps, so these are part of a mesh's texture identity. */
+    addressU: number;
+    addressV: number;
     /** MapModel.layer bitmask for this mesh (all merged submeshes share it). */
     layer: number;
     /** Variants this mesh participates in (derived from layer) — for the panel. */
@@ -176,8 +182,9 @@ export function classifyBaronStage(submeshName: string): BaronStage | null {
 /** Key used to group submeshes into one mesh: effective-layer + texture. Using
  *  the EFFECTIVE layer (0xff elemental-by-name corrected to its element bit)
  *  keeps each mesh's variant membership unambiguous. */
-function groupKey(materials: Record<string, string>, sm: SubmeshRange): string {
-    const tex = materials[sm.name] ?? `__notex__${sm.name}`;
+function groupKey(materials: Record<string, MapMaterial>, sm: SubmeshRange): string {
+    const m = materials[sm.name];
+    const tex = m ? `${m.path}|${m.address_u}|${m.address_v}` : `__notex__${sm.name}`;
     const layer = effectiveLayer(sm.layer ?? 0xff, sm.name);
     return `${layer}::${tex}`;
 }
@@ -186,8 +193,12 @@ export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapM
     const { positions, uvs, indices, submeshes, materials } = input;
 
     const groups = new Map<string, SubmeshRange[]>();
+    // The key embeds the address modes, so recover the material from the side map
+    // rather than parsing them back out of the string.
+    const groupMaterial = new Map<string, MapMaterial | null>();
     for (const sm of submeshes) {
         const key = groupKey(materials, sm);
+        groupMaterial.set(key, materials[sm.name] ?? null);
         const list = groups.get(key);
         if (list) list.push(sm);
         else groups.set(key, [sm]);
@@ -218,7 +229,7 @@ export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapM
             const iCount = sm.index_count;
             spans.push({
                 name: sm.name,
-                texturePath: materials[sm.name] ?? null,
+                texturePath: materials[sm.name]?.path ?? null,
                 startFace: iWrite / 3,
                 faceCount: iCount / 3,
                 globalStartIndex: iStart,
@@ -251,8 +262,8 @@ export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapM
 
         const sep = key.indexOf('::');
         const layer = parseInt(key.slice(0, sep), 10);
-        const texPart = key.slice(sep + 2);
-        const texturePath = texPart.startsWith('__notex__') ? null : texPart;
+        const material = groupMaterial.get(key) ?? null;
+        const texturePath = material?.path ?? null;
 
         const mesh = new Mesh(key, scene);
         vd.applyToMesh(mesh);
@@ -262,7 +273,17 @@ export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapM
         const replaceKeys = [...new Set(group.map(sm => replacementKey(sm.name)))];
         const baronStage =
             group.map(sm => classifyBaronStage(sm.name)).find(s => s !== null) ?? null;
-        out.push({ mesh, texturePath, layer, variants, replaceKeys, baronStage, spans });
+        out.push({
+            mesh,
+            texturePath,
+            addressU: material?.address_u ?? 0,
+            addressV: material?.address_v ?? 0,
+            layer,
+            variants,
+            replaceKeys,
+            baronStage,
+            spans,
+        });
     }
 
     return out;
