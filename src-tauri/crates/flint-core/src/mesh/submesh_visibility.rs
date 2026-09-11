@@ -22,6 +22,7 @@ use ritoshark::hash::fnv1a;
 use serde::Serialize;
 
 use crate::bin::codec;
+use crate::mesh::materials::BinIndex;
 
 // Class hashes (FNV1a-32, lowercased). `fnv1a` is a const fn, so these fold at compile time.
 const CLASS_SUBMESH_VIS_EVENT: u32 = fnv1a("SubmeshVisibilityEventData");
@@ -214,7 +215,9 @@ pub fn parse_clip_visibility_events_file(anim_bin_path: &Path) -> HashMap<String
     let Ok(tree) = codec::read_bin(&data) else {
         return HashMap::new();
     };
-    parse_clip_visibility_events(&tree)
+    let names = crate::bin::name_table(&tree, anim_bin_path);
+    let index = BinIndex::new([(&tree, names)]);
+    parse_clip_visibility_events(&tree, &index)
 }
 
 /// Parse per-clip submesh-visibility events from an already-read animation BIN tree.
@@ -222,11 +225,14 @@ pub fn parse_clip_visibility_events_file(anim_bin_path: &Path) -> HashMap<String
 /// Walks the whole tree looking for clip structures (any embed/pointer that carries both an
 /// `mAnimationFilePath` and an `mEventDataMap`). The clip name is the `.anm` stem, so the
 /// events line up with the animation-list rows the frontend already renders.
-pub fn parse_clip_visibility_events(bin: &Bin) -> HashMap<String, Vec<SubmeshVisEvent>> {
+pub fn parse_clip_visibility_events(
+    bin: &Bin,
+    index: &BinIndex,
+) -> HashMap<String, Vec<SubmeshVisEvent>> {
     let mut out: HashMap<String, Vec<SubmeshVisEvent>> = HashMap::new();
     for entry in &bin.entries {
         for value in entry.fields.values() {
-            walk_for_clips(value, &mut out);
+            walk_for_clips(value, index, &mut out);
         }
     }
     out
@@ -234,10 +240,14 @@ pub fn parse_clip_visibility_events(bin: &Bin) -> HashMap<String, Vec<SubmeshVis
 
 /// Recurse looking for clip structs. A clip is any struct that has an `mAnimationFilePath`
 /// somewhere in its own fields (via `mAnimationResourceData`) and an `mEventDataMap`.
-fn walk_for_clips(value: &BinValue, out: &mut HashMap<String, Vec<SubmeshVisEvent>>) {
+fn walk_for_clips(
+    value: &BinValue,
+    index: &BinIndex,
+    out: &mut HashMap<String, Vec<SubmeshVisEvent>>,
+) {
     match value {
         BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
-            if let Some(name) = clip_name_from_fields(fields) {
+            if let Some(name) = clip_name_from_fields(fields, index) {
                 let events = events_from_clip(fields);
                 if !events.is_empty() {
                     // A given clip name can appear once; keep the richer event list if it
@@ -246,18 +256,18 @@ fn walk_for_clips(value: &BinValue, out: &mut HashMap<String, Vec<SubmeshVisEven
                 }
             }
             for val in fields.values() {
-                walk_for_clips(val, out);
+                walk_for_clips(val, index, out);
             }
         }
         BinValue::List { items, .. } => {
             for item in items {
-                walk_for_clips(item, out);
+                walk_for_clips(item, index, out);
             }
         }
-        BinValue::Option { value: Some(inner), .. } => walk_for_clips(inner, out),
+        BinValue::Option { value: Some(inner), .. } => walk_for_clips(inner, index, out),
         BinValue::Map { entries, .. } => {
             for (_key, val) in entries {
-                walk_for_clips(val, out);
+                walk_for_clips(val, index, out);
             }
         }
         _ => {}
@@ -265,12 +275,15 @@ fn walk_for_clips(value: &BinValue, out: &mut HashMap<String, Vec<SubmeshVisEven
 }
 
 /// The clip name (`.anm` file stem) if this clip's fields reference an animation file.
-fn clip_name_from_fields(fields: &indexmap::IndexMap<u32, BinValue>) -> Option<String> {
+fn clip_name_from_fields(
+    fields: &indexmap::IndexMap<u32, BinValue>,
+    index: &BinIndex,
+) -> Option<String> {
     // Only treat this struct as a clip if it also carries an event map — otherwise a plain
     // AnimationResourceData embed would match. The event map is what we attach events to.
     fields.get(&F_EVENT_DATA_MAP)?;
-    let path = find_string_field(fields, F_ANIMATION_FILE_PATH)?;
-    Path::new(path)
+    let path = find_path_field(fields, F_ANIMATION_FILE_PATH, index)?;
+    Path::new(&path)
         .file_stem()
         .map(|s| s.to_string_lossy().to_string())
         .filter(|s| !s.is_empty())
@@ -366,6 +379,35 @@ fn find_field(fields: &indexmap::IndexMap<u32, BinValue>, field_hash: u32) -> Op
 }
 
 /// Depth-first search a field tree for a `String` value under the given field hash.
+/// The asset path a field carries, in whichever form it stores one. `mAnimationFilePath`
+/// is on Riot's string -> file list, so a clip on current content names its `.anm` by
+/// xxh64 and the string-only lookup below finds nothing.
+fn find_path_field(
+    fields: &indexmap::IndexMap<u32, BinValue>,
+    field_hash: u32,
+    index: &BinIndex,
+) -> Option<String> {
+    if let Some(path) = fields.get(&field_hash).and_then(|v| index.asset_path(v)) {
+        return Some(path);
+    }
+    for val in fields.values() {
+        if let Some(found) = find_path_in_value(val, field_hash, index) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn find_path_in_value(value: &BinValue, field_hash: u32, index: &BinIndex) -> Option<String> {
+    match value {
+        BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
+            find_path_field(fields, field_hash, index)
+        }
+        BinValue::Option { value: Some(inner), .. } => find_path_in_value(inner, field_hash, index),
+        _ => None,
+    }
+}
+
 fn find_string_field(fields: &indexmap::IndexMap<u32, BinValue>, field_hash: u32) -> Option<&str> {
     if let Some(BinValue::String(s)) = fields.get(&field_hash) {
         return Some(s);
@@ -400,8 +442,13 @@ fn split_names(s: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bin::Trailer;
     use indexmap::IndexMap;
     use ritoshark::bin::{BinEntry, BinType};
+
+    fn events_of(bin: &Bin, names: Trailer) -> HashMap<String, Vec<SubmeshVisEvent>> {
+        parse_clip_visibility_events(bin, &BinIndex::new([(bin, names)]))
+    }
 
     #[test]
     fn submesh_name_hashes_match_verified_value() {
@@ -496,14 +543,23 @@ mod tests {
         }
     }
 
+    /// `mAnimationFilePath` is on Riot's string -> file list, so both forms have to name
+    /// the same clip or the events go missing on current content.
     #[test]
     fn parses_clip_events_sorted_by_frame_with_zeros_dropped() {
+        const ANM: &str = "ASSETS/Test/Idle1_Slayer.anm";
+        let mut names = Trailer::new();
+        names
+            .files
+            .insert(ritoshark::hash::xxh64(ANM), ANM.to_string());
+
+        for path_value in [
+            BinValue::String(ANM.to_string()),
+            BinValue::File(ritoshark::hash::xxh64(ANM)),
+        ] {
         // Build a clip: mAnimationResourceData.mAnimationFilePath + mEventDataMap with two events.
         let mut anim_res = IndexMap::new();
-        anim_res.insert(
-            F_ANIMATION_FILE_PATH,
-            BinValue::String("ASSETS/Test/Idle1_Slayer.anm".to_string()),
-        );
+        anim_res.insert(F_ANIMATION_FILE_PATH, path_value);
 
         let mut event_map = Vec::new();
         // Later event first, to prove sorting.
@@ -548,7 +604,7 @@ mod tests {
             ..Bin::new()
         };
 
-        let events = parse_clip_visibility_events(&bin);
+        let events = events_of(&bin, names.clone());
         let clip = events.get("Idle1_Slayer").expect("clip present by anm stem");
         assert_eq!(clip.len(), 2);
         // Sorted by frame: 14 before 34.
@@ -559,6 +615,7 @@ mod tests {
         // The 0 sentinel is dropped.
         assert_eq!(clip[1].hide_hashes, vec![0xAAAA]);
         assert!(clip[1].show_hashes.is_empty());
+        }
     }
 
     fn gear_entry(path_hash: u32, hide: &[u32], show: &[u32]) -> BinEntry {
@@ -720,6 +777,6 @@ mod tests {
             entries: vec![BinEntry { path_hash: 1, class_hash: 0, fields: entry_fields }],
             ..Bin::new()
         };
-        assert!(parse_clip_visibility_events(&bin).is_empty());
+        assert!(events_of(&bin, Trailer::new()).is_empty());
     }
 }

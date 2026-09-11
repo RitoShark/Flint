@@ -434,7 +434,7 @@ pub fn extract_animation_list(bin_path: &Path) -> anyhow::Result<AnimationList> 
     let mut clips = found.clips;
 
     // Attach per-clip submesh-visibility events, keyed by clip name (the `.anm` stem).
-    let mut events = crate::mesh::submesh_visibility::parse_clip_visibility_events(tree);
+    let mut events = crate::mesh::submesh_visibility::parse_clip_visibility_events(tree, &index);
     for clip in &mut clips {
         if let Some(ev) = events.remove(&clip.name) {
             clip.events = ev;
