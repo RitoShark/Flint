@@ -8,7 +8,7 @@ import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
 import { Material } from '@babylonjs/core/Materials/material';
-import type { ShaderMaterial } from '@babylonjs/core/Materials/shaderMaterial';
+import { ShaderMaterial } from '@babylonjs/core/Materials/shaderMaterial';
 import { RawTexture } from '@babylonjs/core/Materials/Textures/rawTexture';
 import type { BaseTexture } from '@babylonjs/core/Materials/Textures/baseTexture';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
@@ -110,6 +110,20 @@ function tintColor(tint: [number, number, number] | null): Color3 {
     const [r, g, b] = [tint[0] * 2, tint[1] * 2, tint[2] * 2];
     const peak = Math.max(r, g, b, 1);
     return new Color3(r / peak, g / peak, b / peak);
+}
+
+/** A map mesh wears either the unlit PBR fallback or the terrain shader, and the
+ *  paint / reload / hover paths have to reach both. */
+type MapMat = PBRMaterial | ShaderMaterial;
+
+function bindDiffuse(mat: MapMat, tex: BaseTexture): void {
+    if (mat instanceof ShaderMaterial) mat.setTexture('DiffuseTexture', tex);
+    else mat.albedoTexture = tex;
+}
+
+function setHighlight(mat: MapMat, color: Color3): void {
+    if (mat instanceof ShaderMaterial) mat.setVector3('uHighlight', Vector3.FromArray(color.asArray()));
+    else mat.emissiveColor = color;
 }
 
 /** A texture's cache identity. The modes belong in it: the same file is used
@@ -290,7 +304,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     const applyEntries = useCallback((
         slots: {
             path: string; u: number; v: number;
-            mats: PBRMaterial[]; material: api.MapMaterial | null;
+            mats: MapMat[]; material: api.MapMaterial | null;
         }[],
         entries: Map<string, api.MapTextureEntry>,
     ) => {
@@ -305,13 +319,19 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 if (!entry) continue;
                 const made = createMapTexture(sc, entry, u, v, cacheKey);
                 if (!made) {
-                    for (const mat of mats) mat.albedoColor = new Color3(1, 0, 1);
+                    for (const mat of mats) {
+                        if (mat instanceof PBRMaterial) mat.albedoColor = new Color3(1, 0, 1);
+                    }
                     continue;
                 }
                 tex = made;
                 texCacheRef.current.set(cacheKey, tex);
             }
             for (const mat of mats) {
+                if (mat instanceof ShaderMaterial) {
+                    mat.setTexture('DiffuseTexture', tex);
+                    continue;
+                }
                 mat.albedoTexture = tex;
                 mat.albedoColor = tintColor(material?.tint_color ?? null);
                 mat.backFaceCulling = false;
@@ -350,7 +370,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     ): number => {
         const sc = sceneRef.current;
         if (!sc || sc.isDisposed) return 0;
-        const cache = new Map<string, ShaderMaterial>();
         let lit = 0;
         for (const bm of meshes) {
             if (!bm.lightmap || !bm.texturePath || bm.mesh.isDisposed()) continue;
@@ -369,16 +388,10 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             }
             if (!lm) continue;
             const cutoff = diffuse.hasAlpha ? (bm.material?.alpha_test ?? 0.5) : 0;
-            const key = `${bm.texturePath}|${bm.lightmap}|${cutoff}`;
-            let mat = cache.get(key);
-            if (!mat) {
-                mat = createMapTerrainMaterial(
-                    sc, diffuse, lm, env, bm.material?.tint_color ?? null, cutoff,
-                );
-                cache.set(key, mat);
-            }
             bm.mesh.material?.dispose();
-            bm.mesh.material = mat;
+            bm.mesh.material = createMapTerrainMaterial(
+                sc, diffuse, lm, env, bm.material?.tint_color ?? null, cutoff,
+            );
             lit++;
         }
         return lit;
@@ -388,7 +401,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         texPath: string,
         addressU: number,
         addressV: number,
-        mats: PBRMaterial[],
+        mats: MapMat[],
     ) => {
         try {
             const [entry] = await api.loadMapTextures(projectPath, [texPath], preferCompressedRef.current);
@@ -399,12 +412,14 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             );
         } catch (e) {
             console.error('[map-tex] failed', texPath, e);
-            for (const mat of mats) mat.albedoColor = new Color3(1, 0, 1);
+            for (const mat of mats) {
+                if (mat instanceof PBRMaterial) mat.albedoColor = new Color3(1, 0, 1);
+            }
         }
     }, [projectPath, applyEntries]);
 
     const applyTexture = useCallback(async (
-        mat: PBRMaterial,
+        mat: MapMat,
         texPath: string,
         addressU: number,
         addressV: number,
@@ -594,7 +609,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             texCacheRef.current.delete(key);
             paintBufRef.current.delete(texPath);
             if (b.mesh.material) {
-                await applyTexture(b.mesh.material as PBRMaterial, texPath, b.addressU, b.addressV);
+                await applyTexture(b.mesh.material as MapMat, texPath, b.addressU, b.addressV);
             }
         }
     }, [applyTexture]);
@@ -838,15 +853,15 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             if (mesh !== lastHoverMesh) {
                 const prev = hoverTintRef.current;
                 if (prev && !prev.mesh.isDisposed()) {
-                    const m = prev.mesh.material as PBRMaterial | null;
-                    if (m) m.emissiveColor = prev.prev;
+                    const m = prev.mesh.material as MapMat | null;
+                    if (m) setHighlight(m, prev.prev);
                 }
                 hoverTintRef.current = null;
                 if (mesh && built && highlightOnRef.current) {
-                    const m = mesh.material as PBRMaterial | null;
+                    const m = mesh.material as MapMat | null;
                     if (m) {
-                        hoverTintRef.current = { mesh, prev: m.emissiveColor.clone() };
-                        m.emissiveColor = new Color3(0.35, 0.28, 0.05);
+                        hoverTintRef.current = { mesh, prev: Color3.Black() };
+                        setHighlight(m, new Color3(0.35, 0.28, 0.05));
                     }
                 }
                 lastHoverMesh = mesh && built ? mesh : null;
@@ -912,12 +927,12 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         if (!paintMode) return;
         let cancelled = false;
         void (async () => {
-            const wanted = new Map<string, { path: string; u: number; v: number; mats: PBRMaterial[] }>();
+            const wanted = new Map<string, { path: string; u: number; v: number; mats: MapMat[] }>();
             for (const bm of builtRef.current) {
                 if (!bm.texturePath || bm.mesh.isDisposed() || !bm.mesh.isEnabled()) continue;
                 if (paintBufRef.current.has(bm.texturePath)) continue;
                 const key = textureKey(bm.texturePath, bm.addressU, bm.addressV);
-                const mat = bm.mesh.material as PBRMaterial | null;
+                const mat = bm.mesh.material as MapMat | null;
                 if (!mat) continue;
                 const slot = wanted.get(key);
                 if (slot) slot.mats.push(mat);
@@ -950,7 +965,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                     tex.hasAlpha = true;
                     tex.name = key;
                     texCacheRef.current.set(key, tex);
-                    for (const mat of mats) mat.albedoTexture = tex;
+                    for (const mat of mats) bindDiffuse(mat, tex);
                     const buf = paintBufRef.current.get(path);
                     if (buf) {
                         buf.texs.push(tex);
@@ -1095,8 +1110,8 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         if (!highlightOn) {
             const prev = hoverTintRef.current;
             if (prev && !prev.mesh.isDisposed()) {
-                const m = prev.mesh.material as PBRMaterial | null;
-                if (m) m.emissiveColor = prev.prev;
+                const m = prev.mesh.material as MapMat | null;
+                if (m) setHighlight(m, prev.prev);
             }
             hoverTintRef.current = null;
         }

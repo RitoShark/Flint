@@ -73,6 +73,7 @@ uniform sampler2D BakedLight;
 uniform vec3 uSunColor;
 uniform vec3 uSunDir;
 uniform vec3 uTint;
+uniform vec3 uHighlight;
 uniform float uLmScale;
 uniform float uCutoff;
 uniform vec3 uFogColor;
@@ -93,7 +94,7 @@ void main(void) {
     float sm = t * t * (3.0 - 2.0 * t);
     float f = max(0.0, (exp(-2.0 * sm) - 0.135335) * 1.156518);
     vec3 fogMix = mix(uFogColor, uFogAltColor, f);
-    gl_FragColor = vec4(mix(lit, fogMix, f), 1.0);
+    gl_FragColor = vec4(mix(lit, fogMix, f) + uHighlight, 1.0);
 }
 `;
 
@@ -134,7 +135,7 @@ export function createMapTerrainMaterial(
             attributes: ['position', 'normal', 'uv', 'uv2'],
             uniforms: [
                 'worldViewProjection', 'uSunColor', 'uSunDir', 'uTint', 'uLmScale',
-                'uCutoff', 'uFogColor', 'uFogAltColor', 'uFogStartEnd',
+                'uCutoff', 'uFogColor', 'uFogAltColor', 'uFogStartEnd', 'uHighlight',
             ],
             samplers: ['DiffuseTexture', 'BakedLight'],
         },
@@ -146,6 +147,7 @@ export function createMapTerrainMaterial(
     mat.setVector3('uTint', tintFactor(tint));
     mat.setFloat('uLmScale', env.lightmap_scale > 0 ? env.lightmap_scale : 1);
     mat.setFloat('uCutoff', cutoff);
+    mat.setVector3('uHighlight', Vector3.Zero());
     mat.setVector3('uFogColor', Vector3.FromArray(env.fog_color));
     mat.setVector3('uFogAltColor', Vector3.FromArray(env.fog_alt_color));
     mat.setVector2('uFogStartEnd', new Vector2(env.fog_start_end[0], env.fog_start_end[1]));
