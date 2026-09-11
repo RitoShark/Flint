@@ -12,6 +12,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use flint_core::mesh::materials::BinIndex;
 use flint_core::project::FlintMetadata;
 use indexmap::IndexMap;
 use ritoshark::bin::{Bin, BinValue};
@@ -137,6 +138,8 @@ fn get_string(fields: &IndexMap<u32, BinValue>, name: &str) -> Option<String> {
 pub fn build_material_table(materials_bin: &Path) -> Result<MaterialTable, String> {
     let bin = Bin::from_path(materials_bin)
         .map_err(|e| format!("Failed to parse materials bin: {:?}", e))?;
+    let names = flint_core::bin::name_table(&bin, materials_bin);
+    let index = BinIndex::new([(&bin, names)]);
 
     let static_material_def = h("StaticMaterialDef");
     let mut table = MaterialTable::new();
@@ -171,7 +174,8 @@ pub fn build_material_table(materials_bin: &Path) -> Result<MaterialTable, Strin
                 BinValue::Embed { fields, .. } | BinValue::Pointer { fields, .. } => fields,
                 _ => continue,
             };
-            let Some(tex_path) = get_string(fields, "texturePath") else {
+            let Some(tex_path) = fields.get(&h("texturePath")).and_then(|v| index.asset_path(v))
+            else {
                 continue;
             };
             if first_path.is_none() {

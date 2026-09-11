@@ -348,6 +348,7 @@ pub fn create_map_project(
                 &main_out,
                 &entry.id,
                 variant,
+                &resolve_paths,
             ) {
                 Ok(n) => { main_extracted = n; }
                 Err(e) => {
@@ -424,6 +425,70 @@ const ASSET_EXTS: &[&str] = &[
     ".wpk", ".bnk", ".troybin", ".bnk", ".anm",
 ];
 
+/// True for a lowercased string that spells out an asset this WAD could carry.
+fn looks_like_asset(lower: &str) -> bool {
+    if !lower.is_ascii() || !lower.contains('/') {
+        return false;
+    }
+    ASSET_PREFIXES.iter().any(|p| lower.starts_with(p))
+        && ASSET_EXTS.iter().any(|e| lower.ends_with(e))
+}
+
+/// Every asset a materials bin references, in both forms it can store one.
+#[derive(Default)]
+struct ReferencedAssets {
+    paths: HashSet<String>,
+    files: HashSet<u64>,
+}
+
+/// LANDMINE: a `file` value is an xxh64 with no string anywhere in the bin, so a byte
+/// scan cannot see it. Riot retyped `StaticMaterialShaderSamplerDef.texturePath` from
+/// `string` to `file`, and on a current map EVERY geometry texture is that form — the
+/// scan found only the particle paths, which are still strings, and the project shipped
+/// no map textures at all. Walk the parsed tree; keep the scan for a bin that won't parse.
+fn referenced_assets(data: &[u8]) -> ReferencedAssets {
+    let mut out = ReferencedAssets::default();
+    match crate::bin::read_bin(data) {
+        Ok(bin) => {
+            for entry in &bin.entries {
+                for value in entry.fields.values() {
+                    collect_refs(value, &mut out);
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!("materials.bin did not parse ({e}); falling back to a string scan");
+            out.paths = scan_referenced_paths(data);
+        }
+    }
+    out
+}
+
+fn collect_refs(value: &crate::bin::BinValue, out: &mut ReferencedAssets) {
+    use crate::bin::BinValue as V;
+    match value {
+        V::String(s) => {
+            let lower = s.to_ascii_lowercase();
+            if looks_like_asset(&lower) {
+                out.paths.insert(lower);
+            }
+        }
+        V::File(hash) if *hash != 0 => {
+            out.files.insert(*hash);
+        }
+        V::List { items, .. } => items.iter().for_each(|i| collect_refs(i, out)),
+        V::Pointer { fields, .. } | V::Embed { fields, .. } => {
+            fields.values().for_each(|v| collect_refs(v, out))
+        }
+        V::Option { value: Some(inner), .. } => collect_refs(inner, out),
+        V::Map { entries, .. } => entries.iter().for_each(|(k, v)| {
+            collect_refs(k, out);
+            collect_refs(v, out);
+        }),
+        _ => {}
+    }
+}
+
 /// Scan a BIN's raw bytes for length-prefixed UTF-8 strings that look like
 /// asset paths (start with `assets/`/`data/`, end in a known extension).
 /// Same approach as the extract_hashes scanner, but tighter — we only need
@@ -469,6 +534,7 @@ pub fn extract_variant_files(
     output_dir: &Path,
     map_id: &str,
     variant: &str,
+    resolve_paths: impl Fn(&[u64]) -> ResolvedHashes,
 ) -> Result<usize> {
     let map_lower = map_id.to_lowercase();
     let var_lower = variant.to_lowercase();
@@ -493,15 +559,43 @@ pub fn extract_variant_files(
     let mat_h = xx64(&materials_path);
     if let Some(chunk) = by_hash.get(&mat_h).copied() {
         if let Ok(bytes) = read_chunk_decompressed_bytes(wad_path, &chunk) {
-            let referenced = scan_referenced_paths(&bytes);
+            let referenced = referenced_assets(&bytes);
             tracing::info!(
-                "Variant '{}' references {} candidate asset path(s) in materials.bin",
-                variant, referenced.len()
+                "Variant '{}' references {} asset path(s) and {} file hash(es) in materials.bin",
+                variant, referenced.paths.len(), referenced.files.len()
             );
-            for path in referenced {
-                if extract_one(wad_path, &by_hash, &path, output_dir).unwrap_or(false) {
+            for path in &referenced.paths {
+                if extract_one(wad_path, &by_hash, path, output_dir).unwrap_or(false) {
                     extracted += 1;
                 }
+            }
+
+            // A `file` value IS the chunk's path hash, so the ones this WAD carries are
+            // known before anything is named. Naming is only needed to write them out.
+            let present: Vec<u64> = referenced
+                .files
+                .iter()
+                .copied()
+                .filter(|h| by_hash.contains_key(h))
+                .collect();
+            let names = resolve_paths(&present);
+            let mut unnamed = 0usize;
+            for hash in &present {
+                match names.get(hash) {
+                    Some(path) => {
+                        if extract_one(wad_path, &by_hash, path, output_dir).unwrap_or(false) {
+                            extracted += 1;
+                        }
+                    }
+                    None => unnamed += 1,
+                }
+            }
+            if unnamed > 0 {
+                tracing::warn!(
+                    "Variant '{}': {} referenced chunk(s) are in the WAD but the hash database \
+                     names none of them, so they were not extracted",
+                    variant, unnamed
+                );
             }
         }
     }
