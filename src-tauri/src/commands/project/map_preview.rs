@@ -1537,7 +1537,7 @@ mod tests {
             }
         }
         eprintln!(
-            "{} models, {multi_buffer} with several vertex buffers,              {uv_from_later_buffer} whose UVs live past the first, {no_uv} with none",
+            "{} models, {multi_buffer} with several vertex buffers, {uv_from_later_buffer} whose UVs live past the first, {no_uv} with none",
             geo.models.len(),
         );
         assert_eq!(no_uv, 0, "every model on a real map carries Texcoord0");
