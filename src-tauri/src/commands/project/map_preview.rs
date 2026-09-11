@@ -16,7 +16,7 @@ use flint_core::mesh::materials::BinIndex;
 use flint_core::project::FlintMetadata;
 use indexmap::IndexMap;
 use ritoshark::bin::{Bin, BinValue};
-use ritoshark::mapgeo::{ElementFormat, ElementName, MapGeometry};
+use ritoshark::mapgeo::{ElementName, MapGeometry, MapModel};
 use ritoshark::prelude::Parse as _;
 
 // ============================================================================
@@ -359,19 +359,6 @@ pub struct DecodedGeometry {
     pub bbox_max: [f32; 3],
 }
 
-fn read_f32x3(buf: &[u8], at: usize) -> [f32; 3] {
-    [
-        f32::from_le_bytes(buf[at..at + 4].try_into().unwrap()),
-        f32::from_le_bytes(buf[at + 4..at + 8].try_into().unwrap()),
-        f32::from_le_bytes(buf[at + 8..at + 12].try_into().unwrap()),
-    ]
-}
-fn read_f32x2(buf: &[u8], at: usize) -> [f32; 2] {
-    [
-        f32::from_le_bytes(buf[at..at + 4].try_into().unwrap()),
-        f32::from_le_bytes(buf[at + 4..at + 8].try_into().unwrap()),
-    ]
-}
 
 /// Runtime lighting constants for one map mode, out of the `MapContainer` in the
 /// sibling `*.materials.bin`. These are the uniforms `Shaders/StaticMesh/DefaultEnv_Flat`
@@ -528,6 +515,53 @@ pub fn read_map_env(bin: &Bin) -> MapEnv {
     env
 }
 
+/// Read one vertex attribute for every vertex of a model, as `components` floats each.
+///
+/// LANDMINE: a mapgeo model owns SEVERAL vertex buffers and each has its OWN layout,
+/// consecutive from `vertex_description_id`. Riot routinely puts Position in the first
+/// and Texcoord0 / Texcoord7 / Normal in a later one, so reading only the first buffer
+/// silently yields (0, 0) UVs — a whole submesh sampling a single texel, which reads as
+/// "untextured, just coloured". `read_attribute` also decodes the packed formats, which
+/// a hand-rolled float-only reader skips the same way.
+fn model_attribute(
+    geo: &MapGeometry,
+    model: &MapModel,
+    name: ElementName,
+    components: usize,
+) -> Option<Vec<f32>> {
+    let vertex_count = model.vertex_count as usize;
+    let first = model.vertex_description_id as usize;
+    for (slot, &buffer_id) in model.vertex_buffer_ids.iter().enumerate() {
+        let Some(desc) = geo.vertex_descriptions.get(first + slot) else {
+            continue;
+        };
+        let Some(buffer) = usize::try_from(buffer_id)
+            .ok()
+            .and_then(|id| geo.vertex_buffers.get(id))
+        else {
+            continue;
+        };
+        let values = match desc.read_attribute(&buffer.data, name, vertex_count) {
+            Ok(Some(values)) => values,
+            _ => continue,
+        };
+        let got = desc
+            .element(name)
+            .map(|(_, format)| format.component_count())
+            .unwrap_or(components);
+        if got == components {
+            return Some(values);
+        }
+        let keep = got.min(components);
+        let mut out = vec![0.0; vertex_count * components];
+        for (i, chunk) in values.chunks_exact(got).enumerate() {
+            out[i * components..i * components + keep].copy_from_slice(&chunk[..keep]);
+        }
+        return Some(out);
+    }
+    None
+}
+
 /// Decode all models of a parsed mapgeo into a single geometry pool.
 pub fn decode_geometry(geo: &MapGeometry) -> Result<DecodedGeometry, String> {
     let mut out = DecodedGeometry {
@@ -537,14 +571,9 @@ pub fn decode_geometry(geo: &MapGeometry) -> Result<DecodedGeometry, String> {
     };
 
     // One pass to size the pools. A real map runs to millions of vertices, and letting
-    // three Vecs of that size grow by doubling is most of this function's cost.
+    // four Vecs of that size grow by doubling is most of this function's cost.
     let total_verts: usize = geo.models.iter().map(|m| m.vertex_count as usize).sum();
-    let total_indices: usize = geo
-        .models
-        .iter()
-        .filter_map(|m| geo.index_buffers.get(m.index_buffer_id as usize))
-        .map(|b| b.indices.len())
-        .sum();
+    let total_indices: usize = geo.models.iter().map(|m| m.index_count as usize).sum();
     out.positions.reserve(total_verts * 3);
     out.normals.reserve(total_verts * 3);
     out.uvs.reserve(total_verts * 2);
@@ -554,95 +583,77 @@ pub fn decode_geometry(geo: &MapGeometry) -> Result<DecodedGeometry, String> {
         .reserve(geo.models.iter().map(|m| m.submeshes.len()).sum());
 
     for model in &geo.models {
-        let desc = geo
-            .vertex_descriptions
-            .get(model.vertex_description_id as usize)
-            .ok_or("vertex_description_id out of range")?;
-        let stride = desc.vertex_size();
-
-        // Byte offset of Position and Texcoord0 within a vertex.
-        let mut pos_off: Option<usize> = None;
-        let mut uv_off: Option<usize> = None;
-        // Texcoord7 is the lightmap UV set.
-        let mut lm_off: Option<usize> = None;
-        let mut nrm_off: Option<usize> = None;
-        let mut running = 0usize;
-        for el in &desc.elements {
-            match el.name {
-                ElementName::Position if el.format == ElementFormat::XyzFloat32 => {
-                    pos_off = Some(running)
-                }
-                ElementName::Texcoord0 if el.format == ElementFormat::XyFloat32 => {
-                    uv_off = Some(running)
-                }
-                ElementName::Texcoord7 if el.format == ElementFormat::XyFloat32 => {
-                    lm_off = Some(running)
-                }
-                ElementName::Normal if el.format == ElementFormat::XyzFloat32 => {
-                    nrm_off = Some(running)
-                }
-                _ => {}
-            }
-            running += el.format.byte_size();
-        }
-        let pos_off = pos_off.ok_or("model has no float Position attribute")?;
-
-        let vbuf_id = *model
-            .vertex_buffer_ids
-            .first()
-            .ok_or("model has no vertex buffer")? as usize;
-        let vbuf = geo
-            .vertex_buffers
-            .get(vbuf_id)
-            .ok_or("vertex_buffer_id out of range")?;
+        let vertex_count = model.vertex_count as usize;
+        let positions = model_attribute(geo, model, ElementName::Position, 3)
+            .ok_or("model has no Position attribute")?;
+        let normals = model_attribute(geo, model, ElementName::Normal, 3);
+        let uvs = model_attribute(geo, model, ElementName::Texcoord0, 2);
+        let lm_uvs = model_attribute(geo, model, ElementName::Texcoord7, 2);
         let ibuf = geo
             .index_buffers
             .get(model.index_buffer_id as usize)
             .ok_or("index_buffer_id out of range")?;
 
+        // The instance matrix, applied as glam lays it out (column-major, `M * v`).
+        // Identity on every model of the maps measured so far, but the file carries
+        // one per model and a placed instance is free to use it.
+        let m = model.transform.to_cols_array();
         let base_vertex = (out.positions.len() / 3) as u32;
         let base_index = out.indices.len() as u32;
 
-        for v in 0..model.vertex_count as usize {
-            let vbase = v * stride;
-            let p = read_f32x3(&vbuf.data, vbase + pos_off);
+        for v in 0..vertex_count {
+            let (x, y, z) = (positions[v * 3], positions[v * 3 + 1], positions[v * 3 + 2]);
+            let p = [
+                x * m[0] + y * m[4] + z * m[8] + m[12],
+                x * m[1] + y * m[5] + z * m[9] + m[13],
+                x * m[2] + y * m[6] + z * m[10] + m[14],
+            ];
             for (i, &pi) in p.iter().enumerate() {
                 out.bbox_min[i] = out.bbox_min[i].min(pi);
                 out.bbox_max[i] = out.bbox_max[i].max(pi);
             }
             out.positions.extend_from_slice(&p);
-            let n = match nrm_off {
-                Some(o) => read_f32x3(&vbuf.data, vbase + o),
+
+            // The 3x3 alone for normals; the shader normalizes, so scale is harmless.
+            let n = match &normals {
+                Some(src) => {
+                    let (x, y, z) = (src[v * 3], src[v * 3 + 1], src[v * 3 + 2]);
+                    [
+                        x * m[0] + y * m[4] + z * m[8],
+                        x * m[1] + y * m[5] + z * m[9],
+                        x * m[2] + y * m[6] + z * m[10],
+                    ]
+                }
                 None => [0.0, 1.0, 0.0],
             };
             out.normals.extend_from_slice(&n);
-            let uv = match uv_off {
-                Some(o) => read_f32x2(&vbuf.data, vbase + o),
+
+            let uv = match &uvs {
+                Some(src) => [src[v * 2], src[v * 2 + 1]],
                 None => [0.0, 0.0],
             };
             out.uvs.extend_from_slice(&uv);
+
             // lmUV = texcoord7 * scale + offset, exactly the transform the model
             // declares. Baking it here keeps the frontend free of per-mesh uniforms.
-            let lm = match lm_off {
-                Some(o) => {
-                    let raw = read_f32x2(&vbuf.data, vbase + o);
-                    [
-                        raw[0] * model.baked_light.scale.x + model.baked_light.offset.x,
-                        raw[1] * model.baked_light.scale.y + model.baked_light.offset.y,
-                    ]
-                }
+            let lm = match &lm_uvs {
+                Some(src) => [
+                    src[v * 2] * model.baked_light.scale.x + model.baked_light.offset.x,
+                    src[v * 2 + 1] * model.baked_light.scale.y + model.baked_light.offset.y,
+                ],
                 None => [0.0, 0.0],
             };
             out.uvs2.extend_from_slice(&lm);
         }
 
-        for &idx in &ibuf.indices {
+        let index_count = (model.index_count as usize).min(ibuf.indices.len());
+        for &idx in &ibuf.indices[..index_count] {
             out.indices.push(base_vertex + idx as u32);
         }
 
         // A model missing either attribute cannot take the lit path, so it declares
         // no atlas and stays on the flat fallback.
-        let lightmap = if lm_off.is_some() && nrm_off.is_some() {
+        let lightmap = if lm_uvs.is_some() && normals.is_some() {
             model.baked_light.path.to_ascii_lowercase()
         } else {
             String::new()
@@ -655,6 +666,19 @@ pub fn decode_geometry(geo: &MapGeometry) -> Result<DecodedGeometry, String> {
                 vertex_count: sm.max_vertex.saturating_sub(sm.min_vertex) + 1,
                 start_index: base_index + sm.index_start,
                 index_count: sm.index_count,
+                layer: model.layer,
+            });
+        }
+        // A model with no submesh list still has geometry; draw it whole rather than
+        // dropping it, under its own name (which resolves to no material).
+        if model.submeshes.is_empty() && index_count > 0 {
+            out.submeshes.push(SubmeshRange {
+                name: model.name.clone(),
+                lightmap,
+                start_vertex: base_vertex,
+                vertex_count: vertex_count as u32,
+                start_index: base_index,
+                index_count: index_count as u32,
                 layer: model.layer,
             });
         }
@@ -1475,6 +1499,59 @@ mod tests {
         assert!(
             a0 > total / 100,
             "expected transparent texels (a0) but got a0={a0}/{total} — alpha is being DROPPED in decode"
+        );
+    }
+
+    /// A mapgeo model owns several vertex buffers, each with its own layout. Reading
+    /// only the first is the bug this pins: Texcoord0 and Texcoord7 live in a later
+    /// buffer on most models, and losing them renders whole submeshes untextured.
+    #[test]
+    fn every_model_resolves_its_uvs_across_all_vertex_buffers() {
+        let p = home_dir().join(
+            "AppData/Roaming/Flint/projects/teasat/content/base/Map12.wad.client/data/maps/mapgeometry/map12/bilgewater.mapgeo",
+        );
+        if !p.exists() {
+            eprintln!("skip: real mapgeo not present at {}", p.display());
+            return;
+        }
+        let bytes = std::fs::read(&p).unwrap();
+        let geo = MapGeometry::from_bytes(&bytes).unwrap();
+
+        let mut multi_buffer = 0usize;
+        let mut uv_from_later_buffer = 0usize;
+        let mut no_uv = 0usize;
+        for model in &geo.models {
+            if model.vertex_buffer_ids.len() > 1 {
+                multi_buffer += 1;
+            }
+            let first = model.vertex_description_id as usize;
+            let in_first = geo
+                .vertex_descriptions
+                .get(first)
+                .and_then(|d| d.element(ElementName::Texcoord0))
+                .is_some();
+            match model_attribute(&geo, model, ElementName::Texcoord0, 2) {
+                Some(_) if !in_first => uv_from_later_buffer += 1,
+                Some(_) => {}
+                None => no_uv += 1,
+            }
+        }
+        eprintln!(
+            "{} models, {multi_buffer} with several vertex buffers,              {uv_from_later_buffer} whose UVs live past the first, {no_uv} with none",
+            geo.models.len(),
+        );
+        assert_eq!(no_uv, 0, "every model on a real map carries Texcoord0");
+
+        let decoded = decode_geometry(&geo).unwrap();
+        let zero_uv = decoded
+            .uvs
+            .chunks_exact(2)
+            .filter(|uv| uv[0] == 0.0 && uv[1] == 0.0)
+            .count();
+        let verts = decoded.positions.len() / 3;
+        assert!(
+            zero_uv * 20 < verts,
+            "{zero_uv} of {verts} vertices sit at UV (0,0) — attributes are being dropped"
         );
     }
 
