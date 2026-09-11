@@ -12,6 +12,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use flint_core::project::FlintMetadata;
 use indexmap::IndexMap;
 use ritoshark::bin::{Bin, BinValue};
 use ritoshark::mapgeo::{ElementFormat, ElementName, MapGeometry};
@@ -67,11 +68,11 @@ fn read_map_id(project_path: &Path) -> Result<String, String> {
     let flint = project_path.join("flint.json");
     let text =
         std::fs::read_to_string(&flint).map_err(|e| format!("Failed to read flint.json: {e}"))?;
-    let json: serde_json::Value =
+    let meta: FlintMetadata =
         serde_json::from_str(&text).map_err(|e| format!("Invalid flint.json: {e}"))?;
-    json.get("map_id")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
+    meta.normalized()
+        .source
+        .map_id
         .ok_or_else(|| "flint.json has no map_id (not a map project?)".to_string())
 }
 
@@ -576,12 +577,33 @@ mod tests {
         touch(&geo_dir.join("base_srx.materials.bin"));
         fs::write(
             tmp.join("flint.json"),
-            br#"{ "kind": "map", "map_id": "map11" }"#,
+            br#"{ "schema": 2, "pid": "54739f0e", "kind": "map",
+                  "source": { "map_id": "map11", "variant": "base_srx" },
+                  "extract": {},
+                  "created_at": "2026-01-01T00:00:00Z",
+                  "modified_at": "2026-01-01T00:00:00Z" }"#,
         )
         .unwrap();
 
         let src = discover_map_source(&tmp).unwrap();
         assert_eq!(src.variant, "base_srx");
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn read_map_id_accepts_schema_1_top_level() {
+        let tmp = std::env::temp_dir().join("flint_mp_test_schema1");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        fs::write(
+            tmp.join("flint.json"),
+            br#"{ "schema": 1, "pid": "54739f0e", "kind": "map", "map_id": "map11",
+                  "created_at": "2026-01-01T00:00:00Z",
+                  "modified_at": "2026-01-01T00:00:00Z" }"#,
+        )
+        .unwrap();
+
+        assert_eq!(read_map_id(&tmp).unwrap(), "map11");
         let _ = fs::remove_dir_all(&tmp);
     }
 
