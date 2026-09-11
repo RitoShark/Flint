@@ -8,6 +8,7 @@ import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
 import { Material } from '@babylonjs/core/Materials/material';
+import type { ShaderMaterial } from '@babylonjs/core/Materials/shaderMaterial';
 import { RawTexture } from '@babylonjs/core/Materials/Textures/rawTexture';
 import type { BaseTexture } from '@babylonjs/core/Materials/Textures/baseTexture';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
@@ -28,6 +29,10 @@ import {
     type BaronStage,
     type SubmeshSpan,
 } from '../../lib/babylon/mapMeshBuilder';
+import {
+    createMapTerrainMaterial,
+    type MapEnv,
+} from '../../lib/babylon/mapTerrainMaterial';
 import * as paint from '../../lib/babylon/paintEngine';
 import { createUvPass, type UvPass } from '../../lib/babylon/uvPaintPass';
 
@@ -86,8 +91,25 @@ function createMapTexture(
     }
     tex.wrapU = addressMode(addressU);
     tex.wrapV = addressMode(addressV);
-    tex.hasAlpha = true;
+    // Only what the FILE carries. Forcing this on turned every BC1 surface into an
+    // alpha-tested one, so any block the encoder wrote in punch-through mode cut a
+    // hole in solid terrain.
+    tex.hasAlpha = entry.hasAlpha;
     return tex;
+}
+
+/** The engine's albedo is `texture x TintColor x 2`, so an authored 0.5 is neutral
+ *  and nearly every material authors exactly that. Foliage is where it matters: brush
+ *  cards bind one shared neutral texture and take their whole colour from here.
+ *
+ *  Renormalising by the peak channel keeps the hue while stopping a material that
+ *  authors [1,1,1] - because its real colour comes from a tint TEXTURE this pass does
+ *  not bind - from rendering at 2x. */
+function tintColor(tint: [number, number, number] | null): Color3 {
+    if (!tint) return new Color3(1, 1, 1);
+    const [r, g, b] = [tint[0] * 2, tint[1] * 2, tint[2] * 2];
+    const peak = Math.max(r, g, b, 1);
+    return new Color3(r / peak, g / peak, b / peak);
 }
 
 /** A texture's cache identity. The modes belong in it: the same file is used
@@ -266,13 +288,16 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
      *  (path, address-mode) pair. The BYTES are shared: a file used under two modes
      *  is fetched once and uploaded twice. */
     const applyEntries = useCallback((
-        slots: { path: string; u: number; v: number; mats: PBRMaterial[] }[],
+        slots: {
+            path: string; u: number; v: number;
+            mats: PBRMaterial[]; material: api.MapMaterial | null;
+        }[],
         entries: Map<string, api.MapTextureEntry>,
     ) => {
         const sc = sceneRef.current;
         const eng = engineRef.current;
         if (!sc || sc.isDisposed || !eng || eng.isDisposed) return;
-        for (const { path, u, v, mats } of slots) {
+        for (const { path, u, v, mats, material } of slots) {
             const cacheKey = textureKey(path, u, v);
             let tex = texCacheRef.current.get(cacheKey);
             if (!tex) {
@@ -288,50 +313,72 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             }
             for (const mat of mats) {
                 mat.albedoTexture = tex;
-                mat.albedoColor = new Color3(1, 1, 1);
-                mat.useAlphaFromAlbedoTexture = true;
-                mat.transparencyMode = Material.MATERIAL_ALPHATEST;
-                mat.alphaCutOff = 0.5;
+                mat.albedoColor = tintColor(material?.tint_color ?? null);
                 mat.backFaceCulling = false;
+                if (!tex.hasAlpha) {
+                    mat.transparencyMode = Material.MATERIAL_OPAQUE;
+                    continue;
+                }
+                mat.useAlphaFromAlbedoTexture = true;
+                if (material?.translucent) {
+                    // Authored alpha-BLEND (water, tarps, nets): composite instead of
+                    // hard-cutting, and do not write depth so what is behind shows.
+                    mat.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
+                    mat.forceDepthWrite = false;
+                } else {
+                    // ALPHATESTANDBLEND is what actually discards on an unlit PBR
+                    // material; plain ALPHATEST renders the cutouts as black boxes.
+                    mat.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHATESTANDBLEND;
+                    mat.alphaCutOff = material?.alpha_test ?? 0.5;
+                    mat.forceDepthWrite = true;
+                }
             }
         }
     }, []);
 
-    /** Bind each mesh's baked-light atlas.
+    /** Swap every baked-lit mesh onto the game's terrain shader.
      *
-     *  Babylon's `unlit` path skips lighting entirely, lightmap included, so a lit mesh
-     *  has to leave it. `useLightmapAsShadowmap = false` makes the atlas an irradiance
-     *  term, and with no other light in the scene the result is `albedo x lightmap`,
-     *  scaled by the bin's own `lightMapColorScale`. A mesh whose atlas failed to load
-     *  KEEPS `unlit` - going unlit-with-no-light would render it black, which is worse
-     *  than flat. */
-    const applyLightmaps = useCallback((
+     *  Babylon's PBR cannot express `albedo x (lightmap x scale + ndl . shadow . sun)`:
+     *  binding the atlas as a `lightmapTexture` runs it through the diffuse BRDF and
+     *  loses the shadow mask in alpha, which is why the preview washed out. A mesh
+     *  missing its atlas, its diffuse, or its normals keeps the unlit fallback -
+     *  that is flat, but flat beats wrong. */
+    const applyTerrainLighting = useCallback((
         meshes: BuiltMapMesh[],
         entries: Map<string, api.MapTextureEntry>,
-        scale: number,
+        env: MapEnv,
     ): number => {
         const sc = sceneRef.current;
         if (!sc || sc.isDisposed) return 0;
+        const cache = new Map<string, ShaderMaterial>();
         let lit = 0;
         for (const bm of meshes) {
-            if (!bm.lightmap || bm.mesh.isDisposed()) continue;
-            const mat = bm.mesh.material as PBRMaterial | null;
-            if (!mat) continue;
+            if (!bm.lightmap || !bm.texturePath || bm.mesh.isDisposed()) continue;
+            // Translucent surfaces stay on their blended PBR material; the terrain
+            // shader is opaque and would smear the water back into a solid sheet.
+            if (bm.material?.translucent) continue;
+            const diffuse = texCacheRef.current.get(
+                textureKey(bm.texturePath, bm.addressU, bm.addressV),
+            );
+            if (!diffuse) continue;
             let lm = lightmapCacheRef.current.get(bm.lightmap);
             if (lm === undefined) {
                 const entry = entries.get(bm.lightmap);
                 lm = entry ? createMapTexture(sc, entry, 1, 1, `lm:${bm.lightmap}`) : null;
-                if (lm) {
-                    lm.coordinatesIndex = 1;
-                    lm.level = scale > 0 ? scale : 1;
-                    lm.hasAlpha = false;
-                }
                 lightmapCacheRef.current.set(bm.lightmap, lm);
             }
             if (!lm) continue;
-            mat.unlit = false;
-            mat.lightmapTexture = lm;
-            mat.useLightmapAsShadowmap = false;
+            const cutoff = diffuse.hasAlpha ? (bm.material?.alpha_test ?? 0.5) : 0;
+            const key = `${bm.texturePath}|${bm.lightmap}|${cutoff}`;
+            let mat = cache.get(key);
+            if (!mat) {
+                mat = createMapTerrainMaterial(
+                    sc, diffuse, lm, env, bm.material?.tint_color ?? null, cutoff,
+                );
+                cache.set(key, mat);
+            }
+            bm.mesh.material?.dispose();
+            bm.mesh.material = mat;
             lit++;
         }
         return lit;
@@ -346,7 +393,10 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         try {
             const [entry] = await api.loadMapTextures(projectPath, [texPath], preferCompressedRef.current);
             if (!entry) return;
-            applyEntries([{ path: texPath, u: addressU, v: addressV, mats }], new Map([[texPath, entry]]));
+            applyEntries(
+                [{ path: texPath, u: addressU, v: addressV, mats, material: null }],
+                new Map([[texPath, entry]]),
+            );
         } catch (e) {
             console.error('[map-tex] failed', texPath, e);
             for (const mat of mats) mat.albedoColor = new Color3(1, 0, 1);
@@ -410,6 +460,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             const builtMeshes = buildMapMeshes(
                 {
                     positions: data.positions,
+                    normals: data.normals,
                     uvs: data.uvs,
                     uvs2: data.uvs2,
                     indices: data.indices,
@@ -447,8 +498,11 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             camera.minZ = 1;
             camera.maxZ = Math.max(size * 8, 10000);
 
-            const byTexture = new Map<string, { path: string; u: number; v: number; mats: PBRMaterial[] }>();
-            for (const { mesh, texturePath, addressU, addressV } of builtMeshes) {
+            const byTexture = new Map<string, {
+                path: string; u: number; v: number;
+                mats: PBRMaterial[]; material: api.MapMaterial | null;
+            }>();
+            for (const { mesh, texturePath, addressU, addressV, material } of builtMeshes) {
                 const mat = new PBRMaterial(mesh.name + '_mat', scene);
                 mat.unlit = true;
                 mat.metallic = 0;
@@ -461,7 +515,12 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                     const key = textureKey(texturePath, addressU, addressV);
                     const slot = byTexture.get(key);
                     if (slot) slot.mats.push(mat);
-                    else byTexture.set(key, { path: texturePath, u: addressU, v: addressV, mats: [mat] });
+                    else {
+                        byTexture.set(key, {
+                            path: texturePath, u: addressU, v: addressV,
+                            mats: [mat], material,
+                        });
+                    }
                 }
             }
 
@@ -492,7 +551,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                     const byPath = new Map<string, api.MapTextureEntry>();
                     wanted.forEach((path, i) => byPath.set(path, entries[i]));
                     applyEntries(uniqueTextures, byPath);
-                    const lit = applyLightmaps(builtMeshes, byPath, data.lightmap_scale);
+                    const lit = applyTerrainLighting(builtMeshes, byPath, data.env);
                     setStatus(
                         `${data.variant} · ${builtMeshes.length} meshes · ${uniquePaths.length} textures`
                         + (lightmapPaths.length ? ` · ${lit} baked-lit` : ''),
@@ -506,7 +565,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             setError((e as Error).message || 'Failed to load map');
             setLoading(false);
         }
-    }, [projectPath, loadAndApply, applyVisibility]);
+    }, [projectPath, applyEntries, applyTerrainLighting, applyVisibility]);
 
     const reloadChangedTexture = useCallback(async (changedLowerPath: string) => {
         const base = changedLowerPath.split(/[\\/]/).pop() || '';

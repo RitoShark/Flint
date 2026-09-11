@@ -6,6 +6,7 @@ import type { MapMaterial } from '../api/mapPreview';
 
 export interface MapGeometryInput {
     positions: Float32Array; // global pool, len = vertexCount*3
+    normals: Float32Array;   // authored normals, len = vertexCount*3
     uvs: Float32Array;       // global pool, len = vertexCount*2
     uvs2: Float32Array;      // lightmap UVs, len = vertexCount*2
     indices: Uint32Array;    // global indices
@@ -29,6 +30,8 @@ export interface SubmeshSpan {
 
 export interface BuiltMapMesh {
     mesh: Mesh;
+    /** The material's full authoring (tint, blend, cutout), or null. */
+    material: MapMaterial | null;
     /** Texture path this mesh needs, or null if the submesh had no material. */
     texturePath: string | null;
     /** The baked-light atlas this mesh samples, or null. Part of the mesh's identity:
@@ -195,7 +198,7 @@ function groupKey(materials: Record<string, MapMaterial>, sm: SubmeshRange): str
 }
 
 export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapMesh[] {
-    const { positions, uvs, uvs2, indices, submeshes, materials } = input;
+    const { positions, normals: srcNormals, uvs, uvs2, indices, submeshes, materials } = input;
 
     const groups = new Map<string, SubmeshRange[]>();
     // The key embeds the address modes, so recover the material from the side map
@@ -222,6 +225,7 @@ export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapM
         }
 
         const gPos = new Float32Array(totalVerts * 3);
+        const gNrm = new Float32Array(totalVerts * 3);
         const gUv = new Float32Array(totalVerts * 2);
         const gUv2 = new Float32Array(totalVerts * 2);
         const gIdx = new Uint32Array(totalIdx);
@@ -244,7 +248,10 @@ export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapM
                 globalIndexCount: iCount,
             });
 
-            for (let i = 0; i < vCount * 3; i++) gPos[vWrite * 3 + i] = positions[vStart * 3 + i];
+            gPos.set(positions.subarray(vStart * 3, (vStart + vCount) * 3), vWrite * 3);
+            if (srcNormals.length) {
+                gNrm.set(srcNormals.subarray(vStart * 3, (vStart + vCount) * 3), vWrite * 3);
+            }
             // UVs pass through as authored. LANDMINE: this pairs with invertY=FALSE
             // on every map texture. Compressed blocks cannot be flipped on upload,
             // so the GPU-native path forces the D3D convention on both halves at
@@ -262,13 +269,15 @@ export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapM
             iWrite += iCount;
         }
 
-        const normals = new Float32Array(totalVerts * 3);
-        VertexData.ComputeNormals(gPos, gIdx, normals);
+        // Riot's authored normals drive the terrain shader's sun term; recomputing
+        // them from the merged triangles smooths across submesh seams and shifts the
+        // lighting. Only fall back when the model shipped none.
+        if (!srcNormals.length) VertexData.ComputeNormals(gPos, gIdx, gNrm);
 
         const vd = new VertexData();
         vd.positions = gPos;
         vd.indices = gIdx;
-        vd.normals = normals;
+        vd.normals = gNrm;
         vd.uvs = gUv;
         vd.uvs2 = gUv2;
 
@@ -287,6 +296,7 @@ export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapM
             group.map(sm => classifyBaronStage(sm.name)).find(s => s !== null) ?? null;
         out.push({
             mesh,
+            material,
             texturePath,
             lightmap: groupLightmap.get(key) ?? null,
             addressU: material?.address_u ?? 0,

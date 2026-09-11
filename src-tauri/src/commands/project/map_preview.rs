@@ -129,6 +129,15 @@ pub struct MapMaterial {
     pub path: String,
     pub address_u: u32,
     pub address_v: u32,
+    /// Authored `TintColor.rgb`. The engine's albedo is `texture * TintColor * 2`,
+    /// so 0.5 is neutral. Foliage depends on it: brush cards bind one shared neutral
+    /// texture and get their whole per-map colour from here.
+    pub tint_color: Option<[f32; 3]>,
+    /// `blendEnable` with an authored blend factor: genuine translucency (water,
+    /// tarps, nets), as opposed to a texture that merely carries an alpha channel.
+    pub translucent: bool,
+    /// Authored `AlphaTestValue.x`, the cutout threshold.
+    pub alpha_test: Option<f32>,
 }
 
 /// Map of submesh/material name -> its diffuse texture.
@@ -158,6 +167,77 @@ fn get_string(fields: &IndexMap<u32, BinValue>, name: &str) -> Option<String> {
     }
 }
 
+/// The embedded/pointer field map of a container item.
+fn item_fields(value: &BinValue) -> Option<&IndexMap<u32, BinValue>> {
+    match value {
+        BinValue::Embed { fields, .. } | BinValue::Pointer { fields, .. } => Some(fields),
+        _ => None,
+    }
+}
+
+/// The items of a list-shaped field.
+fn list_items<'a>(
+    fields: &'a IndexMap<u32, BinValue>,
+    name: &str,
+) -> Option<&'a Vec<BinValue>> {
+    match fields.get(&h(name)) {
+        Some(BinValue::List { items, .. }) => Some(items),
+        _ => None,
+    }
+}
+
+/// A named `paramValues` entry's vec4.
+fn param_vec4(fields: &IndexMap<u32, BinValue>, param: &str) -> Option<[f32; 4]> {
+    let wanted = h(param);
+    for item in list_items(fields, "paramValues")? {
+        let Some(props) = item_fields(item) else { continue };
+        let Some(name) = get_string(props, "name") else { continue };
+        if h(&name) != wanted {
+            continue;
+        }
+        return match props.get(&h("value")) {
+            Some(BinValue::Vec4(v)) => Some(*v),
+            Some(BinValue::Vec3(v)) => Some([v[0], v[1], v[2], 0.0]),
+            Some(BinValue::F32(v)) => Some([*v, 0.0, 0.0, 0.0]),
+            _ => None,
+        };
+    }
+    None
+}
+
+/// Whether the material's main pass alpha-BLENDS. `blendEnable` alone is not enough:
+/// authoring either colour factor is the intent, and materials that set neither are
+/// opaque cutouts however much alpha their texture carries.
+fn is_translucent(fields: &IndexMap<u32, BinValue>) -> bool {
+    let Some(techniques) = list_items(fields, "techniques") else {
+        return false;
+    };
+    fn pass_of(tech: &BinValue) -> Option<&IndexMap<u32, BinValue>> {
+        let tprops = item_fields(tech)?;
+        for pass in list_items(tprops, "passes")? {
+            let pprops = item_fields(pass)?;
+            if pprops.contains_key(&h("shader")) {
+                return Some(pprops);
+            }
+        }
+        None
+    }
+    let normal = techniques.iter().find(|t| {
+        item_fields(t)
+            .and_then(|p| get_string(p, "name"))
+            .map(|n| n.eq_ignore_ascii_case("normal"))
+            .unwrap_or(false)
+    });
+    let pass = normal
+        .and_then(pass_of)
+        .or_else(|| techniques.iter().find_map(pass_of));
+    let Some(pass) = pass else { return false };
+    let enabled = matches!(pass.get(&h("blendEnable")), Some(BinValue::Bool(true)));
+    let factored = pass.contains_key(&h("srcColorBlendFactor"))
+        || pass.contains_key(&h("dstColorBlendFactor"));
+    enabled && factored
+}
+
 /// Build the submesh-name → diffuse-texture-path table from a materials bin.
 pub fn build_material_table(materials_bin: &Path) -> Result<MaterialTable, String> {
     let bin = Bin::from_path(materials_bin)
@@ -181,8 +261,6 @@ pub fn build_material_table(materials_bin: &Path) -> Result<MaterialTable, Strin
             continue;
         };
 
-        // League names the diffuse sampler several ways; match any (case-
-        // insensitive), else fall back to the FIRST sampler's texturePath.
         const DIFFUSE_NAMES: [&str; 5] = [
             "diffusetexture",
             "diffuse_texture",
@@ -192,6 +270,7 @@ pub fn build_material_table(materials_bin: &Path) -> Result<MaterialTable, Strin
         ];
 
         let mut chosen: Option<MapMaterial> = None;
+        let mut fuzzy: Option<MapMaterial> = None;
         let mut first_path: Option<MapMaterial> = None;
         for item in items {
             let fields = match item {
@@ -206,6 +285,10 @@ pub fn build_material_table(materials_bin: &Path) -> Result<MaterialTable, Strin
                 path: tex_path,
                 address_u: get_u32(fields, "addressU").unwrap_or(0),
                 address_v: get_u32(fields, "addressV").unwrap_or(0),
+                tint_color: param_vec4(&entry.fields, "TintColor")
+                    .map(|v| [v[0], v[1], v[2]]),
+                translucent: is_translucent(&entry.fields),
+                alpha_test: param_vec4(&entry.fields, "AlphaTestValue").map(|v| v[0]),
             };
             if first_path.is_none() {
                 first_path = Some(material.clone());
@@ -217,9 +300,16 @@ pub fn build_material_table(materials_bin: &Path) -> Result<MaterialTable, Strin
                 chosen = Some(material);
                 break;
             }
+            if fuzzy.is_none()
+                && (sampler_name.contains("diffuse")
+                    || sampler_name.contains("albedo")
+                    || sampler_name.contains("basecolor"))
+            {
+                fuzzy = Some(material);
+            }
         }
 
-        if let Some(material) = chosen.or(first_path) {
+        if let Some(material) = chosen.or(fuzzy).or(first_path) {
             table.insert(mat_name.clone(), material);
         }
     }
@@ -252,12 +342,14 @@ pub struct SubmeshRange {
 }
 
 /// Decoded, render-ready geometry: one global vertex pool + index list, plus
-/// submesh ranges. Positions/uvs are flat f32; indices are u32. Normals are
-/// computed in Babylon (mirrors the SKN path), so we don't emit them.
+/// submesh ranges. Positions/normals/uvs are flat f32; indices are u32.
 #[derive(Debug, Default)]
 pub struct DecodedGeometry {
     pub positions: Vec<f32>, // len = vertex_count * 3
-    pub uvs: Vec<f32>,       // len = vertex_count * 2
+    /// Authored normals. The terrain shader dots these against the sun direction;
+    /// a model without them cannot take the lit path.
+    pub normals: Vec<f32>, // len = vertex_count * 3
+    pub uvs: Vec<f32>,     // len = vertex_count * 2
     /// Lightmap UVs, with each model's own `baked_light` scale and bias already
     /// applied, so the frontend uploads them as UV2 and needs no per-mesh uniform.
     pub uvs2: Vec<f32>, // len = vertex_count * 2
@@ -281,45 +373,159 @@ fn read_f32x2(buf: &[u8], at: usize) -> [f32; 2] {
     ]
 }
 
-/// `MapSunProperties.lightMapColorScale` — how much the engine multiplies the baked
-/// light by before it reaches the surface. Riot ships 2.0 on Map12; without it every
-/// lit surface renders at half brightness. Defaults to 1.0 when the bin has no value.
-fn read_lightmap_scale(bin: &Bin) -> f32 {
-    fn find(value: &BinValue, field: u32) -> Option<f32> {
-        match value {
-            BinValue::Embed { fields, .. } | BinValue::Pointer { fields, .. } => {
-                for (name, inner) in fields {
-                    if *name == field {
-                        if let BinValue::F32(v) = inner {
-                            return Some(*v);
-                        }
-                    }
-                    if let Some(found) = find(inner, field) {
-                        return Some(found);
-                    }
-                }
-                None
-            }
-            BinValue::List { items, .. } => items.iter().find_map(|i| find(i, field)),
-            BinValue::Option { value: Some(inner), .. } => find(inner, field),
-            BinValue::Map { entries, .. } => entries.iter().find_map(|(_, v)| find(v, field)),
-            _ => None,
+/// Runtime lighting constants for one map mode, out of the `MapContainer` in the
+/// sibling `*.materials.bin`. These are the uniforms `Shaders/StaticMesh/DefaultEnv_Flat`
+/// reads: without them terrain renders as raw albedo, far brighter and flatter than the
+/// game (Riot ships `lightMapColorScale` 2 on modern maps).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MapEnv {
+    /// `sunColor.rgb * SunIntensityScale`, already multiplied out.
+    pub sun_color: [f32; 3],
+    /// Direction TO the sun, normalized.
+    pub sun_direction: [f32; 3],
+    pub lightmap_scale: f32,
+    pub fog_color: [f32; 3],
+    pub fog_alt_color: [f32; 3],
+    /// Height fog: clear at world Y `.0`, fully fogged at `.1`.
+    pub fog_start_end: [f32; 2],
+}
+
+impl Default for MapEnv {
+    fn default() -> Self {
+        Self {
+            sun_color: [1.0, 1.0, 1.0],
+            sun_direction: [0.0, 1.0, 0.0],
+            lightmap_scale: 1.0,
+            fog_color: [1.0, 1.0, 1.0],
+            fog_alt_color: [1.0, 1.0, 1.0],
+            fog_start_end: [0.0, -100_000.0],
         }
     }
-    let field = h("lightMapColorScale");
+}
+
+fn f32_field(fields: &IndexMap<u32, BinValue>, name: u32) -> Option<f32> {
+    match fields.get(&name) {
+        Some(BinValue::F32(v)) => Some(*v),
+        _ => None,
+    }
+}
+
+fn vec2_field(fields: &IndexMap<u32, BinValue>, name: u32) -> Option<[f32; 2]> {
+    match fields.get(&name) {
+        Some(BinValue::Vec2(v)) => Some(*v),
+        _ => None,
+    }
+}
+
+fn vec3_field(fields: &IndexMap<u32, BinValue>, name: u32) -> Option<[f32; 3]> {
+    match fields.get(&name) {
+        Some(BinValue::Vec3(v)) => Some(*v),
+        Some(BinValue::Vec4(v)) => Some([v[0], v[1], v[2]]),
+        _ => None,
+    }
+}
+
+fn apply_sun_fields(env: &mut MapEnv, intensity: &mut f32, fields: &IndexMap<u32, BinValue>) {
+    if let Some(v) = vec3_field(fields, h("sunColor")) {
+        env.sun_color = v;
+    }
+    if let Some(v) = f32_field(fields, h("SunIntensityScale")) {
+        *intensity = v;
+    }
+    if let Some(v) = vec3_field(fields, h("sunDirection")) {
+        env.sun_direction = v;
+    }
+    if let Some(v) = f32_field(fields, h("lightMapColorScale")) {
+        env.lightmap_scale = v;
+    }
+    if let Some(v) = vec3_field(fields, h("fogColor")) {
+        env.fog_color = v;
+    }
+    if let Some(v) = vec3_field(fields, h("fogAlternateColor")) {
+        env.fog_alt_color = v;
+    }
+    if let Some(v) = vec2_field(fields, h("fogStartAndEnd")) {
+        env.fog_start_end = v;
+    }
+}
+
+/// Parse the sun / lightmap / fog constants a map mode authors. `MapSunProperties` on
+/// the `MapContainer` is the base; an Arena-style `MapLightingVolume` placed over the
+/// play area overrides it, and the LARGEST such volume is the gameplay box.
+pub fn read_map_env(bin: &Bin) -> MapEnv {
+    let mut env = MapEnv::default();
+    let mut intensity = 1.0f32;
+
+    'container: for entry in &bin.entries {
+        if entry.class_hash != h("MapContainer") {
+            continue;
+        }
+        let Some(BinValue::List { items, .. }) = entry.fields.get(&h("components")) else {
+            continue;
+        };
+        for comp in items {
+            let BinValue::Pointer { class, fields } = comp else {
+                continue;
+            };
+            if *class != h("MapSunProperties") {
+                continue;
+            }
+            apply_sun_fields(&mut env, &mut intensity, fields);
+            break 'container;
+        }
+    }
+
+    let mut best: Option<(f32, &IndexMap<u32, BinValue>)> = None;
     for entry in &bin.entries {
-        for (name, value) in &entry.fields {
-            if *name == field {
-                if let BinValue::F32(v) = value {
-                    return *v;
-                }
+        if entry.class_hash != h("MapPlaceableContainer") {
+            continue;
+        }
+        let Some(BinValue::Map { entries, .. }) = entry.fields.get(&h("items")) else {
+            continue;
+        };
+        for (_, v) in entries {
+            let BinValue::Pointer { class, fields } = v else {
+                continue;
+            };
+            if *class != h("MapLightingVolume") {
+                continue;
             }
-            if let Some(found) = find(value, field) {
-                return found;
+            if vec3_field(fields, h("sunDirection")).is_none()
+                && vec3_field(fields, h("sunColor")).is_none()
+            {
+                continue;
+            }
+            let size = match fields.get(&h("transform")) {
+                Some(BinValue::Mtx44(m)) => {
+                    let row = |i: usize| {
+                        (m[i * 4] * m[i * 4]
+                            + m[i * 4 + 1] * m[i * 4 + 1]
+                            + m[i * 4 + 2] * m[i * 4 + 2])
+                            .sqrt()
+                    };
+                    row(0) * row(1) * row(2)
+                }
+                _ => 0.0,
+            };
+            if best.map(|(s, _)| size > s).unwrap_or(true) {
+                best = Some((size, fields));
             }
         }
     }
-    1.0
+    if let Some((_, fields)) = best {
+        apply_sun_fields(&mut env, &mut intensity, fields);
+    }
+
+    for c in &mut env.sun_color {
+        *c *= intensity;
+    }
+    // Authors ship unnormalized directions; the shader dots against it raw.
+    let d = env.sun_direction;
+    let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    if len > 1e-6 {
+        env.sun_direction = [d[0] / len, d[1] / len, d[2] / len];
+    }
+    env
 }
 
 /// Decode all models of a parsed mapgeo into a single geometry pool.
@@ -340,6 +546,7 @@ pub fn decode_geometry(geo: &MapGeometry) -> Result<DecodedGeometry, String> {
         .map(|b| b.indices.len())
         .sum();
     out.positions.reserve(total_verts * 3);
+    out.normals.reserve(total_verts * 3);
     out.uvs.reserve(total_verts * 2);
     out.uvs2.reserve(total_verts * 2);
     out.indices.reserve(total_indices);
@@ -356,8 +563,9 @@ pub fn decode_geometry(geo: &MapGeometry) -> Result<DecodedGeometry, String> {
         // Byte offset of Position and Texcoord0 within a vertex.
         let mut pos_off: Option<usize> = None;
         let mut uv_off: Option<usize> = None;
-        // Texcoord7 is the lightmap UV set (same channel jade reads).
+        // Texcoord7 is the lightmap UV set.
         let mut lm_off: Option<usize> = None;
+        let mut nrm_off: Option<usize> = None;
         let mut running = 0usize;
         for el in &desc.elements {
             match el.name {
@@ -369,6 +577,9 @@ pub fn decode_geometry(geo: &MapGeometry) -> Result<DecodedGeometry, String> {
                 }
                 ElementName::Texcoord7 if el.format == ElementFormat::XyFloat32 => {
                     lm_off = Some(running)
+                }
+                ElementName::Normal if el.format == ElementFormat::XyzFloat32 => {
+                    nrm_off = Some(running)
                 }
                 _ => {}
             }
@@ -400,6 +611,11 @@ pub fn decode_geometry(geo: &MapGeometry) -> Result<DecodedGeometry, String> {
                 out.bbox_max[i] = out.bbox_max[i].max(pi);
             }
             out.positions.extend_from_slice(&p);
+            let n = match nrm_off {
+                Some(o) => read_f32x3(&vbuf.data, vbase + o),
+                None => [0.0, 1.0, 0.0],
+            };
+            out.normals.extend_from_slice(&n);
             let uv = match uv_off {
                 Some(o) => read_f32x2(&vbuf.data, vbase + o),
                 None => [0.0, 0.0],
@@ -424,7 +640,13 @@ pub fn decode_geometry(geo: &MapGeometry) -> Result<DecodedGeometry, String> {
             out.indices.push(base_vertex + idx as u32);
         }
 
-        let lightmap = model.baked_light.path.to_ascii_lowercase();
+        // A model missing either attribute cannot take the lit path, so it declares
+        // no atlas and stays on the flat fallback.
+        let lightmap = if lm_off.is_some() && nrm_off.is_some() {
+            model.baked_light.path.to_ascii_lowercase()
+        } else {
+            String::new()
+        };
         for sm in &model.submeshes {
             out.submeshes.push(SubmeshRange {
                 name: sm.name.clone(),
@@ -457,8 +679,8 @@ struct MapPreviewMeta {
     submeshes: Vec<SubmeshRange>,
     /// submesh-name -> diffuse texture path (bin path; absent for some submeshes)
     materials: MaterialTable,
-    /// `MapSunProperties.lightMapColorScale`, applied to every baked-light sample.
-    lightmap_scale: f32,
+    /// Sun / lightmap / fog constants the terrain shader needs.
+    env: MapEnv,
     bounding_box: [[f32; 3]; 2],
 }
 
@@ -477,9 +699,9 @@ pub async fn load_map_preview(project_path: String) -> Result<tauri::ipc::Respon
     let parsed_at = std::time::Instant::now();
     let decoded = decode_geometry(&geo)?;
     let decoded_at = std::time::Instant::now();
-    let lightmap_scale = Bin::from_path(&source.materials)
-        .map(|bin| read_lightmap_scale(&bin))
-        .unwrap_or(1.0);
+    let env = Bin::from_path(&source.materials)
+        .map(|bin| read_map_env(&bin))
+        .unwrap_or_default();
     let materials = build_material_table(&source.materials)?;
 
     let meta = MapPreviewMeta {
@@ -488,16 +710,19 @@ pub async fn load_map_preview(project_path: String) -> Result<tauri::ipc::Respon
         index_count: decoded.indices.len() as u32,
         submeshes: decoded.submeshes,
         materials,
-        lightmap_scale,
+        env,
         bounding_box: [decoded.bbox_min, decoded.bbox_max],
     };
 
     let meta_json = serde_json::to_vec(&meta).map_err(|e| e.to_string())?;
     // Sized up front: this buffer runs to tens of MB on a real map, and growing it by
     // doubling copies the whole thing about as many bytes again as it ends up holding.
-    let body =
-        (decoded.positions.len() + decoded.uvs.len() + decoded.uvs2.len() + decoded.indices.len())
-            * 4;
+    let body = (decoded.positions.len()
+        + decoded.normals.len()
+        + decoded.uvs.len()
+        + decoded.uvs2.len()
+        + decoded.indices.len())
+        * 4;
     let mut out: Vec<u8> = Vec::with_capacity(8 + meta_json.len() + body);
     out.extend_from_slice(&(meta_json.len() as u32).to_le_bytes());
     out.extend_from_slice(&meta_json);
@@ -505,6 +730,9 @@ pub async fn load_map_preview(project_path: String) -> Result<tauri::ipc::Respon
         out.push(0);
     }
     for f in &decoded.positions {
+        out.extend_from_slice(&f.to_le_bytes());
+    }
+    for f in &decoded.normals {
         out.extend_from_slice(&f.to_le_bytes());
     }
     for f in &decoded.uvs {

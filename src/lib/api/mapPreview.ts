@@ -1,5 +1,6 @@
 import { invokeCommand } from './core';
 import type { SubmeshRange } from '../babylon/meshBuilder';
+import { DEFAULT_MAP_ENV, type MapEnv } from '../babylon/mapTerrainMaterial';
 
 /** A material's diffuse texture plus Riot's AUTHORED address-mode enum
  *  (0 WRAP, 1 CLAMP, 2 MIRROR, 3 BORDER) — not the D3D enum. */
@@ -7,6 +8,12 @@ export interface MapMaterial {
     path: string;
     address_u: number;
     address_v: number;
+    /** Authored `TintColor.rgb` - the engine multiplies albedo by it, doubled. */
+    tint_color: [number, number, number] | null;
+    /** Authored alpha-BLEND (water, tarps, nets), not a plain alpha-test cutout. */
+    translucent: boolean;
+    /** Authored `AlphaTestValue.x`. */
+    alpha_test: number | null;
 }
 
 export interface MapPreviewData {
@@ -14,10 +21,12 @@ export interface MapPreviewData {
     submeshes: SubmeshRange[];
     /** submesh name -> its diffuse texture and sampler addressing */
     materials: Record<string, MapMaterial>;
-    /** `MapSunProperties.lightMapColorScale` - the engine's multiplier on baked light. */
-    lightmap_scale: number;
+    /** Sun / lightmap / fog constants the terrain shader needs. */
+    env: MapEnv;
     bounding_box: [[number, number, number], [number, number, number]];
     positions: Float32Array;
+    /** Authored normals - the terrain shader's sun term dots against these. */
+    normals: Float32Array;
     uvs: Float32Array;
     /** Lightmap UVs, scale/bias already applied by the backend. */
     uvs2: Float32Array;
@@ -39,7 +48,7 @@ export type MapTextureEntry =
 
 /**
  * Decode the binary payload from `load_map_preview`:
- * `[u32 meta_len][meta json utf-8][pad to 4][positions f32][uvs f32][indices u32]`.
+ * `[u32 meta_len][meta json][pad 4][positions][normals][uvs][uvs2][indices]`.
  */
 function decodeMapPayload(buf: ArrayBuffer): MapPreviewData {
     const view = new DataView(buf);
@@ -55,6 +64,8 @@ function decodeMapPayload(buf: ArrayBuffer): MapPreviewData {
 
     const positions = new Float32Array(buf.slice(off, off + vertexCount * 3 * 4));
     off += vertexCount * 3 * 4;
+    const normals = new Float32Array(buf.slice(off, off + vertexCount * 3 * 4));
+    off += vertexCount * 3 * 4;
     const uvs = new Float32Array(buf.slice(off, off + vertexCount * 2 * 4));
     off += vertexCount * 2 * 4;
     const uvs2 = new Float32Array(buf.slice(off, off + vertexCount * 2 * 4));
@@ -65,9 +76,10 @@ function decodeMapPayload(buf: ArrayBuffer): MapPreviewData {
         variant: meta.variant,
         submeshes: meta.submeshes,
         materials: meta.materials,
-        lightmap_scale: meta.lightmap_scale ?? 1,
+        env: meta.env ?? DEFAULT_MAP_ENV,
         bounding_box: meta.bounding_box,
         positions,
+        normals,
         uvs,
         uvs2,
         indices,
