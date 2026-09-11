@@ -244,7 +244,7 @@ export const tr: TranslationDict = {
     'contextMenu.setThumbnail': 'Kapak Resmi Ayarla…',
     'contextMenu.addLayer': 'Katman Ekle…',
     'contextMenu.portToChromas': 'Renklere (Chroma) Aktar…',
-    'contextMenu.portToJade': "Classic�e Aktar�",
+    'contextMenu.portToJade': "Classic'e Aktar…",
     'contextMenu.noSkinLite': 'NoSkinLite…',
     'contextMenu.addLoadscreenBanner': 'Hareketli Yükleme Ekranı Bannerı Ekle',
     'contextMenu.rebuildLoadscreen': 'Hareketli Yükleme Ekranını Yeniden Oluştur',

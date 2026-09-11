@@ -24,7 +24,6 @@ import { Button, Checkbox, Icon, Picker } from '../ui';
 
 import { compressDeflate, type ProjectType, SCALE_OPTIONS, FPS_OPTIONS } from './new-project/helpers';
 import { toDisplayPath, fromDisplayPath, registerAppHome } from '../../lib/util/displayPath';
-import { loadAccent, getCachedAccent } from '../../lib/ui-helpers/imageAccent';
 
 function mapArtUrl(mapId: string): string {
     return `/maps/${mapId.toLowerCase()}.webp`;
@@ -36,39 +35,23 @@ const ChampionTile: React.FC<{
     active: boolean;
     index: number;
     onPick: () => void;
-}> = ({ champ, iconUrl, active, index, onPick }) => {
-    const [accent, setAccent] = useState(() => getCachedAccent(iconUrl) ?? null);
-
-    useEffect(() => {
-        const cached = getCachedAccent(iconUrl);
-        if (cached !== undefined) { setAccent(cached); return; }
-        let live = true;
-        loadAccent(iconUrl).then((a) => { if (live) setAccent(a); });
-        return () => { live = false; };
-    }, [iconUrl]);
-
-    const style = accent
-        ? ({ '--c1': `rgb(${accent.c1})`, animationDelay: `${Math.min(index * 15, 300)}ms` } as React.CSSProperties)
-        : ({ animationDelay: `${Math.min(index * 15, 300)}ms` } as React.CSSProperties);
-
-    return (
-        <button
-            className={`np-champ-card${active ? ' np-champ-card--active' : ''}${accent ? ' np-champ-card--tinted' : ''}`}
-            onClick={onPick}
-            title={champ.name}
-            style={style}
-        >
-            <img
-                src={iconUrl}
-                alt={champ.name}
-                className="np-champ-card__icon"
-                loading="lazy"
-                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-            />
-            <span className="np-champ-card__name">{champ.name}</span>
-        </button>
-    );
-};
+}> = ({ champ, iconUrl, active, index, onPick }) => (
+    <button
+        className={`np-champ-card${active ? ' np-champ-card--active' : ''}`}
+        onClick={onPick}
+        title={champ.name}
+        style={{ animationDelay: `${Math.min(index * 15, 300)}ms` }}
+    >
+        <img
+            src={iconUrl}
+            alt={champ.name}
+            className="np-champ-card__icon"
+            loading="lazy"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+        />
+        <span className="np-champ-card__name">{champ.name}</span>
+    </button>
+);
 
 const CREATE_TITLE: Record<ProjectType, string> = {
     'skin': 'Building the skin project',
@@ -1585,7 +1568,7 @@ export const NewProjectModal: React.FC = () => {
                                     <span className="np-loc__leaf">/{projectName.trim()}</span>
                                 )}
                             </span>
-                            <Button size="sm" onClick={handleBrowsePath}>Browse</Button>
+                            <Button variant="ghost" size="sm" onClick={handleBrowsePath}>Browse</Button>
                         </div>
                     </div>
 

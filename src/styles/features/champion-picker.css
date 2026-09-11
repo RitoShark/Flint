@@ -15,12 +15,15 @@
 input.np-search {
   width: 100%;
   font-size: 12px;
-  color: var(--text-primary);
-  border: 1px solid #222;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
   outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: background var(--motion-fast), border-color var(--motion-fast),
+        color var(--motion-fast);
   font-family: var(--font-sans);
 }
+
+input.np-search:hover { background: color-mix(in oklab, var(--text-primary) 6%, transparent); }
 
 input.np-search::placeholder { color: var(--text-muted); opacity: 0.5; }
 
@@ -78,13 +81,12 @@ input.np-search {
   height: 30px;
   padding: 0 12px 0 32px;
   border-radius: 9px;
-  background: var(--bg-tertiary);
-  border-color: var(--border);
+  background: transparent;
 }
 
 input.np-search:focus {
-  border-color: var(--accent-primary);
-  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent-primary) 35%, transparent);
+  background: color-mix(in oklab, var(--text-primary) 6%, transparent);
+  color: var(--text-primary);
 }
 
 .np-champion-grid {
@@ -153,27 +155,4 @@ input.np-search:focus {
 .np-champ-card--active .np-champ-card__icon {
   border-color: var(--accent-primary) !important;
   box-shadow: 0 0 10px color-mix(in oklab, var(--accent-primary) 45%, transparent) !important;
-}
-
-.np-champ-card--tinted {
-  background: color-mix(in oklab, var(--c1) 9%, transparent) !important;
-  border-color: color-mix(in oklab, var(--c1) 18%, transparent) !important;
-}
-
-.np-champ-card--tinted:hover {
-  background: color-mix(in oklab, var(--c1) 18%, transparent) !important;
-  border-color: color-mix(in oklab, var(--c1) 34%, transparent) !important;
-}
-
-.np-champ-card--tinted.np-champ-card--active {
-  background: color-mix(in oklab, var(--c1) 26%, transparent) !important;
-  border-color: color-mix(in oklab, var(--c1) 62%, transparent) !important;
-}
-
-.np-champ-card--tinted .np-champ-card__icon {
-  border-color: color-mix(in oklab, var(--c1) 40%, transparent);
-}
-
-.np-champ-card--tinted.np-champ-card--active .np-champ-card__icon {
-  border-color: color-mix(in oklab, var(--c1) 75%, transparent);
 }

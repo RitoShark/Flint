@@ -249,7 +249,7 @@ export const en: TranslationDict = {
     'contextMenu.setThumbnail': 'Set Thumbnail…',
     'contextMenu.addLayer': 'Add Layer…',
     'contextMenu.portToChromas': 'Port to Chromas…',
-    'contextMenu.portToJade': 'Port To Classic�',
+    'contextMenu.portToJade': 'Port To Classic…',
     'contextMenu.noSkinLite': 'NoSkinLite…',
     'contextMenu.addLoadscreenBanner': 'Add Animated Loadscreen Banner',
     'contextMenu.rebuildLoadscreen': 'Rebuild Animated Loadscreen',

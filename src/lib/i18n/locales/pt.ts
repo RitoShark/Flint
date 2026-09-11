@@ -244,7 +244,7 @@ export const pt: TranslationDict = {
     'contextMenu.setThumbnail': 'Definir Miniatura…',
     'contextMenu.addLayer': 'Adicionar Camada…',
     'contextMenu.portToChromas': 'Portar para Chromas…',
-    'contextMenu.portToJade': 'Portar para Classic�',
+    'contextMenu.portToJade': 'Portar para Classic…',
     'contextMenu.noSkinLite': 'NoSkinLite…',
     'contextMenu.addLoadscreenBanner': 'Adicionar Banner Animado de Carregamento',
     'contextMenu.rebuildLoadscreen': 'Reconstruir Tela de Carregamento Animada',

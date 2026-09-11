@@ -244,7 +244,7 @@ export const de: TranslationDict = {
     'contextMenu.setThumbnail': 'Thumbnail festlegen…',
     'contextMenu.addLayer': 'Ebene hinzufügen…',
     'contextMenu.portToChromas': 'Zu Chromas portieren…',
-    'contextMenu.portToJade': 'Zu Classic portieren�',
+    'contextMenu.portToJade': 'Zu Classic portieren…',
     'contextMenu.noSkinLite': 'NoSkinLite…',
     'contextMenu.addLoadscreenBanner': 'Animiertes Ladebildschirm-Banner hinzufügen',
     'contextMenu.rebuildLoadscreen': 'Animierten Ladebildschirm neu aufbauen',
