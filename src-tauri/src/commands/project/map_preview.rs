@@ -848,6 +848,90 @@ mod tests {
         let _ = fs::remove_dir_all(&tmp);
     }
 
+    /// A TEX holds its chain smallest-first, so the top mip is the LAST slice. Getting
+    /// this backwards uploads a 1x1 thumbnail as the full-size surface.
+    #[test]
+    fn mip_layout_puts_the_full_size_mip_first_and_covers_the_payload() {
+        use ritoshark::tex::TexFormat;
+        let (w, h) = (64u32, 32u32);
+        let fmt = TexFormat::Bc1;
+        // A whole chain: levels 0..=6 for a 64x32 surface.
+        let payload: usize = (0..=6)
+            .map(|l| fmt.mip_size((w >> l).max(1), (h >> l).max(1)))
+            .sum();
+
+        let mips = tex_mip_layout(fmt, w, h, payload);
+        assert_eq!(mips.len(), 7);
+        assert_eq!(mips[0].1, fmt.mip_size(w, h), "first slice is the top mip");
+        // Descending, contiguous, and exactly filling the payload.
+        let mut covered = 0usize;
+        for (i, (offset, size)) in mips.iter().enumerate() {
+            covered += size;
+            if i > 0 {
+                assert!(*size <= mips[i - 1].1, "mips descend in size");
+            }
+            assert!(offset + size <= payload, "slice stays in the payload");
+        }
+        assert_eq!(covered, payload);
+        // The top mip is the tail of the file.
+        assert_eq!(mips[0].0 + mips[0].1, payload);
+    }
+
+    /// The remaining `rs_tex` mip defect must not reach this path: a payload whose
+    /// length matches no whole chain still has to yield a usable top mip.
+    #[test]
+    fn a_payload_matching_no_whole_chain_still_yields_the_top_mip() {
+        use ritoshark::tex::TexFormat;
+        let (w, h) = (64u32, 4u32);
+        let fmt = TexFormat::Bc3;
+        let top = fmt.mip_size(w, h);
+        // 400 bytes is a real shape from the owner's projects that no chain explains.
+        let mips = tex_mip_layout(fmt, w, h, 400);
+        assert_eq!(mips.len(), 1);
+        assert_eq!(mips[0].1, top);
+        assert_eq!(mips[0].0 + mips[0].1, 400, "taken from the END of the payload");
+    }
+
+    #[test]
+    fn tex_as_dds_writes_a_legacy_header_and_copies_the_blocks() {
+        use ritoshark::tex::TexFormat;
+        let (w, h) = (8u32, 8u32);
+        let fmt = TexFormat::Bc3;
+        let top = fmt.mip_size(w, h);
+
+        let mut tex = vec![b'T', b'E', b'X', 0];
+        tex.extend_from_slice(&(w as u16).to_le_bytes());
+        tex.extend_from_slice(&(h as u16).to_le_bytes());
+        tex.push(0);
+        tex.push(12); // Bc3
+        tex.push(0);
+        tex.push(0); // no mipmaps
+        let blocks: Vec<u8> = (0..top).map(|i| (i % 251) as u8).collect();
+        tex.extend_from_slice(&blocks);
+
+        let (dds, has_alpha) = tex_as_dds(&tex).expect("bc3 is a legacy fourcc");
+        assert!(has_alpha, "BC3 carries alpha");
+        assert_eq!(&dds[..4], b"DDS ");
+        assert_eq!(u32::from_le_bytes(dds[4..8].try_into().unwrap()), 124);
+        assert_eq!(u32::from_le_bytes(dds[12..16].try_into().unwrap()), h);
+        assert_eq!(u32::from_le_bytes(dds[16..20].try_into().unwrap()), w);
+        assert_eq!(u32::from_le_bytes(dds[28..32].try_into().unwrap()), 1, "mip count");
+        assert_eq!(&dds[84..88], b"DXT5");
+        // The payload is copied, not re-encoded.
+        assert_eq!(dds.len(), 128 + top);
+        assert_eq!(&dds[128..], &blocks[..]);
+    }
+
+    /// BC7 has no legacy FourCC, so it must fall through to the RGBA path rather than
+    /// emitting a DX10 header.
+    #[test]
+    fn a_format_without_a_legacy_fourcc_is_refused() {
+        use ritoshark::tex::TexFormat;
+        assert!(legacy_fourcc(TexFormat::Bc7).is_none());
+        assert!(legacy_fourcc(TexFormat::Bgra8).is_none());
+        assert_eq!(legacy_fourcc(TexFormat::Bc1), Some(*b"DXT1"));
+    }
+
     #[test]
     fn material_table_extracts_diffuse() {
         use ritoshark::bin::{BinEntry, BinType};
