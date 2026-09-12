@@ -1,4 +1,4 @@
-use flint_core::path_slash::to_slash;
+use flint_core::path_slash::{slash_str, to_slash};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -57,6 +57,30 @@ pub struct FlintSettings {
 
     // Theme
     pub selected_theme: Option<String>,
+}
+
+impl FlintSettings {
+    fn normalize_paths(&mut self) {
+        for field in [
+            &mut self.league_path,
+            &mut self.league_path_pbe,
+            &mut self.default_project_path,
+            &mut self.ltk_manager_mod_path,
+            &mut self.celestial_mod_path,
+            &mut self.jade_path,
+            &mut self.quartz_path,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            *field = slash_str(field);
+        }
+        for entry in self.recent_projects.iter_mut().chain(self.saved_projects.iter_mut()) {
+            if let Some(path) = entry.get_mut("path").and_then(|p| p.as_str().map(slash_str)) {
+                entry["path"] = serde_json::Value::String(path);
+            }
+        }
+    }
 }
 
 fn default_schema_version() -> u32 { SCHEMA_VERSION }
@@ -136,8 +160,9 @@ fn read_settings_from_disk() -> Result<FlintSettings, String> {
     }
     let data = std::fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read settings: {}", e))?;
-    let settings: FlintSettings = serde_json::from_str(&data)
+    let mut settings: FlintSettings = serde_json::from_str(&data)
         .map_err(|e| format!("Failed to parse settings: {}", e))?;
+    settings.normalize_paths();
     Ok(settings)
 }
 
@@ -157,7 +182,9 @@ fn write_settings_to_disk(settings: &FlintSettings) -> Result<(), String> {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create settings dir: {}", e))?;
     }
-    let json = serde_json::to_string_pretty(settings)
+    let mut settings = settings.clone();
+    settings.normalize_paths();
+    let json = serde_json::to_string_pretty(&settings)
         .map_err(|e| format!("Failed to serialize settings: {}", e))?;
     std::fs::write(&path, json)
         .map_err(|e| format!("Failed to write settings: {}", e))?;
@@ -181,7 +208,7 @@ pub fn initialize_app_home() -> Result<PathBuf, String> {
 
 #[tauri::command]
 pub fn get_app_home() -> Result<String, String> {
-    get_flint_home().map(|p| p.to_string_lossy().into_owned())
+    get_flint_home().map(|p| to_slash(&p))
 }
 
 /// Load settings from disk. Returns defaults if file doesn't exist yet.

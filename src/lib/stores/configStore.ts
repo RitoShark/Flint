@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { getSettings, saveSettings, migrateFromLocalStorage, migrateProjects, loadTheme, seedBuiltinThemes } from '../api';
 import type { FlintSettings } from '../api';
 import type { RecentProject, SavedProject } from '../types';
+import { toPosix } from '../pathIdentity';
 
 interface ConfigState {
   leaguePath: string | null;
@@ -54,11 +55,26 @@ interface ConfigState {
 const SETTINGS_CACHE_KEY = 'flint_settings_cache_v1';
 const MIGRATIONS_DONE_KEY = 'flint_migrations_done_v1';
 
+const CACHED_PATH_KEYS = [
+  'leaguePath',
+  'leaguePathPbe',
+  'defaultProjectPath',
+  'ltkManagerModPath',
+  'celestialModPath',
+  'jadePath',
+  'quartzPath',
+] as const;
+
 function readCache(): Partial<FlintSettings> | null {
   try {
     const raw = localStorage.getItem(SETTINGS_CACHE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as Partial<FlintSettings>;
+    const cached = JSON.parse(raw) as Partial<FlintSettings>;
+    for (const key of CACHED_PATH_KEYS) {
+      const value = cached[key];
+      if (typeof value === 'string') cached[key] = toPosix(value);
+    }
+    return cached;
   } catch {
     return null;
   }
@@ -91,7 +107,7 @@ function normalizeRecentPaths(recents: RecentProject[]): RecentProject[] {
   const out: RecentProject[] = [];
   for (const entry of recents) {
     if (typeof entry?.path !== 'string') continue;
-    const path = entry.path.replace(/\/+$/, '');
+    const path = toPosix(entry.path).replace(/\/+$/, '');
     const key = path.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
