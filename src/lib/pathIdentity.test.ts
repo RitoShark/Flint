@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeOsPath, isSamePath } from './pathIdentity';
+import { normalizeOsPath, isSamePath, toPosix, toWindowsPath } from './pathIdentity';
 
 describe('isSamePath', () => {
     it('matches a frontend forward-slash path against a Rust-built Windows path', () => {
@@ -36,5 +36,46 @@ describe('isSamePath', () => {
     it('collapses redundant and trailing separators', () => {
         expect(normalizeOsPath('E:/proj//skins/./yasuo.skn')).toBe('e:/proj/skins/yasuo.skn');
         expect(normalizeOsPath('E:\\proj\\skins\\')).toBe('e:/proj/skins');
+    });
+});
+
+describe('toPosix', () => {
+    it('converts Windows separators', () => {
+        expect(toPosix('E:\\proj\\content\\base\\yasuo.skn')).toBe('E:/proj/content/base/yasuo.skn');
+    });
+
+    it('leaves an already-posix path untouched', () => {
+        expect(toPosix('E:/proj/yasuo.skn')).toBe('E:/proj/yasuo.skn');
+    });
+
+    it('is idempotent', () => {
+        const once = toPosix('E:\\proj\\yasuo.skn');
+        expect(toPosix(once)).toBe(once);
+    });
+
+    it('preserves case, unlike normalizeOsPath', () => {
+        expect(toPosix('E:\\Proj\\Yasuo.skn')).toBe('E:/Proj/Yasuo.skn');
+        expect(normalizeOsPath('E:\\Proj\\Yasuo.skn')).toBe('e:/proj/yasuo.skn');
+    });
+
+    it('preserves .. and trailing separators, unlike normalizeOsPath', () => {
+        expect(toPosix('animations\\..\\skins\\')).toBe('animations/../skins/');
+        expect(normalizeOsPath('animations\\..\\skins\\')).toBe('skins');
+    });
+
+    it('handles empty and relative paths', () => {
+        expect(toPosix('')).toBe('');
+        expect(toPosix('content\\base\\x.bin')).toBe('content/base/x.bin');
+    });
+});
+
+describe('toWindowsPath', () => {
+    it('gives explorer /select, the separators it requires', () => {
+        expect(toWindowsPath('E:/proj/content/base/yasuo.skn')).toBe('E:\\proj\\content\\base\\yasuo.skn');
+    });
+
+    it('round-trips with toPosix', () => {
+        const posix = 'E:/proj/yasuo.skn';
+        expect(toPosix(toWindowsPath(posix))).toBe(posix);
     });
 });
