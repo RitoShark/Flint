@@ -10,6 +10,7 @@ under its unresolved `{16hex}.ext` name still matches a BIN that names its real 
 */
 
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::checks::{
@@ -307,6 +308,17 @@ fn walk_files(dir: &Path) -> Vec<(String, PathBuf)> {
         .collect()
 }
 
+fn check_texture_file(rel: &str, disk: &Path) -> std::io::Result<Vec<CheckIssue>> {
+    let file = std::fs::File::open(disk)?;
+    check_texture_reader(rel, file)
+}
+
+fn check_texture_reader(rel: &str, reader: impl Read) -> std::io::Result<Vec<CheckIssue>> {
+    let mut header = Vec::with_capacity(148);
+    reader.take(148).read_to_end(&mut header)?;
+    Ok(check_texture(rel, &header))
+}
+
 /**
 Re-checks ONE file in a WAD folder, for after the user edits it.
 
@@ -323,8 +335,8 @@ pub fn check_one_file(dir: &Path, rel: &str) -> Result<Vec<CheckIssue>, String> 
     }
 
     if rel.ends_with(".tex") || rel.ends_with(".dds") {
-        let data = std::fs::read(&disk).map_err(|e| format!("read {}: {e}", disk.display()))?;
-        return Ok(check_texture(&rel, &data));
+        return check_texture_file(&rel, &disk)
+            .map_err(|e| format!("read {}: {e}", disk.display()));
     }
     if !rel.ends_with(".bin") {
         return Ok(Vec::new());
@@ -414,8 +426,8 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
         .enumerate()
         .map(|(idx, (rel, disk))| {
             let scan = if rel.ends_with(".tex") || rel.ends_with(".dds") {
-                match std::fs::read(disk) {
-                    Ok(data) => FileScan::Texture(check_texture(rel, &data)),
+                match check_texture_file(rel, disk) {
+                    Ok(issues) => FileScan::Texture(issues),
                     Err(_) => FileScan::Skip,
                 }
             } else if !rel.ends_with(".bin") {
@@ -565,6 +577,57 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn texture_audit_reads_only_headers_without_changing_findings() {
+        let mut tex = vec![0u8; 4096];
+        tex[..4].copy_from_slice(b"TEX\0");
+        tex[4..6].copy_from_slice(&63u16.to_le_bytes());
+        tex[6..8].copy_from_slice(&64u16.to_le_bytes());
+        tex[9] = ritoshark::tex::TexFormat::Bc3.to_u8();
+        tex[11] = 1;
+
+        let mut dds = vec![0u8; 4096];
+        dds[..4].copy_from_slice(b"DDS ");
+        dds[12..16].copy_from_slice(&63u32.to_le_bytes());
+        dds[16..20].copy_from_slice(&64u32.to_le_bytes());
+        dds[84..88].copy_from_slice(b"DX10");
+        dds[128..132].copy_from_slice(&98u32.to_le_bytes());
+
+        for data in [&tex, &dds] {
+            for rel in ["assets/test.tex", "assets/test.dds"] {
+                for len in [0, 3, 11, 12, 127, 128, 131, 132, 147, 148, 4096] {
+                    let bytes = &data[..len];
+                    let mut reader = std::io::Cursor::new(bytes);
+                    let actual = check_texture_reader(rel, &mut reader).unwrap();
+                    assert_eq!(reader.position(), len.min(148) as u64);
+                    assert_eq!(
+                        serde_json::to_value(&actual).unwrap(),
+                        serde_json::to_value(check_texture(rel, bytes)).unwrap(),
+                        "{rel}, {len} bytes"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn single_file_texture_audit_matches_full_folder_audit() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut tex = vec![0u8; 4096];
+        tex[..4].copy_from_slice(b"TEX\0");
+        tex[4..6].copy_from_slice(&63u16.to_le_bytes());
+        tex[6..8].copy_from_slice(&64u16.to_le_bytes());
+        tex[9] = ritoshark::tex::TexFormat::Bc3.to_u8();
+        std::fs::write(dir.path().join("test.tex"), &tex).unwrap();
+        let single = check_one_file(dir.path(), "test.tex").unwrap();
+        let full = audit_wad_folder(dir.path()).unwrap();
+        assert!(!single.is_empty());
+        assert_eq!(
+            serde_json::to_value(single).unwrap(),
+            serde_json::to_value(full.issues).unwrap()
+        );
+    }
 
     #[test]
     fn normalizes_separators_and_case() {
