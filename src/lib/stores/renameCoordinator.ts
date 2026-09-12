@@ -1,3 +1,4 @@
+import { toPosix } from '../pathIdentity';
 import { flushSync } from 'react-dom';
 import { useAppMetadataStore } from './appMetadataStore';
 import { editorSessionStore } from './editorSessionStore';
@@ -6,7 +7,7 @@ import { useProjectTabStore } from './projectTabStore';
 
 /* Length-preserving on purpose: callers slice the ORIGINAL path by an offset measured here. */
 function comparablePath(p: string): string {
-    return p.replace(/\\/g, '/').toLowerCase();
+    return toPosix(p).toLowerCase();
 }
 
 /**

@@ -1,3 +1,4 @@
+import { toPosix } from './pathIdentity';
 /**
  * Opening and importing projects by path.
  *
@@ -18,7 +19,7 @@ import type { Project } from './types';
 async function fallbackProjectsDir(): Promise<string> {
     const { appDataDir } = await import('@tauri-apps/api/path');
     const appData = await appDataDir();
-    const parts = appData.replace(/\\/g, '/').split('/');
+    const parts = toPosix(appData).split('/');
     parts.pop();
     return `${parts.join('/')}/RitoShark/Flint/Projects`;
 }
@@ -26,7 +27,7 @@ async function fallbackProjectsDir(): Promise<string> {
 /** Configured projects root, falling back to the default Flint home. */
 export async function resolveProjectsDir(): Promise<string> {
     const configured = useConfigStore.getState().defaultProjectPath;
-    if (configured && configured.trim()) return configured.replace(/\\/g, '/');
+    if (configured && configured.trim()) return toPosix(configured);
     return fallbackProjectsDir();
 }
 
@@ -48,8 +49,7 @@ export function toProjectDir(path: string): string {
  * Recent Folders. Windows paths are also case-insensitive, so fold case too.
  */
 export function projectPathKey(path: string): string {
-    return toProjectDir(path)
-        .replace(/\\/g, '/')
+    return toPosix(toProjectDir(path))
         .replace(/\/+$/, '')
         .toLowerCase();
 }
@@ -138,7 +138,7 @@ export async function importFolderAt(
 }
 
 export function leagueRootFromWadPath(wadPath: string): string | null {
-    const parts = wadPath.replace(/\\/g, '/').split('/');
+    const parts = toPosix(wadPath).split('/');
     const i = parts.findIndex((p, n) =>
         p.toLowerCase() === 'game'
         && parts[n + 1]?.toLowerCase() === 'data'
@@ -147,7 +147,7 @@ export function leagueRootFromWadPath(wadPath: string): string | null {
 }
 
 export function parseSkinBinPath(path: string): { champion: string; skinId: number } | null {
-    const m = path.replace(/\\/g, '/').toLowerCase()
+    const m = toPosix(path).toLowerCase()
         .match(/(?:^|\/)data\/characters\/([^/]+)\/skins\/skin(\d+)\.bin$/);
     if (!m) return null;
     return { champion: m[1], skinId: parseInt(m[2], 10) };

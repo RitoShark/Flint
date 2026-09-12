@@ -243,7 +243,7 @@ export const ThumbnailCropModal: React.FC = () => {
         const arrayBuffer = await blob.arrayBuffer();
         const bytes = Array.from(new Uint8Array(arrayBuffer));
 
-        const thumbPath = `${options.projectPath.replace(/\\/g, '/')}/thumbnail.webp`;
+        const thumbPath = `${options.projectPath}/thumbnail.webp`;
         try {
             await api.saveFileBytes(thumbPath, bytes);
             showToast('success', 'Thumbnail saved (1280x720)');

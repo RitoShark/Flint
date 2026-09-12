@@ -1,3 +1,4 @@
+import { toPosix } from '../pathIdentity';
 export interface ModelPreviewSession {
     /** File version this session was captured against (see appMetadataStore). */
     fileVersion: number;
@@ -25,7 +26,7 @@ const sessions = new Map<string, ModelPreviewSession>();
 let saveCounter = 0;
 
 function normalizePath(p: string): string {
-    return p.replace(/\\/g, '/').toLowerCase();
+    return toPosix(p).toLowerCase();
 }
 
 function evict(): void {

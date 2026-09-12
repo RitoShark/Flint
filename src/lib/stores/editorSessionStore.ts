@@ -1,3 +1,4 @@
+import { toPosix } from '../pathIdentity';
 import type { editor } from 'monaco-editor';
 
 export interface EditorSession {
@@ -26,7 +27,7 @@ const sessions = new Map<string, EditorSession>();
 let saveCounter = 0;
 
 function normalizePath(p: string): string {
-    return p.replace(/\\/g, '/').toLowerCase();
+    return toPosix(p).toLowerCase();
 }
 
 function sessionBytes(s: EditorSession): number {

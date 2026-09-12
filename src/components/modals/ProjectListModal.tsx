@@ -12,6 +12,7 @@ import { isJadeAlias, liveChampionAlias } from '../../lib/data/datadragon';
 import type { SavedProject } from '../../lib/types';
 import { thumbnailCache, useProjectArtUrl } from '../../lib/ui-helpers/projectArt';
 import { useTranslation } from '../../lib/i18n';
+import { toPosix } from '../../lib/pathIdentity';
 
 type SortMode = 'recent' | 'name' | 'champion';
 
@@ -433,7 +434,7 @@ export const ProjectListModal: React.FC = () => {
             }
 
             const appData = await appDataDir();
-            const parts = appData.replace(/\\/g, '/').split('/');
+            const parts = toPosix(appData).split('/');
             parts.pop();
             const defaultProjectsDir = `${parts.join('/')}/RitoShark/Flint/Projects`;
 

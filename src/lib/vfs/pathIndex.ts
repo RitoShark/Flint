@@ -1,3 +1,4 @@
+import { toPosix } from '../pathIdentity';
 /**
  * Turns a flat list of file records into something `list(dir)` can answer in
  * O(children) instead of rebuilding a whole tree.
@@ -16,7 +17,7 @@ const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: tr
 
 /** Normalise separators and strip leading/trailing slashes. */
 export function normalizeDir(path: string): string {
-    return path.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+    return toPosix(path).replace(/^\/+/, '').replace(/\/+$/, '');
 }
 
 function parentOf(path: string): string {

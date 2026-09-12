@@ -7,6 +7,7 @@ import { copyablePath } from '../wadPath';
 import { isJadeAlias } from '../data/datadragon';
 import type { ContextMenuOption, ModalType } from '../types';
 import { t } from '../i18n';
+import { toPosix, toWindowsPath } from '../pathIdentity';
 
 interface BuildOptionsArgs {
     node: { path: string; name: string; isDirectory: boolean };
@@ -30,7 +31,7 @@ interface BuildOptionsArgs {
 }
 
 function isContentFolder(path: string): boolean {
-    const normalized = path.replace(/\\/g, '/');
+    const normalized = toPosix(path);
     return normalized === 'content' || normalized.endsWith('/content');
 }
 
@@ -39,7 +40,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
     const options: ContextMenuOption[] = [];
 
     const fullPath = projectPath
-        ? `${projectPath.replace(/\\/g, '/')}/${node.path}`
+        ? `${projectPath}/${node.path}`
         : node.path;
     const fileName = node.name;
     const ext = fileName.includes('.') ? fileName.split('.').pop()?.toLowerCase() ?? '' : '';
@@ -65,7 +66,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                         icon: getIcon('settings'),
                         onClick: () =>
                             openModal('modConfig', {
-                                filePath: `${projectPath.replace(/\\/g, '/')}/mod.config.json`,
+                                filePath: `${projectPath}/mod.config.json`,
                             }),
                     },
                     {
@@ -590,7 +591,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
     }
 
     // ── Compare / Backup ──────────────────────────────────────────────
-    const normalizedRel = node.path.replace(/\\/g, '/');
+    const normalizedRel = toPosix(node.path);
     const isWadAsset =
         normalizedRel.startsWith('content/') &&
         normalizedRel.split('/').some(seg => seg.toLowerCase().endsWith('.wad.client'));
@@ -669,7 +670,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                             return;
                         }
                         const bytes = await api.readWadChunkData(meta.wad_path!, meta.matched_hash!);
-                        const absPath = `${projectPath.replace(/\\/g, '/')}/${node.path}`.replace(/\//g, '\\');
+                        const absPath = toWindowsPath(`${projectPath}/${node.path}`);
                         await api.saveFileBytes(absPath, bytes);
                         await refreshFileTree();
                         showToast('success', `Restored ${fileName} from original (previous version backed up)`);
@@ -712,7 +713,7 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                             onConfirm: async () => {
                                 try {
                                     const bytes = await api.readFileBackup(projectPath, node.path);
-                                    const absPath = `${projectPath.replace(/\\/g, '/')}/${node.path}`.replace(/\//g, '\\');
+                                    const absPath = toWindowsPath(`${projectPath}/${node.path}`);
                                     await api.saveFileBytes(absPath, bytes);
                                     await refreshFileTree();
                                     showToast('success', `Restored ${fileName} from backup`);

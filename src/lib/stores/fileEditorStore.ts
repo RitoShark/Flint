@@ -1,3 +1,4 @@
+import { toPosix } from '../pathIdentity';
 import { create } from 'zustand';
 import type { FileEditorTarget } from '../types';
 
@@ -50,7 +51,7 @@ function generateFileEditorTabId(): string {
 
 /* Length-preserving on purpose: callers slice the ORIGINAL path by an offset measured here. */
 function comparablePath(p: string): string {
-    return p.replace(/\\/g, '/').toLowerCase();
+    return toPosix(p).toLowerCase();
 }
 
 /** Recompute the derived `target`/`dirty` from tabs + activeId. */

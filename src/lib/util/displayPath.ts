@@ -1,10 +1,11 @@
+import { toPosix } from '../pathIdentity';
 const APPDATA = '%APPDATA%';
 const USERPROFILE = '%USERPROFILE%';
 
 let appDataRoot: string | null = null;
 let userProfileRoot: string | null = null;
 
-const normalize = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '');
+const normalize = (p: string) => toPosix(p).replace(/\/+$/, '');
 
 /**
  * Derives both roots from the app home (`<userprofile>/AppData/Roaming/Flint`),

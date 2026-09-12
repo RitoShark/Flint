@@ -27,6 +27,7 @@ import type { TreeDragPayload, TreeDragItem } from '../../lib/dnd';
 import type { FileTreeNode, ProjectTab } from '../../lib/types';
 import { scheduleProjectAudit } from '../../lib/audit/projectAudit';
 import type { FileIssueTag } from '../../lib/stores/appMetadataStore';
+import { toPosix } from '../../lib/pathIdentity';
 import {
     buildTreeDecorations,
     strongerTag,
@@ -75,7 +76,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({ style }) => {
     const projectPath = activeTab.projectPath;
     const selectedFile = activeTab.selectedFile;
     const seedBin = selectedFile && selectedFile.toLowerCase().endsWith('.bin')
-        ? `${projectPath.replace(/\\/g, '/')}/${selectedFile}`
+        ? `${projectPath}/${selectedFile}`
         : null;
 
     return (
@@ -163,7 +164,7 @@ function collectAllFolderPaths(node: FileTreeNode): string[] {
 }
 
 function getFileName(path: string): string {
-    const parts = path.replace(/\\/g, '/').split('/');
+    const parts = toPosix(path).split('/');
     return parts[parts.length - 1] || path;
 }
 

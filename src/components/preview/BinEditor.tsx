@@ -46,6 +46,7 @@ import {
 
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
+import { toPosix } from '../../lib/pathIdentity';
 
 self.MonacoEnvironment = {
     getWorker(_: unknown, label: string) {
@@ -898,8 +899,8 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             const tab = tabStore.activeTabId ? tabStore.openTabs.find((t) => t.id === tabStore.activeTabId) : null;
             if (!useLsp && tab?.projectPath) recheckFile(tab.projectPath, filePath);
             if (tab?.project && tab.projectPath) {
-                const projPath = tab.projectPath.replace(/\\/g, '/');
-                const normalizedFile = filePath.replace(/\\/g, '/');
+                const projPath = tab.projectPath;
+                const normalizedFile = toPosix(filePath);
                 if (normalizedFile.startsWith(projPath + '/')) {
                     const relPath = normalizedFile.slice(projPath.length + 1);
                     api.syncChromaBins(tab.projectPath, relPath, tab.project.champion, tab.project.skin_id)

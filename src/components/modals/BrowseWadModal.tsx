@@ -4,6 +4,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useModalStore, useNotificationStore, useConfigStore, useWadExtractStore, useNavigationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { Button, Icon, Modal, ModalBody, ModalFooter, ModalHeader } from '../ui';
+import { toPosix } from '../../lib/pathIdentity';
 
 const UNKNOWN_THRESHOLD = 3;
 
@@ -80,7 +81,7 @@ export const BrowseWadModal: React.FC = () => {
         }
         const sep = effectiveLeaguePath.includes('\\') ? '\\' : '/';
         const norm = effectiveLeaguePath.replace(/[\\/]+$/, '');
-        const lower = norm.toLowerCase().replace(/\\/g, '/');
+        const lower = toPosix(norm.toLowerCase());
         let dataFinal: string;
         if (lower.includes('/data/final')) {
             dataFinal = norm;

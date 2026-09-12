@@ -33,6 +33,7 @@ import { ChunkPreview } from './wad-explorer/ChunkPreview';
 import { QuickActionPanel, WadListSkeleton } from './wad-explorer/QuickActionPanel';
 import { ExtractOverlay } from './wad-explorer/ExtractOverlay';
 import { useTranslation } from '../../lib/i18n';
+import { toPosix } from '../../lib/pathIdentity';
 
 export const WadExplorer: React.FC = () => {
     const { t } = useTranslation();
@@ -218,7 +219,7 @@ export const WadExplorer: React.FC = () => {
             const wad = wadExplorer.wads.find(w => w.path === nav.wadPath);
             if (wad?.status !== 'loaded') return;
 
-            const filePath = nav.filePath!.replace(/\\/g, '/').toLowerCase();
+            const filePath = toPosix(nav.filePath!).toLowerCase();
             const segs = filePath.split('/');
             const folderKeys: string[] = [];
             let cur = '';
@@ -235,7 +236,7 @@ export const WadExplorer: React.FC = () => {
             const fileRowIdx = rows.findIndex(r =>
                 r.kind === 'file' &&
                 r.node.wadPath === nav.wadPath &&
-                (r.node.chunk.path?.replace(/\\/g, '/').toLowerCase() ?? '') === filePath
+                toPosix(r.node.chunk.path ?? '').toLowerCase() === filePath
             );
             if (fileRowIdx !== -1) {
                 const fileRow = rows[fileRowIdx] as { kind: 'file'; node: VFSFile; depth: number };
@@ -864,7 +865,7 @@ export const WadExplorer: React.FC = () => {
                 if (totalCapped >= MAX_RESULTS) break;
                 if (!matchChunk(chunk, searchRe, plainLower)) continue;
 
-                const fullPath = (chunk.path ?? chunk.hash).replace(/\\/g, '/');
+                const fullPath = toPosix(chunk.path ?? chunk.hash);
                 const lastSlash = fullPath.lastIndexOf('/');
                 const folderPath = lastSlash >= 0 ? fullPath.slice(0, lastSlash) : '';
                 const fileName = lastSlash >= 0 ? fullPath.slice(lastSlash + 1) : fullPath;

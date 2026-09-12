@@ -1,3 +1,4 @@
+import { toPosix } from './pathIdentity';
 /**
  * Project-relative paths carry a `content/<layer>/<name>.wad.client/` prefix that only
  * means something to Flint's on-disk layout. What a modder actually pastes — into a BIN
@@ -17,7 +18,7 @@
  * than counting from the front.
  */
 export function wadInternalPath(projectRelPath: string): string | null {
-    const normalized = projectRelPath.replace(/\\/g, '/');
+    const normalized = toPosix(projectRelPath);
     if (!normalized.toLowerCase().startsWith('content/')) return null;
 
     const segments = normalized.slice('content/'.length).split('/');
@@ -34,7 +35,7 @@ export function wadInternalPath(projectRelPath: string): string | null {
  * always yields something pasteable.
  */
 export function copyablePath(projectRelPath: string): string {
-    return wadInternalPath(projectRelPath) ?? projectRelPath.replace(/\\/g, '/');
+    return wadInternalPath(projectRelPath) ?? toPosix(projectRelPath);
 }
 
 /**
@@ -46,7 +47,7 @@ export function copyablePath(projectRelPath: string): string {
  * from the file itself. Returns null for a file outside any project.
  */
 export function projectRootFromFilePath(filePath: string): string | null {
-    const normalized = filePath.replace(/\\/g, '/');
+    const normalized = toPosix(filePath);
     const segments = normalized.split('/');
     const contentIdx = segments.findIndex((s) => s.toLowerCase() === 'content');
     if (contentIdx <= 0) return null;

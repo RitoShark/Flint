@@ -139,7 +139,7 @@ export const FileCompareModal: React.FC = () => {
 
         (async () => {
             try {
-                const absPath = `${projectPath.replace(/\\/g, '/')}/${options.filePath}`;
+                const absPath = `${projectPath}/${options.filePath}`;
                 const currentBytes = await api.readFileBytes(absPath);
 
                 let referenceBytes: Uint8Array | null = null;

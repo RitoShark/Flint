@@ -1,3 +1,4 @@
+import { toPosix } from '../../lib/pathIdentity';
 import { Button } from '../ui/Button';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useProjectTabStore, useAppMetadataStore, useModalStore, useNotificationStore, useConfigStore, useNavigationStore } from '../../lib/stores';
@@ -112,7 +113,7 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
      *  a missing separator yields the root rather than disabling the button. */
     const parentRel = useMemo(() => {
         if (!folderRelPath) return null;
-        const norm = folderRelPath.replace(/\\/g, '/').replace(/\/+$/, '');
+        const norm = toPosix(folderRelPath).replace(/\/+$/, '');
         if (!norm) return null;
         const idx = norm.lastIndexOf('/');
         return idx === -1 ? '' : norm.slice(0, idx);

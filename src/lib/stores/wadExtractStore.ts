@@ -1,3 +1,4 @@
+import { toPosix } from '../pathIdentity';
 import { create } from 'zustand';
 import type { ExtractSession, WadChunk } from '../types';
 import type { Vfs } from '../vfs/types';
@@ -55,15 +56,15 @@ export const useWadExtractStore = create<WadExtractState>((set, get) => ({
     const leaguePathPbe = config.leaguePathPbe;
 
     let readOnly = false;
-    const normalizedWad = wadPath.toLowerCase().replace(/\\/g, '/');
+    const normalizedWad = toPosix(wadPath.toLowerCase());
     if (leaguePath) {
-      const normalizedLp = leaguePath.toLowerCase().replace(/\\/g, '/');
+      const normalizedLp = toPosix(leaguePath.toLowerCase());
       if (normalizedLp && normalizedWad.startsWith(normalizedLp)) {
         readOnly = true;
       }
     }
     if (leaguePathPbe) {
-      const normalizedLpPbe = leaguePathPbe.toLowerCase().replace(/\\/g, '/');
+      const normalizedLpPbe = toPosix(leaguePathPbe.toLowerCase());
       if (normalizedLpPbe && normalizedWad.startsWith(normalizedLpPbe)) {
         readOnly = true;
       }

@@ -530,12 +530,12 @@ export const NewProjectModal: React.FC = () => {
         // when set; only fall back to the app-home /projects folder otherwise.
         const configured = defaultProjectPath?.trim();
         if (configured) {
-            setProjectPath(configured.replace(/\\/g, '/'));
+            setProjectPath(configured);
             return;
         }
         try {
             const home = await api.getAppHome();
-            setProjectPath(`${home.replace(/\\/g, '/')}/projects`);
+            setProjectPath(`${home}/projects`);
         } catch {
             setProjectPath('C:/Users/Projects/Flint');
         }

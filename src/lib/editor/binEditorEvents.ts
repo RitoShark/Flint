@@ -1,3 +1,4 @@
+import { toPosix } from '../pathIdentity';
 /* Window events that let siblings of the BIN editor drive it without lifting
    the whole editor's state up. Both carry `filePath` so a second open editor
    ignores a message meant for someone else. */
@@ -43,7 +44,7 @@ export function requestUnhash(filePath: string): void {
 const pendingReveals = new Map<string, number>();
 
 function revealKey(filePath: string): string {
-    return filePath.replace(/\\/g, '/').toLowerCase();
+    return toPosix(filePath).toLowerCase();
 }
 
 /* Same pull handshake as the line stash, and for the same reason: the audit report

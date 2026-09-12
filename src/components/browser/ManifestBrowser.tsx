@@ -12,6 +12,7 @@ import type { VFSNode, VFSFolder } from './wad-explorer/helpers';
 import { ChunkPreview } from './wad-explorer/ChunkPreview';
 import { cdnWadSource } from './wad-explorer/dataSource';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
+import { toPosix } from '../../lib/pathIdentity';
 
 function isWadPath(path: string): boolean {
     const p = path.toLowerCase();
@@ -376,7 +377,7 @@ export const ManifestBrowser: React.FC = () => {
             return candidate;
         };
         for (const { wadFileIndex, chunk } of entries) {
-            const rel = (chunk.path ?? chunk.hash).replace(/\\/g, '/');
+            const rel = toPosix(chunk.path ?? chunk.hash);
             const name = rel.split('/').pop() ?? chunk.hash;
             const outRel = flatExtract ? flatName(name) : rel;
             setExtractStatus(`${done}/${total} · ${name}`);

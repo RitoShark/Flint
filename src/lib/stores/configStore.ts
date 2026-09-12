@@ -91,7 +91,7 @@ function normalizeRecentPaths(recents: RecentProject[]): RecentProject[] {
   const out: RecentProject[] = [];
   for (const entry of recents) {
     if (typeof entry?.path !== 'string') continue;
-    const path = entry.path.replace(/\\/g, '/').replace(/\/+$/, '');
+    const path = entry.path.replace(/\/+$/, '');
     const key = path.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);

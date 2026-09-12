@@ -1,6 +1,7 @@
 import * as api from '../api';
 import { useAppMetadataStore, type FileIssueTag } from '../stores/appMetadataStore';
 import { useProjectTabStore } from '../stores/projectTabStore';
+import { toPosix } from '../pathIdentity';
 
 const timers = new Map<string, number>();
 const running = new Set<string>();
@@ -72,8 +73,8 @@ async function run(projectPath: string): Promise<void> {
 
 /** The `<wad>/<path>` an issue is reported under, for a file inside a project. */
 function issueRelPath(projectPath: string, filePath: string): string | null {
-    const base = `${projectPath.replace(/\\/g, '/')}/content/base/`.toLowerCase();
-    const abs = filePath.replace(/\\/g, '/');
+    const base = `${projectPath}/content/base/`.toLowerCase();
+    const abs = toPosix(filePath);
     return abs.toLowerCase().startsWith(base) ? abs.slice(base.length) : null;
 }
 
