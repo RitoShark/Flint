@@ -3,6 +3,7 @@
 
 
 pub mod mesh;
+pub mod path_slash;
 pub mod champion;
 pub mod league;
 pub mod repath;
