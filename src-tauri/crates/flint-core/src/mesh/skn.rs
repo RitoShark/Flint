@@ -57,7 +57,7 @@ pub struct SknMeshData {
     pub positions: Vec<[f32; 3]>,
     pub normals: Vec<[f32; 3]>,
     pub uvs: Vec<[f32; 2]>,
-    pub indices: Vec<u16>,
+    pub indices: Vec<u32>,
     /// [min, max] where each is [x, y, z]
     pub bounding_box: [[f32; 3]; 2],
     #[serde(skip_serializing_if = "HashMap::is_empty")]
@@ -108,7 +108,7 @@ pub fn parse_skn_file<P: AsRef<Path>>(path: P) -> anyhow::Result<SknMeshData> {
         .map(|v| [v.uv.x, v.uv.y])
         .collect();
 
-    let indices: Vec<u16> = mesh.indices().to_vec();
+    let indices = mesh.absolute_indices();
 
     /* Recompute the AABB rather than trusting `mesh.bounding_box`:
        Blender-exported SKNs (e.g. via the Aventurine tool) frequently carry a

@@ -35,7 +35,7 @@ export interface SknMeshData {
     positions: Float32Array;
     normals: Float32Array;
     uvs: Float32Array;
-    indices: Uint16Array;
+    indices: Uint16Array | Uint32Array;
     bone_weights?: Float32Array;
     bone_indices?: Uint8Array;
 }
@@ -67,7 +67,7 @@ export interface ScbMeshData {
  * [vertex_count × 3 × f32] positions
  * [vertex_count × 3 × f32] normals
  * [vertex_count × 2 × f32] uvs
- * [index_count × idx_bytes] indices  (idx_bytes = 2 for SKN, 4 for SCB)
+ * [index_count × idx_bytes] indices  (idx_bytes = index_bits / 8)
  * (SKN only when has_bones)
  *   [vertex_count × 4 × f32] bone_weights
  *   [vertex_count × 4 × u8]  bone_indices
@@ -119,7 +119,7 @@ function decodeMeshPayload(buf: ArrayBuffer): SknMeshData | ScbMeshData {
             positions,
             normals,
             uvs,
-            indices: indices as Uint16Array,
+            indices,
         };
         if (meta.has_bones) {
             const bwLen = vertexCount * 4;

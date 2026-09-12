@@ -10,7 +10,7 @@
 //! [vertex_count × 3 × f32]   positions
 //! [vertex_count × 3 × f32]   normals
 //! [vertex_count × 2 × f32]   uvs
-//! [index_count × index_bytes] indices    // 2 bytes for SKN (u16), 4 for SCB (u32)
+//! [index_count × 4]          indices    u32
 //! [vertex_count × 4 × f32]   bone_weights  // SKN only, when has_bones=true
 //! [vertex_count × 4 × u8]    bone_indices  // SKN only, when has_bones=true
 //! ```
@@ -37,7 +37,7 @@ pub struct SknHeader<'a> {
     pub texture_warning: &'a Option<String>,
     pub vertex_count: u32,
     pub index_count: u32,
-    pub index_bits: u8, // 16 for SKN
+    pub index_bits: u8,
     pub has_bones: bool,
 }
 
@@ -91,7 +91,7 @@ pub fn encode_skn_binary(mesh: &SknMeshData) -> Result<Vec<u8>, String> {
         texture_warning: &mesh.texture_warning,
         vertex_count,
         index_count,
-        index_bits: 16,
+        index_bits: 32,
         has_bones: bones_ok,
     };
     let meta = serde_json::to_vec(&header).map_err(|e| format!("SKN meta serialize: {e}"))?;
@@ -99,7 +99,7 @@ pub fn encode_skn_binary(mesh: &SknMeshData) -> Result<Vec<u8>, String> {
     let pos_bytes = (vertex_count as usize) * 12;
     let nrm_bytes = pos_bytes;
     let uv_bytes = (vertex_count as usize) * 8;
-    let idx_bytes = (index_count as usize) * 2;
+    let idx_bytes = (index_count as usize) * 4;
     let bw_bytes = if bones_ok { (vertex_count as usize) * 16 } else { 0 };
     let bi_bytes = if bones_ok { (vertex_count as usize) * 4 } else { 0 };
     let cap = 4 + meta.len() + 3 + pos_bytes + nrm_bytes + uv_bytes + idx_bytes + bw_bytes + bi_bytes;

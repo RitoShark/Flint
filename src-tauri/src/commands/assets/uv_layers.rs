@@ -52,7 +52,7 @@ fn edge(a: [f32; 2], b: [f32; 2], c: [f32; 2]) -> f32 {
 /// Babylon path flips only because its texture sampling is bottom-left origin.
 fn rasterize_shells(
     uvs: &[[f32; 2]],
-    indices: &[u16],
+    indices: &[u32],
     tri_range: std::ops::Range<usize>,
     width: u32,
     height: u32,
@@ -185,7 +185,7 @@ pub async fn export_uv_layers(
             .map_err(|e| format!("Failed to parse SKN '{skn_path}': {e:?}"))?;
 
         let uvs: Vec<[f32; 2]> = mesh.vertices().iter().map(|v| [v.uv.x, v.uv.y]).collect();
-        let indices = mesh.indices();
+        let indices = mesh.absolute_indices();
 
         let bins = mesh_bins(&skn);
         if bins.is_empty() {
@@ -257,7 +257,7 @@ pub async fn export_uv_layers(
                     skipped.push(format!("{}: index range runs past the mesh", range.name));
                     continue;
                 }
-                let mut mask = rasterize_shells(&uvs, indices, start..start + count, w, h);
+                let mut mask = rasterize_shells(&uvs, &indices, start..start + count, w, h);
                 if bleed > 0 {
                     dilate(&mut mask, w, h, bleed);
                 }
