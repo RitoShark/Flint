@@ -1,6 +1,6 @@
 import { Button } from '../ui/Button';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open } from '../../lib/api/dialog';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { useAppMetadataStore, useProjectTabStore } from '../../lib/stores';

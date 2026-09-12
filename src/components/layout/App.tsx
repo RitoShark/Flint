@@ -12,7 +12,7 @@ import type { PendingFileOpen } from '../../lib/api/shell';
 import { openWadInExtract, isWadPath } from '../../lib/openWad';
 import { openOrImportFolder } from '../../lib/projectOpen';
 import { listen } from '@tauri-apps/api/event';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open } from '../../lib/api/dialog';
 import { invalidateCachedImage } from '../../lib/ui-helpers/imageCache';
 import { isSidecarFile } from '../../lib/editor/sidecarFiles';
 import { recheckFile, scheduleProjectAudit } from '../../lib/audit/projectAudit';

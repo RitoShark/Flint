@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useModalStore, useNotificationStore, useConfigStore } from '../../lib/stores';
 import * as api from '../../lib/api';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open } from '../../lib/api/dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Button, Input, Icon, Textarea, Checkbox, Spinner, type IconName } from '../ui';

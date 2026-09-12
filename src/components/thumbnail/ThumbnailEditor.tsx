@@ -1,6 +1,6 @@
 import { Button, IconButton } from '../ui/Button';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { open, save } from '@tauri-apps/plugin-dialog';
+import { open, save } from '../../lib/api/dialog';
 import { readTextFile, writeTextFile } from '../../lib/api/file';
 import { createHistory } from '../../lib/thumbnail/history';
 import { Layer, ModelLayer, makeDefaultEnvLayer, removeLayer, reorderGroup, reorderLayer, toggleLock, updateLayer } from '../../lib/thumbnail/layers';

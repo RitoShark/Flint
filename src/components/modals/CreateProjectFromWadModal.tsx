@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open } from '../../lib/api/dialog';
 import { useModalStore, useNotificationStore, useAppMetadataStore } from '../../lib/stores';
 import { createSkinProject, resolveProjectsDir } from '../../lib/projectOpen';
 import { liveChampionAlias } from '../../lib/data/datadragon';

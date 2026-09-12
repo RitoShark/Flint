@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useModalStore, useAppMetadataStore, useProjectTabStore, useConfigStore, useNavigationStore, useNotificationStore } from '../../lib/stores';
 import { formatRelativeTime } from '../../lib/util/utils';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open } from '../../lib/api/dialog';
 import { appDataDir } from '@tauri-apps/api/path';
 import { Button, Icon, Input, Modal, ModalBody, ModalFooter, ModalHeader, Picker } from '../ui';
 import * as api from '../../lib/api';

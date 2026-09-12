@@ -5,7 +5,7 @@ import { useShallow } from 'zustand/react/shallow';
 import * as api from '../../lib/api';
 import type { FileAssocStatus } from '../../lib/api';
 import * as updater from '../../lib/util/updater';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open } from '../../lib/api/dialog';
 import { listen } from '@tauri-apps/api/event';
 import { getVersion } from '@tauri-apps/api/app';
 import {

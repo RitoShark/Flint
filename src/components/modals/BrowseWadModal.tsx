@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open } from '../../lib/api/dialog';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useModalStore, useNotificationStore, useConfigStore, useWadExtractStore, useNavigationStore } from '../../lib/stores';
 import * as api from '../../lib/api';

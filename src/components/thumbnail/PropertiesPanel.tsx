@@ -1,7 +1,7 @@
 import { Button } from '../ui/Button';
 import { Checkbox } from '../ui/Checkbox';
 import { ChangeEvent, useState } from 'react';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open } from '../../lib/api/dialog';
 import { Layer } from '../../lib/thumbnail/layers';
 import { DlIcon, DlSegmented, DlSlider } from '../ui/design-lab';
 

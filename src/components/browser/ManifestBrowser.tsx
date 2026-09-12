@@ -1,6 +1,6 @@
 import { Button } from '../ui/Button';
 import React, { useMemo, useState } from 'react';
-import { open, save } from '@tauri-apps/plugin-dialog';
+import { open, save } from '../../lib/api/dialog';
 import { listen } from '@tauri-apps/api/event';
 import * as api from '../../lib/api';
 import type { CdnTreeNode, CdnProgress, CdnUnpackProgress } from '../../lib/api/cdn';

@@ -1,6 +1,6 @@
 import { Button } from '../../ui/Button';
 import React from 'react';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open } from '../../../lib/api/dialog';
 import { Icon, type IconName, Input } from '../../ui';
 import { SettingsRow, SettingsTag } from './SettingsRow';
 import { useTranslation } from '../../../lib/i18n';

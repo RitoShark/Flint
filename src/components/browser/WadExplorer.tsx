@@ -5,7 +5,7 @@ import React, {
 import { useShallow } from 'zustand/react/shallow';
 import { useConfigStore, useWadExplorerStore, useModalStore, useNotificationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open } from '../../lib/api/dialog';
 import { getIcon, getFileIcon } from '../../lib/ui-helpers/fileIcons';
 import type { ContextMenuOption, WadChunk, WadExplorerWad } from '../../lib/types';
 import { WadCheatSheetModal } from '../modals/WadCheatSheetModal';

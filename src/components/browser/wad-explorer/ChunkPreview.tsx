@@ -7,7 +7,7 @@ import { Button } from '../../ui/Button';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNotificationStore } from '../../../lib/stores';
 import * as api from '../../../lib/api';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open } from '../../../lib/api/dialog';
 import { getIcon } from '../../../lib/ui-helpers/fileIcons';
 import type { WadChunk } from '../../../lib/types';
 import LazyModelPreview from '../../preview/LazyModelPreview';

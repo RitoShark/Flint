@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useModalStore, useNotificationStore } from '../../lib/stores';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open } from '../../lib/api/dialog';
 import * as api from '../../lib/api';
 import { Button, Modal, ModalBody, ModalFooter, ModalHeader, Range } from '../ui';
 

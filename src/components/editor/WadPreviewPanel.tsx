@@ -2,7 +2,7 @@ import { Button } from '../ui/Button';
 import React, { useState, useEffect, useRef } from 'react';
 import { useWadExtractStore, useNotificationStore, useModalStore } from '../../lib/stores';
 import * as api from '../../lib/api';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open } from '../../lib/api/dialog';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import * as monaco from 'monaco-editor';
 import { RITOBIN_LANGUAGE_ID, RITOBIN_THEME_ID, registerRitobinLanguage, registerRitobinTheme } from '../../lib/editor/ritobinLanguage';

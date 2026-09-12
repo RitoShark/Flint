@@ -3,7 +3,7 @@ import { Icon } from '../ui/Icon';
 import { motionDuration } from '../../lib/ui-helpers/motion';
 import React, { useCallback, useState, useMemo, useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { save } from '@tauri-apps/plugin-dialog';
+import { save } from '../../lib/api/dialog';
 import { useProjectTabStore, useWadExtractStore, useWadExplorerStore, useNavigationStore, useConfigStore, useModalStore, useNotificationStore, useFileEditorStore } from '../../lib/stores';
 import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
 import { useCdnManifestStore } from '../../lib/stores/cdnManifestStore';

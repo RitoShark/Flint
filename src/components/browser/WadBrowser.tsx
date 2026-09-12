@@ -4,7 +4,7 @@ import { useAppMetadataStore, useConfigStore, useModalStore, useNotificationStor
 import { leagueRootFromWadPath, parseSkinBinPath } from '../../lib/projectOpen';
 import type { CreateProjectFromWadOptions } from '../modals/CreateProjectFromWadModal';
 import * as api from '../../lib/api';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open } from '../../lib/api/dialog';
 import { getIcon, getFileIcon } from '../../lib/ui-helpers/fileIcons';
 import { checkboxSvg } from './wad-explorer/helpers';
 import { UNKNOWN_DIR, type Vfs } from '../../lib/vfs/types';

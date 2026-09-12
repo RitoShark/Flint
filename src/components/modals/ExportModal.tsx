@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useModalStore, useNotificationStore, useProjectTabStore, useConfigStore } from '../../lib/stores';
 import * as api from '../../lib/api';
-import { save } from '@tauri-apps/plugin-dialog';
+import { save } from '../../lib/api/dialog';
 import { sanitizeChampionName } from '../../lib/util/utils';
 import {
     Button,
