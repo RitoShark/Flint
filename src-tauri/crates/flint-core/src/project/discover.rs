@@ -17,6 +17,7 @@ const INDEX_FILE: &str = "projects.json";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectListing {
     pub pid: String,
+    #[serde(serialize_with = "crate::path_slash::serialize")]
     pub path: PathBuf,
     pub name: String,
     pub display_name: String,

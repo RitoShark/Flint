@@ -1,3 +1,4 @@
+use flint_core::path_slash::to_slash;
 use flint_core::bin::split::{collect_folder_bins, find_wad_root, pick_owner_bin};
 use flint_core::bin::{
     analyze_multi, classify_vfx_objects, group_by_class, organize_vfx_in_folder, read_bin,
@@ -126,7 +127,7 @@ pub async fn analyze_folder_for_split(
         .map(|s| (s.bin_path.clone(), s.object_count))
         .collect();
     let owner = pick_owner_bin(&sources_for_pick)
-        .map(|p| p.to_string_lossy().into_owned())
+        .map(|p| to_slash(&p))
         .unwrap_or_default();
 
     let sources: Vec<BinSplitSourceInfo> = multi
@@ -140,7 +141,7 @@ pub async fn analyze_folder_for_split(
                 .to_string_lossy()
                 .replace('\\', "/");
             BinSplitSourceInfo {
-                path: s.bin_path.to_string_lossy().into_owned(),
+                path: to_slash(&s.bin_path),
                 rel_path: rel,
                 object_count: s.object_count,
             }
@@ -274,7 +275,7 @@ pub async fn preview_organize_vfx(folder_path: String) -> Result<BinOrganizePrev
             .map(|s| (s.bin_path.clone(), s.object_count))
             .collect::<Vec<_>>(),
     )
-    .map(|p| p.to_string_lossy().into_owned())
+    .map(|p| to_slash(&p))
     .unwrap_or_default();
 
     let vfx_set = &multi.vfx_class_hashes;
@@ -292,7 +293,7 @@ pub async fn preview_organize_vfx(folder_path: String) -> Result<BinOrganizePrev
         .sources
         .iter()
         .map(|s| BinSplitSourceInfo {
-            path: s.bin_path.to_string_lossy().into_owned(),
+            path: to_slash(&s.bin_path),
             rel_path: s
                 .bin_path
                 .strip_prefix(&folder_for_strip)
@@ -380,7 +381,7 @@ pub async fn organize_bins_vfx(
         sources_deleted: result
             .sources_deleted
             .iter()
-            .map(|p| p.to_string_lossy().into_owned())
+            .map(|p| to_slash(p))
             .collect(),
         links_pruned: result.links_pruned,
         vfx_link_added: result.vfx_link_added,

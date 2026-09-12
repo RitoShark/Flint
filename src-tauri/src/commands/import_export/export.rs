@@ -1,3 +1,4 @@
+use flint_core::path_slash::to_slash;
 use flint_core::repath::{organize_project, OrganizerConfig};
 use flint_core::project::{ModProject, ModProjectAuthor};
 use serde::{Deserialize, Serialize};
@@ -256,7 +257,7 @@ pub async fn export_fantome(
 
             Ok(ExportResult {
                 success: true,
-                output_path: output.to_string_lossy().to_string(),
+                output_path: to_slash(&output),
                 file_count,
                 total_size,
                 message: format!(
@@ -460,7 +461,7 @@ pub async fn get_export_preview(project_path: String) -> Result<Vec<String>, Str
             e.path()
                 .strip_prefix(&content_base)
                 .ok()
-                .map(|p| p.to_string_lossy().to_string())
+                .map(to_slash)
         })
         .collect();
 
@@ -517,7 +518,7 @@ pub async fn export_modpkg(
 
             Ok(ExportResult {
                 success: true,
-                output_path: output.to_string_lossy().to_string(),
+                output_path: to_slash(&output),
                 file_count,
                 total_size,
                 message: format!(

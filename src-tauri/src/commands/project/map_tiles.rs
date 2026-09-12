@@ -1,6 +1,7 @@
 //! Ground-tile PSD stitcher: combine the open map project's ground textures
 //! into one layered PSD and apply an edited PSD back to the .tex files.
 
+use flint_core::path_slash::to_slash;
 use std::path::{Path, PathBuf};
 
 fn col_index(c: char) -> Option<u32> {
@@ -348,7 +349,7 @@ pub async fn combine_ground_to_psd(
         serde_json::json!({ "path": out.to_string_lossy().replace('\\', "/"), "kind": "create" }),
     );
 
-    Ok(out.to_string_lossy().into_owned())
+    Ok(to_slash(&out))
 }
 
 // ============================================================================
@@ -643,7 +644,7 @@ pub async fn combine_category_to_psd(
         "file-changed",
         serde_json::json!({ "path": out.to_string_lossy().replace('\\', "/"), "kind": "create" }),
     );
-    Ok(out.to_string_lossy().into_owned())
+    Ok(to_slash(&out))
 }
 
 #[tauri::command]

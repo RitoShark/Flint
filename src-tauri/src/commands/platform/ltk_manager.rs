@@ -2,6 +2,7 @@
 //!
 //! These commands provide integration with LTK Manager for syncing projects to the launcher.
 
+use flint_core::path_slash::{slash_str, to_slash};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -75,7 +76,7 @@ pub async fn get_ltk_manager_mod_path() -> Result<Option<String>, String> {
     let storage = non_empty(settings.mod_storage_path)
         .unwrap_or_else(|| data_dir.to_string_lossy().to_string());
     tracing::info!("LTK Manager mod storage path: {}", storage);
-    Ok(Some(storage))
+    Ok(Some(slash_str(&storage)))
 }
 
 /// Detect the Celestial launcher's mod storage path.
@@ -107,7 +108,7 @@ pub async fn get_celestial_mod_path(app: tauri::AppHandle) -> Result<Option<Stri
                     if let Some(p) = value.get("modStoragePath").and_then(|v| v.as_str()) {
                         if !p.is_empty() {
                             tracing::info!("Found Celestial mod path from settings: {}", p);
-                            return Ok(Some(p.to_string()));
+                            return Ok(Some(slash_str(p)));
                         }
                     }
                 }
@@ -116,10 +117,10 @@ pub async fn get_celestial_mod_path(app: tauri::AppHandle) -> Result<Option<Stri
 
         let storage = root.join("storage");
         if storage.exists() {
-            return Ok(Some(storage.to_string_lossy().to_string()));
+            return Ok(Some(to_slash(&storage)));
         }
 
-        return Ok(Some(root.to_string_lossy().to_string()));
+        return Ok(Some(to_slash(root)));
     }
 
     tracing::warn!("Celestial launcher not found in expected locations");
@@ -157,7 +158,7 @@ pub async fn sync_project_to_celestial(project_path: String) -> Result<String, S
     launch_url(&deep_link)
         .map_err(|e| format!("Failed to launch Celestial. Is it installed? ({})", e))?;
 
-    Ok(abs)
+    Ok(slash_str(&abs))
 }
 
 /// Percent-encode a filesystem path for use as a URL query value. Mirrors
@@ -351,12 +352,13 @@ fn workshop_mirror_plan(project_root: &std::path::Path) -> Result<Vec<(PathBuf, 
         if !entry.file_type().is_file() {
             continue;
         }
-        let rel = entry
-            .path()
-            .strip_prefix(&content)
-            .map_err(|e| e.to_string())?
-            .to_string_lossy()
-            .replace(char::from(92), "/");
+        let rel = slash_str(
+            &entry
+                .path()
+                .strip_prefix(&content)
+                .map_err(|e| e.to_string())?
+                .to_string_lossy(),
+        );
         let dest = if legacy {
             format!("content/base/{rel}")
         } else {
@@ -444,7 +446,7 @@ fn mirror_project_to_workshop(
 
     Ok(LauncherSyncResult {
         target: "workshop".to_string(),
-        location: dest_root.to_string_lossy().to_string(),
+        location: to_slash(&dest_root),
         files_copied: copied,
         files_removed: removed,
     })

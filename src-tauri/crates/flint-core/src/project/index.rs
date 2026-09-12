@@ -35,6 +35,7 @@ pub struct ProjectIndexEntry {
     /// Stable project ID (UUID v4), shared with the project's `flint.json`.
     pub pid: String,
     /// Last known absolute path to the project directory.
+    #[serde(serialize_with = "crate::path_slash::serialize")]
     pub path: PathBuf,
     #[serde(default)]
     pub display_name: String,

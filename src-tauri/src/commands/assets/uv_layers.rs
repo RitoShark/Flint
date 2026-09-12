@@ -10,6 +10,7 @@
 //! sheet. Each PSD carries the untouched texture as a bottom layer so the artist
 //! can see what the shells sit on.
 
+use flint_core::path_slash::to_slash;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -298,7 +299,7 @@ pub async fn export_uv_layers(
             let out = dir.join(format!("{}.psd", texture_stem(&texture_path)));
             std::fs::write(&out, write_psd(&PsdDoc { width: w, height: h, groups }))
                 .map_err(|e| format!("Failed to write '{}': {e}", out.display()))?;
-            files.push(out.to_string_lossy().into_owned());
+            files.push(to_slash(&out));
         }
 
         if files.is_empty() {

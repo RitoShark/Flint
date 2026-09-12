@@ -12,6 +12,7 @@
 //! Both commands return the absolute path of the new file and never delete
 //! the source.
 
+use flint_core::path_slash::to_slash;
 use ritoshark::prelude::*;
 use ritoshark::prelude::Serialize as _;
 use ritoshark::tex::{TexFormat, Texture};
@@ -127,7 +128,7 @@ pub async fn convert_tex_to_dds(path: String) -> Result<ConversionResult, String
     fs::write(&out_path, &dds_bytes).map_err(|e| format!("Failed to write DDS: {}", e))?;
 
     Ok(ConversionResult {
-        output_path: out_path.to_string_lossy().into_owned(),
+        output_path: to_slash(&out_path),
         width: rgba.width(),
         height: rgba.height(),
         format: label.to_string(),
@@ -193,7 +194,7 @@ pub async fn convert_dds_to_tex(path: String) -> Result<ConversionResult, String
     fs::write(&out_path, &tex_bytes).map_err(|e| format!("Failed to write TEX: {}", e))?;
 
     Ok(ConversionResult {
-        output_path: out_path.to_string_lossy().into_owned(),
+        output_path: to_slash(&out_path),
         width: rgba.width(),
         height: rgba.height(),
         format: label.to_string(),
@@ -283,7 +284,7 @@ pub async fn convert_png_to_tex(
     fs::write(&out_path, &tex_bytes).map_err(|e| format!("Failed to write TEX: {}", e))?;
 
     Ok(ConversionResult {
-        output_path: out_path.to_string_lossy().into_owned(),
+        output_path: to_slash(&out_path),
         width: rgba.width(),
         height: rgba.height(),
         format: label.to_string(),
@@ -320,7 +321,7 @@ pub async fn convert_png_to_dds(
     fs::write(&out_path, &dds_bytes).map_err(|e| format!("Failed to write DDS: {}", e))?;
 
     Ok(ConversionResult {
-        output_path: out_path.to_string_lossy().into_owned(),
+        output_path: to_slash(&out_path),
         width: rgba.width(),
         height: rgba.height(),
         format: label.to_string(),
@@ -395,7 +396,7 @@ pub async fn convert_texture_to_png(path: String) -> Result<ConversionResult, St
     fs::write(&out_path, &png_bytes).map_err(|e| format!("Failed to write PNG: {}", e))?;
 
     Ok(ConversionResult {
-        output_path: out_path.to_string_lossy().into_owned(),
+        output_path: to_slash(&out_path),
         width: rgba.width(),
         height: rgba.height(),
         format: "PNG (RGBA8)".to_string(),

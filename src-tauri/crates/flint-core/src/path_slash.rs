@@ -1,4 +1,19 @@
-use std::path::Path;
+use serde::Serializer;
+use std::path::{Path, PathBuf};
+
+pub fn serialize<S: Serializer>(path: &Path, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(&to_slash(path))
+}
+
+pub fn serialize_opt<S: Serializer>(
+    path: &Option<PathBuf>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    match path {
+        Some(p) => serializer.serialize_some(&to_slash(p)),
+        None => serializer.serialize_none(),
+    }
+}
 
 pub fn to_slash(path: &Path) -> String {
     slash_str(&path.to_string_lossy())

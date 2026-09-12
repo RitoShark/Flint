@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use crate::core::ipc_trace;
 use flint_core::mesh::discovery::find_project_root;
+use flint_core::path_slash::{slash_str, to_slash};
 use flint_core::mesh::materials::{extract_texture_mapping, lookup_material_by_name, BinIndex};
 use flint_core::mesh::ritobin::mesh_bins;
 use flint_core::mesh::skn::{parse_skn_file, SknMeshData};
@@ -425,7 +426,7 @@ pub async fn resolve_asset_path(
     let same_dir = base_dir.join(&filename);
     if same_dir.exists() {
         tracing::debug!("Found in same directory: {}", same_dir.display());
-        return Ok(same_dir.to_string_lossy().to_string());
+        return Ok(to_slash(&same_dir));
     }
 
     let project_root = find_project_root(&base_dir);
@@ -456,19 +457,19 @@ pub async fn resolve_asset_path(
         let extracted = current.join("extracted").join("ASSETS").join(stripped);
         if extracted.exists() {
             tracing::debug!("Found in extracted: {}", extracted.display());
-            return Ok(extracted.to_string_lossy().to_string());
+            return Ok(to_slash(&extracted));
         }
 
         let assets_direct = current.join("assets").join(stripped);
         if assets_direct.exists() {
             tracing::debug!("Found in assets/: {}", assets_direct.display());
-            return Ok(assets_direct.to_string_lossy().to_string());
+            return Ok(to_slash(&assets_direct));
         }
 
         let candidate = current.join(stripped);
         if candidate.exists() {
             tracing::debug!("Found in parent: {}", candidate.display());
-            return Ok(candidate.to_string_lossy().to_string());
+            return Ok(to_slash(&candidate));
         }
 
         if let Some(parent) = current.parent() {
@@ -481,7 +482,7 @@ pub async fn resolve_asset_path(
     // Strategy 4: path as-is (might be absolute).
     let as_is = std::path::PathBuf::from(&asset_path);
     if as_is.exists() {
-        return Ok(as_is.to_string_lossy().to_string());
+        return Ok(to_slash(&as_is));
     }
 
     let search_root = project_root.as_deref()
@@ -502,13 +503,13 @@ fn search_wad_folders(base_folder: &Path, stripped: &str) -> Option<String> {
             let wad_asset = entry.path().join("assets").join(stripped);
             if wad_asset.exists() {
                 tracing::debug!("Found in WAD {}: {}", wad_name, wad_asset.display());
-                return Some(wad_asset.to_string_lossy().to_string());
+                return Some(to_slash(&wad_asset));
             }
 
             let lower_asset = entry.path().join("assets").join(stripped.to_lowercase());
             if lower_asset.exists() {
                 tracing::debug!("Found in WAD {} (lowercase): {}", wad_name, lower_asset.display());
-                return Some(lower_asset.to_string_lossy().to_string());
+                return Some(to_slash(&lower_asset));
             }
         }
     }
@@ -624,7 +625,7 @@ pub async fn list_anm_folder(dir: String) -> Result<Vec<AnmFileEntry>, String> {
         };
         out.push(AnmFileEntry {
             file_name,
-            path: path.to_string_lossy().to_string(),
+            path: to_slash(&path),
         });
     }
 
@@ -671,9 +672,9 @@ pub async fn resolve_anm_skin(anm_path: String) -> Result<AnmSkinResolution, Str
     let anm = std::path::Path::new(&anm_path);
     let skn = resolve_skn_for_anm(anm).map_err(|e| e.to_string())?;
     Ok(AnmSkinResolution {
-        skn_path: skn.to_string_lossy().to_string(),
+        skn_path: to_slash(&skn),
         // Pass the ANM's own path back so the frontend can match it in the clip list.
-        anm_asset_path: anm_path,
+        anm_asset_path: slash_str(&anm_path),
     })
 }
 

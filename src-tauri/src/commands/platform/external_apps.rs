@@ -1,3 +1,4 @@
+use flint_core::path_slash::to_slash;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use serde::{Serialize, Deserialize};
@@ -9,7 +10,7 @@ pub async fn detect_jade_installation() -> Result<Option<String>, String> {
     for path in search_locations {
         if path.exists() && path.is_file() {
             tracing::info!("[external_apps] Found Jade at: {}", path.display());
-            return Ok(Some(path.to_string_lossy().to_string()));
+            return Ok(Some(to_slash(&path)));
         }
     }
 
@@ -54,7 +55,7 @@ pub async fn detect_quartz_installation() -> Result<Option<String>, String> {
     for path in search_locations {
         if path.exists() && path.is_file() {
             tracing::info!("[external_apps] Found Quartz at: {}", path.display());
-            return Ok(Some(path.to_string_lossy().to_string()));
+            return Ok(Some(to_slash(&path)));
         }
     }
 

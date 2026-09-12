@@ -26,8 +26,10 @@ pub struct MapEntry {
     /// Human-readable name, e.g. `"Summoner's Rift"`. Falls back to `"Map 11"`.
     pub display_name: String,
     /// Absolute path to `Map<id>.wad.client`.
+    #[serde(serialize_with = "crate::path_slash::serialize")]
     pub wad_path: PathBuf,
     /// Absolute path to `Map<id>LEVELS.wad.client`, if present.
+    #[serde(serialize_with = "crate::path_slash::serialize_opt")]
     pub levels_wad_path: Option<PathBuf>,
 }
 

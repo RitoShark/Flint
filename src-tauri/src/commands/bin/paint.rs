@@ -6,6 +6,7 @@
 //! from the checkpoint timeline, then invalidates the `.ritobin` sidecar so the
 //! Monaco view re-converts instead of showing pre-recolor text.
 
+use flint_core::path_slash::to_slash;
 use crate::core::ipc_trace;
 use flint_core::bin::paint::model::VfxModel;
 use flint_core::bin::paint::recolor::{
@@ -268,7 +269,7 @@ pub async fn paint_save(app: tauri::AppHandle, session_id: u64) -> Result<PaintS
     }
 
     Ok(PaintSaveResult {
-        saved: saved.map(|p| p.to_string_lossy().into_owned()),
+        saved: saved.as_deref().map(to_slash),
         checkpointed,
     })
 }

@@ -224,7 +224,7 @@ pub struct Project {
     #[serde(default)]
     pub extract_vo: bool,
 
-    #[serde(default)]
+    #[serde(default, serialize_with = "crate::path_slash::serialize")]
     pub project_path: PathBuf,
 
     #[serde(skip)]

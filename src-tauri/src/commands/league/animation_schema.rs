@@ -1,3 +1,4 @@
+use flint_core::path_slash::to_slash;
 use std::collections::{HashMap, HashSet};
 
 use indexmap::IndexMap;
@@ -824,7 +825,7 @@ pub async fn aggregate_animation_bin_schema(
         bins_failed,
         classes_found: schema.len(),
         total_fields,
-        output_path: output_path.to_string_lossy().to_string(),
+        output_path: to_slash(&output_path),
     })
 }
 

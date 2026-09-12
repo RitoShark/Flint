@@ -1,4 +1,5 @@
 use walkdir::WalkDir;
+use flint_core::path_slash::to_slash;
 use crate::core::ipc_trace;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -83,7 +84,7 @@ pub async fn list_folder_contents(
         entries.push(FolderEntry {
             name,
             relative_path,
-            absolute_path: path.to_string_lossy().into_owned(),
+            absolute_path: to_slash(&path),
             is_directory,
             size,
             extension,

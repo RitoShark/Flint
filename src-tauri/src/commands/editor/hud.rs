@@ -1,3 +1,4 @@
+use flint_core::path_slash::to_slash;
 use flint_core::hud::{parse_hud_file, serialize_hud_file, HudData};
 use std::fs;
 use std::path::PathBuf;
@@ -79,7 +80,7 @@ pub async fn create_hud_project(
     .map_err(|e| format!("Failed to write project config: {}", e))?;
 
     tracing::info!("Successfully created HUD project at: {}", project_path.display());
-    Ok(project_path.to_string_lossy().to_string())
+    Ok(to_slash(&project_path))
 }
 
 fn sanitize_project_name(name: &str) -> String {

@@ -1,3 +1,4 @@
+use flint_core::path_slash::to_slash;
 use flint_core::overlay::HashResolver;
 use flint_core::hash::ResolvedHashes;
 use flint_core::wad::adapter::WadHandle as WadReader;
@@ -418,7 +419,7 @@ pub async fn extract_wad_model_preview(
                 continue;
             }
             if *hash == target_hash {
-                skn_path = output_path.to_string_lossy().to_string();
+                skn_path = to_slash(&output_path);
             }
         }
     }
@@ -436,7 +437,7 @@ pub async fn extract_wad_model_preview(
 
     Ok(WadModelPreviewResult {
         skn_path,
-        temp_dir: temp_dir.to_string_lossy().to_string(),
+        temp_dir: to_slash(&temp_dir),
     })
 }
 
@@ -623,8 +624,8 @@ pub async fn concat_wad_skin_bin(
             source_count
         );
         Ok(ConcatWadResult {
-            skin_bin_path: skin_out.to_string_lossy().replace('\\', "/"),
-            concat_bin_path: concat_out.to_string_lossy().replace('\\', "/"),
+            skin_bin_path: to_slash(&skin_out),
+            concat_bin_path: to_slash(&concat_out),
             source_count,
         })
     })
@@ -692,7 +693,7 @@ pub async fn scan_game_wads(game_path: String) -> Result<Vec<GameWadInfo>, Strin
                 // into the forward-slash `game_path`, giving e.g.
                 // `C:/Riot Games/.../Game\DATA\FINAL\...`. Forward slashes are a
                 // valid Windows path and match the rest of the app's convention.
-                path: path.to_string_lossy().replace('\\', "/"),
+                path: to_slash(path),
                 name: name.to_string(),
                 category,
             })

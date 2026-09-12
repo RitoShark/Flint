@@ -12,6 +12,7 @@
 //!
 //! Notification is triggered natively via shell32.dll SHChangeNotify without shelling out.
 
+use flint_core::path_slash::to_slash;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -111,7 +112,7 @@ pub struct AssocResult {
 #[cfg(target_os = "windows")]
 fn current_exe_string() -> Result<String, String> {
     let exe = std::env::current_exe().map_err(|e| format!("current_exe: {}", e))?;
-    Ok(exe.to_string_lossy().into_owned())
+    Ok(to_slash(&exe))
 }
 
 #[cfg(target_os = "windows")]

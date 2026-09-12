@@ -11,6 +11,7 @@
 //!      session open).
 //!   4. `close_wad_edit_session(session_id)` — frees memory.
 
+use flint_core::path_slash::to_slash;
 use crate::core::ipc_trace;
 use crate::state::{WadEditBacking, WadEditDelta, WadEditSession, WadEditState};
 use flint_core::wad::format::{WadChunk, WadCompression};
@@ -279,7 +280,7 @@ pub async fn list_wad_edit_sessions(
         .into_iter()
         .map(|(id, path, count)| WadEditSessionInfo {
             session_id: id,
-            source_path: path.to_string_lossy().into_owned(),
+            source_path: to_slash(&path),
             initial_chunk_count: count,
         })
         .collect())

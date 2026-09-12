@@ -1,3 +1,4 @@
+use flint_core::path_slash::to_slash;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -65,7 +66,7 @@ fn default_bin_engine() -> String { "ltk".to_string() }
 impl Default for FlintSettings {
     fn default() -> Self {
         let default_projects = get_flint_home()
-            .map(|h| h.join("projects").to_string_lossy().into_owned())
+            .map(|h| to_slash(&h.join("projects")))
             .ok();
         Self {
             schema_version: SCHEMA_VERSION,
@@ -507,7 +508,7 @@ pub fn seed_builtin_themes() -> Result<(), String> {
 pub fn create_default_theme() -> Result<String, String> {
     let path = get_flint_home()?.join("themes").join("custom.json");
     if path.exists() {
-        return Ok(path.to_string_lossy().into_owned());
+        return Ok(to_slash(&path));
     }
 
     let template = serde_json::json!({
@@ -539,7 +540,7 @@ pub fn create_default_theme() -> Result<String, String> {
     std::fs::write(&path, json)
         .map_err(|e| format!("Failed to write theme: {}", e))?;
 
-    Ok(path.to_string_lossy().into_owned())
+    Ok(to_slash(&path))
 }
 
 /// One-time migration: frontend sends the old localStorage blob,

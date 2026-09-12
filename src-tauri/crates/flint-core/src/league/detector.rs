@@ -36,7 +36,9 @@ const REGISTRY_SUBKEY: &str = r"SOFTWARE\WOW6432Node\Riot Games, Inc\League of L
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LeagueInstallation {
+    #[serde(serialize_with = "crate::path_slash::serialize")]
     pub path: PathBuf,
+    #[serde(serialize_with = "crate::path_slash::serialize")]
     pub game_path: PathBuf,
     pub auto_detected: bool,
 }

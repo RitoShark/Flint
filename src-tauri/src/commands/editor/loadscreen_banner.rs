@@ -1,3 +1,4 @@
+use flint_core::path_slash::to_slash;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -159,9 +160,9 @@ pub async fn get_loadscreen_banner_info(
     let _ = r.loadscreen_asset;
     Ok(LoadscreenBannerInfo {
         loadscreen_exists: r.loadscreen_disk.exists(),
-        loadscreen_image_path: r.loadscreen_disk.to_string_lossy().to_string(),
+        loadscreen_image_path: to_slash(&r.loadscreen_disk),
         mask_exists: r.mask_disk.exists(),
-        mask_path: r.mask_disk.to_string_lossy().to_string(),
+        mask_path: to_slash(&r.mask_disk),
         material_name: r.material_name,
         applied: status.applied,
     })
@@ -198,7 +199,7 @@ pub async fn apply_loadscreen_banner(
     };
 
     Ok(ApplyBannerResult {
-        mask_path: r.mask_disk.to_string_lossy().to_string(),
+        mask_path: to_slash(&r.mask_disk),
         width,
         height,
     })

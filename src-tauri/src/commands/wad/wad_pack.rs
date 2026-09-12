@@ -1,6 +1,7 @@
 //! Pack an extracted WAD folder back into a `.wad.client`, for the Explorer
 //! "Pack folder to WAD" verb.
 
+use flint_core::path_slash::to_slash;
 use crate::core::ipc_trace;
 use std::path::{Path, PathBuf};
 
@@ -47,7 +48,7 @@ pub async fn pack_folder_to_wad(folder_path: String) -> Result<String, String> {
         .map_err(|e| format!("Failed to write {}: {}", out_path.display(), e))?;
 
     tracing::info!("Packed {} -> {}", folder.display(), out_path.display());
-    Ok(out_path.to_string_lossy().into_owned())
+    Ok(to_slash(&out_path))
 }
 
 #[cfg(test)]
