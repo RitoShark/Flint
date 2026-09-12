@@ -3,6 +3,7 @@
 //! Walks every WAD under the League installation's `DATA/FINAL/`, parses
 //! `.troybin` chunks, and writes an INI-like schema file.
 
+use flint_core::path_slash::to_slash;
 use std::collections::BTreeMap;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -69,7 +70,7 @@ pub async fn aggregate_troybin_schema(
         .map(|p| p.parent().unwrap_or(&p).join("troybin-schema.ini"))
         .unwrap_or_else(|_| std::path::PathBuf::from("troybin-schema.ini"));
 
-    let output_path = output_path_buf.to_string_lossy().into_owned();
+    let output_path = to_slash(&output_path_buf);
 
     let wad_paths: Vec<String> = WalkDir::new(&data_path)
         .max_depth(5)

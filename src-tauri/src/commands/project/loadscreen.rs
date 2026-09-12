@@ -1,5 +1,6 @@
 //! Loading-screen project creation and its BIN/spritesheet plumbing.
 
+use flint_core::path_slash::to_slash;
 use flint_core::project::{
     create_project as core_create_project,
     open_project as core_open_project,
@@ -223,7 +224,7 @@ pub async fn create_loading_screen_project(
     let creator = project.authors.first().map(|s| s.as_str()).unwrap_or("");
     let version = &project.version;
     let description = &project.description;
-    let project_path_str = project.project_path.to_string_lossy().into_owned();
+    let project_path_str = to_slash(&project.project_path);
 
     let mut project_bytes = Vec::new();
     

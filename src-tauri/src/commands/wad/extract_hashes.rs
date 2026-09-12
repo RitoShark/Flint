@@ -10,6 +10,7 @@
 //! Pairs are merged into `hashes.extracted.txt` (xxhash64 hex → path) and
 //! `hashes.binhashes.extracted.txt` (fnv1a hex → name) in the user hash dir.
 
+use flint_core::path_slash::to_slash;
 use flint_core::wad::adapter::WadHandle as WadReader;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -359,20 +360,10 @@ pub async fn extract_hashes_from_wad(
 
     let mut outputs = Vec::new();
     if added_game > 0 {
-        outputs.push(
-            hash_dir
-                .join("hashes.extracted.txt")
-                .to_string_lossy()
-                .to_string(),
-        );
+        outputs.push(to_slash(&hash_dir.join("hashes.extracted.txt")));
     }
     if added_bin > 0 {
-        outputs.push(
-            hash_dir
-                .join("hashes.binhashes.extracted.txt")
-                .to_string_lossy()
-                .to_string(),
-        );
+        outputs.push(to_slash(&hash_dir.join("hashes.binhashes.extracted.txt")));
     }
 
     Ok(ExtractHashesResult {

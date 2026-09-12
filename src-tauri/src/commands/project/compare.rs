@@ -8,6 +8,7 @@
 //!   2. same directory + same extension + same leading stem token,
 //!      ranked by how many leading dot-separated tokens both filenames share.
 
+use flint_core::path_slash::to_slash;
 use flint_core::overlay::HashResolver;
 use flint_core::hash::ResolvedHashes;
 use flint_core::wad::adapter::WadHandle as WadReader;
@@ -209,7 +210,7 @@ pub async fn find_original_file(
         None => return Ok(meta),
     };
     meta.wad_found = true;
-    meta.wad_path = Some(wad_path.to_string_lossy().to_string());
+    meta.wad_path = Some(to_slash(&wad_path));
 
     // Reuse the parsed-TOC cache so we don't re-parse the WAD on every compare.
     let cache = wad_cache_state.get();

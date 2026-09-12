@@ -1,3 +1,4 @@
+use flint_core::path_slash::to_slash;
 use std::collections::HashMap;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -65,7 +66,7 @@ pub async fn extract_all_luabins(
         .map(|p| p.parent().unwrap_or(&p).join("luabin-schema.lua"))
         .unwrap_or_else(|_| std::path::PathBuf::from("luabin-schema.lua"));
 
-    let output_path = output_path_buf.to_string_lossy().into_owned();
+    let output_path = to_slash(&output_path_buf);
 
     let wad_paths: Vec<String> = WalkDir::new(&data_path)
         .max_depth(5)
