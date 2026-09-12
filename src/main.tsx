@@ -12,12 +12,14 @@ import { shaderForgeAvailable } from '@shaderforge';
 import { AppProvider } from './lib/stores';
 import { useConfigStore } from './lib/stores/configStore';
 import { bootUxPrefs } from './lib/stores/uxStore';
-import { App } from './components/layout/App';
-import { DesignLab } from './components/ui/DesignLab';
-import { MapPreviewWindow } from './components/preview/MapPreviewWindow';
-import { ThumbnailWindow } from './components/thumbnail/ThumbnailWindow';
+import { LoadingView } from './components/ui/LoadingView';
 
 import './styles/index.css';
+
+const App = React.lazy(() => import('./components/layout/App').then(module => ({ default: module.App })));
+const DesignLab = React.lazy(() => import('./components/ui/DesignLab').then(module => ({ default: module.DesignLab })));
+const MapPreviewWindow = React.lazy(() => import('./components/preview/MapPreviewWindow').then(module => ({ default: module.MapPreviewWindow })));
+const ThumbnailWindow = React.lazy(() => import('./components/thumbnail/ThumbnailWindow').then(module => ({ default: module.ThumbnailWindow })));
 
 const isDesignLab =
     typeof window !== 'undefined' &&
@@ -78,22 +80,24 @@ const root = createRoot(container);
 // eslint-disable-next-line no-console
 console.log(`[startup] root.render() at +${(performance.now() - __FLINT_JS_START).toFixed(1)}ms from JS entry`);
 root.render(
-    isThumbnail
-        ? React.createElement(ThumbnailWindow)
-        : isMapPreview
-            ? React.createElement(MapPreviewWindow)
-            : isDesignLab
-                ? React.createElement(React.StrictMode, null, React.createElement(DesignLab, { standalone: true }))
-                : React.createElement(
-                      React.StrictMode,
-                      null,
-                      React.createElement(
-                          AppProvider,
+    React.createElement(React.Suspense, { fallback: React.createElement(LoadingView) },
+        isThumbnail
+            ? React.createElement(ThumbnailWindow)
+            : isMapPreview
+                ? React.createElement(MapPreviewWindow)
+                : isDesignLab
+                    ? React.createElement(React.StrictMode, null, React.createElement(DesignLab, { standalone: true }))
+                    : React.createElement(
+                          React.StrictMode,
                           null,
-                          React.createElement(App),
-                          React.createElement(StartupReadySignal),
+                          React.createElement(
+                              AppProvider,
+                              null,
+                              React.createElement(App),
+                              React.createElement(StartupReadySignal),
+                          )
                       )
-                  )
+    )
 );
 
 if (!isDesignLab) {

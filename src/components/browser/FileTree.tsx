@@ -4,7 +4,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useAppMetadataStore, useProjectTabStore, useModalStore, useNotificationStore, useConfigStore, useNavigationStore } from '../../lib/stores';
 import { openWadInExtract, isWadPath } from '../../lib/openWad';
 import { getFileIcon, getExpanderIcon, getIcon } from '../../lib/ui-helpers/fileIcons';
-import { WorkspaceSearch } from './WorkspaceSearch';
+import { LoadingView } from '../ui/LoadingView';
 import { useSearchPanelStore } from '../../lib/stores/searchPanelStore';
 import { followRename } from '../../lib/stores/renameCoordinator';
 import { VirtualizedList, type VirtualizedListHandle } from './wad-explorer/VirtualizedList';
@@ -34,6 +34,8 @@ import {
     type TreeDecorations,
     type TreeTag,
 } from '../../lib/editor/treeDecorations';
+
+const WorkspaceSearch = React.lazy(() => import('./WorkspaceSearch').then(module => ({ default: module.WorkspaceSearch })));
 
 const ROW_HEIGHT = 22;
 const ROW_OVERSCAN = 8;
@@ -79,7 +81,9 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({ style }) => {
     return (
         <aside className="left-panel" id="left-panel" style={style}>
             {searchRequested && (
-                <WorkspaceSearch projectPath={projectPath} seedBin={seedBin} />
+                <React.Suspense fallback={<LoadingView />}>
+                    <WorkspaceSearch projectPath={projectPath} seedBin={seedBin} />
+                </React.Suspense>
             )}
             {!searchRequested && (
                 <>

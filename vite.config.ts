@@ -53,6 +53,9 @@ export default defineConfig({
         rollupOptions: {
             output: {
                 manualChunks: (id) => {
+                    if (id.includes('vite/preload-helper')) {
+                        return 'preload-helper';
+                    }
                     // Monaco editor workers MUST stay in main bundle for blob: URL worker initialization
                     if (id.includes('monaco-editor') && id.includes('worker')) {
                         return undefined; // Keep in main bundle

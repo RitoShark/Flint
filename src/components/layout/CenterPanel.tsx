@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useProjectTabStore, useNavigationStore, useAppMetadataStore, useWadExtractStore, useArchiveTabStore } from '../../lib/stores';
 import { WelcomeScreen } from '../browser/WelcomeScreen';
-import { PreviewPanel } from '../editor/PreviewPanel';
-import { CheckpointTimeline } from '../editor/CheckpointTimeline';
-import { WadPreviewPanel } from '../editor/WadPreviewPanel';
-import { WadBrowserPanel } from '../browser/WadBrowser';
-import { WadFolderGrid } from '../browser/WadFolderGrid';
-import { FileEditorPage } from '../editor/FileEditorPage';
-import { ArchiveEditor } from '../editor/ArchiveEditor';
+import { LoadingView } from '../ui/LoadingView';
 import { getIcon, icons } from '../../lib/ui-helpers/fileIcons';
+
+const PreviewPanel = React.lazy(() => import('../editor/PreviewPanel').then(module => ({ default: module.PreviewPanel })));
+const CheckpointTimeline = React.lazy(() => import('../editor/CheckpointTimeline').then(module => ({ default: module.CheckpointTimeline })));
+const WadPreviewPanel = React.lazy(() => import('../editor/WadPreviewPanel').then(module => ({ default: module.WadPreviewPanel })));
+const WadBrowserPanel = React.lazy(() => import('../browser/WadBrowser').then(module => ({ default: module.WadBrowserPanel })));
+const WadFolderGrid = React.lazy(() => import('../browser/WadFolderGrid').then(module => ({ default: module.WadFolderGrid })));
+const FileEditorPage = React.lazy(() => import('../editor/FileEditorPage').then(module => ({ default: module.FileEditorPage })));
+const ArchiveEditor = React.lazy(() => import('../editor/ArchiveEditor').then(module => ({ default: module.ArchiveEditor })));
 
 interface QuickActionCardProps {
     icon: keyof typeof icons;
@@ -212,7 +214,9 @@ export const CenterPanel: React.FC = () => {
                     to { opacity: 1; }
                 }
             `}</style>
-            {renderView()}
+            <React.Suspense fallback={<LoadingView />}>
+                {renderView()}
+            </React.Suspense>
             {status === 'working' && (
                 <div style={{
                     position: 'absolute',

@@ -1,13 +1,9 @@
 import { lazy, Suspense } from 'react';
+import type { ModelPreviewProps } from './ModelPreview';
 
 const ModelPreview = lazy(() => import('./ModelPreview').then(module => ({ default: module.ModelPreview })));
 
-interface LazyModelPreviewProps {
-    filePath: string;
-    meshType?: 'skinned' | 'static';
-}
-
-export default function LazyModelPreview(props: LazyModelPreviewProps) {
+export default function LazyModelPreview(props: ModelPreviewProps) {
     return (
         <Suspense
             fallback={

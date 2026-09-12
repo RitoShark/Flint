@@ -8,7 +8,7 @@ import { openWadInExtract, isWadPath } from '../../lib/openWad';
 import { ImagePreview } from '../preview/ImagePreview';
 import { TextPreview } from '../preview/TextPreview';
 import { BinEditor } from '../preview/BinEditor';
-import { ModelPreview } from '../preview/ModelPreview';
+import ModelPreview from '../preview/LazyModelPreview';
 import { UnknownPreview } from '../preview/UnknownPreview';
 import { HUDEditor } from '../preview/HUDEditor';
 import { BnkPreview } from '../preview/BnkPreview';

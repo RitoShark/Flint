@@ -48,7 +48,7 @@ type SknMeshData = api.SknMeshData;
 type ScbMeshData = api.ScbMeshData;
 type MeshData = SknMeshData | ScbMeshData;
 
-interface ModelPreviewProps {
+export interface ModelPreviewProps {
     filePath: string;
     meshType?: 'skinned' | 'static';  // skinned = SKN, static = SCB/SCO
     /** Pre-select this animation_path on load (standalone .anm open). */
