@@ -607,7 +607,7 @@ export const NewProjectModal: React.FC = () => {
 
     const handleBrowsePath = async () => {
         try {
-            const { open } = await import('@tauri-apps/plugin-dialog');
+            const { open } = await import('../../lib/api/dialog');
             const selected = await open({ title: 'Select Project Location', directory: true });
             if (selected) setProjectPath(selected as string);
         } catch { /* ignore */ }
