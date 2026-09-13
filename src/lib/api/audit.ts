@@ -6,16 +6,32 @@ export interface BloatFile {
 }
 
 /** One crash-risk finding from the texture / animation checks. */
+/** A retype the editor can apply itself: swap `from` for `to` on each of `lines`. */
+export interface TypeFix {
+    /** Class the flagged field belongs to, named or `0x` hex. */
+    class: string;
+    field: string;
+    from: string;
+    to: string;
+    /** 1-based lines in the saved file's ritobin text, every declaration of the pair. */
+    lines: number[];
+}
+
 export interface CheckIssue {
     severity: 'critical' | 'warning';
     /** Stable rule id, e.g. `texture.block-misaligned`. */
     code: string;
     file: string;
+    /** One line, for a list row or a tree tooltip. */
     message: string;
     /** 1-based line in the bin's ritobin text, when the finding sits on one. */
     line?: number;
     /** The form the client actually reads, e.g. `texturePath: file`. */
     expected?: string;
+    /** Why it matters and what to do, for a surface with room to say it. */
+    detail?: string;
+    /** Present only when swapping the declared type leaves a value the client still reads. */
+    fix?: TypeFix;
 }
 
 export interface AuditReport {

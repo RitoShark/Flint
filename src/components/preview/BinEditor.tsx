@@ -21,9 +21,11 @@ import { MaskEditor } from './MaskEditor';
 import { PaintPanel } from './paint/PaintPanel';
 import { BinToolsPanel } from './bintools/BinToolsPanel';
 import { applyContentToEditor } from '../../lib/editor/applyContent';
-import { fileIssues, issueNeedle, issueText, recheckFile } from '../../lib/audit/projectAudit';
+import { fileIssues, issueNeedle, recheckFile } from '../../lib/audit/projectAudit';
 import { indexNavigable, nextSystem, previousSystem } from '../../lib/editor/binTools/vfxIndex';
 import { SubmeshPicker, type SubmeshPickerRequest } from './SubmeshPicker';
+import { BinIssueModal } from './BinIssueModal';
+import { planTypeFix } from '../../lib/editor/binTypeFix';
 import { Icon } from '../ui/Icon';
 import { useSearchPanelStore } from '../../lib/stores/searchPanelStore';
 import { projectRootFromFilePath } from '../../lib/wadPath';
@@ -278,6 +280,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
        lines they sit on so a crash risk is visible where it is authored. */
     const [auditIssues, setAuditIssues] = useState<api.CheckIssue[]>([]);
     const [auditIndex, setAuditIndex] = useState(0);
+    const [openIssue, setOpenIssue] = useState<api.CheckIssue | null>(null);
     /* Bumped when the editor instance is (re)created. The finding ranges are computed
        during render against the live model, which does not exist yet on the render that
        first clears `loading` — without this signal they are silently computed as empty. */
@@ -876,6 +879,54 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         };
     }, [issueRanges]);
 
+    const goToIssueLine = useCallback((line: number) => {
+        const model = editorRef.current?.getModel();
+        if (!model || line < 1 || line > model.getLineCount()) return;
+        setOpenIssue(null);
+        revealAndFlash(new monaco.Range(line, 1, line, model.getLineMaxColumn(line)));
+    }, [revealAndFlash]);
+
+    /* One edit operation between undo stops, so the whole retype is a single Ctrl+Z. */
+    const applyTypeFix = useCallback((fix: api.TypeFix) => {
+        const ed = editorRef.current;
+        const model = ed?.getModel();
+        if (!ed || !model) return;
+
+        const lineCount = model.getLineCount();
+        const inRange = fix.lines.filter((line) => line >= 1 && line <= lineCount);
+        const plan = planTypeFix(
+            inRange.map((line) => ({ line, content: model.getLineContent(line) })),
+            fix,
+        );
+        const stale = plan.stale.length + (fix.lines.length - inRange.length);
+
+        setOpenIssue(null);
+        if (plan.edits.length === 0) {
+            showToast('info', `${fix.field} no longer declares ${fix.from} where it was checked. Save and let it re-check.`);
+            return;
+        }
+
+        ed.pushUndoStop();
+        ed.executeEdits('flint-type-fix', plan.edits.map((edit) => ({
+            range: new monaco.Range(edit.line, edit.startColumn, edit.line, edit.endColumn),
+            text: edit.text,
+        })));
+        ed.pushUndoStop();
+        revealAndFlash(new monaco.Range(
+            plan.edits[0].line,
+            1,
+            plan.edits[0].line,
+            model.getLineMaxColumn(plan.edits[0].line),
+        ));
+        const where = plan.edits.length === 1 ? '1 line' : `${plan.edits.length} lines`;
+        showToast(
+            'success',
+            stale > 0
+                ? `${fix.field} is now ${fix.to} on ${where}. ${stale} flagged line${stale === 1 ? '' : 's'} had moved and were left alone.`
+                : `${fix.field} is now ${fix.to} on ${where}. Save to re-check.`,
+        );
+    }, [revealAndFlash, showToast]);
+
     const handleSave = useCallback(async () => {
         if (!useLsp && !bracketStatus.valid) {
             const firstError = bracketStatus.errors[0];
@@ -1414,23 +1465,41 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
 
             {!useLsp && auditIssues.length > 0 && (
                 <details className="bin-editor__issues" open>
-                    <summary>{auditIssues.length} {auditIssues.length === 1 ? 'issue' : 'issues'} in saved file{isDirty ? ' — save to check your changes' : ''}</summary>
+                    <summary>
+                        {auditIssues.length} {auditIssues.length === 1 ? 'issue' : 'issues'} in saved file
+                        {isDirty ? ', save to check your changes' : ''}
+                    </summary>
                     <div className="bin-editor__issues-list">
                         {auditIssues.map((issue, index) => (
-                            <div key={`${issue.code}-${index}`} className="bin-editor__issue">
-                                <strong>{issue.severity === 'critical' ? 'Error' : 'Warning'}</strong>
-                                <span>{issueText(issue)}</span>
-                                {issueRanges.some(r => r.issue === issue) && !isDirty && (
-                                    <Button onClick={() => {
-                                        const hit = issueRanges.find(r => r.issue === issue);
-                                        if (hit) revealAndFlash(hit.range);
-                                    }}>Go to issue</Button>
+                            <button
+                                type="button"
+                                key={`${issue.code}-${index}`}
+                                className={`bin-editor__issue bin-editor__issue--${issue.severity}`}
+                                onClick={() => setOpenIssue(issue)}
+                            >
+                                <span className="bin-editor__issue-dot" aria-hidden="true" />
+                                <span className="bin-editor__issue-text">{issue.message}</span>
+                                {issue.line !== undefined && (
+                                    <span className="bin-editor__issue-line">
+                                        L{issue.line}
+                                        {issue.fix && issue.fix.lines.length > 1
+                                            ? ` +${issue.fix.lines.length - 1}`
+                                            : ''}
+                                    </span>
                                 )}
-                            </div>
+                                {issue.fix && <span className="bin-editor__issue-chip">Fix</span>}
+                            </button>
                         ))}
                     </div>
                 </details>
             )}
+            <BinIssueModal
+                issue={openIssue}
+                dirty={isDirty}
+                onClose={() => setOpenIssue(null)}
+                onGoToLine={goToIssueLine}
+                onApplyFix={applyTypeFix}
+            />
             <div style={{ flex: 1, display: 'flex', minHeight: 0, position: 'relative' }}>
                 <div
                     className="bin-editor__content"

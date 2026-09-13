@@ -1353,6 +1353,40 @@ mod tests {
         );
     }
 
+    /// The scan's whole premise is the shape the printer emits, so check it against the
+    /// printer instead of a handwritten fixture.
+    #[test]
+    fn declaration_lines_match_what_the_printer_emits() {
+        let bin = skin_bin(BinValue::String("assets/x.tex".into()));
+        let text = crate::converter::bin_to_text(&bin).expect("render the bin");
+        let lines = declaration_lines(
+            &text,
+            fnv1a("SkinMeshDataProperties_MaterialOverride"),
+            "texture",
+            "string",
+        );
+        assert_eq!(lines.len(), 1, "{text}");
+        let declared = text.lines().nth(lines[0] as usize - 1).unwrap();
+        assert!(declared.contains("texture"), "{declared}");
+        assert!(declared.contains("string"), "{declared}");
+        assert!(
+            declaration_lines(&text, fnv1a("SkinMeshDataProperties"), "texture", "string").is_empty(),
+            "the outer class does not declare it"
+        );
+    }
+
+    /// The migration table spells its tokens however LeagueToolkit does and the printer spells
+    /// them however the dictionary does, so every comparison has to run through the hash.
+    #[test]
+    fn declaration_lines_do_not_care_how_a_token_is_cased() {
+        let text = "\"e\" = MyClass {
+    MyField: string = \"x\"
+}
+";
+        assert_eq!(declaration_lines(text, fnv1a("myclass"), "myfield", "string"), vec![2]);
+        assert_eq!(declaration_lines(text, fnv1a("MYCLASS"), "MYFIELD", "STRING"), vec![2]);
+    }
+
     /// `0x115b5460.TextureToOverride` is a `rehash` row: the client reads an xxh64 `file`
     /// where the bin still holds an fnv1a `hash`.
     #[test]

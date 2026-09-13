@@ -24,14 +24,38 @@ Supported dump formats are 0–3; an unsupported future format keeps the old cac
 The existing migration checks retain their severity and own overlapping findings,
 so one mismatch does not produce both a migration and a schema warning. Repeated
 instances are counted within a finding. Default editor checks operate on the saved
-BIN and refresh after saving, not on every unsaved keystroke. The expandable issue
-list shows every finding, its expected declaration, and a navigation button where
-a line can be located. It labels results as belonging to the saved file while edits
-are pending. Named and hashed declarations both support line lookup.
+BIN and refresh after saving, not on every unsaved keystroke. Named and hashed
+declarations both support line lookup.
 
-For a string-to-file reference mismatch, the message tells the user to change
-`TexturePath: string =` to `TexturePath: file =` and retain the path. The optional
-LSP's equivalent warning now explains this correction as well.
+A finding reports every line that declares the flagged property on the flagged class,
+located by tracking the enclosing class of each open block in the rendered text. An
+identically named property on a class the check did not flag is therefore left out.
+Findings carry a one-line message for list rows and tree tooltips, with the explanation
+and the correction in a separate detail field.
+
+## Applying a retype
+
+A finding whose declaration can be corrected by swapping the type keyword carries the
+class, field, both types and those lines. The bin editor lists findings as rows, opens
+one in a modal, and applies the retype as a single editor edit across every reported
+line, leaving the file modified for review. Lines are re-read before the edit and one
+that no longer declares the same field with the same type is left alone and reported,
+because findings describe the saved file and the buffer can have moved since.
+
+A retype is offered only where the keyword is the whole correction:
+
+- `string` to `file` keeps the quoted path, so it is offered.
+- `hash` to `file` is not, in either the value or a map key: fnv1a is not xxh64 and the
+  path a hash stood for cannot be recovered from it.
+- A narrowing numeric retype, `u32` to `u8` for example, is offered only when every
+  value in the finding fits the narrower type. One oversized value withdraws the fix
+  for the whole finding, since the edit covers all of its lines at once.
+- A retired embed layout is not, because the embed has to be rebuilt as another class.
+
+Where no retype is offered, the detail says why. For a string-to-file mismatch it tells
+the user to change `TexturePath: string =` to `TexturePath: file =` and keep the path.
+The optional LSP's equivalent warning explains this correction as well; the LSP path has
+no fix buttons of its own.
 
 Validation: `cargo test -p flint-bin --lib --offline` exercises inheritance,
 hashed IDs, nested objects, empty containers, valid strings, and migration overlap.
