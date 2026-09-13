@@ -30,6 +30,21 @@ pub enum Severity {
     Warning,
 }
 
+/// A retype the editor can apply itself: swap `from` for `to` on each of `lines`.
+///
+/// Only emitted where swapping the declared type keyword alone leaves a value the client
+/// still reads. A `hash` cannot become a `file` this way (fnv1a is not xxh64) and a value
+/// that does not fit the narrower type would be truncated, so neither carries a fix.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct TypeFix {
+    pub class: String,
+    pub field: String,
+    pub from: String,
+    pub to: String,
+    /// 1-based lines declaring this field on this class, every one of them.
+    pub lines: Vec<u32>,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CheckIssue {
     pub severity: Severity,
@@ -37,6 +52,7 @@ pub struct CheckIssue {
     pub code: &'static str,
     /// Folder-relative path of the offending file.
     pub file: String,
+    /// One line, for a list row or a tree tooltip. The rest belongs in `detail`.
     pub message: String,
     /// 1-based line in the bin's ritobin text, when the finding sits on one.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -44,6 +60,11 @@ pub struct CheckIssue {
     /// The form the client actually reads, e.g. `texturePath: file`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expected: Option<String>,
+    /// Why it matters and what to do, for a surface with room to say it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fix: Option<TypeFix>,
 }
 
 impl CheckIssue {
@@ -55,6 +76,8 @@ impl CheckIssue {
             message,
             line: None,
             expected: None,
+            detail: None,
+            fix: None,
         }
     }
 
@@ -67,25 +90,100 @@ impl CheckIssue {
         self.expected = Some(expected.into());
         self
     }
+
+    pub(crate) fn detailing(mut self, detail: impl Into<String>) -> Self {
+        self.detail = Some(detail.into());
+        self
+    }
+
+    pub(crate) fn fixing(mut self, fix: Option<TypeFix>) -> Self {
+        if let Some(fix) = fix {
+            self.line = fix.lines.first().copied();
+            self.fix = Some(fix);
+        }
+        self
+    }
+}
+
+/// The numeric ID a written class/field/entry token stands for, named or `0x` hex.
+pub(crate) fn token_id(written: &str) -> u32 {
+    let written = written.trim().trim_matches('"');
+    written
+        .strip_prefix("0x")
+        .and_then(|hex| u32::from_str_radix(hex, 16).ok())
+        .unwrap_or_else(|| fnv1a(written))
+}
+
+/// `(field id, declared type)` when this line is a `<field>: <ty> = ...` declaration.
+fn declared_on(line: &str) -> Option<(u32, String)> {
+    let (name, rest) = line.split_once(':')?;
+    let (declared, _) = rest.split_once('=')?;
+    Some((
+        token_id(name),
+        declared
+            .split_whitespace()
+            .collect::<String>()
+            .to_ascii_lowercase(),
+    ))
+}
+
+/// What a line that opens a `{` block opens: a class body, or a plain container.
+fn block_opened(line: &str) -> Option<Option<u32>> {
+    let head = line.strip_suffix('{')?;
+    if line.bytes().filter(|&b| b == b'"').count() % 2 != 0 {
+        return None;
+    }
+    let token = match head.rsplit_once('=') {
+        Some((_, after)) => after.trim(),
+        None => head.trim(),
+    };
+    Some((!token.is_empty()).then(|| token_id(token)))
 }
 
 /// 1-based line of the first `<field>: <ty>` declaration in rendered ritobin text.
 ///
-/// Match the numeric property ID so named and hashed editor text both work.
+/// Match the numeric property ID so named and hashed editor text both work. For a caller
+/// that knows which class it is asking about, prefer [`declaration_lines`].
 pub(crate) fn declaration_line(text: &str, field: &str, ty: &str) -> Option<u32> {
     if ty.is_empty() {
         return None;
     }
-    let field_hash = field.strip_prefix("0x").and_then(|s| u32::from_str_radix(s, 16).ok()).unwrap_or_else(|| fnv1a(field));
+    let want = (token_id(field), ty.replace(' ', "").to_ascii_lowercase());
     text.lines()
-        .position(|line| {
-            let Some((name, rest)) = line.trim().split_once(':') else { return false; };
-            let name = name.trim().trim_matches('"');
-            let id = name.strip_prefix("0x").and_then(|s| u32::from_str_radix(s, 16).ok()).unwrap_or_else(|| fnv1a(name));
-            let Some((declared, _)) = rest.split_once('=') else { return false; };
-            id == field_hash && declared.split_whitespace().collect::<String>().eq_ignore_ascii_case(&ty.replace(' ', ""))
-        })
+        .position(|line| declared_on(line.trim()).as_ref() == Some(&want))
         .map(|idx| idx as u32 + 1)
+}
+
+/**
+Every 1-based line declaring `field: ty` inside a `class` body, in rendered ritobin text.
+
+The printer emits one item per line and closes each block on its own line, so tracking the
+enclosing token of each open `{` is enough to know which class a declaration belongs to.
+That is what keeps a retype off an identically named field on a class the check never
+flagged: `texture: string` under `SkinMeshDataProperties` is a finding, the same line under
+someone else's own class is not.
+*/
+pub(crate) fn declaration_lines(text: &str, class: u32, field: &str, ty: &str) -> Vec<u32> {
+    if ty.is_empty() {
+        return Vec::new();
+    }
+    let want = (token_id(field), ty.replace(' ', "").to_ascii_lowercase());
+    let mut stack: Vec<Option<u32>> = Vec::new();
+    let mut out = Vec::new();
+    for (idx, raw) in text.lines().enumerate() {
+        let line = raw.trim();
+        if line.starts_with('}') {
+            stack.pop();
+            continue;
+        }
+        if stack.last() == Some(&Some(class)) && declared_on(line).as_ref() == Some(&want) {
+            out.push(idx as u32 + 1);
+        }
+        if let Some(opened) = block_opened(line) {
+            stack.push(opened);
+        }
+    }
+    out
 }
 
 /// 1-based line of the first line containing `needle`, matched case-insensitively.
@@ -751,39 +849,55 @@ pub(crate) fn declares_old_type(m: &Migration, value: &BinValue) -> bool {
 fn migration_issue(m: &Migration, file: &str, hit: &MigrationHit) -> CheckIssue {
     let count = hit.count;
     let plural = if count == 1 { "" } else { "s" };
-    let (code, message) = match m.conversion {
+    let occurrences = format!("{count} occurrence{plural}");
+    let (code, message, detail) = match m.conversion {
         Conversion::HashValue => (
             "bin.string-ref-not-migrated",
             format!(
-                "{} uses `{}`; Riot now expects `{}` ({count} occurrence{plural}). Change `{}: {} =` to `{}: {} =` and keep the same path values. The asset can exist and still fail to load because this reference has the wrong type. Hematite's Skin Fixer can also convert it.",
-                m.label, m.from_type, m.to_type, m.field, m.from_type, m.field, m.to_type,
+                "{} is declared `{}`, the client reads `{}` ({occurrences})",
+                m.label, m.from_type, m.to_type,
+            ),
+            format!(
+                "Riot retyped this field. Change `{}: {} =` to `{}: {} =` and keep the same path values. An asset can exist and still fail to load when its reference carries the wrong type, so this shows up as a missing texture or model rather than an error. Hematite's Skin Fixer converts these too (`file_ref_migration`).",
+                m.field, m.from_type, m.field, m.to_type,
             ),
         ),
         Conversion::Rehash => (
             "bin.hash-ref-not-migrated",
-            format!(
-                "{count} {} value{plural} still typed as `hash`. The client reads a `file` (xxh64 of the path) here now, and an fnv1a `hash` cannot be converted mechanically — repoint the field at its path.",
-                m.label,
-            ),
+            format!("{} is declared `hash`, the client reads `file` ({occurrences})", m.label),
+            "The client reads an xxh64 `file` here now. An fnv1a `hash` cannot be converted to one mechanically, because the path it stood for is not recoverable from the hash. Repoint the field at its path instead.".to_string(),
         ),
         Conversion::HashKey => (
             "bin.hash-ref-not-migrated",
-            format!(
-                "{count} {} map{plural} still keyed by `hash`. The client keys this map by `file` (xxh64 of the path) now, and an fnv1a `hash` key cannot be converted mechanically — re-key the map by path.",
-                m.label,
-            ),
+            format!("{} is keyed by `hash`, the client keys by `file` ({occurrences})", m.label),
+            "The client keys this map by xxh64 `file` now. An fnv1a `hash` key cannot be converted to one mechanically, because the path it stood for is not recoverable from the hash. Re-key the map by path instead.".to_string(),
         ),
         Conversion::Retag => (
             "bin.embed-retagged",
-            format!(
-                "{count} {} value{plural} still carry the retired embed layout. Riot changed this type's tag/class, so the client no longer reads it.",
-                m.label,
-            ),
+            format!("{} carries the retired embed layout ({occurrences})", m.label),
+            "Riot changed this type's tag and class, so the client no longer reads the embed at all. Rebuild it as the current class; retyping the declaration is not enough.".to_string(),
         ),
     };
+    let fix = matches!(m.conversion, Conversion::HashValue)
+        .then(|| type_fix(m, &hit.lines))
+        .flatten();
     CheckIssue::new(Severity::Critical, code, file, message)
-        .at(hit.line)
+        .at(hit.lines.first().copied())
         .expecting(format!("{}: {}", m.field, m.to_type))
+        .detailing(detail)
+        .fixing(fix)
+}
+
+/// A `string` to `file` retype keeps the quoted path, so swapping the keyword is the whole
+/// fix. The other conversions are not mechanical and deliberately get no button.
+fn type_fix(m: &Migration, lines: &[u32]) -> Option<TypeFix> {
+    (!lines.is_empty()).then(|| TypeFix {
+        class: m.class.clone(),
+        field: m.field.clone(),
+        from: m.from_type.clone(),
+        to: m.to_type.clone(),
+        lines: lines.to_vec(),
+    })
 }
 
 /**
@@ -797,8 +911,8 @@ covers the UI/TFT/map content the old seven-pair list missed.
 #[derive(Debug, Default, Clone)]
 struct MigrationHit {
     count: usize,
-    /// Line of the first declaration in the bin's text, when the text was available.
-    line: Option<u32>,
+    /// Every line declaring the pair in the bin's text, when the text was available.
+    lines: Vec<u32>,
 }
 
 #[derive(Debug, Default)]
@@ -832,9 +946,10 @@ impl MigrationTally {
                         .entry((rel.to_string(), table_key(class, *field)))
                         .or_default();
                     hit.count += 1;
-                    if hit.line.is_none() {
-                        hit.line = text
-                            .and_then(|t| declaration_line(t, &m.field, &m.from_type));
+                    if hit.lines.is_empty() {
+                        hit.lines = text
+                            .map(|t| declaration_lines(t, m.class_hash, &m.field, &m.from_type))
+                            .unwrap_or_default();
                     }
                 }
             }
@@ -869,7 +984,9 @@ impl MigrationTally {
         for (key, hit) in other.hits {
             let mine = self.hits.entry(key).or_default();
             mine.count += hit.count;
-            mine.line = mine.line.or(hit.line);
+            if mine.lines.is_empty() {
+                mine.lines = hit.lines;
+            }
         }
     }
 
@@ -1158,9 +1275,113 @@ mod tests {
         assert_eq!(issues[0].severity, Severity::Critical);
         assert_eq!(issues[0].file, "skins/skin0.bin");
         assert!(
-            issues[0].message.contains("Change `texture: string =` to `texture: file =`"),
+            issues[0].message.contains("is declared `string`, the client reads `file`"),
             "{}",
             issues[0].message
+        );
+        assert!(
+            issues[0].detail.as_ref().unwrap().contains("Change `texture: string =` to `texture: file =`"),
+            "{}",
+            issues[0].detail.as_deref().unwrap_or_default()
+        );
+        assert!(issues[0].fix.is_none(), "no text means no line to edit");
+    }
+
+    /// Two overrides on the flagged class, plus the same field name and type on a class the
+    /// table says nothing about. The fix must take the first two lines and leave the third.
+    const TWO_OVERRIDES_AND_A_LOOKALIKE: &str = r#""Characters/Yone/Skins/Skin0" = SkinCharacterDataProperties {
+    skinMeshProperties: embed = SkinMeshDataProperties {
+        materialOverride: list[embed] = {
+            SkinMeshDataProperties_MaterialOverride {
+                texture: string = "assets/a.tex"
+            }
+            SkinMeshDataProperties_MaterialOverride {
+                texture: string = "assets/b.tex"
+            }
+        }
+    }
+    myOwnThing: embed = DexalCustomBlock {
+        texture: string = "assets/mine.tex"
+    }
+}
+"#;
+
+    #[test]
+    fn a_migrated_field_carries_a_retype_fix_for_every_declaration() {
+        let mut tally = MigrationTally::default();
+        tally.add_bin(
+            &skin_bin(BinValue::String("assets/a.tex".into())),
+            "skins/skin0.bin",
+            Some(TWO_OVERRIDES_AND_A_LOOKALIKE),
+        );
+        let issues = tally.into_issues();
+
+        let fix = issues[0].fix.as_ref().expect("string to file is a mechanical retype");
+        assert_eq!(fix.field, "texture");
+        assert_eq!((fix.from.as_str(), fix.to.as_str()), ("string", "file"));
+        assert_eq!(fix.lines, vec![5, 8], "line 13 belongs to another class");
+        assert_eq!(issues[0].line, Some(5));
+    }
+
+    #[test]
+    fn declaration_lines_are_scoped_to_the_class_that_was_asked_for() {
+        let flagged = fnv1a("SkinMeshDataProperties_MaterialOverride");
+        assert_eq!(
+            declaration_lines(TWO_OVERRIDES_AND_A_LOOKALIKE, flagged, "texture", "string"),
+            vec![5, 8]
+        );
+        assert_eq!(
+            declaration_lines(TWO_OVERRIDES_AND_A_LOOKALIKE, fnv1a("DexalCustomBlock"), "texture", "string"),
+            vec![13]
+        );
+        assert_eq!(
+            declaration_lines(TWO_OVERRIDES_AND_A_LOOKALIKE, flagged, "texture", "file"),
+            Vec::<u32>::new(),
+            "the declared type has to match too"
+        );
+    }
+
+    /// Hashed classes and fields read the same way, and a container block carries no class of
+    /// its own, so a field inside one still belongs to the class above it.
+    #[test]
+    fn declaration_lines_read_hashed_names_and_ignore_container_blocks() {
+        let text = "\"0x11111111\" = 0x22222222 {\n    0x33333333: list[string] = {\n        \"loose value\"\n    }\n    0x44444444: string = \"x\"\n}\n";
+        assert_eq!(declaration_lines(text, 0x2222_2222, "0x44444444", "string"), vec![5]);
+        assert_eq!(
+            declaration_lines(text, 0x2222_2222, "0x33333333", "list[string]"),
+            vec![2]
+        );
+    }
+
+    /// `0x115b5460.TextureToOverride` is a `rehash` row: the client reads an xxh64 `file`
+    /// where the bin still holds an fnv1a `hash`.
+    #[test]
+    fn a_hash_that_cannot_become_a_path_gets_no_fix() {
+        let text = "\"entry\" = 0x115b5460 {
+    TextureToOverride: hash = \"assets/a.tex\"
+}
+";
+        let bin = Bin {
+            entries: vec![BinEntry {
+                path_hash: fnv1a("entry"),
+                class_hash: 0x115b_5460,
+                fields: [(fnv1a("TextureToOverride"), BinValue::Hash(fnv1a("assets/a.tex")))]
+                    .into_iter()
+                    .collect(),
+            }],
+            ..Bin::new()
+        };
+        let mut tally = MigrationTally::default();
+        tally.add_bin(&bin, "skins/skin0.bin", Some(text));
+        let issues = tally.into_issues();
+
+        assert_eq!(codes(&issues), vec!["bin.hash-ref-not-migrated"]);
+        assert_eq!(issues[0].line, Some(2), "the declaration is still located");
+        assert!(issues[0].fix.is_none(), "fnv1a cannot be converted to xxh64");
+        assert!(
+            issues[0].detail.as_ref().unwrap().contains("not recoverable from the hash"),
+            "{}",
+            issues[0].detail.as_deref().unwrap_or_default()
         );
     }
 

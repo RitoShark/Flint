@@ -281,7 +281,7 @@ fn missing_ref_issue(rel: &str, absent: &[String]) -> CheckIssue {
         code: "bin.missing-ref",
         file: rel.to_string(),
         message: format!(
-            "References {} file{} the folder does not ship ({shown}{}). Unless the game itself provides them, they load magenta or not at all.",
+            "References {} file{} the folder does not ship ({shown}{})",
             absent.len(),
             if absent.len() == 1 { "" } else { "s" },
             if rest > 0 {
@@ -292,6 +292,10 @@ fn missing_ref_issue(rel: &str, absent: &[String]) -> CheckIssue {
         ),
         line: None,
         expected: None,
+        detail: Some(
+            "Unless the game itself provides them, they load magenta or not at all.".into(),
+        ),
+        fix: None,
     }
 }
 

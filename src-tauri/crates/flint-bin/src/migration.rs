@@ -26,6 +26,9 @@ pub enum Conversion {
 pub struct Migration {
     /// `Class.field` as the table spells it — names where it has them, `0x` hex otherwise.
     pub label: String,
+    /// The class half of `label`, for naming and for scoping a declaration lookup.
+    pub class: String,
+    pub class_hash: u32,
     /// Just the field half of `label`, for finding the line that declares it.
     pub field: String,
     pub conversion: Conversion,
@@ -110,6 +113,8 @@ fn parse() -> HashMap<u64, Migration> {
             table_key(class, field),
             Migration {
                 label: format!("{}.{}", row.class, row.field),
+                class: row.class.clone(),
+                class_hash: class,
                 field: row.field.clone(),
                 conversion,
                 from_class: row.from.class.as_deref().and_then(token),
