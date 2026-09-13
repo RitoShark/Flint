@@ -217,6 +217,12 @@
     border: 1px solid var(--accent-primary);
     color: var(--accent-primary);
 }
+.bin-editor__issue--applied .bin-editor__issue-text { color: var(--text-muted); }
+.bin-editor__issue--applied .bin-editor__issue-dot { background: var(--color-success); }
+.bin-editor__issue--applied .bin-editor__issue-chip {
+    border-color: var(--color-success);
+    color: var(--color-success);
+}
 
 .bin-issue__meta {
     display: flex;

@@ -73,3 +73,8 @@ export function planTypeFix(
 
     return { edits, stale };
 }
+
+/** Identifies a retype across re-checks, so an applied one can be shown as already changed. */
+export function issueFixKey(fix: Pick<TypeFix, 'class' | 'field' | 'from' | 'to'>): string {
+    return `${fix.class}.${fix.field}:${fix.from}>${fix.to}`;
+}

@@ -25,7 +25,7 @@ import { fileIssues, issueNeedle, recheckFile } from '../../lib/audit/projectAud
 import { indexNavigable, nextSystem, previousSystem } from '../../lib/editor/binTools/vfxIndex';
 import { SubmeshPicker, type SubmeshPickerRequest } from './SubmeshPicker';
 import { BinIssueModal } from './BinIssueModal';
-import { planTypeFix } from '../../lib/editor/binTypeFix';
+import { issueFixKey, planTypeFix } from '../../lib/editor/binTypeFix';
 import { Icon } from '../ui/Icon';
 import { useSearchPanelStore } from '../../lib/stores/searchPanelStore';
 import { projectRootFromFilePath } from '../../lib/wadPath';
@@ -281,6 +281,13 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const [auditIssues, setAuditIssues] = useState<api.CheckIssue[]>([]);
     const [auditIndex, setAuditIndex] = useState(0);
     const [openIssue, setOpenIssue] = useState<api.CheckIssue | null>(null);
+    /* Findings describe the saved file, so one whose retype is already in the buffer would
+       otherwise read as untouched until the next save. */
+    const [appliedFixes, setAppliedFixes] = useState<Set<string>>(() => new Set());
+    const isApplied = useCallback(
+        (issue: api.CheckIssue) => !!issue.fix && appliedFixes.has(issueFixKey(issue.fix)),
+        [appliedFixes],
+    );
     /* Bumped when the editor instance is (re)created. The finding ranges are computed
        during render against the live model, which does not exist yet on the render that
        first clears `loading` — without this signal they are silently computed as empty. */
@@ -356,6 +363,10 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         return state.getFileVersion(filePath);
     });
     const incrementFileVersion = useAppMetadataStore((state) => state.incrementFileVersion);
+    /* Every path that re-checks a file bumps this: a save through recheckFile, the project
+       watcher, and the periodic sweep. Without it the list keeps the findings from whenever
+       the file was opened, so a fixed issue stayed on screen. */
+    const fileIssuesRev = useAppMetadataStore((state) => state.fileIssuesRev);
 
     const variant = 'ritoshark';
 
@@ -794,10 +805,15 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         if (useLsp || !searchRoot || loading || error) { setAuditIssues([]); return; }
         let cancelled = false;
         fileIssues(searchRoot, filePath)
-            .then((found) => { if (!cancelled) { setAuditIssues(found); setAuditIndex(0); } })
+            .then((found) => {
+                if (cancelled) return;
+                setAuditIssues(found);
+                setAuditIndex(0);
+                setAppliedFixes(new Set());
+            })
             .catch((e) => { console.debug('[bin-editor] audit failed:', e); });
         return () => { cancelled = true; };
-    }, [searchRoot, filePath, fileVersion, loading, error, useLsp]);
+    }, [searchRoot, filePath, fileVersion, fileIssuesRev, loading, error, useLsp]);
 
     /* Where each finding sits in THIS text. A reported line is used as given; a finding
        with no line still names its asset path in the message, and searching the live
@@ -912,6 +928,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             text: edit.text,
         })));
         ed.pushUndoStop();
+        setAppliedFixes((applied) => new Set(applied).add(issueFixKey(fix)));
         revealAndFlash(new monaco.Range(
             plan.edits[0].line,
             1,
@@ -948,7 +965,10 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
 
             const tabStore = useProjectTabStore.getState();
             const tab = tabStore.activeTabId ? tabStore.openTabs.find((t) => t.id === tabStore.activeTabId) : null;
-            if (!useLsp && tab?.projectPath) recheckFile(tab.projectPath, filePath);
+            /* searchRoot, not just the active tab: a bin opened straight from disk still lists
+               findings, and gating the re-check on an open tab left those stale after a save. */
+            const auditRoot = tab?.projectPath ?? searchRoot;
+            if (!useLsp && auditRoot) recheckFile(auditRoot, filePath);
             if (tab?.project && tab.projectPath) {
                 const projPath = tab.projectPath;
                 const normalizedFile = toPosix(filePath);
@@ -980,7 +1000,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             }
             setReady('Save failed');
         }
-    }, [filePath, content, setWorking, setReady, showToast, bracketStatus, useLsp]);
+    }, [filePath, content, searchRoot, setWorking, setReady, showToast, bracketStatus, useLsp]);
     saveRef.current = handleSave;
 
     useEffect(() => { return () => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); }; }, []);
@@ -1474,7 +1494,9 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                             <button
                                 type="button"
                                 key={`${issue.code}-${index}`}
-                                className={`bin-editor__issue bin-editor__issue--${issue.severity}`}
+                                className={`bin-editor__issue bin-editor__issue--${issue.severity}${
+                                    isApplied(issue) ? ' bin-editor__issue--applied' : ''
+                                }`}
                                 onClick={() => setOpenIssue(issue)}
                             >
                                 <span className="bin-editor__issue-dot" aria-hidden="true" />
@@ -1487,7 +1509,11 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                                             : ''}
                                     </span>
                                 )}
-                                {issue.fix && <span className="bin-editor__issue-chip">Fix</span>}
+                                {issue.fix && (
+                                    <span className="bin-editor__issue-chip">
+                                        {isApplied(issue) ? 'Changed' : 'Fix'}
+                                    </span>
+                                )}
                             </button>
                         ))}
                     </div>
@@ -1495,6 +1521,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             )}
             <BinIssueModal
                 issue={openIssue}
+                applied={!!openIssue && isApplied(openIssue)}
                 dirty={isDirty}
                 onClose={() => setOpenIssue(null)}
                 onGoToLine={goToIssueLine}

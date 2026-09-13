@@ -5,6 +5,8 @@ import { Modal, ModalBody, ModalFooter, ModalHeader } from '../ui/Modal';
 
 interface Props {
     issue: api.CheckIssue | null;
+    /** The retype is already in the buffer, waiting on a save to be re-checked. */
+    applied: boolean;
     /** A fix edits the open buffer, so it is only offered against the text the check read. */
     dirty: boolean;
     onGoToLine: (line: number) => void;
@@ -21,7 +23,7 @@ function lineList(lines: number[]): string {
     return lines.length === 1 ? `Line ${lines[0]}` : `Lines ${lines.join(', ')}`;
 }
 
-export const BinIssueModal: React.FC<Props> = ({ issue, dirty, onGoToLine, onApplyFix, onClose }) => {
+export const BinIssueModal: React.FC<Props> = ({ issue, applied, dirty, onGoToLine, onApplyFix, onClose }) => {
     // Hold the last issue so the body does not blank out during the modal's exit motion.
     const shownRef = useRef<api.CheckIssue | null>(null);
     if (issue) shownRef.current = issue;
@@ -67,14 +69,18 @@ export const BinIssueModal: React.FC<Props> = ({ issue, dirty, onGoToLine, onApp
                     </ModalBody>
                     <ModalFooter split>
                         <span className="bin-issue__note">
-                            {dirty ? 'Checked against the saved file. Save to check your edits.' : ''}
+                            {applied
+                                ? 'Changed in the editor. Save to check it again.'
+                                : dirty
+                                    ? 'Checked against the saved file. Save to check your edits.'
+                                    : ''}
                         </span>
                         <div className="modal__footer-actions">
                             <Button variant="ghost" onClick={onClose}>Close</Button>
                             {line !== undefined && (
                                 <Button onClick={() => onGoToLine(line)}>Go to line</Button>
                             )}
-                            {fix && (
+                            {fix && !applied && (
                                 <Button
                                     variant="primary"
                                     disabled={dirty}

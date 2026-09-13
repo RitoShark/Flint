@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'vitest';
-import { issueText, issueTagsFromIssues } from './projectAudit';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { issueText, issueTagsFromIssues, recheckFile } from './projectAudit';
+import { useAppMetadataStore } from '../stores/appMetadataStore';
+import { useProjectTabStore } from '../stores/projectTabStore';
+import * as api from '../api';
 import type { CheckIssue } from '../api';
+
+vi.mock('../api', () => ({ recheckProjectFile: vi.fn() }));
 
 const issue = (over: Partial<CheckIssue> = {}): CheckIssue => ({
     severity: 'critical',
@@ -42,5 +47,63 @@ describe('issueTagsFromIssues', () => {
         expect(tags).toHaveLength(1);
         expect(tags[0][1].severity).toBe('critical');
         expect(tags[0][1].message).toBe('first\nsecond');
+    });
+});
+
+/* The bin editor refreshes its own issue list off fileIssuesRev, so a recheck that finds a
+   file clean has to bump the revision, not just quietly drop the tag. */
+describe('recheckFile', () => {
+    const project = '/p';
+    const file = '/p/content/base/aurora.wad.client/data/skin0.bin';
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+        // recheckFile debounces through window; the node test env has no window of its own.
+        vi.stubGlobal('window', {
+            setTimeout: (fn: () => void, ms?: number) => globalThis.setTimeout(fn, ms),
+            clearTimeout: (id: number) => globalThis.clearTimeout(id),
+        });
+        useProjectTabStore.setState({
+            activeTabId: 't1',
+            openTabs: [{ id: 't1', projectPath: project, project: null, selectedFile: null } as never],
+        });
+        useAppMetadataStore.getState().setFileIssue(file, null);
+    });
+
+    async function settle() {
+        await vi.advanceTimersByTimeAsync(500);
+    }
+
+    it('bumps the revision when a file that had a finding comes back clean', async () => {
+        const store = useAppMetadataStore.getState();
+        store.setFileIssue(file, { severity: 'critical', message: 'still typed as `string`.' });
+        const before = useAppMetadataStore.getState().fileIssuesRev;
+        vi.mocked(api.recheckProjectFile).mockResolvedValue([]);
+
+        recheckFile(project, file);
+        await settle();
+
+        expect(useAppMetadataStore.getState().getFileIssue(file)).toBeUndefined();
+        expect(useAppMetadataStore.getState().fileIssuesRev).toBeGreaterThan(before);
+    });
+
+    it('bumps the revision when the findings change rather than disappear', async () => {
+        const store = useAppMetadataStore.getState();
+        store.setFileIssue(file, { severity: 'critical', message: 'old' });
+        const before = useAppMetadataStore.getState().fileIssuesRev;
+        vi.mocked(api.recheckProjectFile).mockResolvedValue([
+            {
+                severity: 'warning',
+                code: 'bin.schema-type-mismatch',
+                file: 'aurora.wad.client/data/skin0.bin',
+                message: 'new',
+            },
+        ]);
+
+        recheckFile(project, file);
+        await settle();
+
+        expect(useAppMetadataStore.getState().getFileIssue(file)?.message).toContain('new');
+        expect(useAppMetadataStore.getState().fileIssuesRev).toBeGreaterThan(before);
     });
 });
