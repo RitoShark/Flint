@@ -209,6 +209,13 @@ export const WadAuditModal: React.FC = () => {
         [issues],
     );
 
+    /* Only findings the check said are mechanical: a hash that cannot become a path and a
+       value that would not survive the narrower type both arrive without a fix. */
+    const retypable = useMemo(
+        () => issues.filter((i): i is api.CheckIssue & { fix: api.TypeFix } => !!i.fix),
+        [issues],
+    );
+
     const fixAlignment = useCallback(
         async (files: string[]) => {
             if (!files.length || fixing) return;
@@ -231,6 +238,56 @@ export const WadAuditModal: React.FC = () => {
         },
         [absPath, fixing, showToast, scan],
     );
+
+    const runRetypes = useCallback(
+        async (targets: Array<api.CheckIssue & { fix: api.TypeFix }>) => {
+            if (!targets.length || fixing) return;
+            setFixing(true);
+            try {
+                const report = await api.fixBinRetypes(
+                    folderPath,
+                    targets.map((issue) => ({
+                        file: issue.file,
+                        field: issue.fix.field,
+                        from: issue.fix.from,
+                        to: issue.fix.to,
+                        lines: issue.fix.lines,
+                    })),
+                );
+                const { declarations_changed: changed, files_changed: files } = report;
+                if (changed) {
+                    showToast(
+                        'success',
+                        `Retyped ${changed} declaration${changed === 1 ? '' : 's'} across ${files} file${files === 1 ? '' : 's'}${report.checkpoint ? '. A restore point was created first.' : ''}`,
+                    );
+                } else if (!report.errors.length) {
+                    showToast('info', 'Nothing to change, the declarations no longer match what was found.');
+                }
+                if (report.stale.length) {
+                    showToast('info', `${report.stale.length} line${report.stale.length === 1 ? '' : 's'} had moved and were left alone`);
+                }
+                if (report.errors.length) {
+                    showToast('error', `${report.errors.length} file${report.errors.length === 1 ? '' : 's'} failed: ${report.errors[0]}`);
+                }
+                if (changed) await scan(false);
+            } catch (e) {
+                showToast('error', e instanceof Error ? e.message : String(e));
+            } finally {
+                setFixing(false);
+            }
+        },
+        [folderPath, fixing, showToast, scan],
+    );
+
+    const confirmRetypeAll = useCallback(() => {
+        const files = new Set(retypable.map((i) => i.file)).size;
+        useModalStore.getState().openConfirmDialog({
+            title: 'Fix every declaration?',
+            message: `${retypable.length} declaration${retypable.length === 1 ? '' : 's'} across ${files} file${files === 1 ? '' : 's'} will be retyped and the files rewritten. A restore point is created first. Only the changes the check said are mechanical are applied.`,
+            confirmLabel: 'Fix them',
+            onConfirm: () => void runRetypes(retypable),
+        });
+    }, [retypable, runRetypes]);
 
     if (!isVisible) return null;
 
@@ -346,6 +403,19 @@ export const WadAuditModal: React.FC = () => {
                                 <div className="wa-row__head">
                                     <span className="wa-row__path">&#8206;{issue.file}</span>
                                     {issue.line ? <span className="wa-row__line">line {issue.line}</span> : null}
+                                    {issue.fix && (
+                                        <button
+                                            className="wa-fix"
+                                            disabled={fixing}
+                                            title={`Change ${issue.fix.field} to ${issue.fix.to} on ${issue.fix.lines.length} line${issue.fix.lines.length === 1 ? '' : 's'} and rewrite this file`}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                void runRetypes([issue as api.CheckIssue & { fix: api.TypeFix }]);
+                                            }}
+                                        >
+                                            Change to {issue.fix.to}
+                                        </button>
+                                    )}
                                     {issue.code === ALIGNMENT_CODE && (
                                         <button
                                             className="wa-fix"
@@ -461,6 +531,15 @@ export const WadAuditModal: React.FC = () => {
                         <Button variant="ghost" onClick={copyList} disabled={!shownPaths.length}>
                             Copy list
                         </Button>
+                        {view === 'risks' && retypable.length > 1 && (
+                            <Button
+                                variant="secondary"
+                                disabled={fixing || loading}
+                                onClick={confirmRetypeAll}
+                            >
+                                {fixing ? 'Fixing…' : `Fix ${retypable.length} declarations`}
+                            </Button>
+                        )}
                         {view === 'risks' && fixable.length > 1 && (
                             <Button
                                 variant="secondary"

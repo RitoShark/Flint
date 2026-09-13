@@ -1,5 +1,8 @@
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+
 use flint_core::bin::{AuditReport, CheckIssue};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct WadMissingRefs {
@@ -123,4 +126,135 @@ pub async fn recheck_project_file(
     })
     .await
     .map_err(|e| format!("Recheck task failed: {}", e))?
+}
+
+/// One declaration retype an audit finding says is safe to apply.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RetypeRequest {
+    /// Folder-relative path, exactly as `CheckIssue.file` carries it.
+    pub file: String,
+    pub field: String,
+    pub from: String,
+    pub to: String,
+    pub lines: Vec<u32>,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct RetypeReport {
+    pub files_changed: usize,
+    pub declarations_changed: usize,
+    /// Lines that no longer declared what the finding saw, as `<file>:<line>`.
+    pub stale: Vec<String>,
+    pub errors: Vec<String>,
+    /// Name of the restore point taken before anything was written.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checkpoint: Option<String>,
+}
+
+/**
+Applies every retype in `fixes` to the bins under `folder_path`.
+
+Grouped by file so a bin is rendered, rewritten and saved ONCE however many findings it
+carries. The write goes through the editor's own save path (`encode_capturing_names` then
+`merge_into_files_txt`): a `string` to `file` retype hashes the path, and that is the only
+thing that records the readable name beside the mod. Editing the tree directly would be
+correct for the client and would lose the name everywhere else.
+*/
+#[tauri::command]
+pub async fn fix_bin_retypes(
+    app: tauri::AppHandle,
+    folder_path: String,
+    fixes: Vec<RetypeRequest>,
+) -> Result<RetypeReport, String> {
+    let _t = crate::core::ipc_trace::enter("fix_bin_retypes");
+    if fixes.is_empty() {
+        return Ok(RetypeReport::default());
+    }
+
+    let folder = PathBuf::from(&folder_path);
+    let checkpoint = restore_point(&app, &folder, fixes.len()).await;
+
+    tokio::task::spawn_blocking(move || {
+        let mut by_file: BTreeMap<String, Vec<RetypeRequest>> = BTreeMap::new();
+        for fix in fixes {
+            by_file.entry(fix.file.clone()).or_default().push(fix);
+        }
+
+        let mut report = RetypeReport {
+            checkpoint,
+            ..Default::default()
+        };
+        for (file, fixes) in by_file {
+            match retype_one_bin(&folder.join(&file), &fixes) {
+                Ok(outcome) => {
+                    if outcome.changed > 0 {
+                        report.files_changed += 1;
+                        report.declarations_changed += outcome.changed;
+                    }
+                    report
+                        .stale
+                        .extend(outcome.stale.iter().map(|line| format!("{file}:{line}")));
+                }
+                Err(e) => report.errors.push(format!("{file}: {e}")),
+            }
+        }
+        Ok(report)
+    })
+    .await
+    .map_err(|e| format!("Retype task failed: {}", e))?
+}
+
+struct RetypeOutcome {
+    changed: usize,
+    stale: Vec<u32>,
+}
+
+fn retype_one_bin(path: &Path, fixes: &[RetypeRequest]) -> Result<RetypeOutcome, String> {
+    let data = std::fs::read(path).map_err(|e| format!("Failed to read: {e}"))?;
+    let bin = flint_core::bin::read_bin(&data).map_err(|e| format!("{e}"))?;
+    let mut text = flint_core::bin::render_bin_text(&bin, path).map_err(|e| format!("{e}"))?;
+
+    let mut changed = 0usize;
+    let mut stale = Vec::new();
+    for fix in fixes {
+        let result = flint_core::bin::apply_type_fix(&text, &fix.field, &fix.from, &fix.to, &fix.lines);
+        changed += result.changed.len();
+        stale.extend(result.stale);
+        text = result.text;
+    }
+    if changed == 0 {
+        return Ok(RetypeOutcome { changed, stale });
+    }
+
+    let (bytes, trailer) = super::bin::encode_capturing_names(&text)?;
+    crate::core::write_echo::mark(path);
+    std::fs::write(path, &bytes).map_err(|e| format!("Failed to write: {e}"))?;
+    super::bin::merge_into_files_txt(path, &trailer);
+    flint_core::bin::forget_mod_root(path);
+
+    Ok(RetypeOutcome { changed, stale })
+}
+
+/// One restore point before the batch. A folder outside a Flint project has nowhere to
+/// put one, which is reported rather than treated as a failure.
+async fn restore_point(app: &tauri::AppHandle, folder: &Path, count: usize) -> Option<String> {
+    let project = flint_core::mesh::discovery::find_project_root(folder)?;
+    let message = format!(
+        "Before fixing {count} declaration{}",
+        if count == 1 { "" } else { "s" }
+    );
+    match crate::commands::checkpoint::create_checkpoint(
+        app.clone(),
+        project.to_string_lossy().to_string(),
+        message,
+        vec!["fix".to_string()],
+    )
+    .await
+    {
+        Ok(checkpoint) => Some(checkpoint.id),
+        Err(e) => {
+            tracing::warn!("retype fix: could not create a restore point: {e}");
+            None
+        }
+    }
 }

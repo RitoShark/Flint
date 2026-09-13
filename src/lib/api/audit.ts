@@ -77,3 +77,31 @@ export async function auditProjectMissingRefs(projectPath: string): Promise<Proj
 export async function recheckProjectFile(projectPath: string, rel: string): Promise<CheckIssue[]> {
     return invokeCommand('recheck_project_file', { projectPath, rel });
 }
+
+/** One declaration retype an audit finding says is safe to apply. */
+export interface RetypeRequest {
+    /** Folder-relative path, exactly as `CheckIssue.file` carries it. */
+    file: string;
+    field: string;
+    from: string;
+    to: string;
+    lines: number[];
+}
+
+export interface RetypeReport {
+    files_changed: number;
+    declarations_changed: number;
+    /** Lines that no longer declared what the finding saw, as `<file>:<line>`. */
+    stale: string[];
+    errors: string[];
+    /** Restore point taken before anything was written, when the folder is in a project. */
+    checkpoint?: string;
+}
+
+/** Applies retypes to the bins under a WAD folder, one restore point before the batch. */
+export async function fixBinRetypes(
+    folderPath: string,
+    fixes: RetypeRequest[],
+): Promise<RetypeReport> {
+    return invokeCommand('fix_bin_retypes', { folderPath, fixes });
+}

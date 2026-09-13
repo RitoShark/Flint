@@ -45,6 +45,7 @@ pub use split::{
 pub use animask::{read_masks, write_masks, MaskEntry};
 pub use audit::{audit_wad_folder, check_one_file, AuditReport, BloatFile};
 pub use checks::{
+    apply_type_fix, RetypedText,
     check_animation_graph, check_bin_hazards, check_texture, CheckIssue, MigrationTally, Severity,
 };
 pub use names::{

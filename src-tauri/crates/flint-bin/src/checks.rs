@@ -154,6 +154,66 @@ pub(crate) fn declaration_line(text: &str, field: &str, ty: &str) -> Option<u32>
         .map(|idx| idx as u32 + 1)
 }
 
+/// What [`apply_type_fix`] managed to rewrite.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetypedText {
+    pub text: String,
+    /// Lines whose declared type was swapped.
+    pub changed: Vec<u32>,
+    /// Lines that no longer declare the field and type the finding saw, left untouched.
+    pub stale: Vec<u32>,
+}
+
+/**
+Swap the declared type on each of `lines`, leaving the value and everything else alone.
+
+A line is only rewritten while it still declares the same field with the same type, so a
+finding computed against an older render cannot retype whatever now sits on that line. The
+frontend runs the same check against the open buffer before editing it.
+*/
+pub fn apply_type_fix(
+    text: &str,
+    field: &str,
+    from: &str,
+    to: &str,
+    lines: &[u32],
+) -> RetypedText {
+    let want = (token_id(field), from.replace(' ', "").to_ascii_lowercase());
+    let mut out: Vec<String> = text.lines().map(str::to_string).collect();
+    let mut changed = Vec::new();
+    let mut stale = Vec::new();
+
+    for &line in lines {
+        let Some(slot) = line
+            .checked_sub(1)
+            .and_then(|idx| out.get_mut(idx as usize))
+            .filter(|slot| declared_on(slot.trim()).as_ref() == Some(&want))
+        else {
+            stale.push(line);
+            continue;
+        };
+        let Some(colon) = slot.find(':') else {
+            stale.push(line);
+            continue;
+        };
+        let Some(equals) = slot[colon + 1..].find('=').map(|at| at + colon + 1) else {
+            stale.push(line);
+            continue;
+        };
+        let declared = &slot[colon + 1..equals];
+        let start = colon + 1 + (declared.len() - declared.trim_start().len());
+        let end = colon + 1 + declared.trim_end().len();
+        *slot = format!("{}{}{}", &slot[..start], to, &slot[end..]);
+        changed.push(line);
+    }
+
+    RetypedText {
+        text: out.join("\n"),
+        changed,
+        stale,
+    }
+}
+
 /**
 Every 1-based line declaring `field: ty` inside a `class` body, in rendered ritobin text.
 
@@ -1321,6 +1381,86 @@ mod tests {
         assert_eq!((fix.from.as_str(), fix.to.as_str()), ("string", "file"));
         assert_eq!(fix.lines, vec![5, 8], "line 13 belongs to another class");
         assert_eq!(issues[0].line, Some(5));
+    }
+
+    #[test]
+    fn apply_type_fix_swaps_the_keyword_and_keeps_the_value() {
+        let result = apply_type_fix(TWO_OVERRIDES_AND_A_LOOKALIKE, "texture", "string", "file", &[5, 8]);
+        assert_eq!(result.changed, vec![5, 8]);
+        assert!(result.stale.is_empty());
+        let lines: Vec<&str> = result.text.lines().collect();
+        assert_eq!(lines[4].trim(), "texture: file = \"assets/a.tex\"");
+        assert_eq!(lines[7].trim(), "texture: file = \"assets/b.tex\"");
+        assert_eq!(
+            lines[12].trim(),
+            "texture: string = \"assets/mine.tex\"",
+            "the lookalike class was not asked for"
+        );
+    }
+
+    /// The whole mechanism end to end: what the audit reports, through the retype, back into
+    /// a bin. The value has to come out as an xxh64 of the path it used to spell out.
+    #[test]
+    fn a_retype_turns_the_string_value_into_the_hash_the_client_reads() {
+        let path = "assets/characters/yone/skins/skin1/body_tx_cm.tex";
+        let bin = skin_bin(BinValue::String(path.into()));
+        let text = crate::converter::bin_to_text(&bin).expect("render");
+
+        let lines = declaration_lines(
+            &text,
+            fnv1a("SkinMeshDataProperties_MaterialOverride"),
+            "texture",
+            "string",
+        );
+        assert_eq!(lines.len(), 1);
+
+        let fixed = apply_type_fix(&text, "texture", "string", "file", &lines);
+        assert_eq!(fixed.changed, lines);
+
+        let reparsed = crate::converter::text_to_bin(&fixed.text).expect("reparse");
+        let value = override_texture(&reparsed).expect("the override survived the round trip");
+        assert_eq!(
+            value,
+            &BinValue::File(ritoshark::hash::xxh64(path)),
+            "the path is hashed, not kept as a string"
+        );
+
+        let mut tally = MigrationTally::default();
+        tally.add_bin(&reparsed, "skins/skin0.bin", Some(&fixed.text));
+        assert!(tally.into_issues().is_empty(), "the finding is gone");
+    }
+
+    fn override_texture(bin: &Bin) -> Option<&BinValue> {
+        fn walk(value: &BinValue) -> Option<&BinValue> {
+            match value {
+                BinValue::Embed { class, fields } | BinValue::Pointer { class, fields } => {
+                    if *class == fnv1a("SkinMeshDataProperties_MaterialOverride") {
+                        return fields.get(&fnv1a("texture"));
+                    }
+                    fields.values().find_map(walk)
+                }
+                BinValue::List { items, .. } => items.iter().find_map(walk),
+                _ => None,
+            }
+        }
+        bin.entries.iter().find_map(|e| e.fields.values().find_map(walk))
+    }
+
+    #[test]
+    fn apply_type_fix_leaves_a_line_that_no_longer_matches() {
+        let once = apply_type_fix(TWO_OVERRIDES_AND_A_LOOKALIKE, "texture", "string", "file", &[5]);
+        let twice = apply_type_fix(&once.text, "texture", "string", "file", &[5, 99, 0]);
+        assert!(twice.changed.is_empty(), "already corrected");
+        assert_eq!(twice.stale, vec![5, 99, 0]);
+        assert_eq!(twice.text, once.text);
+    }
+
+    #[test]
+    fn apply_type_fix_matches_the_frontend_on_a_container_and_on_tight_spacing() {
+        let text = "\"e\" = MyClass {\n    mPaths:list[string]= {\n    }\n}\n";
+        let result = apply_type_fix(text, "mPaths", "list[string]", "list[file]", &[2]);
+        assert_eq!(result.changed, vec![2]);
+        assert_eq!(result.text.lines().nth(1).unwrap(), "    mPaths:list[file]= {");
     }
 
     #[test]

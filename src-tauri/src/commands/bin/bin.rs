@@ -37,7 +37,7 @@ fn encode_with_names(text: &str) -> Result<Vec<u8>, String> {
 /// A caller that knows where the bin lives mirrors them into `files.txt` at the
 /// mod root. Nothing is written INTO the bin: Flint ships bins a stock parser
 /// can read byte for byte, so `files.txt` is the record.
-fn encode_capturing_names(
+pub(crate) fn encode_capturing_names(
     text: &str,
 ) -> Result<(Vec<u8>, flint_core::bin::Trailer), String> {
     let bin = flint_core::bin::text_to_tree(text)
@@ -63,7 +63,7 @@ fn encode_capturing_names(
 /// belongs to — an object name and an asset path are both just text. Merged by
 /// NAME (never overwritten) so saving one bin cannot drop another's entries, and
 /// sorted so re-saving produces no diff.
-fn merge_into_files_txt(bin_path: &Path, trailer: &flint_core::bin::Trailer) {
+pub(crate) fn merge_into_files_txt(bin_path: &Path, trailer: &flint_core::bin::Trailer) {
     if trailer.is_empty() {
         return;
     }

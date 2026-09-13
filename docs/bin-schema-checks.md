@@ -52,6 +52,14 @@ A retype is offered only where the keyword is the whole correction:
   for the whole finding, since the edit covers all of its lines at once.
 - A retired embed layout is not, because the embed has to be rebuilt as another class.
 
+Check Files applies the same retypes in bulk. A row carrying a fix gets its own button, and
+the footer applies every one in the report behind a confirmation. Fixes are grouped by file so
+a bin is rendered, rewritten and saved once however many findings it carries, and one restore
+point is taken before the batch. Each line is re-verified against the type the finding saw
+before it is written; a line that no longer matches is skipped and counted. Writing goes
+through the same path as an editor save, which is what records a newly hashed path in
+`files.txt` beside the mod.
+
 Where no retype is offered, the detail says why. For a string-to-file mismatch it tells
 the user to change `TexturePath: string =` to `TexturePath: file =` and keep the path.
 The optional LSP's equivalent warning explains this correction as well; the LSP path has
