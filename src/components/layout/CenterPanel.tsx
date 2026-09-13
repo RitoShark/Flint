@@ -3,14 +3,15 @@ import { useProjectTabStore, useNavigationStore, useAppMetadataStore, useWadExtr
 import { WelcomeScreen } from '../browser/WelcomeScreen';
 import { LoadingView } from '../ui/LoadingView';
 import { getIcon, icons } from '../../lib/ui-helpers/fileIcons';
+import { lazyWarm } from '../../lib/ui-helpers/lazyWarm';
 
-const PreviewPanel = React.lazy(() => import('../editor/PreviewPanel').then(module => ({ default: module.PreviewPanel })));
-const CheckpointTimeline = React.lazy(() => import('../editor/CheckpointTimeline').then(module => ({ default: module.CheckpointTimeline })));
-const WadPreviewPanel = React.lazy(() => import('../editor/WadPreviewPanel').then(module => ({ default: module.WadPreviewPanel })));
-const WadBrowserPanel = React.lazy(() => import('../browser/WadBrowser').then(module => ({ default: module.WadBrowserPanel })));
-const WadFolderGrid = React.lazy(() => import('../browser/WadFolderGrid').then(module => ({ default: module.WadFolderGrid })));
-const FileEditorPage = React.lazy(() => import('../editor/FileEditorPage').then(module => ({ default: module.FileEditorPage })));
-const ArchiveEditor = React.lazy(() => import('../editor/ArchiveEditor').then(module => ({ default: module.ArchiveEditor })));
+const PreviewPanel = lazyWarm(() => import('../editor/PreviewPanel').then(module => ({ default: module.PreviewPanel })));
+const CheckpointTimeline = lazyWarm(() => import('../editor/CheckpointTimeline').then(module => ({ default: module.CheckpointTimeline })));
+const WadPreviewPanel = lazyWarm(() => import('../editor/WadPreviewPanel').then(module => ({ default: module.WadPreviewPanel })));
+const WadBrowserPanel = lazyWarm(() => import('../browser/WadBrowser').then(module => ({ default: module.WadBrowserPanel })));
+const WadFolderGrid = lazyWarm(() => import('../browser/WadFolderGrid').then(module => ({ default: module.WadFolderGrid })));
+const FileEditorPage = lazyWarm(() => import('../editor/FileEditorPage').then(module => ({ default: module.FileEditorPage })));
+const ArchiveEditor = lazyWarm(() => import('../editor/ArchiveEditor').then(module => ({ default: module.ArchiveEditor })));
 
 interface QuickActionCardProps {
     icon: keyof typeof icons;

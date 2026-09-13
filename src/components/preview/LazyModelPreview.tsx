@@ -1,7 +1,8 @@
-import { lazy, Suspense } from 'react';
+import { Suspense } from 'react';
+import { lazyWarm } from '../../lib/ui-helpers/lazyWarm';
 import type { ModelPreviewProps } from './ModelPreview';
 
-const ModelPreview = lazy(() => import('./ModelPreview').then(module => ({ default: module.ModelPreview })));
+const ModelPreview = lazyWarm(() => import('./ModelPreview').then(module => ({ default: module.ModelPreview })));
 
 export default function LazyModelPreview(props: ModelPreviewProps) {
     return (

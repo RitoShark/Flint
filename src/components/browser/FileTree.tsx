@@ -28,6 +28,7 @@ import type { FileTreeNode, ProjectTab } from '../../lib/types';
 import { scheduleProjectAudit } from '../../lib/audit/projectAudit';
 import type { FileIssueTag } from '../../lib/stores/appMetadataStore';
 import { toPosix } from '../../lib/pathIdentity';
+import { lazyWarm } from '../../lib/ui-helpers/lazyWarm';
 import {
     buildTreeDecorations,
     strongerTag,
@@ -36,7 +37,7 @@ import {
     type TreeTag,
 } from '../../lib/editor/treeDecorations';
 
-const WorkspaceSearch = React.lazy(() => import('./WorkspaceSearch').then(module => ({ default: module.WorkspaceSearch })));
+const WorkspaceSearch = lazyWarm(() => import('./WorkspaceSearch').then(module => ({ default: module.WorkspaceSearch })));
 
 const ROW_HEIGHT = 22;
 const ROW_OVERSCAN = 8;

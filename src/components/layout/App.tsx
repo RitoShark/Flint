@@ -1,5 +1,6 @@
 import { useExtraSettingsShortcut } from '../modals/settings/ExtraSettings';
 import { motionDuration } from '../../lib/ui-helpers/motion';
+import { lazyWarm, warmLazyComponents } from '../../lib/ui-helpers/lazyWarm';
 import { LoadingView } from '../ui/LoadingView';
 import { Modal, ModalBody } from '../ui/Modal';
 import React, { useEffect, useCallback, useRef, useState } from 'react';
@@ -31,36 +32,36 @@ import { TooltipProvider } from '../overlays/TooltipProvider';
 import { ShortcutCheatSheet } from '../overlays/ShortcutCheatSheet';
 import { UpdateShowcase } from '../update/UpdateShowcase';
 
-const DesignLab = React.lazy(() => import('../ui/DesignLab').then(module => ({ default: module.DesignLab })));
-const WadExplorer = React.lazy(() => import('../browser/WadExplorer').then(module => ({ default: module.WadExplorer })));
-const ManifestBrowser = React.lazy(() => import('../browser/ManifestBrowser').then(module => ({ default: module.ManifestBrowser })));
-const NewProjectModal = React.lazy(() => import('../modals/NewProjectModal').then(module => ({ default: module.NewProjectModal })));
-const SettingsModal = React.lazy(() => import('../modals/SettingsModal').then(module => ({ default: module.SettingsModal })));
-const ExportModal = React.lazy(() => import('../modals/ExportModal').then(module => ({ default: module.ExportModal })));
-const FirstTimeSetupModal = React.lazy(() => import('../modals/FirstTimeSetupModal').then(module => ({ default: module.FirstTimeSetupModal })));
-const UpdateModal = React.lazy(() => import('../modals/UpdateModal').then(module => ({ default: module.UpdateModal })));
-const RecolorModal = React.lazy(() => import('../modals/RecolorModal').then(module => ({ default: module.RecolorModal })));
-const ProjectListModal = React.lazy(() => import('../modals/ProjectListModal').then(module => ({ default: module.ProjectListModal })));
-const ModConfigEditorModal = React.lazy(() => import('../modals/ModConfigEditorModal').then(module => ({ default: module.ModConfigEditorModal })));
-const ImportModModal = React.lazy(() => import('../modals/ImportModModal').then(module => ({ default: module.ImportModModal })));
-const ThumbnailCropModal = React.lazy(() => import('../modals/ThumbnailCropModal').then(module => ({ default: module.ThumbnailCropModal })));
-const CheckpointModal = React.lazy(() => import('../modals/CheckpointModal').then(module => ({ default: module.CheckpointModal })));
-const MapTexturesModal = React.lazy(() => import('../modals/MapTexturesModal').then(module => ({ default: module.MapTexturesModal })));
-const BinSplitModal = React.lazy(() => import('../modals/BinSplitModal').then(module => ({ default: module.BinSplitModal })));
-const FullResImageModal = React.lazy(() => import('../modals/FullResImageModal').then(module => ({ default: module.FullResImageModal })));
-const BrowseWadModal = React.lazy(() => import('../modals/BrowseWadModal').then(module => ({ default: module.BrowseWadModal })));
-const FileCompareModal = React.lazy(() => import('../modals/FileCompareModal').then(module => ({ default: module.FileCompareModal })));
-const AddLayerModal = React.lazy(() => import('../modals/AddLayerModal').then(module => ({ default: module.AddLayerModal })));
-const RenameProjectModal = React.lazy(() => import('../modals/RenameProjectModal').then(module => ({ default: module.RenameProjectModal })));
-const ChromaPortModal = React.lazy(() => import('../modals/ChromaPortModal').then(module => ({ default: module.ChromaPortModal })));
-const PortToJadeModal = React.lazy(() => import('../modals/PortToJadeModal').then(module => ({ default: module.PortToJadeModal })));
-const NoSkinLiteModal = React.lazy(() => import('../modals/NoSkinLiteModal').then(module => ({ default: module.NoSkinLiteModal })));
-const WhatsNewModal = React.lazy(() => import('../modals/WhatsNewModal').then(module => ({ default: module.WhatsNewModal })));
-const LoadscreenBannerModal = React.lazy(() => import('../modals/LoadscreenBannerModal').then(module => ({ default: module.LoadscreenBannerModal })));
-const SkinFixerModal = React.lazy(() => import('../modals/SkinFixerModal').then(module => ({ default: module.SkinFixerModal })));
-const WadAuditModal = React.lazy(() => import('../modals/WadAuditModal').then(module => ({ default: module.WadAuditModal })));
-const CreateProjectFromWadModal = React.lazy(() => import('../modals/CreateProjectFromWadModal').then(module => ({ default: module.CreateProjectFromWadModal })));
-const LoadManifestModal = React.lazy(() => import('../modals/LoadManifestModal').then(module => ({ default: module.LoadManifestModal })));
+const DesignLab = lazyWarm(() => import('../ui/DesignLab').then(module => ({ default: module.DesignLab })));
+const WadExplorer = lazyWarm(() => import('../browser/WadExplorer').then(module => ({ default: module.WadExplorer })));
+const ManifestBrowser = lazyWarm(() => import('../browser/ManifestBrowser').then(module => ({ default: module.ManifestBrowser })));
+const NewProjectModal = lazyWarm(() => import('../modals/NewProjectModal').then(module => ({ default: module.NewProjectModal })));
+const SettingsModal = lazyWarm(() => import('../modals/SettingsModal').then(module => ({ default: module.SettingsModal })));
+const ExportModal = lazyWarm(() => import('../modals/ExportModal').then(module => ({ default: module.ExportModal })));
+const FirstTimeSetupModal = lazyWarm(() => import('../modals/FirstTimeSetupModal').then(module => ({ default: module.FirstTimeSetupModal })));
+const UpdateModal = lazyWarm(() => import('../modals/UpdateModal').then(module => ({ default: module.UpdateModal })));
+const RecolorModal = lazyWarm(() => import('../modals/RecolorModal').then(module => ({ default: module.RecolorModal })));
+const ProjectListModal = lazyWarm(() => import('../modals/ProjectListModal').then(module => ({ default: module.ProjectListModal })));
+const ModConfigEditorModal = lazyWarm(() => import('../modals/ModConfigEditorModal').then(module => ({ default: module.ModConfigEditorModal })));
+const ImportModModal = lazyWarm(() => import('../modals/ImportModModal').then(module => ({ default: module.ImportModModal })));
+const ThumbnailCropModal = lazyWarm(() => import('../modals/ThumbnailCropModal').then(module => ({ default: module.ThumbnailCropModal })));
+const CheckpointModal = lazyWarm(() => import('../modals/CheckpointModal').then(module => ({ default: module.CheckpointModal })));
+const MapTexturesModal = lazyWarm(() => import('../modals/MapTexturesModal').then(module => ({ default: module.MapTexturesModal })));
+const BinSplitModal = lazyWarm(() => import('../modals/BinSplitModal').then(module => ({ default: module.BinSplitModal })));
+const FullResImageModal = lazyWarm(() => import('../modals/FullResImageModal').then(module => ({ default: module.FullResImageModal })));
+const BrowseWadModal = lazyWarm(() => import('../modals/BrowseWadModal').then(module => ({ default: module.BrowseWadModal })));
+const FileCompareModal = lazyWarm(() => import('../modals/FileCompareModal').then(module => ({ default: module.FileCompareModal })));
+const AddLayerModal = lazyWarm(() => import('../modals/AddLayerModal').then(module => ({ default: module.AddLayerModal })));
+const RenameProjectModal = lazyWarm(() => import('../modals/RenameProjectModal').then(module => ({ default: module.RenameProjectModal })));
+const ChromaPortModal = lazyWarm(() => import('../modals/ChromaPortModal').then(module => ({ default: module.ChromaPortModal })));
+const PortToJadeModal = lazyWarm(() => import('../modals/PortToJadeModal').then(module => ({ default: module.PortToJadeModal })));
+const NoSkinLiteModal = lazyWarm(() => import('../modals/NoSkinLiteModal').then(module => ({ default: module.NoSkinLiteModal })));
+const WhatsNewModal = lazyWarm(() => import('../modals/WhatsNewModal').then(module => ({ default: module.WhatsNewModal })));
+const LoadscreenBannerModal = lazyWarm(() => import('../modals/LoadscreenBannerModal').then(module => ({ default: module.LoadscreenBannerModal })));
+const SkinFixerModal = lazyWarm(() => import('../modals/SkinFixerModal').then(module => ({ default: module.SkinFixerModal })));
+const WadAuditModal = lazyWarm(() => import('../modals/WadAuditModal').then(module => ({ default: module.WadAuditModal })));
+const CreateProjectFromWadModal = lazyWarm(() => import('../modals/CreateProjectFromWadModal').then(module => ({ default: module.CreateProjectFromWadModal })));
+const LoadManifestModal = lazyWarm(() => import('../modals/LoadManifestModal').then(module => ({ default: module.LoadManifestModal })));
 
 function getActiveTab(state: { activeTabId: string | null; openTabs: Array<{ id: string; project: any; projectPath: string; selectedFile: string | null }> }) {
     if (!state.activeTabId) return null;
@@ -661,6 +662,8 @@ export const App: React.FC = () => {
         window.addEventListener(TUTORIAL_REPLAY_EVENT, onReplay);
         return () => window.removeEventListener(TUTORIAL_REPLAY_EVENT, onReplay);
     }, []);
+
+    useEffect(() => { warmLazyComponents(); }, []);
 
     return (
         <>

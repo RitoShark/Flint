@@ -7,12 +7,14 @@ The baseline is Flint `10911774`, built with the same installed dependencies and
 | Production welcome-screen JavaScript | Bytes |
 | --- | ---: |
 | Baseline | 12,587,158 |
-| Updated | 1,337,230 |
-| Reduction | 11,249,928 (89.4%) |
+| Updated | 1,337,843 |
+| Reduction | 11,249,315 (89.4%) |
 
 Window roots, editor views, browsers and modals now load on demand. Workspace search also loads on demand: its Monaco import previously reached the welcome screen through the project file tree. Project previews use the existing lazy model viewer and forward animation selection and autoplay through the same prop type.
 
 The native startup-ready signal remains inside the root Suspense boundary with the application. Loading a feature displays a shared loading indicator. Modal components remain mounted for their existing exit animations.
+
+Deferred components are declared through `lazyWarm`, which registers each import alongside the lazy component. Once the shell mounts, `warmLazyComponents` loads them one at a time during idle callbacks, so a modal or editor opened later renders from an already loaded module instead of suspending. Components registered while warming is in progress, such as the model viewer inside a preview panel, join the same queue. Warming therefore keeps the welcome-screen payload unchanged while restoring immediate opening; the deferred work happens after the window is interactive rather than before it appears.
 
 Rollup initially placed Vite's shared preload helper in the manually named Monaco chunk. That made even the lazy entry point import Monaco. Giving the helper its own small chunk removes this generated dependency; checking source imports alone missed it.
 
