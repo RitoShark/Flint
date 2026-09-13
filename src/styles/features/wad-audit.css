@@ -390,6 +390,12 @@
 
 .wa-modal .wa-row__msg { font-size: 12px; line-height: 1.5; color: var(--text-secondary); }
 
+.wa-modal .wa-row__detail {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
 .wa-modal .wa-row__expected {
   display: inline-flex;
   align-items: baseline;

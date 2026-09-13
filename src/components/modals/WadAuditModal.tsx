@@ -361,6 +361,7 @@ export const WadAuditModal: React.FC = () => {
                                     )}
                                 </div>
                                 <div className="wa-row__msg">{issue.message}</div>
+                                {issue.detail && <div className="wa-row__detail">{issue.detail}</div>}
                                 {issue.expected && (
                                     <div className="wa-row__expected">
                                         <b>expected</b>

@@ -68,6 +68,11 @@ const issueFileStyle: React.CSSProperties = {
     textAlign: 'left',
 };
 
+const detailStyle: React.CSSProperties = {
+    fontSize: 11.5,
+    color: 'var(--text-muted)',
+};
+
 const expectedStyle: React.CSSProperties = {
     fontFamily: 'var(--font-mono, ui-monospace, monospace)',
     fontSize: 11.5,
@@ -85,6 +90,7 @@ const IssueList: React.FC<{ heading: string; issues: api.CheckIssue[]; color: st
                     &#8206;{issue.file}{issue.line ? ` · line ${issue.line}` : ''}
                 </div>
                 <div>{issue.message}</div>
+                {issue.detail && <div style={detailStyle}>{issue.detail}</div>}
                 {issue.expected && <div style={expectedStyle}>expected {issue.expected}</div>}
             </div>
         ))}
