@@ -3,7 +3,14 @@ import type { LspDiagnostic, LspEdit } from './ritobinLspProtocol';
 
 export function readableDiagnostic(d: LspDiagnostic): LspDiagnostic {
     let message = d.message;
-    if (/^UnexpectedItem \{/.test(message)) {
+    const mismatch = /^Class property type mismatch - (.+) has type (.+), but got (.+)$/.exec(message);
+    if (mismatch) {
+        const [, field, expected, got] = mismatch;
+        message = `${field} uses ${got}, but this class expects ${expected}. Change the declaration to ${field}: ${expected}.`;
+        if (got === 'string' && expected === 'file') {
+            message += ' Keep the same path. The asset can exist and still fail to load because its reference has the wrong type.';
+        }
+    } else if (/^UnexpectedItem \{/.test(message)) {
         const expected = /expected: (\w+)/.exec(message)?.[1];
         message = expected === 'Entry' ? 'Expected a property name and type here, but found another value or block.'
             : expected === 'Value' ? 'Expected a list or map value here, but found a property entry.'

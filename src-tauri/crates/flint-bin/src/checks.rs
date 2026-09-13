@@ -71,18 +71,19 @@ impl CheckIssue {
 
 /// 1-based line of the first `<field>: <ty>` declaration in rendered ritobin text.
 ///
-/// The printer emits exactly `name: type = value`, so a plain match is enough; a field
-/// whose hash no dictionary names prints as `0x…` and simply is not found.
+/// Match the numeric property ID so named and hashed editor text both work.
 pub(crate) fn declaration_line(text: &str, field: &str, ty: &str) -> Option<u32> {
-    if field.starts_with("0x") || ty.is_empty() {
+    if ty.is_empty() {
         return None;
     }
-    let needle = format!("{field}: {ty}");
+    let field_hash = field.strip_prefix("0x").and_then(|s| u32::from_str_radix(s, 16).ok()).unwrap_or_else(|| fnv1a(field));
     text.lines()
         .position(|line| {
-            let trimmed = line.trim_start();
-            trimmed.len() >= needle.len()
-                && trimmed[..needle.len()].eq_ignore_ascii_case(&needle)
+            let Some((name, rest)) = line.trim().split_once(':') else { return false; };
+            let name = name.trim().trim_matches('"');
+            let id = name.strip_prefix("0x").and_then(|s| u32::from_str_radix(s, 16).ok()).unwrap_or_else(|| fnv1a(name));
+            let Some((declared, _)) = rest.split_once('=') else { return false; };
+            id == field_hash && declared.split_whitespace().collect::<String>().eq_ignore_ascii_case(&ty.replace(' ', ""))
         })
         .map(|idx| idx as u32 + 1)
 }
@@ -711,7 +712,7 @@ pub fn check_bin_hazards(bin: &Bin, rel: &str, text: Option<&str>) -> Vec<CheckI
 ///
 /// Matching is on the DECLARED type, not the held value — an empty `list[string]` or an
 /// unset `option[string]` is rejected by the client exactly like a populated one.
-fn declares_old_type(m: &Migration, value: &BinValue) -> bool {
+pub(crate) fn declares_old_type(m: &Migration, value: &BinValue) -> bool {
     match m.conversion {
         Conversion::HashValue => matches!(
             value,
@@ -754,8 +755,8 @@ fn migration_issue(m: &Migration, file: &str, hit: &MigrationHit) -> CheckIssue 
         Conversion::HashValue => (
             "bin.string-ref-not-migrated",
             format!(
-                "{count} {} value{plural} still typed as `string`. Riot retyped this field to `file`, so the client no longer reads the path and the asset silently does not load. Hematite's Skin Fixer converts them (`file_ref_migration`).",
-                m.label,
+                "{} uses `{}`; Riot now expects `{}` ({count} occurrence{plural}). Change `{}: {} =` to `{}: {} =` and keep the same path values. The asset can exist and still fail to load because this reference has the wrong type. Hematite's Skin Fixer can also convert it.",
+                m.label, m.from_type, m.to_type, m.field, m.from_type, m.field, m.to_type,
             ),
         ),
         Conversion::Rehash => (
@@ -1157,7 +1158,7 @@ mod tests {
         assert_eq!(issues[0].severity, Severity::Critical);
         assert_eq!(issues[0].file, "skins/skin0.bin");
         assert!(
-            issues[0].message.starts_with("1 SkinMeshDataProperties_MaterialOverride.texture value "),
+            issues[0].message.contains("Change `texture: string =` to `texture: file =`"),
             "{}",
             issues[0].message
         );
@@ -1360,7 +1361,7 @@ nothing to see"),
         assert_eq!(issues.len(), 2);
         assert_eq!(issues[0].file, "skins/skin0.bin");
         assert_eq!(issues[1].file, "skins/skin1.bin");
-        assert!(issues[0].message.starts_with("1 "), "{}", issues[0].message);
+        assert!(issues[0].message.contains("(1 occurrence)"), "{}", issues[0].message);
     }
 
     /// The declared type is what the client rejects — an unset `option[string]` or an

@@ -234,6 +234,9 @@ fn scan_bin(
     let mut issues = check_animation_graph(bin, rel, names);
     issues.extend(check_animation_assets(bin, rel, names, present, text.as_deref()));
     issues.extend(check_bin_hazards(bin, rel, text.as_deref()));
+    if let Some(schema) = crate::meta_schema::current() {
+        issues.extend(schema.check(bin, rel, names, text.as_deref()));
+    }
 
     let mut tally = MigrationTally::default();
     tally.add_bin(bin, rel, text.as_deref());

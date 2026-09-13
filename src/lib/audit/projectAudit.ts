@@ -45,7 +45,7 @@ export function issueTagsFromIssues(issues: api.CheckIssue[], basePath: string):
         } else {
             byPath.set(key, {
                 severity: existing.severity === 'critical' || issue.severity === 'critical' ? 'critical' : 'warning',
-                message: `${existing.message}\n${issue.message}`,
+                message: `${existing.message}\n${issueText(issue)}`,
             });
         }
     }

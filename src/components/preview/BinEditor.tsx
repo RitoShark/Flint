@@ -21,7 +21,7 @@ import { MaskEditor } from './MaskEditor';
 import { PaintPanel } from './paint/PaintPanel';
 import { BinToolsPanel } from './bintools/BinToolsPanel';
 import { applyContentToEditor } from '../../lib/editor/applyContent';
-import { fileIssues, issueNeedle, recheckFile } from '../../lib/audit/projectAudit';
+import { fileIssues, issueNeedle, issueText, recheckFile } from '../../lib/audit/projectAudit';
 import { indexNavigable, nextSystem, previousSystem } from '../../lib/editor/binTools/vfxIndex';
 import { SubmeshPicker, type SubmeshPickerRequest } from './SubmeshPicker';
 import { Icon } from '../ui/Icon';
@@ -1412,6 +1412,25 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 </div>
             </div>
 
+            {!useLsp && auditIssues.length > 0 && (
+                <details className="bin-editor__issues" open>
+                    <summary>{auditIssues.length} {auditIssues.length === 1 ? 'issue' : 'issues'} in saved file{isDirty ? ' — save to check your changes' : ''}</summary>
+                    <div className="bin-editor__issues-list">
+                        {auditIssues.map((issue, index) => (
+                            <div key={`${issue.code}-${index}`} className="bin-editor__issue">
+                                <strong>{issue.severity === 'critical' ? 'Error' : 'Warning'}</strong>
+                                <span>{issueText(issue)}</span>
+                                {issueRanges.some(r => r.issue === issue) && !isDirty && (
+                                    <Button onClick={() => {
+                                        const hit = issueRanges.find(r => r.issue === issue);
+                                        if (hit) revealAndFlash(hit.range);
+                                    }}>Go to issue</Button>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </details>
+            )}
             <div style={{ flex: 1, display: 'flex', minHeight: 0, position: 'relative' }}>
                 <div
                     className="bin-editor__content"

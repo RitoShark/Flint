@@ -16,6 +16,15 @@ const broken = [
 ].join('\n');
 
 describe('readable LSP diagnostics', () => {
+    it('explains schema type corrections for named and hashed properties', () => {
+        for (const field of ['TexturePath', '0x12345678']) {
+            const original = diagnostic(`Class property type mismatch - ${field} has type file, but got string`);
+            const result = readableDiagnostic(original);
+            expect(result.message).toContain(`${field}: file`);
+            expect(result.message).toContain('Keep the same path');
+            expect(result.rawMessage).toBe(original.message);
+        }
+    });
     it('translates the reported debug errors while keeping original details and locations', () => {
         for (const [message, expected] of [
             ['UnexpectedItem { span: Span { start: 24898, end: 34151 }, parent: RitoType { base: Struct, subtypes: [None, None] }, expected: Entry }', 'Expected a property name and type'],

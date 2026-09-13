@@ -22,7 +22,8 @@ pub struct ProjectMissingReport {
 which present files nothing references. The walk parses every BIN in the tree, so it
 runs on a blocking thread. */
 #[tauri::command]
-pub async fn audit_wad_folder(folder_path: String) -> Result<AuditReport, String> {
+pub async fn audit_wad_folder(app: tauri::AppHandle, folder_path: String) -> Result<AuditReport, String> {
+    super::meta_schema::refresh(&app).await;
     tokio::task::spawn_blocking(move || {
         flint_core::bin::audit_wad_folder(std::path::Path::new(&folder_path))
     })
@@ -34,7 +35,8 @@ pub async fn audit_wad_folder(folder_path: String) -> Result<AuditReport, String
 references. Runs before packaging so an author can stop and fix a broken skin instead of
 shipping one that loads magenta. */
 #[tauri::command]
-pub async fn audit_project_missing_refs(project_path: String) -> Result<ProjectMissingReport, String> {
+pub async fn audit_project_missing_refs(app: tauri::AppHandle, project_path: String) -> Result<ProjectMissingReport, String> {
+    super::meta_schema::refresh(&app).await;
     tokio::task::spawn_blocking(move || {
         let folders =
             flint_core::export::project_wad_folders(std::path::Path::new(&project_path))?;
@@ -96,9 +98,11 @@ the next project-wide sweep.
 frontend can hand back exactly what it was given. */
 #[tauri::command]
 pub async fn recheck_project_file(
+    app: tauri::AppHandle,
     project_path: String,
     rel: String,
 ) -> Result<Vec<CheckIssue>, String> {
+    super::meta_schema::refresh(&app).await;
     tokio::task::spawn_blocking(move || {
         let rel = rel.replace('\\', "/");
         let Some((wad, inner)) = rel.split_once('/') else {

@@ -152,3 +152,14 @@
   overflow: hidden;
   font-size: var(--text-sm);
 }
+.bin-editor__issues {
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
+    padding: 8px 12px;
+    font-size: 12px;
+}
+.bin-editor__issues summary { cursor: pointer; }
+.bin-editor__issues-list { max-height: 180px; overflow: auto; }
+.bin-editor__issue { display: flex; align-items: flex-start; gap: 10px; padding-top: 8px; }
+.bin-editor__issue > span { flex: 1; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bin-editor__issue > strong { color: var(--color-warning); }
