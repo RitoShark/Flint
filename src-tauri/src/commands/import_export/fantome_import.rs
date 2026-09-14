@@ -640,7 +640,7 @@ fn import_fantome_internal(
     std::fs::create_dir_all(project_path)
         .map_err(|e| format!("Failed to create project directory: {}", e))?;
 
-    let content_path = project_path.join("content");
+    let content_path = project_path.join("content").join("base");
     std::fs::create_dir_all(&content_path)
         .map_err(|e| format!("Failed to create content directory: {}", e))?;
 

@@ -124,6 +124,14 @@ pub async fn import_modpkg(
     .map_err(|e| format!("Task failed: {}", e))?
 }
 
+struct ModpkgChunkEntry {
+    path_hash: u64,
+    layer_hash: u64,
+    path: String,
+    wad: Option<String>,
+    layer: String,
+}
+
 fn import_modpkg_internal(
     app: &AppHandle,
     modpkg_path: &str,
@@ -147,7 +155,8 @@ fn import_modpkg_internal(
         .map_err(|e| format!("Failed to create project directory: {}", e))?;
 
     let content_path = project_path.join("content");
-    std::fs::create_dir_all(&content_path)
+    let base_path = content_path.join("base");
+    std::fs::create_dir_all(&base_path)
         .map_err(|e| format!("Failed to create content directory: {}", e))?;
 
     let _ = app.emit(
@@ -169,15 +178,36 @@ fn import_modpkg_internal(
 
     let thumbnail = modpkg.load_thumbnail().ok();
 
-    let chunk_entries: Vec<(u64, u64, String)> = modpkg
+    let package_layers: Vec<(String, i32)> = {
+        let mut layers: Vec<(String, i32)> = modpkg
+            .layers
+            .values()
+            .map(|l| (l.name.clone(), l.priority))
+            .collect();
+        layers.sort();
+        layers
+    };
+
+    let chunk_entries: Vec<ModpkgChunkEntry> = modpkg
         .chunks
-        .keys()
-        .filter_map(|(path_hash, layer_hash)| {
+        .iter()
+        .filter_map(|((path_hash, layer_hash), chunk)| {
             let path = modpkg.chunk_paths.get(path_hash)?;
             if path.starts_with("_meta_/") {
                 return None;
             }
-            Some((*path_hash, *layer_hash, path.clone()))
+            let (prefix_wad, relative) = flint_core::export::split_wad_prefix(path);
+            Some(ModpkgChunkEntry {
+                path_hash: *path_hash,
+                layer_hash: *layer_hash,
+                path: relative,
+                wad: flint_core::export::chunk_wad_name(&modpkg, chunk.wad_index).or(prefix_wad),
+                layer: modpkg
+                    .layers
+                    .get(layer_hash)
+                    .map(|l| l.name.clone())
+                    .unwrap_or_else(|| "base".to_string()),
+            })
         })
         .collect();
 
@@ -196,13 +226,13 @@ fn import_modpkg_internal(
         }),
     );
 
-    let paths: Vec<String> = chunk_entries.iter().map(|(_, _, p)| p.clone()).collect();
+    let paths: Vec<String> = chunk_entries.iter().map(|c| c.path.clone()).collect();
     let resolver = HashResolver::new(&hash_dir, overlay.as_ref());
 
     let mut resolved_modpkg_paths: Vec<String> = Vec::with_capacity(paths.len());
     for (i, path) in paths.iter().enumerate() {
         if is_unresolved_hash(path) {
-            let path_hash = chunk_entries[i].0;
+            let path_hash = chunk_entries[i].path_hash;
             let resolved = resolver.resolve_wad(&[path_hash]);
             if let Some(res) = resolved.first() {
                 if !is_unresolved_hash(res) {
@@ -215,9 +245,14 @@ fn import_modpkg_internal(
     }
     
     // Update chunk_entries to use resolved paths
-    let chunk_entries: Vec<(u64, u64, String)> = chunk_entries.into_iter().enumerate().map(|(i, (ph, lh, _))| {
-        (ph, lh, resolved_modpkg_paths[i].clone())
-    }).collect();
+    let chunk_entries: Vec<ModpkgChunkEntry> = chunk_entries
+        .into_iter()
+        .enumerate()
+        .map(|(i, entry)| ModpkgChunkEntry {
+            path: resolved_modpkg_paths[i].clone(),
+            ..entry
+        })
+        .collect();
 
     let champion = options.champion.clone().or_else(|| {
         extract_champion_from_paths(&resolved_modpkg_paths)
@@ -232,7 +267,7 @@ fn import_modpkg_internal(
 
     let champion_lower = champion.to_lowercase();
     let wad_folder_name = format!("{}.wad.client", champion_lower);
-    let wad_base = content_path.join(&wad_folder_name);
+    let wad_base = base_path.join(&wad_folder_name);
     std::fs::create_dir_all(&wad_base)
         .map_err(|e| format!("Failed to create WAD folder: {}", e))?;
 
@@ -258,7 +293,11 @@ fn import_modpkg_internal(
     let mut game = std::collections::BTreeMap::new();
     let mut bin = std::collections::BTreeMap::new();
 
-    for (path_hash, layer_hash, path) in &chunk_entries {
+    for entry in &chunk_entries {
+        let ModpkgChunkEntry { path_hash, layer_hash, path, wad, layer } = entry;
+        let chunk_root = content_path
+            .join(layer)
+            .join(wad.as_deref().unwrap_or(wad_folder_name.as_str()));
         let path_lower = path.to_lowercase();
         if path_lower.contains("testcuberenderer") {
             tracing::debug!("Skipping testcuberenderer file: {}", path);
@@ -300,9 +339,9 @@ fn import_modpkg_internal(
             let act  = hash_path.to_string_lossy().to_lowercase().replace('\\', "/");
             path_mappings.insert(orig, act);
 
-            wad_base.join(hash_path)
+            chunk_root.join(hash_path)
         } else {
-            wad_base.join(&final_path)
+            chunk_root.join(&final_path)
         };
 
         let file_path = out_path.clone();
@@ -321,6 +360,7 @@ fn import_modpkg_internal(
                 ext,
                 out_path,
                 path.clone(),
+                chunk_root.clone(),
             ));
         }
 
@@ -363,12 +403,12 @@ fn import_modpkg_internal(
 
     // Re-resolve unresolved paths and rename files on disk
     if !unresolved_files.is_empty() {
-        let hashes_to_resolve: Vec<u64> = unresolved_files.iter().map(|(h, _, _, _)| *h).collect();
+        let hashes_to_resolve: Vec<u64> = unresolved_files.iter().map(|(h, _, _, _, _)| *h).collect();
         let resolver = HashResolver::new(&hash_dir, overlay.as_ref());
         let newly_resolved = resolver.resolve_wad(&hashes_to_resolve);
 
         let mut resolved_count = 0;
-        for ((hash, guessed_ext, old_path_on_disk, original_path_key), resolved_path) in unresolved_files.iter().zip(newly_resolved.iter()) {
+        for ((hash, guessed_ext, old_path_on_disk, original_path_key, chunk_root), resolved_path) in unresolved_files.iter().zip(newly_resolved.iter()) {
             if !is_unresolved_hash(resolved_path) {
                 // It is now resolved!
                 let final_path = PathBuf::from(resolved_path.clone());
@@ -384,7 +424,7 @@ fn import_modpkg_internal(
                     let act  = hash_path.to_string_lossy().to_lowercase().replace('\\', "/");
                     path_mappings.insert(orig, act);
 
-                    let new_out_path = wad_base.join(hash_path);
+                    let new_out_path = chunk_root.join(hash_path);
                     if old_path_on_disk.exists() {
                         if let Some(p) = new_out_path.parent() {
                             std::fs::create_dir_all(p).unwrap_or_default();
@@ -394,7 +434,7 @@ fn import_modpkg_internal(
                         }
                     }
                 } else {
-                    let new_out_path = wad_base.join(&final_path);
+                    let new_out_path = chunk_root.join(&final_path);
                     if old_path_on_disk.exists() {
                         if let Some(p) = new_out_path.parent() {
                             std::fs::create_dir_all(p).unwrap_or_default();
@@ -409,7 +449,7 @@ fn import_modpkg_internal(
             } else {
                 // Still unresolved. Add to path_mappings to map the extensionless path to the file with extension
                 let orig = original_path_key.to_lowercase().replace('\\', "/");
-                if let Ok(rel_path) = old_path_on_disk.strip_prefix(&wad_base) {
+                if let Ok(rel_path) = old_path_on_disk.strip_prefix(chunk_root) {
                     let act = rel_path.to_string_lossy().to_lowercase().replace('\\', "/");
                     path_mappings.insert(orig, act);
                 }
@@ -461,8 +501,10 @@ fn import_modpkg_internal(
                 .map(|p| p.to_string_lossy().into_owned())
                 .map_err(|e| format!("Hash directory not found: {}", e))?;
 
-            let existing_hashes: HashSet<u64> =
-                chunk_entries.iter().map(|(path_hash, _, _)| *path_hash).collect();
+            let existing_hashes: HashSet<u64> = chunk_entries
+                .iter()
+                .map(|c| flint_core::hash::wad_chunk_hash(&c.path))
+                .collect();
 
             let report = super::missing_files::recover_missing_files_from_league(
                 app,
@@ -575,7 +617,7 @@ fn import_modpkg_internal(
             repath_vo: false,
         };
 
-        organize_project(&content_path, &config, &path_mappings)
+        organize_project(&base_path, &config, &path_mappings)
             .map_err(|e| format!("Failed to apply refathering: {}", e))?;
 
         tracing::info!("Refathering completed successfully");
@@ -591,6 +633,21 @@ fn import_modpkg_internal(
         project_path,
         Some(creator_name.to_string()),
     );
+
+    if !package_layers.is_empty() {
+        project.layers = package_layers
+            .iter()
+            .map(|(name, priority)| flint_core::project::ModProjectLayer {
+                name: name.clone(),
+                priority: *priority,
+                description: metadata
+                    .as_ref()
+                    .and_then(|m| m.layers.iter().find(|l| &l.name == name))
+                    .and_then(|l| l.description.clone()),
+                string_overrides: Default::default(),
+            })
+            .collect();
+    }
 
     if let Some(desc) = description {
         project.description = desc;
