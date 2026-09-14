@@ -539,31 +539,64 @@ pub async fn export_modpkg(
     }
 }
 
+fn chunk_compression(file_path: &Path) -> flint_core::export::ModpkgCompression {
+    use flint_core::export::ModpkgCompression;
+    match file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("bnk") | Some("wpk") => ModpkgCompression::None,
+        _ => ModpkgCompression::Zstd,
+    }
+}
+
 fn export_with_ltk_modpkg(
     project_path: &Path,
     output_path: &Path,
     mod_project: &ModProject,
 ) -> Result<(usize, u64), String> {
     use flint_core::export::{ModpkgBuilder, ModpkgChunkBuilder, ModpkgLayerBuilder};
-    use flint_core::export::{ModpkgMetadata, ModpkgAuthor};
+    use flint_core::export::{ModpkgAuthor, ModpkgLayerMetadata, ModpkgMetadata};
     use std::io::Write;
 
-    let content_base = project_path.join("content").join("base");
+    let content = project_path.join("content");
 
-    let mut file_paths: HashMap<String, PathBuf> = HashMap::new();
+    let mut layers: Vec<(String, i32, Option<String>)> =
+        vec![("base".to_string(), 0, Some("Base layer of the mod".to_string()))];
+    for layer in &mod_project.layers {
+        if layer.name == "base" {
+            continue;
+        }
+        layers.push((layer.name.clone(), layer.priority, layer.description.clone()));
+    }
 
-    for entry in walkdir::WalkDir::new(&content_base)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_file() && flint_core::export::is_shippable(e.path()))
-    {
-        let file_path = entry.path();
-        let relative_path = file_path
-            .strip_prefix(&content_base)
-            .map_err(|e| format!("Failed to get relative path: {}", e))?;
+    let mut file_paths: HashMap<(String, String), (Option<String>, PathBuf)> = HashMap::new();
 
-        let normalized_path = relative_path.to_string_lossy().replace('\\', "/").to_lowercase();
-        file_paths.insert(normalized_path, file_path.to_path_buf());
+    for (layer_name, _, _) in &layers {
+        let layer_root = content.join(layer_name);
+        if !layer_root.is_dir() {
+            continue;
+        }
+
+        for entry in walkdir::WalkDir::new(&layer_root)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_file() && flint_core::export::is_shippable(e.path()))
+        {
+            let file_path = entry.path();
+            let relative_path = file_path
+                .strip_prefix(&layer_root)
+                .map_err(|e| format!("Failed to get relative path: {}", e))?;
+
+            let normalized_path = relative_path.to_string_lossy().replace('\\', "/").to_lowercase();
+            let (wad, chunk_path) = flint_core::export::split_wad_prefix(&normalized_path);
+
+            file_paths
+                .entry((chunk_path, layer_name.clone()))
+                .or_insert_with(|| (wad, file_path.to_path_buf()));
+        }
     }
 
     let file_count = file_paths.len();
@@ -586,13 +619,45 @@ fn export_with_ltk_modpkg(
                 flint_core::project::ModProjectAuthor::Role { name, role } => ModpkgAuthor::new(name.clone(), Some(role.clone())),
             }
         }).collect(),
+        layers: layers
+            .iter()
+            .map(|(name, priority, description)| ModpkgLayerMetadata {
+                name: name.clone(),
+                display_name: None,
+                priority: *priority,
+                description: description.clone(),
+                string_overrides: mod_project
+                    .layers
+                    .iter()
+                    .find(|l| &l.name == name)
+                    .map(|l| {
+                        l.string_overrides
+                            .iter()
+                            .map(|(locale, fields)| {
+                                (
+                                    locale.clone(),
+                                    fields.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+                                )
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            })
+            .collect(),
         ..Default::default()
     };
 
     let mut builder = ModpkgBuilder::default()
         .with_metadata(metadata)
-        .map_err(|e| format!("Failed to set metadata: {}", e))?
-        .with_layer(ModpkgLayerBuilder::base());
+        .map_err(|e| format!("Failed to set metadata: {}", e))?;
+
+    for (name, priority, _) in &layers {
+        builder = builder.with_layer(if name == "base" {
+            ModpkgLayerBuilder::base()
+        } else {
+            ModpkgLayerBuilder::new(name).with_priority(*priority)
+        });
+    }
 
     let thumbnail_path = project_path.join("thumbnail.webp");
     if thumbnail_path.exists() {
@@ -604,11 +669,15 @@ fn export_with_ltk_modpkg(
         }
     }
 
-    for path in file_paths.keys() {
-        let chunk = ModpkgChunkBuilder::new()
+    for ((path, layer), (wad, file_path)) in &file_paths {
+        let mut chunk = ModpkgChunkBuilder::new()
             .with_path(path)
             .map_err(|e| format!("Failed to set chunk path: {}", e))?
-            .with_layer("base");
+            .with_layer(layer)
+            .with_compression(chunk_compression(file_path));
+        if let Some(wad) = wad {
+            chunk = chunk.with_wad(wad);
+        }
         builder = builder.with_chunk(chunk);
     }
 
@@ -616,7 +685,8 @@ fn export_with_ltk_modpkg(
         .map_err(|e| format!("Failed to create output file: {}", e))?;
 
     builder.build_to_writer(&mut output_file, |chunk_builder, cursor| {
-        if let Some(file_path) = file_paths.get(&chunk_builder.path) {
+        let key = (chunk_builder.path.clone(), chunk_builder.layer().to_string());
+        if let Some((_, file_path)) = file_paths.get(&key) {
             let data = std::fs::read(file_path).map_err(|e| {
                 std::io::Error::other(format!("Failed to read {}: {}", file_path.display(), e))
             })?;
@@ -630,7 +700,12 @@ fn export_with_ltk_modpkg(
         .map(|m| m.len())
         .unwrap_or(0);
 
-    tracing::info!("Modpkg export complete: {} files, {} bytes", file_count, total_size);
+    tracing::info!(
+        "Modpkg export complete: {} files across {} layer(s), {} bytes",
+        file_count,
+        layers.len(),
+        total_size
+    );
     Ok((file_count, total_size))
 }
 
@@ -648,4 +723,143 @@ fn slugify(name: &str) -> String {
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join("-")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flint_core::export::Modpkg;
+    use std::io::BufReader;
+
+    fn seed(root: &Path, relative: &str, bytes: &[u8]) {
+        let path = root.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    fn project(layers: &str) -> ModProject {
+        serde_json::from_str(&format!(
+            r#"{{
+                "name": "test-mod",
+                "display_name": "Test Mod",
+                "version": "1.2.3",
+                "description": "",
+                "authors": ["SirDexal"],
+                "layers": [{layers}]
+            }}"#
+        ))
+        .unwrap()
+    }
+
+    fn mount(path: &Path) -> Modpkg<BufReader<std::fs::File>> {
+        Modpkg::mount_from_reader(BufReader::new(std::fs::File::open(path).unwrap())).unwrap()
+    }
+
+    #[test]
+    fn the_wad_folder_becomes_an_association_not_a_path_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        seed(root, "content/base/Aatrox.wad.client/data/characters/aatrox/skin6.bin", b"PROP");
+        let out = root.join("out.modpkg");
+
+        let (count, _) = export_with_ltk_modpkg(
+            root,
+            &out,
+            &project(r#"{"name": "base", "priority": 0}"#),
+        )
+        .unwrap();
+        assert_eq!(count, 1);
+
+        let pkg = mount(&out);
+        assert_eq!(
+            pkg.wads.values().collect::<Vec<_>>(),
+            vec!["aatrox.wad.client"]
+        );
+        let path = pkg
+            .chunk_paths
+            .values()
+            .find(|p| !p.starts_with("_meta_/"))
+            .unwrap();
+        assert_eq!(path, "data/characters/aatrox/skin6.bin");
+
+        // The chunk hash must be the game's WAD chunk hash for that path.
+        let expected = flint_core::hash::wad_chunk_hash("data/characters/aatrox/skin6.bin");
+        assert!(pkg.chunks.keys().any(|(path_hash, _)| *path_hash == expected));
+    }
+
+    #[test]
+    fn every_layer_ships_and_keeps_its_own_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        seed(root, "content/base/Aatrox.wad.client/assets/t.tex", b"base-bytes");
+        seed(root, "content/chroma/Aatrox.wad.client/assets/t.tex", b"chroma-bytes");
+        let out = root.join("out.modpkg");
+
+        let (count, _) = export_with_ltk_modpkg(
+            root,
+            &out,
+            &project(r#"{"name": "base", "priority": 0}, {"name": "chroma", "priority": 1}"#),
+        )
+        .unwrap();
+        assert_eq!(count, 2);
+
+        let mut pkg = mount(&out);
+        let mut names: Vec<&String> = pkg.layers.values().map(|l| &l.name).collect();
+        names.sort();
+        assert_eq!(names, vec!["base", "chroma"]);
+
+        let hash = flint_core::hash::wad_chunk_hash("assets/t.tex");
+        let mut seen: Vec<Vec<u8>> = pkg
+            .chunks
+            .keys()
+            .filter(|(path_hash, _)| *path_hash == hash)
+            .copied()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|(p, l)| pkg.load_chunk_decompressed_by_hash(p, l).unwrap().to_vec())
+            .collect();
+        seen.sort();
+        assert_eq!(seen, vec![b"base-bytes".to_vec(), b"chroma-bytes".to_vec()]);
+    }
+
+    #[test]
+    fn a_directory_that_is_not_a_wad_keeps_its_name_in_the_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        seed(root, "content/base/data/loose.bin", b"PROP");
+        let out = root.join("out.modpkg");
+
+        export_with_ltk_modpkg(root, &out, &project(r#"{"name": "base", "priority": 0}"#)).unwrap();
+
+        let pkg = mount(&out);
+        assert!(pkg.wads.is_empty());
+        assert!(pkg
+            .chunk_paths
+            .values()
+            .any(|p| p == "data/loose.bin"));
+    }
+
+    #[test]
+    fn chunks_are_zstd_compressed_except_audio_banks() {
+        use flint_core::export::ModpkgCompression;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        seed(root, "content/base/Aatrox.wad.client/assets/t.tex", &vec![7u8; 4096]);
+        seed(root, "content/base/Aatrox.wad.client/assets/v.bnk", &vec![9u8; 4096]);
+        let out = root.join("out.modpkg");
+
+        export_with_ltk_modpkg(root, &out, &project(r#"{"name": "base", "priority": 0}"#)).unwrap();
+
+        let pkg = mount(&out);
+        let compression = |path: &str| {
+            let hash = flint_core::hash::wad_chunk_hash(path);
+            pkg.chunks
+                .iter()
+                .find(|((p, _), _)| *p == hash)
+                .map(|(_, c)| c.compression)
+                .unwrap()
+        };
+        assert_eq!(compression("assets/t.tex"), ModpkgCompression::Zstd);
+        assert_eq!(compression("assets/v.bnk"), ModpkgCompression::None);
+    }
 }

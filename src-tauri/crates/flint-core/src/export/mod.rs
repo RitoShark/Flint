@@ -4,12 +4,38 @@ use std::path::{Path, PathBuf};
 /// Mod-package container types, re-exported so callers build archives through
 /// this module rather than depending on the packaging crate directly.
 pub use ltk_modpkg::builder::{ModpkgBuilder, ModpkgChunkBuilder, ModpkgLayerBuilder};
-pub use ltk_modpkg::{Modpkg, ModpkgAuthor, ModpkgCompression, ModpkgMetadata};
+pub use ltk_modpkg::{Modpkg, ModpkgAuthor, ModpkgCompression, ModpkgLayerMetadata, ModpkgMetadata};
 
 /// `_meta_/` chunks the modpkg builder rewrites itself; every OTHER `_meta_/`
 /// chunk (embedded hashtables, readme, future standard additions) must be
 /// carried verbatim through a re-save — unknown is not the same as disposable.
 pub const REGENERATED_META: &[&str] = &["_meta_/info.msgpack", "_meta_/thumbnail.webp"];
+
+/// Splits a layer-relative path into its `<name>.wad.client` directory and the
+/// WAD-relative remainder. A modpkg chunk stores the two separately, and its
+/// path hash is xxh64 of the remainder alone.
+pub fn split_wad_prefix(relative_path: &str) -> (Option<String>, String) {
+    match relative_path.split_once('/') {
+        Some((head, rest))
+            if head.to_ascii_lowercase().ends_with(".wad.client") && !rest.is_empty() =>
+        {
+            (Some(head.to_lowercase()), rest.to_string())
+        }
+        _ => (None, relative_path.to_string()),
+    }
+}
+
+/// The WAD a mounted chunk belongs to, or `None` when it carries no association.
+pub fn chunk_wad_name<R: std::io::Read + std::io::Seek>(
+    modpkg: &Modpkg<R>,
+    wad_index: u32,
+) -> Option<String> {
+    modpkg
+        .wads_indices
+        .get(wad_index as usize)
+        .and_then(|hash| modpkg.wads.get(hash))
+        .cloned()
+}
 
 fn is_unresolved_hash(path: &str) -> bool {
     let p = path.to_lowercase();

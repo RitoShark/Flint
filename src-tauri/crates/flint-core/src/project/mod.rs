@@ -13,4 +13,4 @@ pub use discover::{discover_projects, ProjectListing};
 
 /// Interchange project manifest, re-exported so callers read and write it
 /// through this module rather than depending on the manifest crate directly.
-pub use ltk_mod_project::{default_layers, ModProject, ModProjectAuthor};
+pub use ltk_mod_project::{default_layers, ModProject, ModProjectAuthor, ModProjectLayer};
