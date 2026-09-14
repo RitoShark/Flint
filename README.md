@@ -195,11 +195,11 @@ npm run tauri dev
 
 ## Credits
 
-- **Obsidian** for the WAD Explorer's core idea.
-- **Morilli** and **[moonshadow565](https://github.com/moonshadow565)** for the CDN knowledge and work this is built on.
+- **[Obsidian](https://github.com/Crauzer/Obsidian)** for the WAD Explorer's core idea.
+- **[Morilli](https://github.com/Morilli)** and **[moonshadow565](https://github.com/moonshadow565)** for the CDN knowledge and work this is built on.
 - **[CommunityDragon](https://www.communitydragon.org)** and
   **[lmdb-hashes](https://github.com/RitoShark/lmdb-hashes)** for the hashes.
-- **Frog** for the map project creation, and **DAKA** for help on the repo.
+- **[Frog](https://github.com/FrogCsLoL)** for the map project creation, and **[DAKA](https://github.com/sxrmss)** for help on the repo.
 - **[LtMAO](https://github.com/tarngaina/LtMAO)** by
   [tarngaina](https://github.com/tarngaina). Its `animask_viewer` and `sborf` were the reference
   for Flint's animation mask editor, and confirmed that `mWeightList` is indexed by SKL joint
