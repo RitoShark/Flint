@@ -328,7 +328,7 @@ mod tests {
     #[test]
     fn a_full_sheet_quad_fills_every_pixel() {
         let uvs = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
-        let indices = [0u16, 1, 2, 0, 2, 3];
+        let indices = [0u32, 1, 2, 0, 2, 3];
         let mask = rasterize_shells(&uvs, &indices, 0..6, 8, 8);
         assert!(mask.iter().all(|&m| m), "{} of 64 filled", mask.iter().filter(|m| **m).count());
     }
@@ -338,8 +338,8 @@ mod tests {
     #[test]
     fn winding_does_not_change_the_fill() {
         let uvs = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0]];
-        let cw = rasterize_shells(&uvs, &[0u16, 1, 2], 0..3, 8, 8);
-        let ccw = rasterize_shells(&uvs, &[0u16, 2, 1], 0..3, 8, 8);
+        let cw = rasterize_shells(&uvs, &[0u32, 1, 2], 0..3, 8, 8);
+        let ccw = rasterize_shells(&uvs, &[0u32, 2, 1], 0..3, 8, 8);
         assert_eq!(cw, ccw);
         assert!(cw.iter().any(|&m| m));
     }
@@ -348,7 +348,7 @@ mod tests {
     #[test]
     fn a_half_sheet_shell_leaves_the_rest_clear() {
         let uvs = [[0.0, 0.0], [0.5, 0.0], [0.5, 1.0], [0.0, 1.0]];
-        let mask = rasterize_shells(&uvs, &[0u16, 1, 2, 0, 2, 3], 0..6, 8, 8);
+        let mask = rasterize_shells(&uvs, &[0u32, 1, 2, 0, 2, 3], 0..6, 8, 8);
         for y in 0..8u32 {
             for x in 0..8u32 {
                 assert_eq!(mask[(y * 8 + x) as usize], x < 4, "at {x},{y}");
@@ -361,7 +361,7 @@ mod tests {
     #[test]
     fn v_runs_downwards_with_no_flip() {
         let uvs = [[0.0, 0.0], [1.0, 0.0], [1.0, 0.5], [0.0, 0.5]];
-        let mask = rasterize_shells(&uvs, &[0u16, 1, 2, 0, 2, 3], 0..6, 4, 4);
+        let mask = rasterize_shells(&uvs, &[0u32, 1, 2, 0, 2, 3], 0..6, 4, 4);
         assert!(mask[0], "top-left should be covered");
         assert!(!mask[(3 * 4) as usize], "bottom-left should not be");
     }
