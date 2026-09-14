@@ -75,6 +75,14 @@ fn with_session<T>(
 /// The layer a chunk added by an edit lands on when none is named.
 const DEFAULT_LAYER: &str = "base";
 
+/// Audio banks are already compressed; everything else stores zstd.
+fn default_compression(path: &str) -> ModpkgCompression {
+    match path.rsplit('.').next().map(|e| e.to_ascii_lowercase()).as_deref() {
+        Some("bnk") | Some("wpk") => ModpkgCompression::None,
+        _ => ModpkgCompression::Zstd,
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ModpkgSession {
     pub session_id: String,
@@ -473,7 +481,8 @@ pub async fn close_modpkg_session(session_id: String) -> Result<(), String> {
 }
 
 /// Re-mount the source modpkg and rewrite it with new metadata, preserving every
-/// content chunk and the thumbnail. Writes to a temp file then atomically renames,
+/// content chunk, its layer, its WAD association and the thumbnail. Writes to a
+/// temp file then atomically renames,
 /// so an in-place save (`output_path == source`) never corrupts the original on a
 /// mid-write failure.
 fn save_modpkg(
@@ -497,7 +506,7 @@ fn save_modpkg(
     // than the two the builder regenerates (info.msgpack, thumbnail.webp) are
     // carried verbatim on their no-layer slot — hashtables and readme from other
     // tools must survive a re-save even though Flint doesn't read them yet.
-    let entries: Vec<(u64, u64, ChunkKey, ModpkgCompression)> = modpkg
+    let entries: Vec<(u64, u64, ChunkKey, ModpkgCompression, Option<String>)> = modpkg
         .chunks
         .iter()
         .filter_map(|((path_hash, layer_hash), chunk)| {
@@ -519,36 +528,62 @@ fn save_modpkg(
                 *layer_hash,
                 ChunkKey { path: path.clone(), layer },
                 chunk.compression,
+                flint_core::export::chunk_wad_name(&modpkg, chunk.wad_index),
             ))
         })
         .collect();
 
     let mut chunk_bytes: HashMap<ChunkKey, Vec<u8>> = HashMap::new();
     let mut preserved_compression: HashMap<ChunkKey, ModpkgCompression> = HashMap::new();
-    for (path_hash, layer_hash, key, compression) in &entries {
+    let mut preserved_wad: HashMap<ChunkKey, String> = HashMap::new();
+    for (path_hash, layer_hash, key, compression, wad) in &entries {
         if chunk_bytes.contains_key(key) {
             continue;
+        }
+        if let Some(wad) = wad {
+            preserved_wad.insert(key.clone(), wad.clone());
         }
         let data = modpkg
             .load_chunk_decompressed_by_hash(*path_hash, *layer_hash)
             .map_err(|e| format!("Failed to decompress '{}': {}", key.path, e))?;
         chunk_bytes.insert(key.clone(), data.to_vec());
-        if key.path.starts_with("_meta_/") {
-            preserved_compression.insert(key.clone(), *compression);
-        }
+        preserved_compression.insert(key.clone(), *compression);
     }
 
     // Apply staged edits over the chunks read from disk: a Write replaces or adds,
     // a Delete drops that (path, layer) entirely (a rename arrives as both).
+    let sole_wad: Option<String> = {
+        let mut names: Vec<&String> = modpkg.wads.values().collect();
+        names.sort();
+        names.dedup();
+        match names.as_slice() {
+            [only] => Some((*only).clone()),
+            _ => None,
+        }
+    };
+
     for (key, delta) in deltas {
         match delta {
             ChunkDelta::Write { bytes, layer } => {
                 // An edit may introduce a layer the source never had.
                 layer_defs.entry(layer.clone()).or_insert(0);
+                if !key.path.starts_with("_meta_/") {
+                    if let Some(wad) = preserved_wad
+                        .get(key)
+                        .cloned()
+                        .or_else(|| sole_wad.clone())
+                    {
+                        preserved_wad.insert(key.clone(), wad);
+                    }
+                }
+                preserved_compression
+                    .entry(key.clone())
+                    .or_insert_with(|| default_compression(&key.path));
                 chunk_bytes.insert(key.clone(), bytes.clone());
             }
             ChunkDelta::Delete => {
                 chunk_bytes.remove(key);
+                preserved_wad.remove(key);
             }
         }
     }
@@ -606,6 +641,9 @@ fn save_modpkg(
             .with_layer(&key.layer);
         if let Some(compression) = preserved_compression.get(key) {
             chunk = chunk.with_compression(*compression);
+        }
+        if let Some(wad) = preserved_wad.get(key) {
+            chunk = chunk.with_wad(wad);
         }
         builder = builder.with_chunk(chunk);
     }

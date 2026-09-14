@@ -643,10 +643,26 @@ async fn save_modpkg_archive(
                 .map_err(|e| format!("Failed to read modpkg: {}", e))?
         };
 
-        // Collect content chunk bytes keyed by path; collapse multi-layer onto base.
-        // `_meta_/` chunks other than the two the builder regenerates are carried
-        // verbatim — hashtables and readme from other tools must survive a re-save.
-        let entries: Vec<(u64, u64, String, flint_core::export::ModpkgCompression)> = modpkg
+        // Content chunk bytes keyed by (path, layer) — the same path can exist on
+        // several layers and each is its own chunk. Layer, WAD association and
+        // compression are carried across, as are `_meta_/` chunks other than the
+        // two the builder regenerates: hashtables and readme from other tools must
+        // survive a re-save.
+        let mut layer_defs: HashMap<String, i32> = modpkg
+            .layers
+            .values()
+            .map(|l| (l.name.clone(), l.priority))
+            .collect();
+        layer_defs.entry("base".to_string()).or_insert(0);
+
+        type ChunkKey = (String, String);
+        let entries: Vec<(
+            u64,
+            u64,
+            ChunkKey,
+            flint_core::export::ModpkgCompression,
+            Option<String>,
+        )> = modpkg
             .chunks
             .iter()
             .filter_map(|((path_hash, layer_hash), chunk)| {
@@ -654,23 +670,40 @@ async fn save_modpkg_archive(
                 if flint_core::export::REGENERATED_META.contains(&path.as_str()) {
                     return None;
                 }
-                Some((*path_hash, *layer_hash, path.clone(), chunk.compression))
+                let layer = if path.starts_with("_meta_/") {
+                    String::new()
+                } else {
+                    modpkg
+                        .layers
+                        .get(layer_hash)
+                        .map(|l| l.name.clone())
+                        .unwrap_or_else(|| "base".to_string())
+                };
+                Some((
+                    *path_hash,
+                    *layer_hash,
+                    (path.clone(), layer),
+                    chunk.compression,
+                    flint_core::export::chunk_wad_name(&modpkg, chunk.wad_index),
+                ))
             })
             .collect();
 
-        let mut chunk_bytes: HashMap<String, Vec<u8>> = HashMap::new();
-        let mut preserved_compression: HashMap<String, flint_core::export::ModpkgCompression> =
+        let mut chunk_bytes: HashMap<ChunkKey, Vec<u8>> = HashMap::new();
+        let mut preserved_compression: HashMap<ChunkKey, flint_core::export::ModpkgCompression> =
             HashMap::new();
-        for (path_hash, layer_hash, path, compression) in &entries {
-            if chunk_bytes.contains_key(path) {
+        let mut preserved_wad: HashMap<ChunkKey, String> = HashMap::new();
+        for (path_hash, layer_hash, key, compression, wad) in &entries {
+            if chunk_bytes.contains_key(key) {
                 continue;
             }
             let data = modpkg
                 .load_chunk_decompressed_by_hash(*path_hash, *layer_hash)
-                .map_err(|e| format!("Failed to decompress '{}': {}", path, e))?;
-            chunk_bytes.insert(path.clone(), data.to_vec());
-            if path.starts_with("_meta_/") {
-                preserved_compression.insert(path.clone(), *compression);
+                .map_err(|e| format!("Failed to decompress '{}': {}", key.0, e))?;
+            chunk_bytes.insert(key.clone(), data.to_vec());
+            preserved_compression.insert(key.clone(), *compression);
+            if let Some(wad) = wad {
+                preserved_wad.insert(key.clone(), wad.clone());
             }
         }
 
@@ -692,8 +725,17 @@ async fn save_modpkg_archive(
 
         let mut builder = ModpkgBuilder::default()
             .with_metadata(new_metadata)
-            .map_err(|e| format!("Failed to set metadata: {}", e))?
-            .with_layer(ModpkgLayerBuilder::base());
+            .map_err(|e| format!("Failed to set metadata: {}", e))?;
+
+        let mut layer_names: Vec<(&String, &i32)> = layer_defs.iter().collect();
+        layer_names.sort();
+        for (name, priority) in layer_names {
+            builder = builder.with_layer(if name == "base" {
+                ModpkgLayerBuilder::base()
+            } else {
+                ModpkgLayerBuilder::new(name).with_priority(*priority)
+            });
+        }
 
         if let Some(thumb) = thumbnail {
             builder = builder
@@ -701,13 +743,17 @@ async fn save_modpkg_archive(
                 .map_err(|e| format!("Failed to set thumbnail: {}", e))?;
         }
 
-        for path in chunk_bytes.keys() {
+        for key in chunk_bytes.keys() {
+            let (path, layer) = key;
             let mut chunk = ModpkgChunkBuilder::new()
                 .with_path(path)
                 .map_err(|e| format!("Failed to set chunk path '{}': {}", path, e))?
-                .with_layer(if path.starts_with("_meta_/") { "" } else { "base" });
-            if let Some(compression) = preserved_compression.get(path) {
+                .with_layer(layer);
+            if let Some(compression) = preserved_compression.get(key) {
                 chunk = chunk.with_compression(*compression);
+            }
+            if let Some(wad) = preserved_wad.get(key) {
+                chunk = chunk.with_wad(wad);
             }
             builder = builder.with_chunk(chunk);
         }
@@ -719,7 +765,11 @@ async fn save_modpkg_archive(
                 .map_err(|e| format!("Failed to create temp file: {}", e))?;
             builder
                 .build_to_writer(&mut tmp_file, |chunk_builder, cursor| {
-                    if let Some(data) = chunk_bytes.get(&chunk_builder.path) {
+                    let key = (
+                        chunk_builder.path.clone(),
+                        chunk_builder.layer().to_string(),
+                    );
+                    if let Some(data) = chunk_bytes.get(&key) {
                         cursor.write_all(data)?;
                     }
                     Ok(())
