@@ -8,7 +8,7 @@
 [![Release](https://img.shields.io/github/v/release/RitoShark/Flint?style=flat-square&color=f5a422)](https://github.com/RitoShark/Flint/releases/latest)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-22c55e?style=flat-square)](LICENSE)
 
-[Download](#download) · [Features](#features) · [License](#license)
+[Download](#download) · [Features](#features) · [Documentation](docs/README.md) · [License](#license)
 
 </div>
 
@@ -166,7 +166,7 @@ You can also hand a BIN off to Jade or a texture to Quartz without moving files 
 Grab the latest build from the [releases page](https://github.com/RitoShark/Flint/releases/latest), run the installer, and you're done. It updates itself after that.
 
 > [!NOTE]
-> Flint needs a League install for anything that reads game files: extraction, previews, and recovering missing files on import. Editing a project you already have works without one.
+> Creating a skin project from installed game assets and recovering missing game files on import need a League install. Editing existing project files and [downloading assets through the CDN browser](docs/cdn.md) work without one. Previews need the relevant assets and dependencies available from their source.
 
 <details>
 <summary><b>Build it yourself</b></summary>
